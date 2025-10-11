@@ -3111,6 +3111,20 @@ impl<'a> TokenParser<'a> {
         let preceding_comment_texts =
             StreamingSqlParser::extract_preceding_comments(&self.comments, create_position);
 
+        // Parse @job_name annotation
+        let job_name = annotations::parse_job_name(&preceding_comment_texts).unwrap_or_else(|e| {
+            log::warn!("Failed to parse @job_name annotation: {}", e);
+            None
+        });
+
+        if let Some(ref custom_name) = job_name {
+            log::info!(
+                "Parsed @job_name annotation for CREATE STREAM {}: '{}'",
+                name,
+                custom_name
+            );
+        }
+
         let metric_annotations = annotations::parse_metric_annotations(&preceding_comment_texts)
             .unwrap_or_else(|e| {
                 log::warn!("Failed to parse metric annotations: {}", e);
@@ -3141,6 +3155,7 @@ impl<'a> TokenParser<'a> {
             properties,
             emit_mode,
             metric_annotations,
+            job_name,
         })
     }
 

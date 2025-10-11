@@ -1002,36 +1002,56 @@ impl StreamJobServer {
                 | crate::velostream::sql::app_parser::StatementType::CreateStream
                 | crate::velostream::sql::app_parser::StatementType::CreateTable => {
                     // Extract job name from the SQL statement
+                    // Priority: @job_name annotation > stmt.name > auto-generated
                     let job_name = if let Some(name) = &stmt.name {
                         name.clone()
                     } else {
-                        // Generate compact, meaningful job name: filename_snippet_timestamp_id
-                        let file_prefix = source_filename
-                            .as_ref()
-                            .and_then(|path| {
-                                std::path::Path::new(path)
-                                    .file_stem()
-                                    .and_then(|s| s.to_str())
-                            })
-                            .map(|name| {
-                                // Take first few chars of filename, clean it up
-                                name.chars()
-                                    .filter(|c| c.is_alphanumeric() || *c == '_')
-                                    .take(8)
-                                    .collect::<String>()
-                            })
-                            .unwrap_or_else(|| "app".to_string());
+                        // Check for @job_name annotation in parsed query
+                        let custom_job_name =
+                            if let Ok(parsed_query) = StreamingSqlParser::new().parse(&stmt.sql) {
+                                match parsed_query {
+                                    StreamingQuery::CreateStream { job_name, .. } => job_name,
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
 
-                        let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs()
-                            % 100000; // Last 5 digits for compactness
-                        format!(
-                            "{}_{}_{}_{:02}",
-                            file_prefix, sql_snippet, timestamp, stmt.order
-                        )
+                        if let Some(custom_name) = custom_job_name {
+                            info!(
+                                "Using custom job name from @job_name annotation: '{}'",
+                                custom_name
+                            );
+                            custom_name
+                        } else {
+                            // Generate compact, meaningful job name: filename_snippet_timestamp_id
+                            let file_prefix = source_filename
+                                .as_ref()
+                                .and_then(|path| {
+                                    std::path::Path::new(path)
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                })
+                                .map(|name| {
+                                    // Take first few chars of filename, clean it up
+                                    name.chars()
+                                        .filter(|c| c.is_alphanumeric() || *c == '_')
+                                        .take(8)
+                                        .collect::<String>()
+                                })
+                                .unwrap_or_else(|| "app".to_string());
+
+                            let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs()
+                                % 100000; // Last 5 digits for compactness
+                            format!(
+                                "{}_{}_{}_{:02}",
+                                file_prefix, sql_snippet, timestamp, stmt.order
+                            )
+                        }
                     };
 
                     // Determine topic from statement dependencies or use default

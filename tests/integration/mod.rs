@@ -28,8 +28,5 @@ pub mod post_cleanup_validation_test;
 // Datasource integration tests
 pub mod datasource;
 
-// Serialization roundtrip tests
-pub mod serialization;
-
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

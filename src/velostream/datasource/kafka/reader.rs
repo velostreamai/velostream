@@ -658,7 +658,8 @@ impl KafkaDataReader {
                 }
                 Err(e) => {
                     // Check if this is a deserialization error (CRITICAL) vs timeout (normal)
-                    let is_deserialization_error = format!("{:?}", e).contains("SerializationError");
+                    let is_deserialization_error =
+                        format!("{:?}", e).contains("SerializationError");
 
                     if is_deserialization_error {
                         log::error!(
@@ -666,7 +667,9 @@ impl KafkaDataReader {
                             e,
                             records.len()
                         );
-                        log::error!("🚨 This indicates a schema mismatch or format incompatibility");
+                        log::error!(
+                            "🚨 This indicates a schema mismatch or format incompatibility"
+                        );
                         log::error!("🚨 Check that source and sink serialization formats match");
                     } else {
                         log::debug!(

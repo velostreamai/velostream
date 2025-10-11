@@ -40,15 +40,30 @@ pub enum FieldValueOneof {
     ArrayValue(ArrayMessage),
     #[prost(message, tag = "8")]
     MapValue(MapMessage),
+    #[prost(message, tag = "9")]
+    DurationValue(DurationMessage),
 }
 
-/// Timestamp message
+/// Timestamp message (google.protobuf.Timestamp)
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TimestampMessage {
     #[prost(int64, tag = "1")]
     seconds: i64,
     #[prost(uint32, tag = "2")]
     nanos: u32,
+}
+
+/// Duration message (google.protobuf.Duration)
+/// Represents a signed, fixed-length span of time
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DurationMessage {
+    /// Signed seconds of the span of time
+    #[prost(int64, tag = "1")]
+    pub seconds: i64,
+    /// Signed fractions of a second at nanosecond resolution
+    /// Note: Must be of the same sign as seconds for durations >= 1 second
+    #[prost(int32, tag = "2")]
+    pub nanos: i32,
 }
 
 /// Array message
@@ -68,7 +83,7 @@ pub struct MapMessage {
 /// Main field message wrapper
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FieldMessage {
-    #[prost(oneof = "FieldValueOneof", tags = "1,2,3,4,5,6,7,8")]
+    #[prost(oneof = "FieldValueOneof", tags = "1,2,3,4,5,6,7,8,9")]
     pub value: Option<FieldValueOneof>,
 }
 
@@ -151,11 +166,11 @@ impl ProtobufCodec {
     pub fn new_with_default_schema() -> Self {
         let default_schema = r#"
             syntax = "proto3";
-            
+
             message RecordMessage {
                 map<string, FieldMessage> fields = 1;
             }
-            
+
             message FieldMessage {
                 oneof value {
                     string string_value = 1;
@@ -166,23 +181,29 @@ impl ProtobufCodec {
                     TimestampMessage timestamp_value = 6;
                     ArrayMessage array_value = 7;
                     MapMessage map_value = 8;
+                    DurationMessage duration_value = 9;
                 }
             }
-            
+
             message DecimalMessage {
                 int64 units = 1;
                 uint32 scale = 2;
             }
-            
+
             message TimestampMessage {
                 int64 seconds = 1;
                 uint32 nanos = 2;
             }
-            
+
+            message DurationMessage {
+                int64 seconds = 1;
+                int32 nanos = 2;
+            }
+
             message ArrayMessage {
                 repeated FieldMessage values = 1;
             }
-            
+
             message MapMessage {
                 map<string, FieldMessage> entries = 1;
             }
@@ -341,10 +362,36 @@ impl ProtobufCodec {
                 FieldValueOneof::DecimalValue(DecimalMessage { units, scale })
             }
             FieldValue::Interval { value, unit } => {
-                // Convert interval to string representation with value and unit
-                let unit_str = format!("{:?}", unit); // Use Debug format for TimeUnit
-                let interval_str = format!("{}_{}", value, unit_str);
-                FieldValueOneof::StringValue(interval_str)
+                // Convert interval to google.protobuf.Duration (seconds + nanos)
+                // Full support for fine-grained time units from nanoseconds to years
+                use crate::velostream::sql::ast::TimeUnit;
+                let (seconds, nanos) = match unit {
+                    TimeUnit::Nanosecond => {
+                        let secs = value / 1_000_000_000;
+                        let nanos_remainder = value % 1_000_000_000;
+                        (secs, nanos_remainder as i32)
+                    }
+                    TimeUnit::Microsecond => {
+                        let secs = value / 1_000_000;
+                        let micros_remainder = value % 1_000_000;
+                        let nanos = micros_remainder * 1000;
+                        (secs, nanos as i32)
+                    }
+                    TimeUnit::Millisecond => {
+                        let secs = value / 1000;
+                        let millis_remainder = value % 1000;
+                        let nanos = millis_remainder * 1_000_000;
+                        (secs, nanos as i32)
+                    }
+                    TimeUnit::Second => (*value, 0),
+                    TimeUnit::Minute => (value * 60, 0),
+                    TimeUnit::Hour => (value * 3600, 0),
+                    TimeUnit::Day => (value * 86400, 0),
+                    TimeUnit::Week => (value * 604800, 0),
+                    TimeUnit::Month => (value * 2592000, 0), // Approximate: 30 days
+                    TimeUnit::Year => (value * 31536000, 0), // Approximate: 365 days
+                };
+                FieldValueOneof::DurationValue(DurationMessage { seconds, nanos })
             }
         };
 
@@ -393,6 +440,16 @@ impl ProtobufCodec {
                     field_map.insert(k.clone(), self.proto_to_field_value(v)?);
                 }
                 Ok(FieldValue::Map(field_map))
+            }
+            Some(FieldValueOneof::DurationValue(duration)) => {
+                // Convert google.protobuf.Duration to FieldValue::Interval
+                // We'll convert to milliseconds as the base unit for simplicity
+                use crate::velostream::sql::ast::TimeUnit;
+                let total_millis = duration.seconds * 1000 + (duration.nanos / 1_000_000) as i64;
+                Ok(FieldValue::Interval {
+                    value: total_millis,
+                    unit: TimeUnit::Millisecond,
+                })
             }
             None => Ok(FieldValue::Null),
         }

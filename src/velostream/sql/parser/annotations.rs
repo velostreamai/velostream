@@ -1,9 +1,15 @@
-// Metric Annotation Parser
+// SQL Annotation Parser
 //
-// This module parses @metric annotations from SQL comments to enable
-// declarative Prometheus metrics defined directly in SQL files.
+// This module parses annotations from SQL comments to enable declarative
+// configuration and metadata directly in SQL files.
 //
 // Supported annotations:
+//
+// ## Job Name Annotation
+// - @job_name: <custom_name>           (optional)
+//   Provides a human-readable name for the job instead of auto-generated name
+//
+// ## Metric Annotations
 // - @metric: <name>                    (required)
 // - @metric_type: counter|gauge|histogram  (required)
 // - @metric_help: "<description>"      (optional)
@@ -86,6 +92,90 @@ impl MetricType {
             }),
         }
     }
+}
+
+/// Parse job name annotation from comment tokens
+///
+/// Extracts @job_name annotation from SQL comments that appear before
+/// a CREATE STREAM statement.
+///
+/// # Arguments
+/// * `comments` - Comment tokens from tokenize_with_comments()
+///
+/// # Returns
+/// * `Ok(Option<String>)` - Parsed job name if present
+/// * `Err(SqlError)` - Parse error with details
+///
+/// # Example
+/// ```no_run
+/// use velostream::velostream::sql::parser::annotations::parse_job_name;
+///
+/// let comments = vec![
+///     "-- @job_name: tick_buckets".to_string(),
+/// ];
+/// let job_name = parse_job_name(&comments).unwrap();
+/// assert_eq!(job_name, Some("tick_buckets".to_string()));
+/// ```
+pub fn parse_job_name(comments: &[String]) -> Result<Option<String>, SqlError> {
+    for comment in comments {
+        let trimmed = comment.trim();
+
+        // Skip non-annotation comments
+        if !trimmed.starts_with('@') {
+            continue;
+        }
+
+        // Parse annotation directive
+        if let Some((directive, value)) = parse_annotation_line(trimmed) {
+            if directive == "job_name" {
+                let name = value.trim().to_string();
+
+                // Validate job name
+                validate_job_name(&name)?;
+
+                return Ok(Some(name));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+/// Validate job name follows naming conventions
+///
+/// Rules: alphanumeric, underscores, hyphens, max 63 characters
+fn validate_job_name(name: &str) -> Result<(), SqlError> {
+    if name.is_empty() {
+        return Err(SqlError::ParseError {
+            message: "Job name cannot be empty".to_string(),
+            position: None,
+        });
+    }
+
+    if name.len() > 63 {
+        return Err(SqlError::ParseError {
+            message: format!(
+                "Job name '{}' too long ({}). Maximum 63 characters allowed",
+                name,
+                name.len()
+            ),
+            position: None,
+        });
+    }
+
+    for ch in name.chars() {
+        if !ch.is_alphanumeric() && ch != '_' && ch != '-' {
+            return Err(SqlError::ParseError {
+                message: format!(
+                    "Invalid character '{}' in job name '{}'. Only alphanumeric, underscore, and hyphen allowed",
+                    ch, name
+                ),
+                position: None,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 /// Parse metric annotations from comment tokens

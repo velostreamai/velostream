@@ -26,6 +26,7 @@
 -- @metric_help: "Current market price per symbol"
 -- @metric_field: price
 -- @metric_labels: symbol, exchange
+-- @job_name: market-data-event-time-1
 CREATE STREAM market_data_ts AS
 SELECT
     symbol,
@@ -81,6 +82,7 @@ WITH (
 -- @metric_field: total_volume
 -- @metric_labels: symbol
 -- @metric_buckets: 100, 500, 1000, 5000, 10000, 50000, 100000
+-- @job_name: tick_buckets_streams
 CREATE STREAM tick_buckets AS
 SELECT
     symbol,
@@ -129,7 +131,7 @@ WITH (
 -- @metric_field: price_change_pct
 -- @metric_labels: symbol
 -- @metric_buckets: 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0
-
+-- @job_name: advanced_price_movement_alerts
 CREATE STREAM advanced_price_movement_alerts AS
 SELECT 
     symbol,
@@ -205,7 +207,7 @@ WITH (
 -- @metric_help: "Volume spike detections by classification"
 -- @metric_labels: symbol, spike_classification
 -- @metric_condition: spike_classification IN ('EXTREME_SPIKE', 'HIGH_SPIKE', 'STATISTICAL_ANOMALY')
-
+-- @job_name: volume_spike_analysis
 CREATE STREAM volume_spike_analysis AS
 SELECT 
     symbol,
@@ -337,7 +339,7 @@ WITH (
 -- Demonstrates time-based joins with event-time processing and complex aggregations
 -- Shows late data handling across multiple streams
 
--- First create positions stream with event-time processing
+-- @job_name: trading_positions_with_event_time
 CREATE STREAM trading_positions_with_event_time AS
 SELECT
     trader_id,

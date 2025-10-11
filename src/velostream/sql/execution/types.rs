@@ -761,11 +761,16 @@ impl FieldValue {
     /// Convert interval to milliseconds - helper for arithmetic operations
     fn interval_to_millis(value: i64, unit: &TimeUnit) -> i64 {
         match unit {
+            TimeUnit::Nanosecond => value / 1_000_000,
+            TimeUnit::Microsecond => value / 1000,
             TimeUnit::Millisecond => value,
             TimeUnit::Second => value * 1000,
             TimeUnit::Minute => value * 60 * 1000,
             TimeUnit::Hour => value * 60 * 60 * 1000,
             TimeUnit::Day => value * 24 * 60 * 60 * 1000,
+            TimeUnit::Week => value * 7 * 24 * 60 * 60 * 1000,
+            TimeUnit::Month => value * 30 * 24 * 60 * 60 * 1000, // Approximate: 30 days
+            TimeUnit::Year => value * 365 * 24 * 60 * 60 * 1000, // Approximate: 365 days
         }
     }
 

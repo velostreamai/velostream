@@ -249,14 +249,6 @@ where
             Ok(Some(Ok(msg))) => {
                 let payload = msg.payload().ok_or(ConsumerError::NoMessage)?;
 
-                // log::debug!(
-                //     "📥 Kafka Consumer poll(): Received raw bytes topic {} partition {} offset {} | Payload size: {} bytes",
-                //     msg.topic(),
-                //     msg.partition(),
-                //     msg.offset(),
-                //     payload.len()
-                // );
-
                 // Attempt value deserialization
                 let value = match self.value_serializer.deserialize(payload) {
                     Ok(v) => {

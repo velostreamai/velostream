@@ -164,10 +164,7 @@ impl KafkaDataSource {
             }
             // Handle datasource.schema.* properties - strip datasource. prefix for schema usage
             else if key.starts_with("datasource.schema.") {
-                let config_key = key
-                    .strip_prefix("datasource.")
-                    .unwrap()
-                    .to_string();
+                let config_key = key.strip_prefix("datasource.").unwrap().to_string();
                 log::debug!(
                     "  Adding schema property: {} (from datasource.schema.*)",
                     config_key

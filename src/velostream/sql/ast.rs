@@ -153,6 +153,8 @@ pub enum StreamingQuery {
         emit_mode: Option<EmitMode>,
         /// Metric annotations from SQL comments
         metric_annotations: Vec<crate::velostream::sql::parser::annotations::MetricAnnotation>,
+        /// Custom job name from @job_name annotation (overrides auto-generated name)
+        job_name: Option<String>,
     },
     /// CREATE TABLE AS SELECT statement for materialized views.
     ///
@@ -607,13 +609,19 @@ pub enum LiteralValue {
 }
 
 /// Time units for intervals
+/// Supports fine-grained time durations (nanosecond to year granularity)
 #[derive(Debug, Clone, PartialEq)]
 pub enum TimeUnit {
-    Millisecond,
+    Nanosecond,  // 1/1,000,000,000 second
+    Microsecond, // 1/1,000,000 second
+    Millisecond, // 1/1,000 second
     Second,
     Minute,
     Hour,
     Day,
+    Week,  // 7 days
+    Month, // Approximate: 30 days
+    Year,  // Approximate: 365 days
 }
 
 /// Binary operators
@@ -996,11 +1004,16 @@ impl TimeUnit {
     /// Convert to Duration
     pub fn to_duration(&self, value: i64) -> Duration {
         match self {
+            TimeUnit::Nanosecond => Duration::from_nanos(value as u64),
+            TimeUnit::Microsecond => Duration::from_micros(value as u64),
             TimeUnit::Millisecond => Duration::from_millis(value as u64),
             TimeUnit::Second => Duration::from_secs(value as u64),
             TimeUnit::Minute => Duration::from_secs(value as u64 * 60),
             TimeUnit::Hour => Duration::from_secs(value as u64 * 3600),
             TimeUnit::Day => Duration::from_secs(value as u64 * 86400),
+            TimeUnit::Week => Duration::from_secs(value as u64 * 604800),
+            TimeUnit::Month => Duration::from_secs(value as u64 * 2592000), // Approximate: 30 days
+            TimeUnit::Year => Duration::from_secs(value as u64 * 31536000), // Approximate: 365 days
         }
     }
 }

@@ -2,7 +2,6 @@
 ///
 /// Tests that data can be written in Avro format and read back successfully,
 /// ensuring schema compatibility between writer and reader.
-
 use std::collections::HashMap;
 use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::serialization::SerializationCodec;
@@ -25,8 +24,7 @@ fn test_avro_roundtrip_with_embedded_schema() {
     "#;
 
     // Create Avro codec with schema
-    let codec = AvroCodec::new(schema_json)
-        .expect("Failed to create Avro codec with schema");
+    let codec = AvroCodec::new(schema_json).expect("Failed to create Avro codec with schema");
 
     // Create test data
     let mut test_data = HashMap::new();
@@ -40,7 +38,10 @@ fn test_avro_roundtrip_with_embedded_schema() {
         .expect("Failed to serialize data to Avro");
 
     println!("Serialized {} bytes", serialized.len());
-    println!("First 20 bytes: {:?}", &serialized[..20.min(serialized.len())]);
+    println!(
+        "First 20 bytes: {:?}",
+        &serialized[..20.min(serialized.len())]
+    );
 
     // Deserialize from Avro
     let deserialized = codec
@@ -89,8 +90,8 @@ fn test_avro_roundtrip_with_decimal_fields() {
     }
     "#;
 
-    let codec = AvroCodec::new(schema_json)
-        .expect("Failed to create Avro codec with decimal schema");
+    let codec =
+        AvroCodec::new(schema_json).expect("Failed to create Avro codec with decimal schema");
 
     // Create test data with ScaledInteger (financial precision)
     let mut test_data = HashMap::new();
@@ -160,10 +161,8 @@ fn test_avro_schema_mismatch_detection() {
     }
     "#;
 
-    let write_codec =
-        AvroCodec::new(write_schema).expect("Failed to create write codec");
-    let read_codec =
-        AvroCodec::new(read_schema).expect("Failed to create read codec");
+    let write_codec = AvroCodec::new(write_schema).expect("Failed to create write codec");
+    let read_codec = AvroCodec::new(read_schema).expect("Failed to create read codec");
 
     // Serialize with write schema
     let mut data = HashMap::new();
@@ -185,7 +184,8 @@ fn test_avro_schema_mismatch_detection() {
         Ok(deserialized) => {
             // If it succeeds, field3 should be missing or null
             assert!(
-                !deserialized.contains_key("field3") || deserialized.get("field3") == Some(&FieldValue::Null),
+                !deserialized.contains_key("field3")
+                    || deserialized.get("field3") == Some(&FieldValue::Null),
                 "Expected field3 to be missing or null due to schema mismatch"
             );
             println!("✅ Schema mismatch handled gracefully with missing field");
@@ -208,8 +208,8 @@ fn test_avro_embedded_schema_in_message() {
     }
     "#;
 
-    let codec = AvroCodec::new(schema_json)
-        .expect("Failed to create codec for embedded schema test");
+    let codec =
+        AvroCodec::new(schema_json).expect("Failed to create codec for embedded schema test");
 
     let mut data = HashMap::new();
     data.insert("id".to_string(), FieldValue::Integer(42));
@@ -226,7 +226,10 @@ fn test_avro_embedded_schema_in_message() {
         "Serialized data too short to contain schema"
     );
 
-    println!("Serialized data starts with: {:?}", &serialized[..4.min(serialized.len())]);
+    println!(
+        "Serialized data starts with: {:?}",
+        &serialized[..4.min(serialized.len())]
+    );
 
     // Deserialize using the same codec (should use embedded schema)
     let deserialized = codec
@@ -284,8 +287,8 @@ fn test_avro_all_logical_types_roundtrip() {
 
     println!("Testing Avro logical types roundtrip...");
 
-    let codec = AvroCodec::new(schema_json)
-        .expect("Failed to create Avro codec with logical types schema");
+    let codec =
+        AvroCodec::new(schema_json).expect("Failed to create Avro codec with logical types schema");
 
     // Create test data with various logical types
     let mut test_data = HashMap::new();
@@ -293,27 +296,21 @@ fn test_avro_all_logical_types_roundtrip() {
     // UUID as string
     test_data.insert(
         "transaction_id".to_string(),
-        FieldValue::String("550e8400-e29b-41d4-a716-446655440000".to_string())
+        FieldValue::String("550e8400-e29b-41d4-a716-446655440000".to_string()),
     );
 
     // Decimal as ScaledInteger: 1234.56 with scale 2 = 123456
-    test_data.insert(
-        "amount".to_string(),
-        FieldValue::ScaledInteger(123456, 2)
-    );
+    test_data.insert("amount".to_string(), FieldValue::ScaledInteger(123456, 2));
 
     // Date as Integer (days since Unix epoch)
     // Date: 2024-01-15 = 19737 days since 1970-01-01
-    test_data.insert(
-        "transaction_date".to_string(),
-        FieldValue::Integer(19737)
-    );
+    test_data.insert("transaction_date".to_string(), FieldValue::Integer(19737));
 
     // Time-millis as Integer (milliseconds since midnight)
     // Time: 14:30:45.500 = 52245500 milliseconds
     test_data.insert(
         "transaction_time".to_string(),
-        FieldValue::Integer(52245500)
+        FieldValue::Integer(52245500),
     );
 
     // Timestamp-micros as Integer (microseconds since Unix epoch)
@@ -321,7 +318,7 @@ fn test_avro_all_logical_types_roundtrip() {
     // = 1705329045500000 microseconds since epoch
     test_data.insert(
         "created_timestamp".to_string(),
-        FieldValue::Integer(1705329045500000)
+        FieldValue::Integer(1705329045500000),
     );
 
     println!("Test data created:");
@@ -351,7 +348,9 @@ fn test_avro_all_logical_types_roundtrip() {
     // Verify UUID roundtrip
     assert_eq!(
         deserialized.get("transaction_id"),
-        Some(&FieldValue::String("550e8400-e29b-41d4-a716-446655440000".to_string())),
+        Some(&FieldValue::String(
+            "550e8400-e29b-41d4-a716-446655440000".to_string()
+        )),
         "UUID mismatch after roundtrip"
     );
     println!("✅ UUID roundtrip verified");
@@ -365,14 +364,19 @@ fn test_avro_all_logical_types_roundtrip() {
             println!("✅ Decimal roundtrip verified (ScaledInteger)");
         }
         &FieldValue::Float(f) => {
-            assert!((f - 1234.56).abs() < 0.01, "Decimal value mismatch as float");
+            assert!(
+                (f - 1234.56).abs() < 0.01,
+                "Decimal value mismatch as float"
+            );
             println!("✅ Decimal roundtrip verified (Float fallback)");
         }
         _ => panic!("Amount should be ScaledInteger or Float, got {:?}", amount),
     }
 
     // Verify Date roundtrip - Date logical type is converted to FieldValue::Date
-    let date_field = deserialized.get("transaction_date").expect("Date field missing");
+    let date_field = deserialized
+        .get("transaction_date")
+        .expect("Date field missing");
     match date_field {
         FieldValue::Date(date) => {
             // Verify the date matches 2024-01-15
@@ -398,7 +402,9 @@ fn test_avro_all_logical_types_roundtrip() {
     println!("✅ Time-millis roundtrip verified");
 
     // Verify Timestamp-micros roundtrip - converted to FieldValue::Timestamp
-    let timestamp_field = deserialized.get("created_timestamp").expect("Timestamp field missing");
+    let timestamp_field = deserialized
+        .get("created_timestamp")
+        .expect("Timestamp field missing");
     match timestamp_field {
         FieldValue::Timestamp(ts) => {
             // Verify the timestamp matches 2024-01-15 14:30:45.500000 UTC
@@ -412,7 +418,10 @@ fn test_avro_all_logical_types_roundtrip() {
             assert_eq!(micros, &1705329045500000, "Timestamp micros value mismatch");
             println!("✅ Timestamp-micros roundtrip verified (Integer fallback)");
         }
-        _ => panic!("Timestamp should be Timestamp or Integer, got {:?}", timestamp_field),
+        _ => panic!(
+            "Timestamp should be Timestamp or Integer, got {:?}",
+            timestamp_field
+        ),
     }
 
     println!("✅ All Avro logical types roundtrip test passed!");

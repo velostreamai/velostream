@@ -564,6 +564,7 @@ fn test_csas_validation() {
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Changes),
         metric_annotations: Vec::new(), // FR-073 Phase 1
+        job_name: None,
     };
 
     validator.validate(&query);
@@ -583,6 +584,7 @@ fn test_csas_empty_name() {
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Changes),
         metric_annotations: Vec::new(), // FR-073 Phase 1
+        job_name: None,
     };
 
     validator.validate(&query);
