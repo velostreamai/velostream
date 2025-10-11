@@ -181,11 +181,11 @@ impl TradingSimulator {
                     .insert("exchange", &exchange)
                     .insert("symbol", &market_data.symbol);
 
-                // Send to market_data_stream topic
+                // Send to in_market_data_stream topic
                 match self
                     .producer
                     .send_to_topic(
-                        "market_data_stream",
+                        "in_market_data_stream",
                         Some(&market_data.symbol),
                         &serde_json::to_value(&market_data)?,
                         headers.clone(),
@@ -199,8 +199,8 @@ impl TradingSimulator {
 
                 // Also send to exchange-specific topics for arbitrage detection
                 let exchange_topic = match exchange.as_str() {
-                    "NYSE" => "market_data_stream_a",
-                    "NASDAQ" => "market_data_stream_b",
+                    "NYSE" => "in_market_data_stream_a",
+                    "NASDAQ" => "in_market_data_stream_b",
                     _ => continue, // Skip other exchanges for now
                 };
 
@@ -263,7 +263,7 @@ impl TradingSimulator {
                     match self
                         .producer
                         .send_to_topic(
-                            "trading_positions_stream",
+                            "in_trading_positions_stream",
                             Some(&format!("{}_{}", trader, symbol)),
                             &serde_json::to_value(&position)?,
                             headers,
@@ -319,7 +319,7 @@ impl TradingSimulator {
                     match self
                         .producer
                         .send_to_topic(
-                            "order_book_stream",
+                            "in_order_book_stream",
                             Some(&format!("{}_{}", symbol, side)),
                             &serde_json::to_value(&order_update)?,
                             headers,

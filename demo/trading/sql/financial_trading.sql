@@ -41,7 +41,7 @@ SELECT
     volume,
     vwap,
     market_cap
-FROM market_data_stream
+FROM in_market_data_stream
 EMIT CHANGES
 WITH (
     -- Phase 1B: Configure event-time processing
@@ -51,8 +51,8 @@ WITH (
     'watermark.max_out_of_orderness' = '5s',  -- 5s tolerance for market data
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
 
-    'market_data_stream.type' = 'kafka_source',
-    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+    'in_market_data_stream.type' = 'kafka_source',
+    'in_market_data_stream.config_file' = 'configs/market_data_source.yaml',
 
     'market_data_ts.type' = 'kafka_sink',
     'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml',
@@ -348,7 +348,7 @@ SELECT
     current_pnl,
     timestamp,
     timestamp as event_time
-FROM trading_positions_stream
+FROM in_trading_positions_stream
 EMIT CHANGES
 WITH (
     'event.time.field' = 'timestamp',
@@ -357,8 +357,8 @@ WITH (
     'watermark.max_out_of_orderness' = '2s',  -- Stricter for positions
     'late.data.strategy' = 'update_previous',  -- Update positions
 
-    'trading_positions_stream.type' = 'kafka_source',
-    'trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
+    'in_trading_positions_stream.type' = 'kafka_source',
+    'in_trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
 
     'trading_positions_with_event_time.type' = 'kafka_sink',
     'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
@@ -563,7 +563,7 @@ SELECT
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) AS buy_ratio,
     SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) AS sell_ratio,
     TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
-FROM order_book_stream
+FROM in_order_book_stream
 GROUP BY symbol
 HAVING
     SUM(quantity) > 10000
@@ -574,8 +574,8 @@ HAVING
 WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 EMIT CHANGES
 WITH (
-    'order_book_stream.type' = 'kafka_source',
-    'order_book_stream.config_file' = 'configs/order_book_source.yaml',
+    'in_order_book_stream.type' = 'kafka_source',
+    'in_order_book_stream.config_file' = 'configs/order_book_source.yaml',
 
     'order_flow_imbalance_detection.type' = 'kafka_sink',
     'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml',
@@ -607,18 +607,18 @@ SELECT
     LEAST(a.bid_size, b.ask_size) as available_volume,
     (a.bid_price - b.ask_price) * LEAST(a.bid_size, b.ask_size) as potential_profit,
     timestamp() as opportunity_time
-FROM market_data_stream_a a
-JOIN market_data_stream_b b ON a.symbol = b.symbol
+FROM in_market_data_stream_a a
+JOIN in_market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
     AND LEAST(a.bid_size, b.ask_size) > 50000
 EMIT CHANGES
 WITH (
-    'market_data_stream_a.type' = 'kafka_source',
-    'market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
+    'in_market_data_stream_a.type' = 'kafka_source',
+    'in_market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
 
-    'market_data_stream_b.type' = 'kafka_source',
-    'market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
+    'in_market_data_stream_b.type' = 'kafka_source',
+    'in_market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
 
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
     'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml',
