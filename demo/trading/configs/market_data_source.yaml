@@ -16,9 +16,8 @@ performance_profile: ultra_low_latency
 # Topic-specific schema
 schema:
   key.field: symbol
-  value.serializer: "json"
-  # Note: Generator produces JSON, not Avro
-  # value.schema.file: "schemas/market_data.avsc"
+  value.serializer: "avro"
+  value.schema.file: "schemas/market_data.avsc"
   
   # Alternative inline schema definition:
   # avro.schema: |

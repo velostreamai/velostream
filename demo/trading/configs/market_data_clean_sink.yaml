@@ -15,7 +15,10 @@ datasink:
   schema:
     key.format: string
     value.format: avro
-    schema.registry.url: "http://schema-registry:8081"
+    value.serializer: "avro"
+    value.schema.file: "schemas/market_data.avsc"
+    # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
+    # schema.registry.url: "http://schema-registry:8081"
 
   topic:
     name: "market-data-clean"

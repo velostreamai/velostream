@@ -13,6 +13,7 @@ delivery_profile: high_priority
 # Topic-specific schema
 schema:
   key.field: symbol
+  value.serializer: "avro"
   value.schema.file: "schemas/price_alerts.avsc"
   
 # Topic properties
