@@ -494,7 +494,8 @@ impl WindowProcessor {
                                 Err(e) => {
                                     log::error!(
                                         "Failed to evaluate field '{}': {:?}",
-                                        field_name, e
+                                        field_name,
+                                        e
                                     );
                                     return Err(e);
                                 }

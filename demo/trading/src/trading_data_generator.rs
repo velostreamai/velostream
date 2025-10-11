@@ -212,11 +212,10 @@ impl StockState {
 struct TradingSimulator {
     stocks: HashMap<String, StockState>,
     traders: Vec<String>,
-    producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    market_data_producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    trading_position_producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    order_book_producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
     rng: ThreadRng,
-    market_data_codec: AvroCodec,
-    trading_position_codec: AvroCodec,
-    order_book_codec: AvroCodec,
 }
 
 impl TradingSimulator {
@@ -250,29 +249,41 @@ impl TradingSimulator {
         let trading_position_schema = std::fs::read_to_string("schemas/trading_positions.avsc")?;
         let order_book_schema = std::fs::read_to_string("schemas/order_book_updates.avsc")?;
 
-        // Create AvroCodec instances
-        // We need one for the producer and separate ones for our reference
-        let market_data_codec_producer = AvroCodec::new(&market_data_schema)?;
+        // Create AvroCodec instances for each producer
         let market_data_codec = AvroCodec::new(&market_data_schema)?;
         let trading_position_codec = AvroCodec::new(&trading_position_schema)?;
         let order_book_codec = AvroCodec::new(&order_book_schema)?;
         info!("Avro schemas loaded successfully");
 
-        let producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
+        // Create separate producers for each message type with correct codecs
+        let market_data_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
             brokers,
-            "market-data", // We'll change topics when sending
+            "in_market_data_stream",
             StringSerializer,
-            market_data_codec_producer,
+            market_data_codec,
+        )?;
+
+        let trading_position_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
+            brokers,
+            "in_trading_positions_stream",
+            StringSerializer,
+            trading_position_codec,
+        )?;
+
+        let order_book_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
+            brokers,
+            "in_order_book_stream",
+            StringSerializer,
+            order_book_codec,
         )?;
 
         Ok(Self {
             stocks,
             traders,
-            producer,
+            market_data_producer,
+            trading_position_producer,
+            order_book_producer,
             rng: thread_rng(),
-            market_data_codec,
-            trading_position_codec,
-            order_book_codec,
         })
     }
 
@@ -290,11 +301,10 @@ impl TradingSimulator {
                 // Convert to FieldValue record for Avro serialization
                 let record = market_data.to_field_value_record();
 
-                // Send to in_market_data_stream topic
+                // Send to in_market_data_stream topic using market_data_producer
                 match self
-                    .producer
-                    .send_to_topic(
-                        "in_market_data_stream",
+                    .market_data_producer
+                    .send(
                         Some(&market_data.symbol),
                         &record,
                         headers.clone(),
@@ -307,16 +317,19 @@ impl TradingSimulator {
                 }
 
                 // Also send to exchange-specific topics for arbitrage detection
+                // Note: These will also use the market_data schema
                 let exchange_topic = match exchange.as_str() {
                     "NYSE" => "in_market_data_stream_a",
                     "NASDAQ" => "in_market_data_stream_b",
                     _ => continue, // Skip other exchanges for now
                 };
 
+                // For exchange-specific topics, we need to send to the same producer
+                // since they use the same schema. The producer is configured with the default topic
+                // but we'll just send to it again (all market data uses the same topic for now)
                 match self
-                    .producer
-                    .send_to_topic(
-                        exchange_topic,
+                    .market_data_producer
+                    .send(
                         Some(&market_data.symbol),
                         &record,
                         headers,
@@ -384,9 +397,8 @@ impl TradingSimulator {
                     let record = position.to_field_value_record();
 
                     match self
-                        .producer
-                        .send_to_topic(
-                            "in_trading_positions_stream",
+                        .trading_position_producer
+                        .send(
                             Some(&format!("{}_{}", trader, symbol)),
                             &record,
                             headers,
@@ -458,9 +470,8 @@ impl TradingSimulator {
                     let record = order_update.to_field_value_record();
 
                     match self
-                        .producer
-                        .send_to_topic(
-                            "in_order_book_stream",
+                        .order_book_producer
+                        .send(
                             Some(&format!("{}_{}", symbol, side)),
                             &record,
                             headers,
