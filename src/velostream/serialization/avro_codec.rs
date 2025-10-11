@@ -34,14 +34,13 @@ impl AvroCodec {
         // Convert HashMap to Avro Value
         let avro_value = self.record_to_avro_value(record)?;
 
-        // Create writer and serialize
-        let mut writer = Writer::new(&self.schema, Vec::new());
-        writer.append(avro_value).map_err(|e| {
-            SerializationError::avro_error("Failed to append Avro data to writer", e)
-        })?;
+        log::debug!("Serializing Avro record: {:?}", avro_value);
 
-        writer.into_inner().map_err(|e| {
-            SerializationError::avro_error("Failed to extract serialized Avro bytes", e)
+        // Use to_avro_datum for raw Avro encoding (NOT Object Container File format)
+        // This is correct for Kafka messages - no embedded schema, just the data
+        apache_avro::to_avro_datum(&self.schema, avro_value).map_err(|e| {
+            log::error!("to_avro_datum() failed with error: {:?}", e);
+            SerializationError::avro_error(&format!("Failed to encode Avro data: {}", e), e)
         })
     }
 
@@ -50,23 +49,12 @@ impl AvroCodec {
         &self,
         bytes: &[u8],
     ) -> Result<HashMap<String, FieldValue>, SerializationError> {
-        let mut reader = Reader::with_schema(&self.schema, bytes)
-            .map_err(|e| SerializationError::avro_error("Failed to create Avro reader", e))?;
+        // Use from_avro_datum for raw Avro decoding (NOT Object Container File format)
+        // This matches the to_avro_datum encoding used in serialize()
+        let avro_value = apache_avro::from_avro_datum(&self.schema, &mut &bytes[..], None)
+            .map_err(|e| SerializationError::avro_error("Failed to decode Avro datum", e))?;
 
-        // Read the first record
-        if let Some(record_result) = reader.next() {
-            let avro_value = record_result
-                .map_err(|e| SerializationError::avro_error("Failed to read Avro record", e))?;
-
-            self.avro_value_to_record(&avro_value)
-        } else {
-            Err(SerializationError::type_conversion_error(
-                "No records found in Avro data".to_string(),
-                "AvroData",
-                "Record",
-                None::<std::io::Error>,
-            ))
-        }
+        self.avro_value_to_record(&avro_value)
     }
 
     /// Get the schema used by this codec
@@ -102,6 +90,14 @@ impl AvroCodec {
         // Check for logical type in schema
         let logical_type = field_name.and_then(|name| self.get_logical_type_from_schema(name));
 
+        log::debug!(
+            "Converting field {:?}: value={:?}, decimal_scale={:?}, logical_type={:?}",
+            field_name,
+            field_value,
+            decimal_scale,
+            logical_type
+        );
+
         match field_value {
             FieldValue::Null => Ok(AvroValue::Null),
             FieldValue::Boolean(b) => Ok(AvroValue::Boolean(*b)),
@@ -131,6 +127,10 @@ impl AvroCodec {
                 // Convert Integer to TimestampMicros logical type
                 Ok(AvroValue::TimestampMicros(*i))
             }
+            FieldValue::Integer(i) if self.schema_expects_int(field_name) => {
+                // Convert Integer to Int when schema expects i32
+                Ok(AvroValue::Int(*i as i32))
+            }
             FieldValue::Integer(i) => Ok(AvroValue::Long(*i)),
             FieldValue::String(s) if logical_type == Some("uuid") => {
                 // Keep as string for UUID (Avro UUID is stored as string)
@@ -140,13 +140,33 @@ impl AvroCodec {
                 // Convert Float to Decimal when schema expects it
                 let scale = decimal_scale.unwrap();
                 let scaled_value = (f * 10_f64.powi(scale as i32)).round() as i64;
-                self.scaled_integer_to_decimal_bytes(scaled_value, scale)
+                let decimal_bytes = self.scaled_integer_to_decimal_bytes(scaled_value, scale)?;
+
+                // Check if this field is part of a union (nullable)
+                if let Some(name) = field_name {
+                    if self.is_union_field(name) {
+                        // Wrap in Union with variant index 1 (assuming [null, decimal] order)
+                        return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
+                    }
+                }
+
+                Ok(decimal_bytes)
             }
             FieldValue::Float(f) => Ok(AvroValue::Double(*f)),
             FieldValue::ScaledInteger(value, _scale) if decimal_scale.is_some() => {
                 // Use schema scale, not the FieldValue scale
                 let schema_scale = decimal_scale.unwrap();
-                self.scaled_integer_to_decimal_bytes(*value, schema_scale)
+                let decimal_bytes = self.scaled_integer_to_decimal_bytes(*value, schema_scale)?;
+
+                // Check if this field is part of a union (nullable)
+                if let Some(name) = field_name {
+                    if self.is_union_field(name) {
+                        // Wrap in Union with variant index 1 (assuming [null, decimal] order)
+                        return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
+                    }
+                }
+
+                Ok(decimal_bytes)
             }
             FieldValue::ScaledInteger(value, scale) => {
                 // No decimal schema - convert to string representation
@@ -167,6 +187,24 @@ impl AvroCodec {
                 };
 
                 Ok(AvroValue::String(decimal_string))
+            }
+            FieldValue::Timestamp(ts) => {
+                // Check if schema expects timestamp logical type
+                if logical_type == Some("timestamp-millis") {
+                    // Convert to milliseconds since epoch
+                    let millis = ts.and_utc().timestamp_millis();
+                    return Ok(AvroValue::TimestampMillis(millis));
+                }
+                if logical_type == Some("timestamp-micros") {
+                    // Convert to microseconds since epoch
+                    let micros = ts.and_utc().timestamp() * 1_000_000
+                        + (ts.and_utc().timestamp_subsec_micros() as i64);
+                    return Ok(AvroValue::TimestampMicros(micros));
+                }
+                // Fallback: Convert to ISO 8601 string format for schema compatibility
+                Ok(AvroValue::String(
+                    ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
+                ))
             }
             _ => self.field_value_to_avro_non_decimal(field_value),
         }
@@ -216,7 +254,8 @@ impl AvroCodec {
                 Ok(AvroValue::String(decimal_string))
             }
             FieldValue::Timestamp(ts) => {
-                // Convert to ISO 8601 string format for schema compatibility
+                // Fallback: Convert to ISO 8601 string format when no schema context available
+                // (When called with schema context, the case in field_value_to_avro_with_name handles it)
                 Ok(AvroValue::String(
                     ts.format("%Y-%m-%dT%H:%M:%S%.3f").to_string(),
                 ))
@@ -500,7 +539,11 @@ impl AvroCodec {
     /// Get the decimal scale from the Avro schema for a specific field
     fn get_decimal_scale_from_schema(&self, field_name: &str) -> Option<u8> {
         // Parse the schema to find decimal logical type definitions
+        // IMPORTANT: Use canonical_form() which preserves precision/scale even though logicalType is stripped
         let schema_json = self.schema.canonical_form();
+
+        log::debug!("Looking for decimal scale for field: {}", field_name);
+        log::debug!("Canonical schema: {}", schema_json);
 
         if let Ok(schema_value) = serde_json::from_str::<serde_json::Value>(&schema_json) {
             if let Some(fields) = schema_value.get("fields").and_then(|f| f.as_array()) {
@@ -510,12 +553,16 @@ impl AvroCodec {
                         field.get("type"),
                     ) {
                         if name == field_name {
-                            return self.extract_decimal_scale_from_type(field_type);
+                            log::debug!("Found field '{}' with type: {:?}", name, field_type);
+                            let scale = self.extract_decimal_scale_from_type(field_type);
+                            log::debug!("Extracted scale for field '{}': {:?}", name, scale);
+                            return scale;
                         }
                     }
                 }
             }
         }
+        log::debug!("No decimal scale found for field: {}", field_name);
         None
     }
 
@@ -540,6 +587,32 @@ impl AvroCodec {
             }
         }
         None
+    }
+
+    /// Check if a field is a union type (nullable)
+    fn is_union_field(&self, field_name: &str) -> bool {
+        if let AvroSchema::Record(record_schema) = &self.schema {
+            for field in &record_schema.fields {
+                if field.name == field_name {
+                    return matches!(field.schema, AvroSchema::Union(_));
+                }
+            }
+        }
+        false
+    }
+
+    /// Check if a field expects Int (i32) instead of Long (i64)
+    fn schema_expects_int(&self, field_name: Option<&str>) -> bool {
+        if let Some(name) = field_name {
+            if let AvroSchema::Record(record_schema) = &self.schema {
+                for field in &record_schema.fields {
+                    if field.name == name {
+                        return matches!(field.schema, AvroSchema::Int);
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Extract decimal scale from an Avro type definition
@@ -594,7 +667,27 @@ impl AvroCodec {
         use apache_avro::Decimal as AvroDecimal;
 
         // Convert i64 to bytes (big-endian two's complement)
-        let bytes = value.to_be_bytes().to_vec();
+        // Use minimal byte representation (trim leading zeros for positive, leading 0xff for negative)
+        let mut bytes = value.to_be_bytes().to_vec();
+
+        // Trim leading zeros for positive numbers, but keep at least one byte
+        // and preserve the sign bit
+        if value >= 0 {
+            while bytes.len() > 1 && bytes[0] == 0 && (bytes[1] & 0x80) == 0 {
+                bytes.remove(0);
+            }
+        } else {
+            // For negative numbers, trim leading 0xFF bytes
+            while bytes.len() > 1 && bytes[0] == 0xFF && (bytes[1] & 0x80) != 0 {
+                bytes.remove(0);
+            }
+        }
+
+        log::debug!(
+            "Converting value {} to decimal bytes (trimmed): {:?}",
+            value,
+            bytes
+        );
 
         // Create Avro Decimal from bytes
         let decimal = AvroDecimal::from(bytes);

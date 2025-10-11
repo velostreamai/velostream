@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::error::KafkaDataSourceError;
+use super::error::KafkaDataSinkError;
 use super::writer::KafkaDataWriter;
 
 /// Kafka DataSink implementation
@@ -424,7 +424,7 @@ impl DataSink for KafkaDataSink {
                 self.config = properties;
                 Ok(())
             }
-            _ => Err(Box::new(KafkaDataSourceError::Configuration(
+            _ => Err(Box::new(KafkaDataSinkError::Configuration(
                 "Expected Kafka configuration".to_string(),
             ))),
         }
@@ -444,7 +444,7 @@ impl DataSink for KafkaDataSink {
     ) -> Result<Box<dyn DataWriter>, Box<dyn std::error::Error + Send + Sync>> {
         // Create the unified writer
         let writer = self.create_unified_writer().await.map_err(|e| {
-            Box::new(KafkaDataSourceError::Configuration(format!(
+            Box::new(KafkaDataSinkError::Configuration(format!(
                 "Failed to create writer: {}",
                 e
             ))) as Box<dyn std::error::Error + Send + Sync>
@@ -462,7 +462,7 @@ impl DataSink for KafkaDataSink {
             .create_unified_writer_with_batch_config(batch_config)
             .await
             .map_err(|e| {
-                Box::new(KafkaDataSourceError::Configuration(format!(
+                Box::new(KafkaDataSinkError::Configuration(format!(
                     "Failed to create batch-optimized writer: {}",
                     e
                 ))) as Box<dyn std::error::Error + Send + Sync>

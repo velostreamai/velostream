@@ -50,3 +50,4 @@ pub mod writer;
 // Re-export key types for backward compatibility
 pub use data_sink::KafkaDataSink;
 pub use data_source::KafkaDataSource;
+pub use error::{KafkaDataSinkError, KafkaDataSourceError};
