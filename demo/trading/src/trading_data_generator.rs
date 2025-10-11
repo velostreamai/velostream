@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
 use velostream::velostream::kafka::kafka_error::ProducerError;
-use velostream::velostream::kafka::serialization::Serializer;
+use velostream::velostream::kafka::serialization::{Serializer, StringSerializer};
 use velostream::velostream::kafka::{Headers, KafkaProducer};
 use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::sql::execution::types::FieldValue;
@@ -212,8 +212,11 @@ impl StockState {
 struct TradingSimulator {
     stocks: HashMap<String, StockState>,
     traders: Vec<String>,
-    producer: KafkaProducer<String, serde_json::Value, JsonSerializer, JsonSerializer>,
+    producer: KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
     rng: ThreadRng,
+    market_data_codec: AvroCodec,
+    trading_position_codec: AvroCodec,
+    order_book_codec: AvroCodec,
 }
 
 impl TradingSimulator {
@@ -241,11 +244,25 @@ impl TradingSimulator {
         // Create traders
         let traders = (1..=20).map(|i| format!("TRADER_{:03}", i)).collect();
 
-        let producer = KafkaProducer::<String, serde_json::Value, _, _>::new(
+        // Load Avro schemas from files
+        info!("Loading Avro schemas...");
+        let market_data_schema = std::fs::read_to_string("schemas/market_data.avsc")?;
+        let trading_position_schema = std::fs::read_to_string("schemas/trading_positions.avsc")?;
+        let order_book_schema = std::fs::read_to_string("schemas/order_book_updates.avsc")?;
+
+        // Create AvroCodec instances
+        // We need one for the producer and separate ones for our reference
+        let market_data_codec_producer = AvroCodec::new(&market_data_schema)?;
+        let market_data_codec = AvroCodec::new(&market_data_schema)?;
+        let trading_position_codec = AvroCodec::new(&trading_position_schema)?;
+        let order_book_codec = AvroCodec::new(&order_book_schema)?;
+        info!("Avro schemas loaded successfully");
+
+        let producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
             brokers,
             "market-data", // We'll change topics when sending
-            JsonSerializer,
-            JsonSerializer,
+            StringSerializer,
+            market_data_codec_producer,
         )?;
 
         Ok(Self {
@@ -253,6 +270,9 @@ impl TradingSimulator {
             traders,
             producer,
             rng: thread_rng(),
+            market_data_codec,
+            trading_position_codec,
+            order_book_codec,
         })
     }
 
@@ -267,13 +287,16 @@ impl TradingSimulator {
                     .insert("exchange", &exchange)
                     .insert("symbol", &market_data.symbol);
 
+                // Convert to FieldValue record for Avro serialization
+                let record = market_data.to_field_value_record();
+
                 // Send to in_market_data_stream topic
                 match self
                     .producer
                     .send_to_topic(
                         "in_market_data_stream",
                         Some(&market_data.symbol),
-                        &serde_json::to_value(&market_data)?,
+                        &record,
                         headers.clone(),
                         None,
                     )
@@ -295,7 +318,7 @@ impl TradingSimulator {
                     .send_to_topic(
                         exchange_topic,
                         Some(&market_data.symbol),
-                        &serde_json::to_value(&market_data)?,
+                        &record,
                         headers,
                         None,
                     )
@@ -357,12 +380,15 @@ impl TradingSimulator {
                         .insert("trader_id", trader)
                         .insert("symbol", &symbol);
 
+                    // Convert to FieldValue record for Avro serialization
+                    let record = position.to_field_value_record();
+
                     match self
                         .producer
                         .send_to_topic(
                             "in_trading_positions_stream",
                             Some(&format!("{}_{}", trader, symbol)),
-                            &serde_json::to_value(&position)?,
+                            &record,
                             headers,
                             None,
                         )
@@ -428,12 +454,15 @@ impl TradingSimulator {
                         .insert("symbol", symbol)
                         .insert("side", side);
 
+                    // Convert to FieldValue record for Avro serialization
+                    let record = order_update.to_field_value_record();
+
                     match self
                         .producer
                         .send_to_topic(
                             "in_order_book_stream",
                             Some(&format!("{}_{}", symbol, side)),
-                            &serde_json::to_value(&order_update)?,
+                            &record,
                             headers,
                             None,
                         )
