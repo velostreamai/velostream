@@ -283,6 +283,11 @@ REQUIRED_TOPICS=(
     "market_data_stream_b:12"
     "trading_positions_stream:8"
     "order_book_stream:12"
+    "in_market_data_stream:12"
+    "in_market_data_stream_a:12"
+    "in_market_data_stream_b:12"
+    "in_trading_positions_stream:8"
+    "in_order_book_stream:12"
 )
 
 for topic_spec in "${REQUIRED_TOPICS[@]}"; do
@@ -346,7 +351,7 @@ echo -e "${GREEN}✓ Data generator started (PID: $GENERATOR_PID)${NC}"
 
 # Step 8: Verify data is flowing
 print_step "Step 8: Verifying data flow"
-wait_for 30 2 "docker exec simple-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic market_data_stream --max-messages 1 --timeout-ms 1000" "Data flowing to market_data_stream"
+wait_for 30 2 "docker exec simple-kafka kafka-console-consumer --bootstrap-server localhost:9092 --topic in_market_data_stream --max-messages 1 --timeout-ms 1000" "Data flowing to in_market_data_stream"
 
 # Step 9: Deploy SQL application
 print_step "Step 9: Deploying SQL application"
