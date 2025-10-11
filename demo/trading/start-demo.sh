@@ -301,39 +301,31 @@ for topic_spec in "${REQUIRED_TOPICS[@]}"; do
     fi
 done
 
-# Step 5: Build binaries if needed
-print_step "Step 5: Building project binaries"
+# Step 5: Build binaries (always check for updates)
+print_step "Step 5: Building project binaries (Cargo rebuilds only if source changed)"
 
-# Build main Velostream binary if needed
-if [ ! -f "$VELO_BUILD_DIR/velo-sql-multi" ]; then
-    echo "Building main Velostream project (this may take a few minutes on first run)..."
-    cd ../..
-    if ! cargo build $BUILD_FLAG --bin velo-sql-multi; then
-        echo -e "${RED}✗ Failed to build velo-sql-multi${NC}"
-        echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql-multi${NC}"
-        echo -e "${YELLOW}Or update Rust: rustup update stable${NC}"
-        exit 1
-    fi
-    check_status "velo-sql-multi built"
-    cd demo/trading
-else
-    echo -e "${GREEN}✓ velo-sql-multi already built${NC}"
+# Build main Velostream binary
+echo "Building/checking main Velostream project..."
+cd ../..
+if ! cargo build $BUILD_FLAG --bin velo-sql-multi; then
+    echo -e "${RED}✗ Failed to build velo-sql-multi${NC}"
+    echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql-multi${NC}"
+    echo -e "${YELLOW}Or update Rust: rustup update stable${NC}"
+    exit 1
 fi
+check_status "velo-sql-multi ready"
+cd demo/trading
 
-# Build trading data generator if needed
-if [ ! -f "$BUILD_DIR/trading_data_generator" ]; then
-    echo "Building trading data generator..."
-    if ! cargo build $BUILD_FLAG --bin trading_data_generator; then
-        echo -e "${RED}✗ Failed to build trading_data_generator${NC}"
-        echo -e "${YELLOW}Try: cargo clean && cargo build --bin trading_data_generator${NC}"
-        exit 1
-    fi
-    check_status "Trading data generator built"
-else
-    echo -e "${GREEN}✓ trading_data_generator already built${NC}"
+# Build trading data generator
+echo "Building/checking trading data generator..."
+if ! cargo build $BUILD_FLAG --bin trading_data_generator; then
+    echo -e "${RED}✗ Failed to build trading_data_generator${NC}"
+    echo -e "${YELLOW}Try: cargo clean && cargo build --bin trading_data_generator${NC}"
+    exit 1
 fi
+check_status "Trading data generator ready"
 
-echo -e "${GREEN}✓ All binaries ready${NC}"
+echo -e "${GREEN}✓ All binaries up-to-date${NC}"
 
 # Step 6: Reset consumer groups (for clean demo start)
 print_step "Step 6: Resetting consumer groups for clean start"
