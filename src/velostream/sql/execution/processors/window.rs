@@ -492,8 +492,8 @@ impl WindowProcessor {
                                     result_fields.insert(field_name, value);
                                 }
                                 Err(e) => {
-                                    println!(
-                                        "DEBUG: Failed to evaluate field '{}': {:?}",
+                                    log::error!(
+                                        "Failed to evaluate field '{}': {:?}",
                                         field_name, e
                                     );
                                     return Err(e);
