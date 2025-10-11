@@ -14,7 +14,13 @@ fn test_valid_metric_annotations() {
 -- @metric_help: "Test counter metric"
 -- @metric_labels: symbol, status
 CREATE STREAM test_stream AS
-SELECT * FROM source;
+SELECT * FROM source
+WITH (
+    'source.type' = 'kafka_source',
+    'test_stream_sink.type' = 'kafka_sink',
+    'test_stream_sink.bootstrap.servers' = 'localhost:9092',
+    'test_stream_sink.topic' = 'output_topic'
+);
 "#;
 
     // Write to temporary file
@@ -59,20 +65,23 @@ fn test_multiple_valid_metric_annotations() {
 -- @metric_type: counter
 -- @metric_help: "Test counter metric"
 -- @metric_labels: symbol
-CREATE STREAM stream1 AS SELECT * FROM source1;
+CREATE STREAM stream1 AS SELECT * FROM source1
+WITH ('source1.type' = 'kafka_source', 'stream1_sink.type' = 'kafka_sink', 'stream1_sink.bootstrap.servers' = 'localhost:9092', 'stream1_sink.topic' = 'output');
 
 -- @metric: test_gauge_value
 -- @metric_type: gauge
 -- @metric_help: "Test gauge metric"
 -- @metric_field: value
-CREATE STREAM stream2 AS SELECT * FROM source2;
+CREATE STREAM stream2 AS SELECT * FROM source2
+WITH ('source2.type' = 'kafka_source', 'stream2_sink.type' = 'kafka_sink', 'stream2_sink.bootstrap.servers' = 'localhost:9092', 'stream2_sink.topic' = 'output');
 
 -- @metric: test_histogram_distribution
 -- @metric_type: histogram
 -- @metric_help: "Test histogram metric"
 -- @metric_field: duration
 -- @metric_buckets: 0.1, 0.5, 1.0, 2.0, 5.0
-CREATE STREAM stream3 AS SELECT * FROM source3;
+CREATE STREAM stream3 AS SELECT * FROM source3
+WITH ('source3.type' = 'kafka_source', 'stream3_sink.type' = 'kafka_sink', 'stream3_sink.bootstrap.servers' = 'localhost:9092', 'stream3_sink.topic' = 'output');
 "#;
 
     let temp_dir = std::env::temp_dir();
@@ -111,7 +120,8 @@ fn test_invalid_metric_annotation_missing_field() {
 -- @metric: test_gauge_value
 -- @metric_type: gauge
 -- @metric_help: "Test gauge metric without field"
-CREATE STREAM test_stream AS SELECT * FROM source;
+CREATE STREAM test_stream AS SELECT * FROM source
+WITH ('source.type' = 'kafka_source', 'test_stream_sink.type' = 'kafka_sink');
 "#;
 
     let temp_dir = std::env::temp_dir();
@@ -148,7 +158,8 @@ fn test_invalid_metric_type() {
 -- @metric: test_invalid_type
 -- @metric_type: invalid_type
 -- @metric_help: "Test with invalid type"
-CREATE STREAM test_stream AS SELECT * FROM source;
+CREATE STREAM test_stream AS SELECT * FROM source
+WITH ('source.type' = 'kafka_source', 'test_stream_sink.type' = 'kafka_sink');
 "#;
 
     let temp_dir = std::env::temp_dir();
@@ -188,7 +199,8 @@ fn test_histogram_without_field() {
 -- @metric_type: histogram
 -- @metric_help: "Test histogram without field"
 -- @metric_buckets: 0.1, 0.5, 1.0
-CREATE STREAM test_stream AS SELECT * FROM source;
+CREATE STREAM test_stream AS SELECT * FROM source
+WITH ('source.type' = 'kafka_source', 'test_stream_sink.type' = 'kafka_sink');
 "#;
 
     let temp_dir = std::env::temp_dir();
@@ -221,7 +233,13 @@ fn test_no_annotations_passes_validation() {
     // SQL without any @metric annotations should still be valid
     let test_sql = r#"
 CREATE STREAM test_stream AS
-SELECT * FROM source;
+SELECT * FROM source
+WITH (
+    'source.type' = 'kafka_source',
+    'test_stream_sink.type' = 'kafka_sink',
+    'test_stream_sink.bootstrap.servers' = 'localhost:9092',
+    'test_stream_sink.topic' = 'output_topic'
+);
 "#;
 
     let temp_dir = std::env::temp_dir();
@@ -257,7 +275,13 @@ fn test_counter_with_labels_and_condition() {
 -- @metric_help: "Test alerts by severity"
 -- @metric_labels: symbol, severity
 -- @metric_condition: severity IN ('HIGH', 'CRITICAL')
-CREATE STREAM test_stream AS SELECT * FROM source;
+CREATE STREAM test_stream AS SELECT * FROM source
+WITH (
+    'source.type' = 'kafka_source',
+    'test_stream_sink.bootstrap.servers' = 'localhost:9092',
+    'test_stream_sink.topic' = 'output_topic',
+    'test_stream_sink.type' = 'kafka_sink'
+);
 "#;
 
     let temp_dir = std::env::temp_dir();

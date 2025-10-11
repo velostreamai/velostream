@@ -161,6 +161,18 @@ impl KafkaDataSource {
                     config_key
                 );
                 source_config.insert(config_key, value.clone());
+            }
+            // Handle datasource.schema.* properties - strip datasource. prefix for schema usage
+            else if key.starts_with("datasource.schema.") {
+                let config_key = key
+                    .strip_prefix("datasource.")
+                    .unwrap()
+                    .to_string();
+                log::debug!(
+                    "  Adding schema property: {} (from datasource.schema.*)",
+                    config_key
+                );
+                source_config.insert(config_key, value.clone());
             } else if key.starts_with("source.") {
                 // Remove source. prefix for the config map
                 let config_key = key.strip_prefix("source.").unwrap().to_string();

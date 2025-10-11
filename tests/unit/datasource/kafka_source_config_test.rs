@@ -443,11 +443,13 @@ datasource:
     // And the serializer should be loaded
     assert!(
         data_source.config().get("value.serializer") == Some(&"avro".to_string())
+            || data_source.config().get("schema.value.serializer") == Some(&"avro".to_string())
             || data_source
                 .config()
                 .get("datasource.schema.value.serializer")
                 == Some(&"avro".to_string()),
-        "Serializer should be loaded from config file"
+        "Serializer should be loaded from config file. Config keys: {:?}",
+        data_source.config().keys().collect::<Vec<_>>()
     );
 }
 
