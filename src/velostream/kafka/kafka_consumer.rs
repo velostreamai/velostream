@@ -248,7 +248,41 @@ where
         match time::timeout(timeout, stream.next()).await {
             Ok(Some(Ok(msg))) => {
                 let payload = msg.payload().ok_or(ConsumerError::NoMessage)?;
-                let value = self.value_serializer.deserialize(payload)?;
+
+                // log::debug!(
+                //     "📥 Kafka Consumer poll(): Received raw bytes topic {} partition {} offset {} | Payload size: {} bytes",
+                //     msg.topic(),
+                //     msg.partition(),
+                //     msg.offset(),
+                //     payload.len()
+                // );
+
+                // Attempt value deserialization
+                let value = match self.value_serializer.deserialize(payload) {
+                    Ok(v) => {
+                        log::debug!(
+                            target: "kafka_consumer",
+                            topic = msg.topic(),
+                            partition = msg.partition(),
+                            offset = msg.offset(),
+                            payload_size = payload.len();
+                            "Message received"
+                        );
+                        v
+                    }
+                    Err(e) => {
+                        log::error!(
+                            target: "kafka_consumer",
+                            "Failed to deserialize message value: topic={} partition={} offset={} payload_size={} error={:?}",
+                            msg.topic(),
+                            msg.partition(),
+                            msg.offset(),
+                            payload.len(),
+                            e
+                        );
+                        return Err(ConsumerError::SerializationError(e));
+                    }
+                };
 
                 let key = if let Some(key_bytes) = msg.key() {
                     Some(self.key_serializer.deserialize(key_bytes)?)
