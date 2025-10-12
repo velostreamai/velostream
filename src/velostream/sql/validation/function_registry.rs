@@ -155,6 +155,9 @@ impl FunctionRegistry {
             "DATE_SUB",
             "DATE_DIFF",
             "DATEDIFF",
+            // Tumbling window functions
+            "TUMBLE_START",
+            "TUMBLE_END",
         ];
 
         for func in functions {
@@ -247,9 +250,11 @@ mod tests {
         assert!(registry.is_function_supported("UPPER"));
         assert!(registry.is_function_supported("SUBSTRING"));
 
+        // Test date/time functions
+        assert!(registry.is_function_supported("TUMBLE_START"));
+        assert!(registry.is_function_supported("TUMBLE_END"));
+
         // Test unsupported functions
-        assert!(!registry.is_function_supported("TUMBLE_START"));
-        assert!(!registry.is_function_supported("TUMBLE_END"));
         assert!(!registry.is_function_supported("UNKNOWN_FUNC"));
     }
 

@@ -173,23 +173,50 @@ impl WindowProcessor {
         let last_emit_time = window_state.last_emit;
         let buffer = window_state.buffer.clone();
 
-        // Filter buffer for current window
-        let windowed_buffer = match window_spec {
+        // Calculate window boundaries for metadata
+        let (window_start, window_end) = match window_spec {
             WindowSpec::Tumbling { size, .. } => {
                 let window_size_ms = size.as_millis() as i64;
-                let completed_window_start = if last_emit_time == 0 {
+                let start = if last_emit_time == 0 {
                     0 // First window: 0 to window_size_ms
                 } else {
                     last_emit_time
                 };
-                let completed_window_end = completed_window_start + window_size_ms;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Sliding { size, advance, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let advance_ms = advance.as_millis() as i64;
+                let start = last_emit_time;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Session { gap, .. } => {
+                // For session windows, use the first and last record times
+                if buffer.is_empty() {
+                    (event_time, event_time)
+                } else {
+                    let first_time =
+                        Self::extract_event_time(&buffer[0], window_spec.time_column());
+                    let last_time = Self::extract_event_time(
+                        &buffer[buffer.len() - 1],
+                        window_spec.time_column(),
+                    );
+                    (first_time, last_time)
+                }
+            }
+        };
 
+        // Filter buffer for current window
+        let windowed_buffer = match window_spec {
+            WindowSpec::Tumbling { .. } => {
                 // Filter records that belong to the completed window
                 buffer
                     .iter()
                     .filter(|r| {
                         let record_time = Self::extract_event_time(r, window_spec.time_column());
-                        record_time >= completed_window_start && record_time < completed_window_end
+                        record_time >= window_start && record_time < window_end
                     })
                     .cloned()
                     .collect()
@@ -197,8 +224,13 @@ impl WindowProcessor {
             _ => buffer, // For other window types, use all buffered records
         };
 
-        // Execute aggregation on filtered records
-        let result_option = match Self::execute_windowed_aggregation_impl(query, &windowed_buffer) {
+        // Execute aggregation on filtered records with window boundaries
+        let result_option = match Self::execute_windowed_aggregation_impl(
+            query,
+            &windowed_buffer,
+            window_start,
+            window_end,
+        ) {
             Ok(result) => Some(result),
             Err(SqlError::ExecutionError { message, .. })
                 if message == "No records after filtering" =>
@@ -237,23 +269,50 @@ impl WindowProcessor {
         let last_emit_time = window_context.last_emit;
         let buffer = window_context.buffer.clone();
 
-        // Filter buffer for current window
-        let windowed_buffer = match window_spec {
+        // Calculate window boundaries for metadata
+        let (window_start, window_end) = match window_spec {
             WindowSpec::Tumbling { size, .. } => {
                 let window_size_ms = size.as_millis() as i64;
-                let completed_window_start = if last_emit_time == 0 {
+                let start = if last_emit_time == 0 {
                     0 // First window: 0 to window_size_ms
                 } else {
                     last_emit_time
                 };
-                let completed_window_end = completed_window_start + window_size_ms;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Sliding { size, advance, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let advance_ms = advance.as_millis() as i64;
+                let start = last_emit_time;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Session { gap, .. } => {
+                // For session windows, use the first and last record times
+                if buffer.is_empty() {
+                    (event_time, event_time)
+                } else {
+                    let first_time =
+                        Self::extract_event_time(&buffer[0], window_spec.time_column());
+                    let last_time = Self::extract_event_time(
+                        &buffer[buffer.len() - 1],
+                        window_spec.time_column(),
+                    );
+                    (first_time, last_time)
+                }
+            }
+        };
 
+        // Filter buffer for current window
+        let windowed_buffer = match window_spec {
+            WindowSpec::Tumbling { .. } => {
                 // Filter records that belong to the completed window
                 buffer
                     .iter()
                     .filter(|r| {
                         let record_time = Self::extract_event_time(r, window_spec.time_column());
-                        record_time >= completed_window_start && record_time < completed_window_end
+                        record_time >= window_start && record_time < window_end
                     })
                     .cloned()
                     .collect()
@@ -261,8 +320,13 @@ impl WindowProcessor {
             _ => buffer, // For other window types, use all buffered records
         };
 
-        // Execute aggregation on filtered records
-        let result_option = match Self::execute_windowed_aggregation_impl(query, &windowed_buffer) {
+        // Execute aggregation on filtered records with window boundaries
+        let result_option = match Self::execute_windowed_aggregation_impl(
+            query,
+            &windowed_buffer,
+            window_start,
+            window_end,
+        ) {
             Ok(result) => Some(result),
             Err(SqlError::ExecutionError { message, .. })
                 if message == "No records after filtering" =>
@@ -384,6 +448,8 @@ impl WindowProcessor {
     fn execute_windowed_aggregation_impl(
         query: &StreamingQuery,
         windowed_buffer: &[StreamRecord],
+        window_start: i64,
+        window_end: i64,
     ) -> Result<StreamRecord, SqlError> {
         use crate::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
 
@@ -536,6 +602,11 @@ impl WindowProcessor {
                 "_window_record_count".to_string(),
                 FieldValue::Integer(filtered_records.len() as i64),
             );
+            result_fields.insert(
+                "_window_start".to_string(),
+                FieldValue::Integer(window_start),
+            );
+            result_fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
 
             // Step 3: Apply HAVING clause filtering
             if let Some(having_expr) = having {

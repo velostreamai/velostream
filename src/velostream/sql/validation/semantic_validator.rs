@@ -238,14 +238,14 @@ mod tests {
     #[test]
     fn test_unknown_function() {
         let validator = SemanticValidator::new();
-        let query = parse_query("SELECT TUMBLE_START(event_time, INTERVAL '1' SECOND) FROM orders");
+        let query = parse_query("SELECT UNKNOWN_FUNC(event_time) FROM orders");
         let mut result = QueryValidationResult::new(String::new());
 
         validator.validate(&query, &mut result);
 
         assert!(!result.semantic_errors.is_empty());
         assert!(result.semantic_errors[0].contains("Unknown function"));
-        assert!(result.semantic_errors[0].contains("TUMBLE_START"));
+        assert!(result.semantic_errors[0].contains("UNKNOWN_FUNC"));
     }
 
     #[test]

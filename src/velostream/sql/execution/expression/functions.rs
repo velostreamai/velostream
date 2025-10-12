@@ -170,6 +170,8 @@ impl BuiltinFunctions {
             // Date/Time functions
             "NOW" => Self::now_function(args, record),
             "CURRENT_TIMESTAMP" => Self::current_timestamp_function(args, record),
+            "TUMBLE_START" => Self::tumble_start_function(args, record),
+            "TUMBLE_END" => Self::tumble_end_function(args, record),
             "DATE_FORMAT" => Self::date_format_function(args, record),
             "FROM_UNIXTIME" => Self::from_unixtime_function(args, record),
             "UNIX_TIMESTAMP" => Self::unix_timestamp_function(args, record),
@@ -2093,6 +2095,39 @@ impl BuiltinFunctions {
         record: &StreamRecord,
     ) -> Result<FieldValue, SqlError> {
         Self::now_function(args, record)
+    }
+
+    /// TUMBLE_START function - returns the start timestamp of the current tumbling window
+    /// Reads the _window_start metadata field added by the window processor
+    fn tumble_start_function(
+        _args: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        // TUMBLE_START can accept 0-2 arguments (event_time column and window size)
+        // However, in practice it reads the window boundaries from record metadata
+
+        // Try to get _window_start from record metadata
+        if let Some(window_start) = record.fields.get("_window_start") {
+            return Ok(window_start.clone());
+        }
+
+        // Fallback: If no metadata, return record timestamp (for non-windowed queries)
+        Ok(FieldValue::Integer(record.timestamp))
+    }
+
+    /// TUMBLE_END function - returns the end timestamp of the current tumbling window
+    /// Reads the _window_end metadata field added by the window processor
+    fn tumble_end_function(_args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        // TUMBLE_END can accept 0-2 arguments (event_time column and window size)
+        // However, in practice it reads the window boundaries from record metadata
+
+        // Try to get _window_end from record metadata
+        if let Some(window_end) = record.fields.get("_window_end") {
+            return Ok(window_end.clone());
+        }
+
+        // Fallback: If no metadata, return record timestamp (for non-windowed queries)
+        Ok(FieldValue::Integer(record.timestamp))
     }
 
     fn date_format_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
