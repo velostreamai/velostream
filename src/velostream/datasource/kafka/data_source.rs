@@ -176,15 +176,18 @@ impl KafkaDataSource {
 
                 // Filter out application-level properties that shouldn't be passed to rdkafka
                 let application_properties = [
-                    "format",           // Serialization format (json/avro/protobuf)
-                    "value.format",     // Same as format
-                    "has_headers",      // CSV file header flag
-                    "path",             // File path (for file sources)
-                    "append",           // File append mode
+                    "format",       // Serialization format (json/avro/protobuf)
+                    "value.format", // Same as format
+                    "has_headers",  // CSV file header flag
+                    "path",         // File path (for file sources)
+                    "append",       // File append mode
                 ];
 
                 if application_properties.contains(&config_key.as_str()) {
-                    log::debug!("  Skipping application-level property: {} (not for Kafka consumer)", config_key);
+                    log::debug!(
+                        "  Skipping application-level property: {} (not for Kafka consumer)",
+                        config_key
+                    );
                     continue;
                 }
 
