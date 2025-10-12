@@ -12,6 +12,8 @@ pub struct FunctionRegistry {
     supported_functions: HashSet<String>,
     /// Functions that can be used in OVER clauses (window functions)
     window_functions: HashSet<String>,
+    /// Aggregate functions (COUNT, SUM, AVG, etc.)
+    aggregate_functions: HashSet<String>,
 }
 
 impl FunctionRegistry {
@@ -20,6 +22,7 @@ impl FunctionRegistry {
         let mut registry = Self {
             supported_functions: HashSet::new(),
             window_functions: HashSet::new(),
+            aggregate_functions: HashSet::new(),
         };
 
         registry.register_all_functions();
@@ -34,6 +37,11 @@ impl FunctionRegistry {
     /// Check if a function can be used in OVER clauses
     pub fn is_window_function(&self, name: &str) -> bool {
         self.window_functions.contains(&name.to_uppercase())
+    }
+
+    /// Check if a function is an aggregate function
+    pub fn is_aggregate_function(&self, name: &str) -> bool {
+        self.aggregate_functions.contains(&name.to_uppercase())
     }
 
     /// Get list of similar function names (for suggestions)
@@ -85,6 +93,7 @@ impl FunctionRegistry {
 
         for func in functions {
             self.supported_functions.insert(func.to_string());
+            self.aggregate_functions.insert(func.to_string());
         }
     }
 
@@ -288,5 +297,55 @@ mod tests {
 
         let similar = registry.find_similar_functions("LAST", 5);
         assert!(similar.contains(&"LAST_VALUE".to_string()));
+    }
+
+    #[test]
+    fn test_aggregate_functions() {
+        let registry = FunctionRegistry::new();
+
+        // Test aggregate functions
+        assert!(registry.is_aggregate_function("COUNT"));
+        assert!(registry.is_aggregate_function("SUM"));
+        assert!(registry.is_aggregate_function("AVG"));
+        assert!(registry.is_aggregate_function("MIN"));
+        assert!(registry.is_aggregate_function("MAX"));
+        assert!(registry.is_aggregate_function("APPROX_COUNT_DISTINCT"));
+
+        // Test case insensitivity
+        assert!(registry.is_aggregate_function("count"));
+        assert!(registry.is_aggregate_function("Count"));
+
+        // Test non-aggregate functions
+        assert!(!registry.is_aggregate_function("UPPER"));
+        assert!(!registry.is_aggregate_function("SUBSTRING"));
+        assert!(!registry.is_aggregate_function("NOW"));
+
+        // Test window functions are NOT aggregates (unless they're also aggregates)
+        assert!(!registry.is_aggregate_function("ROW_NUMBER"));
+        assert!(!registry.is_aggregate_function("LAG"));
+        assert!(!registry.is_aggregate_function("LEAD"));
+    }
+
+    #[test]
+    fn test_aggregate_and_window_distinction() {
+        let registry = FunctionRegistry::new();
+
+        // FIRST_VALUE and LAST_VALUE are both aggregates AND window functions
+        assert!(registry.is_aggregate_function("FIRST_VALUE"));
+        assert!(registry.is_window_function("FIRST_VALUE"));
+        assert!(registry.is_aggregate_function("LAST_VALUE"));
+        assert!(registry.is_window_function("LAST_VALUE"));
+
+        // Most aggregates are NOT window functions
+        assert!(registry.is_aggregate_function("COUNT"));
+        assert!(!registry.is_window_function("COUNT"));
+        assert!(registry.is_aggregate_function("SUM"));
+        assert!(!registry.is_window_function("SUM"));
+
+        // Most window functions are NOT aggregates
+        assert!(registry.is_window_function("ROW_NUMBER"));
+        assert!(!registry.is_aggregate_function("ROW_NUMBER"));
+        assert!(registry.is_window_function("RANK"));
+        assert!(!registry.is_aggregate_function("RANK"));
     }
 }

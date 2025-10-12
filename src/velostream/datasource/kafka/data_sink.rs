@@ -67,12 +67,12 @@ impl KafkaDataSink {
                 let config_key = key.strip_prefix("sink.").unwrap().to_string();
 
                 // Filter out application-level properties that shouldn't be passed to rdkafka
+                // Note: "value.format" is NOT filtered - it's a valid Kafka/serialization property
                 let application_properties = [
-                    "format",       // Serialization format (json/avro/protobuf)
-                    "value.format", // Same as format
-                    "has_headers",  // CSV file header flag
-                    "path",         // File path (for file sinks)
-                    "append",       // File append mode
+                    "format",      // Bare format property (application-level)
+                    "has_headers", // CSV file header flag
+                    "path",        // File path (for file sinks)
+                    "append",      // File append mode
                 ];
 
                 if application_properties.contains(&config_key.as_str()) {

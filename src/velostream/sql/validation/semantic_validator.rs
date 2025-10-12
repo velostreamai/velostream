@@ -187,13 +187,8 @@ impl SemanticValidator {
 
         // Check if this function can be used with OVER
         if !FUNCTION_REGISTRY.is_window_function(&name_upper) {
-            // Check if it's an aggregate function
-            let is_aggregate = matches!(
-                name_upper.as_str(),
-                "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "APPROX_COUNT_DISTINCT"
-            );
-
-            if is_aggregate {
+            // Check if it's an aggregate function using the registry
+            if FUNCTION_REGISTRY.is_aggregate_function(&name_upper) {
                 result.add_semantic_error(format!(
                     "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE",
                     name
@@ -259,5 +254,63 @@ mod tests {
         validator.validate(&query, &mut result);
 
         assert!(result.semantic_errors.is_empty());
+    }
+
+    #[test]
+    fn test_aggregate_function_in_over_clause_error() {
+        let validator = SemanticValidator::new();
+        // COUNT is an aggregate function and should NOT be allowed in OVER clause
+        let query = parse_query(
+            "SELECT COUNT(*) OVER (PARTITION BY symbol ORDER BY event_time) FROM market_data",
+        );
+        let mut result = QueryValidationResult::new(String::new());
+
+        validator.validate(&query, &mut result);
+
+        // Should have semantic error about unsupported window function
+        assert!(!result.semantic_errors.is_empty());
+        assert!(result.semantic_errors[0].contains("Unsupported window function"));
+        assert!(result.semantic_errors[0].contains("COUNT"));
+    }
+
+    #[test]
+    fn test_various_aggregates_in_over_clause() {
+        let validator = SemanticValidator::new();
+        let test_cases = vec![
+            (
+                "SUM",
+                "SELECT SUM(price) OVER (ORDER BY event_time) FROM trades",
+            ),
+            (
+                "AVG",
+                "SELECT AVG(price) OVER (ORDER BY event_time) FROM trades",
+            ),
+            (
+                "MIN",
+                "SELECT MIN(price) OVER (ORDER BY event_time) FROM trades",
+            ),
+            (
+                "MAX",
+                "SELECT MAX(price) OVER (ORDER BY event_time) FROM trades",
+            ),
+        ];
+
+        for (func_name, query_sql) in test_cases {
+            let query = parse_query(query_sql);
+            let mut result = QueryValidationResult::new(String::new());
+
+            validator.validate(&query, &mut result);
+
+            assert!(
+                !result.semantic_errors.is_empty(),
+                "{} should not be allowed in OVER clause",
+                func_name
+            );
+            assert!(
+                result.semantic_errors[0].contains("Unsupported window function"),
+                "{} error message incorrect",
+                func_name
+            );
+        }
     }
 }
