@@ -65,6 +65,21 @@ impl KafkaDataSink {
             if key.starts_with("sink.") {
                 // Remove sink. prefix for the config map
                 let config_key = key.strip_prefix("sink.").unwrap().to_string();
+
+                // Filter out application-level properties that shouldn't be passed to rdkafka
+                let application_properties = [
+                    "format",           // Serialization format (json/avro/protobuf)
+                    "value.format",     // Same as format
+                    "has_headers",      // CSV file header flag
+                    "path",             // File path (for file sinks)
+                    "append",           // File append mode
+                ];
+
+                if application_properties.contains(&config_key.as_str()) {
+                    log::debug!("  Skipping application-level property: {} (not for Kafka producer)", config_key);
+                    continue;
+                }
+
                 sink_config.insert(config_key, value.clone());
             } else if !key.starts_with("source.")
                 && !merged_props.contains_key(&format!("sink.{}", key))
