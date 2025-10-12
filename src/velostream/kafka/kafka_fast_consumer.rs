@@ -230,7 +230,7 @@ pub struct KafkaStream<'a, K, V> {
 impl<'a, K, V> Stream for KafkaStream<'a, K, V> {
     type Item = Result<Message<K, V>, ConsumerError>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Use BaseConsumer's poll with very short timeout
         // Note: Using 1ms timeout provides low latency without busy-waiting
         match self.consumer.poll(Duration::from_millis(1)) {
@@ -242,8 +242,9 @@ impl<'a, K, V> Stream for KafkaStream<'a, K, V> {
             }
             Some(Err(e)) => Poll::Ready(Some(Err(ConsumerError::KafkaError(e)))),
             None => {
-                // No message available - return Pending and let async runtime reschedule
-                // DO NOT call cx.waker().wake_by_ref() here - that creates CPU spinning!
+                // No message available - wake to retry polling
+                // The async runtime will schedule this appropriately
+                cx.waker().wake_by_ref();
                 Poll::Pending
             }
         }
@@ -314,7 +315,7 @@ pub struct BufferedKafkaStream<'a, K, V> {
 impl<'a, K: Unpin, V: Unpin> Stream for BufferedKafkaStream<'a, K, V> {
     type Item = Result<Message<K, V>, ConsumerError>;
 
-    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
         // Return buffered message if available
@@ -343,8 +344,9 @@ impl<'a, K: Unpin, V: Unpin> Stream for BufferedKafkaStream<'a, K, V> {
         if let Some(msg) = this.buffer.pop_front() {
             Poll::Ready(Some(msg))
         } else {
-            // No messages available - return Pending and let async runtime reschedule
-            // DO NOT call cx.waker().wake_by_ref() here - that creates CPU spinning!
+            // No messages available - wake to retry polling
+            // The async runtime will schedule this appropriately
+            cx.waker().wake_by_ref();
             Poll::Pending
         }
     }
@@ -672,15 +674,13 @@ use tokio::task;
 /// }
 /// ```
 pub struct DedicatedKafkaStream<K, V> {
-    receiver: tokio::sync::mpsc::UnboundedReceiver<Result<Message<K, V>, ConsumerError>>,
-    _handle: task::JoinHandle<()>,
+    receiver: std::sync::mpsc::Receiver<Result<Message<K, V>, ConsumerError>>,
+    _handle: std::thread::JoinHandle<()>,
 }
 
-impl<K, V> Stream for DedicatedKafkaStream<K, V> {
-    type Item = Result<Message<K, V>, ConsumerError>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.receiver.poll_recv(cx)
+impl<K, V> DedicatedKafkaStream<K, V> {
+    pub fn next(&mut self) -> Option<Result<Message<K, V>, ConsumerError>> {
+        self.receiver.recv().ok()
     }
 }
 
@@ -754,39 +754,37 @@ where
     /// - [`stream`](Self::stream) - For lower CPU usage
     /// - [`buffered_stream`](Self::buffered_stream) - For balanced performance
     pub fn dedicated_stream(self: std::sync::Arc<Self>) -> DedicatedKafkaStream<K, V> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1000);
 
-        let handle = task::spawn_blocking(move || {
-            loop {
-                // Use BaseConsumer's blocking poll - fastest possible
-                match self.consumer.poll(Duration::from_millis(100)) {
-                    Some(Ok(msg)) => {
-                        match process_kafka_message(
-                            msg,
-                            &*self.key_serializer,
-                            &*self.value_serializer,
-                        ) {
-                            Ok(processed) => {
-                                if tx.send(Ok(processed)).is_err() {
-                                    break; // Receiver dropped - graceful shutdown
-                                }
+        let consumer = self.clone();
+        let handle = std::thread::spawn(move || loop {
+            match consumer.consumer.poll(Duration::from_millis(100)) {
+                Some(Ok(msg)) => {
+                    match process_kafka_message(
+                        msg,
+                        &*consumer.key_serializer,
+                        &*consumer.value_serializer,
+                    ) {
+                        Ok(processed) => {
+                            if tx.send(Ok(processed)).is_err() {
+                                break;
                             }
-                            Err(e) => {
-                                if tx.send(Err(e)).is_err() {
-                                    break; // Receiver dropped
-                                }
+                        }
+                        Err(e) => {
+                            if tx.send(Err(e)).is_err() {
+                                break;
                             }
                         }
                     }
-                    Some(Err(e)) => {
-                        let _ = tx.send(Err(ConsumerError::KafkaError(e)));
-                        break; // Fatal error, stop consuming
-                    }
-                    None => continue, // Timeout, keep polling
                 }
+                Some(Err(e)) => {
+                    if tx.send(Err(ConsumerError::KafkaError(e))).is_err() {
+                        break;
+                    }
+                }
+                None => {}
             }
         });
-
         DedicatedKafkaStream {
             receiver: rx,
             _handle: handle,
