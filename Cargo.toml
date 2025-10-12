@@ -40,6 +40,7 @@ regex = "1.5"
 async-trait = "0.1"
 async-stream = "0.3"
 lazy_static = "1.4"
+inventory = "0.3"
 
 # Dependencies for additional serialization formats (now always available)
 apache-avro = { version = "0.20.0" }

@@ -170,21 +170,29 @@ impl MetricsProvider {
         label_names: &[String],
     ) -> Result<(), SqlError> {
         if !self.active {
+            log::error!(
+                "❌ Cannot register counter '{}': Metrics provider is not active",
+                name
+            );
             return Err(SqlError::ConfigurationError {
                 message: "Metrics provider is not active".to_string(),
             });
         }
 
-        let mut counters =
-            self.dynamic_counters
-                .lock()
-                .map_err(|e| SqlError::ConfigurationError {
-                    message: format!("Failed to acquire lock on dynamic counters: {}", e),
-                })?;
+        let mut counters = self.dynamic_counters.lock().map_err(|e| {
+            log::error!(
+                "❌ Failed to acquire lock on dynamic counters for '{}': {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on dynamic counters: {}", e),
+            }
+        })?;
 
         // Check if metric already registered
         if counters.contains_key(name) {
-            log::debug!("📊 Counter metric '{}' already registered, skipping", name);
+            log::warn!("⚠️  Counter metric '{}' already registered, skipping", name);
             return Ok(());
         }
 
@@ -197,8 +205,15 @@ impl MetricsProvider {
             &label_refs,
             &self.registry
         )
-        .map_err(|e| SqlError::ConfigurationError {
-            message: format!("Failed to register counter '{}': {}", name, e),
+        .map_err(|e| {
+            log::error!(
+                "❌ Failed to register counter '{}' with Prometheus: {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
+                message: format!("Failed to register counter '{}': {}", name, e),
+            }
         })?;
 
         counters.insert(name.to_string(), counter);
@@ -223,21 +238,30 @@ impl MetricsProvider {
     /// * `Err(SqlError)` - Metric not found or label mismatch
     pub fn emit_counter(&self, name: &str, label_values: &[String]) -> Result<(), SqlError> {
         if !self.active {
+            log::warn!(
+                "⚠️  Skipping counter emission for '{}': Metrics provider is not active",
+                name
+            );
             return Ok(()); // Silently skip if not active
         }
 
-        let counters = self
-            .dynamic_counters
-            .lock()
-            .map_err(|e| SqlError::ConfigurationError {
+        let counters = self.dynamic_counters.lock().map_err(|e| {
+            log::error!(
+                "❌ Failed to acquire lock on dynamic counters for '{}': {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
                 message: format!("Failed to acquire lock on dynamic counters: {}", e),
-            })?;
+            }
+        })?;
 
-        let counter = counters
-            .get(name)
-            .ok_or_else(|| SqlError::ConfigurationError {
+        let counter = counters.get(name).ok_or_else(|| {
+            log::error!("❌ Counter metric '{}' not registered", name);
+            SqlError::ConfigurationError {
                 message: format!("Counter metric '{}' not registered", name),
-            })?;
+            }
+        })?;
 
         // Convert Vec<String> to Vec<&str> for label lookup
         let label_refs: Vec<&str> = label_values.iter().map(|s| s.as_str()).collect();
@@ -270,21 +294,29 @@ impl MetricsProvider {
         label_names: &[String],
     ) -> Result<(), SqlError> {
         if !self.active {
+            log::error!(
+                "❌ Cannot register gauge '{}': Metrics provider is not active",
+                name
+            );
             return Err(SqlError::ConfigurationError {
                 message: "Metrics provider is not active".to_string(),
             });
         }
 
-        let mut gauges = self
-            .dynamic_gauges
-            .lock()
-            .map_err(|e| SqlError::ConfigurationError {
+        let mut gauges = self.dynamic_gauges.lock().map_err(|e| {
+            log::error!(
+                "❌ Failed to acquire lock on dynamic gauges for '{}': {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
                 message: format!("Failed to acquire lock on dynamic gauges: {}", e),
-            })?;
+            }
+        })?;
 
         // Check if metric already registered
         if gauges.contains_key(name) {
-            log::debug!("📊 Gauge metric '{}' already registered, skipping", name);
+            log::warn!("⚠️  Gauge metric '{}' already registered, skipping", name);
             return Ok(());
         }
 
@@ -294,8 +326,15 @@ impl MetricsProvider {
         // Register the gauge with the registry
         let gauge =
             register_gauge_vec_with_registry!(Opts::new(name, help), &label_refs, &self.registry)
-                .map_err(|e| SqlError::ConfigurationError {
-                message: format!("Failed to register gauge '{}': {}", name, e),
+                .map_err(|e| {
+                log::error!(
+                    "❌ Failed to register gauge '{}' with Prometheus: {}",
+                    name,
+                    e
+                );
+                SqlError::ConfigurationError {
+                    message: format!("Failed to register gauge '{}': {}", name, e),
+                }
             })?;
 
         gauges.insert(name.to_string(), gauge);
@@ -326,21 +365,30 @@ impl MetricsProvider {
         value: f64,
     ) -> Result<(), SqlError> {
         if !self.active {
+            log::warn!(
+                "⚠️  Skipping gauge emission for '{}': Metrics provider is not active",
+                name
+            );
             return Ok(()); // Silently skip if not active
         }
 
-        let gauges = self
-            .dynamic_gauges
-            .lock()
-            .map_err(|e| SqlError::ConfigurationError {
+        let gauges = self.dynamic_gauges.lock().map_err(|e| {
+            log::error!(
+                "❌ Failed to acquire lock on dynamic gauges for '{}': {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
                 message: format!("Failed to acquire lock on dynamic gauges: {}", e),
-            })?;
+            }
+        })?;
 
-        let gauge = gauges
-            .get(name)
-            .ok_or_else(|| SqlError::ConfigurationError {
+        let gauge = gauges.get(name).ok_or_else(|| {
+            log::error!("❌ Gauge metric '{}' not registered", name);
+            SqlError::ConfigurationError {
                 message: format!("Gauge metric '{}' not registered", name),
-            })?;
+            }
+        })?;
 
         // Convert Vec<String> to Vec<&str> for label lookup
         let label_refs: Vec<&str> = label_values.iter().map(|s| s.as_str()).collect();
@@ -376,22 +424,30 @@ impl MetricsProvider {
         buckets: Option<Vec<f64>>,
     ) -> Result<(), SqlError> {
         if !self.active {
+            log::error!(
+                "❌ Cannot register histogram '{}': Metrics provider is not active",
+                name
+            );
             return Err(SqlError::ConfigurationError {
                 message: "Metrics provider is not active".to_string(),
             });
         }
 
-        let mut histograms =
-            self.dynamic_histograms
-                .lock()
-                .map_err(|e| SqlError::ConfigurationError {
-                    message: format!("Failed to acquire lock on dynamic histograms: {}", e),
-                })?;
+        let mut histograms = self.dynamic_histograms.lock().map_err(|e| {
+            log::error!(
+                "❌ Failed to acquire lock on dynamic histograms for '{}': {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on dynamic histograms: {}", e),
+            }
+        })?;
 
         // Check if metric already registered
         if histograms.contains_key(name) {
-            log::debug!(
-                "📊 Histogram metric '{}' already registered, skipping",
+            log::warn!(
+                "⚠️  Histogram metric '{}' already registered, skipping",
                 name
             );
             return Ok(());
@@ -413,8 +469,15 @@ impl MetricsProvider {
         // Register the histogram with the registry
         let histogram =
             register_histogram_vec_with_registry!(histogram_opts, &label_refs, &self.registry)
-                .map_err(|e| SqlError::ConfigurationError {
-                    message: format!("Failed to register histogram '{}': {}", name, e),
+                .map_err(|e| {
+                    log::error!(
+                        "❌ Failed to register histogram '{}' with Prometheus: {}",
+                        name,
+                        e
+                    );
+                    SqlError::ConfigurationError {
+                        message: format!("Failed to register histogram '{}': {}", name, e),
+                    }
                 })?;
 
         histograms.insert(name.to_string(), histogram);
@@ -445,21 +508,30 @@ impl MetricsProvider {
         value: f64,
     ) -> Result<(), SqlError> {
         if !self.active {
+            log::warn!(
+                "⚠️  Skipping histogram emission for '{}': Metrics provider is not active",
+                name
+            );
             return Ok(()); // Silently skip if not active
         }
 
-        let histograms =
-            self.dynamic_histograms
-                .lock()
-                .map_err(|e| SqlError::ConfigurationError {
-                    message: format!("Failed to acquire lock on dynamic histograms: {}", e),
-                })?;
+        let histograms = self.dynamic_histograms.lock().map_err(|e| {
+            log::error!(
+                "❌ Failed to acquire lock on dynamic histograms for '{}': {}",
+                name,
+                e
+            );
+            SqlError::ConfigurationError {
+                message: format!("Failed to acquire lock on dynamic histograms: {}", e),
+            }
+        })?;
 
-        let histogram = histograms
-            .get(name)
-            .ok_or_else(|| SqlError::ConfigurationError {
+        let histogram = histograms.get(name).ok_or_else(|| {
+            log::error!("❌ Histogram metric '{}' not registered", name);
+            SqlError::ConfigurationError {
                 message: format!("Histogram metric '{}' not registered", name),
-            })?;
+            }
+        })?;
 
         // Convert Vec<String> to Vec<&str> for label lookup
         let label_refs: Vec<&str> = label_values.iter().map(|s| s.as_str()).collect();
