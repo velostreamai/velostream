@@ -1232,46 +1232,85 @@ impl SelectProcessor {
             }
             Expr::BinaryOp { left, op, right } => {
                 use crate::velostream::sql::ast::BinaryOperator;
-                let left_val = Self::evaluate_having_value_expression(
-                    left,
-                    accumulator,
-                    fields,
-                    record,
-                    context,
-                )?;
-                let right_val = Self::evaluate_having_value_expression(
-                    right,
-                    accumulator,
-                    fields,
-                    record,
-                    context,
-                )?;
 
+                // Handle logical operators (AND/OR) differently - they need boolean evaluation
                 match op {
-                    BinaryOperator::GreaterThan => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp > 0)
+                    BinaryOperator::And => {
+                        // For AND/OR, evaluate both sides as boolean conditions (not values)
+                        let left_bool = Self::evaluate_having_expression(
+                            left,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        let right_bool = Self::evaluate_having_expression(
+                            right,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        Ok(left_bool && right_bool)
                     }
-                    BinaryOperator::GreaterThanOrEqual => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp >= 0)
+                    BinaryOperator::Or => {
+                        // For AND/OR, evaluate both sides as boolean conditions (not values)
+                        let left_bool = Self::evaluate_having_expression(
+                            left,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        let right_bool = Self::evaluate_having_expression(
+                            right,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        Ok(left_bool || right_bool)
                     }
-                    BinaryOperator::LessThan => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp < 0)
+                    // For comparison and other operators, evaluate as values first
+                    _ => {
+                        let left_val = Self::evaluate_having_value_expression(
+                            left,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        let right_val = Self::evaluate_having_value_expression(
+                            right,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+
+                        match op {
+                            BinaryOperator::GreaterThan => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp > 0)
+                            }
+                            BinaryOperator::GreaterThanOrEqual => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp >= 0)
+                            }
+                            BinaryOperator::LessThan => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp < 0)
+                            }
+                            BinaryOperator::LessThanOrEqual => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp <= 0)
+                            }
+                            BinaryOperator::Equal => Ok(Self::field_values_equal(&left_val, &right_val)),
+                            BinaryOperator::NotEqual => {
+                                Ok(!Self::field_values_equal(&left_val, &right_val))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: format!("Unsupported operator in HAVING clause: {:?}", op),
+                                query: None,
+                            }),
+                        }
                     }
-                    BinaryOperator::LessThanOrEqual => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp <= 0)
-                    }
-                    BinaryOperator::Equal => Ok(Self::field_values_equal(&left_val, &right_val)),
-                    BinaryOperator::NotEqual => {
-                        Ok(!Self::field_values_equal(&left_val, &right_val))
-                    }
-                    BinaryOperator::And => Ok(Self::field_value_to_bool(&left_val)?
-                        && Self::field_value_to_bool(&right_val)?),
-                    BinaryOperator::Or => Ok(Self::field_value_to_bool(&left_val)?
-                        || Self::field_value_to_bool(&right_val)?),
-                    _ => Err(SqlError::ExecutionError {
-                        message: format!("Unsupported operator in HAVING clause: {:?}", op),
-                        query: None,
-                    }),
                 }
             }
             Expr::UnaryOp {
