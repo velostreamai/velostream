@@ -25,8 +25,8 @@ pub mod where_clause_performance_test;
 // Individual performance test modules (these ARE discoverable and clickable in IDEs)
 pub mod avro_decimal_roundtrip_test;
 pub mod kafka_consumer_benchmark;
+pub mod microbench_job_server_profiling;
 pub mod microbench_multi_sink_write;
-pub mod microbench_profiling;
 pub mod performance_optimization_verification;
 pub mod performance_regression_test;
 

@@ -18,6 +18,7 @@ SETUP_DASHBOARD=false
 INTERACTIVE_MODE=false
 QUICK_START=false
 ENABLE_METRICS=false
+FORCE_REBUILD=false
 
 # Parse command-line arguments
 show_usage() {
@@ -33,6 +34,7 @@ OPTIONS:
     -i, --interactive       Run in interactive/foreground mode
     -q, --quick             Quick 1-minute demo
     -m, --with-metrics      Display monitoring info early (before deployment)
+    -y, --yes               Force rebuild of all binaries (cargo clean + build)
 
 DURATION:
     Number of minutes to run simulation (default: 10)
@@ -47,6 +49,8 @@ EXAMPLES:
     $0 -i                   # Interactive mode (foreground)
     $0 -m                   # Show monitoring info before deployment starts
     $0 -q -m                # Quick demo with early metrics display
+    $0 -y                   # Force clean rebuild of all binaries
+    $0 -y -r                # Force rebuild with release optimization
 
 NOTE:
     Monitoring dashboards (Grafana/Prometheus/Kafka UI) are ALWAYS started
@@ -87,6 +91,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -m|--with-metrics)
             ENABLE_METRICS=true
+            shift
+            ;;
+        -y|--yes)
+            FORCE_REBUILD=true
             shift
             ;;
         -*)
@@ -139,6 +147,29 @@ echo -e "${BLUE}========================================${NC}"
 # Function: Print step
 print_step() {
     echo -e "\n${BLUE}▶ $1${NC}"
+}
+
+# Function: Print timestamp
+print_timestamp() {
+    echo -e "${BLUE}[$(date '+%Y-%m-%d %H:%M:%S')]${NC} $1"
+}
+
+# Function: Print binary info
+print_binary_info() {
+    local binary_path=$1
+    local binary_name=$(basename "$binary_path")
+
+    if [ -f "$binary_path" ]; then
+        local mod_time=$(date -r "$binary_path" '+%Y-%m-%d %H:%M:%S')
+        local size=$(ls -lh "$binary_path" | awk '{print $5}')
+        echo -e "${GREEN}Binary: $binary_name${NC}"
+        echo -e "  Path:     $binary_path"
+        echo -e "  Modified: $mod_time"
+        echo -e "  Size:     $size"
+    else
+        echo -e "${YELLOW}Binary: $binary_name (will be built)${NC}"
+        echo -e "  Path:     $binary_path"
+    fi
 }
 
 # Function: Check status
@@ -307,29 +338,65 @@ for topic_spec in "${REQUIRED_TOPICS[@]}"; do
 done
 
 # Step 5: Build binaries (always check for updates)
-print_step "Step 5: Building project binaries (Cargo rebuilds only if source changed)"
+if [ "$FORCE_REBUILD" = true ]; then
+    print_step "Step 5: Force rebuilding project binaries (clean + build)"
+    echo -e "${YELLOW}⚠ Force rebuild requested - this will take longer${NC}"
+else
+    print_step "Step 5: Building project binaries (Cargo rebuilds only if source changed)"
+fi
+
+# Force rebuild if requested
+if [ "$FORCE_REBUILD" = true ]; then
+    cd ../..
+    echo "Running cargo clean..."
+    cargo clean
+    check_status "Build artifacts cleaned"
+    cd demo/trading
+fi
 
 # Build main Velostream binary
+echo ""
 echo "Building/checking main Velostream project..."
 cd ../..
+
+VELO_BINARY_PATH="$BUILD_DIR/velo-sql-multi"
+print_binary_info "$VELO_BINARY_PATH"
+
+print_timestamp "Starting velo-sql-multi build..."
 if ! cargo build $BUILD_FLAG --bin velo-sql-multi; then
     echo -e "${RED}✗ Failed to build velo-sql-multi${NC}"
     echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql-multi${NC}"
     echo -e "${YELLOW}Or update Rust: rustup update stable${NC}"
     exit 1
 fi
+print_timestamp "Completed velo-sql-multi build"
 check_status "velo-sql-multi ready"
+
+# Show updated binary info
+print_binary_info "$VELO_BINARY_PATH"
+
 cd demo/trading
 
 # Build trading data generator
+echo ""
 echo "Building/checking trading data generator..."
+
+GENERATOR_BINARY_PATH="$BUILD_DIR/trading_data_generator"
+print_binary_info "$GENERATOR_BINARY_PATH"
+
+print_timestamp "Starting trading_data_generator build..."
 if ! cargo build $BUILD_FLAG --bin trading_data_generator; then
     echo -e "${RED}✗ Failed to build trading_data_generator${NC}"
     echo -e "${YELLOW}Try: cargo clean && cargo build --bin trading_data_generator${NC}"
     exit 1
 fi
+print_timestamp "Completed trading_data_generator build"
 check_status "Trading data generator ready"
 
+# Show updated binary info
+print_binary_info "$GENERATOR_BINARY_PATH"
+
+echo ""
 echo -e "${GREEN}✓ All binaries up-to-date${NC}"
 
 # Step 6: Reset consumer groups (for clean demo start)
@@ -345,8 +412,17 @@ done
 # Step 7: Start data generator
 print_step "Step 7: Starting trading data generator"
 echo "Simulation duration: ${SIMULATION_DURATION} minutes"
+
+# Show binary info before execution
+echo ""
+print_binary_info "$GENERATOR_BINARY_PATH"
+echo ""
+
+print_timestamp "Launching trading_data_generator..."
+echo -e "${BLUE}Command: ./$BUILD_DIR/trading_data_generator $KAFKA_BROKER $SIMULATION_DURATION${NC}"
 ./$BUILD_DIR/trading_data_generator $KAFKA_BROKER $SIMULATION_DURATION > /tmp/trading_generator.log 2>&1 &
 GENERATOR_PID=$!
+print_timestamp "Data generator started (PID: $GENERATOR_PID)"
 echo -e "${GREEN}✓ Data generator started (PID: $GENERATOR_PID)${NC}"
 
 # Step 8: Verify data is flowing
@@ -355,6 +431,11 @@ wait_for 30 2 "docker exec simple-kafka kafka-console-consumer --bootstrap-serve
 
 # Step 9: Deploy SQL application
 print_step "Step 9: Deploying SQL application"
+
+# Show binary info before execution
+echo ""
+print_binary_info "$VELO_BINARY_PATH"
+echo ""
 
 if [ "$ENABLE_METRICS" = true ]; then
     echo ""
@@ -382,6 +463,10 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     echo "Deploying 8 streaming queries with observability enabled..."
     echo -e "${YELLOW}Running in interactive mode (foreground)...${NC}"
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
+    echo ""
+    print_timestamp "Launching velo-sql-multi (interactive mode)..."
+    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
+    echo ""
     $VELO_BUILD_DIR/velo-sql-multi deploy-app \
         --file sql/financial_trading.sql \
         --enable-tracing \
@@ -391,6 +476,9 @@ if [ "$INTERACTIVE_MODE" = true ]; then
 else
     # Run in background (deploy-app mode)
     echo "Deploying 8 streaming queries with observability enabled..."
+    print_timestamp "Launching velo-sql-multi (background mode)..."
+    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
+    echo ""
     $VELO_BUILD_DIR/velo-sql-multi deploy-app \
         --file sql/financial_trading.sql \
         --enable-tracing \
@@ -399,6 +487,7 @@ else
         --enable-profiling \
         > /tmp/velo_deployment.log 2>&1 &
     DEPLOY_PID=$!
+    print_timestamp "Deployment started (PID: $DEPLOY_PID)"
     echo -e "${GREEN}✓ Deployment started with observability (PID: $DEPLOY_PID)${NC}"
 
     # Step 10: Monitor deployment

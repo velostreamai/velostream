@@ -28,5 +28,9 @@ pub mod post_cleanup_validation_test;
 // Datasource integration tests
 pub mod datasource;
 
+// Observability integration tests
+pub mod observability_job_processor_trace_test;
+pub mod observability_trace_propagation_test;
+
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

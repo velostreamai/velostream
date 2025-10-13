@@ -438,7 +438,7 @@ impl TransactionalJobProcessor {
             if let Ok(obs_lock) = obs.try_read() {
                 if let Some(telemetry) = obs_lock.telemetry() {
                     let mut span =
-                        telemetry.start_streaming_span("deserialization", batch.len() as u64);
+                        telemetry.start_streaming_span("deserialization", batch.len() as u64, None);
                     span.set_processing_time(deser_duration);
                     span.set_success();
                 }
@@ -461,7 +461,7 @@ impl TransactionalJobProcessor {
         if let Some(obs) = &self.observability {
             if let Ok(obs_lock) = obs.try_read() {
                 if let Some(telemetry) = obs_lock.telemetry() {
-                    let mut span = telemetry.start_sql_query_span("sql_processing", job_name);
+                    let mut span = telemetry.start_sql_query_span("sql_processing", job_name, None);
                     span.set_execution_time(sql_duration);
                     span.set_record_count(batch_result.records_processed as u64);
                     if batch_result.records_failed > 0 {
@@ -524,8 +524,11 @@ impl TransactionalJobProcessor {
                         if let Some(obs) = &self.observability {
                             if let Ok(obs_lock) = obs.try_read() {
                                 if let Some(telemetry) = obs_lock.telemetry() {
-                                    let mut span = telemetry
-                                        .start_streaming_span("serialization", record_count as u64);
+                                    let mut span = telemetry.start_streaming_span(
+                                        "serialization",
+                                        record_count as u64,
+                                        None,
+                                    );
                                     span.set_processing_time(ser_duration);
                                     span.set_success();
                                 }
@@ -544,8 +547,11 @@ impl TransactionalJobProcessor {
                         if let Some(obs) = &self.observability {
                             if let Ok(obs_lock) = obs.try_read() {
                                 if let Some(telemetry) = obs_lock.telemetry() {
-                                    let mut span = telemetry
-                                        .start_streaming_span("serialization", record_count as u64);
+                                    let mut span = telemetry.start_streaming_span(
+                                        "serialization",
+                                        record_count as u64,
+                                        None,
+                                    );
                                     span.set_processing_time(ser_duration);
                                     span.set_error(&format!("Write failed: {:?}", e));
                                 }
@@ -869,6 +875,7 @@ impl TransactionalJobProcessor {
                         let mut span = telemetry.start_streaming_span(
                             &format!("deserialization:{}", source_name),
                             batch.len() as u64,
+                            None,
                         );
                         span.set_processing_time(deser_duration);
                         span.set_success();
@@ -903,6 +910,7 @@ impl TransactionalJobProcessor {
                         let mut span = telemetry.start_sql_query_span(
                             &format!("sql_processing:{}", source_name),
                             job_name,
+                            None,
                         );
                         span.set_execution_time(sql_duration);
                         span.set_record_count(batch_result.records_processed as u64);
@@ -1023,6 +1031,7 @@ impl TransactionalJobProcessor {
                                     let mut span = telemetry.start_streaming_span(
                                         &format!("serialization:{}", &sink_names[0]),
                                         record_count as u64,
+                                        None,
                                     );
                                     span.set_processing_time(ser_duration);
                                     span.set_success();
@@ -1047,6 +1056,7 @@ impl TransactionalJobProcessor {
                                     let mut span = telemetry.start_streaming_span(
                                         &format!("serialization:{}", &sink_names[0]),
                                         record_count as u64,
+                                        None,
                                     );
                                     span.set_processing_time(ser_duration);
                                     span.set_error(&format!("Write failed: {:?}", e));
@@ -1083,6 +1093,7 @@ impl TransactionalJobProcessor {
                                         let mut span = telemetry.start_streaming_span(
                                             &format!("serialization:{}", sink_name),
                                             record_count as u64,
+                                            None,
                                         );
                                         span.set_processing_time(ser_duration);
                                         span.set_success();
@@ -1107,6 +1118,7 @@ impl TransactionalJobProcessor {
                                         let mut span = telemetry.start_streaming_span(
                                             &format!("serialization:{}", sink_name),
                                             record_count as u64,
+                                            None,
                                         );
                                         span.set_processing_time(ser_duration);
                                         span.set_error(&format!("Write failed: {:?}", e));

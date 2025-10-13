@@ -306,9 +306,27 @@ impl FunctionRegistry {
             self.window_functions.insert(func.to_string());
         }
 
-        // Note: Statistical aggregate functions (STDDEV, VARIANCE, etc.) can also be used
-        // in OVER clauses for window-based calculations, but they are registered as
-        // aggregate functions above. The execution engine handles their use in OVER clauses.
+        // Aggregate functions that can also be used as window functions
+        // These are registered as both aggregate AND window functions
+        let aggregate_window_functions = vec![
+            // Basic aggregates
+            "COUNT",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            // Statistical aggregates (can also be used in OVER clauses)
+            "STDDEV",
+            "STDDEV_SAMP",
+            "STDDEV_POP",
+            "VARIANCE",
+            "VAR_SAMP",
+            "VAR_POP",
+        ];
+
+        for func in aggregate_window_functions {
+            self.window_functions.insert(func.to_string());
+        }
     }
 
     fn register_json_functions(&mut self) {

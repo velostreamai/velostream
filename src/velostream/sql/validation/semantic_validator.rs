@@ -190,7 +190,7 @@ impl SemanticValidator {
             // Check if it's an aggregate function using the registry
             if FUNCTION_REGISTRY.is_aggregate_function(&name_upper) {
                 result.add_semantic_error(format!(
-                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE",
+                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE, AVG, SUM, MIN, MAX, COUNT, STDDEV, VARIANCE",
                     name
                 ));
             } else if FUNCTION_REGISTRY.is_function_supported(&name_upper) {
@@ -257,9 +257,9 @@ mod tests {
     }
 
     #[test]
-    fn test_aggregate_function_in_over_clause_error() {
+    fn test_aggregate_function_in_over_clause_allowed() {
         let validator = SemanticValidator::new();
-        // COUNT is an aggregate function and should NOT be allowed in OVER clause
+        // COUNT is an aggregate function and IS NOW allowed in OVER clause
         let query = parse_query(
             "SELECT COUNT(*) OVER (PARTITION BY symbol ORDER BY event_time) FROM market_data",
         );
@@ -267,14 +267,12 @@ mod tests {
 
         validator.validate(&query, &mut result);
 
-        // Should have semantic error about unsupported window function
-        assert!(!result.semantic_errors.is_empty());
-        assert!(result.semantic_errors[0].contains("Unsupported window function"));
-        assert!(result.semantic_errors[0].contains("COUNT"));
+        // Should have NO semantic errors - aggregate functions are now supported as window functions
+        assert!(result.semantic_errors.is_empty());
     }
 
     #[test]
-    fn test_various_aggregates_in_over_clause() {
+    fn test_various_aggregates_in_over_clause_allowed() {
         let validator = SemanticValidator::new();
         let test_cases = vec![
             (
@@ -302,13 +300,8 @@ mod tests {
             validator.validate(&query, &mut result);
 
             assert!(
-                !result.semantic_errors.is_empty(),
-                "{} should not be allowed in OVER clause",
-                func_name
-            );
-            assert!(
-                result.semantic_errors[0].contains("Unsupported window function"),
-                "{} error message incorrect",
+                result.semantic_errors.is_empty(),
+                "{} should be allowed in OVER clause",
                 func_name
             );
         }

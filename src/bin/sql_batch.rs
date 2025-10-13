@@ -201,7 +201,7 @@ async fn execute_sql_file(
                 .execute_with_record(parsed_query, record)
                 .await
             {
-                warn!("⚠️ Failed to process record: {:?}", e);
+                error!("⚠️ Failed to process record: {:?}", e);
             }
         }
 

@@ -9,15 +9,13 @@ Comprehensive tests for the newly implemented subquery functionality including:
 - NOT IN subqueries: WHERE column NOT IN (SELECT id FROM table WHERE condition)
 */
 
+// SqlQueryable removed - using UnifiedTable only
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::sql::SqlError;
-// SqlQueryable removed - using UnifiedTable only
-use async_trait::async_trait;
 use velostream::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };

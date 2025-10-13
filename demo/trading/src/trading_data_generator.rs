@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
 use velostream::velostream::kafka::kafka_error::ProducerError;
-use velostream::velostream::kafka::serialization::{Serializer, StringSerializer};
+use velostream::velostream::kafka::serialization::{Serde, StringSerializer};
 use velostream::velostream::kafka::{Headers, KafkaProducer};
 use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::sql::execution::types::FieldValue;
@@ -614,8 +614,8 @@ impl<K, V, KS, VS> ProducerTopicExt<K, V, KS, VS> for KafkaProducer<K, V, KS, VS
 where
     K: Clone,
     V: Clone,
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     async fn send_to_topic(
         &self,

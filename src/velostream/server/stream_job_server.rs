@@ -169,6 +169,72 @@ impl StreamJobServer {
         }
     }
 
+    /// Create server with full observability configuration (tracing, metrics, profiling)
+    pub async fn new_with_observability(
+        _brokers: String,
+        base_group_id: String,
+        max_jobs: usize,
+        streaming_config: StreamingConfig,
+    ) -> Self {
+        let performance_monitor = if streaming_config.enable_prometheus_metrics {
+            let monitor = Arc::new(PerformanceMonitor::new());
+            info!("Performance monitoring enabled for StreamJobServer");
+            Some(monitor)
+        } else {
+            None
+        };
+
+        // Initialize shared observability manager with full config (tracing, metrics, profiling)
+        let observability = if streaming_config.enable_distributed_tracing
+            || streaming_config.enable_prometheus_metrics
+            || streaming_config.enable_performance_profiling
+        {
+            use crate::velostream::observability::ObservabilityManager;
+
+            let mut obs_manager =
+                ObservabilityManager::from_streaming_config(streaming_config.clone());
+            match obs_manager.initialize().await {
+                Ok(()) => {
+                    info!("✅ Server-level observability initialized with full configuration");
+                    if streaming_config.enable_distributed_tracing {
+                        info!("  🔍 Distributed tracing: ACTIVE");
+                    }
+                    if streaming_config.enable_prometheus_metrics {
+                        info!("  📊 Prometheus metrics: ACTIVE");
+                    }
+                    if streaming_config.enable_performance_profiling {
+                        info!("  ⚡ Performance profiling: ACTIVE");
+                    }
+                    Some(Arc::new(RwLock::new(obs_manager)))
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to initialize observability: {}. Continuing without observability.", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let table_registry_config = TableRegistryConfig {
+            max_tables: 100,
+            enable_ttl: false,
+            ttl_duration_secs: None,
+            kafka_brokers: "localhost:9092".to_string(),
+            base_group_id: base_group_id.clone(),
+        };
+
+        Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            base_group_id,
+            max_jobs,
+            job_counter: Arc::new(Mutex::new(0)),
+            performance_monitor,
+            table_registry: TableRegistry::with_config(table_registry_config),
+            observability,
+        }
+    }
+
     /// Get performance metrics (if monitoring is enabled)
     pub fn get_performance_metrics(&self) -> Option<String> {
         // First try to get metrics from server-level ObservabilityManager (Phase 4)

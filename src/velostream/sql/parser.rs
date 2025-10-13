@@ -977,6 +977,53 @@ impl<'a> TokenParser<'a> {
         }
     }
 
+    /// Accept an identifier or a keyword that can be used as an identifier (e.g., table name)
+    /// This allows reserved keywords like TABLE, STREAM, etc. to be used as table/column names
+    fn expect_identifier_or_keyword(&mut self) -> Result<String, SqlError> {
+        let token = self.current_token();
+        match token.token_type {
+            TokenType::Identifier => {
+                let value = token.value.clone();
+                self.advance();
+                Ok(value)
+            }
+            // Allow many keywords to be used as identifiers in appropriate contexts
+            TokenType::Table
+            | TokenType::Stream
+            | TokenType::Create
+            | TokenType::Into
+            | TokenType::Show
+            | TokenType::List
+            | TokenType::Streams
+            | TokenType::Tables
+            | TokenType::Topics
+            | TokenType::Functions
+            | TokenType::Schema
+            | TokenType::Jobs
+            | TokenType::Job
+            | TokenType::Partitions
+            | TokenType::Start
+            | TokenType::Stop
+            | TokenType::Force
+            | TokenType::Pause
+            | TokenType::Resume
+            | TokenType::Deploy
+            | TokenType::Rollback
+            | TokenType::Version => {
+                let value = token.value.clone();
+                self.advance();
+                Ok(value)
+            }
+            _ => Err(SqlError::ParseError {
+                message: format!(
+                    "Expected identifier or usable keyword, found {:?}",
+                    token.token_type
+                ),
+                position: Some(token.position),
+            }),
+        }
+    }
+
     fn parse_select(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
@@ -988,13 +1035,8 @@ impl<'a> TokenParser<'a> {
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
-            // Support both identifiers and URI strings (FR-047)
+            // Support identifiers, keywords as identifiers, and URI strings (FR-047)
             let stream_name = match self.current_token().token_type {
-                TokenType::Identifier => {
-                    let name = self.current_token().value.clone();
-                    self.advance();
-                    name
-                }
                 TokenType::String => {
                     // URI string like 'file://path' or 'kafka://broker/topic'
                     let uri = self.current_token().value.clone();
@@ -1002,10 +1044,13 @@ impl<'a> TokenParser<'a> {
                     uri
                 }
                 _ => {
-                    return Err(SqlError::ParseError {
-                        message: "Expected stream name or data source URI after FROM".to_string(),
-                        position: Some(self.current_token().position),
-                    });
+                    // Try to parse as identifier or keyword that can be used as identifier
+                    self.expect_identifier_or_keyword()
+                        .map_err(|_| SqlError::ParseError {
+                            message: "Expected stream name or data source URI after FROM"
+                                .to_string(),
+                            position: Some(self.current_token().position),
+                        })?
                 }
             };
 
@@ -1550,13 +1595,8 @@ impl<'a> TokenParser<'a> {
         let from_stream = if self.current_token().token_type == TokenType::From {
             self.advance(); // consume FROM
 
-            // Support both identifiers and URI strings (FR-047)
+            // Support identifiers, keywords as identifiers, and URI strings (FR-047)
             let stream_name = match self.current_token().token_type {
-                TokenType::Identifier => {
-                    let name = self.current_token().value.clone();
-                    self.advance();
-                    name
-                }
                 TokenType::String => {
                     // URI string like 'file://path' or 'kafka://broker/topic'
                     let uri = self.current_token().value.clone();
@@ -1564,10 +1604,13 @@ impl<'a> TokenParser<'a> {
                     uri
                 }
                 _ => {
-                    return Err(SqlError::ParseError {
-                        message: "Expected stream name or data source URI after FROM".to_string(),
-                        position: Some(self.current_token().position),
-                    });
+                    // Try to parse as identifier or keyword that can be used as identifier
+                    self.expect_identifier_or_keyword()
+                        .map_err(|_| SqlError::ParseError {
+                            message: "Expected stream name or data source URI after FROM"
+                                .to_string(),
+                            position: Some(self.current_token().position),
+                        })?
                 }
             };
 
