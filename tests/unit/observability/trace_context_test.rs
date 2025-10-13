@@ -39,7 +39,9 @@ fn get_telemetry() -> &'static TelemetryProvider {
             })
         });
 
-        handle.join().expect("Failed to initialize telemetry provider")
+        handle
+            .join()
+            .expect("Failed to initialize telemetry provider")
     })
 }
 

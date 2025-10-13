@@ -186,20 +186,23 @@ impl SemanticValidator {
         let name_upper = name.to_uppercase();
 
         // Check if this function can be used with OVER
-        if !FUNCTION_REGISTRY.is_window_function(&name_upper) {
-            // Check if it's an aggregate function using the registry
-            if FUNCTION_REGISTRY.is_aggregate_function(&name_upper) {
+        // Two categories are allowed:
+        // 1. True window functions (ROW_NUMBER, LAG, LEAD, etc.)
+        // 2. Aggregate functions (COUNT, SUM, AVG, etc.) - can be used with or without OVER
+
+        let is_window = FUNCTION_REGISTRY.is_window_function(&name_upper);
+        let is_aggregate = FUNCTION_REGISTRY.is_aggregate_function(&name_upper);
+
+        if !is_window && !is_aggregate {
+            // Function is neither a window function nor an aggregate
+            if FUNCTION_REGISTRY.is_function_supported(&name_upper) {
                 result.add_semantic_error(format!(
-                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE, AVG, SUM, MIN, MAX, COUNT, STDDEV, VARIANCE",
-                    name
-                ));
-            } else if FUNCTION_REGISTRY.is_function_supported(&name_upper) {
-                result.add_semantic_error(format!(
-                    "Function '{}' cannot be used in OVER clauses",
+                    "Function '{}' cannot be used in OVER clauses. Only window functions (ROW_NUMBER, LAG, LEAD, etc.) and aggregate functions (COUNT, SUM, AVG, etc.) are allowed.",
                     name
                 ));
             }
         }
+        // Note: Both window functions and aggregates are allowed in OVER clauses
     }
 }
 
