@@ -1301,7 +1301,9 @@ impl SelectProcessor {
                             BinaryOperator::LessThanOrEqual => {
                                 Self::compare_having_values(&left_val, &right_val, |cmp| cmp <= 0)
                             }
-                            BinaryOperator::Equal => Ok(Self::field_values_equal(&left_val, &right_val)),
+                            BinaryOperator::Equal => {
+                                Ok(Self::field_values_equal(&left_val, &right_val))
+                            }
                             BinaryOperator::NotEqual => {
                                 Ok(!Self::field_values_equal(&left_val, &right_val))
                             }
