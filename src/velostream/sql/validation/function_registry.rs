@@ -284,7 +284,8 @@ impl FunctionRegistry {
     }
 
     fn register_window_functions(&mut self) {
-        // Functions that can be used in OVER clauses
+        // Window-only functions that can ONLY be used in OVER clauses
+        // These are true "window functions" - they require OVER and cannot be used as regular aggregates
         let functions = vec![
             // Ranking functions
             "ROW_NUMBER",
@@ -293,11 +294,9 @@ impl FunctionRegistry {
             "PERCENT_RANK",
             "CUME_DIST",
             "NTILE",
-            // Value functions
+            // Value functions (LAG/LEAD are window-only)
             "LAG",
             "LEAD",
-            "FIRST_VALUE",
-            "LAST_VALUE",
             "NTH_VALUE",
         ];
 
@@ -306,27 +305,20 @@ impl FunctionRegistry {
             self.window_functions.insert(func.to_string());
         }
 
-        // Aggregate functions that can also be used as window functions
-        // These are registered as both aggregate AND window functions
-        let aggregate_window_functions = vec![
-            // Basic aggregates
-            "COUNT",
-            "SUM",
-            "AVG",
-            "MIN",
-            "MAX",
-            // Statistical aggregates (can also be used in OVER clauses)
-            "STDDEV",
-            "STDDEV_SAMP",
-            "STDDEV_POP",
-            "VARIANCE",
-            "VAR_SAMP",
-            "VAR_POP",
-        ];
+        // FIRST_VALUE and LAST_VALUE are special - they are both aggregates AND window functions
+        // They can be used with or without OVER clauses
+        let dual_purpose_functions = vec!["FIRST_VALUE", "LAST_VALUE"];
 
-        for func in aggregate_window_functions {
+        for func in dual_purpose_functions {
+            self.supported_functions.insert(func.to_string());
             self.window_functions.insert(func.to_string());
+            // Note: These are also registered as aggregates in register_aggregate_functions()
         }
+
+        // Note: Regular aggregates (COUNT, SUM, AVG, MIN, MAX, STDDEV, etc.) can be used
+        // with OVER clauses, but they are NOT classified as "window functions" in this registry.
+        // They are pure aggregates that happen to support window syntax.
+        // The distinction is important for SQL semantics and error messages.
     }
 
     fn register_json_functions(&mut self) {
