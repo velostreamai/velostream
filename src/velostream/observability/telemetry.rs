@@ -120,12 +120,13 @@ impl TelemetryProvider {
         // Create span with upstream context if available for distributed tracing
         let mut span = if let Some(parent_ctx) = upstream_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
-            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
 
             log::info!(
                 "🔗 Starting batch span as child of upstream trace: {}",
                 parent_ctx.trace_id()
             );
+
+            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
 
             tracer
                 .span_builder(format!("batch:{}", job_name))

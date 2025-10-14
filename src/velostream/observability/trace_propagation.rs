@@ -7,7 +7,7 @@
 //! - W3C Trace Context: https://www.w3.org/TR/trace-context/
 //! - OpenTelemetry Propagation: https://opentelemetry.io/docs/specs/otel/context/api-propagators/
 
-use opentelemetry::trace::{SpanContext, SpanId, TraceContextExt, TraceFlags, TraceId, TraceState};
+use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -23,17 +23,17 @@ const TRACESTATE_HEADER: &str = "tracestate";
 /// Format: `00-{trace_id}-{span_id}-{trace_flags}`
 ///
 /// # Arguments
-/// * `headers` - Kafka message headers as HashMap<String, Vec<u8>>
+/// * `headers` - Kafka message headers as HashMap<String, String>
 ///
 /// # Returns
 /// * `Some(SpanContext)` if valid trace context found in headers
 /// * `None` if no trace context or invalid format
-pub fn extract_trace_context(headers: &HashMap<String, Vec<u8>>) -> Option<SpanContext> {
+pub fn extract_trace_context(headers: &HashMap<String, String>) -> Option<SpanContext> {
     // Look for traceparent header (case-insensitive)
     let traceparent_value = headers
         .iter()
         .find(|(k, _)| k.to_lowercase() == TRACEPARENT_HEADER)
-        .and_then(|(_, v)| String::from_utf8(v.clone()).ok())?;
+        .map(|(_, v)| v.as_str())?;
 
     log::debug!(
         "🔍 Found traceparent header: {}",
@@ -58,17 +58,9 @@ pub fn extract_trace_context(headers: &HashMap<String, Vec<u8>>) -> Option<SpanC
 
     // Parse trace ID (32 hex chars)
     let trace_id = TraceId::from_hex(parts[1]).ok()?;
-    if !trace_id.is_valid() {
-        log::warn!("⚠️  Invalid trace ID: {}", parts[1]);
-        return None;
-    }
 
     // Parse span ID (16 hex chars)
     let span_id = SpanId::from_hex(parts[2]).ok()?;
-    if !span_id.is_valid() {
-        log::warn!("⚠️  Invalid span ID: {}", parts[2]);
-        return None;
-    }
 
     // Parse trace flags (2 hex chars)
     let trace_flags = u8::from_str_radix(parts[3], 16).ok()?;
@@ -78,8 +70,7 @@ pub fn extract_trace_context(headers: &HashMap<String, Vec<u8>>) -> Option<SpanC
     let trace_state = headers
         .iter()
         .find(|(k, _)| k.to_lowercase() == TRACESTATE_HEADER)
-        .and_then(|(_, v)| String::from_utf8(v.clone()).ok())
-        .and_then(|s| TraceState::from_str(&s).ok())
+        .and_then(|(_, v)| TraceState::from_str(v.as_str()).ok())
         .unwrap_or_else(TraceState::default);
 
     log::info!(
@@ -108,13 +99,8 @@ pub fn extract_trace_context(headers: &HashMap<String, Vec<u8>>) -> Option<SpanC
 /// * `headers` - Mutable reference to Kafka message headers
 pub fn inject_trace_context(
     span_context: &SpanContext,
-    headers: &mut HashMap<String, Vec<u8>>,
+    headers: &mut HashMap<String, String>,
 ) {
-    if !span_context.is_valid() {
-        log::debug!("⚠️  Cannot inject invalid span context");
-        return;
-    }
-
     // Format W3C traceparent: 00-{trace_id}-{span_id}-{trace_flags}
     let traceparent = format!(
         "00-{}-{}-{:02x}",
@@ -131,15 +117,15 @@ pub fn inject_trace_context(
     // Insert traceparent header
     headers.insert(
         TRACEPARENT_HEADER.to_string(),
-        traceparent.into_bytes(),
+        traceparent,
     );
 
-    // Insert tracestate header if present
-    if !span_context.trace_state().is_empty() {
-        let tracestate = span_context.trace_state().header();
+    // Insert tracestate header if present (OpenTelemetry 0.21 has header() method)
+    let tracestate = span_context.trace_state().header();
+    if !tracestate.is_empty() {
         headers.insert(
             TRACESTATE_HEADER.to_string(),
-            tracestate.into_bytes(),
+            tracestate.to_string(),
         );
         log::debug!(
             "🔍 Injecting tracestate header: {}",
@@ -163,7 +149,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert(
             "traceparent".to_string(),
-            b"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_vec(),
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_string(),
         );
 
         let context = extract_trace_context(&headers);
@@ -190,7 +176,7 @@ mod tests {
         let mut headers = HashMap::new();
         headers.insert(
             "traceparent".to_string(),
-            b"invalid-format".to_vec(),
+            "invalid-format".to_string(),
         );
 
         let context = extract_trace_context(&headers);
@@ -211,7 +197,7 @@ mod tests {
 
         assert!(headers.contains_key("traceparent"));
 
-        let traceparent = String::from_utf8(headers["traceparent"].clone()).unwrap();
+        let traceparent = &headers["traceparent"];
         assert_eq!(
             traceparent,
             "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"

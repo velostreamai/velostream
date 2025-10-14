@@ -4,8 +4,10 @@
 //! to eliminate duplication across SimpleJobProcessor and TransactionalJobProcessor.
 
 use crate::velostream::observability::telemetry::BatchSpan;
+use crate::velostream::observability::trace_propagation;
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
+use crate::velostream::sql::execution::StreamRecord;
 use log::{info, warn};
 use std::time::Instant;
 
@@ -15,6 +17,15 @@ pub struct ObservabilityHelper;
 impl ObservabilityHelper {
     /// Create a batch span to track overall batch processing
     ///
+    /// Extracts trace context from incoming Kafka message headers for distributed tracing.
+    /// If upstream trace context is found, the batch span becomes a child of the upstream trace.
+    ///
+    /// # Arguments
+    /// * `observability` - Observability manager
+    /// * `job_name` - Name of the job/query
+    /// * `batch_number` - Batch sequence number
+    /// * `batch_records` - Input records (used to extract upstream trace context)
+    ///
     /// # Returns
     /// - `Some(BatchSpan)` if tracing is enabled
     /// - `None` if no observability manager or tracing disabled
@@ -22,15 +33,69 @@ impl ObservabilityHelper {
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
         batch_number: u64,
+        batch_records: &[StreamRecord],
     ) -> Option<BatchSpan> {
         if let Some(obs) = observability {
             if let Ok(obs_lock) = obs.try_read() {
                 if let Some(telemetry) = obs_lock.telemetry() {
-                    return Some(telemetry.start_batch_span(job_name, batch_number));
+                    // Extract trace context from first record's Kafka headers
+                    let upstream_context = batch_records.first().and_then(|record| {
+                        let ctx = trace_propagation::extract_trace_context(&record.headers);
+                        if ctx.is_some() {
+                            info!(
+                                "Job '{}': 🔗 Extracted upstream trace context from Kafka headers",
+                                job_name
+                            );
+                        } else {
+                            info!(
+                                "Job '{}': 🆕 No upstream trace context - starting new trace",
+                                job_name
+                            );
+                        }
+                        ctx
+                    });
+
+                    return Some(telemetry.start_batch_span(job_name, batch_number, upstream_context));
                 }
             }
         }
         None
+    }
+
+    /// Inject trace context into output records for downstream distributed tracing
+    ///
+    /// Propagates the current batch span context into Kafka message headers
+    /// so downstream consumers can link their traces.
+    ///
+    /// # Arguments
+    /// * `batch_span` - Current batch span (contains trace context)
+    /// * `output_records` - Output records to inject headers into
+    /// * `job_name` - Name of the job (for logging)
+    pub fn inject_trace_context_into_records(
+        batch_span: &Option<BatchSpan>,
+        output_records: &mut [StreamRecord],
+        job_name: &str,
+    ) {
+        if let Some(span) = batch_span {
+            if let Some(span_ctx) = span.span_context() {
+                if span_ctx.is_valid() {
+                    info!(
+                        "Job '{}': 📤 Injecting trace context into {} output records",
+                        job_name,
+                        output_records.len()
+                    );
+
+                    for record in output_records.iter_mut() {
+                        trace_propagation::inject_trace_context(&span_ctx, &mut record.headers);
+                    }
+                } else {
+                    warn!(
+                        "Job '{}': ⚠️  Batch span context is invalid, skipping trace injection",
+                        job_name
+                    );
+                }
+            }
+        }
     }
 
     /// Record deserialization telemetry and metrics

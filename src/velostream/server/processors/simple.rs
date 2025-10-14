@@ -474,18 +474,20 @@ impl SimpleJobProcessor {
     ) -> DataSourceResult<()> {
         debug!("Job '{}': Starting batch processing cycle", job_name);
 
+        // Step 1: Read batch from datasource (with telemetry)
+        let deser_start = Instant::now();
+        let batch = reader.read().await?;
+        let deser_duration = deser_start.elapsed().as_millis() as u64;
+
         // Create a parent batch span to group all operations
+        // Extract upstream trace context from first record's Kafka headers
         let batch_start = Instant::now();
         let mut batch_span_guard = ObservabilityHelper::start_batch_span(
             &self.observability,
             job_name,
             stats.batches_processed,
+            &batch,  // Pass batch records for trace context extraction
         );
-
-        // Step 1: Read batch from datasource (with telemetry)
-        let deser_start = Instant::now();
-        let batch = reader.read().await?;
-        let deser_duration = deser_start.elapsed().as_millis() as u64;
 
         // Record deserialization telemetry and metrics
         ObservabilityHelper::record_deserialization(
@@ -528,7 +530,7 @@ impl SimpleJobProcessor {
 
         // Step 2: Process batch through SQL engine and capture output (with telemetry)
         let sql_start = Instant::now();
-        let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+        let mut batch_result = process_batch_with_output(batch, engine, query, job_name).await;
         let sql_duration = sql_start.elapsed().as_millis() as u64;
 
         // Record SQL processing telemetry and metrics
@@ -543,6 +545,13 @@ impl SimpleJobProcessor {
         debug!(
             "Job '{}': SQL processing complete - {} records processed, {} failed",
             job_name, batch_result.records_processed, batch_result.records_failed
+        );
+
+        // Step 2b: Inject trace context into output records for distributed tracing
+        ObservabilityHelper::inject_trace_context_into_records(
+            &batch_span_guard,
+            &mut batch_result.output_records,
+            job_name,
         );
 
         // Emit counter metrics for successfully processed records
@@ -770,22 +779,6 @@ impl SimpleJobProcessor {
             job_name
         );
 
-        // Create a parent batch span to group all operations
-        let batch_start = Instant::now();
-        let mut batch_span_guard = if let Some(obs) = &self.observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(telemetry) = obs_lock.telemetry() {
-                        Some(telemetry.start_batch_span(job_name, stats.batches_processed))
-                    } else {
-                        None
-                    }
-                }
-            }
-        } else {
-            None
-        };
-
         let source_names = context.list_sources();
         if source_names.is_empty() {
             warn!("Job '{}': No sources available for processing", job_name);
@@ -806,16 +799,39 @@ impl SimpleJobProcessor {
         let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
             Vec::new();
 
-        // Process records from each source
+        // Start batch timing
+        let batch_start = Instant::now();
+
+        // Collect batches from all sources first
+        let mut source_batches = Vec::new();
         for source_name in &source_names {
             context.set_active_reader(source_name)?;
 
-            // Read batch from current source (with telemetry)
+            // Read batch from current source
             let deser_start = Instant::now();
             let batch = context.read().await?;
             let deser_duration = deser_start.elapsed().as_millis() as u64;
 
-            // Record deserialization metrics and telemetry
+            source_batches.push((source_name.clone(), batch, deser_start, deser_duration));
+        }
+
+        // Create batch span with trace context from first non-empty batch
+        let first_batch = source_batches
+            .iter()
+            .find(|(_, batch, _, _)| !batch.is_empty())
+            .map(|(_, batch, _, _)| batch.as_slice())
+            .unwrap_or(&[]);
+
+        let mut batch_span_guard = ObservabilityHelper::start_batch_span(
+            &self.observability,
+            job_name,
+            stats.batches_processed,
+            first_batch,
+        );
+
+        // Now process all collected batches
+        for (source_name, batch, deser_start, deser_duration) in source_batches {
+            // Record deserialization telemetry and metrics
             ObservabilityHelper::record_deserialization(
                 &self.observability,
                 job_name,
@@ -840,7 +856,6 @@ impl SimpleJobProcessor {
             );
 
             // Process batch through SQL engine and capture output records (with telemetry)
-            // Use process_batch_with_output to get actual query results
             let sql_start = Instant::now();
             let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
             let sql_duration = sql_start.elapsed().as_millis() as u64;
@@ -919,11 +934,27 @@ impl SimpleJobProcessor {
             }
         }
 
+        // If no records were processed, this is a no-op - skip everything
+        if total_records_processed == 0 {
+            debug!(
+                "Job '{}': No records processed (all batches empty) - no-op, returning early",
+                job_name
+            );
+            return Ok(());
+        }
+
         // Determine if batch should be committed
         let should_commit =
             should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
 
         if should_commit {
+            // Inject trace context into all output records for distributed tracing
+            ObservabilityHelper::inject_trace_context_into_records(
+                &batch_span_guard,
+                &mut all_output_records,
+                job_name,
+            );
+
             // Write output records to all sinks
             if !all_output_records.is_empty() && !sink_names.is_empty() {
                 debug!(
@@ -1075,6 +1106,7 @@ impl SimpleJobProcessor {
                 batch_span.set_success();
             }
         } else {
+            // Batch failed due to processing errors
             stats.batches_failed += 1;
             warn!(
                 "Job '{}': Skipping commit due to {} failures",
