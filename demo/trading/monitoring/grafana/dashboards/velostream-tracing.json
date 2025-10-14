@@ -35,9 +35,46 @@
         "y": 0
       },
       "id": 1,
-      "targets": [],
-      "title": "Trace Search & Explorer",
-      "type": "traces"
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "limit": 20,
+          "query": "{service.name=\"velo-sql-financial_trading.sql\"}",
+          "queryType": "traceql",
+          "refId": "A"
+        }
+      ],
+      "title": "Recent Traces (Last 30 min)",
+      "type": "table",
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          }
+        }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "traceID": "Trace ID",
+              "startTime": "Start Time",
+              "traceName": "Trace Name",
+              "duration": "Duration"
+            }
+          }
+        }
+      ]
     },
     {
       "datasource": {
