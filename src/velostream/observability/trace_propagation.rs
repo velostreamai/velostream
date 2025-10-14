@@ -35,10 +35,7 @@ pub fn extract_trace_context(headers: &HashMap<String, String>) -> Option<SpanCo
         .find(|(k, _)| k.to_lowercase() == TRACEPARENT_HEADER)
         .map(|(_, v)| v.as_str())?;
 
-    log::debug!(
-        "🔍 Found traceparent header: {}",
-        traceparent_value
-    );
+    log::debug!("🔍 Found traceparent header: {}", traceparent_value);
 
     // Parse W3C traceparent format: 00-{trace_id}-{span_id}-{trace_flags}
     let parts: Vec<&str> = traceparent_value.split('-').collect();
@@ -97,10 +94,7 @@ pub fn extract_trace_context(headers: &HashMap<String, String>) -> Option<SpanCo
 /// # Arguments
 /// * `span_context` - The span context to inject
 /// * `headers` - Mutable reference to Kafka message headers
-pub fn inject_trace_context(
-    span_context: &SpanContext,
-    headers: &mut HashMap<String, String>,
-) {
+pub fn inject_trace_context(span_context: &SpanContext, headers: &mut HashMap<String, String>) {
     // Format W3C traceparent: 00-{trace_id}-{span_id}-{trace_flags}
     let traceparent = format!(
         "00-{}-{}-{:02x}",
@@ -109,28 +103,16 @@ pub fn inject_trace_context(
         span_context.trace_flags().to_u8()
     );
 
-    log::debug!(
-        "🔍 Injecting traceparent header: {}",
-        traceparent
-    );
+    log::debug!("🔍 Injecting traceparent header: {}", traceparent);
 
     // Insert traceparent header
-    headers.insert(
-        TRACEPARENT_HEADER.to_string(),
-        traceparent,
-    );
+    headers.insert(TRACEPARENT_HEADER.to_string(), traceparent);
 
     // Insert tracestate header if present (OpenTelemetry 0.21 has header() method)
     let tracestate = span_context.trace_state().header();
     if !tracestate.is_empty() {
-        headers.insert(
-            TRACESTATE_HEADER.to_string(),
-            tracestate.to_string(),
-        );
-        log::debug!(
-            "🔍 Injecting tracestate header: {}",
-            tracestate
-        );
+        headers.insert(TRACESTATE_HEADER.to_string(), tracestate.to_string());
+        log::debug!("🔍 Injecting tracestate header: {}", tracestate);
     }
 
     log::info!(
@@ -174,10 +156,7 @@ mod tests {
     #[test]
     fn test_extract_invalid_format() {
         let mut headers = HashMap::new();
-        headers.insert(
-            "traceparent".to_string(),
-            "invalid-format".to_string(),
-        );
+        headers.insert("traceparent".to_string(), "invalid-format".to_string());
 
         let context = extract_trace_context(&headers);
         assert!(context.is_none());

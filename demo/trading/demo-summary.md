@@ -46,21 +46,6 @@
 cd demo/trading
 ./start-demo.sh -d
 
-# 2. Start visualization (in another terminal)
-source dashboard_env/bin/activate
-python3 dashboard.py
-
-# 3. Stop everything when done
-./stop-demo.sh
-
-# Quick 1-minute demo:
-./start-demo.sh -q
-
-# Interactive mode:
-./start-demo.sh -i
-```
-
-**Important:** Always activate the virtual environment before running the dashboard!
 
 ## 📊 Generated Data Streams
 

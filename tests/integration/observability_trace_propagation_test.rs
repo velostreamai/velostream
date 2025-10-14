@@ -32,7 +32,7 @@ async fn test_end_to_end_trace_propagation_workflow() {
         println!("\n📦 Processing batch {}/{}", batch_id, batch_count);
 
         // Step 1: Create parent batch span
-        let batch_span = telemetry.start_batch_span("test-job", batch_id);
+        let batch_span = telemetry.start_batch_span("test-job", batch_id, None);
 
         // Step 2: Extract parent context
         let parent_context = batch_span.span_context();
@@ -117,7 +117,7 @@ async fn test_trace_context_sharing_across_operations() {
     println!("🎯 Testing trace context sharing across operations");
 
     // Create a parent batch span
-    let batch_span = telemetry.start_batch_span("shared-context-test", 1);
+    let batch_span = telemetry.start_batch_span("shared-context-test", 1, None);
 
     // Extract context once
     let shared_context = batch_span.span_context();
@@ -163,11 +163,11 @@ async fn test_independent_traces_have_different_ids() {
     println!("🎯 Testing that independent traces have different IDs");
 
     // Create two independent batch spans
-    let batch1_span = telemetry.start_batch_span("batch-1", 1);
+    let batch1_span = telemetry.start_batch_span("batch-1", 1, None);
     let context1 = batch1_span.span_context().unwrap();
     let trace_id1 = context1.trace_id();
 
-    let batch2_span = telemetry.start_batch_span("batch-2", 2);
+    let batch2_span = telemetry.start_batch_span("batch-2", 2, None);
     let context2 = batch2_span.span_context().unwrap();
     let trace_id2 = context2.trace_id();
 
@@ -207,7 +207,7 @@ async fn test_span_attributes_and_lifecycle() {
     println!("🎯 Testing span attributes and lifecycle");
 
     // Create batch span and child spans with various attributes
-    let batch_span = telemetry.start_batch_span("attribute-test", 1);
+    let batch_span = telemetry.start_batch_span("attribute-test", 1, None);
     let parent_context = batch_span.span_context();
 
     // Test streaming span with metrics

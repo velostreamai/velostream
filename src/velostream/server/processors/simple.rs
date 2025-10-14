@@ -486,7 +486,7 @@ impl SimpleJobProcessor {
             &self.observability,
             job_name,
             stats.batches_processed,
-            &batch,  // Pass batch records for trace context extraction
+            &batch, // Pass batch records for trace context extraction
         );
 
         // Record deserialization telemetry and metrics

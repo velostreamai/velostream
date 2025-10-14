@@ -144,24 +144,6 @@ The dashboard can be set up automatically when starting the demo:
 # Option 1: Setup dashboard when starting demo
 ./start-demo.sh -d
 
-# Option 2: Manual setup (if needed)
-python3 -m venv dashboard_env
-source dashboard_env/bin/activate
-pip install -r requirements.txt
-```
-
-Then in a separate terminal:
-
-```bash
-cd demo/trading
-
-# Activate virtual environment and start dashboard
-source dashboard_env/bin/activate
-python3 dashboard.py
-```
-
-**Important:** You must activate the virtual environment each time you want to run the dashboard. Look for the `(dashboard_env)` prefix in your terminal prompt.
-
 ## 📊 What You'll See
 
 ### Generated Data Streams
@@ -386,19 +368,6 @@ docker exec simple-kafka kafka-console-consumer \
 # Restart with clean state
 ./stop-demo.sh
 ./start-demo.sh
-```
-
-#### ❌ Python Dashboard Issues
-```bash
-# Setup dashboard environment
-./start-demo.sh -d
-
-# If still having issues, recreate environment
-rm -rf dashboard_env
-python3 -m venv dashboard_env
-source dashboard_env/bin/activate
-pip install -r requirements.txt
-python3 dashboard.py
 ```
 
 #### ❌ Out of disk space

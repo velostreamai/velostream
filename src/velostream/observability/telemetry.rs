@@ -139,9 +139,7 @@ impl TelemetryProvider {
                 ])
                 .start_with_context(&tracer, &parent_cx)
         } else {
-            log::debug!(
-                "🆕 Starting new trace for batch (no upstream context)"
-            );
+            log::debug!("🆕 Starting new trace for batch (no upstream context)");
 
             tracer
                 .span_builder(format!("batch:{}", job_name))

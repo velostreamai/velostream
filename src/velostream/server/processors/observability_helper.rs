@@ -55,7 +55,11 @@ impl ObservabilityHelper {
                         ctx
                     });
 
-                    return Some(telemetry.start_batch_span(job_name, batch_number, upstream_context));
+                    return Some(telemetry.start_batch_span(
+                        job_name,
+                        batch_number,
+                        upstream_context,
+                    ));
                 }
             }
         }
