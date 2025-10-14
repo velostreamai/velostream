@@ -54,6 +54,7 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'  # Enable Tempo metrics ingestion
 
   grafana:
     image: grafana/grafana:latest
