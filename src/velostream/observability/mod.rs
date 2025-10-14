@@ -12,6 +12,7 @@ pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
 pub mod telemetry;
+pub mod trace_propagation;
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::StreamingConfig;

@@ -97,21 +97,60 @@ impl TelemetryProvider {
     }
 
     /// Create a new trace span for batch processing (parent span for entire batch)
-    pub fn start_batch_span(&self, job_name: &str, batch_id: u64) -> BatchSpan {
+    ///
+    /// # Arguments
+    /// * `job_name` - Name of the job/query
+    /// * `batch_id` - Batch sequence number
+    /// * `upstream_context` - Optional trace context from upstream Kafka headers
+    ///
+    /// If upstream_context is provided, this batch becomes a child of the upstream trace.
+    /// Otherwise, a new trace is started.
+    pub fn start_batch_span(
+        &self,
+        job_name: &str,
+        batch_id: u64,
+        upstream_context: Option<opentelemetry::trace::SpanContext>,
+    ) -> BatchSpan {
         if !self.active {
             return BatchSpan::new_inactive();
         }
 
         let tracer = global::tracer(self.config.service_name.clone());
 
-        let mut span = tracer
-            .span_builder(format!("batch:{}", job_name))
-            .with_kind(SpanKind::Internal)
-            .with_attributes(vec![
-                KeyValue::new("job.name", job_name.to_string()),
-                KeyValue::new("batch.id", batch_id as i64),
-            ])
-            .start(&tracer);
+        // Create span with upstream context if available for distributed tracing
+        let mut span = if let Some(parent_ctx) = upstream_context {
+            use opentelemetry::trace::{TraceContextExt, Tracer as _};
+            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
+
+            log::info!(
+                "🔗 Starting batch span as child of upstream trace: {}",
+                parent_ctx.trace_id()
+            );
+
+            tracer
+                .span_builder(format!("batch:{}", job_name))
+                .with_kind(SpanKind::Consumer) // Consumer span for Kafka message processing
+                .with_attributes(vec![
+                    KeyValue::new("job.name", job_name.to_string()),
+                    KeyValue::new("batch.id", batch_id as i64),
+                    KeyValue::new("messaging.system", "kafka"),
+                    KeyValue::new("messaging.operation", "process"),
+                ])
+                .start_with_context(&tracer, &parent_cx)
+        } else {
+            log::debug!(
+                "🆕 Starting new trace for batch (no upstream context)"
+            );
+
+            tracer
+                .span_builder(format!("batch:{}", job_name))
+                .with_kind(SpanKind::Internal)
+                .with_attributes(vec![
+                    KeyValue::new("job.name", job_name.to_string()),
+                    KeyValue::new("batch.id", batch_id as i64),
+                ])
+                .start(&tracer)
+        };
 
         span.set_status(Status::Ok);
 
@@ -140,11 +179,15 @@ impl TelemetryProvider {
 
         let span_name = format!("sql_query:{}", operation_name);
 
-        // Start span with parent context if provided for manual span linking
+        // Start span with parent context if provided for proper parent-child hierarchy
         let mut span = if let Some(parent_ctx) = parent_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
-            let cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-            tracer.start_with_context(span_name, &cx)
+            // Create a context with the parent span context for proper parent-child relationship
+            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
+            tracer
+                .span_builder(span_name)
+                .with_kind(SpanKind::Internal)
+                .start_with_context(&tracer, &parent_cx)
         } else {
             tracer.start(span_name)
         };
@@ -160,7 +203,7 @@ impl TelemetryProvider {
         span.set_status(Status::Ok);
 
         log::debug!(
-            "🔍 Started SQL query span: {} from source: {} (exporting to Tempo)",
+            "🔍 Started SQL query span: {} from source: {} (child of parent span, exporting to Tempo)",
             operation_name,
             source
         );
@@ -183,11 +226,15 @@ impl TelemetryProvider {
 
         let span_name = format!("streaming:{}", operation);
 
-        // Start span with parent context if provided for manual span linking
+        // Start span with parent context if provided for proper parent-child hierarchy
         let mut span = if let Some(parent_ctx) = parent_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
-            let cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-            tracer.start_with_context(span_name, &cx)
+            // Create a context with the parent span context for proper parent-child relationship
+            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
+            tracer
+                .span_builder(span_name)
+                .with_kind(SpanKind::Internal)
+                .start_with_context(&tracer, &parent_cx)
         } else {
             tracer.start(span_name)
         };
@@ -198,7 +245,7 @@ impl TelemetryProvider {
         span.set_status(Status::Ok);
 
         log::debug!(
-            "🔍 Started streaming span: {} with {} records (exporting to Tempo)",
+            "🔍 Started streaming span: {} with {} records (child of parent span, exporting to Tempo)",
             operation,
             record_count
         );
