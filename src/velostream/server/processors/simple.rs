@@ -676,6 +676,15 @@ impl SimpleJobProcessor {
                 &batch_start,
                 batch_result.records_processed as u64,
             );
+
+            // Sync error metrics to Prometheus after successful batch
+            if let Some(obs) = &self.observability {
+                if let Ok(obs_lock) = obs.try_read() {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        metrics.sync_error_metrics();
+                    }
+                }
+            }
         } else {
             // Batch failed due to SQL processing errors or sink write failures
             if sink_write_failed {
@@ -702,6 +711,15 @@ impl SimpleJobProcessor {
                             batch_result.records_failed,
                         );
 
+                        // Sync error metrics to Prometheus before retry
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                if let Some(metrics) = obs_lock.metrics() {
+                                    metrics.sync_error_metrics();
+                                }
+                            }
+                        }
+
                         // Return error to trigger retry at the calling level
                         return Err(format!(
                             "Batch processing failed with {} record failures - will retry with backoff",
@@ -724,6 +742,15 @@ impl SimpleJobProcessor {
                             batch_result.records_processed as u64,
                             batch_result.records_failed,
                         );
+
+                        // Sync error metrics to Prometheus after batch failure
+                        if let Some(obs) = &self.observability {
+                            if let Ok(obs_lock) = obs.try_read() {
+                                if let Some(metrics) = obs_lock.metrics() {
+                                    metrics.sync_error_metrics();
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1118,6 +1145,15 @@ impl SimpleJobProcessor {
                 batch_span.set_batch_duration(batch_duration);
                 batch_span.set_success();
             }
+
+            // Sync error metrics to Prometheus after batch completion
+            if let Some(obs) = &self.observability {
+                if let Ok(obs_lock) = obs.try_read() {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        metrics.sync_error_metrics();
+                    }
+                }
+            }
         } else {
             // Batch failed due to processing errors
             stats.batches_failed += 1;
@@ -1132,6 +1168,15 @@ impl SimpleJobProcessor {
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);
                 batch_span.set_error(&format!("{} records failed", total_records_failed));
+            }
+
+            // Sync error metrics to Prometheus after batch failure
+            if let Some(obs) = &self.observability {
+                if let Ok(obs_lock) = obs.try_read() {
+                    if let Some(metrics) = obs_lock.metrics() {
+                        metrics.sync_error_metrics();
+                    }
+                }
             }
         }
 
