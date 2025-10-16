@@ -2,21 +2,68 @@
 //!
 //! This module provides shared functionality for SQL-annotated metrics that can be used
 //! by both SimpleJobProcessor and TransactionalJobProcessor.
+//!
+//! # Performance Instrumentation
+//!
+//! This module tracks performance metrics for condition evaluation and label extraction:
+//! - `condition_eval_times`: Time spent evaluating conditions per metric
+//! - `label_extract_times`: Time spent extracting labels per record
+//! - `emission_overhead`: Total overhead for metric emission per record
 
 use crate::velostream::observability::label_extraction::{
     extract_label_values, LabelExtractionConfig,
 };
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::server::processors::observability_utils::{
+    extract_and_validate_labels, with_observability_lock,
+};
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::FieldValue;
+use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::sql::StreamingQuery;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
+
+/// Configuration for label handling behavior
+#[derive(Debug, Clone)]
+pub struct LabelHandlingConfig {
+    /// If true, emit metrics even if label extraction fails (use defaults)
+    /// If false, skip metric if label extraction produces fewer labels than expected
+    pub strict_mode: bool,
+}
+
+impl Default for LabelHandlingConfig {
+    fn default() -> Self {
+        Self { strict_mode: false } // Default: permissive (emit with defaults)
+    }
+}
+
+/// Performance telemetry for metrics operations
+#[derive(Debug, Clone)]
+pub struct MetricsPerformanceTelemetry {
+    /// Time spent in condition evaluation (microseconds)
+    pub condition_eval_time_us: u64,
+    /// Time spent in label extraction (microseconds)
+    pub label_extract_time_us: u64,
+    /// Total emission overhead per record (microseconds)
+    pub total_emission_overhead_us: u64,
+}
+
+impl Default for MetricsPerformanceTelemetry {
+    fn default() -> Self {
+        Self {
+            condition_eval_time_us: 0,
+            label_extract_time_us: 0,
+            total_emission_overhead_us: 0,
+        }
+    }
+}
 
 /// Helper for managing SQL-annotated metrics across different processor types
 ///
@@ -24,23 +71,53 @@ use tokio::sync::RwLock;
 /// - Condition parsing and evaluation (Phase 4)
 /// - Metric registration from SQL annotations
 /// - Metric emission for processed records
+/// - Performance telemetry for condition evaluation and label extraction
 ///
 /// # Performance Optimizations
 /// - Conditions are parsed once at registration time and cached
 /// - Uses RwLock for efficient concurrent read access
 /// - Minimal lock contention on hot paths
+/// - Performance telemetry tracks overhead without measurable impact
 pub struct ProcessorMetricsHelper {
     /// Parsed condition expressions for conditional metric emission
     /// Key: metric name, Value: parsed SQL expression (Arc for cheap cloning)
     metric_conditions: Arc<RwLock<HashMap<String, Arc<Expr>>>>,
+    /// Label handling configuration (strict vs permissive mode)
+    pub label_config: LabelHandlingConfig,
+    /// Performance telemetry (thread-local accumulated data)
+    telemetry: Arc<RwLock<MetricsPerformanceTelemetry>>,
 }
 
 impl ProcessorMetricsHelper {
-    /// Create a new metrics helper
+    /// Create a new metrics helper with default (permissive) label handling
     pub fn new() -> Self {
+        Self::with_config(LabelHandlingConfig::default())
+    }
+
+    /// Create a new metrics helper with custom label handling configuration
+    pub fn with_config(label_config: LabelHandlingConfig) -> Self {
         Self {
             metric_conditions: Arc::new(RwLock::new(HashMap::new())),
+            label_config,
+            telemetry: Arc::new(RwLock::new(MetricsPerformanceTelemetry::default())),
         }
+    }
+
+    /// Enable strict mode (skip metrics if labels cannot be extracted)
+    pub fn with_strict_mode(mut self) -> Self {
+        self.label_config.strict_mode = true;
+        self
+    }
+
+    /// Get current performance telemetry
+    pub async fn get_telemetry(&self) -> MetricsPerformanceTelemetry {
+        self.telemetry.read().await.clone()
+    }
+
+    /// Reset performance telemetry
+    pub async fn reset_telemetry(&self) {
+        let mut telemetry = self.telemetry.write().await;
+        *telemetry = MetricsPerformanceTelemetry::default();
     }
 
     /// Parse and store condition expression from annotation
@@ -210,6 +287,39 @@ impl ProcessorMetricsHelper {
         }
     }
 
+    /// Record condition evaluation time in telemetry
+    pub async fn record_condition_eval_time(&self, duration_us: u64) {
+        let mut telemetry = self.telemetry.write().await;
+        telemetry.condition_eval_time_us =
+            telemetry.condition_eval_time_us.saturating_add(duration_us);
+    }
+
+    /// Record label extraction time in telemetry
+    pub async fn record_label_extract_time(&self, duration_us: u64) {
+        let mut telemetry = self.telemetry.write().await;
+        telemetry.label_extract_time_us =
+            telemetry.label_extract_time_us.saturating_add(duration_us);
+    }
+
+    /// Record total emission overhead in telemetry
+    pub async fn record_emission_overhead(&self, duration_us: u64) {
+        let mut telemetry = self.telemetry.write().await;
+        telemetry.total_emission_overhead_us = telemetry
+            .total_emission_overhead_us
+            .saturating_add(duration_us);
+    }
+
+    /// Check if labels are valid (all extracted or strict mode disabled)
+    pub fn validate_labels(&self, annotation: &MetricAnnotation, extracted_count: usize) -> bool {
+        if self.label_config.strict_mode {
+            // Strict mode: all expected labels must be extracted
+            extracted_count == annotation.labels.len()
+        } else {
+            // Permissive mode: allow any number of extracted labels
+            true
+        }
+    }
+
     /// Common logic for registering metrics with the metrics provider
     async fn register_metrics_common<F>(
         &self,
@@ -338,16 +448,43 @@ impl ProcessorMetricsHelper {
                 obs_lock => {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
+                            let record_start = Instant::now();
                             for annotation in &counter_annotations {
                                 // Check if metric should be emitted based on condition
+                                let cond_start = Instant::now();
                                 if !self.should_emit_metric(annotation, record, job_name).await {
+                                    self.record_condition_eval_time(
+                                        cond_start.elapsed().as_micros() as u64,
+                                    )
+                                    .await;
                                     continue;
                                 }
+                                self.record_condition_eval_time(
+                                    cond_start.elapsed().as_micros() as u64
+                                )
+                                .await;
 
                                 // Extract label values using enhanced extraction with nested field support
+                                let extract_start = Instant::now();
                                 let config = LabelExtractionConfig::default();
                                 let label_values =
                                     extract_label_values(record, &annotation.labels, &config);
+                                self.record_label_extract_time(
+                                    extract_start.elapsed().as_micros() as u64
+                                )
+                                .await;
+
+                                // Validate labels based on configuration
+                                if !self.validate_labels(annotation, label_values.len()) {
+                                    debug!(
+                                        "Job '{}': Skipping counter '{}' - strict mode: missing label values (expected {}, got {})",
+                                        job_name,
+                                        annotation.name,
+                                        annotation.labels.len(),
+                                        label_values.len()
+                                    );
+                                    continue;
+                                }
 
                                 // Emit counter (label values always match expected count with enhanced extraction)
                                 if !label_values.is_empty() || annotation.labels.is_empty() {
@@ -374,6 +511,7 @@ impl ProcessorMetricsHelper {
                                     );
                                 }
                             }
+                            self.record_emission_overhead(record_start.elapsed().as_micros() as u64).await;
                         }
                     }
                 }
@@ -444,16 +582,43 @@ impl ProcessorMetricsHelper {
                 obs_lock => {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
+                            let record_start = Instant::now();
                             for annotation in &gauge_annotations {
                                 // Check if metric should be emitted based on condition
+                                let cond_start = Instant::now();
                                 if !self.should_emit_metric(annotation, record, job_name).await {
+                                    self.record_condition_eval_time(
+                                        cond_start.elapsed().as_micros() as u64,
+                                    )
+                                    .await;
                                     continue;
                                 }
+                                self.record_condition_eval_time(
+                                    cond_start.elapsed().as_micros() as u64
+                                )
+                                .await;
 
                                 // Extract label values using enhanced extraction with nested field support
+                                let extract_start = Instant::now();
                                 let config = LabelExtractionConfig::default();
                                 let label_values =
                                     extract_label_values(record, &annotation.labels, &config);
+                                self.record_label_extract_time(
+                                    extract_start.elapsed().as_micros() as u64
+                                )
+                                .await;
+
+                                // Validate labels based on configuration
+                                if !self.validate_labels(annotation, label_values.len()) {
+                                    debug!(
+                                        "Job '{}': Skipping gauge '{}' - strict mode: missing label values (expected {}, got {})",
+                                        job_name,
+                                        annotation.name,
+                                        annotation.labels.len(),
+                                        label_values.len()
+                                    );
+                                    continue;
+                                }
 
                                 // Emit gauge if labels are available
                                 if !label_values.is_empty() || annotation.labels.is_empty() {
@@ -513,6 +678,7 @@ impl ProcessorMetricsHelper {
                                     );
                                 }
                             }
+                            self.record_emission_overhead(record_start.elapsed().as_micros() as u64).await;
                         }
                     }
                 }
@@ -588,16 +754,43 @@ impl ProcessorMetricsHelper {
                 obs_lock => {
                     if let Some(metrics) = obs_lock.metrics() {
                         for record in output_records {
+                            let record_start = Instant::now();
                             for annotation in &histogram_annotations {
                                 // Check if metric should be emitted based on condition
+                                let cond_start = Instant::now();
                                 if !self.should_emit_metric(annotation, record, job_name).await {
+                                    self.record_condition_eval_time(
+                                        cond_start.elapsed().as_micros() as u64,
+                                    )
+                                    .await;
                                     continue;
                                 }
+                                self.record_condition_eval_time(
+                                    cond_start.elapsed().as_micros() as u64
+                                )
+                                .await;
 
                                 // Extract label values using enhanced extraction with nested field support
+                                let extract_start = Instant::now();
                                 let config = LabelExtractionConfig::default();
                                 let label_values =
                                     extract_label_values(record, &annotation.labels, &config);
+                                self.record_label_extract_time(
+                                    extract_start.elapsed().as_micros() as u64
+                                )
+                                .await;
+
+                                // Validate labels based on configuration
+                                if !self.validate_labels(annotation, label_values.len()) {
+                                    debug!(
+                                        "Job '{}': Skipping histogram '{}' - strict mode: missing label values (expected {}, got {})",
+                                        job_name,
+                                        annotation.name,
+                                        annotation.labels.len(),
+                                        label_values.len()
+                                    );
+                                    continue;
+                                }
 
                                 // Emit histogram if labels are available
                                 if !label_values.is_empty() || annotation.labels.is_empty() {
@@ -657,6 +850,7 @@ impl ProcessorMetricsHelper {
                                     );
                                 }
                             }
+                            self.record_emission_overhead(record_start.elapsed().as_micros() as u64).await;
                         }
                     }
                 }

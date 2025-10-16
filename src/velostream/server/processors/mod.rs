@@ -7,12 +7,15 @@
 pub mod common;
 pub mod metrics_helper;
 pub mod observability_helper;
+pub mod observability_utils;
 pub mod simple;
 pub mod transactional;
 
 // Re-exports
 pub use common::*;
-pub use metrics_helper::ProcessorMetricsHelper;
+pub use metrics_helper::{
+    LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,
+};
 pub use observability_helper::ObservabilityHelper;
 pub use simple::SimpleJobProcessor;
 pub use transactional::TransactionalJobProcessor;

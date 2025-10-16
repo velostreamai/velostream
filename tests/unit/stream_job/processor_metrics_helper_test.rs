@@ -28,6 +28,13 @@ fn create_numeric_record(volume: i64, price: f64) -> StreamRecord {
     create_test_record(fields)
 }
 
+/// Helper to parse and evaluate a condition (used across multiple test modules)
+fn parse_and_evaluate(condition: &str, record: &StreamRecord) -> bool {
+    let expr = ProcessorMetricsHelper::parse_condition_to_expr(condition)
+        .expect("Failed to parse condition");
+    ProcessorMetricsHelper::evaluate_condition_expr(&expr, record, "test_metric", "test_job")
+}
+
 mod parse_condition_tests {
     use super::*;
 
@@ -107,13 +114,6 @@ mod parse_condition_tests {
 
 mod evaluate_condition_expr_tests {
     use super::*;
-
-    /// Helper to parse and evaluate a condition
-    fn parse_and_evaluate(condition: &str, record: &StreamRecord) -> bool {
-        let expr = ProcessorMetricsHelper::parse_condition_to_expr(condition)
-            .expect("Failed to parse condition");
-        ProcessorMetricsHelper::evaluate_condition_expr(&expr, record, "test_metric", "test_job")
-    }
 
     #[test]
     fn test_evaluate_simple_greater_than() {
@@ -331,5 +331,288 @@ mod edge_cases {
     fn test_not_operator() {
         let result = ProcessorMetricsHelper::parse_condition_to_expr("NOT (volume > 1000)");
         assert!(result.is_ok(), "NOT operator should parse successfully");
+    }
+
+    // ===== NEW: String Comparison Edge Cases (Task 4) =====
+
+    #[test]
+    fn test_evaluate_string_case_sensitive() {
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+        let record = create_test_record(fields);
+
+        // Case-sensitive comparison should succeed for exact match
+        assert!(
+            parse_and_evaluate("symbol = 'AAPL'", &record),
+            "Case-sensitive string match should work"
+        );
+
+        // Case-sensitive comparison should fail for different case
+        assert!(
+            !parse_and_evaluate("symbol = 'aapl'", &record),
+            "Case-sensitive string should not match different case"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_string_with_numbers() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "code".to_string(),
+            FieldValue::String("XYZ123ABC".to_string()),
+        );
+        let record = create_test_record(fields);
+
+        assert!(
+            parse_and_evaluate("code = 'XYZ123ABC'", &record),
+            "String with numbers should match exactly"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_string_with_special_chars() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "tag".to_string(),
+            FieldValue::String("ALERT-2024_HIGH".to_string()),
+        );
+        let record = create_test_record(fields);
+
+        assert!(
+            parse_and_evaluate("tag = 'ALERT-2024_HIGH'", &record),
+            "String with special characters should match"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_string_with_spaces() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "name".to_string(),
+            FieldValue::String("Large Cap Stock".to_string()),
+        );
+        let record = create_test_record(fields);
+
+        assert!(
+            parse_and_evaluate("name = 'Large Cap Stock'", &record),
+            "String with spaces should match"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_multiple_string_comparisons() {
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+        fields.insert(
+            "exchange".to_string(),
+            FieldValue::String("NYSE".to_string()),
+        );
+        let record = create_test_record(fields);
+
+        assert!(
+            parse_and_evaluate("symbol = 'AAPL' AND exchange = 'NYSE'", &record),
+            "Multiple string comparisons should work with AND"
+        );
+
+        assert!(
+            !parse_and_evaluate("symbol = 'GOOGL' AND exchange = 'NYSE'", &record),
+            "Multiple string comparisons should fail if any is false"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_string_inequality_multiple() {
+        let mut fields = HashMap::new();
+        fields.insert(
+            "status".to_string(),
+            FieldValue::String("ACTIVE".to_string()),
+        );
+        let record = create_test_record(fields);
+
+        assert!(
+            parse_and_evaluate("status != 'INACTIVE' AND status != 'PENDING'", &record),
+            "Multiple string inequalities should work"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_empty_string() {
+        let mut fields = HashMap::new();
+        fields.insert("optional".to_string(), FieldValue::String("".to_string()));
+        let record = create_test_record(fields);
+
+        assert!(
+            parse_and_evaluate("optional = ''", &record),
+            "Empty string comparison should work"
+        );
+    }
+
+    #[test]
+    fn test_evaluate_string_vs_numeric_comparison() {
+        let mut fields = HashMap::new();
+        fields.insert("text".to_string(), FieldValue::String("123".to_string()));
+        let record = create_test_record(fields);
+
+        // String-numeric comparison should not match
+        assert!(
+            !parse_and_evaluate("text = 123", &record),
+            "String field should not equal numeric value"
+        );
+    }
+}
+
+// ===== NEW: Performance Telemetry Tests (Task 2) =====
+mod performance_telemetry_tests {
+    use super::*;
+    use velostream::velostream::server::processors::LabelHandlingConfig;
+
+    #[tokio::test]
+    async fn test_telemetry_initialization() {
+        let helper = ProcessorMetricsHelper::new();
+        let telemetry = helper.get_telemetry().await;
+
+        assert_eq!(telemetry.condition_eval_time_us, 0);
+        assert_eq!(telemetry.label_extract_time_us, 0);
+        assert_eq!(telemetry.total_emission_overhead_us, 0);
+    }
+
+    #[tokio::test]
+    async fn test_condition_eval_time_recording() {
+        let helper = ProcessorMetricsHelper::new();
+
+        // Record some timing data
+        helper.record_condition_eval_time(100).await;
+        helper.record_condition_eval_time(50).await;
+        helper.record_condition_eval_time(75).await;
+
+        let telemetry = helper.get_telemetry().await;
+        assert_eq!(telemetry.condition_eval_time_us, 225);
+    }
+
+    #[tokio::test]
+    async fn test_label_extract_time_recording() {
+        let helper = ProcessorMetricsHelper::new();
+
+        helper.record_label_extract_time(200).await;
+        helper.record_label_extract_time(150).await;
+
+        let telemetry = helper.get_telemetry().await;
+        assert_eq!(telemetry.label_extract_time_us, 350);
+    }
+
+    #[tokio::test]
+    async fn test_emission_overhead_recording() {
+        let helper = ProcessorMetricsHelper::new();
+
+        helper.record_emission_overhead(500).await;
+        helper.record_emission_overhead(300).await;
+
+        let telemetry = helper.get_telemetry().await;
+        assert_eq!(telemetry.total_emission_overhead_us, 800);
+    }
+
+    #[tokio::test]
+    async fn test_telemetry_reset() {
+        let helper = ProcessorMetricsHelper::new();
+
+        helper.record_condition_eval_time(100).await;
+        helper.record_label_extract_time(200).await;
+        helper.record_emission_overhead(300).await;
+
+        helper.reset_telemetry().await;
+
+        let telemetry = helper.get_telemetry().await;
+        assert_eq!(telemetry.condition_eval_time_us, 0);
+        assert_eq!(telemetry.label_extract_time_us, 0);
+        assert_eq!(telemetry.total_emission_overhead_us, 0);
+    }
+
+    #[tokio::test]
+    async fn test_telemetry_saturation_protection() {
+        let helper = ProcessorMetricsHelper::new();
+
+        // Record a very large value
+        helper.record_condition_eval_time(u64::MAX - 100).await;
+        // Record another value that would overflow
+        helper.record_condition_eval_time(200).await;
+
+        let telemetry = helper.get_telemetry().await;
+        // Should saturate at u64::MAX, not overflow
+        assert_eq!(telemetry.condition_eval_time_us, u64::MAX);
+    }
+}
+
+// ===== NEW: Strict Mode Tests (Task 3) =====
+mod strict_mode_label_handling_tests {
+    use super::*;
+    use velostream::velostream::server::processors::LabelHandlingConfig;
+
+    #[test]
+    fn test_default_is_permissive_mode() {
+        let helper = ProcessorMetricsHelper::new();
+        // Default should be permissive (strict_mode = false)
+        assert!(!helper.label_config.strict_mode);
+    }
+
+    #[test]
+    fn test_strict_mode_enabled() {
+        let config = LabelHandlingConfig { strict_mode: true };
+        let helper = ProcessorMetricsHelper::with_config(config);
+        assert!(helper.label_config.strict_mode);
+    }
+
+    #[test]
+    fn test_builder_method_enables_strict_mode() {
+        let helper = ProcessorMetricsHelper::new().with_strict_mode();
+        assert!(helper.label_config.strict_mode);
+    }
+
+    #[test]
+    fn test_permissive_mode_validates_all_label_counts() {
+        let helper = ProcessorMetricsHelper::new(); // permissive mode
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+        fields.insert(
+            "exchange".to_string(),
+            FieldValue::String("NYSE".to_string()),
+        );
+
+        let mut annotation =
+            velostream::velostream::sql::parser::annotations::MetricAnnotation::default();
+        annotation.labels = vec!["symbol".to_string(), "exchange".to_string()];
+
+        // Permissive mode should accept any count
+        assert!(helper.validate_labels(&annotation, 0)); // 0 extracted
+        assert!(helper.validate_labels(&annotation, 1)); // 1 extracted
+        assert!(helper.validate_labels(&annotation, 2)); // 2 extracted (all)
+        assert!(helper.validate_labels(&annotation, 3)); // 3 extracted (more than expected)
+    }
+
+    #[test]
+    fn test_strict_mode_requires_exact_label_count() {
+        let config = LabelHandlingConfig { strict_mode: true };
+        let helper = ProcessorMetricsHelper::with_config(config);
+
+        let mut annotation =
+            velostream::velostream::sql::parser::annotations::MetricAnnotation::default();
+        annotation.labels = vec!["symbol".to_string(), "exchange".to_string()];
+
+        // Strict mode requires exactly 2 labels
+        assert!(!helper.validate_labels(&annotation, 0));
+        assert!(!helper.validate_labels(&annotation, 1));
+        assert!(helper.validate_labels(&annotation, 2)); // Only this passes
+        assert!(!helper.validate_labels(&annotation, 3));
+    }
+
+    #[test]
+    fn test_strict_mode_with_no_labels() {
+        let config = LabelHandlingConfig { strict_mode: true };
+        let helper = ProcessorMetricsHelper::with_config(config);
+
+        let annotation =
+            velostream::velostream::sql::parser::annotations::MetricAnnotation::default();
+        // No labels expected, so 0 extracted should pass
+        assert!(helper.validate_labels(&annotation, 0));
+        assert!(!helper.validate_labels(&annotation, 1));
     }
 }

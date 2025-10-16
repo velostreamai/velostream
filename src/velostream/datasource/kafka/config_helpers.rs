@@ -295,7 +295,10 @@ mod tests {
     #[test]
     fn test_extract_avro_finds_inline_schema() {
         let mut props = HashMap::new();
-        props.insert("value.avro.schema".to_string(), r#"{"type":"string"}"#.to_string());
+        props.insert(
+            "value.avro.schema".to_string(),
+            r#"{"type":"string"}"#.to_string(),
+        );
         let result = extract_avro_schema_from_properties(&props);
         assert!(result.is_ok());
         assert!(result.unwrap().is_some());
@@ -304,8 +307,14 @@ mod tests {
     #[test]
     fn test_extract_avro_prefers_inline_over_file() {
         let mut props = HashMap::new();
-        props.insert("value.avro.schema".to_string(), r#"{"type":"string"}"#.to_string());
-        props.insert("value.schema.file".to_string(), "nonexistent.avsc".to_string());
+        props.insert(
+            "value.avro.schema".to_string(),
+            r#"{"type":"string"}"#.to_string(),
+        );
+        props.insert(
+            "value.schema.file".to_string(),
+            "nonexistent.avsc".to_string(),
+        );
         let result = extract_avro_schema_from_properties(&props);
         // Inline should take priority, won't try to load file
         assert!(result.is_ok());

@@ -7,6 +7,9 @@ use crate::velostream::observability::telemetry::BatchSpan;
 use crate::velostream::observability::trace_propagation;
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
+use crate::velostream::server::processors::observability_utils::{
+    calculate_throughput, with_observability_try_lock,
+};
 use crate::velostream::sql::execution::StreamRecord;
 use log::{info, warn};
 use std::time::Instant;
@@ -116,7 +119,7 @@ impl ObservabilityHelper {
                 job_name, record_count, duration_ms
             );
 
-            if let Ok(obs_lock) = obs.try_read() {
+            with_observability_try_lock(observability, |obs_lock| {
                 // Record telemetry span
                 if let Some(telemetry) = obs_lock.telemetry() {
                     let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
@@ -135,11 +138,7 @@ impl ObservabilityHelper {
 
                 // Record Prometheus metrics
                 if let Some(metrics) = obs_lock.metrics() {
-                    let throughput = if duration_ms > 0 {
-                        (record_count as f64 / duration_ms as f64) * 1000.0
-                    } else {
-                        0.0
-                    };
+                    let throughput = calculate_throughput(record_count, duration_ms);
                     metrics.record_streaming_operation(
                         "deserialization",
                         std::time::Duration::from_millis(duration_ms),
@@ -156,12 +155,8 @@ impl ObservabilityHelper {
                         job_name
                     );
                 }
-            } else {
-                warn!(
-                    "Job '{}': Observability manager present but could not acquire read lock",
-                    job_name
-                );
-            }
+                None::<()>
+            });
         }
     }
 
@@ -211,36 +206,31 @@ impl ObservabilityHelper {
         record_count: usize,
         duration_ms: u64,
     ) {
-        if let Some(obs) = observability {
-            if let Ok(obs_lock) = obs.try_read() {
-                // Record telemetry span
-                if let Some(telemetry) = obs_lock.telemetry() {
-                    let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
-                    let mut span = telemetry.start_streaming_span(
-                        "serialization",
-                        record_count as u64,
-                        parent_ctx,
-                    );
-                    span.set_processing_time(duration_ms);
-                    span.set_success();
-                }
-
-                // Record Prometheus metrics
-                if let Some(metrics) = obs_lock.metrics() {
-                    let throughput = if duration_ms > 0 {
-                        (record_count as f64 / duration_ms as f64) * 1000.0
-                    } else {
-                        0.0
-                    };
-                    metrics.record_streaming_operation(
-                        "serialization",
-                        std::time::Duration::from_millis(duration_ms),
-                        record_count as u64,
-                        throughput,
-                    );
-                }
+        with_observability_try_lock(observability, |obs_lock| {
+            // Record telemetry span
+            if let Some(telemetry) = obs_lock.telemetry() {
+                let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
+                let mut span = telemetry.start_streaming_span(
+                    "serialization",
+                    record_count as u64,
+                    parent_ctx,
+                );
+                span.set_processing_time(duration_ms);
+                span.set_success();
             }
-        }
+
+            // Record Prometheus metrics
+            if let Some(metrics) = obs_lock.metrics() {
+                let throughput = calculate_throughput(record_count, duration_ms);
+                metrics.record_streaming_operation(
+                    "serialization",
+                    std::time::Duration::from_millis(duration_ms),
+                    record_count as u64,
+                    throughput,
+                );
+            }
+            None::<()>
+        });
     }
 
     /// Record serialization failure telemetry and metrics
@@ -252,36 +242,31 @@ impl ObservabilityHelper {
         duration_ms: u64,
         error: &str,
     ) {
-        if let Some(obs) = observability {
-            if let Ok(obs_lock) = obs.try_read() {
-                // Record telemetry span
-                if let Some(telemetry) = obs_lock.telemetry() {
-                    let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
-                    let mut span = telemetry.start_streaming_span(
-                        "serialization",
-                        record_count as u64,
-                        parent_ctx,
-                    );
-                    span.set_processing_time(duration_ms);
-                    span.set_error(error);
-                }
-
-                // Record Prometheus metrics
-                if let Some(metrics) = obs_lock.metrics() {
-                    let throughput = if duration_ms > 0 {
-                        (record_count as f64 / duration_ms as f64) * 1000.0
-                    } else {
-                        0.0
-                    };
-                    metrics.record_streaming_operation(
-                        "serialization_failed",
-                        std::time::Duration::from_millis(duration_ms),
-                        record_count as u64,
-                        throughput,
-                    );
-                }
+        with_observability_try_lock(observability, |obs_lock| {
+            // Record telemetry span
+            if let Some(telemetry) = obs_lock.telemetry() {
+                let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
+                let mut span = telemetry.start_streaming_span(
+                    "serialization",
+                    record_count as u64,
+                    parent_ctx,
+                );
+                span.set_processing_time(duration_ms);
+                span.set_error(error);
             }
-        }
+
+            // Record Prometheus metrics
+            if let Some(metrics) = obs_lock.metrics() {
+                let throughput = calculate_throughput(record_count, duration_ms);
+                metrics.record_streaming_operation(
+                    "serialization_failed",
+                    std::time::Duration::from_millis(duration_ms),
+                    record_count as u64,
+                    throughput,
+                );
+            }
+            None::<()>
+        });
     }
 
     /// Complete a batch span with success
