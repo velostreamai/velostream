@@ -7,8 +7,8 @@ Tests verify that errors are properly recorded and appear in observability metri
 
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 use velostream::velostream::datasource::{DataReader, DataWriter};
@@ -250,11 +250,9 @@ async fn test_simple_processor_handles_read_errors() {
 
     let processor = SimpleJobProcessor::new(config);
 
-    let reader = Box::new(
-        FailingMockDataReader::new("test_source", 5, false).with_failure(false),
-    ) as Box<dyn DataReader>;
-    let writer = Box::new(FailingMockDataWriter::new("test_sink", false))
-        as Box<dyn DataWriter>;
+    let reader = Box::new(FailingMockDataReader::new("test_source", 5, false).with_failure(false))
+        as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("test_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
@@ -305,11 +303,10 @@ async fn test_simple_processor_handles_write_errors_with_retry() {
 
     let processor = SimpleJobProcessor::new(config);
 
-    let reader = Box::new(FailingMockDataReader::new("test_source", 4, false))
-        as Box<dyn DataReader>;
-    let writer = Box::new(
-        FailingMockDataWriter::new("test_sink", false).with_failure(true),
-    ) as Box<dyn DataWriter>;
+    let reader =
+        Box::new(FailingMockDataReader::new("test_source", 4, false)) as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("test_sink", false).with_failure(true))
+        as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
@@ -361,11 +358,10 @@ async fn test_transactional_processor_handles_write_errors() {
 
     let processor = TransactionalJobProcessor::new(config);
 
-    let reader = Box::new(FailingMockDataReader::new("test_source", 4, true))
-        as Box<dyn DataReader>;
-    let writer = Box::new(
-        FailingMockDataWriter::new("test_sink", true).with_failure(true),
-    ) as Box<dyn DataWriter>;
+    let reader =
+        Box::new(FailingMockDataReader::new("test_source", 4, true)) as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("test_sink", true).with_failure(true))
+        as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
@@ -417,10 +413,9 @@ async fn test_error_tracking_without_observability_manager() {
 
     let processor = SimpleJobProcessor::new(config);
 
-    let reader = Box::new(FailingMockDataReader::new("test_source", 3, false))
-        as Box<dyn DataReader>;
-    let writer = Box::new(FailingMockDataWriter::new("test_sink", false))
-        as Box<dyn DataWriter>;
+    let reader =
+        Box::new(FailingMockDataReader::new("test_source", 3, false)) as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("test_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
@@ -452,7 +447,10 @@ async fn test_error_tracking_without_observability_manager() {
         .expect("Job should complete")
         .expect("Job task should succeed");
 
-    assert!(result.is_ok(), "Job should succeed without observability manager");
+    assert!(
+        result.is_ok(),
+        "Job should succeed without observability manager"
+    );
 }
 
 /// Test simple processor with LogAndContinue strategy on batch failures
@@ -471,10 +469,9 @@ async fn test_simple_processor_log_and_continue_strategy() {
 
     let processor = SimpleJobProcessor::new(config);
 
-    let reader = Box::new(FailingMockDataReader::new("test_source", 5, false))
-        as Box<dyn DataReader>;
-    let writer = Box::new(FailingMockDataWriter::new("test_sink", false))
-        as Box<dyn DataWriter>;
+    let reader =
+        Box::new(FailingMockDataReader::new("test_source", 5, false)) as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("test_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
@@ -533,10 +530,9 @@ async fn test_transactional_processor_fail_batch_strategy() {
 
     let processor = TransactionalJobProcessor::new(config);
 
-    let reader = Box::new(FailingMockDataReader::new("test_source", 4, true))
-        as Box<dyn DataReader>;
-    let writer = Box::new(FailingMockDataWriter::new("test_sink", true))
-        as Box<dyn DataWriter>;
+    let reader =
+        Box::new(FailingMockDataReader::new("test_source", 4, true)) as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("test_sink", true)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
@@ -586,10 +582,9 @@ async fn test_error_tracking_performance_impact() {
 
     let processor = SimpleJobProcessor::new(config);
 
-    let reader = Box::new(FailingMockDataReader::new("perf_test", 20, false))
-        as Box<dyn DataReader>;
-    let writer = Box::new(FailingMockDataWriter::new("perf_sink", false))
-        as Box<dyn DataWriter>;
+    let reader =
+        Box::new(FailingMockDataReader::new("perf_test", 20, false)) as Box<dyn DataReader>;
+    let writer = Box::new(FailingMockDataWriter::new("perf_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
