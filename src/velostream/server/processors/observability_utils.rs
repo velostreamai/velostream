@@ -15,12 +15,33 @@ use std::time::Instant;
 /// Safely access observability manager with read lock
 ///
 /// This helper eliminates the repeated pattern of:
-/// ```rust,ignore
+/// ```rust
+/// # use std::sync::Arc;
+/// # use tokio::sync::RwLock;
+/// # async fn example() {
+/// // Instead of this boilerplate:
+/// let observability: Option<Arc<RwLock<i32>>> = None; // placeholder type
 /// if let Some(obs) = observability {
 ///     match obs.read().await {
-///         obs_lock => { ... }
+///         obs_lock => {
+///             // process obs_lock
+///         }
 ///     }
 /// }
+/// # }
+/// ```
+///
+/// You can now use the helper:
+/// ```rust
+/// # use std::sync::Arc;
+/// # use tokio::sync::RwLock;
+/// # async fn example() {
+/// let observability: Option<Arc<RwLock<i32>>> = None;
+/// // with_observability_lock(observability, |obs_lock| {
+/// //     // process obs_lock
+/// //     None::<()>
+/// // }).await;
+/// # }
 /// ```
 ///
 /// # Arguments
