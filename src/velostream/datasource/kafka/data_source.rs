@@ -162,14 +162,26 @@ impl KafkaDataSource {
                 );
                 source_config.insert(config_key, value.clone());
             }
-            // Handle datasource.schema.* properties - strip datasource. prefix for schema usage
+            // Skip datasource.schema.* properties - they are fallbacks from parent config
+            // Prefer schema.* properties which come from the actual YAML config file
             else if key.starts_with("datasource.schema.") {
-                let config_key = key.strip_prefix("datasource.").unwrap().to_string();
+                // Check if there's already a schema.* version of this property
+                let schema_key = key.strip_prefix("datasource.").unwrap();
+                if merged_props.contains_key(schema_key) {
+                    log::debug!(
+                        "  Skipping {} - preferring {} from config file",
+                        key,
+                        schema_key
+                    );
+                    continue;
+                }
+                // Only use datasource.schema.* if schema.* doesn't exist
                 log::debug!(
-                    "  Adding schema property: {} (from datasource.schema.*)",
-                    config_key
+                    "  Adding {} as fallback for {}",
+                    key,
+                    schema_key
                 );
-                source_config.insert(config_key, value.clone());
+                source_config.insert(schema_key.to_string(), value.clone());
             } else if key.starts_with("source.") {
                 // Remove source. prefix for the config map
                 let config_key = key.strip_prefix("source.").unwrap().to_string();

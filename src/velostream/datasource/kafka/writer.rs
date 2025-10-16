@@ -694,7 +694,15 @@ impl DataWriter for KafkaDataWriter {
         let key = self.extract_key(&record);
 
         // Serialize payload based on format
-        let payload = self.serialize_payload(&record)?;
+        let payload = self.serialize_payload(&record).map_err(|e| {
+            log::error!(
+                "🚨 SERIALIZATION FAILURE on topic '{}' with format {:?}: {:?}",
+                self.topic,
+                self.format,
+                e
+            );
+            e
+        })?;
 
         // Convert headers
         let headers = self.convert_headers(&record.headers);
@@ -772,14 +780,14 @@ impl DataWriter for KafkaDataWriter {
                 }
                 Err(e) => {
                     log::error!(
-                        "KafkaDataWriter: Batch failed at record {}/{} in topic '{}': {:?}",
+                        "🚨 BATCH WRITE FAILED at record {}/{} in topic '{}': {:?}",
                         index + 1,
                         batch_size,
                         self.topic,
                         e
                     );
-                    log::error!("KafkaDataWriter: Batch statistics - {}/{} records successfully written before failure", 
-                               successful_writes, batch_size);
+                    log::error!("KafkaDataWriter: Batch statistics - {}/{} records successfully written to topic '{}' before failure",
+                               successful_writes, batch_size, self.topic);
                     return Err(e);
                 }
             }

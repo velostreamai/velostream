@@ -24,11 +24,11 @@
    - SQL job deployment (8 streaming queries)
    - Real-time monitoring
    - Graceful cleanup
-   - Quick start mode, dashboard setup, interactive mode
+   - Quick start mode, interactive mode
 
 4. **Visualization Dashboards**
-   - Trading app business Metrics
-   - Velostream runtime/telemetry
+   - Trading app business Metrics (via Grafana)
+   - Velostream runtime/telemetry (via Grafana)
 
 5. **Documentation** (`demo/trading/README.md`)
    - Complete setup instructions
@@ -39,9 +39,9 @@
 ## 🏃‍♂️ Quick Start
 
 ```bash
-# 1. Run the demo (with dashboard setup)
+# 1. Run the demo
 cd demo/trading
-./start-demo.sh -d
+./start-demo.sh
 
 
 ## 📊 Generated Data Streams

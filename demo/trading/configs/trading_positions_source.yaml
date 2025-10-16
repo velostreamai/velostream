@@ -12,7 +12,6 @@ topic:
 schema:
   key.field: trader_id
   value.serializer: avro
-  value.format: avro
   value.schema.file: "schemas/trading_positions.avsc"
 
 # Performance profile for balanced processing

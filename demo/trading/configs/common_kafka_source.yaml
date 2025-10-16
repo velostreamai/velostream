@@ -22,7 +22,6 @@ datasource:
   # Common schema settings
   schema:
     key.format: string
-    value.format: json
 #    value.format: avro
     # Note: Schema registry NOT used - Avro schemas are reverenced via config files
     # schema.registry.url: "http://schema-registry:8081"

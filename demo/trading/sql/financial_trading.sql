@@ -182,7 +182,7 @@ WITH (
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     'advanced_price_movement_alerts.type' = 'kafka_sink',
-    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml'
+    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml',
 
 
     -- Phase 2: Circuit breaker configuration for sink
@@ -193,7 +193,7 @@ WITH (
     -- Phase 4: Observability integration
     'observability.metrics.enabled' = 'true',
     'observability.tracing.enabled' = 'true',
-    'observability.span.name' = 'price_movement_detection',
+    'observability.span.name' = 'price_movement_detection'
 
 );
 

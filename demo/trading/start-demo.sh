@@ -14,7 +14,6 @@ NC='\033[0m' # No Color
 # Default configuration
 SIMULATION_DURATION=10
 USE_RELEASE_BUILD=false
-SETUP_DASHBOARD=false
 INTERACTIVE_MODE=false
 QUICK_START=false
 ENABLE_METRICS=false
@@ -30,7 +29,6 @@ Usage: $0 [OPTIONS] [DURATION]
 OPTIONS:
     -h, --help              Show this help message
     -r, --release           Use release builds (optimized, slower compile)
-    -d, --dashboard         Setup Python dashboard environment
     -i, --interactive       Run in interactive/foreground mode
     -q, --quick             Quick 1-minute demo
     -m, --with-metrics      Display monitoring info early (before deployment)
@@ -45,7 +43,6 @@ EXAMPLES:
     $0 5                    # Run 5-minute demo
     $0 -q                   # Quick 1-minute demo
     $0 -r 30                # 30-minute demo with release builds
-    $0 -d                   # Setup dashboard and run demo
     $0 -i                   # Interactive mode (foreground)
     $0 -m                   # Show monitoring info before deployment starts
     $0 -q -m                # Quick demo with early metrics display
@@ -74,10 +71,6 @@ while [[ $# -gt 0 ]]; do
             ;;
         -r|--release)
             USE_RELEASE_BUILD=true
-            shift
-            ;;
-        -d|--dashboard)
-            SETUP_DASHBOARD=true
             shift
             ;;
         -i|--interactive)
@@ -247,35 +240,6 @@ if [ ${#PORT_CONFLICTS[@]} -gt 0 ]; then
     echo -e "${YELLOW}The demo may not start correctly. Stop conflicting services first.${NC}"
     echo -e "${YELLOW}Press Ctrl+C to cancel, or wait 5 seconds to continue anyway...${NC}"
     sleep 5
-fi
-
-# Optional: Setup Dashboard
-if [ "$SETUP_DASHBOARD" = true ]; then
-    print_step "Setting up Python Dashboard"
-
-    # Check Python version
-    if ! command -v python3 &> /dev/null; then
-        echo -e "${RED}✗ Python 3 is not installed${NC}"
-        echo -e "${YELLOW}Install from: https://www.python.org/downloads/${NC}"
-        exit 1
-    fi
-
-    # Create virtual environment if it doesn't exist
-    if [ ! -d "dashboard_env" ]; then
-        echo -e "${YELLOW}Creating Python virtual environment...${NC}"
-        python3 -m venv dashboard_env
-        check_status "Virtual environment created"
-    fi
-
-    # Install dependencies
-    if [ -f "requirements.txt" ]; then
-        echo -e "${YELLOW}Installing Python dependencies...${NC}"
-        source dashboard_env/bin/activate && pip install -q -r requirements.txt
-        check_status "Dashboard dependencies installed"
-    fi
-
-    echo -e "${GREEN}✓ Dashboard setup complete${NC}"
-    echo -e "${YELLOW}To use: source dashboard_env/bin/activate && python3 dashboard.py${NC}"
 fi
 
 # Step 1: Check Docker is running
@@ -540,11 +504,6 @@ else
     echo -e "  • Kafka Metrics - Broker performance & topic stats"
     echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
-    if [ "$SETUP_DASHBOARD" = true ]; then
-        echo -e "${BLUE}Python Dashboard:${NC}"
-        echo -e "  source dashboard_env/bin/activate && python3 dashboard.py"
-        echo ""
-    fi
     echo -e "${BLUE}Stop Demo:${NC}"
     echo -e "  ./stop-demo.sh"
     echo -e "${GREEN}========================================${NC}"

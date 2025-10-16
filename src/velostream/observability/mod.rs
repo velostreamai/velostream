@@ -8,6 +8,7 @@
 //
 // All features are configurable and disabled by default for backward compatibility.
 
+pub mod error_tracker;
 pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;

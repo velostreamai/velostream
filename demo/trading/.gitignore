@@ -1,12 +1,6 @@
 # Trading demo build artifacts
 /target/
 
-# Python dashboard environment
-dashboard_env/
-__pycache__/
-*.pyc
-*.pyo
-
 # CLI symlink (gets recreated by build)
 ferris-cli
 

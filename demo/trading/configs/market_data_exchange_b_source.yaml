@@ -17,7 +17,6 @@ performance_profile: ultra_low_latency
 schema:
   key.field: symbol
   value.serializer: avro
-  value.format: avro
   value.schema.file: "schemas/market_data.avsc"
 
 # Topic properties

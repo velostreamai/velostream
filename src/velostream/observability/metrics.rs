@@ -1,5 +1,6 @@
 // === PHASE 4: PROMETHEUS METRICS COLLECTION ===
 
+use crate::velostream::observability::error_tracker::ErrorMessageBuffer;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
 use prometheus::{
@@ -27,6 +28,8 @@ pub struct MetricsProvider {
     dynamic_histograms: Arc<Mutex<HashMap<String, HistogramVec>>>,
     // Phase 5: Job-to-metrics tracking for lifecycle management
     job_metrics: Arc<Mutex<HashMap<String, HashSet<String>>>>,
+    // Error message tracking with rolling buffer (last 10 messages + counts)
+    error_tracker: Arc<Mutex<ErrorMessageBuffer>>,
 }
 
 impl MetricsProvider {
@@ -58,10 +61,18 @@ impl MetricsProvider {
             dynamic_gauges: Arc::new(Mutex::new(HashMap::new())),
             dynamic_histograms: Arc::new(Mutex::new(HashMap::new())),
             job_metrics: Arc::new(Mutex::new(HashMap::new())),
+            error_tracker: Arc::new(Mutex::new(ErrorMessageBuffer::new())),
         })
     }
 
-    /// Record SQL query execution metrics
+    /// Record SQL query execution metrics with optional error message
+    ///
+    /// # Arguments
+    /// * `query_type` - Type of SQL query (select, insert, update, etc.)
+    /// * `duration` - Query execution duration
+    /// * `success` - Whether query succeeded
+    /// * `record_count` - Number of records processed
+    /// * `error_message` - Optional error message (if success=false)
     pub fn record_sql_query(
         &self,
         query_type: &str,
@@ -72,6 +83,43 @@ impl MetricsProvider {
         if self.active {
             self.sql_metrics
                 .record_query(query_type, duration, success, record_count);
+            log::trace!(
+                "📊 Recorded SQL query metrics: type={}, duration={:?}, success={}, records={}",
+                query_type,
+                duration,
+                success,
+                record_count
+            );
+        }
+    }
+
+    /// Record SQL query execution metrics with error message tracking
+    pub fn record_sql_query_with_error(
+        &self,
+        query_type: &str,
+        duration: Duration,
+        success: bool,
+        record_count: u64,
+        error_message: Option<String>,
+    ) {
+        if self.active {
+            self.sql_metrics
+                .record_query(query_type, duration, success, record_count);
+
+            // Track error message if query failed
+            if !success {
+                if let Some(msg) = error_message {
+                    if let Ok(mut tracker) = self.error_tracker.lock() {
+                        tracker.add_error(msg.clone());
+                        log::debug!(
+                            "📊 Error message tracked: {} (total errors: {})",
+                            msg,
+                            tracker.get_stats().total_errors
+                        );
+                    }
+                }
+            }
+
             log::trace!(
                 "📊 Recorded SQL query metrics: type={}, duration={:?}, success={}, records={}",
                 query_type,
@@ -676,6 +724,131 @@ impl MetricsProvider {
 
         Ok((job_count, total_metrics))
     }
+
+    // =========================================================================
+    // Error Message Tracking
+    // =========================================================================
+
+    /// Get error statistics from the rolling buffer
+    ///
+    /// Returns comprehensive error tracking information:
+    /// - Total errors recorded (cumulative)
+    /// - Number of unique error message types
+    /// - Number of messages in current buffer (max 10)
+    /// - Count for each unique error message
+    ///
+    /// # Returns
+    /// * `Some(ErrorStats)` - Error statistics if available
+    /// * `None` - If error tracker lock cannot be acquired
+    pub fn get_error_stats(
+        &self,
+    ) -> Option<crate::velostream::observability::error_tracker::ErrorStats> {
+        self.error_tracker
+            .lock()
+            .ok()
+            .map(|tracker| tracker.get_stats())
+    }
+
+    /// Get the last N error messages in the buffer
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of messages to return
+    ///
+    /// # Returns
+    /// List of error messages sorted by frequency (most common first)
+    pub fn get_top_errors(&self, limit: usize) -> Vec<(String, u64)> {
+        self.error_tracker
+            .lock()
+            .ok()
+            .map(|tracker| {
+                let stats = tracker.get_stats();
+                stats.get_top_errors(limit)
+            })
+            .unwrap_or_default()
+    }
+
+    /// Get all error messages currently in buffer
+    ///
+    /// # Returns
+    /// List of current error messages with timestamps and counts
+    pub fn get_error_messages(
+        &self,
+    ) -> Vec<crate::velostream::observability::error_tracker::ErrorEntry> {
+        self.error_tracker
+            .lock()
+            .ok()
+            .map(|tracker| tracker.get_messages())
+            .unwrap_or_default()
+    }
+
+    /// Record a single error message without full metrics
+    ///
+    /// Useful for tracking errors from non-query operations
+    pub fn record_error_message(&self, message: String) {
+        if self.active {
+            if let Ok(mut tracker) = self.error_tracker.lock() {
+                tracker.add_error(message);
+            }
+        }
+    }
+
+    /// Reset all error tracking
+    pub fn reset_error_tracking(&self) {
+        if let Ok(mut tracker) = self.error_tracker.lock() {
+            tracker.reset();
+            log::info!("📊 Error tracking reset");
+        }
+    }
+
+    /// Get total error count from buffer
+    pub fn get_total_errors(&self) -> u64 {
+        self.error_tracker
+            .lock()
+            .ok()
+            .map(|tracker| tracker.get_stats().total_errors)
+            .unwrap_or(0)
+    }
+
+    /// Get number of unique error types
+    pub fn get_unique_error_types(&self) -> usize {
+        self.error_tracker
+            .lock()
+            .ok()
+            .map(|tracker| tracker.get_stats().unique_errors)
+            .unwrap_or(0)
+    }
+
+    /// Get number of error messages in current buffer
+    pub fn get_buffered_error_count(&self) -> usize {
+        self.error_tracker
+            .lock()
+            .ok()
+            .map(|tracker| tracker.buffer_size())
+            .unwrap_or(0)
+    }
+
+    /// Sync error tracking gauges with current error state for Prometheus exposure
+    ///
+    /// This method updates the Prometheus gauges to reflect the current state of the
+    /// error message buffer. Should be called periodically (e.g., in Prometheus scrape handler)
+    /// to ensure gauges stay current.
+    pub fn sync_error_metrics(&self) {
+        if self.active {
+            let total_errors = self.get_total_errors();
+            let unique_types = self.get_unique_error_types();
+            let buffered_count = self.get_buffered_error_count();
+
+            self.sql_metrics
+                .update_error_gauges(total_errors, unique_types, buffered_count);
+
+            log::trace!(
+                "📊 Synced error metrics: total={}, unique={}, buffered={}",
+                total_errors,
+                unique_types,
+                buffered_count
+            );
+        }
+    }
 }
 
 impl std::fmt::Debug for MetricsProvider {
@@ -718,6 +891,10 @@ struct SqlMetrics {
     query_errors: IntCounter,
     active_queries: IntGauge,
     records_processed: IntCounter,
+    // Error tracking metrics (Prometheus exposure)
+    total_errors_gauge: IntGauge,
+    unique_error_types_gauge: IntGauge,
+    buffered_errors_gauge: IntGauge,
 }
 
 impl SqlMetrics {
@@ -792,12 +969,49 @@ impl SqlMetrics {
             message: format!("Failed to register record metrics: {}", e),
         })?;
 
+        // Error tracking metrics for Prometheus exposure
+        let total_errors_gauge = register_int_gauge_with_registry!(
+            Opts::new(
+                "velo_error_messages_total",
+                "Total number of error messages recorded (cumulative)"
+            ),
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register error total gauge: {}", e),
+        })?;
+
+        let unique_error_types_gauge = register_int_gauge_with_registry!(
+            Opts::new(
+                "velo_unique_error_types",
+                "Number of unique error message types"
+            ),
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register unique errors gauge: {}", e),
+        })?;
+
+        let buffered_errors_gauge = register_int_gauge_with_registry!(
+            Opts::new(
+                "velo_buffered_error_messages",
+                "Number of error messages in current rolling buffer (max 10)"
+            ),
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register buffered errors gauge: {}", e),
+        })?;
+
         Ok(Self {
             query_total,
             query_duration,
             query_errors,
             active_queries,
             records_processed,
+            total_errors_gauge,
+            unique_error_types_gauge,
+            buffered_errors_gauge,
         })
     }
 
@@ -815,6 +1029,13 @@ impl SqlMetrics {
         if !success {
             self.query_errors.inc();
         }
+    }
+
+    /// Update error tracking gauges for Prometheus exposure
+    fn update_error_gauges(&self, total_errors: u64, unique_types: usize, buffered_count: usize) {
+        self.total_errors_gauge.set(total_errors as i64);
+        self.unique_error_types_gauge.set(unique_types as i64);
+        self.buffered_errors_gauge.set(buffered_count as i64);
     }
 }
 
@@ -1393,5 +1614,154 @@ mod tests {
         // Should only have one metric
         let metrics = provider.get_job_metrics("job1").unwrap();
         assert_eq!(metrics.len(), 1);
+    }
+
+    // === Error Message Tracking Tests ===
+
+    #[tokio::test]
+    async fn test_error_message_tracking_basic() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        provider.record_error_message("Connection timeout".to_string());
+        assert_eq!(provider.get_total_errors(), 1);
+        assert_eq!(provider.get_unique_error_types(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_error_message_tracking_duplicates() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        provider.record_error_message("Timeout".to_string());
+        provider.record_error_message("Timeout".to_string());
+        provider.record_error_message("Invalid query".to_string());
+
+        assert_eq!(provider.get_total_errors(), 3);
+        assert_eq!(provider.get_unique_error_types(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_error_stats() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        provider.record_error_message("Error A".to_string());
+        provider.record_error_message("Error A".to_string());
+        provider.record_error_message("Error B".to_string());
+
+        let stats = provider.get_error_stats().unwrap();
+        assert_eq!(stats.total_errors, 3);
+        assert_eq!(stats.unique_errors, 2);
+    }
+
+    #[tokio::test]
+    async fn test_top_errors() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        for _ in 0..5 {
+            provider.record_error_message("Error 1".to_string());
+        }
+        for _ in 0..3 {
+            provider.record_error_message("Error 2".to_string());
+        }
+
+        let top = provider.get_top_errors(2);
+        assert_eq!(top.len(), 2);
+        assert_eq!(top[0].0, "Error 1");
+        assert_eq!(top[0].1, 5);
+    }
+
+    #[tokio::test]
+    async fn test_record_sql_query_with_error() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        provider.record_sql_query_with_error(
+            "select",
+            Duration::from_millis(100),
+            false,
+            0,
+            Some("Database offline".to_string()),
+        );
+
+        assert_eq!(provider.get_total_errors(), 1);
+        let messages = provider.get_error_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].message, "Database offline");
+    }
+
+    #[tokio::test]
+    async fn test_reset_error_tracking() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        provider.record_error_message("Error".to_string());
+        assert_eq!(provider.get_total_errors(), 1);
+
+        provider.reset_error_tracking();
+        assert_eq!(provider.get_total_errors(), 0);
+        assert_eq!(provider.get_buffered_error_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_error_buffer_rolling_limit() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Add 15 unique errors (buffer max is 10)
+        for i in 0..15 {
+            provider.record_error_message(format!("Error {}", i));
+        }
+
+        // Only 10 should be in buffer, but total should still be 15
+        assert_eq!(provider.get_buffered_error_count(), 10);
+        assert_eq!(provider.get_total_errors(), 15);
+    }
+
+    #[tokio::test]
+    async fn test_error_metrics_sync_to_prometheus() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Record some errors
+        provider.record_error_message("Database error".to_string());
+        provider.record_error_message("Database error".to_string());
+        provider.record_error_message("Timeout error".to_string());
+
+        // Sync error metrics to Prometheus gauges
+        provider.sync_error_metrics();
+
+        // Verify metrics appear in Prometheus output
+        let metrics_text = provider.get_metrics_text().unwrap();
+
+        // Check for error tracking metrics
+        assert!(
+            metrics_text.contains("velo_error_messages_total"),
+            "Missing total errors metric"
+        );
+        assert!(
+            metrics_text.contains("velo_unique_error_types"),
+            "Missing unique error types metric"
+        );
+        assert!(
+            metrics_text.contains("velo_buffered_error_messages"),
+            "Missing buffered errors metric"
+        );
+
+        // Verify values are correct
+        assert!(
+            metrics_text.contains("velo_error_messages_total 3"),
+            "Total errors should be 3"
+        );
+        assert!(
+            metrics_text.contains("velo_unique_error_types 2"),
+            "Unique error types should be 2"
+        );
+        assert!(
+            metrics_text.contains("velo_buffered_error_messages 2"),
+            "Buffered errors should be 2"
+        );
     }
 }

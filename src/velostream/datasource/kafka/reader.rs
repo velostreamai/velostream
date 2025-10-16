@@ -25,6 +25,7 @@ pub struct KafkaDataReader {
         KafkaConsumer<String, HashMap<String, FieldValue>, StringSerializer, SerializationCodec>,
     batch_config: BatchConfig,
     event_time_config: Option<EventTimeConfig>,
+    topic: String,
     // State for adaptive batching
     current_batch_start: Option<Instant>,
     adaptive_state: AdaptiveBatchState,
@@ -356,6 +357,7 @@ impl KafkaDataReader {
             consumer,
             batch_config,
             event_time_config,
+            topic,
             current_batch_start: None,
             adaptive_state: AdaptiveBatchState::new(initial_size),
         })
@@ -919,7 +921,8 @@ impl KafkaDataReader {
 
                     if is_deserialization_error {
                         log::error!(
-                            "🚨 DESERIALIZATION FAILURE: {:?}, records so far: {}",
+                            "🚨 DESERIALIZATION FAILURE on topic '{}': {:?}, records so far: {}",
+                            self.topic,
                             e,
                             records.len()
                         );
@@ -929,7 +932,8 @@ impl KafkaDataReader {
                         log::error!("🚨 Check that source and sink serialization formats match");
                     } else {
                         log::debug!(
-                            "🔍 read_fixed_size: poll error/timeout: {:?}, records so far: {}",
+                            "🔍 read_fixed_size: poll error/timeout from topic '{}': {:?}, records so far: {}",
+                            self.topic,
                             e,
                             records.len()
                         );

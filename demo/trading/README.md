@@ -8,7 +8,6 @@ This demo showcases:
 - **Real-time market data generation** for 8 major tech stocks (AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA, META, NFLX)
 - **Live trading analytics** including price movement detection, volume spike analysis, and risk monitoring
 - **Arbitrage opportunity detection** across multiple exchanges
-- **Interactive visualization dashboard** with real-time charts and alerts
 - **Comprehensive SQL-based stream processing** with complex joins and window functions
 - **Self-contained demo** that references main project artifacts
 
@@ -37,7 +36,6 @@ demo/trading/
 
 1. **Docker & Docker Compose** (for Kafka)
 2. **Rust toolchain** (latest stable) - Install from https://rustup.rs/
-3. **Python 3.8+** (optional, for visualization dashboard)
 
 ### Start the Demo (Single Command!)
 
@@ -69,15 +67,8 @@ cd demo/trading
 # Release builds (optimized)
 ./start-demo.sh -r 30
 
-# Setup dashboard environment
-./start-demo.sh -d
-
 # Show monitoring info early (before deployment)
 ./start-demo.sh -m
-
-# Combine options
-./start-demo.sh -q -d    # Quick demo + dashboard setup
-./start-demo.sh -q -m    # Quick demo + early monitoring display
 
 # Note: Monitoring info is ALWAYS displayed at the end automatically
 ```
@@ -136,14 +127,6 @@ The demo **automatically starts Grafana and Prometheus** as part of the Docker C
 
 > **Note**: Grafana, Prometheus, and Kafka UI are always available when running the demo. All URLs and dashboard info are **automatically displayed** at the end of startup. Use the `-m` flag if you want to see this info early (before deployment starts).
 
-### 4. Launch the Python Visualization Dashboard
-
-The dashboard can be set up automatically when starting the demo:
-
-```bash
-# Option 1: Setup dashboard when starting demo
-./start-demo.sh -d
-
 ## 📊 What You'll See
 
 ### Generated Data Streams
@@ -200,14 +183,6 @@ The demo runs 5 sophisticated SQL jobs:
 -- Minimum spread: 10 basis points
 -- Triggers: arbitrage_opportunities topic
 ```
-
-### Visualization Dashboard
-
-The Python dashboard provides:
-- **Real-time price charts** for all 8 stocks
-- **Volume tracking** with spike detection
-- **Live alerts panel** showing the latest trading signals
-- **Market statistics** with current prices and spreads
 
 ## 🔧 Configuration
 
