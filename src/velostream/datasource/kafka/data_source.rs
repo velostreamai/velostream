@@ -176,11 +176,7 @@ impl KafkaDataSource {
                     continue;
                 }
                 // Only use datasource.schema.* if schema.* doesn't exist
-                log::debug!(
-                    "  Adding {} as fallback for {}",
-                    key,
-                    schema_key
-                );
+                log::debug!("  Adding {} as fallback for {}", key, schema_key);
                 source_config.insert(schema_key.to_string(), value.clone());
             } else if key.starts_with("source.") {
                 // Remove source. prefix for the config map
