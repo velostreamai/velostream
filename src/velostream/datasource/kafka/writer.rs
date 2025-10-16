@@ -704,7 +704,7 @@ impl DataWriter for KafkaDataWriter {
             e
         })?;
 
-        // Convert headers
+        // Convert headers and build owned headers collection, preserving all headers
         let headers = self.convert_headers(&record.headers);
 
         // Build Kafka record
@@ -714,14 +714,16 @@ impl DataWriter for KafkaDataWriter {
             kafka_record = kafka_record.key(key_str);
         }
 
-        // Add headers
-        for (header_key, header_value) in headers {
-            kafka_record = kafka_record.headers(rdkafka::message::OwnedHeaders::new().insert(
-                rdkafka::message::Header {
+        // Add headers - accumulate all headers into a single OwnedHeaders to preserve them all
+        if !headers.is_empty() {
+            let mut owned_headers = rdkafka::message::OwnedHeaders::new();
+            for (header_key, header_value) in headers {
+                owned_headers = owned_headers.insert(rdkafka::message::Header {
                     key: &header_key,
                     value: Some(&header_value),
-                },
-            ));
+                });
+            }
+            kafka_record = kafka_record.headers(owned_headers);
         }
 
         // Send to Kafka with comprehensive debug logging
