@@ -11,7 +11,7 @@ use crate::velostream::serialization::{json_codec::JsonCodec, SerializationCodec
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use chrono;
-use log::info;
+use log::{error, info, warn};
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::{Duration, Instant};
@@ -65,6 +65,178 @@ impl AdaptiveBatchState {
 }
 
 impl KafkaDataReader {
+    /// FAIL FAST: Validate topic configuration to prevent misconfiguration
+    ///
+    /// This validates that the topic name is properly configured and not a placeholder.
+    /// Aligned with KafkaDataWriter's topic validation for consistency.
+    fn validate_topic_configuration(topic: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
+        // Check for empty topic name - ALWAYS fail
+        if topic.is_empty() {
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka source topic name is empty.\n\
+                 \n\
+                 A valid Kafka topic name MUST be configured. Please configure via:\n\
+                 1. YAML config file: 'topic.name: <topic_name>'\n\
+                 2. SQL properties: '<source_name>.topic = <topic_name>'\n\
+                 3. Direct parameter when creating KafkaDataReader\n\
+                 \n\
+                 This validation prevents misconfiguration of data sources."
+            )
+            .into());
+        }
+
+        // Warn about suspicious topic names that might indicate misconfiguration
+        let suspicious_names = [
+            "default",
+            "test",
+            "temp",
+            "placeholder",
+            "undefined",
+            "null",
+            "none",
+            "example",
+            "my-topic",
+            "topic-name",
+        ];
+
+        if suspicious_names.contains(&topic.to_lowercase().as_str()) {
+            return Err(format!(
+                "CONFIGURATION ERROR: Kafka source configured with suspicious topic name '{}'.\n\
+                 \n\
+                 This is a common placeholder/fallback value that indicates configuration \
+                 was not properly loaded.\n\
+                 \n\
+                 Valid topic names should be:\n\
+                 1. Extracted from source name in SQL: CREATE STREAM <source_name> ...\n\
+                 2. Configured in YAML: 'topic: <topic_name>' or 'topic.name: <topic_name>'\n\
+                 \n\
+                 Common misconfiguration causes:\n\
+                 - YAML file not found or not loaded\n\
+                 - Missing 'topic' or 'topic.name' in YAML\n\
+                 - Hardcoded fallback value not updated\n\
+                 \n\
+                 This validation prevents misconfiguration of data sources.",
+                topic
+            )
+            .into());
+        }
+
+        info!(
+            "KafkaDataReader: Topic validation passed - will read from topic '{}'",
+            topic
+        );
+
+        Ok(())
+    }
+
+    /// Parse serialization format string with proper error handling
+    ///
+    /// Tries multiple property key conventions for compatibility:
+    /// - value.serializer (Kafka convention)
+    /// - schema.value.serializer
+    /// - serializer.format
+    /// - format (fallback)
+    fn parse_format_from_properties(properties: &HashMap<String, String>) -> SerializationFormat {
+        use std::str::FromStr;
+
+        let format_str = properties
+            .get("value.serializer")
+            .or_else(|| properties.get("schema.value.serializer"))
+            .or_else(|| properties.get("serializer.format"))
+            .or_else(|| properties.get("format"))
+            .map(|s| s.as_str())
+            .unwrap_or("json");
+
+        SerializationFormat::from_str(format_str).unwrap_or(SerializationFormat::Json)
+    }
+
+    /// Extract schema from properties based on serialization format
+    ///
+    /// Supports inline schemas and schema file paths, with multiple property key conventions
+    fn extract_schema_from_properties(
+        format: &SerializationFormat,
+        properties: &HashMap<String, String>,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        match format {
+            SerializationFormat::Avro { .. } => {
+                // Look for Avro schema in various config keys (dot notation preferred, underscore fallback)
+                let schema = properties
+                    .get("avro.schema")
+                    .or_else(|| properties.get("value.avro.schema"))
+                    .or_else(|| properties.get("schema.avro"))
+                    .or_else(|| properties.get("avro_schema"))
+                    .cloned();
+
+                if schema.is_none() {
+                    // Check for schema file path (dot notation preferred, underscore fallback)
+                    if let Some(schema_file) = properties
+                        .get("avro.schema.file")
+                        .or_else(|| properties.get("schema.value.schema.file"))
+                        .or_else(|| properties.get("value.schema.file"))
+                        .or_else(|| properties.get("schema.file"))
+                        .or_else(|| properties.get("avro_schema_file"))
+                        .or_else(|| properties.get("schema_file"))
+                    {
+                        return Self::load_schema_from_file(schema_file);
+                    }
+                }
+                Ok(schema)
+            }
+            SerializationFormat::Protobuf { .. } => {
+                // Look for Protobuf schema in various config keys (dot notation preferred, underscore fallback)
+                let schema = properties
+                    .get("protobuf.schema")
+                    .or_else(|| properties.get("value.protobuf.schema"))
+                    .or_else(|| properties.get("schema.protobuf"))
+                    .or_else(|| properties.get("protobuf_schema"))
+                    .or_else(|| properties.get("proto.schema"))
+                    .cloned();
+
+                if schema.is_none() {
+                    // Check for schema file path (dot notation preferred, underscore fallback)
+                    if let Some(schema_file) = properties
+                        .get("protobuf.schema.file")
+                        .or_else(|| properties.get("proto.schema.file"))
+                        .or_else(|| properties.get("schema.value.schema.file"))
+                        .or_else(|| properties.get("value.schema.file"))
+                        .or_else(|| properties.get("schema.file"))
+                        .or_else(|| properties.get("protobuf_schema_file"))
+                        .or_else(|| properties.get("schema_file"))
+                    {
+                        return Self::load_schema_from_file(schema_file);
+                    }
+                }
+                Ok(schema)
+            }
+            SerializationFormat::Json | SerializationFormat::Bytes | SerializationFormat::String => {
+                // JSON doesn't require schema, but allow optional validation schema
+                let schema = properties
+                    .get("json.schema")
+                    .or_else(|| properties.get("schema.json"))
+                    .cloned();
+                Ok(schema)
+            }
+        }
+    }
+
+    /// Load schema content from file path
+    fn load_schema_from_file(
+        file_path: &str,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        use std::fs;
+        match fs::read_to_string(file_path) {
+            Ok(content) => {
+                info!("KafkaDataReader: Loaded schema from file: {}", file_path);
+                Ok(Some(content))
+            }
+            Err(e) => Err(format!(
+                "Failed to load schema from file '{}': {}",
+                file_path, e
+            )
+            .into()),
+        }
+    }
+
     /// Create a serialization codec based on format and schema, with robust error handling
     fn create_serialization_codec(
         format: &SerializationFormat,
@@ -144,6 +316,9 @@ impl KafkaDataReader {
         event_time_config: Option<EventTimeConfig>,
         consumer_properties: &HashMap<String, String>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // FAIL FAST: Validate topic is properly configured
+        Self::validate_topic_configuration(&topic)?;
+
         // Create codec using robust factory pattern
         let codec = Self::create_serialization_codec(&format, passed_schema_json)?;
 
@@ -290,6 +465,89 @@ impl KafkaDataReader {
         )
         .await
     }
+
+    /// Create a new Kafka data reader from HashMap properties (similar to KafkaDataWriter pattern)
+    ///
+    /// Extracts format and schema from properties, enabling unified configuration management.
+    pub async fn from_properties(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        properties: &HashMap<String, String>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // Extract format from properties
+        let format = Self::parse_format_from_properties(properties);
+
+        // Extract schema based on format
+        let schema = Self::extract_schema_from_properties(&format, properties)?;
+
+        Self::new_with_schema_and_config(
+            brokers,
+            topic,
+            group_id,
+            format,
+            None,
+            schema.as_deref(),
+            None,
+            properties,
+        )
+        .await
+    }
+
+    /// Create a new Kafka data reader from HashMap properties with batch configuration
+    pub async fn from_properties_with_batch_config(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        properties: &HashMap<String, String>,
+        batch_config: BatchConfig,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // Extract format from properties
+        let format = Self::parse_format_from_properties(properties);
+
+        // Extract schema based on format
+        let schema = Self::extract_schema_from_properties(&format, properties)?;
+
+        Self::new_with_schema_and_config(
+            brokers,
+            topic,
+            group_id,
+            format,
+            Some(batch_config),
+            schema.as_deref(),
+            None,
+            properties,
+        )
+        .await
+    }
+
+    /// Create a new Kafka data reader from HashMap properties with batch configuration and event time config
+    pub async fn from_properties_with_batch_and_event_time(
+        brokers: &str,
+        topic: String,
+        group_id: &str,
+        properties: &HashMap<String, String>,
+        batch_config: BatchConfig,
+        event_time_config: Option<EventTimeConfig>,
+    ) -> Result<Self, Box<dyn Error + Send + Sync>> {
+        // Extract format from properties
+        let format = Self::parse_format_from_properties(properties);
+
+        // Extract schema based on format
+        let schema = Self::extract_schema_from_properties(&format, properties)?;
+
+        Self::new_with_schema_and_config(
+            brokers,
+            topic,
+            group_id,
+            format,
+            Some(batch_config),
+            schema.as_deref(),
+            event_time_config,
+            properties,
+        )
+        .await
+    }
 }
 
 #[async_trait]
@@ -401,7 +659,7 @@ impl KafkaDataReader {
                 continue;
             }
 
-            log::info!("  Applying consumer property: {} = {}", key, value);
+            log::debug!("  Applying consumer property: {} = {}", key, value);
 
             // Map common property names to ConsumerConfig fields
             match key.as_str() {
@@ -843,7 +1101,7 @@ impl KafkaDataReader {
                 }
                 Err(e) => {
                     // In low-latency mode, we don't want to wait on errors
-                    eprintln!("Kafka poll error in low-latency mode: {:?}", e);
+                    warn!("Kafka poll error in low-latency mode: {:?}", e);
                     break;
                 }
             }

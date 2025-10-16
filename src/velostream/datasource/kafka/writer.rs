@@ -149,17 +149,29 @@ impl KafkaDataWriter {
         // Validate schema requirements based on format
         Self::validate_schema_requirements(&format, schema)?;
 
+        // Filter properties to separate metadata/schema from producer config
+        let (valid_props, skipped_props) = Self::filter_producer_properties(properties);
+        Self::log_producer_properties(&valid_props, &skipped_props);
+
         // Create optimized producer configuration using unified system
+        let mut filtered_properties = HashMap::new();
+        for (key, value) in valid_props {
+            filtered_properties.insert(key, value);
+        }
+
         let producer_config = if let Some(batch_config) = batch_config {
-            let config =
-                ConfigFactory::create_kafka_producer_config(brokers, properties, &batch_config);
+            let config = ConfigFactory::create_kafka_producer_config(
+                brokers,
+                &filtered_properties,
+                &batch_config,
+            );
             ConfigLogger::log_kafka_producer_config(&config, &batch_config, &topic, brokers);
             config
         } else {
             let mut config = HashMap::new();
             config.insert("bootstrap.servers".to_string(), brokers.to_string());
-            // Apply user properties
-            for (key, value) in properties.iter() {
+            // Apply filtered user properties only
+            for (key, value) in filtered_properties.iter() {
                 config.insert(key.clone(), value.clone());
             }
             config
@@ -574,6 +586,94 @@ impl KafkaDataWriter {
             .iter()
             .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
             .collect()
+    }
+
+    /// Filter and validate producer properties (aligned with KafkaDataReader pattern)
+    ///
+    /// Skips metadata, schema, and datasource properties that shouldn't be passed to Kafka producer.
+    /// This prevents unknown properties from being silently ignored by the Kafka producer.
+    fn filter_producer_properties(
+        properties: &HashMap<String, String>,
+    ) -> (Vec<(String, String)>, Vec<String>) {
+        let mut valid_props = Vec::new();
+        let mut skipped_props = Vec::new();
+
+        // Properties that are metadata or handled separately
+        let skip_prefixes = [
+            "schema.",          // Schema configuration (handled separately)
+            "value.",           // Value-specific config (Kafka will interpret these)
+            "datasource.",      // Datasource-specific config
+            "avro.",            // Avro schema (handled separately)
+            "protobuf.",        // Protobuf schema (handled separately)
+            "proto.",           // Proto schema (handled separately)
+            "json.",            // JSON schema (handled separately)
+        ];
+
+        let skip_exact = [
+            "topic",                    // Topic is not a producer property
+            "consumer.group",           // Consumer group is not a producer property
+            "key.field",                // Key field extraction (handled separately)
+            "message.key.field",        // Key field extraction (handled separately)
+            "schema.key.field",         // Key field extraction (handled separately)
+            "performance_profile",      // Performance profile is metadata
+            "format",                   // Format is handled separately
+            "serializer.format",        // Format is handled separately
+            "value.serializer",         // Format is handled separately
+            "schema.value.serializer",  // Format is handled separately
+        ];
+
+        for (key, value) in properties.iter() {
+            let key_lower = key.to_lowercase();
+
+            // Check skip prefixes
+            if skip_prefixes.iter().any(|prefix| key_lower.starts_with(prefix)) {
+                log::debug!(
+                    "KafkaDataWriter: Skipping property (schema/metadata): {} = {}",
+                    key,
+                    value
+                );
+                skipped_props.push(key.clone());
+                continue;
+            }
+
+            // Check exact skip matches
+            if skip_exact.contains(&key.as_str()) {
+                log::debug!(
+                    "KafkaDataWriter: Skipping property (metadata): {} = {}",
+                    key,
+                    value
+                );
+                skipped_props.push(key.clone());
+                continue;
+            }
+
+            // Valid producer property
+            log::debug!("KafkaDataWriter: Applying producer property: {} = {}", key, value);
+            valid_props.push((key.clone(), value.clone()));
+        }
+
+        (valid_props, skipped_props)
+    }
+
+    /// Log producer properties configuration
+    fn log_producer_properties(
+        valid_props: &[(String, String)],
+        skipped_props: &[String],
+    ) {
+        if !valid_props.is_empty() || !skipped_props.is_empty() {
+            log::info!("KafkaDataWriter: Producer Properties Configuration");
+            log::info!("  Valid properties: {}", valid_props.len());
+            for (key, value) in valid_props {
+                log::debug!("    • {}: {}", key, value);
+            }
+
+            if !skipped_props.is_empty() {
+                log::info!("  Skipped properties: {}", skipped_props.len());
+                for key in skipped_props {
+                    log::debug!("    • {} (metadata/schema/datasource)", key);
+                }
+            }
+        }
     }
 }
 

@@ -41,9 +41,11 @@
 //! }
 //! ```
 
+pub mod config_helpers;
 pub mod data_sink;
 pub mod data_source;
 pub mod error;
+pub mod property_keys;
 pub mod reader;
 pub mod writer;
 
@@ -51,3 +53,6 @@ pub mod writer;
 pub use data_sink::KafkaDataSink;
 pub use data_source::KafkaDataSource;
 pub use error::{KafkaDataSinkError, KafkaDataSourceError};
+
+// Re-export property keys for standardized configuration
+pub use property_keys::{FORMAT_KEYS, AVRO_SCHEMA_KEYS, PROTOBUF_SCHEMA_KEYS, JSON_SCHEMA_KEYS, KEY_FIELD_KEYS};
