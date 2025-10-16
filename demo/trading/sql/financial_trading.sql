@@ -104,7 +104,7 @@ WITH (
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     'tick_buckets.type' = 'kafka_sink',
-    'tick_buckets.config_file' = 'configs/market_data_clean_sink.yaml',
+    'tick_buckets.config_file' = 'configs/tick_buckets_sink.yaml',
 
     -- Observability
     'observability.metrics.enabled' = 'true',
@@ -181,6 +181,10 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
+    'advanced_price_movement_alerts.type' = 'kafka_sink',
+    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml'
+
+
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '5',
@@ -191,8 +195,6 @@ WITH (
     'observability.tracing.enabled' = 'true',
     'observability.span.name' = 'price_movement_detection',
 
-    'advanced_price_movement_alerts.type' = 'kafka_sink',
-    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml'
 );
 
 -- ====================================================================================
@@ -361,7 +363,7 @@ WITH (
     'in_trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
 
     'trading_positions_with_event_time.type' = 'kafka_sink',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_sink.yaml',
 
     -- Observability
     'observability.metrics.enabled' = 'true',
@@ -446,9 +448,14 @@ WHERE ABS(p.position_size * COALESCE(m.price, 0)) > 100000
 WITH (
     -- Source configurations
     'trading_positions_with_event_time.type' = 'kafka_source',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_source.yaml',
+
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'comprehensive_risk_monitor.type' = 'kafka_sink',
+    'comprehensive_risk_monitor.config_file' = 'configs/risk_alerts_sink.yaml',
+
 
     -- Phase 2: Full resource management and fault tolerance
     'max.memory.mb' = '2048',
@@ -479,10 +486,7 @@ WITH (
     'observability.profiling.enabled' = 'true',
     'observability.span.name' = 'risk_management_monitor',
     'observability.alerts.enabled' = 'true',
-    'prometheus.histogram.buckets' = '0.01,0.1,0.5,1.0,5.0,10.0,30.0,60.0',
-
-    'comprehensive_risk_monitor.type' = 'kafka_sink',
-    'comprehensive_risk_monitor.config_file' = 'configs/risk_alerts_sink.yaml'
+    'prometheus.histogram.buckets' = '0.01,0.1,0.5,1.0,5.0,10.0,30.0,60.0'
 );
 
 -- ====================================================================================

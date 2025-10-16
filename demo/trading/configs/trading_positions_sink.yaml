@@ -1,17 +1,17 @@
-# Market Data Topic Configuration
-# Ultra-low latency market data feed specialization
+# Trading_positions Configuration
+# Ultra-low latency trading_positions
 
 extends: common_kafka_sink.yaml
 
 # Topic-specific settings
 topic:
-  name: "tick_buckets"
+  name: "trading_positions"
 
 # Topic-specific schema
 schema:
-  key.field: symbol
+  key.field: trader_id
   # this type  will always be json for this demo
-  value.serializer: "json"
+
 
 # Topic properties
 topic_config:

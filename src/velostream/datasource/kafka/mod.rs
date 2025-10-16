@@ -55,4 +55,6 @@ pub use data_source::KafkaDataSource;
 pub use error::{KafkaDataSinkError, KafkaDataSourceError};
 
 // Re-export property keys for standardized configuration
-pub use property_keys::{FORMAT_KEYS, AVRO_SCHEMA_KEYS, PROTOBUF_SCHEMA_KEYS, JSON_SCHEMA_KEYS, KEY_FIELD_KEYS};
+pub use property_keys::{
+    AVRO_SCHEMA_KEYS, FORMAT_KEYS, JSON_SCHEMA_KEYS, KEY_FIELD_KEYS, PROTOBUF_SCHEMA_KEYS,
+};

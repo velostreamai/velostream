@@ -1,30 +1,21 @@
 # Arbitrage Opportunities Sink - Cross-exchange price discrepancy alerts
 # Critical alerts for arbitrage trading opportunities
 
-datasink:
-  type: kafka
+extends: common_kafka_sink.yaml
 
-  producer_config:
-    bootstrap.servers: "broker:9092"
-    retries: 3
-    acks: "all"
-    linger.ms: 0
-    compression.type: "lz4"
-    max_in_flight_requests_per_connection: 1
-    batch.size: 16384
+topic:
+  name: "arbitrage-opportunities"
+  partitions: 6
+  replication.factor: 3
 
-  schema:
-    key.format: string
-    value.format: avro
-    value.serializer: "avro"
-    value.schema.file: "schemas/arbitrage_opportunities.avsc"
+schema:
+  key.field: symbol
+#  value.format: avro
+#  value.serializer: "avro"
+#  value.schema.file: "schemas/arbitrage_opportunities.avsc"
     # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
     # schema.registry.url: "http://schema-registry:8081"
 
-  topic:
-    name: "arbitrage-opportunities"
-    partitions: 6
-    replication.factor: 3
 
   headers:
     source_system: "velostream"

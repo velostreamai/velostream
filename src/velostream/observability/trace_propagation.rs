@@ -115,7 +115,7 @@ pub fn inject_trace_context(span_context: &SpanContext, headers: &mut HashMap<St
         log::debug!("🔍 Injecting tracestate header: {}", tracestate);
     }
 
-    log::info!(
+    log::debug!(
         "✅ Injected trace context: trace_id={}, span_id={}",
         span_context.trace_id(),
         span_context.span_id()

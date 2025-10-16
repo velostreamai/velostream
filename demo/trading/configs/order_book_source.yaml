@@ -5,7 +5,7 @@ extends: common_kafka_source.yaml
 
 # Topic-specific settings
 topic:
-  name: "order_book_updates"
+  name: "in_order_book_stream"
 
 # Consumer group for this specific use case
 consumer.group: "order_flow_analytics_group"
@@ -16,7 +16,8 @@ performance_profile: low_latency
 # Topic-specific schema
 schema:
   key.field: symbol
-  value.serializer: "avro"
+  value.format: avro
+  value.serializer: avro
   value.schema.file: "schemas/order_book_updates.avsc"
 
 # Topic properties

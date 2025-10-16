@@ -11,6 +11,7 @@ use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStra
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use chrono::{DateTime, Utc};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 
 /// Window processing utilities
@@ -52,10 +53,9 @@ impl WindowProcessor {
 
                 // Phase 1B: Update watermark for this source
                 if let Some(watermark_event) = context.update_watermark(source_id, record) {
-                    log::debug!(
+                    debug!(
                         "Watermark updated for source {}: {:?}",
-                        source_id,
-                        watermark_event
+                        source_id, watermark_event
                     );
                 }
 
@@ -490,13 +490,13 @@ impl WindowProcessor {
     ) -> Result<StreamRecord, SqlError> {
         use crate::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
 
-        println!(
-            "DEBUG: execute_windowed_aggregation_impl called with {} records",
+        debug!(
+            "AGG: execute_windowed_aggregation_impl called with {} records",
             windowed_buffer.len()
         );
 
         if windowed_buffer.is_empty() {
-            println!("DEBUG: No records in windowed buffer");
+            debug!("AGG: No records in windowed buffer");
             return Err(SqlError::ExecutionError {
                 message: "No records after filtering".to_string(),
                 query: None,
@@ -511,12 +511,9 @@ impl WindowProcessor {
             ..
         } = query
         {
-            println!(
-                "DEBUG: Processing SELECT query with {} fields",
-                fields.len()
-            );
+            debug!("AGG: Processing SELECT query with {} fields", fields.len());
             for (i, field) in fields.iter().enumerate() {
-                println!("DEBUG: Field {}: {:?}", i, field);
+                debug!("AGG: Field {}: {:?}", i, field);
             }
 
             // Step 1: Filter records by WHERE clause
@@ -526,7 +523,7 @@ impl WindowProcessor {
                     if let Some(where_expr) = where_clause {
                         let result = ExpressionEvaluator::evaluate_expression(where_expr, record)
                             .unwrap_or(false);
-                        println!("DEBUG: WHERE clause evaluated to: {}", result);
+                        debug!("AGG: WHERE clause evaluated to: {}", result);
                         result
                     } else {
                         true
@@ -534,13 +531,13 @@ impl WindowProcessor {
                 })
                 .collect();
 
-            println!(
-                "DEBUG: After WHERE filtering: {} records remain",
+            debug!(
+                "AGG: After WHERE filtering: {} records remain",
                 filtered_records.len()
             );
 
             if filtered_records.is_empty() {
-                println!("DEBUG: No records after WHERE filtering");
+                debug!("AGG: No records after WHERE filtering");
                 return Err(SqlError::ExecutionError {
                     message: "No records after filtering".to_string(),
                     query: None,
@@ -550,19 +547,19 @@ impl WindowProcessor {
             // Step 2: For windowed queries, create aggregated result
             let mut result_fields = HashMap::new();
 
-            println!("DEBUG: Creating aggregated result fields");
+            debug!("AGG: Creating aggregated result fields");
 
             // Simple aggregation logic - process the first record as representative
             if let Some(first_record) = filtered_records.first() {
-                println!("DEBUG: Processing {} SELECT fields", fields.len());
+                debug!("AGG: Processing {} SELECT fields", fields.len());
 
                 // Process SELECT fields
                 for (field_idx, field) in fields.iter().enumerate() {
-                    println!("DEBUG: Processing field {}: {:?}", field_idx, field);
+                    debug!("AGG: Processing field {}: {:?}", field_idx, field);
 
                     match field {
                         crate::velostream::sql::ast::SelectField::Wildcard => {
-                            println!("DEBUG: Processing wildcard field");
+                            debug!("AGG: Processing wildcard field");
                             // For windowed aggregations, add basic aggregate info instead of all fields
                             result_fields.insert(
                                 "window_size".to_string(),
@@ -580,23 +577,23 @@ impl WindowProcessor {
                                 }
                             });
 
-                            println!(
-                                "DEBUG: Processing expression field '{}': {:?}",
+                            debug!(
+                                "AGG: Processing expression field '{}': {:?}",
                                 field_name, expr
                             );
 
                             // Handle aggregate functions properly for windowed queries
                             match Self::evaluate_aggregate_expression(expr, &filtered_records) {
                                 Ok(value) => {
-                                    println!(
-                                        "DEBUG: Successfully evaluated field '{}' = {:?}",
+                                    debug!(
+                                        "AGG: Successfully evaluated field '{}' = {:?}",
                                         field_name, value
                                     );
                                     result_fields.insert(field_name, value);
                                 }
                                 Err(e) => {
                                     log::error!(
-                                        "Failed to evaluate field '{}': {:?}",
+                                        "AGG: Failed to evaluate field '{}': {:?}",
                                         field_name,
                                         e
                                     );
@@ -605,29 +602,26 @@ impl WindowProcessor {
                             }
                         }
                         crate::velostream::sql::ast::SelectField::Column(column_name) => {
-                            println!("DEBUG: Processing column field '{}'", column_name);
+                            debug!("AGG: Processing column field '{}'", column_name);
                             // Simple column reference
                             if let Some(value) = first_record.fields.get(column_name) {
-                                println!("DEBUG: Found column '{}' = {:?}", column_name, value);
+                                debug!("AGG: Found column '{}' = {:?}", column_name, value);
                                 result_fields.insert(column_name.clone(), value.clone());
                             } else {
-                                println!("DEBUG: Column '{}' not found in record", column_name);
+                                error!("AGG: Column '{}' not found in record", column_name);
                             }
                         }
                         crate::velostream::sql::ast::SelectField::AliasedColumn {
                             column,
                             alias,
                         } => {
-                            println!(
-                                "DEBUG: Processing aliased column '{}' -> '{}'",
-                                column, alias
-                            );
+                            debug!("AGG: Processing aliased column '{}' -> '{}'", column, alias);
                             // Aliased column reference
                             if let Some(value) = first_record.fields.get(column) {
-                                println!("DEBUG: Found aliased column '{}' = {:?}", column, value);
+                                debug!("AGG: Found aliased column '{}' = {:?}", column, value);
                                 result_fields.insert(alias.clone(), value.clone());
                             } else {
-                                println!("DEBUG: Aliased column '{}' not found in record", column);
+                                error!("AGG: Aliased column '{}' not found in record", column);
                             }
                         }
                     }
@@ -1114,8 +1108,8 @@ impl WindowProcessor {
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::Expr;
 
-        println!(
-            "DEBUG: evaluate_aggregate_expression called with {} records, expr: {:?}",
+        debug!(
+            "AGG: evaluate_aggregate_expression called with {} records, expr: {:?}",
             records.len(),
             expr
         );
@@ -1282,16 +1276,16 @@ impl WindowProcessor {
             Expr::Column(column_name) => {
                 // For column references in windowed queries, return the value from the first record
                 // This represents the GROUP BY key value for the window
-                println!(
-                    "DEBUG: Processing column '{}' in aggregate context",
+                debug!(
+                    "AGG: Processing column '{}' in aggregate context",
                     column_name
                 );
                 if let Some(first_record) = records.first() {
                     if let Some(value) = first_record.fields.get(column_name) {
-                        println!("DEBUG: Found column '{}' = {:?}", column_name, value);
+                        debug!("AGG: Found column '{}' = {:?}", column_name, value);
                         Ok(value.clone())
                     } else {
-                        println!("DEBUG: Column '{}' not found, returning Null", column_name);
+                        debug!("AGG: Column '{}' not found, returning Null", column_name);
                         Ok(FieldValue::Null)
                     }
                 } else {
@@ -1300,7 +1294,7 @@ impl WindowProcessor {
             }
             _ => {
                 // For non-function expressions, evaluate on first record
-                println!("DEBUG: Processing non-function expression: {:?}", expr);
+                debug!("AGG: Processing non-function expression: {:?}", expr);
                 if let Some(first_record) = records.first() {
                     ExpressionEvaluator::evaluate_expression_value(expr, first_record)
                 } else {
@@ -1406,7 +1400,7 @@ impl WindowProcessor {
 
         if let Some(duration) = lateness {
             log::warn!(
-                "Late record detected: {}ms late (event_time: {:?}, timestamp: {}) for query: {}",
+                "AGG: Late record detected: {}ms late (event_time: {:?}, timestamp: {}) for query: {}",
                 duration.as_millis(),
                 record.event_time,
                 record.timestamp,
@@ -1423,20 +1417,20 @@ impl WindowProcessor {
 
             match action {
                 LateDataAction::Process => {
-                    log::info!("Processing late record for query: {}", query_id);
+                    info!("LATE: Processing late record for query: {}", query_id);
                     // Return None to indicate the record should be processed normally
                     // The caller will continue with regular window processing
                     Ok(None)
                 }
 
                 LateDataAction::Drop => {
-                    log::info!("Dropping late record for query: {}", query_id);
+                    info!("LATE: Dropping late record for query: {}", query_id);
                     Ok(None)
                 }
 
                 LateDataAction::DeadLetter => {
-                    log::warn!(
-                        "Sending late record to dead letter queue for query: {}",
+                    warn!(
+                        "LATE: Sending late record to dead letter queue for query: {}",
                         query_id
                     );
                     // In a real implementation, this would send to a dead letter queue
@@ -1445,10 +1439,9 @@ impl WindowProcessor {
                 }
 
                 LateDataAction::UpdatePrevious { window_end } => {
-                    log::info!(
-                        "Late record should update previous window (end: {}) for query: {}",
-                        window_end,
-                        query_id
+                    info!(
+                        "LATE: Late record should update previous window (end: {}) for query: {}",
+                        window_end, query_id
                     );
                     // This would require stateful window storage to update previous results
                     // For Phase 1B, log and drop for now
@@ -1457,8 +1450,8 @@ impl WindowProcessor {
             }
         } else {
             // No watermark manager - drop late data and log
-            log::warn!(
-                "Late record dropped (no watermark manager) for query: {}",
+            warn!(
+                "LATE: record dropped (no watermark manager) for query: {}",
                 query_id
             );
             Ok(None)

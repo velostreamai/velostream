@@ -16,7 +16,10 @@ datasink:
   # Common schema settings
   schema:
     key.format: string
-    value.format: avro
+    value.format: json
+    #    value.format: avro
+    value.serializer: "json"
+
     # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
     # schema.registry.url: "http://schema-registry:8081"
     

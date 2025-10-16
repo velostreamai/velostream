@@ -600,33 +600,36 @@ impl KafkaDataWriter {
 
         // Properties that are metadata or handled separately
         let skip_prefixes = [
-            "schema.",          // Schema configuration (handled separately)
-            "value.",           // Value-specific config (Kafka will interpret these)
-            "datasource.",      // Datasource-specific config
-            "avro.",            // Avro schema (handled separately)
-            "protobuf.",        // Protobuf schema (handled separately)
-            "proto.",           // Proto schema (handled separately)
-            "json.",            // JSON schema (handled separately)
+            "schema.",     // Schema configuration (handled separately)
+            "value.",      // Value-specific config (Kafka will interpret these)
+            "datasource.", // Datasource-specific config
+            "avro.",       // Avro schema (handled separately)
+            "protobuf.",   // Protobuf schema (handled separately)
+            "proto.",      // Proto schema (handled separately)
+            "json.",       // JSON schema (handled separately)
         ];
 
         let skip_exact = [
-            "topic",                    // Topic is not a producer property
-            "consumer.group",           // Consumer group is not a producer property
-            "key.field",                // Key field extraction (handled separately)
-            "message.key.field",        // Key field extraction (handled separately)
-            "schema.key.field",         // Key field extraction (handled separately)
-            "performance_profile",      // Performance profile is metadata
-            "format",                   // Format is handled separately
-            "serializer.format",        // Format is handled separately
-            "value.serializer",         // Format is handled separately
-            "schema.value.serializer",  // Format is handled separately
+            "topic",                   // Topic is not a producer property
+            "consumer.group",          // Consumer group is not a producer property
+            "key.field",               // Key field extraction (handled separately)
+            "message.key.field",       // Key field extraction (handled separately)
+            "schema.key.field",        // Key field extraction (handled separately)
+            "performance_profile",     // Performance profile is metadata
+            "format",                  // Format is handled separately
+            "serializer.format",       // Format is handled separately
+            "value.serializer",        // Format is handled separately
+            "schema.value.serializer", // Format is handled separately
         ];
 
         for (key, value) in properties.iter() {
             let key_lower = key.to_lowercase();
 
             // Check skip prefixes
-            if skip_prefixes.iter().any(|prefix| key_lower.starts_with(prefix)) {
+            if skip_prefixes
+                .iter()
+                .any(|prefix| key_lower.starts_with(prefix))
+            {
                 log::debug!(
                     "KafkaDataWriter: Skipping property (schema/metadata): {} = {}",
                     key,
@@ -648,7 +651,11 @@ impl KafkaDataWriter {
             }
 
             // Valid producer property
-            log::debug!("KafkaDataWriter: Applying producer property: {} = {}", key, value);
+            log::debug!(
+                "KafkaDataWriter: Applying producer property: {} = {}",
+                key,
+                value
+            );
             valid_props.push((key.clone(), value.clone()));
         }
 
@@ -656,10 +663,7 @@ impl KafkaDataWriter {
     }
 
     /// Log producer properties configuration
-    fn log_producer_properties(
-        valid_props: &[(String, String)],
-        skipped_props: &[String],
-    ) {
+    fn log_producer_properties(valid_props: &[(String, String)], skipped_props: &[String]) {
         if !valid_props.is_empty() || !skipped_props.is_empty() {
             log::info!("KafkaDataWriter: Producer Properties Configuration");
             log::info!("  Valid properties: {}", valid_props.len());

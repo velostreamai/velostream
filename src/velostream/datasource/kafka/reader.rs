@@ -208,7 +208,9 @@ impl KafkaDataReader {
                 }
                 Ok(schema)
             }
-            SerializationFormat::Json | SerializationFormat::Bytes | SerializationFormat::String => {
+            SerializationFormat::Json
+            | SerializationFormat::Bytes
+            | SerializationFormat::String => {
                 // JSON doesn't require schema, but allow optional validation schema
                 let schema = properties
                     .get("json.schema")
@@ -229,11 +231,7 @@ impl KafkaDataReader {
                 info!("KafkaDataReader: Loaded schema from file: {}", file_path);
                 Ok(Some(content))
             }
-            Err(e) => Err(format!(
-                "Failed to load schema from file '{}': {}",
-                file_path, e
-            )
-            .into()),
+            Err(e) => Err(format!("Failed to load schema from file '{}': {}", file_path, e).into()),
         }
     }
 

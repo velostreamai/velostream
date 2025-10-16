@@ -5,13 +5,14 @@ extends: common_kafka_source.yaml
 
 # Topic-specific configuration
 topic:
-  name: "trading_positions"
+  name: "in_trading_positions_stream"
   partitions: 6
 
 # Trading positions specific schema
 schema:
   key.field: trader_id
-  value.serializer: "avro"
+  value.serializer: avro
+  value.format: avro
   value.schema.file: "schemas/trading_positions.avsc"
 
 # Performance profile for balanced processing

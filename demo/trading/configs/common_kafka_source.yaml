@@ -22,13 +22,15 @@ datasource:
   # Common schema settings
   schema:
     key.format: string
-    value.format: avro
-    # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
+    value.format: json
+#    value.format: avro
+    # Note: Schema registry NOT used - Avro schemas are reverenced via config files
     # schema.registry.url: "http://schema-registry:8081"
 
     # Schema configuration for value serialization
-    value.serializer: "avro"
-    
+#    value.serializer: "avro"
+    value.serializer: "json"
+
     # Schema Registry authentication (if needed)
     # registry_username: "trading_user"
     # registry_password: "trading_pass"

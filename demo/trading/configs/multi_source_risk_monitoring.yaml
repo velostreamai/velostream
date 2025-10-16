@@ -9,10 +9,10 @@ datasource:
   # Source topic configurations
   sources:
     trading_positions:
-      extends: trading_positions_topic.yaml
+      extends: trading_positions_source.yaml
       
     market_data:
-      extends: market_data_topic.yaml
+      extends: market_data_ts_source.yaml
       consumer.group: "risk_monitoring_market_group"  # Different group for JOIN
       
   # JOIN configuration

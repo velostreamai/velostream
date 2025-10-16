@@ -11,21 +11,40 @@ use std::str::FromStr;
 
 /// Extract serialization format from properties using standard key conventions
 ///
-/// Tries multiple property keys in preference order:
-/// 1. "value.serializer" (Kafka convention)
-/// 2. "schema.value.serializer"
-/// 3. "serializer.format"
-/// 4. "format" (fallback)
-pub fn extract_format_from_properties(properties: &HashMap<String, String>) -> SerializationFormat {
+/// Requires explicit key/value prefix:
+/// 1. "value.serializer" (MESSAGE VALUE format - primary)
+/// 2. "key.serializer" (MESSAGE KEY format)
+///
+/// Must use prefixed property keys to avoid ambiguity between key and value serialization.
+pub fn extract_value_format_from_properties(
+    properties: &HashMap<String, String>,
+) -> SerializationFormat {
     let format_str = properties
         .get("value.serializer")
-        .or_else(|| properties.get("schema.value.serializer"))
-        .or_else(|| properties.get("serializer.format"))
-        .or_else(|| properties.get("format"))
         .map(|s| s.as_str())
         .unwrap_or("json");
 
     SerializationFormat::from_str(format_str).unwrap_or(SerializationFormat::Json)
+}
+
+/// Extract key serialization format from properties
+///
+/// Requires explicit "key.serializer" property key.
+pub fn extract_key_format_from_properties(
+    properties: &HashMap<String, String>,
+) -> SerializationFormat {
+    let format_str = properties
+        .get("key.serializer")
+        .map(|s| s.as_str())
+        .unwrap_or("string");
+
+    SerializationFormat::from_str(format_str).unwrap_or(SerializationFormat::String)
+}
+
+/// DEPRECATED: Use extract_value_format_from_properties or extract_key_format_from_properties
+/// This function is kept for backward compatibility but will be removed
+pub fn extract_format_from_properties(properties: &HashMap<String, String>) -> SerializationFormat {
+    extract_value_format_from_properties(properties)
 }
 
 /// Extract key field name from properties using standard key conventions
@@ -44,126 +63,163 @@ pub fn extract_key_field_from_properties(properties: &HashMap<String, String>) -
 
 /// Extract Avro schema from properties (inline or from file)
 ///
-/// Tries multiple property keys for inline schema:
-/// - "avro.schema"
-/// - "value.avro.schema"
-/// - "schema.avro"
-/// - "avro_schema" (legacy)
+/// REQUIRES explicit prefixes to avoid ambiguity:
+/// Inline schema (first priority):
+/// - "value.avro.schema" (MESSAGE VALUE)
+/// - "key.avro.schema" (MESSAGE KEY)
 ///
-/// If no inline schema found, tries file paths:
-/// - "avro.schema.file"
-/// - "schema.value.schema.file"
-/// - "value.schema.file"
-/// - "schema.file"
-/// - "avro_schema_file" (legacy)
-/// - "schema_file" (legacy)
-pub fn extract_avro_schema_from_properties(
+/// File paths (second priority):
+/// - "value.avro.schema.file" (MESSAGE VALUE)
+/// - "key.avro.schema.file" (MESSAGE KEY)
+pub fn extract_value_avro_schema_from_properties(
     properties: &HashMap<String, String>,
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-    // Try inline schema keys first
-    let schema = properties
-        .get("avro.schema")
-        .or_else(|| properties.get("value.avro.schema"))
-        .or_else(|| properties.get("schema.avro"))
-        .or_else(|| properties.get("avro_schema"))
-        .cloned();
-
-    if schema.is_some() {
-        return Ok(schema);
+    // Try inline schema first
+    if let Some(schema) = properties.get("value.avro.schema") {
+        return Ok(Some(schema.clone()));
     }
 
-    // Try schema file keys
-    if let Some(schema_file) = properties
-        .get("avro.schema.file")
-        .or_else(|| properties.get("schema.value.schema.file"))
-        .or_else(|| properties.get("value.schema.file"))
-        .or_else(|| properties.get("schema.file"))
-        .or_else(|| properties.get("avro_schema_file"))
-        .or_else(|| properties.get("schema_file"))
-    {
+    // Try schema file
+    if let Some(schema_file) = properties.get("value.avro.schema.file") {
         return load_schema_from_file(schema_file);
     }
 
     Ok(None)
+}
+
+/// Extract Avro schema for MESSAGE KEY from properties
+pub fn extract_key_avro_schema_from_properties(
+    properties: &HashMap<String, String>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    // Try inline schema first
+    if let Some(schema) = properties.get("key.avro.schema") {
+        return Ok(Some(schema.clone()));
+    }
+
+    // Try schema file
+    if let Some(schema_file) = properties.get("key.avro.schema.file") {
+        return load_schema_from_file(schema_file);
+    }
+
+    Ok(None)
+}
+
+/// DEPRECATED: Use extract_value_avro_schema_from_properties or extract_key_avro_schema_from_properties
+/// This function is kept for backward compatibility but will be removed
+pub fn extract_avro_schema_from_properties(
+    properties: &HashMap<String, String>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    extract_value_avro_schema_from_properties(properties)
 }
 
 /// Extract Protobuf schema from properties (inline or from file)
 ///
-/// Tries multiple property keys for inline schema:
-/// - "protobuf.schema"
-/// - "value.protobuf.schema"
-/// - "schema.protobuf"
-/// - "protobuf_schema" (legacy)
-/// - "proto.schema"
+/// REQUIRES explicit prefixes to avoid ambiguity:
+/// Inline schema (first priority):
+/// - "value.protobuf.schema" (MESSAGE VALUE)
+/// - "key.protobuf.schema" (MESSAGE KEY)
 ///
-/// If no inline schema found, tries file paths:
-/// - "protobuf.schema.file"
-/// - "proto.schema.file"
-/// - "schema.value.schema.file"
-/// - "value.schema.file"
-/// - "schema.file"
-/// - "protobuf_schema_file" (legacy)
-/// - "schema_file" (legacy)
-pub fn extract_protobuf_schema_from_properties(
+/// File paths (second priority):
+/// - "value.protobuf.schema.file" (MESSAGE VALUE)
+/// - "key.protobuf.schema.file" (MESSAGE KEY)
+pub fn extract_value_protobuf_schema_from_properties(
     properties: &HashMap<String, String>,
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-    // Try inline schema keys first
-    let schema = properties
-        .get("protobuf.schema")
-        .or_else(|| properties.get("value.protobuf.schema"))
-        .or_else(|| properties.get("schema.protobuf"))
-        .or_else(|| properties.get("protobuf_schema"))
-        .or_else(|| properties.get("proto.schema"))
-        .cloned();
-
-    if schema.is_some() {
-        return Ok(schema);
+    // Try inline schema first
+    if let Some(schema) = properties.get("value.protobuf.schema") {
+        return Ok(Some(schema.clone()));
     }
 
-    // Try schema file keys
-    if let Some(schema_file) = properties
-        .get("protobuf.schema.file")
-        .or_else(|| properties.get("proto.schema.file"))
-        .or_else(|| properties.get("schema.value.schema.file"))
-        .or_else(|| properties.get("value.schema.file"))
-        .or_else(|| properties.get("schema.file"))
-        .or_else(|| properties.get("protobuf_schema_file"))
-        .or_else(|| properties.get("schema_file"))
-    {
+    // Try schema file
+    if let Some(schema_file) = properties.get("value.protobuf.schema.file") {
         return load_schema_from_file(schema_file);
     }
 
     Ok(None)
 }
 
-/// Extract JSON schema from properties (inline only)
-///
-/// Tries multiple property keys:
-/// - "json.schema"
-/// - "schema.json"
-pub fn extract_json_schema_from_properties(
+/// Extract Protobuf schema for MESSAGE KEY from properties
+pub fn extract_key_protobuf_schema_from_properties(
     properties: &HashMap<String, String>,
-) -> Option<String> {
-    properties
-        .get("json.schema")
-        .or_else(|| properties.get("schema.json"))
-        .cloned()
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    // Try inline schema first
+    if let Some(schema) = properties.get("key.protobuf.schema") {
+        return Ok(Some(schema.clone()));
+    }
+
+    // Try schema file
+    if let Some(schema_file) = properties.get("key.protobuf.schema.file") {
+        return load_schema_from_file(schema_file);
+    }
+
+    Ok(None)
 }
 
-/// Extract schema from properties based on serialization format
+/// DEPRECATED: Use extract_value_protobuf_schema_from_properties or extract_key_protobuf_schema_from_properties
+/// This function is kept for backward compatibility but will be removed
+pub fn extract_protobuf_schema_from_properties(
+    properties: &HashMap<String, String>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    extract_value_protobuf_schema_from_properties(properties)
+}
+
+/// Extract JSON schema from properties (inline only)
 ///
-/// Delegates to format-specific extraction functions for comprehensive coverage
-pub fn extract_schema_from_properties(
+/// REQUIRES explicit prefix - "value.json.schema" for MESSAGE VALUE
+pub fn extract_value_json_schema_from_properties(
+    properties: &HashMap<String, String>,
+) -> Option<String> {
+    properties.get("value.json.schema").cloned()
+}
+
+/// Extract JSON schema for MESSAGE KEY from properties
+pub fn extract_key_json_schema_from_properties(
+    properties: &HashMap<String, String>,
+) -> Option<String> {
+    properties.get("key.json.schema").cloned()
+}
+
+/// Extract schema from properties for MESSAGE VALUE based on serialization format
+///
+/// Delegates to format-specific extraction functions with explicit key/value prefix
+pub fn extract_value_schema_from_properties(
     format: &SerializationFormat,
     properties: &HashMap<String, String>,
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
     match format {
-        SerializationFormat::Avro { .. } => extract_avro_schema_from_properties(properties),
-        SerializationFormat::Protobuf { .. } => extract_protobuf_schema_from_properties(properties),
+        SerializationFormat::Avro { .. } => extract_value_avro_schema_from_properties(properties),
+        SerializationFormat::Protobuf { .. } => {
+            extract_value_protobuf_schema_from_properties(properties)
+        }
         SerializationFormat::Json | SerializationFormat::Bytes | SerializationFormat::String => {
-            Ok(extract_json_schema_from_properties(properties))
+            Ok(extract_value_json_schema_from_properties(properties))
         }
     }
+}
+
+/// Extract schema from properties for MESSAGE KEY based on serialization format
+pub fn extract_key_schema_from_properties(
+    format: &SerializationFormat,
+    properties: &HashMap<String, String>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    match format {
+        SerializationFormat::Avro { .. } => extract_key_avro_schema_from_properties(properties),
+        SerializationFormat::Protobuf { .. } => {
+            extract_key_protobuf_schema_from_properties(properties)
+        }
+        SerializationFormat::Json | SerializationFormat::Bytes | SerializationFormat::String => {
+            Ok(extract_key_json_schema_from_properties(properties))
+        }
+    }
+}
+
+/// DEPRECATED: Use extract_value_schema_from_properties or extract_key_schema_from_properties
+/// This function is kept for backward compatibility but will be removed
+pub fn extract_schema_from_properties(
+    format: &SerializationFormat,
+    properties: &HashMap<String, String>,
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    extract_value_schema_from_properties(format, properties)
 }
 
 /// Load schema content from file path
@@ -261,22 +317,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_format_from_properties() {
+    fn test_extract_value_format_from_properties() {
         let mut props = HashMap::new();
-        props.insert("format".to_string(), "avro".to_string());
+        props.insert("value.serializer".to_string(), "avro".to_string());
 
-        let format = extract_format_from_properties(&props);
+        let format = extract_value_format_from_properties(&props);
         assert!(matches!(format, SerializationFormat::Avro { .. }));
     }
 
     #[test]
-    fn test_extract_format_with_priority() {
+    fn test_extract_key_format_from_properties() {
         let mut props = HashMap::new();
-        props.insert("format".to_string(), "json".to_string());
-        props.insert("value.serializer".to_string(), "avro".to_string());
+        props.insert("key.serializer".to_string(), "string".to_string());
 
-        let format = extract_format_from_properties(&props);
-        assert!(matches!(format, SerializationFormat::Avro { .. }));
+        let format = extract_key_format_from_properties(&props);
+        assert!(matches!(format, SerializationFormat::String));
+    }
+
+    #[test]
+    fn test_extract_value_format_default() {
+        let props = HashMap::new();
+        let format = extract_value_format_from_properties(&props);
+        assert!(matches!(format, SerializationFormat::Json { .. }));
+    }
+
+    #[test]
+    fn test_extract_key_format_default() {
+        let props = HashMap::new();
+        let format = extract_key_format_from_properties(&props);
+        assert!(matches!(format, SerializationFormat::String));
     }
 
     #[test]

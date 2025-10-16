@@ -26,12 +26,9 @@
    - Graceful cleanup
    - Quick start mode, dashboard setup, interactive mode
 
-4. **Visualization Dashboard** (`demo/trading/dashboard.py`)
-   - Real-time price charts
-   - Volume tracking
-   - Live alerts panel
-   - Market statistics display
-   - Python-based with matplotlib
+4. **Visualization Dashboards**
+   - Trading app business Metrics
+   - Velostream runtime/telemetry
 
 5. **Documentation** (`demo/trading/README.md`)
    - Complete setup instructions

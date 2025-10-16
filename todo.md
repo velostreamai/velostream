@@ -6,6 +6,11 @@
 
 ---
 
+1. Make KafkaDataWriter property config handling should be consistent with KafkaDataReader
+2. Should StreamRecord has a 'key' field?
+3. check error msgs have enough context (job name) - and dont fail silently: 
+4. See  error!("AGG: Column '{}' not found in record", column_name);
+5. analyse the code for metrics, tracing and telemetry - ensure its consistent and complete
 ## 📋 **RECENT COMPLETIONS**
 
 ### **October 9, 2025**
