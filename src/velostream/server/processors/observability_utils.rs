@@ -15,7 +15,7 @@ use std::time::Instant;
 /// Safely access observability manager with read lock
 ///
 /// This helper eliminates the repeated pattern of:
-/// ```rust
+/// ```rust,ignore
 /// if let Some(obs) = observability {
 ///     match obs.read().await {
 ///         obs_lock => { ... }
