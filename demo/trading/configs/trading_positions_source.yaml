@@ -9,10 +9,11 @@ topic:
   partitions: 6
 
 # Trading positions specific schema
-schema:
-  key.field: trader_id
-  value.serializer: avro
-  value.schema.file: "schemas/trading_positions.avsc"
+datasource:
+  schema:
+    key.field: trader_id
+    value.serializer: avro
+    value.schema.file: "schemas/trading_positions.avsc"
 
 # Performance profile for balanced processing
 performance_profile: balanced
