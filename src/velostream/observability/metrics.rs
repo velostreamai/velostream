@@ -841,6 +841,13 @@ impl MetricsProvider {
             self.sql_metrics
                 .update_error_gauges(total_errors, unique_types, buffered_count);
 
+            // Also update individual error message metrics
+            if let Ok(tracker) = self.error_tracker.lock() {
+                let message_counts = tracker.get_message_counts();
+                self.sql_metrics
+                    .update_error_message_metrics(&message_counts);
+            }
+
             log::trace!(
                 "📊 Synced error metrics: total={}, unique={}, buffered={}",
                 total_errors,
@@ -895,6 +902,7 @@ struct SqlMetrics {
     total_errors_gauge: IntGauge,
     unique_error_types_gauge: IntGauge,
     buffered_errors_gauge: IntGauge,
+    error_message_gauge: GaugeVec, // Individual error messages with counts as label
 }
 
 impl SqlMetrics {
@@ -1003,6 +1011,18 @@ impl SqlMetrics {
             message: format!("Failed to register buffered errors gauge: {}", e),
         })?;
 
+        let error_message_gauge = register_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_error_message",
+                "Individual error messages with occurrence count"
+            ),
+            &["message"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register error message gauge: {}", e),
+        })?;
+
         Ok(Self {
             query_total,
             query_duration,
@@ -1012,6 +1032,7 @@ impl SqlMetrics {
             total_errors_gauge,
             unique_error_types_gauge,
             buffered_errors_gauge,
+            error_message_gauge,
         })
     }
 
@@ -1036,6 +1057,19 @@ impl SqlMetrics {
         self.total_errors_gauge.set(total_errors as i64);
         self.unique_error_types_gauge.set(unique_types as i64);
         self.buffered_errors_gauge.set(buffered_count as i64);
+    }
+
+    /// Update individual error message gauges
+    /// This exposes each error message as a separate metric with message text as label
+    fn update_error_message_metrics(
+        &self,
+        message_counts: &std::collections::HashMap<String, u64>,
+    ) {
+        for (message, count) in message_counts {
+            self.error_message_gauge
+                .with_label_values(&[message])
+                .set(*count as f64);
+        }
     }
 }
 
