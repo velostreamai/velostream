@@ -409,7 +409,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "label_replace(label_replace(topk(10, velo_error_messages_total), \"message\", \"Error from buffer\", \"\", \"\"), \"timestamp\", \"See chart above\", \"\", \"\")",
+          "expr": "topk(10, velo_error_message)",
           "format": "table",
           "instant": true,
           "refId": "A"
