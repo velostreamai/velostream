@@ -17,14 +17,20 @@ impl ErrorTracker {
     ///
     /// # Arguments
     /// * `observability` - Optional observability manager
+    /// * `job_name` - Name of the job (will be prefixed to error message)
     /// * `error_message` - Error message to record
-    pub fn record_error(observability: &Option<SharedObservabilityManager>, error_message: String) {
+    pub fn record_error(
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+        error_message: String,
+    ) {
         if let Some(ref obs_manager) = observability {
             let manager = obs_manager.clone();
+            let prefixed_message = format!("[{}] {}", job_name, error_message);
             tokio::spawn(async move {
                 let manager_read = manager.read().await;
                 if let Some(metrics) = manager_read.metrics() {
-                    metrics.record_error_message(error_message);
+                    metrics.record_error_message(prefixed_message);
                 }
             });
         }
@@ -38,6 +44,6 @@ mod tests {
     #[test]
     fn test_error_tracker_with_none() {
         // Should not panic when observability is None
-        ErrorTracker::record_error(&None, "Test error".to_string());
+        ErrorTracker::record_error(&None, "test-job", "Test error".to_string());
     }
 }

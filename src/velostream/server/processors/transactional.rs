@@ -205,7 +205,7 @@ impl TransactionalJobProcessor {
                         e
                     );
                     warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
@@ -224,7 +224,7 @@ impl TransactionalJobProcessor {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
                 warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(&self.observability, error_msg);
+                ErrorTracker::record_error(&self.observability, &job_name, error_msg);
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -236,7 +236,7 @@ impl TransactionalJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            ErrorTracker::record_error(&self.observability, error_msg);
+            ErrorTracker::record_error(&self.observability, &job_name, error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -333,7 +333,7 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Error checking for more data: {:?}", e);
                     warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     stats.batches_failed += 1;
                     tokio::time::sleep(self.config.retry_backoff).await;
                     continue;
@@ -365,7 +365,7 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Batch processing failed: {:?}", e);
                     warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
@@ -568,7 +568,7 @@ impl TransactionalJobProcessor {
                         );
 
                         warn!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
 
                         // Complete batch span with error
                         ObservabilityHelper::complete_batch_span_error(
@@ -688,7 +688,7 @@ impl TransactionalJobProcessor {
                     Err(e) => {
                         let error_msg = format!("Sink transaction commit failed: {:?}", e);
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                         // Abort reader transaction since sink failed
                         if reader_tx_active {
                             if let Err(abort_err) = reader.abort_transaction().await {
@@ -697,7 +697,7 @@ impl TransactionalJobProcessor {
                                     abort_err
                                 );
                                 error!("Job '{}': {}", job_name, abort_msg);
-                                ErrorTracker::record_error(&self.observability, abort_msg);
+                                ErrorTracker::record_error(&self.observability, &job_name, abort_msg);
                             } else {
                                 debug!(
                                     "Job '{}': Reader transaction aborted due to sink failure",
@@ -720,7 +720,7 @@ impl TransactionalJobProcessor {
                     Err(e) => {
                         let error_msg = format!("Sink flush failed: {:?}", e);
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                         // Still abort reader to avoid data loss
                         if reader_tx_active {
                             if let Err(abort_err) = reader.abort_transaction().await {
@@ -729,7 +729,7 @@ impl TransactionalJobProcessor {
                                     abort_err
                                 );
                                 error!("Job '{}': {}", job_name, abort_msg);
-                                ErrorTracker::record_error(&self.observability, abort_msg);
+                                ErrorTracker::record_error(&self.observability, &job_name, abort_msg);
                             }
                         }
                         return Err(format!("Sink flush failed: {:?}", e).into());
@@ -754,7 +754,7 @@ impl TransactionalJobProcessor {
                         e
                     );
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     // This is a critical failure - sink succeeded but we can't advance read position
                     // Data might be duplicated on retry, but it's better than data loss
                     return Err(format!("Source commit failed after sink success: {:?}", e).into());
@@ -772,7 +772,7 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Source commit failed after sink success: {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     return Err(format!("Source commit failed: {:?}", e).into());
                 }
             }
@@ -831,7 +831,7 @@ impl TransactionalJobProcessor {
                             source_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                         // Abort all transactions started so far
                         self.abort_multi_source_transactions(
                             context,
@@ -876,7 +876,7 @@ impl TransactionalJobProcessor {
                             sink_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                         // Abort all transactions
                         self.abort_multi_source_transactions(
                             context,
@@ -1110,7 +1110,7 @@ impl TransactionalJobProcessor {
                         );
 
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                         processing_successful = false;
                     }
                 }
@@ -1162,7 +1162,7 @@ impl TransactionalJobProcessor {
                             );
 
                             error!("Job '{}': {}", job_name, error_msg);
-                            ErrorTracker::record_error(&self.observability, error_msg);
+                            ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                             processing_successful = false;
                             break; // Exit sink write loop - will abort transaction
                         }
@@ -1231,7 +1231,7 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Failed to commit transactions: {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
 
                     // Complete batch span with error
                     ObservabilityHelper::complete_batch_span_error(
@@ -1369,7 +1369,7 @@ impl TransactionalJobProcessor {
                             sink_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     }
                 }
             }
@@ -1397,7 +1397,7 @@ impl TransactionalJobProcessor {
                             source_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     }
                 }
             }
@@ -1424,7 +1424,7 @@ impl TransactionalJobProcessor {
                     Err(e) => {
                         let error_msg = format!("Failed to abort writer transaction: {:?}", e);
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                     }
                 }
             }
@@ -1437,7 +1437,7 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Failed to abort reader transaction: {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
                 }
             }
         }

@@ -320,7 +320,7 @@ impl SimpleJobProcessor {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
                 error!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(&self.observability, error_msg);
+                ErrorTracker::record_error(&self.observability, &job_name, error_msg);
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -332,7 +332,7 @@ impl SimpleJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            ErrorTracker::record_error(&self.observability, error_msg);
+            ErrorTracker::record_error(&self.observability, &job_name, error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -628,7 +628,7 @@ impl SimpleJobProcessor {
                             e
                         );
                         warn!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, error_msg);
+                        ErrorTracker::record_error(&self.observability, job_name, error_msg);
 
                         sink_write_failed = true;
 
@@ -778,7 +778,7 @@ impl SimpleJobProcessor {
                     // This prioritizes not losing read position over guaranteed delivery
                     let error_msg = format!("Sink flush failed (continuing anyway): {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, job_name, error_msg);
                 }
             }
         }
@@ -791,7 +791,7 @@ impl SimpleJobProcessor {
             Err(e) => {
                 let error_msg = format!("Source commit failed: {:?}", e);
                 error!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(&self.observability, error_msg);
+                ErrorTracker::record_error(&self.observability, job_name, error_msg);
                 return Err(format!("Source commit failed: {:?}", e).into());
             }
         }
@@ -1035,7 +1035,7 @@ impl SimpleJobProcessor {
                                 e
                             );
                             warn!("Job '{}': {}", job_name, error_msg);
-                            ErrorTracker::record_error(&self.observability, error_msg);
+                            ErrorTracker::record_error(&self.observability, job_name, error_msg);
                             if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                                 return Err(format!(
                                     "Failed to write to sink '{}': {:?}",
@@ -1081,7 +1081,7 @@ impl SimpleJobProcessor {
                                     e
                                 );
                                 warn!("Job '{}': {}", job_name, error_msg);
-                                ErrorTracker::record_error(&self.observability, error_msg);
+                                ErrorTracker::record_error(&self.observability, job_name, error_msg);
                                 if matches!(
                                     self.config.failure_strategy,
                                     FailureStrategy::FailBatch
@@ -1109,7 +1109,7 @@ impl SimpleJobProcessor {
                 if let Err(e) = context.commit_source(source_name).await {
                     let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, error_msg);
+                    ErrorTracker::record_error(&self.observability, job_name, error_msg);
                     if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                         return Err(
                             format!("Failed to commit source '{}': {:?}", source_name, e).into(),
@@ -1122,7 +1122,7 @@ impl SimpleJobProcessor {
             if let Err(e) = context.flush_all().await {
                 let error_msg = format!("Failed to flush sinks: {:?}", e);
                 warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(&self.observability, error_msg);
+                ErrorTracker::record_error(&self.observability, job_name, error_msg);
                 if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                     return Err(format!("Failed to flush sinks: {:?}", e).into());
                 }
