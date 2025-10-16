@@ -24,7 +24,7 @@ scrape_configs:
     scrape_interval: 10s
     scrape_timeout: 5s
 
-  - job_name: 'velo-sql'
+  - job_name: 'velo-sql-telemetry'
     static_configs:
       - targets: ['host.docker.internal:9091']
     metrics_path: /metrics
