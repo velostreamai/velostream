@@ -464,6 +464,21 @@ impl StreamingSpan {
             log::warn!("🔍 Streaming span failed after {:?}: {}", duration, error);
         }
     }
+
+    /// Add Kafka metadata (topic, partition, offset) to the span
+    pub fn set_kafka_metadata(&mut self, topic: &str, partition: i32, offset: i64) {
+        if let Some(span) = &mut self.span {
+            span.set_attribute(KeyValue::new("kafka.topic", topic.to_string()));
+            span.set_attribute(KeyValue::new("kafka.partition", partition as i64));
+            span.set_attribute(KeyValue::new("kafka.offset", offset));
+            log::trace!(
+                "🔍 Streaming span enriched with Kafka metadata: topic={}, partition={}, offset={}",
+                topic,
+                partition,
+                offset
+            );
+        }
+    }
 }
 
 impl Drop for StreamingSpan {

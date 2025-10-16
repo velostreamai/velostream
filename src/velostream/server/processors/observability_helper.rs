@@ -106,12 +106,21 @@ impl ObservabilityHelper {
     }
 
     /// Record deserialization telemetry and metrics
+    ///
+    /// # Arguments
+    /// * `observability` - Observability manager
+    /// * `job_name` - Name of the job/query
+    /// * `batch_span` - Current batch span (parent span for child operations)
+    /// * `record_count` - Number of records deserialized
+    /// * `duration_ms` - Duration of deserialization in milliseconds
+    /// * `metadata` - Optional Kafka metadata (topic, partition, offset)
     pub fn record_deserialization(
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
         batch_span: &Option<BatchSpan>,
         record_count: usize,
         duration_ms: u64,
+        metadata: Option<(&str, i32, i64)>, // (topic, partition, offset)
     ) {
         if let Some(obs) = observability {
             info!(
@@ -120,7 +129,7 @@ impl ObservabilityHelper {
             );
 
             with_observability_try_lock(observability, |obs_lock| {
-                // Record telemetry span
+                // Record telemetry span with Kafka metadata enrichment
                 if let Some(telemetry) = obs_lock.telemetry() {
                     let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                     let mut span = telemetry.start_streaming_span(
@@ -129,6 +138,12 @@ impl ObservabilityHelper {
                         parent_ctx,
                     );
                     span.set_processing_time(duration_ms);
+
+                    // Attach Kafka metadata to the span if available
+                    if let Some((topic, partition, offset)) = metadata {
+                        span.set_kafka_metadata(topic, partition, offset);
+                    }
+
                     span.set_success();
                     info!(
                         "Job '{}': Telemetry span recorded for deserialization",
@@ -205,9 +220,10 @@ impl ObservabilityHelper {
         batch_span: &Option<BatchSpan>,
         record_count: usize,
         duration_ms: u64,
+        metadata: Option<(&str, i32, i64)>, // (topic, partition, offset)
     ) {
         with_observability_try_lock(observability, |obs_lock| {
-            // Record telemetry span
+            // Record telemetry span with Kafka metadata enrichment
             if let Some(telemetry) = obs_lock.telemetry() {
                 let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                 let mut span = telemetry.start_streaming_span(
@@ -216,6 +232,12 @@ impl ObservabilityHelper {
                     parent_ctx,
                 );
                 span.set_processing_time(duration_ms);
+
+                // Attach Kafka metadata to the span if available
+                if let Some((topic, partition, offset)) = metadata {
+                    span.set_kafka_metadata(topic, partition, offset);
+                }
+
                 span.set_success();
             }
 
@@ -241,9 +263,10 @@ impl ObservabilityHelper {
         record_count: usize,
         duration_ms: u64,
         error: &str,
+        metadata: Option<(&str, i32, i64)>, // (topic, partition, offset)
     ) {
         with_observability_try_lock(observability, |obs_lock| {
-            // Record telemetry span
+            // Record telemetry span with Kafka metadata enrichment
             if let Some(telemetry) = obs_lock.telemetry() {
                 let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                 let mut span = telemetry.start_streaming_span(
@@ -252,6 +275,12 @@ impl ObservabilityHelper {
                     parent_ctx,
                 );
                 span.set_processing_time(duration_ms);
+
+                // Attach Kafka metadata to the span if available
+                if let Some((topic, partition, offset)) = metadata {
+                    span.set_kafka_metadata(topic, partition, offset);
+                }
+
                 span.set_error(error);
             }
 

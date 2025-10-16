@@ -498,6 +498,7 @@ impl SimpleJobProcessor {
             &batch_span_guard,
             batch.len(),
             deser_duration,
+            None,
         );
 
         if batch.is_empty() {
@@ -599,6 +600,7 @@ impl SimpleJobProcessor {
                             &batch_span_guard,
                             record_count,
                             ser_duration,
+                            None,
                         );
 
                         debug!(
@@ -617,9 +619,14 @@ impl SimpleJobProcessor {
                             record_count,
                             ser_duration,
                             &format!("{:?}", e),
+                            None,
                         );
 
-                        let error_msg = format!("Failed to write {} records to sink: {:?}", batch_result.output_records.len(), e);
+                        let error_msg = format!(
+                            "Failed to write {} records to sink: {:?}",
+                            batch_result.output_records.len(),
+                            e
+                        );
                         warn!("Job '{}': {}", job_name, error_msg);
                         ErrorTracker::record_error(&self.observability, error_msg);
 
@@ -838,6 +845,7 @@ impl SimpleJobProcessor {
                 &batch_span_guard,
                 batch.len(),
                 deser_duration,
+                None,
             );
 
             if batch.is_empty() {
@@ -982,6 +990,7 @@ impl SimpleJobProcessor {
                                 &batch_span_guard,
                                 all_output_records.len(),
                                 ser_duration,
+                                None,
                             );
 
                             debug!(
@@ -1027,6 +1036,7 @@ impl SimpleJobProcessor {
                                     &batch_span_guard,
                                     all_output_records.len(),
                                     ser_duration,
+                                    None,
                                 );
 
                                 debug!(

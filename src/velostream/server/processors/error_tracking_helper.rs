@@ -18,10 +18,7 @@ impl ErrorTracker {
     /// # Arguments
     /// * `observability` - Optional observability manager
     /// * `error_message` - Error message to record
-    pub fn record_error(
-        observability: &Option<SharedObservabilityManager>,
-        error_message: String,
-    ) {
+    pub fn record_error(observability: &Option<SharedObservabilityManager>, error_message: String) {
         if let Some(ref obs_manager) = observability {
             let manager = obs_manager.clone();
             tokio::spawn(async move {
