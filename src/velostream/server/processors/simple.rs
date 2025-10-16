@@ -60,6 +60,20 @@ impl SimpleJobProcessor {
         &self.config
     }
 
+    /// Helper method to record an error message to the metrics system
+    fn record_error(&self, error_message: String) {
+        if let Some(ref obs_manager) = self.observability {
+            // Spawn a task that will be executed asynchronously
+            let manager = obs_manager.clone();
+            tokio::spawn(async move {
+                let manager_read = manager.read().await;
+                if let Some(metrics) = manager_read.metrics() {
+                    metrics.record_error_message(error_message);
+                }
+            });
+        }
+    }
+
     // =========================================================================
     // Metric Helper Delegation (Public Methods for Testing)
     // =========================================================================
@@ -317,10 +331,9 @@ impl SimpleJobProcessor {
 
         for source_name in context.list_sources() {
             if let Err(e) = context.commit_source(&source_name).await {
-                error!(
-                    "Job '{}': Failed to commit source '{}': {:?}",
-                    job_name, source_name, e
-                );
+                let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
+                error!("Job '{}': {}", job_name, error_msg);
+                self.record_error(error_msg);
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -330,7 +343,9 @@ impl SimpleJobProcessor {
         }
 
         if let Err(e) = context.flush_all().await {
-            warn!("Job '{}': Failed to flush all sinks: {:?}", job_name, e);
+            let error_msg = format!("Failed to flush all sinks: {:?}", e);
+            warn!("Job '{}': {}", job_name, error_msg);
+            self.record_error(error_msg);
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -617,12 +632,9 @@ impl SimpleJobProcessor {
                             &format!("{:?}", e),
                         );
 
-                        warn!(
-                            "Job '{}': Failed to write {} records to sink: {:?}",
-                            job_name,
-                            batch_result.output_records.len(),
-                            e
-                        );
+                        let error_msg = format!("Failed to write {} records to sink: {:?}", batch_result.output_records.len(), e);
+                        warn!("Job '{}': {}", job_name, error_msg);
+                        self.record_error(error_msg);
 
                         sink_write_failed = true;
 
@@ -743,10 +755,9 @@ impl SimpleJobProcessor {
                 Err(e) => {
                     // In simple mode, we log sink failures but still commit source
                     // This prioritizes not losing read position over guaranteed delivery
-                    error!(
-                        "Job '{}': Sink flush failed (continuing anyway): {:?}",
-                        job_name, e
-                    );
+                    let error_msg = format!("Sink flush failed (continuing anyway): {:?}", e);
+                    error!("Job '{}': {}", job_name, error_msg);
+                    self.record_error(error_msg);
                 }
             }
         }
@@ -757,7 +768,9 @@ impl SimpleJobProcessor {
                 debug!("Job '{}': Source committed", job_name);
             }
             Err(e) => {
-                error!("Job '{}': Source commit failed: {:?}", job_name, e);
+                let error_msg = format!("Source commit failed: {:?}", e);
+                error!("Job '{}': {}", job_name, error_msg);
+                self.record_error(error_msg);
                 return Err(format!("Source commit failed: {:?}", e).into());
             }
         }
@@ -992,13 +1005,14 @@ impl SimpleJobProcessor {
                             );
                         }
                         Err(e) => {
-                            warn!(
-                                "Job '{}': Failed to write {} records to sink '{}': {:?}",
-                                job_name,
+                            let error_msg = format!(
+                                "Failed to write {} records to sink '{}': {:?}",
                                 all_output_records.len(),
                                 &sink_names[0],
                                 e
                             );
+                            warn!("Job '{}': {}", job_name, error_msg);
+                            self.record_error(error_msg);
                             if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                                 return Err(format!(
                                     "Failed to write to sink '{}': {:?}",
@@ -1036,13 +1050,14 @@ impl SimpleJobProcessor {
                                 );
                             }
                             Err(e) => {
-                                warn!(
-                                    "Job '{}': Failed to write {} records to sink '{}': {:?}",
-                                    job_name,
+                                let error_msg = format!(
+                                    "Failed to write {} records to sink '{}': {:?}",
                                     all_output_records.len(),
                                     sink_name,
                                     e
                                 );
+                                warn!("Job '{}': {}", job_name, error_msg);
+                                self.record_error(error_msg);
                                 if matches!(
                                     self.config.failure_strategy,
                                     FailureStrategy::FailBatch
@@ -1068,10 +1083,9 @@ impl SimpleJobProcessor {
             // Commit all sources
             for source_name in &source_names {
                 if let Err(e) = context.commit_source(source_name).await {
-                    error!(
-                        "Job '{}': Failed to commit source '{}': {:?}",
-                        job_name, source_name, e
-                    );
+                    let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
+                    error!("Job '{}': {}", job_name, error_msg);
+                    self.record_error(error_msg);
                     if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                         return Err(
                             format!("Failed to commit source '{}': {:?}", source_name, e).into(),
@@ -1082,7 +1096,9 @@ impl SimpleJobProcessor {
 
             // Flush all sinks
             if let Err(e) = context.flush_all().await {
-                warn!("Job '{}': Failed to flush sinks: {:?}", job_name, e);
+                let error_msg = format!("Failed to flush sinks: {:?}", e);
+                warn!("Job '{}': {}", job_name, error_msg);
+                self.record_error(error_msg);
                 if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
                     return Err(format!("Failed to flush sinks: {:?}", e).into());
                 }
