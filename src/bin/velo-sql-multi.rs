@@ -4,7 +4,10 @@ use std::fs;
 use std::time::Duration;
 use velostream::velostream::{
     server::stream_job_server::StreamJobServer,
-    sql::{app_parser::SqlApplicationParser, validator::SqlValidator},
+    sql::{
+        annotation_parser::SqlAnnotationParser, app_parser::SqlApplicationParser,
+        validator::SqlValidator,
+    },
 };
 
 #[derive(Parser)]
@@ -405,6 +408,30 @@ async fn deploy_sql_application_from_file(
         e
     })?;
     println!("Successfully read {} bytes from file", content.len());
+
+    // Parse deployment context from SQL annotations
+    println!("Extracting deployment context from SQL annotations...");
+    let sql_deployment_ctx = SqlAnnotationParser::parse_deployment_context(&content);
+    if sql_deployment_ctx.node_id.is_some()
+        || sql_deployment_ctx.node_name.is_some()
+        || sql_deployment_ctx.region.is_some()
+    {
+        println!("✅ Deployment context extracted from annotations:");
+        if let Some(ref node_id) = sql_deployment_ctx.node_id {
+            println!("   • Node ID: {}", node_id);
+            std::env::set_var("NODE_ID", node_id);
+        }
+        if let Some(ref node_name) = sql_deployment_ctx.node_name {
+            println!("   • Node Name: {}", node_name);
+            std::env::set_var("NODE_NAME", node_name);
+        }
+        if let Some(ref region) = sql_deployment_ctx.region {
+            println!("   • Region: {}", region);
+            std::env::set_var("REGION", region);
+        }
+    } else {
+        println!("ℹ️  No deployment context annotations found in SQL file");
+    }
 
     // Validate SQL before deployment using SqlValidator
     println!("Validating SQL application...");
