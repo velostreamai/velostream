@@ -431,6 +431,12 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     print_timestamp "Launching velo-sql-multi (interactive mode)..."
     echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
     echo ""
+    # Set deployment context environment variables for per-node observability
+    export NODE_ID="velostream-prod-node-1"
+    export NODE_NAME="velostream-trading-engine"
+    export REGION="us-east-1"
+    export APP_VERSION="1.0.0"
+
     $VELO_BUILD_DIR/velo-sql-multi deploy-app \
         --file sql/financial_trading.sql \
         --enable-tracing \
@@ -443,6 +449,12 @@ else
     print_timestamp "Launching velo-sql-multi (background mode)..."
     echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
     echo ""
+    # Set deployment context environment variables for per-node observability
+    export NODE_ID="velostream-prod-node-1"
+    export NODE_NAME="velostream-trading-engine"
+    export REGION="us-east-1"
+    export APP_VERSION="1.0.0"
+
     $VELO_BUILD_DIR/velo-sql-multi deploy-app \
         --file sql/financial_trading.sql \
         --enable-tracing \
