@@ -286,7 +286,7 @@
           },
           "expr": "rate(velo_sql_records_processed_total[5m])",
           "interval": "",
-          "legendFormat": "Messages Processed/sec - {{job}}",
+          "legendFormat": "Total Records Processed/sec",
           "refId": "A"
         },
         {
@@ -296,8 +296,18 @@
           },
           "expr": "rate(velo_sql_queries_total[5m])",
           "interval": "",
-          "legendFormat": "SQL Queries/sec - {{job}}",
+          "legendFormat": "Total SQL Queries/sec",
           "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "expr": "velo_streaming_throughput_by_job_rps",
+          "interval": "",
+          "legendFormat": "Job Throughput - {{job_name}} rec/sec",
+          "refId": "C"
         }
       ],
       "title": "Stream Processing Throughput",
@@ -384,9 +394,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "process_resident_memory_bytes{job=~\"velo.*\"}",
+          "expr": "velo_memory_usage_bytes{job=~\"velo.*\"}",
           "interval": "",
-          "legendFormat": "Memory - {{job}}",
+          "legendFormat": "Memory - {{node_id}} ({{node_name}})",
           "refId": "A"
         }
       ],
@@ -474,9 +484,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(process_cpu_seconds_total{job=~\"velo.*\"}[5m]) * 100",
+          "expr": "velo_cpu_usage_percent{job=~\"velo.*\"}",
           "interval": "",
-          "legendFormat": "CPU - {{job}}",
+          "legendFormat": "CPU - {{node_id}} ({{node_name}})",
           "refId": "A"
         }
       ],

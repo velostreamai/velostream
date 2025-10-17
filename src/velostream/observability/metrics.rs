@@ -7,8 +7,9 @@ use prometheus::{
     register_gauge_vec_with_registry, register_gauge_with_registry,
     register_histogram_vec_with_registry, register_histogram_with_registry,
     register_int_counter_vec_with_registry, register_int_counter_with_registry,
-    register_int_gauge_with_registry, Encoder, Gauge, GaugeVec, Histogram, HistogramOpts,
-    HistogramVec, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder,
+    register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Encoder, Gauge,
+    GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge,
+    IntGaugeVec, Opts, Registry, TextEncoder,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -74,30 +75,45 @@ impl MetricsProvider {
                 tracker.set_node_id(Some(id.clone()));
                 log::debug!("📊 Error tracker node context updated: {}", id);
             }
+            // Update system metrics with node ID
+            self.system_metrics
+                .set_node_context(Some(id.clone()), None, None)?;
         }
         Ok(())
     }
 
-    /// Set the deployment context for error tracking
+    /// Set the deployment context for error tracking, system metrics, and SQL metrics
     ///
-    /// This enables all error messages to be tagged with deployment metadata
-    /// (node_id, node_name, region, version)
+    /// This enables:
+    /// - All error messages to be tagged with deployment metadata (node_id, node_name, region, version)
+    /// - System metrics (CPU, memory, connections) to be labeled with per-node deployment info
+    /// - SQL metrics (queries, records) to be labeled with per-node deployment info
     pub fn set_deployment_context(
         &mut self,
         context: crate::velostream::observability::error_tracker::DeploymentContext,
     ) -> Result<(), SqlError> {
-        if self.error_tracker.lock().is_ok() {
-            if let Ok(mut tracker) = self.error_tracker.lock() {
-                tracker.set_deployment_context(context.clone());
-                log::info!(
-                    "📊 Error tracking deployment context configured: node_id={:?}, node_name={:?}, region={:?}, version={:?}",
-                    context.node_id,
-                    context.node_name,
-                    context.region,
-                    context.version
-                );
-            }
+        // Update error tracker with deployment context
+        if let Ok(mut tracker) = self.error_tracker.lock() {
+            tracker.set_deployment_context(context.clone());
+            log::info!(
+                "📊 Error tracking deployment context configured: node_id={:?}, node_name={:?}, region={:?}, version={:?}",
+                context.node_id,
+                context.node_name,
+                context.region,
+                context.version
+            );
         }
+
+        // Update system metrics with deployment context for per-node labeling
+        self.system_metrics.set_node_context(
+            context.node_id.clone(),
+            context.node_name.clone(),
+            context.region.clone(),
+        )?;
+
+        // Update SQL metrics with deployment context for per-node labeling
+        self.sql_metrics.set_deployment_context(context)?;
+
         Ok(())
     }
 
@@ -285,13 +301,33 @@ impl MetricsProvider {
 
     /// Get metrics statistics for monitoring
     pub fn get_stats(&self) -> MetricsStats {
+        // For per-node metrics, get from "unknown" node (default if not set)
+        let active_connections = self
+            .system_metrics
+            .active_connections
+            .with_label_values(&["unknown", "unknown", "unknown"])
+            .get();
+
+        // For labeled metrics, retrieve using "unknown" labels for backward compatibility
+        let sql_queries_total = self
+            .sql_metrics
+            .query_total_by_node
+            .with_label_values(&["unknown", "unknown", "unknown"])
+            .get();
+
+        let records_processed_total = self
+            .sql_metrics
+            .records_processed_by_node
+            .with_label_values(&["unknown", "unknown", "unknown"])
+            .get();
+
         MetricsStats {
-            sql_queries_total: self.sql_metrics.query_total.get(),
+            sql_queries_total,
             sql_errors_total: self.sql_metrics.query_errors.get(),
             streaming_operations_total: self.streaming_metrics.get_total_operations(),
-            records_processed_total: self.sql_metrics.records_processed.get(),
+            records_processed_total,
             records_streamed_total: self.streaming_metrics.get_total_records(),
-            active_connections: self.system_metrics.active_connections.get(),
+            active_connections,
         }
     }
 
@@ -994,11 +1030,11 @@ pub struct MetricsStats {
 /// SQL execution metrics
 #[derive(Debug)]
 struct SqlMetrics {
-    query_total: IntCounter,
+    query_total_by_node: IntCounterVec, // velo_sql_queries_total{node_id, node_name, region}
     query_duration: Histogram,
     query_errors: IntCounter,
     active_queries: IntGauge,
-    records_processed: IntCounter,
+    records_processed_by_node: IntCounterVec, // velo_sql_records_processed_total{node_id, node_name, region}
     // Error tracking metrics (Prometheus exposure)
     total_errors_gauge: IntGauge,
     unique_error_types_gauge: IntGauge,
@@ -1006,19 +1042,24 @@ struct SqlMetrics {
     error_message_gauge: GaugeVec, // Individual error messages with counts as label
     // Phase 2.1: Job-specific SQL latency metrics
     query_duration_by_job: HistogramVec, // velo_sql_query_duration_by_job_seconds{job_name, query_type}
+    // Deployment context for recording metrics with proper labels
+    deployment_context:
+        Arc<Mutex<Option<crate::velostream::observability::error_tracker::DeploymentContext>>>,
 }
 
 impl SqlMetrics {
     fn new(registry: &Registry, config: &PrometheusConfig) -> Result<Self, SqlError> {
-        let query_total = register_int_counter_with_registry!(
+        // Per-node SQL queries counter with node labels
+        let query_total_by_node = register_int_counter_vec_with_registry!(
             Opts::new(
                 "velo_sql_queries_total",
-                "Total number of SQL queries executed"
+                "Total number of SQL queries executed per node"
             ),
+            &["node_id", "node_name", "region"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
-            message: format!("Failed to register SQL metrics: {}", e),
+            message: format!("Failed to register SQL queries counter: {}", e),
         })?;
 
         let query_duration = if config.enable_histograms {
@@ -1069,15 +1110,17 @@ impl SqlMetrics {
             message: format!("Failed to register SQL gauge: {}", e),
         })?;
 
-        let records_processed = register_int_counter_with_registry!(
+        // Per-node records processed counter with node labels
+        let records_processed_by_node = register_int_counter_vec_with_registry!(
             Opts::new(
                 "velo_sql_records_processed_total",
-                "Total number of records processed by SQL queries"
+                "Total number of records processed by SQL queries per node"
             ),
+            &["node_id", "node_name", "region"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
-            message: format!("Failed to register record metrics: {}", e),
+            message: format!("Failed to register records processed counter: {}", e),
         })?;
 
         // Error tracking metrics for Prometheus exposure
@@ -1155,16 +1198,17 @@ impl SqlMetrics {
         };
 
         Ok(Self {
-            query_total,
+            query_total_by_node,
             query_duration,
             query_errors,
             active_queries,
-            records_processed,
+            records_processed_by_node,
             total_errors_gauge,
             unique_error_types_gauge,
             buffered_errors_gauge,
             error_message_gauge,
             query_duration_by_job,
+            deployment_context: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -1175,9 +1219,38 @@ impl SqlMetrics {
         success: bool,
         record_count: u64,
     ) {
-        self.query_total.inc();
+        // Get current deployment context (use "unknown" as defaults)
+        let (node_id, node_name, region) = self
+            .deployment_context
+            .lock()
+            .ok()
+            .and_then(|ctx_opt| {
+                ctx_opt.as_ref().map(|ctx| {
+                    (
+                        ctx.node_id.as_deref().unwrap_or("unknown").to_string(),
+                        ctx.node_name.as_deref().unwrap_or("unknown").to_string(),
+                        ctx.region.as_deref().unwrap_or("unknown").to_string(),
+                    )
+                })
+            })
+            .unwrap_or_else(|| {
+                (
+                    "unknown".to_string(),
+                    "unknown".to_string(),
+                    "unknown".to_string(),
+                )
+            });
+
+        let label_values = &[node_id.as_str(), node_name.as_str(), region.as_str()];
+
+        // Record metrics with node labels
+        self.query_total_by_node
+            .with_label_values(label_values)
+            .inc();
         self.query_duration.observe(duration.as_secs_f64());
-        self.records_processed.inc_by(record_count);
+        self.records_processed_by_node
+            .with_label_values(label_values)
+            .inc_by(record_count);
 
         if !success {
             self.query_errors.inc();
@@ -1193,10 +1266,38 @@ impl SqlMetrics {
         success: bool,
         record_count: u64,
     ) {
-        // Record global metrics
-        self.query_total.inc();
+        // Get current deployment context (use "unknown" as defaults)
+        let (node_id, node_name, region) = self
+            .deployment_context
+            .lock()
+            .ok()
+            .and_then(|ctx_opt| {
+                ctx_opt.as_ref().map(|ctx| {
+                    (
+                        ctx.node_id.as_deref().unwrap_or("unknown").to_string(),
+                        ctx.node_name.as_deref().unwrap_or("unknown").to_string(),
+                        ctx.region.as_deref().unwrap_or("unknown").to_string(),
+                    )
+                })
+            })
+            .unwrap_or_else(|| {
+                (
+                    "unknown".to_string(),
+                    "unknown".to_string(),
+                    "unknown".to_string(),
+                )
+            });
+
+        let label_values = &[node_id.as_str(), node_name.as_str(), region.as_str()];
+
+        // Record metrics with node labels
+        self.query_total_by_node
+            .with_label_values(label_values)
+            .inc();
         self.query_duration.observe(duration.as_secs_f64());
-        self.records_processed.inc_by(record_count);
+        self.records_processed_by_node
+            .with_label_values(label_values)
+            .inc_by(record_count);
 
         if !success {
             self.query_errors.inc();
@@ -1206,6 +1307,21 @@ impl SqlMetrics {
         self.query_duration_by_job
             .with_label_values(&[job_name, query_type])
             .observe(duration.as_secs_f64());
+    }
+
+    /// Set the deployment context for SQL metrics
+    fn set_deployment_context(
+        &self,
+        context: crate::velostream::observability::error_tracker::DeploymentContext,
+    ) -> Result<(), SqlError> {
+        if let Ok(mut ctx) = self.deployment_context.lock() {
+            *ctx = Some(context);
+            Ok(())
+        } else {
+            Err(SqlError::ConfigurationError {
+                message: "Failed to acquire lock on deployment context".to_string(),
+            })
+        }
     }
 
     /// Update error tracking gauges for Prometheus exposure
@@ -1528,34 +1644,54 @@ impl StreamingMetrics {
     }
 }
 
-/// System resource metrics
+/// System resource metrics with per-node labels
 #[derive(Debug)]
 struct SystemMetrics {
-    cpu_usage: Gauge,
-    memory_usage: IntGauge,
-    active_connections: IntGauge,
+    // Per-node system resource metrics with node_id, node_name, region labels
+    cpu_usage: GaugeVec, // velo_cpu_usage_percent{node_id, node_name, region}
+    memory_usage: IntGaugeVec, // velo_memory_usage_bytes{node_id, node_name, region}
+    active_connections: IntGaugeVec, // velo_active_connections{node_id, node_name, region}
+    // Current node context
+    node_id: Arc<Mutex<Option<String>>>,
+    node_name: Arc<Mutex<Option<String>>>,
+    region: Arc<Mutex<Option<String>>>,
 }
 
 impl SystemMetrics {
     fn new(registry: &Registry, _config: &PrometheusConfig) -> Result<Self, SqlError> {
-        let cpu_usage = register_gauge_with_registry!(
-            Opts::new("velo_cpu_usage_percent", "Current CPU usage percentage"),
+        // Register CPU usage gauge with per-node labels
+        let cpu_usage = register_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_cpu_usage_percent",
+                "Current CPU usage percentage per node"
+            ),
+            &["node_id", "node_name", "region"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
             message: format!("Failed to register CPU metrics: {}", e),
         })?;
 
-        let memory_usage = register_int_gauge_with_registry!(
-            Opts::new("velo_memory_usage_bytes", "Current memory usage in bytes"),
+        // Register memory usage gauge with per-node labels
+        let memory_usage = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_memory_usage_bytes",
+                "Current memory usage in bytes per node"
+            ),
+            &["node_id", "node_name", "region"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
             message: format!("Failed to register memory metrics: {}", e),
         })?;
 
-        let active_connections = register_int_gauge_with_registry!(
-            Opts::new("velo_active_connections", "Number of active connections"),
+        // Register active connections gauge with per-node labels
+        let active_connections = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_active_connections",
+                "Number of active connections per node"
+            ),
+            &["node_id", "node_name", "region"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
@@ -1566,13 +1702,72 @@ impl SystemMetrics {
             cpu_usage,
             memory_usage,
             active_connections,
+            node_id: Arc::new(Mutex::new(None)),
+            node_name: Arc::new(Mutex::new(None)),
+            region: Arc::new(Mutex::new(None)),
         })
     }
 
+    /// Set the node context for system metrics labeling
+    fn set_node_context(
+        &self,
+        node_id: Option<String>,
+        node_name: Option<String>,
+        region: Option<String>,
+    ) -> Result<(), SqlError> {
+        if let Ok(mut id) = self.node_id.lock() {
+            *id = node_id.clone();
+        }
+        if let Ok(mut name) = self.node_name.lock() {
+            *name = node_name.clone();
+        }
+        if let Ok(mut reg) = self.region.lock() {
+            *reg = region.clone();
+        }
+
+        log::debug!(
+            "📊 System metrics node context updated: node_id={:?}, node_name={:?}, region={:?}",
+            node_id,
+            node_name,
+            region
+        );
+
+        Ok(())
+    }
+
     fn update(&self, cpu_usage: f64, memory_usage: u64, active_connections: i64) {
-        self.cpu_usage.set(cpu_usage);
-        self.memory_usage.set(memory_usage as i64);
-        self.active_connections.set(active_connections);
+        // Get current label values
+        let node_id = self
+            .node_id
+            .lock()
+            .ok()
+            .and_then(|n| n.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        let node_name = self
+            .node_name
+            .lock()
+            .ok()
+            .and_then(|n| n.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        let region = self
+            .region
+            .lock()
+            .ok()
+            .and_then(|n| n.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let label_values = &[node_id.as_str(), node_name.as_str(), region.as_str()];
+
+        // Update per-node metrics with labels
+        self.cpu_usage
+            .with_label_values(label_values)
+            .set(cpu_usage);
+        self.memory_usage
+            .with_label_values(label_values)
+            .set(memory_usage as i64);
+        self.active_connections
+            .with_label_values(label_values)
+            .set(active_connections);
     }
 }
 
@@ -2214,5 +2409,205 @@ mod tests {
         let stats = provider.get_error_stats().unwrap();
         assert_eq!(stats.total_errors, 3);
         assert_eq!(stats.unique_errors, 3);
+    }
+
+    // === Per-Node System Metrics Tests ===
+
+    #[tokio::test]
+    async fn test_per_node_cpu_and_memory_metrics() {
+        use crate::velostream::observability::error_tracker::DeploymentContext;
+
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // Set deployment context with node info
+        let ctx = DeploymentContext::with_all(
+            "prod-node-1".to_string(),
+            "Trading Engine - Node 1".to_string(),
+            "us-west-2".to_string(),
+            "2.1.0".to_string(),
+        );
+
+        provider.set_deployment_context(ctx).unwrap();
+
+        // Update system metrics
+        provider.update_system_metrics(45.5, 1024 * 1024 * 1024, 42);
+
+        // Verify metrics appear in Prometheus output with per-node labels
+        let metrics_text = provider.get_metrics_text().unwrap();
+
+        // Check for CPU metrics with node labels
+        assert!(metrics_text.contains("velo_cpu_usage_percent"));
+        assert!(
+            metrics_text.contains("node_id=\"prod-node-1\""),
+            "Missing node_id label in CPU metric"
+        );
+        assert!(
+            metrics_text.contains("node_name=\"Trading Engine - Node 1\""),
+            "Missing node_name label in CPU metric"
+        );
+        assert!(
+            metrics_text.contains("region=\"us-west-2\""),
+            "Missing region label in CPU metric"
+        );
+
+        // Check for memory metrics with per-node labels
+        assert!(metrics_text.contains("velo_memory_usage_bytes"));
+
+        // Check for active connections with per-node labels
+        assert!(metrics_text.contains("velo_active_connections"));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_nodes_system_metrics() {
+        use crate::velostream::observability::error_tracker::DeploymentContext;
+
+        let config1 = PrometheusConfig::default();
+        let config2 = PrometheusConfig::default();
+        let mut provider1 = MetricsProvider::new(config1).await.unwrap();
+        let mut provider2 = MetricsProvider::new(config2).await.unwrap();
+
+        // Set different deployment contexts for two nodes
+        let ctx1 = DeploymentContext::with_all(
+            "prod-node-1".to_string(),
+            "Node 1".to_string(),
+            "us-west-2".to_string(),
+            "2.1.0".to_string(),
+        );
+
+        let ctx2 = DeploymentContext::with_all(
+            "prod-node-2".to_string(),
+            "Node 2".to_string(),
+            "us-east-1".to_string(),
+            "2.1.0".to_string(),
+        );
+
+        provider1.set_deployment_context(ctx1).unwrap();
+        provider2.set_deployment_context(ctx2).unwrap();
+
+        // Update metrics for each provider (simulating different nodes)
+        provider1.update_system_metrics(35.2, 512 * 1024 * 1024, 20);
+        provider2.update_system_metrics(62.8, 2048 * 1024 * 1024, 85);
+
+        // Verify metrics from provider1
+        let metrics_text1 = provider1.get_metrics_text().unwrap();
+        assert!(metrics_text1.contains("node_id=\"prod-node-1\""));
+        assert!(metrics_text1.contains("region=\"us-west-2\""));
+
+        // Verify metrics from provider2
+        let metrics_text2 = provider2.get_metrics_text().unwrap();
+        assert!(metrics_text2.contains("node_id=\"prod-node-2\""));
+        assert!(metrics_text2.contains("region=\"us-east-1\""));
+    }
+
+    #[tokio::test]
+    async fn test_system_metrics_with_default_labels() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Update metrics without setting deployment context
+        // Should use "unknown" as default labels
+        provider.update_system_metrics(50.0, 2048 * 1024 * 1024, 64);
+
+        // Verify metrics appear with default "unknown" labels
+        let metrics_text = provider.get_metrics_text().unwrap();
+
+        assert!(metrics_text.contains("velo_cpu_usage_percent"));
+        assert!(
+            metrics_text.contains("node_id=\"unknown\""),
+            "Missing default node_id label"
+        );
+        assert!(
+            metrics_text.contains("node_name=\"unknown\""),
+            "Missing default node_name label"
+        );
+        assert!(
+            metrics_text.contains("region=\"unknown\""),
+            "Missing default region label"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_node_id_updates_system_metrics() {
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // Set only node ID (no full deployment context)
+        provider
+            .set_node_id(Some("analytics-node-1".to_string()))
+            .unwrap();
+
+        // Update system metrics
+        provider.update_system_metrics(55.5, 1536 * 1024 * 1024, 48);
+
+        // Verify metrics appear with node_id set but other labels default
+        let metrics_text = provider.get_metrics_text().unwrap();
+
+        assert!(metrics_text.contains("node_id=\"analytics-node-1\""));
+        assert!(metrics_text.contains("node_name=\"unknown\"")); // Should default
+        assert!(metrics_text.contains("region=\"unknown\"")); // Should default
+    }
+
+    #[tokio::test]
+    async fn test_system_metrics_label_updates_dynamically() {
+        use crate::velostream::observability::error_tracker::DeploymentContext;
+
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // First, update metrics with default labels
+        provider.update_system_metrics(30.0, 512 * 1024 * 1024, 10);
+
+        // Then set deployment context
+        let ctx = DeploymentContext::with_all(
+            "prod-node-99".to_string(),
+            "Updated Node".to_string(),
+            "eu-west-1".to_string(),
+            "3.0.0".to_string(),
+        );
+        provider.set_deployment_context(ctx).unwrap();
+
+        // Update metrics again with new labels
+        provider.update_system_metrics(45.0, 1024 * 1024 * 1024, 25);
+
+        // Verify metrics now use new deployment context
+        let metrics_text = provider.get_metrics_text().unwrap();
+
+        assert!(metrics_text.contains("node_id=\"prod-node-99\""));
+        assert!(metrics_text.contains("node_name=\"Updated Node\""));
+        assert!(metrics_text.contains("region=\"eu-west-1\""));
+    }
+
+    #[tokio::test]
+    async fn test_system_metrics_multiple_updates_per_node() {
+        use crate::velostream::observability::error_tracker::DeploymentContext;
+
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        let ctx = DeploymentContext::with_all(
+            "performance-node".to_string(),
+            "High Performance".to_string(),
+            "ap-southeast-1".to_string(),
+            "2.5.0".to_string(),
+        );
+
+        provider.set_deployment_context(ctx).unwrap();
+
+        // Simulate multiple metric updates over time
+        provider.update_system_metrics(25.0, 256 * 1024 * 1024, 5);
+        provider.update_system_metrics(40.0, 512 * 1024 * 1024, 15);
+        provider.update_system_metrics(65.0, 1536 * 1024 * 1024, 50);
+
+        // All updates should be recorded with same node labels
+        let metrics_text = provider.get_metrics_text().unwrap();
+
+        assert!(metrics_text.contains("node_id=\"performance-node\""));
+        assert!(metrics_text.contains("node_name=\"High Performance\""));
+        assert!(metrics_text.contains("region=\"ap-southeast-1\""));
+
+        // The last values should be present
+        assert!(metrics_text.contains("65")); // CPU usage
+        assert!(metrics_text.contains("50")); // Active connections
     }
 }
