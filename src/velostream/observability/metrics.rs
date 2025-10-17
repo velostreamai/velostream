@@ -69,8 +69,12 @@ impl MetricsProvider {
     pub fn set_node_id(&mut self, node_id: Option<String>) -> Result<(), SqlError> {
         if let Some(ref id) = node_id {
             log::info!("📊 Metrics node context set: {}", id);
+            // Update error tracker with node ID for all future error messages
+            if let Ok(mut tracker) = self.error_tracker.lock() {
+                tracker.set_node_id(Some(id.clone()));
+                log::debug!("📊 Error tracker node context updated: {}", id);
+            }
         }
-        // Node ID will be used when recording metrics to add context to all observations
         Ok(())
     }
 
@@ -84,8 +88,14 @@ impl MetricsProvider {
     ) -> Result<(), SqlError> {
         if self.error_tracker.lock().is_ok() {
             if let Ok(mut tracker) = self.error_tracker.lock() {
-                tracker.set_deployment_context(context);
-                log::info!("📊 Error tracking deployment context configured");
+                tracker.set_deployment_context(context.clone());
+                log::info!(
+                    "📊 Error tracking deployment context configured: node_id={:?}, node_name={:?}, region={:?}, version={:?}",
+                    context.node_id,
+                    context.node_name,
+                    context.region,
+                    context.version
+                );
             }
         }
         Ok(())
@@ -932,11 +942,11 @@ impl MetricsProvider {
             self.sql_metrics
                 .update_error_gauges(total_errors, unique_types, buffered_count);
 
-            // Also update individual error message metrics
+            // Also update individual error message metrics with deployment context
             if let Ok(tracker) = self.error_tracker.lock() {
-                let message_counts = tracker.get_message_counts();
+                let messages = tracker.get_messages();
                 self.sql_metrics
-                    .update_error_message_metrics(&message_counts);
+                    .update_error_message_metrics_with_context(&messages);
             }
 
             log::trace!(
@@ -1217,6 +1227,30 @@ impl SqlMetrics {
             self.error_message_gauge
                 .with_label_values(&[message])
                 .set(*count as f64);
+        }
+    }
+
+    /// Update individual error message gauges with full deployment context
+    /// This uses the ErrorEntry objects which contain both message and deployment context
+    fn update_error_message_metrics_with_context(
+        &self,
+        messages: &[crate::velostream::observability::error_tracker::ErrorEntry],
+    ) {
+        // Build a map of message display strings (with context) to counts
+        let mut display_to_count: std::collections::HashMap<String, u64> =
+            std::collections::HashMap::new();
+
+        for entry in messages {
+            // Use the Display implementation which includes deployment context
+            let display_str = entry.to_string();
+            *display_to_count.entry(display_str).or_insert(0) += entry.count;
+        }
+
+        // Update Prometheus gauge with display strings that include deployment context
+        for (display_str, count) in display_to_count {
+            self.error_message_gauge
+                .with_label_values(&[&display_str])
+                .set(count as f64);
         }
     }
 }
@@ -2123,5 +2157,62 @@ mod tests {
         assert!(display_str.contains("node_name=Trading Analytics Platform"));
         assert!(display_str.contains("region=us-east-1"));
         assert!(display_str.contains("version=1.0.0"));
+    }
+
+    #[tokio::test]
+    async fn test_set_node_id_propagates_to_error_tracker() {
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // Set node ID (should propagate to error tracker)
+        provider
+            .set_node_id(Some("prod-node-42".to_string()))
+            .unwrap();
+
+        // Record error messages
+        provider.record_error_message("Deserialization error".to_string());
+        provider.record_error_message("SQL processing error".to_string());
+
+        // Get error messages and verify node context is present
+        let messages = provider.get_error_messages();
+        assert_eq!(messages.len(), 2);
+
+        // Verify messages have node_id set
+        let first_msg = &messages[0];
+        assert_eq!(first_msg.node_id, Some("prod-node-42".to_string()));
+        let second_msg = &messages[1];
+        assert_eq!(second_msg.node_id, Some("prod-node-42".to_string()));
+
+        // Verify display includes node_id
+        let display_str = first_msg.to_string();
+        assert!(display_str.contains("node=prod-node-42"));
+    }
+
+    #[tokio::test]
+    async fn test_error_messages_include_job_context() {
+        let config = PrometheusConfig::default();
+        let provider = MetricsProvider::new(config).await.unwrap();
+
+        // Simulate error recording like ErrorTracker does (with job name prefix)
+        provider.record_error_message(
+            "[financial-analytics-job] Market data connection failed".to_string(),
+        );
+        provider
+            .record_error_message("[financial-analytics-job] Order execution timeout".to_string());
+        provider.record_error_message("[reporting-job] Report generation failed".to_string());
+
+        // Get error messages and verify they all contain job context
+        let messages = provider.get_error_messages();
+        assert_eq!(messages.len(), 3);
+
+        // Verify messages maintain job context
+        assert!(messages[0].message.contains("financial-analytics-job"));
+        assert!(messages[1].message.contains("financial-analytics-job"));
+        assert!(messages[2].message.contains("reporting-job"));
+
+        // Verify error stats include all messages
+        let stats = provider.get_error_stats().unwrap();
+        assert_eq!(stats.total_errors, 3);
+        assert_eq!(stats.unique_errors, 3);
     }
 }
