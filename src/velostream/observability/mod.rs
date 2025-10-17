@@ -186,24 +186,46 @@ impl ObservabilityManager {
     /// Set deployment context for error tracking (job-level customization)
     ///
     /// This allows setting or updating deployment context after initialization,
-    /// enabling per-job deployment metadata in error messages.
+    /// enabling per-job deployment metadata in error messages across all observability integrations.
+    ///
+    /// Updates deployment context in:
+    /// - **Metrics**: Error tracker with deployment metadata
+    /// - **Telemetry**: Span attributes with node, name, and region
+    /// - **Profiling**: Profiling reports with deployment identification
     pub fn set_deployment_context_for_job(
         &mut self,
         deployment_ctx: error_tracker::DeploymentContext,
     ) -> Result<(), SqlError> {
-        // Update metrics provider with deployment context
+        // Update metrics provider with deployment context (for error tracking)
         if let Some(ref mut metrics) = self.metrics {
             if let Some(ref node_id) = deployment_ctx.node_id {
                 metrics.set_node_id(Some(node_id.clone()))?;
             }
         }
 
-        // Telemetry and profiling already have context set during initialization
-        // but we can update with job-specific context if needed
+        // Update telemetry provider with deployment context (for distributed tracing spans)
+        if let Some(ref mut telemetry) = self.telemetry {
+            telemetry.set_deployment_context(
+                deployment_ctx.node_id.clone(),
+                deployment_ctx.node_name.clone(),
+                deployment_ctx.region.clone(),
+            )?;
+        }
+
+        // Update profiling provider with deployment context (for performance profiling reports)
+        if let Some(ref mut profiling) = self.profiling {
+            profiling.set_deployment_context(
+                deployment_ctx.node_id.clone(),
+                deployment_ctx.node_name.clone(),
+                deployment_ctx.region.clone(),
+            )?;
+        }
 
         log::info!(
-            "Deployment context updated: node_id={:?}, region={:?}, version={:?}",
+            "Deployment context initialized across all observability integrations: \
+            node_id={:?}, node_name={:?}, region={:?}, version={:?}",
             deployment_ctx.node_id,
+            deployment_ctx.node_name,
             deployment_ctx.region,
             deployment_ctx.version
         );
