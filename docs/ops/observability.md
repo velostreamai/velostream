@@ -62,7 +62,7 @@ Observability is controlled through SQL Application annotations (no code require
 |-----------|--------|-------------|
 | `@observability.metrics.enabled` | `true`, `false` | Enable Prometheus metrics collection (~2% overhead) |
 | `@observability.tracing.enabled` | `true`, `false` | Enable distributed tracing (~3% overhead) |
-| `@observability.profiling.enabled` | `off`, `prod`, `dev`, `true`, `false` | Profiling mode: `off` (0%), `prod` (2-3%), `dev` (8-10%), `true`=`prod`, `false`=`off` |
+| `@observability.profiling.enabled` | `off`, `prod`, `dev` | Profiling mode: `off` (0%), `prod` (2-3%), `dev` (8-10%), `true`=`prod`, `false`=`off` |
 | `@observability.error_reporting.enabled` | `true`, `false` | Enable error capture and reporting (requires metrics) |
 
 ### Example: Production Configuration
@@ -76,6 +76,9 @@ Observability is controlled through SQL Application annotations (no code require
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
+-- @deployment.node_id: ${DEPLOYMENT_NODE_ID:prod-trading-node-1}
+-- @deployment.node_name: Production Trading Analytics Node
+-- @deployment.region: ${AWS_REGION:us-east-1}
 
 -- Job-level metrics for Market Data Stream
 -- @metric: velo_market_data_total
@@ -205,6 +208,109 @@ EMIT CHANGES;
 | `velo_serialization_errors_total` | Counter | Total serialization/deserialization errors |
 | `velo_sql_parsing_errors_total` | Counter | Total SQL parsing errors |
 | `velo_kafka_errors_total` | Counter | Total Kafka connectivity/consumer errors |
+
+## Node/Deployment Identification
+
+Velostream supports identifying which node, instance, or deployment is running your SQL applications. This enables distributed system monitoring with contextual reporting about where each metric, trace, error, or profile originated.
+
+### Deployment Context Annotations
+
+Add deployment identification to your SQL application header:
+
+```sql
+-- SQL Application: Production Analytics Platform
+-- @deployment.node_id: prod-node-1
+-- @deployment.node_name: Production Analytics Node 1
+-- @deployment.region: us-east-1
+
+-- Your streams and jobs...
+```
+
+### Supported Annotations
+
+| Annotation | Purpose | Example |
+|-----------|---------|---------|
+| `@deployment.node_id` | Unique identifier for this node instance | `prod-node-1`, `qa-node-a`, `trading-cluster-1` |
+| `@deployment.node_name` | Human-readable name for the node | `Production Analytics Node`, `QA Testing Instance` |
+| `@deployment.region` | Cloud region or data center location | `us-east-1`, `eu-west-1`, `ap-southeast-1` |
+
+### Environment Variable Substitution
+
+Deployment annotations support dynamic environment variable substitution using `${VAR_NAME}` syntax:
+
+```sql
+-- SQL Application: Dynamic Deployment Analytics
+-- @deployment.node_id: ${CLUSTER_ID}-${POD_NAME}
+-- @deployment.node_name: ${DEPLOYMENT_ENV}-node-${INSTANCE_NUMBER}
+-- @deployment.region: ${AWS_REGION}
+```
+
+When the SQL is parsed:
+- `${CLUSTER_ID}` is replaced with the value of the `CLUSTER_ID` environment variable
+- `${POD_NAME}` is replaced with the value of the `POD_NAME` environment variable
+- And so on for each variable
+
+### Fallback Chains and Defaults
+
+Support for fallback chains and default values:
+
+```sql
+-- Try multiple environment variables, use default if none are set
+-- @deployment.node_id: ${INSTANCE_ID|HOSTNAME|POD_NAME:default-node}
+-- @deployment.region: ${AWS_REGION:us-east-1}
+```
+
+The resolver tries each variable in order:
+1. First tries `INSTANCE_ID`
+2. If not set, tries `HOSTNAME`
+3. If not set, tries `POD_NAME`
+4. If none are set, uses `default-node`
+
+### Integration with Observability Providers
+
+Deployment context is automatically integrated with all observability features:
+
+**Distributed Tracing (OpenTelemetry)**
+- Added as `service.instance.id`, `host.name`, and `cloud.region` attributes to all spans
+- Enables filtering and grouping traces by node in Tempo
+
+**Prometheus Metrics**
+- Added as labels to all metrics for filtering in Grafana
+- Example: `velo_sql_queries_total{service_instance_id="prod-node-1", region="us-east-1"}`
+
+**Performance Profiling**
+- Included in performance reports identifying which node the profile came from
+- Enables performance comparison across different nodes
+
+**Error Tracking**
+- Each error includes the node ID for source identification
+- Facilitates error aggregation and trend analysis by node
+
+### Kubernetes Example
+
+In Kubernetes deployments, use environment variables from the pod specification:
+
+```yaml
+# Deployment environment setup
+env:
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  - name: CLUSTER_ID
+    value: "prod-cluster"
+  - name: AWS_REGION
+    value: "us-east-1"
+```
+
+Then in your SQL:
+
+```sql
+-- SQL Application: Kubernetes-based Analytics
+-- @deployment.node_id: ${CLUSTER_ID}-${POD_NAME}
+-- @deployment.node_name: Production Analytics Pod
+-- @deployment.region: ${AWS_REGION}
+```
 
 ## Error Reporting
 

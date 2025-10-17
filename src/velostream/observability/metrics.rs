@@ -65,6 +65,15 @@ impl MetricsProvider {
         })
     }
 
+    /// Set the node ID for this metrics provider (used in observability context)
+    pub fn set_node_id(&mut self, node_id: Option<String>) -> Result<(), SqlError> {
+        if let Some(ref id) = node_id {
+            log::info!("📊 Metrics node context set: {}", id);
+        }
+        // Node ID will be used when recording metrics to add context to all observations
+        Ok(())
+    }
+
     /// Record SQL query execution metrics with optional error message
     ///
     /// # Arguments

@@ -13,6 +13,9 @@
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
+-- @deployment.node_id: prod-trading-cluster-${TRADING_POD_ID:1}
+-- @deployment.node_name: Production Trading Analytics Platform
+-- @deployment.region: ${AWS_REGION:us-east-1}
 
 -- ====================================================================================
 -- PHASE 1B: EVENT-TIME WATERMARK PROCESSING - Market Data Stream

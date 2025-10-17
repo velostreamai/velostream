@@ -99,10 +99,23 @@ impl ObservabilityManager {
             return Ok(());
         }
 
+        // Extract deployment context for all providers
+        let deployment_node_id = self.config.deployment_node_id.clone();
+        if let Some(ref node_id) = deployment_node_id {
+            log::info!("📍 Node identification: {}", node_id);
+        }
+
         // Initialize distributed tracing if enabled
         if self.config.enable_distributed_tracing {
             if let Some(ref tracing_config) = self.config.tracing_config {
-                let telemetry = telemetry::TelemetryProvider::new(tracing_config.clone()).await?;
+                let mut telemetry =
+                    telemetry::TelemetryProvider::new(tracing_config.clone()).await?;
+                // Pass deployment config to telemetry
+                telemetry.set_deployment_context(
+                    deployment_node_id.clone(),
+                    self.config.deployment_node_name.clone(),
+                    self.config.deployment_region.clone(),
+                )?;
                 self.telemetry = Some(telemetry);
                 log::info!("✅ Phase 4: Distributed tracing initialized");
             }
@@ -111,7 +124,9 @@ impl ObservabilityManager {
         // Initialize Prometheus metrics if enabled
         if self.config.enable_prometheus_metrics {
             if let Some(ref prometheus_config) = self.config.prometheus_config {
-                let metrics = metrics::MetricsProvider::new(prometheus_config.clone()).await?;
+                let mut metrics = metrics::MetricsProvider::new(prometheus_config.clone()).await?;
+                // Pass deployment config to metrics
+                metrics.set_node_id(deployment_node_id.clone())?;
                 self.metrics = Some(metrics);
                 log::info!(
                     "✅ Phase 4: Prometheus metrics initialized on port {}",
@@ -123,7 +138,14 @@ impl ObservabilityManager {
         // Initialize performance profiling if enabled
         if self.config.enable_performance_profiling {
             if let Some(ref profiling_config) = self.config.profiling_config {
-                let profiling = profiling::ProfilingProvider::new(profiling_config.clone()).await?;
+                let mut profiling =
+                    profiling::ProfilingProvider::new(profiling_config.clone()).await?;
+                // Pass deployment config to profiling
+                profiling.set_deployment_context(
+                    deployment_node_id.clone(),
+                    self.config.deployment_node_name.clone(),
+                    self.config.deployment_region.clone(),
+                )?;
                 self.profiling = Some(profiling);
                 log::info!("✅ Phase 4: Performance profiling initialized");
             }

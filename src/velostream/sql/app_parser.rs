@@ -122,6 +122,85 @@ impl std::fmt::Display for ProfilingMode {
     }
 }
 
+/// Deployment configuration for node identification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentConfig {
+    /// Node identifier (supports ${ENV_VAR} syntax)
+    pub node_id: Option<String>,
+    /// Node name (human-readable, supports ${ENV_VAR} syntax)
+    pub node_name: Option<String>,
+    /// Region/zone (supports ${ENV_VAR} syntax)
+    pub region: Option<String>,
+}
+
+impl DeploymentConfig {
+    /// Resolve ${ENV_VAR} and ${ENV_VAR:default} syntax in a pattern
+    pub fn resolve_pattern(pattern: &str) -> String {
+        if !pattern.contains("${") {
+            return pattern.to_string();
+        }
+
+        let mut result = pattern.to_string();
+
+        // Find and replace all ${...} patterns
+        while let Some(start) = result.find("${") {
+            if let Some(end) = result[start..].find('}') {
+                let end = start + end;
+                let var_spec = &result[start + 2..end];
+                let replacement = Self::resolve_var_spec(var_spec);
+                result.replace_range(start..=end, &replacement);
+            } else {
+                break;
+            }
+        }
+
+        result
+    }
+
+    /// Resolve a single variable specification
+    /// Supports: VAR, VAR:default, VAR1|VAR2|VAR3, VAR1|VAR2:default
+    fn resolve_var_spec(spec: &str) -> String {
+        // Split by | to get priority-ordered list
+        let parts: Vec<&str> = spec.split('|').collect();
+
+        // Try primary variables (all but the last)
+        for part in &parts[..parts.len().saturating_sub(1)] {
+            if let Ok(value) = std::env::var(part) {
+                return value;
+            }
+        }
+
+        // Handle the last part (may have default or special handling)
+        if let Some(last_part) = parts.last() {
+            if let Some((var_name, default)) = last_part.split_once(':') {
+                if let Ok(value) = std::env::var(var_name) {
+                    return value;
+                } else if var_name == "NODE_ID" {
+                    // Special case: NODE_ID falls back to hostname, then UUID
+                    return hostname::get()
+                        .map(|h| h.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| default.to_string());
+                } else {
+                    return default.to_string();
+                }
+            } else {
+                // No default specified, just a var name
+                if let Ok(value) = std::env::var(last_part) {
+                    return value;
+                } else if *last_part == "NODE_ID" {
+                    return hostname::get()
+                        .map(|h| h.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| {
+                            format!("node-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+                        });
+                }
+            }
+        }
+
+        spec.to_string()
+    }
+}
+
 /// Represents a complete SQL application with metadata and multiple statements
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlApplication {
@@ -151,6 +230,10 @@ pub struct ApplicationMetadata {
     pub observability_tracing_enabled: Option<bool>, // @observability.tracing.enabled
     pub observability_profiling_enabled: Option<ProfilingMode>, // @observability.profiling.enabled
     pub observability_error_reporting_enabled: Option<bool>, // @observability.error_reporting.enabled
+    // Deployment configuration for node identification
+    pub deployment_node_id: Option<String>, // @deployment.node_id
+    pub deployment_node_name: Option<String>, // @deployment.node_name
+    pub deployment_region: Option<String>,  // @deployment.region
 }
 
 /// Individual SQL statement within an application
@@ -234,6 +317,9 @@ impl SqlApplicationParser {
         let mut observability_tracing_enabled = None;
         let mut observability_profiling_enabled = None;
         let mut observability_error_reporting_enabled = None;
+        let mut deployment_node_id = None;
+        let mut deployment_node_name = None;
+        let mut deployment_region = None;
 
         for line in content.lines() {
             let line = line.trim();
@@ -297,6 +383,24 @@ impl SqlApplicationParser {
                     .trim()
                     .to_lowercase();
                 observability_error_reporting_enabled = Some(val == "true");
+            } else if line.starts_with("-- @deployment.node_id:") {
+                let raw_value = line
+                    .replace("-- @deployment.node_id:", "")
+                    .trim()
+                    .to_string();
+                deployment_node_id = Some(DeploymentConfig::resolve_pattern(&raw_value));
+            } else if line.starts_with("-- @deployment.node_name:") {
+                let raw_value = line
+                    .replace("-- @deployment.node_name:", "")
+                    .trim()
+                    .to_string();
+                deployment_node_name = Some(DeploymentConfig::resolve_pattern(&raw_value));
+            } else if line.starts_with("-- @deployment.region:") {
+                let raw_value = line
+                    .replace("-- @deployment.region:", "")
+                    .trim()
+                    .to_string();
+                deployment_region = Some(DeploymentConfig::resolve_pattern(&raw_value));
             }
         }
 
@@ -330,6 +434,9 @@ impl SqlApplicationParser {
             observability_tracing_enabled,
             observability_profiling_enabled,
             observability_error_reporting_enabled,
+            deployment_node_id,
+            deployment_node_name,
+            deployment_region,
         })
     }
 

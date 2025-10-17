@@ -6,6 +6,7 @@
 
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{ObservabilityManager, SharedObservabilityManager};
+use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
@@ -488,6 +489,11 @@ impl StreamJobServer {
 
         // Extract StreamingConfig from WITH clauses (Phase 1B-4 features)
         let streaming_config = Self::extract_streaming_config_from_query(&parsed_query)?;
+
+        // Extract and merge observability settings from SQL annotations (app-level settings)
+        let annotation_config = ObservabilityConfigExtractor::extract_from_sql_string(&query)?;
+        let streaming_config =
+            ObservabilityConfigExtractor::merge_configs(streaming_config, annotation_config);
 
         // Generate unique consumer group ID
         let mut counter = self.job_counter.lock().await;
@@ -1164,20 +1170,27 @@ impl StreamJobServer {
                     // Per-stream settings override app-level if explicitly set
                     let mut merged_sql = stmt.sql.clone();
 
-                    // Only inject app-level observability if not already present in the SQL
+                    // Inject app-level observability as comment annotations
+                    // These will be parsed by extract_streaming_config_from_query
                     if let Some(true) = app.metadata.observability_metrics_enabled {
-                        if !merged_sql.contains("'observability.metrics.enabled'") {
+                        if !merged_sql.contains("'observability.metrics.enabled'")
+                            && !merged_sql.contains("@observability.metrics.enabled")
+                        {
                             merged_sql.push_str("\n-- App-level observability injection");
                             merged_sql.push_str("\n-- @observability.metrics.enabled: true");
                         }
                     }
                     if let Some(true) = app.metadata.observability_tracing_enabled {
-                        if !merged_sql.contains("'observability.tracing.enabled'") {
+                        if !merged_sql.contains("'observability.tracing.enabled'")
+                            && !merged_sql.contains("@observability.tracing.enabled")
+                        {
                             merged_sql.push_str("\n-- @observability.tracing.enabled: true");
                         }
                     }
                     if let Some(profiling_mode) = app.metadata.observability_profiling_enabled {
-                        if !merged_sql.contains("'observability.profiling.enabled'") {
+                        if !merged_sql.contains("'observability.profiling.enabled'")
+                            && !merged_sql.contains("@observability.profiling.enabled")
+                        {
                             merged_sql.push_str(&format!(
                                 "\n-- @observability.profiling.enabled: {}",
                                 profiling_mode

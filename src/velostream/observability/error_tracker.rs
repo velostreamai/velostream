@@ -7,6 +7,7 @@
 //! - Useful for error reporting and diagnostics
 
 use std::collections::HashMap;
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Represents a single error message entry with timestamp
@@ -18,6 +19,8 @@ pub struct ErrorEntry {
     pub timestamp: u64,
     /// Count of instances of this exact message
     pub count: u64,
+    /// Optional node/instance ID where error occurred
+    pub node_id: Option<String>,
 }
 
 impl ErrorEntry {
@@ -31,7 +34,31 @@ impl ErrorEntry {
             message,
             timestamp,
             count: 1,
+            node_id: None,
         }
+    }
+
+    /// Create a new error entry with node context
+    pub fn with_node(message: String, node_id: String) -> Self {
+        let mut entry = Self::new(message);
+        entry.node_id = Some(node_id);
+        entry
+    }
+}
+
+impl fmt::Display for ErrorEntry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "[{}] {} (count: {}){}",
+            self.timestamp,
+            self.message,
+            self.count,
+            self.node_id
+                .as_ref()
+                .map(|id| format!(" [node: {}]", id))
+                .unwrap_or_default()
+        )
     }
 }
 
@@ -69,6 +96,8 @@ pub struct ErrorMessageBuffer {
     message_counts: HashMap<String, u64>,
     /// Total number of errors recorded (never decreases)
     total_errors: u64,
+    /// Optional node/instance ID for error tracking context
+    node_id: Option<String>,
 }
 
 impl ErrorMessageBuffer {
@@ -78,7 +107,15 @@ impl ErrorMessageBuffer {
             messages: Vec::with_capacity(10),
             message_counts: HashMap::new(),
             total_errors: 0,
+            node_id: None,
         }
+    }
+
+    /// Set the node/instance ID for error tracking context
+    ///
+    /// This ID will be attached to error entries for distributed tracing purposes.
+    pub fn set_node_id(&mut self, node_id: Option<String>) {
+        self.node_id = node_id;
     }
 
     /// Add an error message to the buffer
@@ -86,6 +123,7 @@ impl ErrorMessageBuffer {
     /// - If message already exists in buffer, increments its count
     /// - If buffer is full (10 messages), removes oldest message
     /// - Updates message type count tracking
+    /// - Attaches node_id context if set
     pub fn add_error(&mut self, message: String) {
         self.total_errors += 1;
 
@@ -98,8 +136,12 @@ impl ErrorMessageBuffer {
             return;
         }
 
-        // New unique message - add to buffer
-        self.messages.push(ErrorEntry::new(message));
+        // New unique message - add to buffer with node context
+        let mut entry = ErrorEntry::new(message);
+        if let Some(ref node_id) = self.node_id {
+            entry.node_id = Some(node_id.clone());
+        }
+        self.messages.push(entry);
 
         // Keep buffer size at max 10 entries
         if self.messages.len() > 10 {
@@ -154,6 +196,41 @@ impl ErrorMessageBuffer {
     /// Check if buffer is at maximum capacity (10 messages)
     pub fn is_full(&self) -> bool {
         self.messages.len() >= 10
+    }
+
+    /// Format all errors with deployment context for reporting
+    ///
+    /// Returns a formatted string suitable for error reports or logs with deployment node info
+    pub fn format_for_report(&self) -> String {
+        if self.messages.is_empty() {
+            return "No errors recorded".to_string();
+        }
+
+        let mut report = String::new();
+
+        if let Some(ref node_id) = self.node_id {
+            report.push_str(&format!("=== Error Report [Node: {}] ===\n", node_id));
+        } else {
+            report.push_str("=== Error Report ===\n");
+        }
+
+        report.push_str(&format!(
+            "Total Errors: {}\n\
+             Unique Errors: {}\n\
+             Buffered Messages: {}\n\n",
+            self.total_errors,
+            self.message_counts.len(),
+            self.messages.len()
+        ));
+
+        report.push_str("Recent Errors (most recent first):\n");
+        report.push_str("================================\n");
+
+        for (idx, entry) in self.messages.iter().rev().enumerate() {
+            report.push_str(&format!("{}. {}\n", idx + 1, entry));
+        }
+
+        report
     }
 }
 
@@ -456,5 +533,64 @@ mod tests {
 
         assert_eq!(buffer.buffer_size(), 3);
         assert_eq!(buffer.total_errors, 3);
+    }
+
+    #[test]
+    fn test_error_entry_display() {
+        let entry = ErrorEntry::new("Test error".to_string());
+        let display_str = entry.to_string();
+
+        assert!(display_str.contains("Test error"));
+        assert!(display_str.contains("count: 1"));
+        assert!(!display_str.contains("node:"));
+    }
+
+    #[test]
+    fn test_error_entry_display_with_node() {
+        let entry = ErrorEntry::with_node("Test error".to_string(), "prod-node-1".to_string());
+        let display_str = entry.to_string();
+
+        assert!(display_str.contains("Test error"));
+        assert!(display_str.contains("node: prod-node-1"));
+        assert!(display_str.contains("count: 1"));
+    }
+
+    #[test]
+    fn test_format_for_report_empty() {
+        let buffer = ErrorMessageBuffer::new();
+        let report = buffer.format_for_report();
+
+        assert_eq!(report, "No errors recorded");
+    }
+
+    #[test]
+    fn test_format_for_report_with_errors() {
+        let mut buffer = ErrorMessageBuffer::new();
+        buffer.add_error("Connection timeout".to_string());
+        buffer.add_error("Invalid query".to_string());
+        buffer.add_error("Connection timeout".to_string());
+
+        let report = buffer.format_for_report();
+
+        assert!(report.contains("=== Error Report ==="));
+        assert!(report.contains("Total Errors: 3"));
+        assert!(report.contains("Unique Errors: 2"));
+        assert!(report.contains("Connection timeout"));
+        assert!(report.contains("Invalid query"));
+    }
+
+    #[test]
+    fn test_format_for_report_with_deployment_context() {
+        let mut buffer = ErrorMessageBuffer::new();
+        buffer.set_node_id(Some("prod-trading-node-1".to_string()));
+        buffer.add_error("Market data error".to_string());
+        buffer.add_error("Order execution failed".to_string());
+
+        let report = buffer.format_for_report();
+
+        assert!(report.contains("=== Error Report [Node: prod-trading-node-1] ==="));
+        assert!(report.contains("Market data error"));
+        assert!(report.contains("Order execution failed"));
+        assert!(report.contains("[node: prod-trading-node-1]"));
     }
 }

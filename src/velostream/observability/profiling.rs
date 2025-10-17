@@ -16,6 +16,9 @@ pub struct ProfilingProvider {
     profiling_sessions: Arc<RwLock<HashMap<String, ProfilingSession>>>,
     output_directory: PathBuf,
     active: bool,
+    deployment_node_id: Option<String>,
+    deployment_node_name: Option<String>,
+    deployment_region: Option<String>,
 }
 
 impl ProfilingProvider {
@@ -46,7 +49,36 @@ impl ProfilingProvider {
             profiling_sessions: Arc::new(RwLock::new(HashMap::new())),
             output_directory,
             active: true,
+            deployment_node_id: None,
+            deployment_node_name: None,
+            deployment_region: None,
         })
+    }
+
+    /// Set deployment context (node ID, name, and region) for profiling reports
+    ///
+    /// This adds deployment identification to performance profiling reports and profiling sessions.
+    pub fn set_deployment_context(
+        &mut self,
+        node_id: Option<String>,
+        node_name: Option<String>,
+        region: Option<String>,
+    ) -> Result<(), SqlError> {
+        self.deployment_node_id = node_id.clone();
+        self.deployment_node_name = node_name.clone();
+        self.deployment_region = region.clone();
+
+        if let Some(ref id) = node_id {
+            log::info!("🔧 Profiling deployment context set - Instance: {}", id);
+        }
+        if let Some(ref name) = node_name {
+            log::info!("🔧 Profiling deployment context set - Node: {}", name);
+        }
+        if let Some(ref r) = region {
+            log::info!("🔧 Profiling deployment context set - Region: {}", r);
+        }
+
+        Ok(())
     }
 
     /// Start a new profiling session for a specific operation
@@ -110,13 +142,43 @@ impl ProfilingProvider {
         let cpu_usage = self.get_current_cpu_usage()?;
         let memory_usage = self.get_current_memory_usage()?;
 
+        // Build deployment context section if available
+        let deployment_section = if self.deployment_node_id.is_some()
+            || self.deployment_node_name.is_some()
+            || self.deployment_region.is_some()
+        {
+            let node_id = self
+                .deployment_node_id
+                .as_ref()
+                .map(|id| format!("Instance ID: {}\n", id))
+                .unwrap_or_default();
+            let node_name = self
+                .deployment_node_name
+                .as_ref()
+                .map(|name| format!("Node Name: {}\n", name))
+                .unwrap_or_default();
+            let region = self
+                .deployment_region
+                .as_ref()
+                .map(|r| format!("Region: {}\n", r))
+                .unwrap_or_default();
+
+            format!(
+                "\n=== Deployment Context ===\n\
+                 {}{}{}\n",
+                node_id, node_name, region
+            )
+        } else {
+            String::new()
+        };
+
         let report_content = format!(
             "Performance Report: {}\n\
              Generated: {}\n\
              Operation: {}\n\
              CPU Usage: {:.2}%\n\
              Memory Usage: {} bytes\n\
-             Status: {}\n",
+             Status: {}{}\n",
             report_name,
             timestamp,
             operation_name,
@@ -126,7 +188,8 @@ impl ProfilingProvider {
                 "WARNING: High CPU"
             } else {
                 "OK"
-            }
+            },
+            deployment_section
         );
 
         fs::write(&report_path, &report_content).map_err(|e| SqlError::ConfigurationError {
@@ -493,5 +556,75 @@ mod tests {
 
         // Test that all variants can be created
         let _severities = [Info, Warning, Critical];
+    }
+
+    #[tokio::test]
+    async fn test_deployment_context_in_performance_report() {
+        let config = ProfilingConfig::development();
+        let mut provider = ProfilingProvider::new(config).await.unwrap();
+
+        // Set deployment context
+        let result = provider.set_deployment_context(
+            Some("prod-node-1".to_string()),
+            Some("Production Server 1".to_string()),
+            Some("us-east-1".to_string()),
+        );
+        assert!(result.is_ok());
+
+        // Generate report
+        let report = provider
+            .generate_performance_report("test_operation_with_context")
+            .await;
+        assert!(report.is_ok());
+
+        let report = report.unwrap();
+
+        // Read the report file and verify deployment context is included
+        let content = std::fs::read_to_string(&report.path).expect("Failed to read report file");
+
+        assert!(
+            content.contains("=== Deployment Context ==="),
+            "Deployment context section missing from report"
+        );
+        assert!(
+            content.contains("Instance ID: prod-node-1"),
+            "Instance ID missing from report"
+        );
+        assert!(
+            content.contains("Node Name: Production Server 1"),
+            "Node name missing from report"
+        );
+        assert!(
+            content.contains("Region: us-east-1"),
+            "Region missing from report"
+        );
+
+        // Clean up test file
+        let _ = std::fs::remove_file(&report.path);
+    }
+
+    #[tokio::test]
+    async fn test_performance_report_without_deployment_context() {
+        let config = ProfilingConfig::development();
+        let provider = ProfilingProvider::new(config).await.unwrap();
+
+        // Generate report WITHOUT setting deployment context
+        let report = provider
+            .generate_performance_report("test_operation_no_context")
+            .await;
+        assert!(report.is_ok());
+
+        let report = report.unwrap();
+
+        // Read the report file and verify deployment context section is NOT included
+        let content = std::fs::read_to_string(&report.path).expect("Failed to read report file");
+
+        assert!(
+            !content.contains("=== Deployment Context ==="),
+            "Deployment context section should not be present when not set"
+        );
+
+        // Clean up test file
+        let _ = std::fs::remove_file(&report.path);
     }
 }

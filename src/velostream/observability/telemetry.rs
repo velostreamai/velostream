@@ -20,6 +20,9 @@ use std::time::Instant;
 pub struct TelemetryProvider {
     config: TracingConfig,
     active: bool,
+    deployment_node_id: Option<String>,
+    deployment_node_name: Option<String>,
+    deployment_region: Option<String>,
 }
 
 impl TelemetryProvider {
@@ -93,7 +96,39 @@ impl TelemetryProvider {
         Ok(Self {
             config,
             active: true,
+            deployment_node_id: None,
+            deployment_node_name: None,
+            deployment_region: None,
         })
+    }
+
+    /// Set deployment context (node ID, name, and region) for all traces
+    ///
+    /// This adds OpenTelemetry semantic convention attributes to traces:
+    /// - `service.instance.id`: Unique identifier for this service instance
+    /// - `host.name`: Name of the deployment node
+    /// - `cloud.region`: Cloud region if applicable
+    pub fn set_deployment_context(
+        &mut self,
+        node_id: Option<String>,
+        node_name: Option<String>,
+        region: Option<String>,
+    ) -> Result<(), SqlError> {
+        self.deployment_node_id = node_id.clone();
+        self.deployment_node_name = node_name.clone();
+        self.deployment_region = region.clone();
+
+        if let Some(ref id) = node_id {
+            log::info!("🔍 Telemetry deployment context set - Instance: {}", id);
+        }
+        if let Some(ref name) = node_name {
+            log::info!("🔍 Telemetry deployment context set - Node: {}", name);
+        }
+        if let Some(ref r) = region {
+            log::info!("🔍 Telemetry deployment context set - Region: {}", r);
+        }
+
+        Ok(())
     }
 
     /// Create a new trace span for batch processing (parent span for entire batch)
@@ -117,6 +152,34 @@ impl TelemetryProvider {
 
         let tracer = global::tracer(self.config.service_name.clone());
 
+        // Build attributes with deployment context
+        let mut attributes = vec![
+            KeyValue::new("job.name", job_name.to_string()),
+            KeyValue::new("batch.id", batch_id as i64),
+            KeyValue::new("messaging.system", "kafka"),
+            KeyValue::new("messaging.operation", "process"),
+        ];
+
+        // Add deployment context attributes if set
+        if let Some(ref node_id) = self.deployment_node_id {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
+                node_id.clone(),
+            ));
+        }
+        if let Some(ref node_name) = self.deployment_node_name {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::HOST_NAME,
+                node_name.clone(),
+            ));
+        }
+        if let Some(ref region) = self.deployment_region {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
+                region.clone(),
+            ));
+        }
+
         // Create span with upstream context if available for distributed tracing
         let mut span = if let Some(parent_ctx) = upstream_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
@@ -131,12 +194,7 @@ impl TelemetryProvider {
             tracer
                 .span_builder(format!("batch:{}", job_name))
                 .with_kind(SpanKind::Consumer) // Consumer span for Kafka message processing
-                .with_attributes(vec![
-                    KeyValue::new("job.name", job_name.to_string()),
-                    KeyValue::new("batch.id", batch_id as i64),
-                    KeyValue::new("messaging.system", "kafka"),
-                    KeyValue::new("messaging.operation", "process"),
-                ])
+                .with_attributes(attributes)
                 .start_with_context(&tracer, &parent_cx)
         } else {
             log::debug!("🆕 Starting new trace for batch (no upstream context)");
@@ -144,10 +202,7 @@ impl TelemetryProvider {
             tracer
                 .span_builder(format!("batch:{}", job_name))
                 .with_kind(SpanKind::Internal)
-                .with_attributes(vec![
-                    KeyValue::new("job.name", job_name.to_string()),
-                    KeyValue::new("batch.id", batch_id as i64),
-                ])
+                .with_attributes(attributes)
                 .start(&tracer)
         };
 
@@ -178,6 +233,34 @@ impl TelemetryProvider {
 
         let span_name = format!("sql_query:{}", operation_name);
 
+        // Build attributes with deployment context
+        let mut attributes = vec![
+            KeyValue::new("db.system", "velostream"),
+            KeyValue::new("db.operation", operation_name.to_string()),
+            KeyValue::new("db.statement", query.chars().take(200).collect::<String>()),
+            KeyValue::new("source", source.to_string()),
+        ];
+
+        // Add deployment context attributes if set
+        if let Some(ref node_id) = self.deployment_node_id {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
+                node_id.clone(),
+            ));
+        }
+        if let Some(ref node_name) = self.deployment_node_name {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::HOST_NAME,
+                node_name.clone(),
+            ));
+        }
+        if let Some(ref region) = self.deployment_region {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
+                region.clone(),
+            ));
+        }
+
         // Start span with parent context if provided for proper parent-child hierarchy
         let mut span = if let Some(parent_ctx) = parent_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
@@ -186,19 +269,16 @@ impl TelemetryProvider {
             tracer
                 .span_builder(span_name)
                 .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
                 .start_with_context(&tracer, &parent_cx)
         } else {
-            tracer.start(span_name)
+            tracer
+                .span_builder(span_name)
+                .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
+                .start(&tracer)
         };
 
-        // Set span attributes
-        span.set_attribute(KeyValue::new("db.system", "velostream"));
-        span.set_attribute(KeyValue::new("db.operation", operation_name.to_string()));
-        span.set_attribute(KeyValue::new(
-            "db.statement",
-            query.chars().take(200).collect::<String>(),
-        ));
-        span.set_attribute(KeyValue::new("source", source.to_string()));
         span.set_status(Status::Ok);
 
         log::debug!(
@@ -225,6 +305,32 @@ impl TelemetryProvider {
 
         let span_name = format!("streaming:{}", operation);
 
+        // Build attributes with deployment context
+        let mut attributes = vec![
+            KeyValue::new("operation", operation.to_string()),
+            KeyValue::new("record_count", record_count as i64),
+        ];
+
+        // Add deployment context attributes if set
+        if let Some(ref node_id) = self.deployment_node_id {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
+                node_id.clone(),
+            ));
+        }
+        if let Some(ref node_name) = self.deployment_node_name {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::HOST_NAME,
+                node_name.clone(),
+            ));
+        }
+        if let Some(ref region) = self.deployment_region {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
+                region.clone(),
+            ));
+        }
+
         // Start span with parent context if provided for proper parent-child hierarchy
         let mut span = if let Some(parent_ctx) = parent_context {
             use opentelemetry::trace::{TraceContextExt, Tracer as _};
@@ -233,14 +339,16 @@ impl TelemetryProvider {
             tracer
                 .span_builder(span_name)
                 .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
                 .start_with_context(&tracer, &parent_cx)
         } else {
-            tracer.start(span_name)
+            tracer
+                .span_builder(span_name)
+                .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
+                .start(&tracer)
         };
 
-        // Set span attributes
-        span.set_attribute(KeyValue::new("operation", operation.to_string()));
-        span.set_attribute(KeyValue::new("record_count", record_count as i64));
         span.set_status(Status::Ok);
 
         log::debug!(
@@ -260,13 +368,36 @@ impl TelemetryProvider {
 
         let tracer = global::tracer(self.config.service_name.clone());
 
+        // Build attributes with deployment context
+        let mut attributes = vec![
+            KeyValue::new("function", function.to_string()),
+            KeyValue::new("window_type", window_type.to_string()),
+        ];
+
+        // Add deployment context attributes if set
+        if let Some(ref node_id) = self.deployment_node_id {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
+                node_id.clone(),
+            ));
+        }
+        if let Some(ref node_name) = self.deployment_node_name {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::HOST_NAME,
+                node_name.clone(),
+            ));
+        }
+        if let Some(ref region) = self.deployment_region {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
+                region.clone(),
+            ));
+        }
+
         let mut span = tracer
             .span_builder(format!("aggregation:{}", function))
             .with_kind(SpanKind::Internal)
-            .with_attributes(vec![
-                KeyValue::new("function", function.to_string()),
-                KeyValue::new("window_type", window_type.to_string()),
-            ])
+            .with_attributes(attributes)
             .start(&tracer);
 
         span.set_status(Status::Ok);
