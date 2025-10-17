@@ -16,12 +16,12 @@ Add observability annotations to your SQL application header:
 -- @observability.tracing.enabled: true
 -- @observability.error_reporting.enabled: true
 
--- Name: Data Processing Job
-START JOB data_processor AS
+-- Name: Data Processing Stream
+CREATE STREAM data_processor AS
 SELECT * FROM input_stream;
 
--- Name: Analytics Job
-START JOB analytics AS
+-- Name: Analytics Stream
+CREATE STREAM analytics AS
 SELECT COUNT(*) as record_count FROM input_stream;
 ```
 
@@ -74,24 +74,27 @@ Observability is controlled through SQL Application annotations (no code require
 -- @metric: trade_volume
 -- @metric: price_changes
 
--- Name: Market Data Ingestion
-START JOB market_data AS
-SELECT symbol, price, volume FROM market_feed;
+-- Name: Market Data Stream
+CREATE STREAM market_data AS
+SELECT symbol, price, volume FROM market_feed
+EMIT CHANGES;
 
 -- Name: Price Movement Detection
-START JOB price_alerts AS
+CREATE STREAM price_alerts AS
 SELECT symbol, ABS(price_change) as movement
 FROM market_feed
-WHERE ABS(price_change) > 10;
+WHERE ABS(price_change) > 10
+EMIT CHANGES;
 
 -- Name: Trading Metrics
-START JOB trading_metrics AS
+CREATE STREAM trading_metrics AS
 SELECT
     symbol,
     COUNT(*) as trade_count,
     SUM(volume) as total_volume
 FROM trades
-GROUP BY symbol;
+GROUP BY symbol
+EMIT CHANGES;
 ```
 
 ### Per-Job Configuration
@@ -103,18 +106,22 @@ Override app-level settings for specific jobs:
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
 
--- Name: Standard Job (inherits app-level settings)
-START JOB standard AS SELECT * FROM stream1;
+-- Name: Standard Stream (inherits app-level settings)
+CREATE STREAM standard AS
+SELECT * FROM stream1
+EMIT CHANGES;
 
--- Name: Low-Overhead Job (disable tracing)
-START JOB lightweight AS
+-- Name: Low-Overhead Stream (disable tracing)
+CREATE STREAM lightweight AS
 SELECT * FROM stream2
-WITH (observability.tracing.enabled = false);
+WITH (observability.tracing.enabled = false)
+EMIT CHANGES;
 
--- Name: Critical Job (add profiling)
-START JOB critical AS
+-- Name: Critical Stream (add profiling)
+CREATE STREAM critical AS
 SELECT * FROM stream3
-WITH (observability.profiling.enabled = true);
+WITH (observability.profiling.enabled = true)
+EMIT CHANGES;
 ```
 
 ## Monitoring: Metrics Reference
@@ -197,9 +204,10 @@ Error reporting is enabled via SQL annotation (requires metrics):
 -- @observability.metrics.enabled: true
 -- @observability.error_reporting.enabled: true
 
--- Name: Critical Job
-START JOB critical_processor AS
-SELECT * FROM critical_stream;
+-- Name: Critical Stream
+CREATE STREAM critical_processor AS
+SELECT * FROM critical_stream
+EMIT CHANGES;
 ```
 
 ### Error Reporting Dashboard
