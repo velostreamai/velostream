@@ -71,13 +71,23 @@ Observability is controlled through SQL Application annotations (no code require
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: false
 -- @observability.error_reporting.enabled: true
--- @metric: trade_volume
--- @metric: price_changes
+
+-- Job-level metrics for Market Data Stream
+-- @metric: velo_market_data_total
+-- @metric_type: counter
+-- @metric_help: "Total market data records processed"
+-- @metric_labels: symbol
 
 -- Name: Market Data Stream
 CREATE STREAM market_data AS
 SELECT symbol, price, volume FROM market_feed
 EMIT CHANGES;
+
+-- Job-level metrics for Price Movement Detection
+-- @metric: velo_price_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Price movement alerts"
+-- @metric_labels: symbol, severity
 
 -- Name: Price Movement Detection
 CREATE STREAM price_alerts AS
@@ -85,6 +95,12 @@ SELECT symbol, ABS(price_change) as movement
 FROM market_feed
 WHERE ABS(price_change) > 10
 EMIT CHANGES;
+
+-- Job-level metrics for Trading Metrics
+-- @metric: velo_trade_volume
+-- @metric_type: gauge
+-- @metric_help: "Trade volume per symbol"
+-- @metric_labels: symbol
 
 -- Name: Trading Metrics
 CREATE STREAM trading_metrics AS
@@ -99,25 +115,39 @@ EMIT CHANGES;
 
 ### Per-Job Configuration
 
-Override app-level settings for specific jobs:
+Define custom metrics and override app-level settings for specific jobs:
 
 ```sql
 -- SQL Application: Hybrid Platform
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
 
+-- Job-level metrics
+-- @metric: velo_standard_records_total
+-- @metric_type: counter
+
 -- Name: Standard Stream (inherits app-level settings)
 CREATE STREAM standard AS
 SELECT * FROM stream1
 EMIT CHANGES;
 
--- Name: Low-Overhead Stream (disable tracing)
+-- Job-level metrics with override
+-- @metric: velo_lightweight_processed
+-- @metric_type: gauge
+-- @metric_labels: status
+
+-- Name: Low-Overhead Stream (disable tracing to reduce overhead)
 CREATE STREAM lightweight AS
 SELECT * FROM stream2
 WITH (observability.tracing.enabled = false)
 EMIT CHANGES;
 
--- Name: Critical Stream (add profiling)
+-- Job-level metrics for critical monitoring
+-- @metric: velo_critical_errors_total
+-- @metric_type: counter
+-- @metric_help: "Errors in critical stream"
+
+-- Name: Critical Stream (add profiling for analysis)
 CREATE STREAM critical AS
 SELECT * FROM stream3
 WITH (observability.profiling.enabled = true)
