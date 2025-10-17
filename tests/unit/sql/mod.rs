@@ -42,3 +42,6 @@ pub mod csas_ctas_config_extraction_test;
 
 // SQL validator subquery tests
 pub mod sql_validator_subquery_test;
+
+// ProfilingMode parsing tests
+pub mod profiling_mode_test;

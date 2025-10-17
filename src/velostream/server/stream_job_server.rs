@@ -1176,9 +1176,12 @@ impl StreamJobServer {
                             merged_sql.push_str("\n-- @observability.tracing.enabled: true");
                         }
                     }
-                    if let Some(true) = app.metadata.observability_profiling_enabled {
+                    if let Some(profiling_mode) = app.metadata.observability_profiling_enabled {
                         if !merged_sql.contains("'observability.profiling.enabled'") {
-                            merged_sql.push_str("\n-- @observability.profiling.enabled: true");
+                            merged_sql.push_str(&format!(
+                                "\n-- @observability.profiling.enabled: {}",
+                                profiling_mode
+                            ));
                         }
                     }
 

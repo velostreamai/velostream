@@ -61,6 +61,66 @@ use crate::velostream::sql::{SqlError, StreamingQuery, StreamingSqlParser};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::str::FromStr;
+
+/// Profiling mode for performance monitoring
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProfilingMode {
+    /// Off: Profiling disabled (0% overhead)
+    Off,
+    /// Dev: Development mode (1000 Hz sampling, flame graphs, 8-10% overhead)
+    Dev,
+    /// Prod: Production mode (50 Hz sampling, minimal overhead, 2-3%)
+    Prod,
+}
+
+impl ProfilingMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProfilingMode::Off => "off",
+            ProfilingMode::Dev => "dev",
+            ProfilingMode::Prod => "prod",
+        }
+    }
+
+    pub fn overhead_percent(&self) -> f64 {
+        match self {
+            ProfilingMode::Off => 0.0,
+            ProfilingMode::Dev => 9.0,  // 8-10%
+            ProfilingMode::Prod => 2.5, // 2-3%
+        }
+    }
+
+    pub fn sampling_hz(&self) -> u32 {
+        match self {
+            ProfilingMode::Off => 0,
+            ProfilingMode::Dev => 1000,
+            ProfilingMode::Prod => 50,
+        }
+    }
+}
+
+impl FromStr for ProfilingMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "off" => Ok(ProfilingMode::Off),
+            "dev" => Ok(ProfilingMode::Dev),
+            "prod" => Ok(ProfilingMode::Prod),
+            other => Err(format!(
+                "Invalid profiling mode '{}'. Expected: off, dev, or prod",
+                other
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for ProfilingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
 
 /// Represents a complete SQL application with metadata and multiple statements
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,7 +149,8 @@ pub struct ApplicationMetadata {
     // App-level observability configuration
     pub observability_metrics_enabled: Option<bool>, // @observability.metrics.enabled
     pub observability_tracing_enabled: Option<bool>, // @observability.tracing.enabled
-    pub observability_profiling_enabled: Option<bool>, // @observability.profiling.enabled
+    pub observability_profiling_enabled: Option<ProfilingMode>, // @observability.profiling.enabled
+    pub observability_error_reporting_enabled: Option<bool>, // @observability.error_reporting.enabled
 }
 
 /// Individual SQL statement within an application
@@ -172,6 +233,7 @@ impl SqlApplicationParser {
         let mut observability_metrics_enabled = None;
         let mut observability_tracing_enabled = None;
         let mut observability_profiling_enabled = None;
+        let mut observability_error_reporting_enabled = None;
 
         for line in content.lines() {
             let line = line.trim();
@@ -223,11 +285,18 @@ impl SqlApplicationParser {
                     .to_lowercase();
                 observability_tracing_enabled = Some(val == "true");
             } else if line.starts_with("-- @observability.profiling.enabled:") {
+                let val_str = line.replace("-- @observability.profiling.enabled:", "");
+                let val = val_str.trim();
+                // Parse profiling mode: off, dev, prod
+                if let Ok(mode) = ProfilingMode::from_str(val) {
+                    observability_profiling_enabled = Some(mode);
+                }
+            } else if line.starts_with("-- @observability.error_reporting.enabled:") {
                 let val = line
-                    .replace("-- @observability.profiling.enabled:", "")
+                    .replace("-- @observability.error_reporting.enabled:", "")
                     .trim()
                     .to_lowercase();
-                observability_profiling_enabled = Some(val == "true");
+                observability_error_reporting_enabled = Some(val == "true");
             }
         }
 
@@ -260,6 +329,7 @@ impl SqlApplicationParser {
             observability_metrics_enabled,
             observability_tracing_enabled,
             observability_profiling_enabled,
+            observability_error_reporting_enabled,
         })
     }
 
