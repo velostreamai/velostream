@@ -11,7 +11,8 @@
 -- @tags: trading, risk-management, market-data, real-time
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
--- @observability.profiling.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
 
 -- ====================================================================================
 -- PHASE 1B: EVENT-TIME WATERMARK PROCESSING - Market Data Stream
