@@ -10,7 +10,56 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Represents a single error message entry with timestamp
+/// Deployment context for enriching error reports with infrastructure metadata
+#[derive(Debug, Clone)]
+pub struct DeploymentContext {
+    /// Node identifier (e.g., "prod-trading-cluster-1")
+    pub node_id: Option<String>,
+    /// Human-readable node name (e.g., "Production Trading Analytics Platform")
+    pub node_name: Option<String>,
+    /// AWS region or deployment region (e.g., "us-east-1")
+    pub region: Option<String>,
+    /// Application version (e.g., "1.0.0")
+    pub version: Option<String>,
+}
+
+impl DeploymentContext {
+    /// Create a new empty deployment context
+    pub fn new() -> Self {
+        Self {
+            node_id: None,
+            node_name: None,
+            region: None,
+            version: None,
+        }
+    }
+
+    /// Create a deployment context with all fields set
+    pub fn with_all(node_id: String, node_name: String, region: String, version: String) -> Self {
+        Self {
+            node_id: Some(node_id),
+            node_name: Some(node_name),
+            region: Some(region),
+            version: Some(version),
+        }
+    }
+
+    /// Check if context has any fields set
+    pub fn has_any(&self) -> bool {
+        self.node_id.is_some()
+            || self.node_name.is_some()
+            || self.region.is_some()
+            || self.version.is_some()
+    }
+}
+
+impl Default for DeploymentContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Represents a single error message entry with timestamp and deployment context
 #[derive(Debug, Clone)]
 pub struct ErrorEntry {
     /// The error message text
@@ -21,6 +70,8 @@ pub struct ErrorEntry {
     pub count: u64,
     /// Optional node/instance ID where error occurred
     pub node_id: Option<String>,
+    /// Full deployment context (node_id, node_name, region, version)
+    pub deployment_context: Option<DeploymentContext>,
 }
 
 impl ErrorEntry {
@@ -35,6 +86,7 @@ impl ErrorEntry {
             timestamp,
             count: 1,
             node_id: None,
+            deployment_context: None,
         }
     }
 
@@ -44,20 +96,60 @@ impl ErrorEntry {
         entry.node_id = Some(node_id);
         entry
     }
+
+    /// Create a new error entry with full deployment context
+    pub fn with_deployment_context(message: String, deployment_context: DeploymentContext) -> Self {
+        let mut entry = Self::new(message);
+        // Set node_id for backward compatibility if available
+        if let Some(ref node_id) = deployment_context.node_id {
+            entry.node_id = Some(node_id.clone());
+        }
+        entry.deployment_context = Some(deployment_context);
+        entry
+    }
+
+    /// Update the deployment context for this entry
+    pub fn set_deployment_context(&mut self, context: DeploymentContext) {
+        if let Some(ref node_id) = context.node_id {
+            self.node_id = Some(node_id.clone());
+        }
+        self.deployment_context = Some(context);
+    }
 }
 
 impl fmt::Display for ErrorEntry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut context_parts = Vec::new();
+
+        // Build context string from deployment context if available
+        if let Some(ref ctx) = self.deployment_context {
+            if let Some(ref node_id) = ctx.node_id {
+                context_parts.push(format!("node_id={}", node_id));
+            }
+            if let Some(ref node_name) = ctx.node_name {
+                context_parts.push(format!("node_name={}", node_name));
+            }
+            if let Some(ref region) = ctx.region {
+                context_parts.push(format!("region={}", region));
+            }
+            if let Some(ref version) = ctx.version {
+                context_parts.push(format!("version={}", version));
+            }
+        } else if let Some(ref node_id) = self.node_id {
+            // Fallback to node_id for backward compatibility
+            context_parts.push(format!("node={}", node_id));
+        }
+
+        let context_str = if !context_parts.is_empty() {
+            format!(" [{}]", context_parts.join(", "))
+        } else {
+            String::new()
+        };
+
         write!(
             f,
             "[{}] {} (count: {}){}",
-            self.timestamp,
-            self.message,
-            self.count,
-            self.node_id
-                .as_ref()
-                .map(|id| format!(" [node: {}]", id))
-                .unwrap_or_default()
+            self.timestamp, self.message, self.count, context_str
         )
     }
 }
@@ -98,6 +190,8 @@ pub struct ErrorMessageBuffer {
     total_errors: u64,
     /// Optional node/instance ID for error tracking context
     node_id: Option<String>,
+    /// Full deployment context (node_id, node_name, region, version)
+    deployment_context: Option<DeploymentContext>,
 }
 
 impl ErrorMessageBuffer {
@@ -108,6 +202,7 @@ impl ErrorMessageBuffer {
             message_counts: HashMap::new(),
             total_errors: 0,
             node_id: None,
+            deployment_context: None,
         }
     }
 
@@ -115,7 +210,27 @@ impl ErrorMessageBuffer {
     ///
     /// This ID will be attached to error entries for distributed tracing purposes.
     pub fn set_node_id(&mut self, node_id: Option<String>) {
-        self.node_id = node_id;
+        self.node_id = node_id.clone();
+        // Also update deployment context if present
+        if let Some(ref mut ctx) = self.deployment_context {
+            ctx.node_id = node_id;
+        }
+    }
+
+    /// Set the full deployment context for error tracking
+    ///
+    /// This context (node_id, node_name, region, version) will be attached to all error
+    /// entries for comprehensive deployment tracking.
+    pub fn set_deployment_context(&mut self, context: DeploymentContext) {
+        if let Some(ref node_id) = context.node_id {
+            self.node_id = Some(node_id.clone());
+        }
+        self.deployment_context = Some(context);
+    }
+
+    /// Get the current deployment context
+    pub fn get_deployment_context(&self) -> Option<&DeploymentContext> {
+        self.deployment_context.as_ref()
     }
 
     /// Add an error message to the buffer
@@ -123,7 +238,7 @@ impl ErrorMessageBuffer {
     /// - If message already exists in buffer, increments its count
     /// - If buffer is full (10 messages), removes oldest message
     /// - Updates message type count tracking
-    /// - Attaches node_id context if set
+    /// - Attaches node_id and deployment context if set
     pub fn add_error(&mut self, message: String) {
         self.total_errors += 1;
 
@@ -136,11 +251,19 @@ impl ErrorMessageBuffer {
             return;
         }
 
-        // New unique message - add to buffer with node context
+        // New unique message - add to buffer with deployment context
         let mut entry = ErrorEntry::new(message);
+
+        // Attach node_id for backward compatibility
         if let Some(ref node_id) = self.node_id {
             entry.node_id = Some(node_id.clone());
         }
+
+        // Attach full deployment context
+        if let Some(ref ctx) = self.deployment_context {
+            entry.set_deployment_context(ctx.clone());
+        }
+
         self.messages.push(entry);
 
         // Keep buffer size at max 10 entries
@@ -200,7 +323,7 @@ impl ErrorMessageBuffer {
 
     /// Format all errors with deployment context for reporting
     ///
-    /// Returns a formatted string suitable for error reports or logs with deployment node info
+    /// Returns a formatted string suitable for error reports or logs with full deployment metadata
     pub fn format_for_report(&self) -> String {
         if self.messages.is_empty() {
             return "No errors recorded".to_string();
@@ -208,11 +331,33 @@ impl ErrorMessageBuffer {
 
         let mut report = String::new();
 
-        if let Some(ref node_id) = self.node_id {
-            report.push_str(&format!("=== Error Report [Node: {}] ===\n", node_id));
+        // Build deployment context header
+        let header = if let Some(ref ctx) = self.deployment_context {
+            let mut parts = Vec::new();
+            if let Some(ref node_id) = ctx.node_id {
+                parts.push(format!("node_id={}", node_id));
+            }
+            if let Some(ref node_name) = ctx.node_name {
+                parts.push(format!("node_name={}", node_name));
+            }
+            if let Some(ref region) = ctx.region {
+                parts.push(format!("region={}", region));
+            }
+            if let Some(ref version) = ctx.version {
+                parts.push(format!("version={}", version));
+            }
+            if !parts.is_empty() {
+                format!("=== Error Report [{}] ===\n", parts.join(", "))
+            } else {
+                "=== Error Report ===\n".to_string()
+            }
+        } else if let Some(ref node_id) = self.node_id {
+            format!("=== Error Report [Node: {}] ===\n", node_id)
         } else {
-            report.push_str("=== Error Report ===\n");
-        }
+            "=== Error Report ===\n".to_string()
+        };
+
+        report.push_str(&header);
 
         report.push_str(&format!(
             "Total Errors: {}\n\
@@ -542,7 +687,7 @@ mod tests {
 
         assert!(display_str.contains("Test error"));
         assert!(display_str.contains("count: 1"));
-        assert!(!display_str.contains("node:"));
+        assert!(!display_str.contains("node_id="));
     }
 
     #[test]
@@ -551,7 +696,7 @@ mod tests {
         let display_str = entry.to_string();
 
         assert!(display_str.contains("Test error"));
-        assert!(display_str.contains("node: prod-node-1"));
+        assert!(display_str.contains("node=prod-node-1"));
         assert!(display_str.contains("count: 1"));
     }
 
@@ -591,6 +736,179 @@ mod tests {
         assert!(report.contains("=== Error Report [Node: prod-trading-node-1] ==="));
         assert!(report.contains("Market data error"));
         assert!(report.contains("Order execution failed"));
-        assert!(report.contains("[node: prod-trading-node-1]"));
+        assert!(report.contains("[node=prod-trading-node-1]"));
+    }
+
+    // === Deployment Context Tests ===
+
+    #[test]
+    fn test_deployment_context_creation() {
+        let ctx = DeploymentContext::new();
+        assert!(ctx.node_id.is_none());
+        assert!(ctx.node_name.is_none());
+        assert!(ctx.region.is_none());
+        assert!(ctx.version.is_none());
+        assert!(!ctx.has_any());
+    }
+
+    #[test]
+    fn test_deployment_context_with_all() {
+        let ctx = DeploymentContext::with_all(
+            "prod-trading-cluster-1".to_string(),
+            "Production Trading Analytics Platform".to_string(),
+            "us-east-1".to_string(),
+            "1.0.0".to_string(),
+        );
+
+        assert_eq!(ctx.node_id, Some("prod-trading-cluster-1".to_string()));
+        assert_eq!(
+            ctx.node_name,
+            Some("Production Trading Analytics Platform".to_string())
+        );
+        assert_eq!(ctx.region, Some("us-east-1".to_string()));
+        assert_eq!(ctx.version, Some("1.0.0".to_string()));
+        assert!(ctx.has_any());
+    }
+
+    #[test]
+    fn test_error_entry_with_deployment_context() {
+        let ctx = DeploymentContext::with_all(
+            "prod-node-1".to_string(),
+            "Production Node".to_string(),
+            "us-west-2".to_string(),
+            "2.0.0".to_string(),
+        );
+
+        let entry = ErrorEntry::with_deployment_context("Database error".to_string(), ctx.clone());
+
+        assert_eq!(entry.message, "Database error");
+        assert_eq!(entry.node_id, Some("prod-node-1".to_string()));
+        assert!(entry.deployment_context.is_some());
+
+        let display_str = entry.to_string();
+        assert!(display_str.contains("Database error"));
+        assert!(display_str.contains("node_id=prod-node-1"));
+        assert!(display_str.contains("node_name=Production Node"));
+        assert!(display_str.contains("region=us-west-2"));
+        assert!(display_str.contains("version=2.0.0"));
+    }
+
+    #[test]
+    fn test_error_buffer_with_deployment_context() {
+        let mut buffer = ErrorMessageBuffer::new();
+
+        let ctx = DeploymentContext::with_all(
+            "prod-trading-cluster-1".to_string(),
+            "Trading Analytics".to_string(),
+            "us-east-1".to_string(),
+            "1.0.0".to_string(),
+        );
+
+        buffer.set_deployment_context(ctx);
+        buffer.add_error("Market data error".to_string());
+        buffer.add_error("Order execution error".to_string());
+
+        let messages = buffer.get_messages();
+        assert_eq!(messages.len(), 2);
+
+        // Verify first message has deployment context
+        let first_msg = &messages[0];
+        assert!(first_msg.deployment_context.is_some());
+        assert_eq!(
+            first_msg.deployment_context.as_ref().unwrap().node_id,
+            Some("prod-trading-cluster-1".to_string())
+        );
+
+        // Verify display includes deployment metadata
+        let display_str = first_msg.to_string();
+        assert!(display_str.contains("node_id=prod-trading-cluster-1"));
+        assert!(display_str.contains("node_name=Trading Analytics"));
+        assert!(display_str.contains("region=us-east-1"));
+        assert!(display_str.contains("version=1.0.0"));
+    }
+
+    #[test]
+    fn test_format_for_report_with_full_deployment_context() {
+        let mut buffer = ErrorMessageBuffer::new();
+
+        let ctx = DeploymentContext::with_all(
+            "prod-trading-cluster-1".to_string(),
+            "Trading Analytics Platform".to_string(),
+            "eu-west-1".to_string(),
+            "2.5.0".to_string(),
+        );
+
+        buffer.set_deployment_context(ctx);
+        buffer.add_error("Connection timeout".to_string());
+        buffer.add_error("Query timeout".to_string());
+
+        let report = buffer.format_for_report();
+
+        assert!(report.contains("node_id=prod-trading-cluster-1"));
+        assert!(report.contains("node_name=Trading Analytics Platform"));
+        assert!(report.contains("region=eu-west-1"));
+        assert!(report.contains("version=2.5.0"));
+        assert!(report.contains("Total Errors: 2"));
+        assert!(report.contains("Unique Errors: 2"));
+    }
+
+    #[test]
+    fn test_error_buffer_get_deployment_context() {
+        let mut buffer = ErrorMessageBuffer::new();
+        assert!(buffer.get_deployment_context().is_none());
+
+        let ctx = DeploymentContext::with_all(
+            "node1".to_string(),
+            "Node One".to_string(),
+            "us-east-1".to_string(),
+            "1.0.0".to_string(),
+        );
+
+        buffer.set_deployment_context(ctx.clone());
+        let retrieved = buffer.get_deployment_context();
+
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().node_id, Some("node1".to_string()));
+        assert_eq!(retrieved.unwrap().node_name, Some("Node One".to_string()));
+    }
+
+    #[test]
+    fn test_deployment_context_partial_fields() {
+        let ctx = DeploymentContext {
+            node_id: Some("prod-node".to_string()),
+            node_name: None,
+            region: Some("us-east-1".to_string()),
+            version: None,
+        };
+
+        assert!(ctx.has_any());
+
+        let entry = ErrorEntry::with_deployment_context("Error".to_string(), ctx);
+        let display_str = entry.to_string();
+
+        assert!(display_str.contains("node_id=prod-node"));
+        assert!(display_str.contains("region=us-east-1"));
+        assert!(!display_str.contains("node_name="));
+        assert!(!display_str.contains("version="));
+    }
+
+    #[test]
+    fn test_set_deployment_context_on_entry() {
+        let mut entry = ErrorEntry::new("Test error".to_string());
+        assert!(entry.deployment_context.is_none());
+
+        let ctx = DeploymentContext::with_all(
+            "node1".to_string(),
+            "Test Node".to_string(),
+            "us-west-2".to_string(),
+            "1.5.0".to_string(),
+        );
+
+        entry.set_deployment_context(ctx);
+        assert!(entry.deployment_context.is_some());
+
+        let display_str = entry.to_string();
+        assert!(display_str.contains("node_id=node1"));
+        assert!(display_str.contains("Test Node"));
     }
 }

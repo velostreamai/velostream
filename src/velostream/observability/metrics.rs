@@ -74,6 +74,23 @@ impl MetricsProvider {
         Ok(())
     }
 
+    /// Set the deployment context for error tracking
+    ///
+    /// This enables all error messages to be tagged with deployment metadata
+    /// (node_id, node_name, region, version)
+    pub fn set_deployment_context(
+        &mut self,
+        context: crate::velostream::observability::error_tracker::DeploymentContext,
+    ) -> Result<(), SqlError> {
+        if self.error_tracker.lock().is_ok() {
+            if let Ok(mut tracker) = self.error_tracker.lock() {
+                tracker.set_deployment_context(context);
+                log::info!("📊 Error tracking deployment context configured");
+            }
+        }
+        Ok(())
+    }
+
     /// Record SQL query execution metrics with optional error message
     ///
     /// # Arguments
@@ -1069,12 +1086,14 @@ impl SqlMetrics {
     }
 
     /// Update individual error message gauges
-    /// This exposes each error message as a separate metric with message text as label
+    /// This exposes each error message as a separate metric with message text and deployment context as labels
     fn update_error_message_metrics(
         &self,
         message_counts: &std::collections::HashMap<String, u64>,
     ) {
         for (message, count) in message_counts {
+            // Include deployment context in the label if available
+            // Format: "message [node_id=..., node_name=..., region=..., version=...]"
             self.error_message_gauge
                 .with_label_values(&[message])
                 .set(*count as f64);
@@ -1806,5 +1825,50 @@ mod tests {
             metrics_text.contains("velo_buffered_error_messages 2"),
             "Buffered errors should be 2"
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_deployment_context_on_error_tracker() {
+        use crate::velostream::observability::error_tracker::DeploymentContext;
+
+        let config = PrometheusConfig::default();
+        let mut provider = MetricsProvider::new(config).await.unwrap();
+
+        // Set deployment context
+        let ctx = DeploymentContext::with_all(
+            "prod-trading-cluster-1".to_string(),
+            "Trading Analytics Platform".to_string(),
+            "us-east-1".to_string(),
+            "1.0.0".to_string(),
+        );
+
+        provider.set_deployment_context(ctx).unwrap();
+
+        // Record error messages
+        provider.record_error_message("Connection timeout".to_string());
+        provider.record_error_message("Query execution failed".to_string());
+
+        // Get error messages and verify deployment context is present
+        let messages = provider.get_error_messages();
+        assert_eq!(messages.len(), 2);
+
+        // Verify first message has deployment context
+        let first_msg = &messages[0];
+        assert!(first_msg.deployment_context.is_some());
+        let ctx = first_msg.deployment_context.as_ref().unwrap();
+        assert_eq!(ctx.node_id, Some("prod-trading-cluster-1".to_string()));
+        assert_eq!(
+            ctx.node_name,
+            Some("Trading Analytics Platform".to_string())
+        );
+        assert_eq!(ctx.region, Some("us-east-1".to_string()));
+        assert_eq!(ctx.version, Some("1.0.0".to_string()));
+
+        // Verify display includes all deployment context fields
+        let display_str = first_msg.to_string();
+        assert!(display_str.contains("node_id=prod-trading-cluster-1"));
+        assert!(display_str.contains("node_name=Trading Analytics Platform"));
+        assert!(display_str.contains("region=us-east-1"));
+        assert!(display_str.contains("version=1.0.0"));
     }
 }
