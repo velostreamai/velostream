@@ -50,7 +50,8 @@ SELECT * FROM topic2 WHERE condition2;
 | `-- Tag: <key>:<value>` | Optional | Custom tags for metadata |
 | `-- @observability.metrics.enabled: <true\|false>` | Optional | Enable metrics collection for all jobs |
 | `-- @observability.tracing.enabled: <true\|false>` | Optional | Enable distributed tracing for all jobs |
-| `-- @observability.profiling.enabled: <true\|false>` | Optional | Enable profiling for all jobs |
+| `-- @observability.profiling.enabled: <off\|dev\|prod\|true\|false>` | Optional | Profiling mode: `off` (0% overhead), `prod` (2-3%), `dev` (8-10%), `true`=`prod`, `false`=`off` |
+| `-- @observability.error_reporting.enabled: <true\|false>` | Optional | Enable error capture and reporting for all jobs |
 
 **ℹ️ Note**: For complete documentation on SQL Application annotations, see [SQL Application Annotations Reference](./sql-application-annotations.md).
 
@@ -289,15 +290,19 @@ Enables performance profiling and bottleneck detection:
 -- Dependencies: market_data, positions, orders
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
--- @observability.profiling.enabled: false
+-- @observability.profiling.enabled: prod
 
+-- @job_name: market-data-event-time-1
 -- Name: Market Data Stream
-START JOB market_data_ts AS
-SELECT * FROM market_data;
+CREATE STREAM market_data_ts AS
+SELECT * FROM market_data
+EMIT CHANGES;
 
+-- @job_name: trading-positions-with-event-time-1
 -- Name: Trading Positions Monitor
-START JOB trading_positions_with_event_time AS
-SELECT * FROM positions;
+CREATE STREAM trading_positions_with_event_time AS
+SELECT * FROM positions
+EMIT CHANGES;
 ```
 
 ### Configuration Inheritance and Overrides
@@ -311,20 +316,30 @@ SELECT * FROM positions;
 -- SQL Application: Mixed Observability Requirements
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
 
+-- @job_name: standard-job-1
 -- Name: Standard Job (inherits app-level settings)
--- Inherits: metrics=true, tracing=true
-START JOB standard_job AS SELECT * FROM stream1;
+-- Inherits: metrics=true, tracing=true, profiling=prod
+CREATE STREAM standard_job AS
+SELECT * FROM stream1
+EMIT CHANGES;
 
--- Name: Low-Overhead Job (overrides tracing)
--- WITH (observability.tracing.enabled = false)
--- Result: metrics=true, tracing=false
-START JOB low_overhead_job AS SELECT * FROM stream2;
+-- @job_name: low-overhead-job-1
+-- Name: Low-Overhead Job (overrides tracing and profiling)
+-- WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
+-- Result: metrics=true, tracing=false, profiling=off
+CREATE STREAM low_overhead_job AS
+SELECT * FROM stream2
+EMIT CHANGES;
 
--- Name: High-Observability Job (adds profiling)
--- WITH (observability.profiling.enabled = true)
--- Result: metrics=true, tracing=true, profiling=true
-START JOB high_observability_job AS SELECT * FROM stream3;
+-- @job_name: high-observability-job-1
+-- Name: High-Observability Job (upgrades profiling to dev)
+-- WITH (observability.profiling.enabled = dev)
+-- Result: metrics=true, tracing=true, profiling=dev
+CREATE STREAM high_observability_job AS
+SELECT * FROM stream3
+EMIT CHANGES;
 ```
 
 ### Production Example
@@ -339,37 +354,44 @@ START JOB high_observability_job AS SELECT * FROM stream3;
 -- Tag: team:analytics
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
--- @observability.profiling.enabled: false
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
 
+-- @job_name: high-value-orders-1
 -- Name: High-Value Orders (critical job - inherits full observability)
-START JOB high_value_orders AS
+CREATE STREAM high_value_orders AS
 SELECT
     order_id,
     customer_id,
     total_amount,
     order_timestamp
 FROM orders
-WHERE total_amount > 1000;
+WHERE total_amount > 1000
+EMIT CHANGES;
 
+-- @job_name: fraud-detection-1
 -- Name: Real-Time Fraud Detection (high-sensitivity - keeps full observability)
-START JOB fraud_detection AS
+CREATE STREAM fraud_detection AS
 SELECT
     order_id,
     customer_id,
     risk_score,
     fraud_flags
 FROM orders
-WHERE risk_score > 0.8;
+WHERE risk_score > 0.8
+EMIT CHANGES;
 
+-- @job_name: product-analytics-rollup-1
 -- Name: Product Analytics Rollup (lower-priority - reduce overhead)
--- WITH (observability.tracing.enabled = false)
-START JOB product_analytics AS
+-- WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
+CREATE STREAM product_analytics AS
 SELECT
     product_id,
     COUNT(*) as order_count,
     SUM(total_amount) as revenue
 FROM orders
-GROUP BY product_id;
+GROUP BY product_id
+EMIT CHANGES;
 ```
 
 ### Observability Benefits
@@ -377,23 +399,35 @@ GROUP BY product_id;
 **Without App-Level Configuration:**
 ```sql
 -- Repetitive: Each job needs identical configuration
-START JOB job1 AS SELECT * FROM stream1
+-- @job_name: job-1
+CREATE STREAM job1 AS
+SELECT * FROM stream1
 WITH (
     observability.metrics.enabled = true,
-    observability.tracing.enabled = true
-);
+    observability.tracing.enabled = true,
+    observability.profiling.enabled = prod
+)
+EMIT CHANGES;
 
-START JOB job2 AS SELECT * FROM stream2
+-- @job_name: job-2
+CREATE STREAM job2 AS
+SELECT * FROM stream2
 WITH (
     observability.metrics.enabled = true,
-    observability.tracing.enabled = true
-);
+    observability.tracing.enabled = true,
+    observability.profiling.enabled = prod
+)
+EMIT CHANGES;
 
-START JOB job3 AS SELECT * FROM stream3
+-- @job_name: job-3
+CREATE STREAM job3 AS
+SELECT * FROM stream3
 WITH (
     observability.metrics.enabled = true,
-    observability.tracing.enabled = true
-);
+    observability.tracing.enabled = true,
+    observability.profiling.enabled = prod
+)
+EMIT CHANGES;
 ```
 
 **With App-Level Configuration:**
@@ -401,11 +435,17 @@ WITH (
 -- SQL Application: Unified Observability
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
 
 -- Clean and concise: Settings inherited from app-level
-START JOB job1 AS SELECT * FROM stream1;
-START JOB job2 AS SELECT * FROM stream2;
-START JOB job3 AS SELECT * FROM stream3;
+-- @job_name: job-1
+CREATE STREAM job1 AS SELECT * FROM stream1 EMIT CHANGES;
+
+-- @job_name: job-2
+CREATE STREAM job2 AS SELECT * FROM stream2 EMIT CHANGES;
+
+-- @job_name: job-3
+CREATE STREAM job3 AS SELECT * FROM stream3 EMIT CHANGES;
 ```
 
 ### Deployment with Observability
@@ -454,20 +494,23 @@ When an application is deployed with observability enabled, you'll see:
 -- Tag: team:platform
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
--- @observability.profiling.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
 ```
 
 ### 2. Resource Management
 
 ```sql
+-- @job_name: critical-alert-processor-1
 -- Name: Critical Alert Processor
 -- Property: priority=critical
 -- Property: replicas=5
 -- Property: memory_limit=4gb
 -- Property: cpu_limit=2000m
 -- Property: restart_policy=always
-START JOB critical_alerts AS
-SELECT * FROM system_metrics WHERE severity = 'CRITICAL';
+CREATE STREAM critical_alerts AS
+SELECT * FROM system_metrics WHERE severity = 'CRITICAL'
+EMIT CHANGES;
 ```
 
 ### 3. Error Handling
