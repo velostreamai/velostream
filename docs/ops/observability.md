@@ -16,13 +16,17 @@ Add observability annotations to your SQL application header:
 -- @observability.tracing.enabled: true
 -- @observability.error_reporting.enabled: true
 
+-- @job_name: data-processor-stream
 -- Name: Data Processing Stream
 CREATE STREAM data_processor AS
-SELECT * FROM input_stream;
+SELECT * FROM input_stream
+EMIT CHANGES;
 
+-- @job_name: analytics-stream
 -- Name: Analytics Stream
 CREATE STREAM analytics AS
-SELECT COUNT(*) as record_count FROM input_stream;
+SELECT COUNT(*) as record_count FROM input_stream
+EMIT CHANGES;
 ```
 
 ### 2. Start the Monitoring Stack
@@ -77,6 +81,7 @@ Observability is controlled through SQL Application annotations (no code require
 -- @metric_type: counter
 -- @metric_help: "Total market data records processed"
 -- @metric_labels: symbol
+-- @job_name: market-data-ingestion
 
 -- Name: Market Data Stream
 CREATE STREAM market_data AS
@@ -88,6 +93,7 @@ EMIT CHANGES;
 -- @metric_type: counter
 -- @metric_help: "Price movement alerts"
 -- @metric_labels: symbol, severity
+-- @job_name: price-movement-detection
 
 -- Name: Price Movement Detection
 CREATE STREAM price_alerts AS
@@ -101,6 +107,7 @@ EMIT CHANGES;
 -- @metric_type: gauge
 -- @metric_help: "Trade volume per symbol"
 -- @metric_labels: symbol
+-- @job_name: trading-metrics-stream
 
 -- Name: Trading Metrics
 CREATE STREAM trading_metrics AS
@@ -125,6 +132,7 @@ Define custom metrics and override app-level settings for specific jobs:
 -- Job-level metrics
 -- @metric: velo_standard_records_total
 -- @metric_type: counter
+-- @job_name: standard-processing
 
 -- Name: Standard Stream (inherits app-level settings)
 CREATE STREAM standard AS
@@ -135,6 +143,7 @@ EMIT CHANGES;
 -- @metric: velo_lightweight_processed
 -- @metric_type: gauge
 -- @metric_labels: status
+-- @job_name: lightweight-stream
 
 -- Name: Low-Overhead Stream (disable tracing to reduce overhead)
 CREATE STREAM lightweight AS
@@ -146,6 +155,7 @@ EMIT CHANGES;
 -- @metric: velo_critical_errors_total
 -- @metric_type: counter
 -- @metric_help: "Errors in critical stream"
+-- @job_name: critical-monitoring
 
 -- Name: Critical Stream (add profiling for analysis)
 CREATE STREAM critical AS
@@ -234,6 +244,7 @@ Error reporting is enabled via SQL annotation (requires metrics):
 -- @observability.metrics.enabled: true
 -- @observability.error_reporting.enabled: true
 
+-- @job_name: critical-processor-stream
 -- Name: Critical Stream
 CREATE STREAM critical_processor AS
 SELECT * FROM critical_stream
