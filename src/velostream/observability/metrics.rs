@@ -167,8 +167,73 @@ impl MetricsProvider {
         if self.active {
             self.streaming_metrics
                 .record_operation(operation, duration, record_count, throughput);
-            log::trace!("📊 Recorded streaming metrics: operation={}, duration={:?}, records={}, throughput={:.2}", 
+            log::trace!("📊 Recorded streaming metrics: operation={}, duration={:?}, records={}, throughput={:.2}",
                 operation, duration, record_count, throughput);
+        }
+    }
+
+    /// Record profiling phase metrics with job name (Phase 2.2)
+    pub fn record_profiling_phase(
+        &self,
+        job_name: &str,
+        phase: &str,
+        duration: Duration,
+        record_count: u64,
+        throughput_rps: f64,
+    ) {
+        if self.active {
+            self.streaming_metrics.record_profiling_phase(
+                job_name,
+                phase,
+                duration,
+                record_count,
+                throughput_rps,
+            );
+            log::trace!(
+                "📊 Recorded profiling phase: job={}, phase={}, duration={:?}, throughput={:.2} rec/s",
+                job_name,
+                phase,
+                duration,
+                throughput_rps
+            );
+        }
+    }
+
+    /// Record pipeline operation metrics with job name (Phase 2.3)
+    pub fn record_pipeline_operation(
+        &self,
+        job_name: &str,
+        operation: &str,
+        duration: Duration,
+        record_count: u64,
+    ) {
+        if self.active {
+            self.streaming_metrics.record_pipeline_operation(
+                job_name,
+                operation,
+                duration,
+                record_count,
+            );
+            log::trace!(
+                "📊 Recorded pipeline operation: job={}, operation={}, duration={:?}, records={}",
+                job_name,
+                operation,
+                duration,
+                record_count
+            );
+        }
+    }
+
+    /// Record job-specific throughput (Phase 2.4)
+    pub fn record_throughput_by_job(&self, job_name: &str, throughput_rps: f64) {
+        if self.active {
+            self.streaming_metrics
+                .record_throughput_by_job(job_name, throughput_rps);
+            log::trace!(
+                "📊 Recorded throughput by job: job={}, throughput={:.2} rec/s",
+                job_name,
+                throughput_rps
+            );
         }
     }
 
@@ -1347,6 +1412,47 @@ impl StreamingMetrics {
         self.records_streamed
             .with_label_values(&[operation])
             .inc_by(record_count);
+    }
+
+    /// Record profiling phase metrics with job name (Phase 2.2)
+    fn record_profiling_phase(
+        &self,
+        job_name: &str,
+        phase: &str,
+        duration: Duration,
+        record_count: u64,
+        throughput_rps: f64,
+    ) {
+        // Record phase-specific duration histogram
+        self.profiling_phase_duration
+            .with_label_values(&[job_name, phase])
+            .observe(duration.as_secs_f64());
+
+        // Record phase-specific throughput gauge
+        self.profiling_phase_throughput
+            .with_label_values(&[job_name, phase])
+            .set(throughput_rps);
+    }
+
+    /// Record pipeline operation metrics with job name (Phase 2.3)
+    fn record_pipeline_operation(
+        &self,
+        job_name: &str,
+        operation: &str,
+        duration: Duration,
+        record_count: u64,
+    ) {
+        // Record operation-specific duration histogram
+        self.pipeline_operation_duration
+            .with_label_values(&[job_name, operation])
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Record job-specific throughput (Phase 2.4)
+    fn record_throughput_by_job(&self, job_name: &str, throughput_rps: f64) {
+        self.throughput_by_job
+            .with_label_values(&[job_name])
+            .set(throughput_rps);
     }
 
     /// Get total operations count across all operation types

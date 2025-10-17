@@ -95,7 +95,7 @@ async fn test_streaming_span_accepts_parent_context() {
     let parent_trace_id = parent_ctx.trace_id();
 
     // Create streaming span with parent context - should not panic
-    let streaming_span = telemetry.start_streaming_span("deserialization", 100, parent_context);
+    let streaming_span = telemetry.start_streaming_span("test-job", "deserialization", 100, parent_context);
 
     // The test passes if we can create the span without errors
     // In a real scenario, the span would inherit the parent's trace ID
@@ -127,8 +127,12 @@ async fn test_sql_query_span_accepts_parent_context() {
     );
 
     // Create SQL query span with parent context - should not panic
-    let sql_span =
-        telemetry.start_sql_query_span("SELECT * FROM test", "test-source", parent_context);
+    let sql_span = telemetry.start_sql_query_span(
+        "test-job",
+        "SELECT * FROM test",
+        "test-source",
+        parent_context,
+    );
 
     // The test passes if we can create the span without errors
     drop(sql_span);
@@ -142,7 +146,7 @@ async fn test_streaming_span_without_parent_context() {
     let telemetry = get_telemetry();
 
     // Create streaming span without parent context (None) - should not panic
-    let span = telemetry.start_streaming_span("operation", 50, None);
+    let span = telemetry.start_streaming_span("test-job", "operation", 50, None);
 
     // The test passes if we can create the span without errors
     drop(span);
@@ -155,7 +159,7 @@ async fn test_sql_query_span_without_parent_context() {
     let telemetry = get_telemetry();
 
     // Create SQL query span without parent context (None) - should not panic
-    let span = telemetry.start_sql_query_span("SELECT * FROM test", "test-source", None);
+    let span = telemetry.start_sql_query_span("test-job", "SELECT * FROM test", "test-source", None);
 
     // The test passes if we can create the span without errors
     drop(span);
@@ -180,12 +184,16 @@ async fn test_multiple_children_can_extract_same_parent_context() {
     let parent_trace_id = parent_context.as_ref().unwrap().trace_id();
 
     // Create multiple child spans with the same parent context
-    let deser_span = telemetry.start_streaming_span("deserialization", 100, parent_context.clone());
+    let deser_span = telemetry.start_streaming_span("test-job", "deserialization", 100, parent_context.clone());
 
-    let sql_span =
-        telemetry.start_sql_query_span("SELECT * FROM test", "test-source", parent_context.clone());
+    let sql_span = telemetry.start_sql_query_span(
+        "test-job",
+        "SELECT * FROM test",
+        "test-source",
+        parent_context.clone(),
+    );
 
-    let ser_span = telemetry.start_streaming_span("serialization", 100, parent_context.clone());
+    let ser_span = telemetry.start_streaming_span("test-job", "serialization", 100, parent_context.clone());
 
     // All spans should be created successfully without panics
     drop(deser_span);

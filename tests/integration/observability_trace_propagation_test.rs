@@ -49,8 +49,12 @@ async fn test_end_to_end_trace_propagation_workflow() {
 
         // Step 3: Create deserialization span with parent context
         let record_count = 100;
-        let mut deser_span =
-            telemetry.start_streaming_span("deserialization", record_count, parent_context.clone());
+        let mut deser_span = telemetry.start_streaming_span(
+            "test-job",
+            "deserialization",
+            record_count,
+            parent_context.clone(),
+        );
         deser_span.set_processing_time(500); // microseconds
         deser_span.set_success();
         println!("   ✅ Deserialization span created (linked to parent)");
@@ -58,8 +62,12 @@ async fn test_end_to_end_trace_propagation_workflow() {
 
         // Step 4: Create SQL processing span with parent context
         let query = "SELECT id, value FROM test_stream WHERE value > 50";
-        let mut sql_span =
-            telemetry.start_sql_query_span(query, "test_stream", parent_context.clone());
+        let mut sql_span = telemetry.start_sql_query_span(
+            "test-job",
+            query,
+            "test_stream",
+            parent_context.clone(),
+        );
         sql_span.set_execution_time(10000); // microseconds (10ms)
         sql_span.set_record_count(record_count);
         sql_span.set_success();
@@ -67,8 +75,12 @@ async fn test_end_to_end_trace_propagation_workflow() {
         drop(sql_span);
 
         // Step 5: Create serialization span with parent context
-        let mut ser_span =
-            telemetry.start_streaming_span("serialization", record_count, parent_context.clone());
+        let mut ser_span = telemetry.start_streaming_span(
+            "test-job",
+            "serialization",
+            record_count,
+            parent_context.clone(),
+        );
         ser_span.set_processing_time(300); // microseconds
         ser_span.set_success();
         println!("   ✅ Serialization span created (linked to parent)");
@@ -137,8 +149,12 @@ async fn test_trace_context_sharing_across_operations() {
     ];
 
     for (op_name, record_count) in operations {
-        let mut span =
-            telemetry.start_streaming_span(op_name, record_count, shared_context.clone());
+        let mut span = telemetry.start_streaming_span(
+            "shared-context-test",
+            op_name,
+            record_count,
+            shared_context.clone(),
+        );
         span.set_success();
         println!("   ✅ Operation '{}' linked to shared trace", op_name);
         drop(span);
@@ -211,16 +227,24 @@ async fn test_span_attributes_and_lifecycle() {
     let parent_context = batch_span.span_context();
 
     // Test streaming span with metrics
-    let mut stream_span =
-        telemetry.start_streaming_span("test-operation", 1000, parent_context.clone());
+    let mut stream_span = telemetry.start_streaming_span(
+        "attribute-test",
+        "test-operation",
+        1000,
+        parent_context.clone(),
+    );
     stream_span.set_processing_time(50000); // microseconds (50ms)
     stream_span.set_success();
     println!("   ✅ Streaming span with processing time");
     drop(stream_span);
 
     // Test SQL span with metrics
-    let mut sql_span =
-        telemetry.start_sql_query_span("SELECT * FROM test", "test-table", parent_context.clone());
+    let mut sql_span = telemetry.start_sql_query_span(
+        "attribute-test",
+        "SELECT * FROM test",
+        "test-table",
+        parent_context.clone(),
+    );
     sql_span.set_execution_time(100000); // microseconds (100ms)
     sql_span.set_record_count(1000);
     sql_span.set_success();
