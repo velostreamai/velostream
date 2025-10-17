@@ -980,6 +980,26 @@ impl StreamJobServer {
             app.metadata.name, app.metadata.version
         );
 
+        // Log SQL application annotations (top-level metadata)
+        if let Some(ref application) = app.metadata.application {
+            info!("  @application: {}", application);
+        }
+        if let Some(ref phase) = app.metadata.phase {
+            info!("  @phase: {}", phase);
+        }
+        if let Some(ref sla_latency) = app.metadata.sla_latency_p99 {
+            info!("  @sla.latency.p99: {}", sla_latency);
+        }
+        if let Some(ref sla_availability) = app.metadata.sla_availability {
+            info!("  @sla.availability: {}", sla_availability);
+        }
+        if let Some(ref data_retention) = app.metadata.data_retention {
+            info!("  @data_retention: {}", data_retention);
+        }
+        if let Some(ref compliance) = app.metadata.compliance {
+            info!("  @compliance: {}", compliance);
+        }
+
         // Pre-deployment SQL validation to prevent runtime failures
         info!("Validating SQL application before deployment...");
         let validator = SqlValidator::new();

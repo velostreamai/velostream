@@ -1,12 +1,14 @@
 -- SQL Application: Real-Time Trading Analytics (FR-058 Phase 1B-4 Features)
--- Version: 5.0.0  
--- Description: Advanced trading analytics showcasing Phase 1B-4 capabilities
--- Author: Quantitative Trading Team
--- Features: Watermarks, Circuit Breakers, Advanced SQL, Observability
--- Data Sources: Named sources with configuration-based approach
--- Tag: latency:ultra-low
--- Tag: compliance:regulatory
--- Tag: features:watermarks,circuit-breakers,advanced-sql,observability
+-- @application: real_time_trading_analytics
+-- @version: 5.0.0
+-- @phase: 1B-4
+-- @description: Real-Time Trading Analytics Demo showcasing Phase 1B-4 features
+-- @author: Quantitative Trading Team
+-- @sla.latency.p99: 5ms
+-- @sla.availability: 99.9%
+-- @data_retention: 24h
+-- @compliance: SEC_FINRA_CFTC
+-- @tags: trading, risk-management, market-data, real-time
 
 -- ====================================================================================
 -- PHASE 1B: EVENT-TIME WATERMARK PROCESSING - Market Data Stream

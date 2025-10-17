@@ -697,7 +697,11 @@ impl TransactionalJobProcessor {
                                     abort_err
                                 );
                                 error!("Job '{}': {}", job_name, abort_msg);
-                                ErrorTracker::record_error(&self.observability, &job_name, abort_msg);
+                                ErrorTracker::record_error(
+                                    &self.observability,
+                                    &job_name,
+                                    abort_msg,
+                                );
                             } else {
                                 debug!(
                                     "Job '{}': Reader transaction aborted due to sink failure",
@@ -729,7 +733,11 @@ impl TransactionalJobProcessor {
                                     abort_err
                                 );
                                 error!("Job '{}': {}", job_name, abort_msg);
-                                ErrorTracker::record_error(&self.observability, &job_name, abort_msg);
+                                ErrorTracker::record_error(
+                                    &self.observability,
+                                    &job_name,
+                                    abort_msg,
+                                );
                             }
                         }
                         return Err(format!("Sink flush failed: {:?}", e).into());

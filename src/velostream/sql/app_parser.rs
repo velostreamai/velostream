@@ -80,6 +80,12 @@ pub struct ApplicationMetadata {
     pub dependencies: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub tags: HashMap<String, String>,
+    pub application: Option<String>,      // @application annotation
+    pub phase: Option<String>,            // @phase annotation
+    pub sla_latency_p99: Option<String>,  // @sla.latency.p99 annotation
+    pub sla_availability: Option<String>, // @sla.availability annotation
+    pub data_retention: Option<String>,   // @data_retention annotation
+    pub compliance: Option<String>,       // @compliance annotation
 }
 
 /// Individual SQL statement within an application
@@ -153,6 +159,12 @@ impl SqlApplicationParser {
         let mut author = None;
         let mut dependencies = Vec::new();
         let mut tags = HashMap::new();
+        let mut application = None;
+        let mut phase = None;
+        let mut sla_latency_p99 = None;
+        let mut sla_availability = None;
+        let mut data_retention = None;
+        let mut compliance = None;
 
         for line in content.lines() {
             let line = line.trim();
@@ -178,6 +190,19 @@ impl SqlApplicationParser {
                 if let Some((key, value)) = tag_str.split_once(':') {
                     tags.insert(key.trim().to_string(), value.trim().to_string());
                 }
+            } else if line.starts_with("-- @application:") {
+                application = Some(line.replace("-- @application:", "").trim().to_string());
+            } else if line.starts_with("-- @phase:") {
+                phase = Some(line.replace("-- @phase:", "").trim().to_string());
+            } else if line.starts_with("-- @sla.latency.p99:") {
+                sla_latency_p99 = Some(line.replace("-- @sla.latency.p99:", "").trim().to_string());
+            } else if line.starts_with("-- @sla.availability:") {
+                sla_availability =
+                    Some(line.replace("-- @sla.availability:", "").trim().to_string());
+            } else if line.starts_with("-- @data_retention:") {
+                data_retention = Some(line.replace("-- @data_retention:", "").trim().to_string());
+            } else if line.starts_with("-- @compliance:") {
+                compliance = Some(line.replace("-- @compliance:", "").trim().to_string());
             }
         }
 
@@ -201,6 +226,12 @@ impl SqlApplicationParser {
             dependencies,
             created_at: Utc::now(),
             tags,
+            application,
+            phase,
+            sla_latency_p99,
+            sla_availability,
+            data_retention,
+            compliance,
         })
     }
 

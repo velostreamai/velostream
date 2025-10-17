@@ -1081,7 +1081,11 @@ impl SimpleJobProcessor {
                                     e
                                 );
                                 warn!("Job '{}': {}", job_name, error_msg);
-                                ErrorTracker::record_error(&self.observability, job_name, error_msg);
+                                ErrorTracker::record_error(
+                                    &self.observability,
+                                    job_name,
+                                    error_msg,
+                                );
                                 if matches!(
                                     self.config.failure_strategy,
                                     FailureStrategy::FailBatch
