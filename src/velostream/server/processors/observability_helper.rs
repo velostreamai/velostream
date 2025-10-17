@@ -155,12 +155,24 @@ impl ObservabilityHelper {
                 // Record Prometheus metrics
                 if let Some(metrics) = obs_lock.metrics() {
                     let throughput = calculate_throughput(record_count, duration_ms);
+
+                    // Phase 2.1: Global streaming operation metrics
                     metrics.record_streaming_operation(
                         "deserialization",
                         std::time::Duration::from_millis(duration_ms),
                         record_count as u64,
                         throughput,
                     );
+
+                    // Phase 2.2: Job-aware profiling phase metrics
+                    metrics.record_profiling_phase(
+                        job_name,
+                        "deserialization",
+                        std::time::Duration::from_millis(duration_ms),
+                        record_count as u64,
+                        throughput,
+                    );
+
                     info!(
                         "Job '{}': Metrics recorded for deserialization (throughput={:.2} rec/s)",
                         job_name, throughput
@@ -207,10 +219,20 @@ impl ObservabilityHelper {
                 // Record Prometheus metrics
                 if let Some(metrics) = obs_lock.metrics() {
                     let success = batch_result.records_failed == 0;
+
+                    // Phase 2.1: Global SQL query metrics
                     metrics.record_sql_query(
                         "stream_processing",
                         std::time::Duration::from_millis(duration_ms),
                         success,
+                        batch_result.records_processed as u64,
+                    );
+
+                    // Phase 2.3: Job-aware pipeline operation metrics
+                    metrics.record_pipeline_operation(
+                        job_name,
+                        "sql_processing",
+                        std::time::Duration::from_millis(duration_ms),
                         batch_result.records_processed as u64,
                     );
                 }
@@ -250,7 +272,18 @@ impl ObservabilityHelper {
             // Record Prometheus metrics
             if let Some(metrics) = obs_lock.metrics() {
                 let throughput = calculate_throughput(record_count, duration_ms);
+
+                // Phase 2.1: Global streaming operation metrics
                 metrics.record_streaming_operation(
+                    "serialization",
+                    std::time::Duration::from_millis(duration_ms),
+                    record_count as u64,
+                    throughput,
+                );
+
+                // Phase 2.2: Job-aware profiling phase metrics
+                metrics.record_profiling_phase(
+                    job_name,
                     "serialization",
                     std::time::Duration::from_millis(duration_ms),
                     record_count as u64,
@@ -294,7 +327,18 @@ impl ObservabilityHelper {
             // Record Prometheus metrics
             if let Some(metrics) = obs_lock.metrics() {
                 let throughput = calculate_throughput(record_count, duration_ms);
+
+                // Phase 2.1: Global streaming operation metrics
                 metrics.record_streaming_operation(
+                    "serialization_failed",
+                    std::time::Duration::from_millis(duration_ms),
+                    record_count as u64,
+                    throughput,
+                );
+
+                // Phase 2.2: Job-aware profiling phase metrics (failure case)
+                metrics.record_profiling_phase(
+                    job_name,
                     "serialization_failed",
                     std::time::Duration::from_millis(duration_ms),
                     record_count as u64,
@@ -305,7 +349,7 @@ impl ObservabilityHelper {
         });
     }
 
-    /// Complete a batch span with success
+    /// Complete a batch span with success and record Phase 2.4 job throughput
     pub fn complete_batch_span_success(
         batch_span: &mut Option<BatchSpan>,
         batch_start: &Instant,
@@ -316,6 +360,38 @@ impl ObservabilityHelper {
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);
             span.set_success();
+        }
+    }
+
+    /// Record job-specific throughput metrics (Phase 2.4)
+    ///
+    /// # Arguments
+    /// * `observability` - Observability manager
+    /// * `job_name` - Name of the job/query
+    /// * `batch_duration_ms` - Duration of the batch in milliseconds
+    /// * `records_processed` - Number of records processed in the batch
+    pub fn record_batch_throughput(
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+        batch_duration_ms: u64,
+        records_processed: u64,
+    ) {
+        if let Some(obs) = observability {
+            with_observability_try_lock(observability, |obs_lock| {
+                if let Some(metrics) = obs_lock.metrics() {
+                    let throughput_rps =
+                        calculate_throughput(records_processed as usize, batch_duration_ms);
+
+                    // Phase 2.4: Job-specific throughput gauge
+                    metrics.record_throughput_by_job(job_name, throughput_rps);
+
+                    info!(
+                        "Job '{}': Batch throughput recorded: {:.2} rec/s",
+                        job_name, throughput_rps
+                    );
+                }
+                None::<()>
+            });
         }
     }
 
