@@ -196,11 +196,9 @@ impl ObservabilityManager {
         &mut self,
         deployment_ctx: error_tracker::DeploymentContext,
     ) -> Result<(), SqlError> {
-        // Update metrics provider with deployment context (for error tracking)
+        // Update metrics provider with deployment context (for error tracking, system metrics, and SQL metrics)
         if let Some(ref mut metrics) = self.metrics {
-            if let Some(ref node_id) = deployment_ctx.node_id {
-                metrics.set_node_id(Some(node_id.clone()))?;
-            }
+            metrics.set_deployment_context(deployment_ctx.clone())?;
         }
 
         // Update telemetry provider with deployment context (for distributed tracing spans)
