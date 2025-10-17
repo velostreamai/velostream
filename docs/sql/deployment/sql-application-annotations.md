@@ -78,33 +78,111 @@ START JOB hf_stream AS SELECT * FROM fast_stream;
 
 ##### `@observability.profiling.enabled`
 
-**Purpose**: Enable/disable performance profiling for all jobs
+**Purpose**: Enable/disable or select profiling mode for all jobs
 
-**Values**: `true` | `false`
+**Values**:
+- `off` - Profiling disabled (zero overhead)
+- `dev` - Development mode (detailed: 1000 Hz sampling, flame graphs, early alerts)
+- `prod` - Production mode (optimized: 50 Hz sampling, minimal overhead, critical alerts)
+- `true` - Equivalent to `prod` (backward compatibility)
+- `false` - Equivalent to `off` (backward compatibility)
 
 **Default**: Not set (no app-level default)
 
 **Scope**: Application-wide (applies to all jobs unless overridden)
 
-```sql
--- SQL Application: Production Platform
--- @observability.profiling.enabled: true
+### Three Profiling Modes
+
+**Mode: `dev` (Development)**
+```
+Sample Rate:    1000 Hz (every 1ms)
+Memory Prof:    Enabled
+Flame Graphs:   Generated
+CPU Alert:      @ 70%
+Memory Alert:   @ 75%
+Retention:      3 days
+Overhead:       ~8-10%
+Use for:        Local debugging, optimization, performance analysis
 ```
 
-**Effect**: Enables:
-- CPU usage profiling
-- Memory usage tracking
-- Automatic bottleneck detection
-- Performance recommendations
-
-**Performance Impact**: ~5-10% overhead when enabled
-
-**Per-Job Override**:
-```sql
--- Name: Critical Processor
--- WITH (observability.profiling.enabled = true)
-START JOB critical AS SELECT * FROM critical_stream;
+**Mode: `prod` (Production)**
 ```
+Sample Rate:    50 Hz (every 20ms)
+Memory Prof:    Disabled
+Flame Graphs:   Disabled
+CPU Alert:      @ 90%
+Memory Alert:   @ 95%
+Retention:      30 days
+Overhead:       ~2-3%
+Use for:        Trading systems, real-time analytics, high-frequency streams
+```
+
+**Mode: `off` (Disabled)**
+```
+Profiling:      Completely disabled
+Overhead:       None (0%)
+Use for:        Ultra-low-latency requirements, cost-sensitive deployments
+```
+
+### Production Example (Minimal Overhead)
+
+```sql
+-- SQL Application: Production Trading Platform
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+```
+
+**Effect with `prod` mode**:
+- Minimal CPU/memory overhead (~2-3%)
+- Alerts only on critical issues (>90% CPU)
+- Lower sampling rate for reduced noise
+- 30-day retention for post-incident investigation
+
+### Development Example (Maximum Visibility)
+
+```sql
+-- SQL Application: Development Analytics
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: dev
+-- @observability.error_reporting.enabled: true
+```
+
+**Effect with `dev` mode**:
+- Detailed sampling (1000 Hz = 20x more data points)
+- Flame graphs automatically generated
+- Early alerts at 70-75% thresholds
+- Perfect for finding bottlenecks before production
+
+### Per-Job Override (Mix Modes)
+
+```sql
+-- App-level: production mode (minimal overhead)
+-- @observability.profiling.enabled: prod
+
+-- @job_name: standard-stream
+-- Standard stream uses app-level prod mode
+CREATE STREAM standard AS SELECT * FROM stream1 EMIT CHANGES;
+
+-- @job_name: debug-stream
+-- Debug stream switches to dev mode for detailed analysis
+-- WITH (observability.profiling.enabled = 'dev')
+CREATE STREAM debug AS SELECT * FROM stream2 EMIT CHANGES;
+
+-- @job_name: critical-stream
+-- Critical stream disables profiling for zero overhead
+-- WITH (observability.profiling.enabled = 'off')
+CREATE STREAM critical AS SELECT * FROM stream3 EMIT CHANGES;
+```
+
+**Performance Impact**:
+- `off`: 0% overhead
+- `prod`: ~2-3% overhead
+- `dev`: ~8-10% overhead
+- `true`: Equivalent to `prod` (~2-3%)
+- `false`: Equivalent to `off` (0%)
 
 ##### `@observability.error_reporting.enabled`
 
@@ -468,9 +546,9 @@ grep "observability\." your_app.sql
 
 | Annotation | Type | Values | Default | Notes |
 |-----------|------|--------|---------|-------|
-| `@observability.metrics.enabled` | Boolean | `true`, `false` | Not set | Enables Prometheus metrics collection |
-| `@observability.tracing.enabled` | Boolean | `true`, `false` | Not set | Enables distributed tracing |
-| `@observability.profiling.enabled` | Boolean | `true`, `false` | Not set | Enables CPU/memory profiling (~5-10% overhead) |
+| `@observability.metrics.enabled` | Boolean | `true`, `false` | Not set | Enables Prometheus metrics collection (~2% overhead) |
+| `@observability.tracing.enabled` | Boolean | `true`, `false` | Not set | Enables distributed tracing (~3% overhead) |
+| `@observability.profiling.enabled` | String | `off`, `dev`, `prod`, `true`, `false` | Not set | Profiling mode: off (0%), prod (2-3%), dev (8-10%) |
 | `@observability.error_reporting.enabled` | Boolean | `true`, `false` | Not set | Enables error capture & reporting (requires metrics) |
 | `@metric` | String | `metric_name` or `metric_name(dim1, dim2)` | N/A | Define custom business metrics |
 
