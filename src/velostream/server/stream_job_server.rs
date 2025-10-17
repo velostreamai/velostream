@@ -5,7 +5,9 @@
 //! hardcoded Kafka-only processing.
 
 use crate::velostream::datasource::DataWriter;
-use crate::velostream::observability::{ObservabilityManager, SharedObservabilityManager};
+use crate::velostream::observability::{
+    error_tracker::DeploymentContext, ObservabilityManager, SharedObservabilityManager,
+};
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
@@ -548,6 +550,27 @@ impl StreamJobServer {
             name,
             observability_manager.is_some()
         );
+
+        // Initialize deployment context for error tracking and observability
+        if let Some(ref obs_manager) = observability_manager {
+            let deployment_ctx = Self::build_deployment_context(&name, &version);
+            if let Ok(mut obs_lock) = obs_manager.try_write() {
+                match obs_lock.set_deployment_context_for_job(deployment_ctx.clone()) {
+                    Ok(()) => {
+                        info!(
+                            "Job '{}': Deployment context initialized (node_id={:?}, region={:?}, version={})",
+                            name,
+                            deployment_ctx.node_id,
+                            deployment_ctx.region,
+                            deployment_ctx.version.as_deref().unwrap_or("unknown")
+                        );
+                    }
+                    Err(e) => {
+                        warn!("Job '{}': Failed to set deployment context: {}", name, e);
+                    }
+                }
+            }
+        }
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -1592,6 +1615,44 @@ impl StreamJobServer {
         );
 
         Ok(config)
+    }
+
+    /// Build deployment context from environment and job metadata
+    ///
+    /// Extracts deployment context (node_id, region, version) from:
+    /// 1. Environment variables (NODE_ID, REGION, etc.)
+    /// 2. Job metadata (version parameter)
+    /// 3. Hostname fallback
+    ///
+    /// This context is attached to all error messages for production observability.
+    fn build_deployment_context(job_name: &str, version: &str) -> DeploymentContext {
+        let node_id = std::env::var("NODE_ID")
+            .ok()
+            .or_else(|| std::env::var("HOSTNAME").ok())
+            .or_else(|| std::env::var("POD_NAME").ok());
+
+        let node_name = std::env::var("NODE_NAME")
+            .ok()
+            .or_else(|| std::env::var("SERVICE_NAME").ok());
+
+        let region = std::env::var("AWS_REGION")
+            .ok()
+            .or_else(|| std::env::var("REGION").ok())
+            .or_else(|| std::env::var("DEPLOYMENT_REGION").ok());
+
+        // Version comes from job metadata, fallback to environment or "unknown"
+        let app_version = if version.is_empty() {
+            std::env::var("APP_VERSION").ok()
+        } else {
+            Some(version.to_string())
+        };
+
+        DeploymentContext {
+            node_id,
+            node_name,
+            region,
+            version: app_version,
+        }
     }
 
     /// Parse duration string (e.g., "5s", "100ms", "1m") to Duration

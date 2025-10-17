@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use log::{error, info};
+use log::{debug, error, info};
 use std::fs;
 use std::time::Duration;
 use velostream::velostream::{
@@ -167,7 +167,7 @@ async fn start_metrics_server_multi(
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
-                info!("StreamJobServer metrics request from: {}", addr);
+                debug!("StreamJobServer metrics request from: {}", addr);
                 let server = server.clone();
 
                 tokio::spawn(async move {

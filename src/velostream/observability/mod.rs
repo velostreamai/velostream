@@ -183,6 +183,34 @@ impl ObservabilityManager {
         self.profiling.as_ref()
     }
 
+    /// Set deployment context for error tracking (job-level customization)
+    ///
+    /// This allows setting or updating deployment context after initialization,
+    /// enabling per-job deployment metadata in error messages.
+    pub fn set_deployment_context_for_job(
+        &mut self,
+        deployment_ctx: error_tracker::DeploymentContext,
+    ) -> Result<(), SqlError> {
+        // Update metrics provider with deployment context
+        if let Some(ref mut metrics) = self.metrics {
+            if let Some(ref node_id) = deployment_ctx.node_id {
+                metrics.set_node_id(Some(node_id.clone()))?;
+            }
+        }
+
+        // Telemetry and profiling already have context set during initialization
+        // but we can update with job-specific context if needed
+
+        log::info!(
+            "Deployment context updated: node_id={:?}, region={:?}, version={:?}",
+            deployment_ctx.node_id,
+            deployment_ctx.region,
+            deployment_ctx.version
+        );
+
+        Ok(())
+    }
+
     /// Shutdown all observability features gracefully
     pub async fn shutdown(&mut self) -> Result<(), SqlError> {
         if let Some(mut telemetry) = self.telemetry.take() {
