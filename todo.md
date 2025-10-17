@@ -174,11 +174,29 @@ ObservabilityManager::initialize()
 - ✅ All metrics properly labeled with job_name and phase/operation labels
 - ✅ Prometheus naming compliance validated
 
-**Next Steps for Phase 2 (DEFERRED)**:
-- [ ] Implement recording methods in StreamingMetrics (Phase 2.2, 2.3, 2.4)
-- [ ] Add public methods in MetricsProvider to expose recording APIs
-- [ ] Integrate with observability_helper for processor instrumentation
-- [ ] Update processors to call new recording methods with job context
+**✅ Phase 2.2-2.4 Recording Methods Implementation (COMPLETE)**:
+- ✅ Implemented private recording methods in StreamingMetrics:
+  - `record_profiling_phase()` for Phase 2.2 (latency/throughput by job/phase)
+  - `record_pipeline_operation()` for Phase 2.3 (duration by job/operation)
+  - `record_throughput_by_job()` for Phase 2.4 (job-specific throughput gauge)
+- ✅ Added public MetricsProvider API wrappers with activity checks and trace logging
+- ✅ Fixed telemetry test method signatures to use updated TelemetryProvider API
+- ✅ Integrated recording methods into observability_helper for processor instrumentation
+- ✅ Enhanced record_deserialization() to call record_profiling_phase()
+- ✅ Enhanced record_sql_processing() to call record_pipeline_operation()
+- ✅ Enhanced record_serialization_success() to call record_profiling_phase()
+- ✅ Enhanced record_serialization_failure() to call record_profiling_phase()
+- ✅ Added record_batch_throughput() method for Phase 2.4 tracking
+- ✅ All 357 unit tests passing
+- ✅ Pre-commit validation: formatting, compilation, clippy all passed
+- **Completion Date**: October 17, 2025 (Evening)
+- **Commits**: bcaab6c (metrics methods), d2ecf11 (helper integration)
+
+**Next Steps for Phase 2 (DEFERRED - Phase 2 Infrastructure Complete)**:
+- [ ] Add comprehensive unit tests for the new recording methods
+- [ ] Add integration tests for observability_helper integration
+- [ ] Update processors (SimpleJobProcessor, TransactionalJobProcessor) to call record_batch_throughput()
+- [ ] Add end-to-end observability tests
 
 #### **Phase 3: Integration & Instrumentation - Week 3**
 
