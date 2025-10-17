@@ -284,7 +284,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_sql_records_processed_total[5m])",
+          "expr": "sum by (node_id, node_name) (rate(velo_sql_records_processed_total[5m]))",
           "interval": "",
           "legendFormat": "Records - {{node_id}} ({{node_name}})",
           "refId": "A"
@@ -294,7 +294,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_sql_queries_total[5m])",
+          "expr": "sum by (node_id, node_name) (rate(velo_sql_queries_total[5m]))",
           "interval": "",
           "legendFormat": "Queries - {{node_id}} ({{node_name}})",
           "refId": "B"
