@@ -141,16 +141,13 @@ impl fmt::Display for ErrorEntry {
         }
 
         let context_str = if !context_parts.is_empty() {
-            format!(" [{}]", context_parts.join(", "))
+            format!("[{}] ", context_parts.join(", "))
         } else {
             String::new()
         };
 
-        write!(
-            f,
-            "[{}] {} (count: {}){}",
-            self.timestamp, self.message, self.count, context_str
-        )
+        // Place deployment context at the beginning of the message for visibility
+        write!(f, "{}{} (count: {})", context_str, self.message, self.count)
     }
 }
 
