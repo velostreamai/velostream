@@ -929,6 +929,8 @@ struct SqlMetrics {
     unique_error_types_gauge: IntGauge,
     buffered_errors_gauge: IntGauge,
     error_message_gauge: GaugeVec, // Individual error messages with counts as label
+    // Phase 2.1: Job-specific SQL latency metrics
+    query_duration_by_job: HistogramVec, // velo_sql_query_duration_by_job_seconds{job_name, query_type}
 }
 
 impl SqlMetrics {
@@ -1049,6 +1051,34 @@ impl SqlMetrics {
             message: format!("Failed to register error message gauge: {}", e),
         })?;
 
+        // Phase 2.1: Job-specific SQL latency histogram
+        let query_duration_by_job = if config.enable_histograms {
+            register_histogram_vec_with_registry!(
+                HistogramOpts::new(
+                    "velo_sql_query_duration_by_job_seconds",
+                    "SQL query execution time broken down by job and query type"
+                ),
+                &["job_name", "query_type"],
+                registry
+            )
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register job-specific SQL histogram: {}", e),
+            })?
+        } else {
+            register_histogram_vec_with_registry!(
+                HistogramOpts::new(
+                    "velo_sql_query_duration_by_job_seconds",
+                    "SQL query execution time broken down by job and query type"
+                )
+                .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0]),
+                &["job_name", "query_type"],
+                registry
+            )
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register job-specific SQL histogram: {}", e),
+            })?
+        };
+
         Ok(Self {
             query_total,
             query_duration,
@@ -1059,6 +1089,7 @@ impl SqlMetrics {
             unique_error_types_gauge,
             buffered_errors_gauge,
             error_message_gauge,
+            query_duration_by_job,
         })
     }
 
@@ -1076,6 +1107,30 @@ impl SqlMetrics {
         if !success {
             self.query_errors.inc();
         }
+    }
+
+    /// Record SQL query metrics with job name (Phase 2.1)
+    fn record_query_by_job(
+        &self,
+        job_name: &str,
+        query_type: &str,
+        duration: Duration,
+        success: bool,
+        record_count: u64,
+    ) {
+        // Record global metrics
+        self.query_total.inc();
+        self.query_duration.observe(duration.as_secs_f64());
+        self.records_processed.inc_by(record_count);
+
+        if !success {
+            self.query_errors.inc();
+        }
+
+        // Record job-specific SQL latency histogram
+        self.query_duration_by_job
+            .with_label_values(&[job_name, query_type])
+            .observe(duration.as_secs_f64());
     }
 
     /// Update error tracking gauges for Prometheus exposure
@@ -1108,6 +1163,13 @@ struct StreamingMetrics {
     operation_duration: HistogramVec,
     throughput: GaugeVec,
     records_streamed: IntCounterVec,
+    // Phase 2.2: Profiling phase metrics
+    profiling_phase_duration: HistogramVec, // velo_profiling_phase_duration_seconds{job_name, phase}
+    profiling_phase_throughput: GaugeVec,   // velo_profiling_phase_throughput_rps{job_name, phase}
+    // Phase 2.3: Pipeline operations metrics
+    pipeline_operation_duration: HistogramVec, // velo_pipeline_operation_duration_seconds{job_name, operation}
+    // Phase 2.4: Job-specific throughput
+    throughput_by_job: GaugeVec, // velo_streaming_throughput_by_job_rps{job_name}
 }
 
 impl StreamingMetrics {
@@ -1175,11 +1237,96 @@ impl StreamingMetrics {
             message: format!("Failed to register streaming record metrics: {}", e),
         })?;
 
+        // Phase 2.2: Profiling phase metrics
+        let profiling_phase_duration = if config.enable_histograms {
+            register_histogram_vec_with_registry!(
+                HistogramOpts::new(
+                    "velo_profiling_phase_duration_seconds",
+                    "Profiling phase duration broken down by job and phase"
+                ),
+                &["job_name", "phase"],
+                registry
+            )
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register profiling phase histogram: {}", e),
+            })?
+        } else {
+            register_histogram_vec_with_registry!(
+                HistogramOpts::new(
+                    "velo_profiling_phase_duration_seconds",
+                    "Profiling phase duration broken down by job and phase"
+                )
+                .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0]),
+                &["job_name", "phase"],
+                registry
+            )
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register profiling phase histogram: {}", e),
+            })?
+        };
+
+        let profiling_phase_throughput = register_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_profiling_phase_throughput_rps",
+                "Profiling phase throughput in records per second"
+            ),
+            &["job_name", "phase"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register profiling phase throughput gauge: {}", e),
+        })?;
+
+        // Phase 2.3: Pipeline operations metrics
+        let pipeline_operation_duration = if config.enable_histograms {
+            register_histogram_vec_with_registry!(
+                HistogramOpts::new(
+                    "velo_pipeline_operation_duration_seconds",
+                    "Pipeline operation duration broken down by job and operation"
+                ),
+                &["job_name", "operation"],
+                registry
+            )
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register pipeline operation histogram: {}", e),
+            })?
+        } else {
+            register_histogram_vec_with_registry!(
+                HistogramOpts::new(
+                    "velo_pipeline_operation_duration_seconds",
+                    "Pipeline operation duration broken down by job and operation"
+                )
+                .buckets(vec![0.01, 0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0]),
+                &["job_name", "operation"],
+                registry
+            )
+            .map_err(|e| SqlError::ConfigurationError {
+                message: format!("Failed to register pipeline operation histogram: {}", e),
+            })?
+        };
+
+        // Phase 2.4: Job-specific throughput
+        let throughput_by_job = register_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_streaming_throughput_by_job_rps",
+                "Streaming throughput by job in records per second"
+            ),
+            &["job_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register throughput by job gauge: {}", e),
+        })?;
+
         Ok(Self {
             operations_total,
             operation_duration,
             throughput,
             records_streamed,
+            profiling_phase_duration,
+            profiling_phase_throughput,
+            pipeline_operation_duration,
+            throughput_by_job,
         })
     }
 

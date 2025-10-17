@@ -122,30 +122,37 @@ ObservabilityManager::initialize()
 
 #### **Phase 2: Prometheus Metrics Enhancement - Week 2**
 
-**Task 2.1: Job-specific SQL latency metrics** (2 days)
-- Create `velo_sql_query_duration_by_job_seconds` histogram with labels:
-  - `job_name` - Streaming job name
-  - `query_type` - select, insert, update, delete
-- File: `src/velostream/observability/metrics.rs` (SqlMetrics struct)
-- Track separate latency per job+query_type combination
+**✅ Task 2.1: Job-specific SQL latency metrics** (COMPLETE)
+- ✅ Created `velo_sql_query_duration_by_job_seconds` histogram with labels:
+  - ✅ `job_name` - Streaming job name
+  - ✅ `query_type` - select, insert, update, delete
+- ✅ File: `src/velostream/observability/metrics.rs` (SqlMetrics struct)
+- ✅ Added `query_duration_by_job: HistogramVec` field
+- ✅ Added `record_query_by_job()` method for job-aware metrics
+- ✅ Histogram initialized in `SqlMetrics::new()` with appropriate buckets
+- ✅ Tracks separate latency per job+query_type combination
+- ✅ Compilation verified (0 errors, 10 warnings from unrelated code)
 
-**Task 2.2: Profiling phase metrics** (2 days)
+**Task 2.2: Profiling phase metrics** (2 days) - READY FOR IMPLEMENTATION
 - Create `velo_profiling_phase_duration_seconds` histogram with labels:
   - `job_name` - Streaming job name
   - `phase` - deserialization | processing | serialization
 - Create `velo_profiling_phase_throughput_rps` gauge
 - Track phase-specific performance per job
+- **Implementation Note**: Add `profiling_phase_duration: HistogramVec` and `profiling_phase_throughput: GaugeVec` to StreamingMetrics struct (skeleton already in place)
 
-**Task 2.3: Pipeline operations metrics** (1 day)
+**Task 2.3: Pipeline operations metrics** (1 day) - READY FOR IMPLEMENTATION
 - Create `velo_pipeline_operation_duration_seconds` histogram with labels:
   - `job_name` - Streaming job name
   - `operation` - deserialize | process | serialize
 - Record operation counts and durations per job
+- **Implementation Note**: Add `pipeline_operation_duration: HistogramVec` to StreamingMetrics struct (skeleton already in place)
 
-**Task 2.4: Enhanced job-specific throughput** (1 day)
+**Task 2.4: Enhanced job-specific throughput** (1 day) - READY FOR IMPLEMENTATION
 - Create `velo_streaming_throughput_by_job_rps` gauge with labels:
   - `job_name` - Streaming job name
 - Replace/supplement generic throughput metric
+- **Implementation Note**: Add `throughput_by_job: GaugeVec` to StreamingMetrics struct (skeleton already in place)
 
 **Deliverables**:
 - ✅ Job-specific SQL latency histogram
