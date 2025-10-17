@@ -86,6 +86,10 @@ pub struct ApplicationMetadata {
     pub sla_availability: Option<String>, // @sla.availability annotation
     pub data_retention: Option<String>,   // @data_retention annotation
     pub compliance: Option<String>,       // @compliance annotation
+    // App-level observability configuration
+    pub observability_metrics_enabled: Option<bool>, // @observability.metrics.enabled
+    pub observability_tracing_enabled: Option<bool>, // @observability.tracing.enabled
+    pub observability_profiling_enabled: Option<bool>, // @observability.profiling.enabled
 }
 
 /// Individual SQL statement within an application
@@ -165,6 +169,9 @@ impl SqlApplicationParser {
         let mut sla_availability = None;
         let mut data_retention = None;
         let mut compliance = None;
+        let mut observability_metrics_enabled = None;
+        let mut observability_tracing_enabled = None;
+        let mut observability_profiling_enabled = None;
 
         for line in content.lines() {
             let line = line.trim();
@@ -203,6 +210,24 @@ impl SqlApplicationParser {
                 data_retention = Some(line.replace("-- @data_retention:", "").trim().to_string());
             } else if line.starts_with("-- @compliance:") {
                 compliance = Some(line.replace("-- @compliance:", "").trim().to_string());
+            } else if line.starts_with("-- @observability.metrics.enabled:") {
+                let val = line
+                    .replace("-- @observability.metrics.enabled:", "")
+                    .trim()
+                    .to_lowercase();
+                observability_metrics_enabled = Some(val == "true");
+            } else if line.starts_with("-- @observability.tracing.enabled:") {
+                let val = line
+                    .replace("-- @observability.tracing.enabled:", "")
+                    .trim()
+                    .to_lowercase();
+                observability_tracing_enabled = Some(val == "true");
+            } else if line.starts_with("-- @observability.profiling.enabled:") {
+                let val = line
+                    .replace("-- @observability.profiling.enabled:", "")
+                    .trim()
+                    .to_lowercase();
+                observability_profiling_enabled = Some(val == "true");
             }
         }
 
@@ -232,6 +257,9 @@ impl SqlApplicationParser {
             sla_availability,
             data_retention,
             compliance,
+            observability_metrics_enabled,
+            observability_tracing_enabled,
+            observability_profiling_enabled,
         })
     }
 

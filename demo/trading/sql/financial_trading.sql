@@ -9,6 +9,9 @@
 -- @data_retention: 24h
 -- @compliance: SEC_FINRA_CFTC
 -- @tags: trading, risk-management, market-data, real-time
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: true
 
 -- ====================================================================================
 -- PHASE 1B: EVENT-TIME WATERMARK PROCESSING - Market Data Stream
@@ -57,11 +60,7 @@ WITH (
     'in_market_data_stream.config_file' = 'configs/market_data_source.yaml',
 
     'market_data_ts.type' = 'kafka_sink',
-    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml'
 );
 
 -- FR-073 SQL-Native Observability: Tick Data Processing Rate
@@ -106,11 +105,7 @@ WITH (
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     'tick_buckets.type' = 'kafka_sink',
-    'tick_buckets.config_file' = 'configs/tick_buckets_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'tick_buckets.config_file' = 'configs/tick_buckets_sink.yaml'
 );
 
 -- ====================================================================================
@@ -186,17 +181,10 @@ WITH (
     'advanced_price_movement_alerts.type' = 'kafka_sink',
     'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml',
 
-
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '5',
-    'circuit.breaker.timeout' = '60s',
-
-    -- Phase 4: Observability integration
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true',
-    'observability.span.name' = 'price_movement_detection'
-
+    'circuit.breaker.timeout' = '60s'
 );
 
 -- ====================================================================================
@@ -326,13 +314,6 @@ WITH (
     'retry.max.delay' = '30s',
     'retry.multiplier' = '2.0',
 
-    -- Phase 4: Advanced observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true',
-    'observability.profiling.enabled' = 'true',
-    'observability.span.name' = 'volume_spike_analysis',
-    'prometheus.histogram.buckets' = '0.1,0.5,1.0,5.0,10.0,30.0',
-
     'volume_spike_analysis.type' = 'kafka_sink',
     'volume_spike_analysis.config_file' = 'configs/volume_spikes_sink.yaml'
 );
@@ -365,11 +346,7 @@ WITH (
     'in_trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
 
     'trading_positions_with_event_time.type' = 'kafka_sink',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_sink.yaml'
 );
 
 -- FR-073 SQL-Native Observability: Risk Alerts Counter
@@ -480,15 +457,7 @@ WITH (
 
     -- Dead letter queue for failed risk calculations
     'dead.letter.queue.enabled' = 'true',
-    'dead.letter.queue.topic' = 'risk-calculation-failures',
-
-    -- Phase 4: Critical system observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true',
-    'observability.profiling.enabled' = 'true',
-    'observability.span.name' = 'risk_management_monitor',
-    'observability.alerts.enabled' = 'true',
-    'prometheus.histogram.buckets' = '0.01,0.1,0.5,1.0,5.0,10.0,30.0,60.0'
+    'dead.letter.queue.topic' = 'risk-calculation-failures'
 );
 
 -- ====================================================================================
@@ -568,11 +537,7 @@ WITH (
     'in_order_book_stream.config_file' = 'configs/order_book_source.yaml',
 
     'order_flow_imbalance_detection.type' = 'kafka_sink',
-    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml'
 );
 
 -- ====================================================================================
@@ -612,9 +577,5 @@ WITH (
     'in_market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
 
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
-    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
 );

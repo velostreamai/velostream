@@ -1079,6 +1079,17 @@ impl StreamJobServer {
 
         let mut deployed_jobs = Vec::new();
 
+        // Log app-level observability configuration
+        if let Some(metrics_enabled) = app.metadata.observability_metrics_enabled {
+            info!("  @observability.metrics.enabled: {}", metrics_enabled);
+        }
+        if let Some(tracing_enabled) = app.metadata.observability_tracing_enabled {
+            info!("  @observability.tracing.enabled: {}", tracing_enabled);
+        }
+        if let Some(profiling_enabled) = app.metadata.observability_profiling_enabled {
+            info!("  @observability.profiling.enabled: {}", profiling_enabled);
+        }
+
         // Deploy statements in order
         for stmt in &app.statements {
             match stmt.statement_type {
@@ -1149,12 +1160,34 @@ impl StreamJobServer {
                         format!("processed_data_{}", job_name) // Auto-generate topic for SELECT statements
                     };
 
+                    // Merge app-level observability settings with per-stream settings
+                    // Per-stream settings override app-level if explicitly set
+                    let mut merged_sql = stmt.sql.clone();
+
+                    // Only inject app-level observability if not already present in the SQL
+                    if let Some(true) = app.metadata.observability_metrics_enabled {
+                        if !merged_sql.contains("'observability.metrics.enabled'") {
+                            merged_sql.push_str("\n-- App-level observability injection");
+                            merged_sql.push_str("\n-- @observability.metrics.enabled: true");
+                        }
+                    }
+                    if let Some(true) = app.metadata.observability_tracing_enabled {
+                        if !merged_sql.contains("'observability.tracing.enabled'") {
+                            merged_sql.push_str("\n-- @observability.tracing.enabled: true");
+                        }
+                    }
+                    if let Some(true) = app.metadata.observability_profiling_enabled {
+                        if !merged_sql.contains("'observability.profiling.enabled'") {
+                            merged_sql.push_str("\n-- @observability.profiling.enabled: true");
+                        }
+                    }
+
                     // Deploy the job - fail entire deployment if any single job fails
                     match self
                         .deploy_job(
                             job_name.clone(),
                             app.metadata.version.clone(),
-                            stmt.sql.clone(),
+                            merged_sql,
                             topic,
                         )
                         .await
