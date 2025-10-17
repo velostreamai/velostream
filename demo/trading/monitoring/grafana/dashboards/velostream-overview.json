@@ -286,7 +286,7 @@
           },
           "expr": "rate(velo_sql_records_processed_total[5m])",
           "interval": "",
-          "legendFormat": "Total Records Processed/sec",
+          "legendFormat": "Records - {{node_id}} ({{node_name}})",
           "refId": "A"
         },
         {
@@ -296,7 +296,7 @@
           },
           "expr": "rate(velo_sql_queries_total[5m])",
           "interval": "",
-          "legendFormat": "Total SQL Queries/sec",
+          "legendFormat": "Queries - {{node_id}} ({{node_name}})",
           "refId": "B"
         },
         {
@@ -306,7 +306,7 @@
           },
           "expr": "velo_streaming_throughput_by_job_rps",
           "interval": "",
-          "legendFormat": "Job Throughput - {{job_name}} rec/sec",
+          "legendFormat": "Job - {{job_name}} rec/sec",
           "refId": "C"
         }
       ],
