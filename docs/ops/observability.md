@@ -201,6 +201,82 @@ session.take_memory_snapshot().await;
 // Report generated with recommendations
 ```
 
+## App-Level Observability Configuration
+
+### Overview
+
+Velostream supports **app-level observability configuration** through SQL Application annotations. This allows you to define observability settings at the application level rather than repeating configuration for each individual job.
+
+### Three Observability Dimensions
+
+The observability system supports three independent dimensions that can be configured at the app level:
+
+1. **Metrics** (`@observability.metrics.enabled`)
+   - Prometheus-compatible metrics collection
+   - Query execution times, record rates, error counts
+   - Throughput and performance statistics
+
+2. **Tracing** (`@observability.tracing.enabled`)
+   - Distributed tracing with OpenTelemetry compatibility
+   - End-to-end query execution traces
+   - Span hierarchy and latency analysis
+
+3. **Profiling** (`@observability.profiling.enabled`)
+   - CPU and memory profiling
+   - Automatic bottleneck detection
+   - Performance recommendations
+
+### Annotation Syntax
+
+Add observability annotations to the SQL Application header:
+
+```sql
+-- SQL Application: My Analytics Platform
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: false
+
+-- Name: Job 1
+START JOB job1 AS SELECT * FROM stream1;
+```
+
+### Configuration Behavior
+
+- **App-level settings**: Applied to all jobs in the application
+- **Per-job settings**: Override app-level settings when explicitly configured
+- **Inheritance**: Jobs without explicit settings inherit app-level configuration
+
+Example:
+
+```sql
+-- SQL Application: Mixed Requirements
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+
+-- This job inherits both metrics and tracing
+START JOB standard_job AS SELECT * FROM stream1;
+
+-- This job overrides tracing (keeps metrics from app-level)
+START JOB low_overhead_job AS
+SELECT * FROM stream2
+WITH (observability.tracing.enabled = false);
+```
+
+### Implementation Details
+
+**ApplicationMetadata Fields** (src/velostream/sql/app_parser.rs:73-93):
+```rust
+pub observability_metrics_enabled: Option<bool>,
+pub observability_tracing_enabled: Option<bool>,
+pub observability_profiling_enabled: Option<bool>,
+```
+
+**Configuration Parsing** (src/velostream/sql/app_parser.rs:159-264):
+Extracts `@observability.*` annotations from SQL file headers during application parsing.
+
+**Configuration Merging** (src/velostream/server/stream_job_server.rs:1163-1183):
+Intelligently merges app-level settings with per-job settings, checking if explicit per-job configuration is already present before injecting app-level defaults.
+
 ## Integration Examples
 
 ### SQL Query Tracing

@@ -48,6 +48,11 @@ SELECT * FROM topic2 WHERE condition2;
 | `-- Author: <name>` | Optional | Author information |
 | `-- Dependencies: <list>` | Optional | Comma-separated dependencies |
 | `-- Tag: <key>:<value>` | Optional | Custom tags for metadata |
+| `-- @observability.metrics.enabled: <true\|false>` | Optional | Enable metrics collection for all jobs |
+| `-- @observability.tracing.enabled: <true\|false>` | Optional | Enable distributed tracing for all jobs |
+| `-- @observability.profiling.enabled: <true\|false>` | Optional | Enable profiling for all jobs |
+
+**ℹ️ Note**: For complete documentation on SQL Application annotations, see [SQL Application Annotations Reference](./sql-application-annotations.md).
 
 ### Statement-Level Comments
 
@@ -245,6 +250,195 @@ Properties are passed to the job execution environment and can control:
 - Output routing
 - Processing priorities
 
+## 🔍 App-Level Observability Configuration
+
+### Overview
+
+Observability settings can be configured at the **application level** to apply consistently across all jobs in your SQL application. This eliminates repetitive per-job configuration and ensures uniform monitoring across related streams.
+
+### Three Observability Dimensions
+
+#### 1. **Metrics** (`@observability.metrics.enabled`)
+Enables Prometheus-compatible metrics collection for all jobs:
+- Query execution times
+- Record processing rates
+- Error counts and types
+- Throughput statistics
+
+#### 2. **Tracing** (`@observability.tracing.enabled`)
+Enables distributed tracing for comprehensive observability:
+- End-to-end query execution traces
+- Span hierarchy for complex operations
+- Latency analysis
+- Integration with OpenTelemetry
+
+#### 3. **Profiling** (`@observability.profiling.enabled`)
+Enables performance profiling and bottleneck detection:
+- CPU usage tracking
+- Memory consumption analysis
+- Automatic bottleneck detection
+- Performance recommendations
+
+### Basic App-Level Configuration
+
+```sql
+-- SQL Application: Financial Trading Analytics
+-- Version: 1.0.0
+-- Description: Real-time trading analytics platform
+-- Author: Analytics Team
+-- Dependencies: market_data, positions, orders
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: false
+
+-- Name: Market Data Stream
+START JOB market_data_ts AS
+SELECT * FROM market_data;
+
+-- Name: Trading Positions Monitor
+START JOB trading_positions_with_event_time AS
+SELECT * FROM positions;
+```
+
+### Configuration Inheritance and Overrides
+
+**Key Principles:**
+- App-level observability settings apply to **all jobs** in the application
+- Per-job settings **override** app-level settings when explicitly configured
+- Per-job settings are checked before applying app-level defaults
+
+```sql
+-- SQL Application: Mixed Observability Requirements
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+
+-- Name: Standard Job (inherits app-level settings)
+-- Inherits: metrics=true, tracing=true
+START JOB standard_job AS SELECT * FROM stream1;
+
+-- Name: Low-Overhead Job (overrides tracing)
+-- WITH (observability.tracing.enabled = false)
+-- Result: metrics=true, tracing=false
+START JOB low_overhead_job AS SELECT * FROM stream2;
+
+-- Name: High-Observability Job (adds profiling)
+-- WITH (observability.profiling.enabled = true)
+-- Result: metrics=true, tracing=true, profiling=true
+START JOB high_observability_job AS SELECT * FROM stream3;
+```
+
+### Production Example
+
+```sql
+-- SQL Application: Production E-Commerce Platform
+-- Version: 2.0.0
+-- Description: Complete e-commerce analytics with unified observability
+-- Author: Platform Engineering
+-- Dependencies: orders, customers, products
+-- Tag: environment:production
+-- Tag: team:analytics
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: false
+
+-- Name: High-Value Orders (critical job - inherits full observability)
+START JOB high_value_orders AS
+SELECT
+    order_id,
+    customer_id,
+    total_amount,
+    order_timestamp
+FROM orders
+WHERE total_amount > 1000;
+
+-- Name: Real-Time Fraud Detection (high-sensitivity - keeps full observability)
+START JOB fraud_detection AS
+SELECT
+    order_id,
+    customer_id,
+    risk_score,
+    fraud_flags
+FROM orders
+WHERE risk_score > 0.8;
+
+-- Name: Product Analytics Rollup (lower-priority - reduce overhead)
+-- WITH (observability.tracing.enabled = false)
+START JOB product_analytics AS
+SELECT
+    product_id,
+    COUNT(*) as order_count,
+    SUM(total_amount) as revenue
+FROM orders
+GROUP BY product_id;
+```
+
+### Observability Benefits
+
+**Without App-Level Configuration:**
+```sql
+-- Repetitive: Each job needs identical configuration
+START JOB job1 AS SELECT * FROM stream1
+WITH (
+    observability.metrics.enabled = true,
+    observability.tracing.enabled = true
+);
+
+START JOB job2 AS SELECT * FROM stream2
+WITH (
+    observability.metrics.enabled = true,
+    observability.tracing.enabled = true
+);
+
+START JOB job3 AS SELECT * FROM stream3
+WITH (
+    observability.metrics.enabled = true,
+    observability.tracing.enabled = true
+);
+```
+
+**With App-Level Configuration:**
+```sql
+-- SQL Application: Unified Observability
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+
+-- Clean and concise: Settings inherited from app-level
+START JOB job1 AS SELECT * FROM stream1;
+START JOB job2 AS SELECT * FROM stream2;
+START JOB job3 AS SELECT * FROM stream3;
+```
+
+### Deployment with Observability
+
+```bash
+# Deploy application with app-level observability enabled
+./velo-sql-multi deploy-app \
+  --file examples/financial_trading.sql \
+  --brokers localhost:9092 \
+  --default-topic market_data
+
+# All jobs will inherit observability settings from the application metadata
+# Check logs to verify observability configuration:
+# [INFO] @observability.metrics.enabled: true
+# [INFO] @observability.tracing.enabled: true
+# [INFO] @observability.profiling.enabled: false
+```
+
+### Monitoring App-Level Observability
+
+When an application is deployed with observability enabled, you'll see:
+
+```
+[INFO] Deploying SQL application from file: financial_trading.sql
+[INFO] App-level observability configuration:
+[INFO]   @observability.metrics.enabled: true
+[INFO]   @observability.tracing.enabled: true
+[INFO]   @observability.profiling.enabled: false
+[INFO] Successfully deployed job 'market_data_ts' with app-level observability
+[INFO] Successfully deployed job 'trading_positions_monitor' with app-level observability
+[INFO] Successfully deployed 8 jobs from SQL application with unified observability
+```
+
 ## 📈 Production Best Practices
 
 ### 1. Application Organization
@@ -258,6 +452,9 @@ Properties are passed to the job execution environment and can control:
 -- Tag: environment:production
 -- Tag: criticality:high
 -- Tag: team:platform
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: true
 ```
 
 ### 2. Resource Management
