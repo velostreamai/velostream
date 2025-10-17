@@ -93,6 +93,97 @@ Access:
 | `velo_memory_usage_bytes` | Gauge | Current memory usage in bytes |
 | `velo_active_connections` | Gauge | Number of active connections |
 
+### Error Reporting Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `velo_errors_total` | Counter | Total number of errors across all jobs |
+| `velo_error_rate` | Gauge | Current error rate (errors per minute) |
+| `velo_error_by_type` | Counter | Error count categorized by error type |
+| `velo_error_by_job` | Counter | Error count per individual job |
+| `velo_serialization_errors_total` | Counter | Total serialization/deserialization errors |
+| `velo_sql_parsing_errors_total` | Counter | Total SQL parsing errors |
+| `velo_kafka_errors_total` | Counter | Total Kafka connectivity/consumer errors |
+
+## Error Reporting
+
+Velostream provides comprehensive distributed error reporting and tracking through the observability stack. Errors are captured, categorized, and exposed as metrics for monitoring and alerting.
+
+### Error Reporting Features
+
+**Distributed Error Capture**
+- Errors from all jobs and components are collected centrally
+- Errors include full context (timestamp, job name, error type, message)
+- Error chain information preserved for root cause analysis
+
+**Error Categorization**
+- **SQL Parsing Errors**: Invalid SQL syntax or semantic issues
+- **Serialization Errors**: Issues with data format conversion (JSON, Avro, Protobuf)
+- **Kafka Errors**: Connection failures, consumer lag, producer issues
+- **Execution Errors**: Runtime failures during stream processing
+- **Configuration Errors**: Invalid settings or missing dependencies
+
+**Error Metrics**
+- Total error count across entire application
+- Per-job error tracking
+- Error rate calculations (errors per time unit)
+- Error type distribution
+
+**Error Alerting**
+Configure Grafana alerts based on error thresholds:
+- High error rate (>10 errors/minute)
+- Specific error type spikes (e.g., sudden surge in SQL parsing errors)
+- Job-specific errors (critical jobs should have error rate = 0)
+- Error type anomalies (unexpected error types appearing)
+
+### Enabling Error Reporting
+
+Error reporting is controlled through observability annotations:
+
+```sql
+-- SQL Application: Production Platform
+-- @observability.metrics.enabled: true
+-- @observability.error_reporting.enabled: true
+
+-- Name: Critical Job
+START JOB critical_processor AS
+SELECT * FROM critical_stream;
+```
+
+**Key Points:**
+- Error reporting requires `@observability.metrics.enabled: true`
+- When enabled, all errors automatically flow to the metrics system
+- Per-job error tracking is automatic
+- No additional code required
+
+### Error Reporting Dashboard
+
+The observability dashboard displays:
+
+- **Error Count Timeline**: Historical error trends
+- **Error Rate Gauge**: Current errors per minute
+- **Error Distribution**: Pie chart of error types
+- **Error by Job**: Table showing errors per job
+- **Error Details**: Recent error logs with full context
+
+### Error Investigation
+
+When errors occur, the observability stack provides:
+
+1. **Error Metrics**: Know which jobs and error types are affected
+2. **Error Context**: Timestamps, job names, and affected records
+3. **Error Type Classification**: Understand error categories
+4. **Error Trends**: Identify patterns and recurring issues
+
+Example investigation flow:
+```
+1. Alert triggers: Error rate > 10/minute
+2. Check error distribution: 80% serialization errors
+3. Filter by job: All errors from "data_ingestion" job
+4. Check recent changes: New Protobuf schema version
+5. Remediate: Revert schema or update consumer configuration
+```
+
 ## Configuration Options
 
 ### TracingConfig
@@ -207,9 +298,9 @@ session.take_memory_snapshot().await;
 
 Velostream supports **app-level observability configuration** through SQL Application annotations. This allows you to define observability settings at the application level rather than repeating configuration for each individual job.
 
-### Three Observability Dimensions
+### Four Observability Dimensions
 
-The observability system supports three independent dimensions that can be configured at the app level:
+The observability system supports four independent dimensions that can be configured at the app level:
 
 1. **Metrics** (`@observability.metrics.enabled`)
    - Prometheus-compatible metrics collection
@@ -226,6 +317,12 @@ The observability system supports three independent dimensions that can be confi
    - Automatic bottleneck detection
    - Performance recommendations
 
+4. **Error Reporting** (`@observability.error_reporting.enabled`)
+   - Distributed error capture and categorization
+   - Error metrics by type and job
+   - Error rate tracking and alerting
+   - Root cause analysis with error chains
+
 ### Annotation Syntax
 
 Add observability annotations to the SQL Application header:
@@ -235,10 +332,20 @@ Add observability annotations to the SQL Application header:
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: false
+-- @observability.error_reporting.enabled: true
 
 -- Name: Job 1
 START JOB job1 AS SELECT * FROM stream1;
 ```
+
+### Annotation Reference
+
+| Annotation | Values | Description |
+|-----------|--------|-------------|
+| `@observability.metrics.enabled` | `true`, `false` | Enable Prometheus metrics collection |
+| `@observability.tracing.enabled` | `true`, `false` | Enable distributed tracing |
+| `@observability.profiling.enabled` | `true`, `false` | Enable performance profiling |
+| `@observability.error_reporting.enabled` | `true`, `false` | Enable error capture and reporting |
 
 ### Configuration Behavior
 

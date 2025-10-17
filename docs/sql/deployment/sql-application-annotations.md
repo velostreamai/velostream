@@ -106,9 +106,98 @@ START JOB hf_stream AS SELECT * FROM fast_stream;
 START JOB critical AS SELECT * FROM critical_stream;
 ```
 
+##### `@observability.error_reporting.enabled`
+
+**Purpose**: Enable/disable distributed error capture and reporting for all jobs
+
+**Values**: `true` | `false`
+
+**Default**: Not set (no app-level default)
+
+**Scope**: Application-wide (applies to all jobs unless overridden)
+
+**Requires**: `@observability.metrics.enabled: true` (error reporting flows through metrics)
+
+```sql
+-- SQL Application: Production Platform
+-- @observability.metrics.enabled: true
+-- @observability.error_reporting.enabled: true
+```
+
+**Effect**: Enables:
+- Distributed error capture from all jobs
+- Error categorization (SQL, serialization, Kafka, execution)
+- Error metrics by type and job
+- Error rate tracking and alerting
+- Root cause analysis with full error context
+
+**Error Metrics Collected**:
+- `velo_errors_total`: Total error count
+- `velo_error_rate`: Errors per minute
+- `velo_error_by_type`: Errors categorized by type
+- `velo_error_by_job`: Errors per job
+- `velo_serialization_errors_total`: Serialization failures
+- `velo_sql_parsing_errors_total`: SQL parsing failures
+- `velo_kafka_errors_total`: Kafka connectivity failures
+
+**Per-Job Override**:
+```sql
+-- Name: Critical Stream
+-- WITH (observability.error_reporting.enabled = true)
+START JOB critical_stream AS SELECT * FROM critical;
+```
+
+#### 2. Metrics Annotation
+
+##### `@metric`
+
+**Purpose**: Define custom business metrics to track at the job level
+
+**Values**: Metric name and optional configuration
+
+**Scope**: Can be per-job or application-wide (depends on usage)
+
+**Format**:
+```sql
+-- @metric: metric_name
+-- @metric: metric_name(dimension1, dimension2)
+```
+
+**Examples**:
+
+```sql
+-- SQL Application: Business Analytics
+-- @metric: order_value
+-- @metric: transaction_count
+-- @metric: customer_segments(segment_type, region)
+
+-- Name: Order Processing
+START JOB order_processor AS
+SELECT order_id, total_value FROM orders;
+```
+
+**Metrics Available**:
+- Simple counter metrics (auto-incremented)
+- Dimensional metrics (grouped by dimensions)
+- Custom business KPIs
+- Domain-specific measurements
+
+**Use Cases**:
+- Track business KPIs (revenue, transaction count, user engagement)
+- Monitor domain-specific metrics (order values, conversion rates)
+- Measure custom application behavior
+- Integrate with business intelligence systems
+
+**Grafana Integration**:
+Custom metrics automatically appear in Grafana dashboards:
+- Available as query dimensions
+- Filterable and aggregatable
+- Historical trending
+- Alert-ready
+
 ### Configuration Examples
 
-#### Example 1: Full Production Observability
+#### Example 1: Full Production Observability with Error Reporting
 
 ```sql
 -- SQL Application: Financial Trading Platform
@@ -119,8 +208,12 @@ START JOB critical AS SELECT * FROM critical_stream;
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
 -- @observability.profiling.enabled: false
+-- @observability.error_reporting.enabled: true
+-- @metric: trade_volume
+-- @metric: price_movements
+-- @metric: portfolio_value
 
--- All jobs inherit full observability except profiling
+-- All jobs inherit full observability plus error reporting and custom metrics
 START JOB market_analysis AS SELECT * FROM market_data;
 START JOB risk_monitor AS SELECT * FROM positions;
 ```
@@ -373,11 +466,13 @@ grep "observability\." your_app.sql
 
 ### Full Annotation List
 
-| Annotation | Type | Values | Default |
-|-----------|------|--------|---------|
-| `@observability.metrics.enabled` | Boolean | `true`, `false` | Not set |
-| `@observability.tracing.enabled` | Boolean | `true`, `false` | Not set |
-| `@observability.profiling.enabled` | Boolean | `true`, `false` | Not set |
+| Annotation | Type | Values | Default | Notes |
+|-----------|------|--------|---------|-------|
+| `@observability.metrics.enabled` | Boolean | `true`, `false` | Not set | Enables Prometheus metrics collection |
+| `@observability.tracing.enabled` | Boolean | `true`, `false` | Not set | Enables distributed tracing |
+| `@observability.profiling.enabled` | Boolean | `true`, `false` | Not set | Enables CPU/memory profiling (~5-10% overhead) |
+| `@observability.error_reporting.enabled` | Boolean | `true`, `false` | Not set | Enables error capture & reporting (requires metrics) |
+| `@metric` | String | `metric_name` or `metric_name(dim1, dim2)` | N/A | Define custom business metrics |
 
 ### Related Configuration
 
