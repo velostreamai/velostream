@@ -220,6 +220,7 @@ impl TelemetryProvider {
     /// Create a new trace span for SQL query execution
     pub fn start_sql_query_span(
         &self,
+        job_name: &str,
         query: &str,
         source: &str,
         parent_context: Option<opentelemetry::trace::SpanContext>,
@@ -235,6 +236,7 @@ impl TelemetryProvider {
 
         // Build attributes with deployment context
         let mut attributes = vec![
+            KeyValue::new("job.name", job_name.to_string()),
             KeyValue::new("db.system", "velostream"),
             KeyValue::new("db.operation", operation_name.to_string()),
             KeyValue::new("db.statement", query.chars().take(200).collect::<String>()),
@@ -293,6 +295,7 @@ impl TelemetryProvider {
     /// Create a new trace span for streaming operations
     pub fn start_streaming_span(
         &self,
+        job_name: &str,
         operation: &str,
         record_count: u64,
         parent_context: Option<opentelemetry::trace::SpanContext>,
@@ -307,6 +310,7 @@ impl TelemetryProvider {
 
         // Build attributes with deployment context
         let mut attributes = vec![
+            KeyValue::new("job.name", job_name.to_string()),
             KeyValue::new("operation", operation.to_string()),
             KeyValue::new("record_count", record_count as i64),
         ];
@@ -361,7 +365,12 @@ impl TelemetryProvider {
     }
 
     /// Create a new trace span for aggregation operations
-    pub fn start_aggregation_span(&self, function: &str, window_type: &str) -> AggregationSpan {
+    pub fn start_aggregation_span(
+        &self,
+        job_name: &str,
+        function: &str,
+        window_type: &str,
+    ) -> AggregationSpan {
         if !self.active {
             return AggregationSpan::new_inactive();
         }
@@ -370,6 +379,7 @@ impl TelemetryProvider {
 
         // Build attributes with deployment context
         let mut attributes = vec![
+            KeyValue::new("job.name", job_name.to_string()),
             KeyValue::new("function", function.to_string()),
             KeyValue::new("window_type", window_type.to_string()),
         ];
@@ -409,6 +419,96 @@ impl TelemetryProvider {
         );
 
         AggregationSpan::new_active(span)
+    }
+
+    /// Create a new trace span for profiling phases (deserialization, processing, serialization)
+    ///
+    /// # Arguments
+    /// * `job_name` - Name of the job/query
+    /// * `phase` - Phase being profiled: "deserialization", "processing", or "serialization"
+    /// * `record_count` - Number of records being processed in this phase
+    /// * `latency_ms` - Latency of the phase in milliseconds
+    /// * `parent_context` - Optional parent span context for linking
+    pub fn start_profiling_phase_span(
+        &self,
+        job_name: &str,
+        phase: &str,
+        record_count: u64,
+        latency_ms: u64,
+        parent_context: Option<opentelemetry::trace::SpanContext>,
+    ) -> StreamingSpan {
+        if !self.active {
+            return StreamingSpan::new_inactive();
+        }
+
+        let tracer = global::tracer(self.config.service_name.clone());
+
+        let span_name = format!("profiling_phase:{}", phase);
+
+        // Build attributes with profiling phase information
+        // Calculate throughput: records per second
+        let throughput_rps = if latency_ms > 0 {
+            (record_count as f64 / latency_ms as f64) * 1000.0
+        } else {
+            0.0
+        };
+
+        let mut attributes = vec![
+            KeyValue::new("job.name", job_name.to_string()),
+            KeyValue::new("profiling.phase", phase.to_string()),
+            KeyValue::new("record_count", record_count as i64),
+            KeyValue::new("latency_ms", latency_ms as i64),
+            KeyValue::new("throughput_rps", throughput_rps),
+        ];
+
+        // Add deployment context attributes if set
+        if let Some(ref node_id) = self.deployment_node_id {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
+                node_id.clone(),
+            ));
+        }
+        if let Some(ref node_name) = self.deployment_node_name {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::HOST_NAME,
+                node_name.clone(),
+            ));
+        }
+        if let Some(ref region) = self.deployment_region {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
+                region.clone(),
+            ));
+        }
+
+        // Start span with parent context if provided
+        let mut span = if let Some(parent_ctx) = parent_context {
+            use opentelemetry::trace::{TraceContextExt, Tracer as _};
+            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
+            tracer
+                .span_builder(span_name)
+                .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
+                .start_with_context(&tracer, &parent_cx)
+        } else {
+            tracer
+                .span_builder(span_name)
+                .with_kind(SpanKind::Internal)
+                .with_attributes(attributes)
+                .start(&tracer)
+        };
+
+        span.set_status(Status::Ok);
+
+        log::debug!(
+            "🔍 Started profiling phase span: {} (phase: {}, records: {}, latency: {}ms)",
+            job_name,
+            phase,
+            record_count,
+            latency_ms
+        );
+
+        StreamingSpan::new_active(span, record_count)
     }
 
     /// Extract operation name from SQL query for span naming

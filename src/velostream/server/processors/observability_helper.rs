@@ -133,6 +133,7 @@ impl ObservabilityHelper {
                 if let Some(telemetry) = obs_lock.telemetry() {
                     let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                     let mut span = telemetry.start_streaming_span(
+                        job_name,
                         "deserialization",
                         record_count as u64,
                         parent_ctx,
@@ -188,8 +189,12 @@ impl ObservabilityHelper {
                 // Record telemetry span
                 if let Some(telemetry) = obs_lock.telemetry() {
                     let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
-                    let mut span =
-                        telemetry.start_sql_query_span("sql_processing", job_name, parent_ctx);
+                    let mut span = telemetry.start_sql_query_span(
+                        job_name,
+                        "sql_processing",
+                        "stream_processor",
+                        parent_ctx,
+                    );
                     span.set_execution_time(duration_ms);
                     span.set_record_count(batch_result.records_processed as u64);
                     if batch_result.records_failed > 0 {
@@ -227,6 +232,7 @@ impl ObservabilityHelper {
             if let Some(telemetry) = obs_lock.telemetry() {
                 let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                 let mut span = telemetry.start_streaming_span(
+                    job_name,
                     "serialization",
                     record_count as u64,
                     parent_ctx,
@@ -270,6 +276,7 @@ impl ObservabilityHelper {
             if let Some(telemetry) = obs_lock.telemetry() {
                 let parent_ctx = batch_span.as_ref().and_then(|s| s.span_context());
                 let mut span = telemetry.start_streaming_span(
+                    job_name,
                     "serialization",
                     record_count as u64,
                     parent_ctx,
