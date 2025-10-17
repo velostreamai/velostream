@@ -14,6 +14,7 @@ Add observability annotations to your SQL application header:
 -- SQL Application: My Analytics Platform
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
 
 -- @job_name: data-processor-stream
@@ -59,10 +60,10 @@ Observability is controlled through SQL Application annotations (no code require
 
 | Annotation | Values | Description |
 |-----------|--------|-------------|
-| `@observability.metrics.enabled` | `true`, `false` | Enable Prometheus metrics collection |
-| `@observability.tracing.enabled` | `true`, `false` | Enable distributed tracing |
-| `@observability.profiling.enabled` | `true`, `false` | Enable performance profiling (5-10% overhead) |
-| `@observability.error_reporting.enabled` | `true`, `false` | Enable error capture and reporting |
+| `@observability.metrics.enabled` | `true`, `false` | Enable Prometheus metrics collection (~2% overhead) |
+| `@observability.tracing.enabled` | `true`, `false` | Enable distributed tracing (~3% overhead) |
+| `@observability.profiling.enabled` | `off`, `prod`, `dev`, `true`, `false` | Profiling mode: `off` (0%), `prod` (2-3%), `dev` (8-10%), `true`=`prod`, `false`=`off` |
+| `@observability.error_reporting.enabled` | `true`, `false` | Enable error capture and reporting (requires metrics) |
 
 ### Example: Production Configuration
 
@@ -73,7 +74,7 @@ Observability is controlled through SQL Application annotations (no code require
 -- Author: Platform Team
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
--- @observability.profiling.enabled: false
+-- @observability.profiling.enabled: prod
 -- @observability.error_reporting.enabled: true
 
 -- Job-level metrics for Market Data Stream
@@ -128,13 +129,14 @@ Define custom metrics and override app-level settings for specific jobs:
 -- SQL Application: Hybrid Platform
 -- @observability.metrics.enabled: true
 -- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
 
 -- Job-level metrics
 -- @metric: velo_standard_records_total
 -- @metric_type: counter
 -- @job_name: standard-processing
 
--- Name: Standard Stream (inherits app-level settings)
+-- Name: Standard Stream (inherits app-level settings: prod profiling)
 CREATE STREAM standard AS
 SELECT * FROM stream1
 EMIT CHANGES;
@@ -145,10 +147,10 @@ EMIT CHANGES;
 -- @metric_labels: status
 -- @job_name: lightweight-stream
 
--- Name: Low-Overhead Stream (disable tracing to reduce overhead)
+-- Name: Low-Overhead Stream (disable tracing and profiling to reduce overhead)
 CREATE STREAM lightweight AS
 SELECT * FROM stream2
-WITH (observability.tracing.enabled = false)
+WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
 EMIT CHANGES;
 
 -- Job-level metrics for critical monitoring
@@ -157,10 +159,10 @@ EMIT CHANGES;
 -- @metric_help: "Errors in critical stream"
 -- @job_name: critical-monitoring
 
--- Name: Critical Stream (add profiling for analysis)
+-- Name: Critical Stream (upgrade to dev profiling for detailed analysis)
 CREATE STREAM critical AS
 SELECT * FROM stream3
-WITH (observability.profiling.enabled = true)
+WITH (observability.profiling.enabled = dev)
 EMIT CHANGES;
 ```
 
