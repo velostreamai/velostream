@@ -480,10 +480,10 @@ mod performance_telemetry_tests {
     async fn test_condition_eval_time_recording() {
         let helper = ProcessorMetricsHelper::new();
 
-        // Record some timing data
-        helper.record_condition_eval_time(100).await;
-        helper.record_condition_eval_time(50).await;
-        helper.record_condition_eval_time(75).await;
+        // Record some timing data (no await - these are synchronous)
+        helper.record_condition_eval_time(100);
+        helper.record_condition_eval_time(50);
+        helper.record_condition_eval_time(75);
 
         let telemetry = helper.get_telemetry().await;
         assert_eq!(telemetry.condition_eval_time_us, 225);
@@ -493,8 +493,8 @@ mod performance_telemetry_tests {
     async fn test_label_extract_time_recording() {
         let helper = ProcessorMetricsHelper::new();
 
-        helper.record_label_extract_time(200).await;
-        helper.record_label_extract_time(150).await;
+        helper.record_label_extract_time(200);
+        helper.record_label_extract_time(150);
 
         let telemetry = helper.get_telemetry().await;
         assert_eq!(telemetry.label_extract_time_us, 350);
@@ -504,8 +504,8 @@ mod performance_telemetry_tests {
     async fn test_emission_overhead_recording() {
         let helper = ProcessorMetricsHelper::new();
 
-        helper.record_emission_overhead(500).await;
-        helper.record_emission_overhead(300).await;
+        helper.record_emission_overhead(500);
+        helper.record_emission_overhead(300);
 
         let telemetry = helper.get_telemetry().await;
         assert_eq!(telemetry.total_emission_overhead_us, 800);
@@ -515,9 +515,9 @@ mod performance_telemetry_tests {
     async fn test_telemetry_reset() {
         let helper = ProcessorMetricsHelper::new();
 
-        helper.record_condition_eval_time(100).await;
-        helper.record_label_extract_time(200).await;
-        helper.record_emission_overhead(300).await;
+        helper.record_condition_eval_time(100);
+        helper.record_label_extract_time(200);
+        helper.record_emission_overhead(300);
 
         helper.reset_telemetry().await;
 
@@ -532,9 +532,9 @@ mod performance_telemetry_tests {
         let helper = ProcessorMetricsHelper::new();
 
         // Record a very large value
-        helper.record_condition_eval_time(u64::MAX - 100).await;
+        helper.record_condition_eval_time(u64::MAX - 100);
         // Record another value that would overflow
-        helper.record_condition_eval_time(200).await;
+        helper.record_condition_eval_time(200);
 
         let telemetry = helper.get_telemetry().await;
         // Should saturate at u64::MAX, not overflow

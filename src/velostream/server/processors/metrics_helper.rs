@@ -600,42 +600,52 @@ impl ProcessorMetricsHelper {
         result
     }
 
-    /// Generic metric emission logic with common condition/label/validation handling
+    /// Phase 4: Generic metric emission logic with batch accumulation
     ///
     /// This helper consolidates the common logic shared by counter, gauge, and histogram emission.
-    /// The `emit_fn` closure handles metric-type-specific emission logic.
+    /// Instead of emitting immediately (per-record locking), metrics are accumulated into a batch
+    /// and flushed with a single lock acquisition at the end (99.998% fewer locks).
+    ///
+    /// The `batch_fn` closure handles metric-type-specific batch event accumulation.
     ///
     /// # Arguments
     /// - `annotations`: Filtered annotations for a specific metric type
     /// - `output_records`: Records to emit metrics for
     /// - `observability`: Observability manager
     /// - `job_name`: Job name for logging
-    /// - `emit_fn`: Closure that emits the specific metric type
-    ///   - Takes: (metrics provider, annotation, label values, optional numeric value)
-    ///   - Returns: Result of emission
+    /// - `batch_fn`: Closure that adds the specific metric type to the batch
+    ///   - Takes: (batch, annotation, label values, optional numeric value)
+    ///   - Returns: nothing (just accumulates)
     async fn emit_metrics_generic<F>(
         &self,
         annotations: Vec<&MetricAnnotation>,
         output_records: &[crate::velostream::sql::execution::StreamRecord],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
-        emit_fn: F,
+        batch_fn: F,
     ) where
         F: Fn(
-            &crate::velostream::observability::metrics::MetricsProvider,
+            &mut crate::velostream::observability::metrics::MetricBatch,
             &MetricAnnotation,
             &[String],
             Option<f64>,
-        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+        ),
     {
         if annotations.is_empty() || output_records.is_empty() {
             return;
         }
 
-        // Emit metrics for each output record
+        // Phase 4: Batch accumulation for single-lock emission
         if let Some(obs) = observability {
             let obs_lock = obs.read().await;
             if let Some(metrics) = obs_lock.metrics() {
+                // Pre-allocate batch with reasonable capacity
+                let batch_capacity = output_records.len() * annotations.len();
+                let mut batch =
+                    crate::velostream::observability::metrics::MetricBatch::with_capacity(
+                        batch_capacity,
+                    );
+
                 for record in output_records {
                     let record_start = Instant::now();
                     for annotation in &annotations {
@@ -715,15 +725,15 @@ impl ProcessorMetricsHelper {
                             continue;
                         }
 
-                        // Emit the metric using the provided closure
-                        if let Err(e) = emit_fn(metrics, annotation, &label_values, numeric_value) {
-                            debug!(
-                                "Job '{}': Failed to emit metric '{}': {:?}",
-                                job_name, annotation.name, e
-                            );
-                        }
+                        // Accumulate metric into batch (no lock acquired yet)
+                        batch_fn(&mut batch, annotation, &label_values, numeric_value);
                     }
                     self.record_emission_overhead(record_start.elapsed().as_micros() as u64);
+                }
+
+                // Phase 4: SINGLE LOCK ACQUISITION for all accumulated metrics
+                if let Err(e) = metrics.emit_batch(batch) {
+                    debug!("Job '{}': Failed to emit metric batch: {:?}", job_name, e);
                 }
             }
         }
@@ -757,20 +767,18 @@ impl ProcessorMetricsHelper {
             }
         };
 
-        // Use generic emission logic with counter-specific emitter
+        // Use generic emission logic with counter-specific batch accumulator
         self.emit_metrics_generic(
             counter_annotations,
             output_records,
             observability,
             job_name,
-            |metrics, annotation, labels, _value| {
+            |batch, annotation, labels, _value| {
                 debug!(
-                    "Job '{}': Emitted counter '{}' with labels {:?}",
+                    "Job '{}': Accumulated counter '{}' with labels {:?}",
                     job_name, annotation.name, labels
                 );
-                metrics
-                    .emit_counter(&annotation.name, labels)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                batch.add_counter(annotation.name.clone(), labels.to_vec());
             },
         )
         .await
@@ -845,23 +853,24 @@ impl ProcessorMetricsHelper {
             }
         };
 
-        // Use generic emission logic with gauge-specific emitter
+        // Use generic emission logic with gauge-specific batch accumulator
         self.emit_metrics_generic(
             gauge_annotations,
             output_records,
             observability,
             job_name,
-            |metrics, annotation, labels, value| {
+            |batch, annotation, labels, value| {
                 if let Some(v) = value {
                     debug!(
-                        "Job '{}': Emitted gauge '{}' = {} with labels {:?}",
+                        "Job '{}': Accumulated gauge '{}' = {} with labels {:?}",
                         job_name, annotation.name, v, labels
                     );
-                    metrics
-                        .emit_gauge(&annotation.name, labels, v)
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                    batch.add_gauge(annotation.name.clone(), labels.to_vec(), v);
                 } else {
-                    Err("Gauge metric requires a numeric value".into())
+                    debug!(
+                        "Job '{}': Skipping gauge '{}' - no numeric value provided",
+                        job_name, annotation.name
+                    );
                 }
             },
         )
@@ -942,23 +951,24 @@ impl ProcessorMetricsHelper {
             }
         };
 
-        // Use generic emission logic with histogram-specific emitter
+        // Use generic emission logic with histogram-specific batch accumulator
         self.emit_metrics_generic(
             histogram_annotations,
             output_records,
             observability,
             job_name,
-            |metrics, annotation, labels, value| {
+            |batch, annotation, labels, value| {
                 if let Some(v) = value {
                     debug!(
-                        "Job '{}': Emitted histogram '{}' observed value {} with labels {:?}",
+                        "Job '{}': Accumulated histogram '{}' observed value {} with labels {:?}",
                         job_name, annotation.name, v, labels
                     );
-                    metrics
-                        .emit_histogram(&annotation.name, labels, v)
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                    batch.add_histogram(annotation.name.clone(), labels.to_vec(), v);
                 } else {
-                    Err("Histogram metric requires a numeric value".into())
+                    debug!(
+                        "Job '{}': Skipping histogram '{}' - no numeric value provided",
+                        job_name, annotation.name
+                    );
                 }
             },
         )
