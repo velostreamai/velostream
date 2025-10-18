@@ -97,45 +97,15 @@ fn extract_nested_field(
 }
 
 /// Convert a FieldValue to a Prometheus-compatible label string
+///
+/// Uses the FieldValue::to_label_string method with additional validation if configured.
 fn field_value_to_label_string(value: &FieldValue, config: &LabelExtractionConfig) -> String {
-    let raw_value = match value {
-        FieldValue::String(s) => s.clone(),
-        FieldValue::Integer(i) => i.to_string(),
-        FieldValue::Float(f) => {
-            // Format floats with reasonable precision (avoid scientific notation)
-            if f.is_finite() {
-                format!("{:.6}", f)
-                    .trim_end_matches('0')
-                    .trim_end_matches('.')
-                    .to_string()
-            } else {
-                config.default_value.clone()
-            }
-        }
-        FieldValue::ScaledInteger(value, scale) => {
-            // Convert scaled integer to decimal representation
-            let divisor = 10_f64.powi(*scale as i32);
-            let decimal = (*value as f64) / divisor;
-            format!("{:.6}", decimal)
-                .trim_end_matches('0')
-                .trim_end_matches('.')
-                .to_string()
-        }
-        FieldValue::Boolean(b) => b.to_string(),
-        FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S").to_string(),
-        FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
-        FieldValue::Decimal(d) => d.to_string(),
-        FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
-        FieldValue::Null => config.default_value.clone(),
-        FieldValue::Array(_) => "[array]".to_string(),
-        FieldValue::Map(_) => "[map]".to_string(),
-        FieldValue::Struct(_) => "[struct]".to_string(),
-    };
+    let raw_value = value.to_label_string(&config.default_value, config.max_value_length);
 
     if config.validate_values {
         sanitize_label_value(&raw_value, config)
     } else {
-        truncate_if_needed(&raw_value, config.max_value_length)
+        raw_value
     }
 }
 

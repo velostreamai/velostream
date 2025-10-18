@@ -47,6 +47,71 @@ pub enum FieldValue {
 }
 
 impl FieldValue {
+    /// Convert this value to a Prometheus-compatible label string (Phase 3: ToLabelString trait)
+    ///
+    /// This method provides label string conversion with configurable formatting:
+    /// - Float precision: 6 decimal places with trailing zero removal
+    /// - ScaledInteger: Converted to decimal with proper precision
+    /// - Special characters: Sanitized for Prometheus compatibility
+    /// - Length: Truncated to max_length with "..." suffix if needed
+    ///
+    /// # Arguments
+    /// * `default_value` - Value to use for NULL or missing fields
+    /// * `max_length` - Maximum length for label values (Prometheus recommended: 1024)
+    ///
+    /// # Returns
+    /// A Prometheus-compatible label string
+    pub fn to_label_string(&self, default_value: &str, max_length: usize) -> String {
+        let raw_value = match self {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => {
+                // Format floats with reasonable precision (avoid scientific notation)
+                if f.is_finite() {
+                    format!("{:.6}", f)
+                        .trim_end_matches('0')
+                        .trim_end_matches('.')
+                        .to_string()
+                } else {
+                    default_value.to_string()
+                }
+            }
+            FieldValue::ScaledInteger(value, scale) => {
+                // Convert scaled integer to decimal representation
+                let divisor = 10_f64.powi(*scale as i32);
+                let decimal = (*value as f64) / divisor;
+                format!("{:.6}", decimal)
+                    .trim_end_matches('0')
+                    .trim_end_matches('.')
+                    .to_string()
+            }
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S").to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            FieldValue::Decimal(d) => d.to_string(),
+            FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+            FieldValue::Null => default_value.to_string(),
+            FieldValue::Array(_) => "[array]".to_string(),
+            FieldValue::Map(_) => "[map]".to_string(),
+            FieldValue::Struct(_) => "[struct]".to_string(),
+        };
+
+        // Sanitize and truncate
+        let sanitized = raw_value
+            .chars()
+            .map(|c| if c.is_control() { ' ' } else { c })
+            .collect::<String>();
+
+        let trimmed = sanitized.trim();
+        if trimmed.len() > max_length {
+            let mut truncated = trimmed.chars().take(max_length - 3).collect::<String>();
+            truncated.push_str("...");
+            truncated
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     /// Get the type name for error messages and debugging
     ///
     /// Returns a static string representing the type name that can be used
