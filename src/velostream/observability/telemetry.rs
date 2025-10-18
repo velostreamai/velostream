@@ -15,6 +15,88 @@ use opentelemetry_sdk::{
 };
 use std::time::Instant;
 
+/// Base span wrapper with common timing and status functionality
+///
+/// This struct consolidates the common logic shared by all span types:
+/// - Automatic timing via `Instant::now()`
+/// - Unified success/error status handling
+/// - Active/inactive span management
+/// - Drop handler for automatic logging
+pub struct BaseSpan {
+    span: Option<opentelemetry::global::BoxedSpan>,
+    start_time: Instant,
+    active: bool,
+}
+
+impl BaseSpan {
+    /// Create a new active span with the provided span handle
+    pub(crate) fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
+        Self {
+            span: Some(span),
+            start_time: Instant::now(),
+            active: true,
+        }
+    }
+
+    /// Create a new inactive span (used when telemetry is disabled)
+    pub(crate) fn new_inactive() -> Self {
+        Self {
+            span: None,
+            start_time: Instant::now(),
+            active: false,
+        }
+    }
+
+    /// Get immutable reference to the underlying span (if active)
+    pub(crate) fn span(&self) -> Option<&opentelemetry::global::BoxedSpan> {
+        self.span.as_ref()
+    }
+
+    /// Get mutable reference to the underlying span (if active)
+    pub(crate) fn span_mut(&mut self) -> Option<&mut opentelemetry::global::BoxedSpan> {
+        self.span.as_mut()
+    }
+
+    /// Check if this span is active
+    pub(crate) fn is_active(&self) -> bool {
+        self.active
+    }
+
+    /// Get elapsed time since span creation
+    pub(crate) fn elapsed(&self) -> std::time::Duration {
+        self.start_time.elapsed()
+    }
+
+    /// Mark the span as successful
+    pub(crate) fn set_success(&mut self) {
+        if let Some(span) = &mut self.span {
+            span.set_status(Status::Ok);
+            let duration = self.start_time.elapsed();
+            log::debug!("🔍 Span completed successfully in {:?}", duration);
+        }
+    }
+
+    /// Mark the span as failed with error information
+    pub(crate) fn set_error(&mut self, error: &str) {
+        if let Some(span) = &mut self.span {
+            span.set_status(Status::error(error.to_string()));
+            span.set_attribute(KeyValue::new("error", error.to_string()));
+            let duration = self.start_time.elapsed();
+            log::warn!("🔍 Span failed after {:?}: {}", duration, error);
+        }
+    }
+}
+
+impl Drop for BaseSpan {
+    fn drop(&mut self) {
+        if self.active {
+            let duration = self.start_time.elapsed();
+            log::trace!("🔍 Span finished in {:?}", duration);
+            // Span automatically ends when dropped
+        }
+    }
+}
+
 /// OpenTelemetry telemetry provider for distributed tracing
 #[derive(Debug)]
 pub struct TelemetryProvider {
@@ -563,31 +645,25 @@ impl TelemetryProvider {
 
 /// SQL query execution span wrapper
 pub struct QuerySpan {
-    span: Option<opentelemetry::global::BoxedSpan>,
-    start_time: Instant,
-    active: bool,
+    base: BaseSpan,
 }
 
 impl QuerySpan {
     fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
         Self {
-            span: Some(span),
-            start_time: Instant::now(),
-            active: true,
+            base: BaseSpan::new_active(span),
         }
     }
 
     fn new_inactive() -> Self {
         Self {
-            span: None,
-            start_time: Instant::now(),
-            active: false,
+            base: BaseSpan::new_inactive(),
         }
     }
 
     /// Add execution time to the span
     pub fn set_execution_time(&mut self, duration_ms: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("execution_time_ms", duration_ms as i64));
             log::trace!("🔍 SQL span execution time: {}ms", duration_ms);
         }
@@ -595,7 +671,7 @@ impl QuerySpan {
 
     /// Add record count to the span
     pub fn set_record_count(&mut self, count: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("record_count", count as i64));
             log::trace!("🔍 SQL span processed {} records", count);
         }
@@ -603,64 +679,39 @@ impl QuerySpan {
 
     /// Mark the query as successful
     pub fn set_success(&mut self) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::Ok);
-            let duration = self.start_time.elapsed();
-            log::debug!("🔍 SQL span completed successfully in {:?}", duration);
-        }
+        self.base.set_success();
     }
 
     /// Mark the query as failed with error information
     pub fn set_error(&mut self, error: &str) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::error(error.to_string()));
-            span.set_attribute(KeyValue::new("error", error.to_string()));
-            let duration = self.start_time.elapsed();
-            log::warn!("🔍 SQL span failed after {:?}: {}", duration, error);
-        }
-    }
-}
-
-impl Drop for QuerySpan {
-    fn drop(&mut self) {
-        if self.active {
-            let duration = self.start_time.elapsed();
-            log::trace!("🔍 SQL span finished in {:?}", duration);
-            // Span automatically ends when dropped
-        }
+        self.base.set_error(error);
     }
 }
 
 /// Streaming operation span wrapper
 pub struct StreamingSpan {
-    span: Option<opentelemetry::global::BoxedSpan>,
+    base: BaseSpan,
     record_count: u64,
-    start_time: Instant,
-    active: bool,
 }
 
 impl StreamingSpan {
     fn new_active(span: opentelemetry::global::BoxedSpan, record_count: u64) -> Self {
         Self {
-            span: Some(span),
+            base: BaseSpan::new_active(span),
             record_count,
-            start_time: Instant::now(),
-            active: true,
         }
     }
 
     fn new_inactive() -> Self {
         Self {
-            span: None,
+            base: BaseSpan::new_inactive(),
             record_count: 0,
-            start_time: Instant::now(),
-            active: false,
         }
     }
 
     /// Add throughput information to the span
     pub fn set_throughput(&mut self, records_per_second: f64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("throughput_rps", records_per_second));
             log::trace!(
                 "🔍 Streaming span throughput: {:.2} rps",
@@ -671,7 +722,7 @@ impl StreamingSpan {
 
     /// Add processing time to the span
     pub fn set_processing_time(&mut self, duration_ms: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("processing_time_ms", duration_ms as i64));
             log::trace!("🔍 Streaming span processing time: {}ms", duration_ms);
         }
@@ -679,26 +730,17 @@ impl StreamingSpan {
 
     /// Mark the operation as successful
     pub fn set_success(&mut self) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::Ok);
-            let duration = self.start_time.elapsed();
-            log::debug!("🔍 Streaming span completed successfully in {:?}", duration);
-        }
+        self.base.set_success();
     }
 
     /// Mark the operation as failed with error information
     pub fn set_error(&mut self, error: &str) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::error(error.to_string()));
-            span.set_attribute(KeyValue::new("error", error.to_string()));
-            let duration = self.start_time.elapsed();
-            log::warn!("🔍 Streaming span failed after {:?}: {}", duration, error);
-        }
+        self.base.set_error(error);
     }
 
     /// Add Kafka metadata (topic, partition, offset) to the span
     pub fn set_kafka_metadata(&mut self, topic: &str, partition: i32, offset: i64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("kafka.topic", topic.to_string()));
             span.set_attribute(KeyValue::new("kafka.partition", partition as i64));
             span.set_attribute(KeyValue::new("kafka.offset", offset));
@@ -712,43 +754,27 @@ impl StreamingSpan {
     }
 }
 
-impl Drop for StreamingSpan {
-    fn drop(&mut self) {
-        if self.active {
-            let duration = self.start_time.elapsed();
-            log::trace!("🔍 Streaming span finished in {:?}", duration);
-            // Span automatically ends when dropped
-        }
-    }
-}
-
 /// Aggregation operation span wrapper
 pub struct AggregationSpan {
-    span: Option<opentelemetry::global::BoxedSpan>,
-    start_time: Instant,
-    active: bool,
+    base: BaseSpan,
 }
 
 impl AggregationSpan {
     fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
         Self {
-            span: Some(span),
-            start_time: Instant::now(),
-            active: true,
+            base: BaseSpan::new_active(span),
         }
     }
 
     fn new_inactive() -> Self {
         Self {
-            span: None,
-            start_time: Instant::now(),
-            active: false,
+            base: BaseSpan::new_inactive(),
         }
     }
 
     /// Add window size information to the span
     pub fn set_window_size(&mut self, size_ms: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("window_size_ms", size_ms as i64));
             log::trace!("🔍 Aggregation span window size: {}ms", size_ms);
         }
@@ -756,7 +782,7 @@ impl AggregationSpan {
 
     /// Add input record count to the span
     pub fn set_input_records(&mut self, count: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("input_records", count as i64));
             log::trace!("🔍 Aggregation span input records: {}", count);
         }
@@ -764,7 +790,7 @@ impl AggregationSpan {
 
     /// Add output record count to the span
     pub fn set_output_records(&mut self, count: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("output_records", count as i64));
             log::trace!("🔍 Aggregation span output records: {}", count);
         }
@@ -772,34 +798,12 @@ impl AggregationSpan {
 
     /// Mark the aggregation as successful
     pub fn set_success(&mut self) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::Ok);
-            let duration = self.start_time.elapsed();
-            log::debug!(
-                "🔍 Aggregation span completed successfully in {:?}",
-                duration
-            );
-        }
+        self.base.set_success();
     }
 
     /// Mark the aggregation as failed with error information
     pub fn set_error(&mut self, error: &str) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::error(error.to_string()));
-            span.set_attribute(KeyValue::new("error", error.to_string()));
-            let duration = self.start_time.elapsed();
-            log::warn!("🔍 Aggregation span failed after {:?}: {}", duration, error);
-        }
-    }
-}
-
-impl Drop for AggregationSpan {
-    fn drop(&mut self) {
-        if self.active {
-            let duration = self.start_time.elapsed();
-            log::trace!("🔍 Aggregation span finished in {:?}", duration);
-            // Span automatically ends when dropped
-        }
+        self.base.set_error(error);
     }
 }
 
@@ -811,31 +815,25 @@ impl Drop for AggregationSpan {
 /// currently created independently. Future enhancement: implement manual parent-child
 /// linking via span IDs.
 pub struct BatchSpan {
-    span: Option<opentelemetry::global::BoxedSpan>,
-    start_time: Instant,
-    active: bool,
+    base: BaseSpan,
 }
 
 impl BatchSpan {
     fn new_active(span: opentelemetry::global::BoxedSpan) -> Self {
         Self {
-            span: Some(span),
-            start_time: Instant::now(),
-            active: true,
+            base: BaseSpan::new_active(span),
         }
     }
 
     fn new_inactive() -> Self {
         Self {
-            span: None,
-            start_time: Instant::now(),
-            active: false,
+            base: BaseSpan::new_inactive(),
         }
     }
 
     /// Add total records processed to the span
     pub fn set_total_records(&mut self, count: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("total_records", count as i64));
             log::trace!("🔍 Batch span processed {} total records", count);
         }
@@ -843,7 +841,7 @@ impl BatchSpan {
 
     /// Add batch duration to the span
     pub fn set_batch_duration(&mut self, duration_ms: u64) {
-        if let Some(span) = &mut self.span {
+        if let Some(span) = self.base.span_mut() {
             span.set_attribute(KeyValue::new("batch_duration_ms", duration_ms as i64));
             log::trace!("🔍 Batch span duration: {}ms", duration_ms);
         }
@@ -851,36 +849,17 @@ impl BatchSpan {
 
     /// Mark the batch as successful
     pub fn set_success(&mut self) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::Ok);
-            let duration = self.start_time.elapsed();
-            log::debug!("🔍 Batch span completed successfully in {:?}", duration);
-        }
+        self.base.set_success();
     }
 
     /// Mark the batch as failed with error information
     pub fn set_error(&mut self, error: &str) {
-        if let Some(span) = &mut self.span {
-            span.set_status(Status::error(error.to_string()));
-            span.set_attribute(KeyValue::new("error", error.to_string()));
-            let duration = self.start_time.elapsed();
-            log::warn!("🔍 Batch span failed after {:?}: {}", duration, error);
-        }
+        self.base.set_error(error);
     }
 
     /// Get the span context for creating child spans with parent relationship
     pub fn span_context(&self) -> Option<opentelemetry::trace::SpanContext> {
-        self.span.as_ref().map(|span| span.span_context().clone())
-    }
-}
-
-impl Drop for BatchSpan {
-    fn drop(&mut self) {
-        if self.active {
-            let duration = self.start_time.elapsed();
-            log::trace!("🔍 Batch span finished in {:?}", duration);
-            // Span automatically ends when dropped
-        }
+        self.base.span().map(|span| span.span_context().clone())
     }
 }
 
