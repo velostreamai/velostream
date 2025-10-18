@@ -431,7 +431,10 @@ impl ProcessorMetricsHelper {
     ///
     /// This method retrieves pre-cached annotations instead of extracting from the query,
     /// eliminating redundant extraction work during emission.
-    async fn get_cached_annotations(
+    ///
+    /// # Visibility
+    /// Public for testing purposes.
+    pub async fn get_cached_annotations(
         &self,
         job_name: &str,
         metric_type: MetricType,

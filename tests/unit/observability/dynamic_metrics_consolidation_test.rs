@@ -34,7 +34,6 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_provider_initialization() {
         let config = PrometheusConfig {
-            enable_prometheus_metrics: true,
             port: 9090,
             metrics_path: "/metrics".to_string(),
             enable_histograms: true,
