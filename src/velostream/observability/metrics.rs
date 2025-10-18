@@ -15,6 +15,32 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+/// Phase 3.2: Consolidated dynamic metrics structure
+/// Groups related metric types into single lock to reduce contention (3 -> 1 lock)
+#[derive(Debug)]
+pub struct DynamicMetrics {
+    pub counters: HashMap<String, IntCounterVec>,
+    pub gauges: HashMap<String, GaugeVec>,
+    pub histograms: HashMap<String, HistogramVec>,
+}
+
+impl DynamicMetrics {
+    /// Create a new empty dynamic metrics container
+    pub fn new() -> Self {
+        Self {
+            counters: HashMap::new(),
+            gauges: HashMap::new(),
+            histograms: HashMap::new(),
+        }
+    }
+}
+
+impl Default for DynamicMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Prometheus metrics provider for comprehensive monitoring
 pub struct MetricsProvider {
     config: PrometheusConfig,
@@ -23,10 +49,8 @@ pub struct MetricsProvider {
     streaming_metrics: StreamingMetrics,
     system_metrics: SystemMetrics,
     active: bool,
-    // Dynamic SQL-annotated metrics (Phase 2A-2B)
-    dynamic_counters: Arc<Mutex<HashMap<String, IntCounterVec>>>,
-    dynamic_gauges: Arc<Mutex<HashMap<String, GaugeVec>>>,
-    dynamic_histograms: Arc<Mutex<HashMap<String, HistogramVec>>>,
+    // Phase 3.2: Single consolidated lock for all dynamic metrics (reduced from 3 to 1)
+    dynamic_metrics: Arc<Mutex<DynamicMetrics>>,
     // Phase 5: Job-to-metrics tracking for lifecycle management
     job_metrics: Arc<Mutex<HashMap<String, HashSet<String>>>>,
     // Error message tracking with rolling buffer (last 10 messages + counts)
@@ -58,9 +82,7 @@ impl MetricsProvider {
             streaming_metrics,
             system_metrics,
             active: true,
-            dynamic_counters: Arc::new(Mutex::new(HashMap::new())),
-            dynamic_gauges: Arc::new(Mutex::new(HashMap::new())),
-            dynamic_histograms: Arc::new(Mutex::new(HashMap::new())),
+            dynamic_metrics: Arc::new(Mutex::new(DynamicMetrics::new())),
             job_metrics: Arc::new(Mutex::new(HashMap::new())),
             error_tracker: Arc::new(Mutex::new(ErrorMessageBuffer::new())),
         })
@@ -364,19 +386,19 @@ impl MetricsProvider {
             });
         }
 
-        let mut counters = self.dynamic_counters.lock().map_err(|e| {
+        let mut metrics = self.dynamic_metrics.lock().map_err(|e| {
             log::error!(
-                "❌ Failed to acquire lock on dynamic counters for '{}': {}",
+                "❌ Failed to acquire lock on dynamic metrics for '{}': {}",
                 name,
                 e
             );
             SqlError::ConfigurationError {
-                message: format!("Failed to acquire lock on dynamic counters: {}", e),
+                message: format!("Failed to acquire lock on dynamic metrics: {}", e),
             }
         })?;
 
         // Check if metric already registered
-        if counters.contains_key(name) {
+        if metrics.counters.contains_key(name) {
             log::warn!("⚠️  Counter metric '{}' already registered, skipping", name);
             return Ok(());
         }
@@ -401,7 +423,7 @@ impl MetricsProvider {
             }
         })?;
 
-        counters.insert(name.to_string(), counter);
+        metrics.counters.insert(name.to_string(), counter);
 
         log::info!(
             "📊 Registered dynamic counter metric: name={}, labels={:?}",
@@ -430,18 +452,18 @@ impl MetricsProvider {
             return Ok(()); // Silently skip if not active
         }
 
-        let counters = self.dynamic_counters.lock().map_err(|e| {
+        let metrics = self.dynamic_metrics.lock().map_err(|e| {
             log::error!(
-                "❌ Failed to acquire lock on dynamic counters for '{}': {}",
+                "❌ Failed to acquire lock on dynamic metrics for '{}': {}",
                 name,
                 e
             );
             SqlError::ConfigurationError {
-                message: format!("Failed to acquire lock on dynamic counters: {}", e),
+                message: format!("Failed to acquire lock on dynamic metrics: {}", e),
             }
         })?;
 
-        let counter = counters.get(name).ok_or_else(|| {
+        let counter = metrics.counters.get(name).ok_or_else(|| {
             log::error!("❌ Counter metric '{}' not registered", name);
             SqlError::ConfigurationError {
                 message: format!("Counter metric '{}' not registered", name),
@@ -488,7 +510,7 @@ impl MetricsProvider {
             });
         }
 
-        let mut gauges = self.dynamic_gauges.lock().map_err(|e| {
+        let mut metrics = self.dynamic_metrics.lock().map_err(|e| {
             log::error!(
                 "❌ Failed to acquire lock on dynamic gauges for '{}': {}",
                 name,
@@ -500,7 +522,7 @@ impl MetricsProvider {
         })?;
 
         // Check if metric already registered
-        if gauges.contains_key(name) {
+        if metrics.gauges.contains_key(name) {
             log::warn!("⚠️  Gauge metric '{}' already registered, skipping", name);
             return Ok(());
         }
@@ -522,7 +544,7 @@ impl MetricsProvider {
                 }
             })?;
 
-        gauges.insert(name.to_string(), gauge);
+        metrics.gauges.insert(name.to_string(), gauge);
 
         log::info!(
             "📊 Registered dynamic gauge metric: name={}, labels={:?}",
@@ -557,7 +579,7 @@ impl MetricsProvider {
             return Ok(()); // Silently skip if not active
         }
 
-        let gauges = self.dynamic_gauges.lock().map_err(|e| {
+        let metrics = self.dynamic_metrics.lock().map_err(|e| {
             log::error!(
                 "❌ Failed to acquire lock on dynamic gauges for '{}': {}",
                 name,
@@ -568,7 +590,7 @@ impl MetricsProvider {
             }
         })?;
 
-        let gauge = gauges.get(name).ok_or_else(|| {
+        let gauge = metrics.gauges.get(name).ok_or_else(|| {
             log::error!("❌ Gauge metric '{}' not registered", name);
             SqlError::ConfigurationError {
                 message: format!("Gauge metric '{}' not registered", name),
@@ -618,7 +640,7 @@ impl MetricsProvider {
             });
         }
 
-        let mut histograms = self.dynamic_histograms.lock().map_err(|e| {
+        let mut metrics = self.dynamic_metrics.lock().map_err(|e| {
             log::error!(
                 "❌ Failed to acquire lock on dynamic histograms for '{}': {}",
                 name,
@@ -630,7 +652,7 @@ impl MetricsProvider {
         })?;
 
         // Check if metric already registered
-        if histograms.contains_key(name) {
+        if metrics.histograms.contains_key(name) {
             log::warn!(
                 "⚠️  Histogram metric '{}' already registered, skipping",
                 name
@@ -665,7 +687,7 @@ impl MetricsProvider {
                     }
                 })?;
 
-        histograms.insert(name.to_string(), histogram);
+        metrics.histograms.insert(name.to_string(), histogram);
 
         log::info!(
             "📊 Registered dynamic histogram metric: name={}, labels={:?}",
@@ -700,7 +722,7 @@ impl MetricsProvider {
             return Ok(()); // Silently skip if not active
         }
 
-        let histograms = self.dynamic_histograms.lock().map_err(|e| {
+        let metrics = self.dynamic_metrics.lock().map_err(|e| {
             log::error!(
                 "❌ Failed to acquire lock on dynamic histograms for '{}': {}",
                 name,
@@ -711,7 +733,7 @@ impl MetricsProvider {
             }
         })?;
 
-        let histogram = histograms.get(name).ok_or_else(|| {
+        let histogram = metrics.histograms.get(name).ok_or_else(|| {
             log::error!("❌ Histogram metric '{}' not registered", name);
             SqlError::ConfigurationError {
                 message: format!("Histogram metric '{}' not registered", name),
@@ -1001,16 +1023,19 @@ impl std::fmt::Debug for MetricsProvider {
             .field("active", &self.active)
             .field("config", &self.config)
             .field(
-                "dynamic_counters_count",
-                &self.dynamic_counters.lock().map(|c| c.len()).unwrap_or(0),
-            )
-            .field(
-                "dynamic_gauges_count",
-                &self.dynamic_gauges.lock().map(|g| g.len()).unwrap_or(0),
-            )
-            .field(
-                "dynamic_histograms_count",
-                &self.dynamic_histograms.lock().map(|h| h.len()).unwrap_or(0),
+                "dynamic_metrics",
+                &self
+                    .dynamic_metrics
+                    .lock()
+                    .map(|m| {
+                        format!(
+                            "counters={}, gauges={}, histograms={}",
+                            m.counters.len(),
+                            m.gauges.len(),
+                            m.histograms.len()
+                        )
+                    })
+                    .unwrap_or_else(|_| "locked".to_string()),
             )
             .finish()
     }

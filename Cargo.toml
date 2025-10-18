@@ -161,5 +161,7 @@ path = "tests/debug/test_final_performance.rs"
 
 # Features for test categorization
 [features]
-default = []
+default = ["telemetry"]  # Enable telemetry by default
 comprehensive-tests = []  # Enable comprehensive/slow tests that take 40+ seconds
+telemetry = []  # Phase 3.2: Optional telemetry feature flag for zero-cost observation
+                 # When disabled, all telemetry recording overhead is eliminated via dead code elimination
