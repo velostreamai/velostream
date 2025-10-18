@@ -55,6 +55,7 @@ opentelemetry = { version = "0.21", features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.21", features = ["rt-tokio", "trace"] }
 opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace"] }
 opentelemetry-semantic-conventions = "0.13"
+sysinfo = "0.32"
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
