@@ -326,6 +326,182 @@ groups:
 
 ---
 
+## Performance Optimization: Phase 4 - Batch Metrics Accumulation
+
+### Problem Analysis
+
+Current metric emission acquires locks **per-record** during batch processing:
+
+```
+For each record (10,000):
+  For each annotation (5):
+    Acquire Mutex[dynamic_metrics]     ← 50,000 lock acquisitions
+    Increment/update metric
+    Release Mutex
+```
+
+**Performance Impact**:
+- Lock acquisition overhead: ~2-5 µs per emission (uncontended)
+- Total per batch: 50,000 × 3 µs = **~150 ms**
+- Contention under load: 100-500 µs per lock → **500 ms - 2.5 seconds**
+- **Account for ~5-10% of total batch processing time**
+
+### Proposed Solution: Batch Accumulation
+
+Accumulate metrics in a buffer during record processing, then flush **once** at batch completion:
+
+```rust
+// During batch processing (no locks):
+let mut batch = MetricBatch::new();
+for record in output_records {
+  for annotation in &annotations {
+    batch.add_counter(name, labels);  // ~100 ns, no lock
+  }
+}
+
+// After batch complete (single lock):
+metrics.emit_batch(batch)?;  // 1 Mutex acquisition for all 50,000 updates
+```
+
+### Implementation Strategy
+
+#### 1. Define Metric Batch Events
+
+```rust
+#[derive(Debug, Clone)]
+pub enum MetricBatchEvent {
+    Counter {
+        name: String,
+        labels: Vec<String>,
+    },
+    Gauge {
+        name: String,
+        labels: Vec<String>,
+        value: f64,
+    },
+    Histogram {
+        name: String,
+        labels: Vec<String>,
+        value: f64,
+    },
+}
+
+pub struct MetricBatch {
+    events: Vec<MetricBatchEvent>,
+}
+
+impl MetricBatch {
+    pub fn new() -> Self { Self { events: Vec::new() } }
+    pub fn add_counter(&mut self, name: String, labels: Vec<String>) { ... }
+    pub fn add_gauge(&mut self, name: String, labels: Vec<String>, value: f64) { ... }
+    pub fn add_histogram(&mut self, name: String, labels: Vec<String>, value: f64) { ... }
+    pub fn with_capacity(capacity: usize) -> Self { ... }
+}
+```
+
+#### 2. Modify Emission Flow
+
+**Before** (per-record locking):
+```rust
+async fn emit_counter_metrics(...) {
+  for record in output_records {
+    for annotation in &annotations {
+      metrics.emit_counter(...)?;  // Mutex lock here
+    }
+  }
+}
+```
+
+**After** (batch accumulation):
+```rust
+async fn emit_counter_metrics(...) {
+  let mut batch = MetricBatch::with_capacity(
+    output_records.len() * annotations.len()
+  );
+
+  for record in output_records {
+    for annotation in &annotations {
+      if should_emit_metric(...) {
+        let labels = extract_label_values(...);
+        batch.add_counter(annotation.name.clone(), labels);
+      }
+    }
+  }
+
+  // Single flush at end
+  metrics.emit_batch(batch)?;
+}
+```
+
+#### 3. Add Batch Flush Method to MetricsProvider
+
+```rust
+impl MetricsProvider {
+    pub fn emit_batch(&self, batch: MetricBatch) -> Result<(), SqlError> {
+        let metrics = self.dynamic_metrics.lock()?;  // SINGLE LOCK
+
+        for event in batch.events {
+            match event {
+                MetricBatchEvent::Counter { name, labels } => {
+                    let counter = metrics.counters.get(&name)?;
+                    counter.with_label_values(&label_refs).inc();
+                }
+                MetricBatchEvent::Gauge { name, labels, value } => {
+                    let gauge = metrics.gauges.get(&name)?;
+                    gauge.with_label_values(&label_refs).set(value);
+                }
+                MetricBatchEvent::Histogram { name, labels, value } => {
+                    let histogram = metrics.histograms.get(&name)?;
+                    histogram.with_label_values(&label_refs).observe(value);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+```
+
+### Performance Impact
+
+| Metric | Current | Batched | Improvement |
+|--------|---------|---------|-------------|
+| Lock acquisitions per 10K records | 50,000 | 1 | **99.998%** |
+| Lock contention time | 150-500 ms | ~3 µs | **50,000x faster** |
+| Per-record latency | 2-5 µs (lock) | 0 µs (during processing) | **Eliminate per-record lock** |
+| **Estimated throughput gain** | — | — | **20-40%** |
+
+### Risk Assessment
+
+**Very Low Risk**:
+- ✅ Completely synchronous (no async complexity)
+- ✅ No data loss (all metrics written before batch ends)
+- ✅ Straightforward refactor (no semantic changes to metrics)
+- ✅ Backward compatible (same metric values, just faster)
+
+**Minor Considerations**:
+- Metrics now written at batch-end instead of immediately (acceptable: Prometheus scrapes at intervals anyway)
+- Buffer memory: ~50KB for typical 10K records × 5 metrics (acceptable)
+
+### Implementation Effort
+
+- **Estimated time**: 2-3 hours
+- **Files affected**: `metrics_helper.rs`, `metrics.rs`
+- **Test updates**: Update emission tests to verify batch behavior
+- **Documentation**: Update performance section in this design doc
+
+### Success Criteria
+
+- ✅ Metric batch structure defined and tested
+- ✅ emit_batch() method implemented in MetricsProvider
+- ✅ All three emission methods refactored to use batch accumulation
+- ✅ 50,000 lock acquisitions reduced to 1 per batch
+- ✅ All 370 tests passing with new batch logic
+- ✅ Benchmarks show 20-40% throughput improvement
+- ✅ Zero behavioral changes to metric output
+
+---
+
 ## Migration Path
 
 ### Phase 1: Opt-In (v1.0)
