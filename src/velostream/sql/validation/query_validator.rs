@@ -3,6 +3,7 @@
 //! Handles SQL query parsing, syntax validation, and analysis.
 
 use super::result_types::{ParsingError, QueryValidationResult};
+use super::semantic_validator::SemanticValidator;
 use crate::velostream::sql::{
     ast::StreamingQuery,
     error::SqlError,
@@ -15,6 +16,7 @@ use std::collections::HashMap;
 pub struct QueryValidator {
     parser: StreamingSqlParser,
     analyzer: QueryAnalyzer,
+    semantic_validator: SemanticValidator,
     strict_mode: bool,
     performance_checks: bool,
 }
@@ -25,6 +27,7 @@ impl QueryValidator {
         Self {
             parser: StreamingSqlParser::new(),
             analyzer: QueryAnalyzer::new("query-validator".to_string()),
+            semantic_validator: SemanticValidator::new(),
             strict_mode: false,
             performance_checks: true,
         }
@@ -35,6 +38,7 @@ impl QueryValidator {
         Self {
             parser: StreamingSqlParser::new(),
             analyzer: QueryAnalyzer::new("query-validator".to_string()),
+            semantic_validator: SemanticValidator::new(),
             strict_mode: true,
             performance_checks: true,
         }
@@ -92,6 +96,9 @@ impl QueryValidator {
                     .add_configuration_error(format!("Query analysis failed: {}", analysis_error));
             }
         }
+
+        // Step 2.5: Semantic validation - validate functions and expressions
+        self.semantic_validator.validate(&parsed_query, &mut result);
 
         // Step 3: Syntax compatibility checks
         self.check_syntax_compatibility(&parsed_query, &mut result);

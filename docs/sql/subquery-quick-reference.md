@@ -60,9 +60,31 @@ FROM users u;
 SELECT * FROM orders WHERE EXISTS (SELECT 1 FROM customers WHERE id = orders.customer_id);
 ```
 
-### NOT EXISTS  
+### NOT EXISTS
 ```sql
 SELECT * FROM users WHERE NOT EXISTS (SELECT 1 FROM blocked_users WHERE user_id = users.id);
+```
+
+### EXISTS in HAVING Clauses ✅ **NEW**
+```sql
+-- Filter aggregated groups based on existence checks
+SELECT symbol, COUNT(*) as spike_count
+FROM market_data
+GROUP BY symbol
+HAVING EXISTS (
+    SELECT 1 FROM market_data_ts m2
+    WHERE m2.symbol = market_data.symbol
+    AND m2.volume > 10000
+)
+AND COUNT(*) >= 5;
+
+-- Combine multiple EXISTS conditions in HAVING
+SELECT customer_id, SUM(amount) as total_spent
+FROM orders
+GROUP BY customer_id
+HAVING EXISTS (SELECT 1 FROM premium_customers WHERE user_id = customer_id)
+   AND NOT EXISTS (SELECT 1 FROM blocked_customers WHERE user_id = customer_id)
+   AND SUM(amount) > 1000;
 ```
 
 ### IN
@@ -136,6 +158,25 @@ SELECT order_id, customer_id, product_id
 FROM orders o
 WHERE EXISTS (SELECT 1 FROM customers c WHERE c.id = o.customer_id)
   AND EXISTS (SELECT 1 FROM products p WHERE p.id = o.product_id);
+```
+
+### Volume Spike Detection (HAVING EXISTS) ✅ **NEW**
+```sql
+-- Detect trading symbols with volume spikes
+SELECT symbol,
+    COUNT(*) as spike_count,
+    AVG(volume) as avg_volume,
+    MAX(price) as peak_price
+FROM market_data_ts
+WHERE event_time >= NOW() - INTERVAL '1' MINUTE
+GROUP BY symbol
+HAVING EXISTS (
+    SELECT 1 FROM market_data_ts m2
+    WHERE m2.symbol = market_data_ts.symbol
+    AND m2.event_time >= market_data_ts.event_time - INTERVAL '1' MINUTE
+    AND m2.volume > 10000
+)
+AND COUNT(*) >= 5;
 ```
 
 ## Performance Tips
@@ -416,7 +457,8 @@ WHERE CASE WHEN condition THEN 1 ELSE 0 END = 1  -- Warning: May impact performa
 | Feature | Status | Execution Model | Performance |
 |---------|--------|----------------|-------------|
 | Scalar Subqueries | ✅ **Full** | Complete aggregate + field extraction support | Optimized execution |
-| EXISTS/NOT EXISTS | ✅ **Full** | Real table execution with correlation | Optimized existence checks |
+| EXISTS/NOT EXISTS (WHERE) | ✅ **Full** | Real table execution with correlation | Optimized existence checks |
+| EXISTS/NOT EXISTS (HAVING) | ✅ **Full** | GROUP BY aggregation filtering with subqueries | Context-aware evaluation |
 | IN/NOT IN | ✅ **Full** | Column value retrieval and matching | Set-based operations |
 | ANY/ALL | ✅ **Full** | Comparison operations on result sets | Optimized comparisons |
 | REGEXP Function | ✅ **Full** | Cached regex compilation | **40x faster** on repeated patterns |

@@ -24,14 +24,11 @@
    - SQL job deployment (8 streaming queries)
    - Real-time monitoring
    - Graceful cleanup
-   - Quick start mode, dashboard setup, interactive mode
+   - Quick start mode, interactive mode
 
-4. **Visualization Dashboard** (`demo/trading/dashboard.py`)
-   - Real-time price charts
-   - Volume tracking
-   - Live alerts panel
-   - Market statistics display
-   - Python-based with matplotlib
+4. **Visualization Dashboards**
+   - Trading app business Metrics (via Grafana)
+   - Velostream runtime/telemetry (via Grafana)
 
 5. **Documentation** (`demo/trading/README.md`)
    - Complete setup instructions
@@ -42,25 +39,10 @@
 ## 🏃‍♂️ Quick Start
 
 ```bash
-# 1. Run the demo (with dashboard setup)
+# 1. Run the demo
 cd demo/trading
-./start-demo.sh -d
+./start-demo.sh
 
-# 2. Start visualization (in another terminal)
-source dashboard_env/bin/activate
-python3 dashboard.py
-
-# 3. Stop everything when done
-./stop-demo.sh
-
-# Quick 1-minute demo:
-./start-demo.sh -q
-
-# Interactive mode:
-./start-demo.sh -i
-```
-
-**Important:** Always activate the virtual environment before running the dashboard!
 
 ## 📊 Generated Data Streams
 

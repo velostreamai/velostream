@@ -521,9 +521,13 @@ impl SelectProcessor {
 
             // Apply HAVING clause on the result fields
             if let Some(having_expr) = having {
-                // Create a temporary record with the result fields to evaluate HAVING
+                // Create a temporary record with BOTH original fields and result fields
+                // This allows correlated subqueries in HAVING to access original columns (e.g., market_data_ts.symbol)
+                let mut having_fields = joined_record.fields.clone();
+                having_fields.extend(result_fields.clone());
+
                 let result_record = StreamRecord {
-                    fields: result_fields.clone(),
+                    fields: having_fields,
                     timestamp: joined_record.timestamp,
                     offset: joined_record.offset,
                     partition: joined_record.partition,
@@ -531,7 +535,14 @@ impl SelectProcessor {
                     event_time: None,
                 };
 
-                if !ExpressionEvaluator::evaluate_expression(having_expr, &result_record)? {
+                // Use subquery-aware evaluator for HAVING clauses (supports EXISTS, etc.)
+                let subquery_executor = SelectProcessor;
+                if !ExpressionEvaluator::evaluate_expression_with_subqueries(
+                    having_expr,
+                    &result_record,
+                    &subquery_executor,
+                    context,
+                )? {
                     return Ok(ProcessorResult {
                         record: None,
                         header_mutations: Vec::new(),
@@ -934,10 +945,20 @@ impl SelectProcessor {
             }
         }
 
+        // Clone accumulator for HAVING evaluation to avoid borrow checker issues
+        // The HAVING clause needs immutable access to context while accumulator holds mutable borrow
+        let accumulator_for_having = accumulator.clone();
+
         // Apply HAVING clause if present
         if let Some(having_expr) = having {
             // Use a specialized HAVING evaluator that can resolve aggregate functions
-            let having_result = Self::evaluate_having_expression(having_expr, accumulator, fields)?;
+            let having_result = Self::evaluate_having_expression(
+                having_expr,
+                &accumulator_for_having,
+                fields,
+                record,
+                context,
+            )?;
 
             if !having_result {
                 // HAVING clause failed, don't emit this result
@@ -1200,6 +1221,8 @@ impl SelectProcessor {
         expr: &Expr,
         accumulator: &GroupAccumulator,
         fields: &[SelectField],
+        record: &StreamRecord,
+        context: &ProcessorContext,
     ) -> Result<bool, SqlError> {
         match expr {
             Expr::Function { name, args } => {
@@ -1209,34 +1232,87 @@ impl SelectProcessor {
             }
             Expr::BinaryOp { left, op, right } => {
                 use crate::velostream::sql::ast::BinaryOperator;
-                let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
-                let right_val = Self::evaluate_having_value_expression(right, accumulator, fields)?;
 
+                // Handle logical operators (AND/OR) differently - they need boolean evaluation
                 match op {
-                    BinaryOperator::GreaterThan => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp > 0)
+                    BinaryOperator::And => {
+                        // For AND/OR, evaluate both sides as boolean conditions (not values)
+                        let left_bool = Self::evaluate_having_expression(
+                            left,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        let right_bool = Self::evaluate_having_expression(
+                            right,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        Ok(left_bool && right_bool)
                     }
-                    BinaryOperator::GreaterThanOrEqual => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp >= 0)
+                    BinaryOperator::Or => {
+                        // For AND/OR, evaluate both sides as boolean conditions (not values)
+                        let left_bool = Self::evaluate_having_expression(
+                            left,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        let right_bool = Self::evaluate_having_expression(
+                            right,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        Ok(left_bool || right_bool)
                     }
-                    BinaryOperator::LessThan => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp < 0)
+                    // For comparison and other operators, evaluate as values first
+                    _ => {
+                        let left_val = Self::evaluate_having_value_expression(
+                            left,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+                        let right_val = Self::evaluate_having_value_expression(
+                            right,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
+
+                        match op {
+                            BinaryOperator::GreaterThan => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp > 0)
+                            }
+                            BinaryOperator::GreaterThanOrEqual => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp >= 0)
+                            }
+                            BinaryOperator::LessThan => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp < 0)
+                            }
+                            BinaryOperator::LessThanOrEqual => {
+                                Self::compare_having_values(&left_val, &right_val, |cmp| cmp <= 0)
+                            }
+                            BinaryOperator::Equal => {
+                                Ok(Self::field_values_equal(&left_val, &right_val))
+                            }
+                            BinaryOperator::NotEqual => {
+                                Ok(!Self::field_values_equal(&left_val, &right_val))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: format!("Unsupported operator in HAVING clause: {:?}", op),
+                                query: None,
+                            }),
+                        }
                     }
-                    BinaryOperator::LessThanOrEqual => {
-                        Self::compare_having_values(&left_val, &right_val, |cmp| cmp <= 0)
-                    }
-                    BinaryOperator::Equal => Ok(Self::field_values_equal(&left_val, &right_val)),
-                    BinaryOperator::NotEqual => {
-                        Ok(!Self::field_values_equal(&left_val, &right_val))
-                    }
-                    BinaryOperator::And => Ok(Self::field_value_to_bool(&left_val)?
-                        && Self::field_value_to_bool(&right_val)?),
-                    BinaryOperator::Or => Ok(Self::field_value_to_bool(&left_val)?
-                        || Self::field_value_to_bool(&right_val)?),
-                    _ => Err(SqlError::ExecutionError {
-                        message: format!("Unsupported operator in HAVING clause: {:?}", op),
-                        query: None,
-                    }),
                 }
             }
             Expr::UnaryOp {
@@ -1246,8 +1322,13 @@ impl SelectProcessor {
                 use crate::velostream::sql::ast::UnaryOperator;
                 match op {
                     UnaryOperator::Not => {
-                        let inner_result =
-                            Self::evaluate_having_expression(inner_expr, accumulator, fields)?;
+                        let inner_result = Self::evaluate_having_expression(
+                            inner_expr,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        )?;
                         Ok(!inner_result)
                     }
                     _ => Err(SqlError::ExecutionError {
@@ -1258,7 +1339,13 @@ impl SelectProcessor {
             }
             _ => {
                 // For non-aggregate expressions, evaluate as value and convert to bool
-                let value = Self::evaluate_having_value_expression(expr, accumulator, fields)?;
+                let value = Self::evaluate_having_value_expression(
+                    expr,
+                    accumulator,
+                    fields,
+                    record,
+                    context,
+                )?;
                 Self::field_value_to_bool(&value)
             }
         }
@@ -1269,6 +1356,8 @@ impl SelectProcessor {
         expr: &Expr,
         accumulator: &GroupAccumulator,
         fields: &[SelectField],
+        record: &StreamRecord,
+        context: &ProcessorContext,
     ) -> Result<FieldValue, SqlError> {
         match expr {
             Expr::Function { name, args } => {
@@ -1301,8 +1390,20 @@ impl SelectProcessor {
                 use crate::velostream::sql::ast::BinaryOperator;
 
                 // Recursively evaluate left and right operands
-                let left_val = Self::evaluate_having_value_expression(left, accumulator, fields)?;
-                let right_val = Self::evaluate_having_value_expression(right, accumulator, fields)?;
+                let left_val = Self::evaluate_having_value_expression(
+                    left,
+                    accumulator,
+                    fields,
+                    record,
+                    context,
+                )?;
+                let right_val = Self::evaluate_having_value_expression(
+                    right,
+                    accumulator,
+                    fields,
+                    record,
+                    context,
+                )?;
 
                 // Perform the arithmetic operation using FieldValue methods
                 match op {
@@ -1324,7 +1425,7 @@ impl SelectProcessor {
             // Example: SELECT SUM(quantity) as total ... HAVING total > 10000
             Expr::Column(name) => {
                 // Look for a SELECT field with matching alias
-                Self::lookup_aggregated_field_by_alias(name, accumulator, fields)
+                Self::lookup_aggregated_field_by_alias(name, accumulator, fields, record, context)
             }
             // Phase 3: Support CASE expressions in HAVING clause
             // Example: HAVING CASE WHEN SUM(x) > 100 THEN 1 ELSE 0 END = 1
@@ -1335,22 +1436,81 @@ impl SelectProcessor {
                 // Evaluate each WHEN clause in order
                 for (condition, result) in when_clauses {
                     // Evaluate the condition expression (returns bool)
-                    let condition_result =
-                        Self::evaluate_having_expression(condition, accumulator, fields)?;
+                    let condition_result = Self::evaluate_having_expression(
+                        condition,
+                        accumulator,
+                        fields,
+                        record,
+                        context,
+                    )?;
 
                     // Check if condition is true
                     if condition_result {
                         // Condition matched - evaluate and return the result expression
-                        return Self::evaluate_having_value_expression(result, accumulator, fields);
+                        return Self::evaluate_having_value_expression(
+                            result,
+                            accumulator,
+                            fields,
+                            record,
+                            context,
+                        );
                     }
                 }
 
                 // No WHEN clause matched - evaluate ELSE clause if present
                 if let Some(else_expr) = else_clause {
-                    Self::evaluate_having_value_expression(else_expr, accumulator, fields)
+                    Self::evaluate_having_value_expression(
+                        else_expr,
+                        accumulator,
+                        fields,
+                        record,
+                        context,
+                    )
                 } else {
                     // No ELSE clause - return NULL
                     Ok(FieldValue::Null)
+                }
+            }
+            // Phase 4: Support EXISTS subqueries in HAVING clause
+            // Example: HAVING EXISTS (SELECT 1 FROM table WHERE condition)
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => {
+                use crate::velostream::sql::ast::SubqueryType;
+                use crate::velostream::sql::execution::expression::subquery_executor::SubqueryExecutor;
+
+                // Use SelectProcessor as the subquery executor
+                let executor = SelectProcessor;
+
+                match subquery_type {
+                    SubqueryType::Exists => {
+                        let exists_result =
+                            executor.execute_exists_subquery(query, record, context)?;
+                        Ok(FieldValue::Boolean(exists_result))
+                    }
+                    SubqueryType::NotExists => {
+                        let exists_result =
+                            executor.execute_exists_subquery(query, record, context)?;
+                        Ok(FieldValue::Boolean(!exists_result))
+                    }
+                    SubqueryType::Scalar => {
+                        executor.execute_scalar_subquery(query, record, context)
+                    }
+                    SubqueryType::In | SubqueryType::NotIn => Err(SqlError::ExecutionError {
+                        message:
+                            "IN/NOT IN subqueries in HAVING clause require a left-side value. \
+                                     Use EXISTS instead for boolean checks."
+                                .to_string(),
+                        query: None,
+                    }),
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!(
+                            "Unsupported subquery type in HAVING clause: {:?}",
+                            subquery_type
+                        ),
+                        query: None,
+                    }),
                 }
             }
             _ => Err(SqlError::ExecutionError {
@@ -1368,6 +1528,8 @@ impl SelectProcessor {
         alias: &str,
         accumulator: &GroupAccumulator,
         fields: &[SelectField],
+        record: &StreamRecord,
+        context: &ProcessorContext,
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::SelectField;
 
@@ -1393,7 +1555,13 @@ impl SelectProcessor {
                     alias: Some(field_alias),
                 } if field_alias == alias => {
                     // Found matching alias - evaluate the aggregate expression
-                    return Self::evaluate_having_value_expression(expr, accumulator, fields);
+                    return Self::evaluate_having_value_expression(
+                        expr,
+                        accumulator,
+                        fields,
+                        record,
+                        context,
+                    );
                 }
                 _ => continue,
             }

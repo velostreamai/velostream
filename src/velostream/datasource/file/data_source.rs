@@ -875,3 +875,117 @@ impl ConfigSchemaProvider for FileDataSource {
         "2.0.0" // Updated version with comprehensive file validation
     }
 }
+
+impl FileDataSource {
+    /// Validate file source configuration properties
+    /// Returns (errors, warnings, recommendations) tuples
+    pub fn validate_source_config(
+        properties: &HashMap<String, String>,
+        name: &str,
+    ) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut recommendations = Vec::new();
+
+        // Check required properties
+        if !properties.contains_key("path")
+            && !properties.contains_key("source.path")
+            && !properties.contains_key("datasource.config.path")
+        {
+            errors.push(format!(
+                "File source '{}' missing required property: 'path'",
+                name
+            ));
+        }
+
+        // Check format property
+        let format = properties
+            .get("format")
+            .or_else(|| properties.get("source.format"))
+            .map(|s| s.as_str());
+
+        if let Some(fmt) = format {
+            let valid_formats = ["csv", "csv_no_header", "json", "jsonlines", "jsonl"];
+            if !valid_formats.contains(&fmt) {
+                errors.push(format!(
+                    "File source '{}' has invalid format '{}'. Valid formats: {}",
+                    name,
+                    fmt,
+                    valid_formats.join(", ")
+                ));
+            }
+        }
+
+        // Warn if path looks like it might not exist
+        if let Some(path) = properties
+            .get("path")
+            .or_else(|| properties.get("source.path"))
+        {
+            if path.is_empty() {
+                errors.push(format!("File source '{}' has empty path", name));
+            } else if !path.contains('*') && !path.contains('?') {
+                // Only check non-glob paths
+                if path.starts_with("~/") {
+                    warnings.push(format!(
+                        "File source '{}' uses home directory expansion (~/) which may not work in all environments",
+                        name
+                    ));
+                }
+            }
+        }
+
+        // Check CSV-specific properties
+        if format.is_some() && format.unwrap().starts_with("csv") {
+            if let Some(delimiter) = properties.get("delimiter") {
+                if delimiter.len() != 1 {
+                    errors.push(format!(
+                        "File source '{}' has invalid delimiter '{}' - must be single character",
+                        name, delimiter
+                    ));
+                }
+            }
+
+            if let Some(has_headers) = properties.get("has_headers") {
+                if !["true", "false"].contains(&has_headers.as_str()) {
+                    errors.push(format!(
+                        "File source '{}' has invalid has_headers '{}' - must be 'true' or 'false'",
+                        name, has_headers
+                    ));
+                }
+            } else {
+                recommendations.push(format!(
+                    "File source '{}' should specify 'has_headers' property for CSV files",
+                    name
+                ));
+            }
+        }
+
+        // Check watching/streaming properties
+        if let Some(watching) = properties
+            .get("watching")
+            .or_else(|| properties.get("watch"))
+        {
+            if !["true", "false"].contains(&watching.as_str()) {
+                warnings.push(format!(
+                    "File source '{}' has invalid watching '{}' - must be 'true' or 'false'",
+                    name, watching
+                ));
+            }
+
+            if watching == "true" {
+                if let Some(interval) = properties.get("polling_interval") {
+                    if let Ok(ms) = interval.parse::<u64>() {
+                        if ms < 100 {
+                            warnings.push(format!(
+                                "File source '{}' has very low polling interval ({}ms) which may cause high CPU usage",
+                                name, ms
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        (errors, warnings, recommendations)
+    }
+}

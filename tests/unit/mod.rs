@@ -15,3 +15,5 @@ pub mod stream_job;
 pub mod server;
 // Serialization tests - Tests for different serialization formats
 pub mod serialization;
+// Observability tests - Tests for telemetry and tracing
+pub mod observability;

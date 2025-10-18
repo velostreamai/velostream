@@ -6,7 +6,313 @@
 
 ---
 
+1. Make KafkaDataWriter property config handling should be consistent with KafkaDataReader
+2. Should StreamRecord has a 'key' field?
+3. check error msgs have enough context (job name) - and dont fail silently: 
+4. See  error!("AGG: Column '{}' not found in record", column_name);
+5. analyse the code for metrics, tracing and telemetry - ensure its consistent and complete
+## 🚀 **COMPREHENSIVE OBSERVABILITY ENHANCEMENT - PLANNED**
+
+**Status**: 📋 **PLANNED** - Ready for implementation
+**Priority**: 🔥 **HIGH** - Critical infrastructure enhancement
+**Timeline**: 3-4 weeks
+**Scope**: All observability touchpoints with deployment context
+
+### **Objective**
+Enhance all observability systems to include deployment context across:
+1. **Distributed Tracing (Spans)** - Job-name + deployment metadata
+2. **Profiling Metrics** - Deserialization, processing, serialization latency
+3. **Throughput Tracking** - Records/sec with job-name breakdown
+4. **Pipeline Operations** - Phase-specific latency and metrics
+5. **SQL Processing Latency** - Breakdown by job-name and query type
+
+### **Architecture Overview**
+
+**Three Integration Layers**:
+
+#### **Layer 1: Telemetry (OpenTelemetry Spans)**
+```rust
+// BEFORE: No job context in spans
+start_batch_span(batch_id, ...)
+
+// AFTER: Job context + deployment metadata
+start_batch_span(job_name, batch_id, ...)  // ← NEW: job_name
+  └─ attributes: [
+       ("job.name", job_name),
+       ("service.instance.id", node_id),      // ← Deployment context
+       ("host.name", node_name),
+       ("cloud.region", region),
+       ("service.version", version)
+     ]
+
+// BEFORE: Streaming spans lack phase information
+start_streaming_span(operation, records, ...)
+
+// AFTER: Phase-aware profiling spans
+start_profiling_phase_span(job_name, phase: "deserialization" | "processing" | "serialization", ...)
+  └─ attributes: [
+       ("job.name", job_name),
+       ("profiling.phase", phase),
+       ("throughput_rps", records_per_sec),
+       ("latency_ms", duration_ms)
+     ]
+```
+
+#### **Layer 2: Prometheus Metrics**
+```rust
+// NEW: Job-specific SQL latency histogram
+velo_sql_query_duration_by_job_seconds{job_name="trading_enrichment", query_type="select"}
+
+// NEW: Profiling phase latency breakdown
+velo_profiling_phase_duration_seconds{job_name="...", phase="deserialization" | "processing" | "serialization"}
+
+// NEW: Throughput by job
+velo_streaming_throughput_by_job_rps{job_name="..."}
+
+// NEW: Pipeline operations per job
+velo_pipeline_operation_duration_seconds{job_name="...", operation="deserialize" | "process" | "serialize"}
+
+// ENHANCED: Error tracking with deployment context (COMPLETED ✅)
+velo_error_messages_total{job_name="..."}
+```
+
+#### **Layer 3: Deployment Context Propagation**
+```
+StreamingConfig (deployment_node_id, deployment_node_name, deployment_region, version)
+    ↓
+ObservabilityManager::initialize()
+    ├─→ TelemetryProvider.set_deployment_context()    (DONE ✅)
+    ├─→ MetricsProvider.set_deployment_context()      (DONE ✅)
+    ├─→ ProfilingProvider.set_deployment_context()    (DONE ✅)
+    └─→ ErrorTracker.set_deployment_context()         (DONE ✅)
+```
+
+### **Implementation Plan (3-4 Weeks)**
+
+#### **Phase 1: Telemetry Enhancements (Spans) - Week 1**
+
+**Task 1.1: Add job_name to all span methods** (2 days)
+- File: `src/velostream/observability/telemetry.rs`
+- Add `job_name: &str` parameter to:
+  - `start_batch_span(job_name, batch_id, ...)`
+  - `start_sql_query_span(job_name, query, ...)`
+  - `start_streaming_span(job_name, operation, ...)`
+  - `start_aggregation_span(job_name, function, ...)`
+- Include `job.name` attribute in all span creations
+- Update all call sites (tests, processors)
+
+**Task 1.2: Add profiling phase tracking** (2 days)
+- Create `start_profiling_phase_span()` method
+- Support phases: "deserialization", "processing", "serialization"
+- Track phase-specific latency and throughput
+- Add nested span hierarchy (batch → phase → operation)
+
+**Task 1.3: Extend throughput attributes** (1 day)
+- Enhance `StreamingSpan.set_throughput(records_per_sec)`
+- Add to all pipeline operation spans
+- Calculate records/sec with proper denominator
+- Expose in span attributes
+
+**Deliverables**:
+- ✅ job_name in all 4 span methods
+- ✅ Profiling phase spans (deserialization, processing, serialization)
+- ✅ Throughput tracking in all spans
+- ✅ Tests for span hierarchy and attributes
+- ✅ All spans include deployment context from TelemetryProvider
+
+#### **Phase 2: Prometheus Metrics Enhancement - Week 2**
+
+**Status**: ✅ **SKELETON COMPLETE** - Infrastructure and Phase 2.1 Implementation Done
+**Completion Date**: October 17, 2025 (Evening)
+**Commit**: 68b5d73
+
+**✅ Task 2.1: Job-specific SQL latency metrics** (COMPLETE - IMPLEMENTED)
+- ✅ Created `velo_sql_query_duration_by_job_seconds` histogram with labels:
+  - ✅ `job_name` - Streaming job name
+  - ✅ `query_type` - select, insert, update, delete
+- ✅ File: `src/velostream/observability/metrics.rs` (SqlMetrics struct)
+- ✅ Added `query_duration_by_job: HistogramVec` field
+- ✅ Added `record_query_by_job()` method for job-aware metrics
+- ✅ Histogram initialized in `SqlMetrics::new()` with appropriate buckets
+- ✅ Tracks separate latency per job+query_type combination
+- ✅ Compilation verified (0 errors, 10 warnings from unrelated code)
+
+**Task 2.2: Profiling phase metrics** (2 days) - READY FOR IMPLEMENTATION
+- Create `velo_profiling_phase_duration_seconds` histogram with labels:
+  - `job_name` - Streaming job name
+  - `phase` - deserialization | processing | serialization
+- Create `velo_profiling_phase_throughput_rps` gauge
+- Track phase-specific performance per job
+- **Implementation Note**: Add `profiling_phase_duration: HistogramVec` and `profiling_phase_throughput: GaugeVec` to StreamingMetrics struct (skeleton already in place)
+
+**Task 2.3: Pipeline operations metrics** (1 day) - READY FOR IMPLEMENTATION
+- Create `velo_pipeline_operation_duration_seconds` histogram with labels:
+  - `job_name` - Streaming job name
+  - `operation` - deserialize | process | serialize
+- Record operation counts and durations per job
+- **Implementation Note**: Add `pipeline_operation_duration: HistogramVec` to StreamingMetrics struct (skeleton already in place)
+
+**Task 2.4: Enhanced job-specific throughput** (1 day) - READY FOR IMPLEMENTATION
+- Create `velo_streaming_throughput_by_job_rps` gauge with labels:
+  - `job_name` - Streaming job name
+- Replace/supplement generic throughput metric
+- **Implementation Note**: Add `throughput_by_job: GaugeVec` to StreamingMetrics struct (skeleton already in place)
+
+**✅ Phase 2.2-2.4: Metrics Skeleton Infrastructure** (COMPLETE - SCAFFOLDING)
+- ✅ Added 4 new metric fields to StreamingMetrics struct
+- ✅ Profiling phase histogram and gauge initialized in new()
+- ✅ Pipeline operations histogram initialized in new()
+- ✅ Job-specific throughput gauge initialized in new()
+- ✅ All metrics properly registered with Prometheus
+- ✅ Compilation verified (357 tests passing)
+
+**Deliverables (Phase 2 Complete)**:
+- ✅ Job-specific SQL latency histogram fully implemented
+- ✅ Profiling phase metrics infrastructure (ready for recording methods)
+- ✅ Pipeline operations metrics infrastructure (ready for recording methods)
+- ✅ Enhanced throughput tracking by job infrastructure
+- ✅ All metrics properly labeled with job_name and phase/operation labels
+- ✅ Prometheus naming compliance validated
+
+**✅ Phase 2.2-2.4 Recording Methods Implementation (COMPLETE)**:
+- ✅ Implemented private recording methods in StreamingMetrics:
+  - `record_profiling_phase()` for Phase 2.2 (latency/throughput by job/phase)
+  - `record_pipeline_operation()` for Phase 2.3 (duration by job/operation)
+  - `record_throughput_by_job()` for Phase 2.4 (job-specific throughput gauge)
+- ✅ Added public MetricsProvider API wrappers with activity checks and trace logging
+- ✅ Fixed telemetry test method signatures to use updated TelemetryProvider API
+- ✅ Integrated recording methods into observability_helper for processor instrumentation
+- ✅ Enhanced record_deserialization() to call record_profiling_phase()
+- ✅ Enhanced record_sql_processing() to call record_pipeline_operation()
+- ✅ Enhanced record_serialization_success() to call record_profiling_phase()
+- ✅ Enhanced record_serialization_failure() to call record_profiling_phase()
+- ✅ Added record_batch_throughput() method for Phase 2.4 tracking
+- ✅ All 357 unit tests passing
+- ✅ Pre-commit validation: formatting, compilation, clippy all passed
+- **Completion Date**: October 17, 2025 (Evening)
+- **Commits**: bcaab6c (metrics methods), d2ecf11 (helper integration)
+
+**Next Steps for Phase 2 (DEFERRED - Phase 2 Infrastructure Complete)**:
+- [ ] Add comprehensive unit tests for the new recording methods
+- [ ] Add integration tests for observability_helper integration
+- [ ] Update processors (SimpleJobProcessor, TransactionalJobProcessor) to call record_batch_throughput()
+- [ ] Add end-to-end observability tests
+
+#### **Phase 3: Integration & Instrumentation - Week 3**
+
+**Task 3.1: Update metrics recording in processors** (2 days)
+- File: `src/velostream/server/processors/common.rs`
+- Update `record_sql_query()` to include job_name
+- Add phase-specific profiling measurements
+- Calculate and emit throughput metrics
+
+**Task 3.2: Update job/stream processing** (2 days)
+- File: `src/velostream/server/stream_job_server.rs`
+- Pass job_name to all observability calls
+- Register job-specific metrics on job start
+- Cleanup metrics on job termination
+
+**Task 3.3: Enhance error tracking with job context** (1 day)
+- Ensure all error messages include job_name
+- Link error metrics to specific jobs
+- Add error rate per job tracking
+
+**Deliverables**:
+- ✅ Processors emit job-aware metrics
+- ✅ Job server integrates observability
+- ✅ Error tracking with job context
+- ✅ Metrics lifecycle management (register/unregister)
+
+#### **Phase 4: Testing & Validation - Week 4**
+
+**Task 4.1: Add telemetry tests** (2 days)
+- Test job_name in all span methods
+- Verify span attribute propagation
+- Test span hierarchy and parent-child relationships
+- Test profiling phase tracking
+- Test throughput calculations
+
+**Task 4.2: Add metrics tests** (2 days)
+- Test job-specific latency metrics
+- Verify profiling phase breakdown
+- Test pipeline operations tracking
+- Test throughput by job
+- Test metric labels and values
+
+**Task 4.3: Add integration tests** (1 day)
+- End-to-end observability flow with multiple jobs
+- Verify span-to-metrics correlation
+- Test deployment context propagation
+- Test multi-job scenarios
+
+**Deliverables**:
+- ✅ 15+ telemetry span tests
+- ✅ 15+ metrics tests
+- ✅ 5+ integration tests
+- ✅ All tests passing with pre-commit validation
+- ✅ Zero regressions in existing tests
+
+### **Key Design Patterns**
+
+1. **Labels Over Metrics**: Use labels (job_name, phase) rather than separate metrics
+2. **Hierarchical Spans**: Phase spans nested under batch spans via parent context
+3. **Lazy Initialization**: Register metrics only for active jobs
+4. **Consistent Naming**: All job names match StreamingQuery/job definitions
+5. **Performance**: Zero overhead for disabled observability features
+
+### **Success Criteria**
+
+- ✅ All observability touchpoints include job_name
+- ✅ Deployment context (node_id, node_name, region, version) in all spans
+- ✅ Profiling phases (deserialization, processing, serialization) tracked separately
+- ✅ Throughput (records/sec) exposed in spans and metrics
+- ✅ SQL latency breakdown by job-name in Prometheus
+- ✅ Pipeline operations tracked per phase per job
+- ✅ Zero performance regression
+- ✅ 100% test coverage for new features
+- ✅ All pre-commit checks passing
+
+### **Reference Documents**
+
+- **Telemetry (Spans)**: `src/velostream/observability/telemetry.rs`
+- **Metrics**: `src/velostream/observability/metrics.rs`
+- **Error Tracking**: `src/velostream/observability/error_tracker.rs` ✅
+- **ObservabilityManager**: `src/velostream/observability/mod.rs`
+- **Processors**: `src/velostream/server/processors/common.rs`
+
+### **Blocked By**
+
+None - Ready to start immediately
+
+### **Blocks**
+
+None - Other teams can proceed in parallel
+
+---
+
 ## 📋 **RECENT COMPLETIONS**
+
+### **October 17, 2025 (Continued)**
+- ✅ **Phase 1: Telemetry Enhancements Complete** (commit eb1dcb7)
+  - Added job_name parameter to all span methods (batch, SQL, streaming, aggregation)
+  - Implemented start_profiling_phase_span() for phase-specific tracing
+  - All spans now include deployment context attributes
+  - Updated observability_helper call sites with job_name
+  - Profiling phases: deserialization, processing, serialization
+  - Throughput calculation and exposure (records/sec)
+  - 357 tests passing, zero compilation errors
+  - Status: Ready for Phase 2 metrics enhancement
+
+### **October 17, 2025**
+- ✅ **Deployment Metadata in Error Reporting** (commit c488dd7)
+  - Enhanced ErrorEntry with DeploymentContext (node_id, node_name, region, version)
+  - Updated ErrorMessageBuffer to track and propagate deployment context
+  - Extended MetricsProvider with set_deployment_context() method
+  - Display format includes full deployment metadata inline in error messages
+  - Integration test verifies end-to-end deployment context flow
+  - 357 total tests passing (9 new deployment context tests)
+  - Pre-commit validation: formatting, compilation, clippy, unit tests all passed
+  - Ready for production deployment
 
 ### **October 9, 2025**
 - ✅ **Enhanced FR-073 RFC with Comprehensive Implementation Plan** (commit 9213215)

@@ -1301,10 +1301,254 @@ impl ExpressionEvaluator {
                     }
                 }
             }
-            _ => {
-                // For all other expressions, delegate to the original method
-                // since they don't involve subqueries
-                Self::evaluate_expression_value(expr, record)
+            Expr::Column(name) => {
+                // Handle column references - no subquery support needed
+                match name.to_uppercase().as_str() {
+                    "_TIMESTAMP" => Ok(FieldValue::Integer(record.timestamp)),
+                    "_OFFSET" => Ok(FieldValue::Integer(record.offset)),
+                    "_PARTITION" => Ok(FieldValue::Integer(record.partition as i64)),
+                    _ => {
+                        // Handle qualified column names (table.column)
+                        if name.contains('.') {
+                            // Try to find the field with the qualified name first (for JOIN aliases)
+                            if let Some(value) = record.fields.get(name) {
+                                Ok(value.clone())
+                            } else {
+                                let column_name = name.split('.').next_back().unwrap_or(name);
+                                // Try to find with the "right_" prefix (for non-aliased JOINs)
+                                let prefixed_name = format!("right_{}", column_name);
+                                if let Some(value) = record.fields.get(&prefixed_name) {
+                                    Ok(value.clone())
+                                } else {
+                                    // Fall back to just the column name
+                                    Ok(record
+                                        .fields
+                                        .get(column_name)
+                                        .cloned()
+                                        .unwrap_or(FieldValue::Null))
+                                }
+                            }
+                        } else {
+                            // Regular field lookup - return NULL if not found
+                            Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
+                        }
+                    }
+                }
+            }
+            Expr::Literal(literal) => {
+                // Handle literal values - no subquery support needed
+                match literal {
+                    LiteralValue::String(s) => Ok(FieldValue::String(s.clone())),
+                    LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+                    LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                    LiteralValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
+                    LiteralValue::Null => Ok(FieldValue::Null),
+                    LiteralValue::Decimal(s) => {
+                        scaled_integer_helper::parse_decimal_to_scaled_integer(s)
+                    }
+                    LiteralValue::Interval { value, unit } => Ok(FieldValue::Interval {
+                        value: *value,
+                        unit: unit.clone(),
+                    }),
+                }
+            }
+            Expr::Function { name, args } => {
+                // Handle function calls - evaluate args recursively with subquery support
+                // For now, we need to create a temporary expression to evaluate the function
+                // We'll evaluate the args first to ensure subqueries in args work
+                let mut evaluated_args = Vec::new();
+                for arg in args {
+                    let arg_value = Self::evaluate_expression_value_with_subqueries(
+                        arg,
+                        record,
+                        subquery_executor,
+                        context,
+                    )?;
+                    // Convert back to expression for function evaluation
+                    // This is a bit of a workaround - ideally functions should work with FieldValues directly
+                    evaluated_args.push(arg.clone());
+                }
+
+                // Use the original function evaluation logic
+                let func_expr = Expr::Function {
+                    name: name.clone(),
+                    args: evaluated_args,
+                };
+                BuiltinFunctions::evaluate_function(&func_expr, record)
+            }
+            Expr::UnaryOp {
+                op,
+                expr: inner_expr,
+            } => {
+                // Handle unary operators recursively with subquery support
+                use crate::velostream::sql::ast::UnaryOperator;
+                match op {
+                    UnaryOperator::Not => {
+                        let inner_result = Self::evaluate_expression_value_with_subqueries(
+                            inner_expr,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+                        match inner_result {
+                            FieldValue::Boolean(b) => Ok(FieldValue::Boolean(!b)),
+                            _ => {
+                                let bool_val = Self::field_value_to_bool(&inner_result)?;
+                                Ok(FieldValue::Boolean(!bool_val))
+                            }
+                        }
+                    }
+                    UnaryOperator::IsNull => {
+                        let inner_result = Self::evaluate_expression_value_with_subqueries(
+                            inner_expr,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+                        Ok(FieldValue::Boolean(matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    UnaryOperator::IsNotNull => {
+                        let inner_result = Self::evaluate_expression_value_with_subqueries(
+                            inner_expr,
+                            record,
+                            subquery_executor,
+                            context,
+                        )?;
+                        Ok(FieldValue::Boolean(!matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    _ => Err(SqlError::ExecutionError {
+                        message: format!("Unsupported unary operator in value context: {:?}", op),
+                        query: None,
+                    }),
+                }
+            }
+            Expr::Between {
+                expr,
+                low,
+                high,
+                negated,
+            } => {
+                // Handle BETWEEN expressions recursively with subquery support
+                let expr_val = Self::evaluate_expression_value_with_subqueries(
+                    expr,
+                    record,
+                    subquery_executor,
+                    context,
+                )?;
+                let low_val = Self::evaluate_expression_value_with_subqueries(
+                    low,
+                    record,
+                    subquery_executor,
+                    context,
+                )?;
+                let high_val = Self::evaluate_expression_value_with_subqueries(
+                    high,
+                    record,
+                    subquery_executor,
+                    context,
+                )?;
+
+                // Handle NULL values according to SQL standards
+                if matches!(expr_val, FieldValue::Null)
+                    || matches!(low_val, FieldValue::Null)
+                    || matches!(high_val, FieldValue::Null)
+                {
+                    return Ok(FieldValue::Boolean(false));
+                }
+
+                let result = match (&expr_val, &low_val, &high_val) {
+                    (FieldValue::Integer(e), FieldValue::Integer(l), FieldValue::Integer(h)) => {
+                        e >= l && e <= h
+                    }
+                    (FieldValue::Float(e), FieldValue::Float(l), FieldValue::Float(h)) => {
+                        e >= l && e <= h
+                    }
+                    (
+                        FieldValue::ScaledInteger(e_val, e_scale),
+                        FieldValue::ScaledInteger(l_val, l_scale),
+                        FieldValue::ScaledInteger(h_val, h_scale),
+                    ) => {
+                        let max_scale = (*e_scale).max(*l_scale).max(*h_scale);
+                        let e_normalized = *e_val * 10_i64.pow((max_scale - e_scale) as u32);
+                        let l_normalized = *l_val * 10_i64.pow((max_scale - l_scale) as u32);
+                        let h_normalized = *h_val * 10_i64.pow((max_scale - h_scale) as u32);
+                        e_normalized >= l_normalized && e_normalized <= h_normalized
+                    }
+                    (FieldValue::String(e), FieldValue::String(l), FieldValue::String(h)) => {
+                        e >= l && e <= h
+                    }
+                    _ => {
+                        let e_float = Self::to_comparable_float(&expr_val)?;
+                        let l_float = Self::to_comparable_float(&low_val)?;
+                        let h_float = Self::to_comparable_float(&high_val)?;
+                        e_float >= l_float && e_float <= h_float
+                    }
+                };
+
+                Ok(FieldValue::Boolean(if *negated { !result } else { result }))
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                // Handle CASE expressions recursively with subquery support
+                for (condition, result) in when_clauses {
+                    let condition_value = Self::evaluate_expression_with_subqueries(
+                        condition,
+                        record,
+                        subquery_executor,
+                        context,
+                    )?;
+                    if condition_value {
+                        return Self::evaluate_expression_value_with_subqueries(
+                            result,
+                            record,
+                            subquery_executor,
+                            context,
+                        );
+                    }
+                }
+
+                // If no WHEN condition was true, evaluate ELSE clause or return NULL
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_expression_value_with_subqueries(
+                        else_expr,
+                        record,
+                        subquery_executor,
+                        context,
+                    )
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+            Expr::WindowFunction {
+                function_name,
+                args,
+                over_clause,
+            } => {
+                // Window functions need window buffer - delegate to original evaluator
+                // since they don't typically contain subqueries in their context
+                let empty_buffer: Vec<crate::velostream::sql::execution::StreamRecord> = Vec::new();
+                super::WindowFunctions::evaluate_window_function(
+                    function_name,
+                    args,
+                    over_clause,
+                    record,
+                    &empty_buffer,
+                )
+            }
+            Expr::List(_) => {
+                // List expressions should only appear in IN/NOT IN context, already handled above
+                Err(SqlError::ExecutionError {
+                    message: "List expressions must be used in IN/NOT IN operations".to_string(),
+                    query: None,
+                })
             }
         }
     }

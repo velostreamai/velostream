@@ -104,8 +104,8 @@ SELECT ...
 FROM market_data_stream
 WHERE ...
 WITH (
-    source_config = 'configs/market_data_topic.yaml',
-    sink_config = 'configs/price_alerts_topic.yaml'
+    source_config = 'configs/market_data_ts_source.yaml',
+    sink_config = 'configs/price_alerts_sink.yaml'
 );
 ```
 

@@ -36,6 +36,7 @@
 
 pub mod batch_buffer;
 pub mod config;
+pub mod config_loader;
 pub mod event_time;
 pub mod file;
 pub mod kafka;

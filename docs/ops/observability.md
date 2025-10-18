@@ -2,70 +2,174 @@
 
 ## Overview
 
-Velostream Phase 4 provides comprehensive observability through distributed tracing, metrics collection, and performance profiling. This guide covers setup, configuration, and usage of the observability infrastructure.
+Velostream provides comprehensive observability through distributed tracing, metrics collection, and performance profiling. This guide covers setup, configuration, and usage of the observability infrastructure.
 
-## Architecture
+## Quick Start (SQL-Based)
 
-The observability system consists of three main components:
+### 1. Enable Observability in Your SQL Application
 
-### 1. Distributed Tracing (OpenTelemetry Compatible)
-- **Purpose**: Track SQL query execution and streaming operations across components
-- **Implementation**: Simplified logging-based spans with structured telemetry data
-- **Provider**: `TelemetryProvider` in `src/velo/observability/telemetry.rs`
+Add observability annotations to your SQL application header:
 
-### 2. Metrics Collection (Prometheus)
-- **Purpose**: Collect and export SQL, streaming, and system metrics
-- **Implementation**: Prometheus metrics with histograms, counters, and gauges
-- **Provider**: `MetricsProvider` in `src/velo/observability/metrics.rs`
+```sql
+-- SQL Application: My Analytics Platform
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
 
-### 3. Performance Profiling
-- **Purpose**: Detect bottlenecks and generate performance reports
-- **Implementation**: CPU/memory monitoring with automated report generation
-- **Provider**: `ProfilingProvider` in `src/velo/observability/profiling.rs`
+-- @job_name: data-processor-stream
+-- Name: Data Processing Stream
+CREATE STREAM data_processor AS
+SELECT * FROM input_stream
+EMIT CHANGES;
 
-## Quick Start
-
-### 1. Configuration
-
-Add observability configuration to your `StreamingConfig`:
-
-```rust
-use velostream::velo::sql::execution::config::*;
-
-let config = StreamingConfig {
-    // ... other config
-    tracing: Some(TracingConfig::development()),
-    prometheus: Some(PrometheusConfig::default()),
-    profiling: Some(ProfilingConfig::development()),
-};
+-- @job_name: analytics-stream
+-- Name: Analytics Stream
+CREATE STREAM analytics AS
+SELECT COUNT(*) as record_count FROM input_stream
+EMIT CHANGES;
 ```
 
-### 2. Initialize Observability
-
-```rust
-use velostream::velo::observability::ObservabilityManager;
-
-let mut obs_manager = ObservabilityManager::new(config).await?;
-obs_manager.initialize().await?;
-
-// Use the manager to record metrics
-obs_manager.record_sql_query("select", duration, true, 100).await;
-obs_manager.record_streaming_operation("ingest", duration, 1000, 500.0).await;
-```
-
-### 3. Start Monitoring Stack
+### 2. Start the Monitoring Stack
 
 ```bash
 cd grafana/
 docker-compose up -d
 ```
 
-Access:
+Access the dashboards:
 - **Grafana Dashboard**: http://localhost:3000 (admin/admin)
-- **Prometheus**: http://localhost:9090
-- **Velostream Metrics**: http://localhost:9091/metrics
+- **Prometheus Metrics**: http://localhost:9090
+- **Raw Metrics Endpoint**: http://localhost:9091/metrics
 
-## Metrics Reference
+### 3. View Metrics in Grafana
+
+Your SQL jobs automatically export metrics:
+- **Query Performance**: Duration, throughput, error rates
+- **Stream Operations**: Records processed per second
+- **System Resources**: CPU, memory, connections
+- **Errors**: By type, by job, over time
+
+No additional configuration needed! Metrics flow automatically when enabled.
+
+## Configuration: SQL Annotations
+
+Observability is controlled through SQL Application annotations (no code required).
+
+### Annotation Reference
+
+| Annotation | Values | Description |
+|-----------|--------|-------------|
+| `@observability.metrics.enabled` | `true`, `false` | Enable Prometheus metrics collection (~2% overhead) |
+| `@observability.tracing.enabled` | `true`, `false` | Enable distributed tracing (~3% overhead) |
+| `@observability.profiling.enabled` | `off`, `prod`, `dev` | Profiling mode: `off` (0%), `prod` (2-3%), `dev` (8-10%), `true`=`prod`, `false`=`off` |
+| `@observability.error_reporting.enabled` | `true`, `false` | Enable error capture and reporting (requires metrics) |
+
+### Example: Production Configuration
+
+```sql
+-- SQL Application: Production Trading Platform
+-- Version: 1.0.0
+-- Description: Real-time financial analytics with comprehensive observability
+-- Author: Platform Team
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+-- @deployment.node_id: ${DEPLOYMENT_NODE_ID:prod-trading-node-1}
+-- @deployment.node_name: Production Trading Analytics Node
+-- @deployment.region: ${AWS_REGION:us-east-1}
+
+-- Job-level metrics for Market Data Stream
+-- @metric: velo_market_data_total
+-- @metric_type: counter
+-- @metric_help: "Total market data records processed"
+-- @metric_labels: symbol
+-- @job_name: market-data-ingestion
+
+-- Name: Market Data Stream
+CREATE STREAM market_data AS
+SELECT symbol, price, volume FROM market_feed
+EMIT CHANGES;
+
+-- Job-level metrics for Price Movement Detection
+-- @metric: velo_price_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Price movement alerts"
+-- @metric_labels: symbol, severity
+-- @job_name: price-movement-detection
+
+-- Name: Price Movement Detection
+CREATE STREAM price_alerts AS
+SELECT symbol, ABS(price_change) as movement
+FROM market_feed
+WHERE ABS(price_change) > 10
+EMIT CHANGES;
+
+-- Job-level metrics for Trading Metrics
+-- @metric: velo_trade_volume
+-- @metric_type: gauge
+-- @metric_help: "Trade volume per symbol"
+-- @metric_labels: symbol
+-- @job_name: trading-metrics-stream
+
+-- Name: Trading Metrics
+CREATE STREAM trading_metrics AS
+SELECT
+    symbol,
+    COUNT(*) as trade_count,
+    SUM(volume) as total_volume
+FROM trades
+GROUP BY symbol
+EMIT CHANGES;
+```
+
+### Per-Job Configuration
+
+Define custom metrics and override app-level settings for specific jobs:
+
+```sql
+-- SQL Application: Hybrid Platform
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+
+-- Job-level metrics
+-- @metric: velo_standard_records_total
+-- @metric_type: counter
+-- @job_name: standard-processing
+
+-- Name: Standard Stream (inherits app-level settings: prod profiling)
+CREATE STREAM standard AS
+SELECT * FROM stream1
+EMIT CHANGES;
+
+-- Job-level metrics with override
+-- @metric: velo_lightweight_processed
+-- @metric_type: gauge
+-- @metric_labels: status
+-- @job_name: lightweight-stream
+
+-- Name: Low-Overhead Stream (disable tracing and profiling to reduce overhead)
+CREATE STREAM lightweight AS
+SELECT * FROM stream2
+WITH (observability.tracing.enabled = false, observability.profiling.enabled = off)
+EMIT CHANGES;
+
+-- Job-level metrics for critical monitoring
+-- @metric: velo_critical_errors_total
+-- @metric_type: counter
+-- @metric_help: "Errors in critical stream"
+-- @job_name: critical-monitoring
+
+-- Name: Critical Stream (upgrade to dev profiling for detailed analysis)
+CREATE STREAM critical AS
+SELECT * FROM stream3
+WITH (observability.profiling.enabled = dev)
+EMIT CHANGES;
+```
+
+## Monitoring: Metrics Reference
 
 ### SQL Query Metrics
 
@@ -93,53 +197,194 @@ Access:
 | `velo_memory_usage_bytes` | Gauge | Current memory usage in bytes |
 | `velo_active_connections` | Gauge | Number of active connections |
 
-## Configuration Options
+### Error Reporting Metrics
 
-### TracingConfig
+| Metric | Type | Description |
+|--------|------|-------------|
+| `velo_errors_total` | Counter | Total number of errors across all jobs |
+| `velo_error_rate` | Gauge | Current error rate (errors per minute) |
+| `velo_error_by_type` | Counter | Error count categorized by error type |
+| `velo_error_by_job` | Counter | Error count per individual job |
+| `velo_serialization_errors_total` | Counter | Total serialization/deserialization errors |
+| `velo_sql_parsing_errors_total` | Counter | Total SQL parsing errors |
+| `velo_kafka_errors_total` | Counter | Total Kafka connectivity/consumer errors |
 
-```rust
-pub struct TracingConfig {
-    pub service_name: String,           // Service identifier
-    pub sampling_ratio: f64,            // Trace sampling rate (0.0-1.0)
-    pub enable_console_output: bool,    // Enable console logging
-    pub otlp_endpoint: Option<String>,  // OpenTelemetry endpoint
-}
+## Node/Deployment Identification
 
-// Presets
-TracingConfig::development()  // Full sampling, console output
-TracingConfig::production()   // Low sampling, OTLP export
+Velostream supports identifying which node, instance, or deployment is running your SQL applications. This enables distributed system monitoring with contextual reporting about where each metric, trace, error, or profile originated.
+
+### Deployment Context Annotations
+
+Add deployment identification to your SQL application header:
+
+```sql
+-- SQL Application: Production Analytics Platform
+-- @deployment.node_id: prod-node-1
+-- @deployment.node_name: Production Analytics Node 1
+-- @deployment.region: us-east-1
+
+-- Your streams and jobs...
 ```
 
-### PrometheusConfig
+### Supported Annotations
 
-```rust
-pub struct PrometheusConfig {
-    pub enable_histograms: bool,    // Enable detailed histograms
-    pub port: u16,                  // Metrics endpoint port
-    pub metrics_path: String,       // Metrics endpoint path
-}
+| Annotation | Purpose | Example |
+|-----------|---------|---------|
+| `@deployment.node_id` | Unique identifier for this node instance | `prod-node-1`, `qa-node-a`, `trading-cluster-1` |
+| `@deployment.node_name` | Human-readable name for the node | `Production Analytics Node`, `QA Testing Instance` |
+| `@deployment.region` | Cloud region or data center location | `us-east-1`, `eu-west-1`, `ap-southeast-1` |
 
-// Presets
-PrometheusConfig::default()     // Full metrics on port 9091
-PrometheusConfig::lightweight() // Basic metrics only
+### Environment Variable Substitution
+
+Deployment annotations support dynamic environment variable substitution using `${VAR_NAME}` syntax:
+
+```sql
+-- SQL Application: Dynamic Deployment Analytics
+-- @deployment.node_id: ${CLUSTER_ID}-${POD_NAME}
+-- @deployment.node_name: ${DEPLOYMENT_ENV}-node-${INSTANCE_NUMBER}
+-- @deployment.region: ${AWS_REGION}
 ```
 
-### ProfilingConfig
+When the SQL is parsed:
+- `${CLUSTER_ID}` is replaced with the value of the `CLUSTER_ID` environment variable
+- `${POD_NAME}` is replaced with the value of the `POD_NAME` environment variable
+- And so on for each variable
 
-```rust
-pub struct ProfilingConfig {
-    pub enable_cpu_profiling: bool,         // Enable CPU profiling
-    pub enable_memory_profiling: bool,      // Enable memory profiling
-    pub enable_bottleneck_detection: bool,  // Enable bottleneck detection
-    pub cpu_threshold_percent: f64,         // CPU warning threshold
-    pub memory_threshold_percent: f64,      // Memory warning threshold
-    pub output_directory: String,           // Report output directory
-    pub retention_days: u32,                // Report retention period
-}
+### Fallback Chains and Defaults
 
-// Presets
-ProfilingConfig::development()  // All features enabled, low thresholds
-ProfilingConfig::production()   // Optimized for production use
+Support for fallback chains and default values:
+
+```sql
+-- Try multiple environment variables, use default if none are set
+-- @deployment.node_id: ${INSTANCE_ID|HOSTNAME|POD_NAME:default-node}
+-- @deployment.region: ${AWS_REGION:us-east-1}
+```
+
+The resolver tries each variable in order:
+1. First tries `INSTANCE_ID`
+2. If not set, tries `HOSTNAME`
+3. If not set, tries `POD_NAME`
+4. If none are set, uses `default-node`
+
+### Integration with Observability Providers
+
+Deployment context is automatically integrated with all observability features:
+
+**Distributed Tracing (OpenTelemetry)**
+- Added as `service.instance.id`, `host.name`, and `cloud.region` attributes to all spans
+- Enables filtering and grouping traces by node in Tempo
+
+**Prometheus Metrics**
+- Added as labels to all metrics for filtering in Grafana
+- Example: `velo_sql_queries_total{service_instance_id="prod-node-1", region="us-east-1"}`
+
+**Performance Profiling**
+- Included in performance reports identifying which node the profile came from
+- Enables performance comparison across different nodes
+
+**Error Tracking**
+- Each error includes the node ID for source identification
+- Facilitates error aggregation and trend analysis by node
+
+### Kubernetes Example
+
+In Kubernetes deployments, use environment variables from the pod specification:
+
+```yaml
+# Deployment environment setup
+env:
+  - name: POD_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.name
+  - name: CLUSTER_ID
+    value: "prod-cluster"
+  - name: AWS_REGION
+    value: "us-east-1"
+```
+
+Then in your SQL:
+
+```sql
+-- SQL Application: Kubernetes-based Analytics
+-- @deployment.node_id: ${CLUSTER_ID}-${POD_NAME}
+-- @deployment.node_name: Production Analytics Pod
+-- @deployment.region: ${AWS_REGION}
+```
+
+## Error Reporting
+
+Velostream provides comprehensive distributed error reporting and tracking through the observability stack.
+
+### Error Reporting Features
+
+**Distributed Error Capture**
+- Errors from all jobs and components are collected centrally
+- Errors include full context (timestamp, job name, error type, message)
+- Error chain information preserved for root cause analysis
+
+**Error Categorization**
+- **SQL Parsing Errors**: Invalid SQL syntax or semantic issues
+- **Serialization Errors**: Issues with data format conversion (JSON, Avro, Protobuf)
+- **Kafka Errors**: Connection failures, consumer lag, producer issues
+- **Execution Errors**: Runtime failures during stream processing
+- **Configuration Errors**: Invalid settings or missing dependencies
+
+**Error Metrics**
+- Total error count across entire application
+- Per-job error tracking
+- Error rate calculations (errors per time unit)
+- Error type distribution
+
+**Error Alerting**
+Configure Grafana alerts based on error thresholds:
+- High error rate (>10 errors/minute)
+- Specific error type spikes (e.g., sudden surge in SQL parsing errors)
+- Job-specific errors (critical jobs should have error rate = 0)
+- Error type anomalies (unexpected error types appearing)
+
+### Enabling Error Reporting
+
+Error reporting is enabled via SQL annotation (requires metrics):
+
+```sql
+-- SQL Application: Production Platform
+-- @observability.metrics.enabled: true
+-- @observability.error_reporting.enabled: true
+
+-- @job_name: critical-processor-stream
+-- Name: Critical Stream
+CREATE STREAM critical_processor AS
+SELECT * FROM critical_stream
+EMIT CHANGES;
+```
+
+### Error Reporting Dashboard
+
+The observability dashboard displays:
+
+- **Error Count Timeline**: Historical error trends
+- **Error Rate Gauge**: Current errors per minute
+- **Error Distribution**: Pie chart of error types
+- **Error by Job**: Table showing errors per job
+- **Error Details**: Recent error logs with full context
+
+### Error Investigation
+
+When errors occur, the observability stack provides:
+
+1. **Error Metrics**: Know which jobs and error types are affected
+2. **Error Context**: Timestamps, job names, and affected records
+3. **Error Type Classification**: Understand error categories
+4. **Error Trends**: Identify patterns and recurring issues
+
+Example investigation flow:
+```
+1. Alert triggers: Error rate > 10/minute
+2. Check error distribution: 80% serialization errors
+3. Filter by job: All errors from "data_ingestion" job
+4. Check recent changes: New Protobuf schema version
+5. Remediate: Revert schema or update consumer configuration
 ```
 
 ## Dashboard Features
@@ -164,89 +409,6 @@ Configure alerts based on:
 - Resource exhaustion (CPU >85%, Memory >2GB)
 - Low throughput (<100 records/sec)
 
-## Performance Profiling
-
-### Automatic Bottleneck Detection
-
-The profiling system automatically detects:
-
-```rust
-pub enum BottleneckType {
-    HighCpuUsage,           // CPU usage above threshold
-    HighMemoryUsage,        // Memory usage above threshold
-    SlowQueryExecution,     // SQL queries taking too long
-    LowThroughput,          // Streaming throughput below expected
-    HighLatency,            // High end-to-end latency
-}
-```
-
-### Performance Reports
-
-Generated reports include:
-- CPU and memory usage analysis
-- Query execution patterns
-- Throughput statistics
-- Bottleneck recommendations
-
-### Profiling Session Example
-
-```rust
-// Start a profiling session
-let session = profiling_provider.start_session("complex_aggregation").await?;
-
-// Take memory snapshots during operation
-session.take_memory_snapshot().await;
-
-// Session automatically cleaned up when dropped
-// Report generated with recommendations
-```
-
-## Integration Examples
-
-### SQL Query Tracing
-
-```rust
-let span = telemetry_provider.start_sql_query_span(
-    "SELECT * FROM stream WHERE price > 100", 
-    "kafka_orders"
-);
-
-// Execute query...
-span.set_execution_time(150);  // 150ms
-span.set_record_count(42);
-span.set_success();
-```
-
-### Streaming Operation Monitoring
-
-```rust
-let span = telemetry_provider.start_streaming_span("data_ingestion", 1000);
-
-// Process records...
-span.set_throughput(500.0);    // 500 records/sec
-span.set_processing_time(200); // 200ms
-span.set_success();
-```
-
-### Metrics Recording
-
-```rust
-// Record SQL execution
-metrics_provider.record_sql_query(
-    "select",
-    Duration::from_millis(150),
-    true,  // success
-    42     // record count
-);
-
-// Update system metrics
-metrics_provider.update_system_metrics(
-    45.5,           // CPU %
-    1024*1024*512,  // Memory bytes
-    10              // Active connections
-);
-```
-
 ## Troubleshooting
 
 ### Common Issues
@@ -257,9 +419,9 @@ metrics_provider.update_system_metrics(
    - Ensure firewall allows access to metrics endpoint
 
 2. **High Memory Usage**
-   - Review retention settings in ProfilingConfig
-   - Consider reducing histogram bucket count
-   - Enable cleanup_old_data() regularly
+   - Review retention settings if using profiling
+   - Consider disabling profiling in production if not needed
+   - Check Prometheus retention settings
 
 3. **Dashboard Not Loading**
    - Verify Grafana has access to Prometheus
@@ -296,15 +458,206 @@ curl -u admin:admin http://localhost:3000/api/datasources
 - Use recording rules for complex queries
 - Consider federation for multi-instance deployments
 
-## Migration Guide
+## For Developers: Architecture and Implementation
 
-### From Basic Logging
-1. Add observability dependencies to Cargo.toml
-2. Update configuration to include observability settings
-3. Initialize ObservabilityManager in application startup
-4. Replace log statements with structured telemetry calls
+### System Architecture
 
-### Custom Metrics
+The observability system consists of three main components:
+
+**1. Distributed Tracing (OpenTelemetry Compatible)**
+- **Purpose**: Track SQL query execution and streaming operations across components
+- **Implementation**: Simplified logging-based spans with structured telemetry data
+- **Provider**: `TelemetryProvider` in `src/velo/observability/telemetry.rs`
+
+**2. Metrics Collection (Prometheus)**
+- **Purpose**: Collect and export SQL, streaming, and system metrics
+- **Implementation**: Prometheus metrics with histograms, counters, and gauges
+- **Provider**: `MetricsProvider` in `src/velo/observability/metrics.rs`
+
+**3. Performance Profiling**
+- **Purpose**: Detect bottlenecks and generate performance reports
+- **Implementation**: CPU/memory monitoring with automated report generation
+- **Provider**: `ProfilingProvider` in `src/velo/observability/profiling.rs`
+
+### Configuration Options (Rust)
+
+#### TracingConfig
+
+```rust
+pub struct TracingConfig {
+    pub service_name: String,           // Service identifier
+    pub sampling_ratio: f64,            // Trace sampling rate (0.0-1.0)
+    pub enable_console_output: bool,    // Enable console logging
+    pub otlp_endpoint: Option<String>,  // OpenTelemetry endpoint
+}
+
+// Presets
+TracingConfig::development()  // Full sampling, console output
+TracingConfig::production()   // Low sampling, OTLP export
+```
+
+#### PrometheusConfig
+
+```rust
+pub struct PrometheusConfig {
+    pub enable_histograms: bool,    // Enable detailed histograms
+    pub port: u16,                  // Metrics endpoint port
+    pub metrics_path: String,       // Metrics endpoint path
+}
+
+// Presets
+PrometheusConfig::default()     // Full metrics on port 9091
+PrometheusConfig::lightweight() // Basic metrics only
+```
+
+#### ProfilingConfig
+
+```rust
+pub struct ProfilingConfig {
+    pub enable_cpu_profiling: bool,         // Enable CPU profiling
+    pub enable_memory_profiling: bool,      // Enable memory profiling
+    pub enable_bottleneck_detection: bool,  // Enable bottleneck detection
+    pub cpu_threshold_percent: f64,         // CPU warning threshold
+    pub memory_threshold_percent: f64,      // Memory warning threshold
+    pub output_directory: String,           // Report output directory
+    pub retention_days: u32,                // Report retention period
+}
+
+// Presets
+ProfilingConfig::development()  // All features enabled, low thresholds
+ProfilingConfig::production()   // Optimized for production use
+```
+
+### Initialization (Rust)
+
+```rust
+use velostream::velo::sql::execution::config::*;
+use velostream::velo::observability::ObservabilityManager;
+
+// Configure observability
+let config = StreamingConfig {
+    // ... other config
+    tracing: Some(TracingConfig::development()),
+    prometheus: Some(PrometheusConfig::default()),
+    profiling: Some(ProfilingConfig::development()),
+};
+
+// Initialize the observability manager
+let mut obs_manager = ObservabilityManager::new(config).await?;
+obs_manager.initialize().await?;
+
+// Use the manager to record metrics
+obs_manager.record_sql_query("select", duration, true, 100).await;
+obs_manager.record_streaming_operation("ingest", duration, 1000, 500.0).await;
+```
+
+### Automatic Bottleneck Detection
+
+The profiling system automatically detects:
+
+```rust
+pub enum BottleneckType {
+    HighCpuUsage,           // CPU usage above threshold
+    HighMemoryUsage,        // Memory usage above threshold
+    SlowQueryExecution,     // SQL queries taking too long
+    LowThroughput,          // Streaming throughput below expected
+    HighLatency,            // High end-to-end latency
+}
+```
+
+### Performance Reports
+
+Generated reports include:
+- CPU and memory usage analysis
+- Query execution patterns
+- Throughput statistics
+- Bottleneck recommendations
+
+### Profiling Session Example
+
+```rust
+// Start a profiling session
+let session = profiling_provider.start_session("complex_aggregation").await?;
+
+// Take memory snapshots during operation
+session.take_memory_snapshot().await;
+
+// Session automatically cleaned up when dropped
+// Report generated with recommendations
+```
+
+### Integration Examples
+
+#### SQL Query Tracing
+
+```rust
+let span = telemetry_provider.start_sql_query_span(
+    "SELECT * FROM stream WHERE price > 100",
+    "kafka_orders"
+);
+
+// Execute query...
+span.set_execution_time(150);  // 150ms
+span.set_record_count(42);
+span.set_success();
+```
+
+#### Streaming Operation Monitoring
+
+```rust
+let span = telemetry_provider.start_streaming_span("data_ingestion", 1000);
+
+// Process records...
+span.set_throughput(500.0);    // 500 records/sec
+span.set_processing_time(200); // 200ms
+span.set_success();
+```
+
+#### Metrics Recording
+
+```rust
+// Record SQL execution
+metrics_provider.record_sql_query(
+    "select",
+    Duration::from_millis(150),
+    true,  // success
+    42     // record count
+);
+
+// Update system metrics
+metrics_provider.update_system_metrics(
+    45.5,           // CPU %
+    1024*1024*512,  // Memory bytes
+    10              // Active connections
+);
+```
+
+### App-Level Observability Implementation
+
+#### ApplicationMetadata Fields
+
+**File**: `src/velostream/sql/app_parser.rs:73-93`
+
+```rust
+pub observability_metrics_enabled: Option<bool>,
+pub observability_tracing_enabled: Option<bool>,
+pub observability_profiling_enabled: Option<bool>,
+```
+
+#### Configuration Parsing
+
+**File**: `src/velostream/sql/app_parser.rs:159-264`
+
+Extracts `@observability.*` annotations from SQL file headers during application parsing.
+
+#### Configuration Merging
+
+**File**: `src/velostream/server/stream_job_server.rs:1163-1183`
+
+Intelligently merges app-level settings with per-job settings, checking if explicit per-job configuration is already present before injecting app-level defaults.
+
+### Custom Metrics (Rust)
+
 Add custom business metrics:
 
 ```rust
@@ -318,12 +671,20 @@ let custom_counter = register_int_counter_with_registry!(
 custom_counter.inc();
 ```
 
+### Migration Guide (Rust-based)
+
+#### From Basic Logging
+1. Add observability dependencies to Cargo.toml
+2. Update configuration to include observability settings
+3. Initialize ObservabilityManager in application startup
+4. Replace log statements with structured telemetry calls
+
 ## Support
 
 For observability-related issues:
 1. Check configuration matches examples in this guide
 2. Verify all components are running (Docker Compose status)
-3. Review logs in `profiling.output_directory`
+3. Review logs in `profiling.output_directory` (for profiling)
 4. Use debug-level logging for detailed trace information
 
 The observability system is designed to be lightweight and minimally invasive while providing comprehensive insights into Velostream performance and behavior.

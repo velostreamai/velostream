@@ -26,6 +26,7 @@ pub struct QueryValidationResult {
     pub is_valid: bool,
     pub parsing_errors: Vec<ParsingError>,
     pub configuration_errors: Vec<String>,
+    pub semantic_errors: Vec<String>,
     pub warnings: Vec<String>,
     pub sources_found: Vec<String>,
     pub sinks_found: Vec<String>,
@@ -47,6 +48,7 @@ impl QueryValidationResult {
             is_valid: true,
             parsing_errors: Vec::new(),
             configuration_errors: Vec::new(),
+            semantic_errors: Vec::new(),
             warnings: Vec::new(),
             sources_found: Vec::new(),
             sinks_found: Vec::new(),
@@ -73,6 +75,12 @@ impl QueryValidationResult {
         self.is_valid = false;
     }
 
+    /// Add a semantic error
+    pub fn add_semantic_error(&mut self, error: String) {
+        self.semantic_errors.push(error);
+        self.is_valid = false;
+    }
+
     /// Add a syntax issue
     pub fn add_syntax_issue(&mut self, issue: String) {
         self.syntax_issues.push(issue);
@@ -80,7 +88,9 @@ impl QueryValidationResult {
 
     /// Check if the query has any errors
     pub fn has_errors(&self) -> bool {
-        !self.parsing_errors.is_empty() || !self.configuration_errors.is_empty()
+        !self.parsing_errors.is_empty()
+            || !self.configuration_errors.is_empty()
+            || !self.semantic_errors.is_empty()
     }
 
     /// Check if the query has any warnings
@@ -90,7 +100,9 @@ impl QueryValidationResult {
 
     /// Get a summary of issues
     pub fn issue_summary(&self) -> String {
-        let error_count = self.parsing_errors.len() + self.configuration_errors.len();
+        let error_count = self.parsing_errors.len()
+            + self.configuration_errors.len()
+            + self.semantic_errors.len();
         let warning_count =
             self.warnings.len() + self.syntax_issues.len() + self.performance_warnings.len();
 

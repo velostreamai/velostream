@@ -1,0 +1,19 @@
+# Market Data Topic Configuration
+# Ultra-low latency market data feed specialization
+
+extends: common_kafka_sink.yaml
+
+# Topic-specific settings
+topic:
+  name: "tick_buckets"
+
+# Topic-specific schema
+schema:
+  key.field: symbol
+  # this type  will always be json for this demo
+  value.serializer: "json"
+
+# Topic properties
+topic_config:
+  partitions: 3
+  retention.ms: 86400000  # 1 day retention

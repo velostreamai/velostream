@@ -1,6 +1,7 @@
 // Streaming SQL module for velostream
 // Provides native SQL support for Kafka stream processing
 
+pub mod annotation_parser;
 pub mod app_parser;
 pub mod ast;
 pub mod config;
@@ -14,7 +15,8 @@ pub mod validation;
 pub mod validator;
 
 // Re-export main API
-pub use app_parser::SqlApplication;
+pub use annotation_parser::SqlAnnotationParser;
+pub use app_parser::{ProfilingMode, SqlApplication};
 pub use ast::StreamingQuery;
 pub use error::SqlError;
 pub use execution::{FieldValue, StreamExecutionEngine};

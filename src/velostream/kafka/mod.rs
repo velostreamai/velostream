@@ -2,7 +2,7 @@
 pub mod admin_client;
 pub mod configurable_consumer;
 pub mod configurable_producer;
-mod kafka_consumer;
+pub mod kafka_consumer;
 mod kafka_producer;
 mod kafka_producer_def_context;
 pub mod serialization;
@@ -21,6 +21,7 @@ pub mod producer_config;
 pub mod client_config_builder;
 pub mod common_config;
 pub mod kafka_error;
+pub mod kafka_fast_consumer;
 pub mod performance_presets;
 
 // Re-export main API

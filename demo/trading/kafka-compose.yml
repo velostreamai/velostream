@@ -54,6 +54,7 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
       - '--storage.tsdb.retention.time=200h'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'  # Enable Tempo metrics ingestion
 
   grafana:
     image: grafana/grafana:latest
@@ -69,7 +70,24 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
+      - tempo
+
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: velo-tempo
+    command: [ "-config.file=/etc/tempo.yaml" ]
+    volumes:
+      - ./monitoring/tempo/tempo.yaml:/etc/tempo.yaml
+      - tempo_data:/tmp/tempo
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "3200:3200"  # Tempo HTTP API
+      - "9411:9411"  # Zipkin (optional)
+    depends_on:
+      - prometheus
 
 volumes:
   prometheus_data:
   grafana_data:
+  tempo_data:

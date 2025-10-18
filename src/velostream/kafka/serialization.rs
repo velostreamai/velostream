@@ -24,7 +24,7 @@ pub trait KafkaDeserialize<T> {
 }
 
 /// Trait for serializers that can convert between objects and bytes
-pub trait Serializer<T> {
+pub trait Serde<T> {
     /// Serialize an object to bytes
     fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
 
@@ -106,7 +106,7 @@ impl<T: Serialize> KafkaSerialize for T {
 #[derive(Clone)]
 pub struct JsonSerializer;
 
-impl<T> Serializer<T> for JsonSerializer
+impl<T> Serde<T> for JsonSerializer
 where
     T: Serialize + for<'de> Deserialize<'de>,
 {
@@ -180,7 +180,7 @@ impl AvroSerializer {
     }
 }
 
-impl Serializer<AvroValue> for AvroSerializer {
+impl Serde<AvroValue> for AvroSerializer {
     fn serialize(&self, value: &AvroValue) -> Result<Vec<u8>, SerializationError> {
         to_avro(value, &self.schema)
     }
@@ -231,7 +231,7 @@ impl<T: Message + Default> ProtoSerializer<T> {
     }
 }
 
-impl<T: Message + Default> Serializer<T> for ProtoSerializer<T> {
+impl<T: Message + Default> Serde<T> for ProtoSerializer<T> {
     fn serialize(&self, message: &T) -> Result<Vec<u8>, SerializationError> {
         to_proto(message)
     }
@@ -249,7 +249,7 @@ impl<T: Message + Default> Serializer<T> for ProtoSerializer<T> {
 #[derive(Clone)]
 pub struct BytesSerializer;
 
-impl Serializer<Vec<u8>> for BytesSerializer {
+impl Serde<Vec<u8>> for BytesSerializer {
     fn serialize(&self, value: &Vec<u8>) -> Result<Vec<u8>, SerializationError> {
         Ok(value.clone())
     }
@@ -263,7 +263,7 @@ impl Serializer<Vec<u8>> for BytesSerializer {
 #[derive(Clone)]
 pub struct StringSerializer;
 
-impl Serializer<String> for StringSerializer {
+impl Serde<String> for StringSerializer {
     fn serialize(&self, value: &String) -> Result<Vec<u8>, SerializationError> {
         Ok(value.as_bytes().to_vec())
     }

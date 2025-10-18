@@ -3,6 +3,7 @@
 use crate::velostream::config::{
     ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
 };
+use crate::velostream::datasource::config_loader::merge_config_file_properties;
 use crate::velostream::datasource::{DataReader, DataSource, SourceConfig, SourceMetadata};
 // Note: unified config helpers available if needed for more complex validation
 use crate::velostream::schema::{FieldDefinition, Schema};
@@ -30,24 +31,60 @@ impl KafkaDataSource {
         default_topic: &str,
         job_name: &str,
     ) -> Self {
+        // DEBUG: Log all properties being passed
+        log::info!(
+            "KafkaDataSource::from_properties for topic '{}', job '{}'",
+            default_topic,
+            job_name
+        );
+        log::info!("  Received {} properties:", props.len());
+        for (k, v) in props.iter() {
+            if k.contains("config_file") || k.contains("bootstrap") || k.contains("schema") {
+                log::info!("    {} = {}", k, v);
+            }
+        }
+
+        // Load and merge config file with provided properties
+        // Uses common config_loader helper
+        let merged_props = merge_config_file_properties(props, "KafkaDataSource");
+
+        // DEBUG: Log merged properties
+        log::info!(
+            "KafkaDataSource: After merge, have {} properties:",
+            merged_props.len()
+        );
+        for (k, v) in merged_props.iter() {
+            if k.contains("bootstrap")
+                || k.contains("topic")
+                || k.contains("schema")
+                || k.contains("group")
+            {
+                log::info!("  [merged] {} = {}", k, v);
+            }
+        }
+
         // Helper function to get property with source. prefix fallback
         let get_source_prop = |key: &str| {
-            props
+            let result = merged_props
                 .get(&format!("source.{}", key))
-                .or_else(|| props.get(key))
-                .cloned()
+                .or_else(|| merged_props.get(key))
+                .cloned();
+            if let Some(ref val) = result {
+                log::debug!("  get_source_prop('{}') = {}", key, val);
+            }
+            result
         };
 
         let brokers = get_source_prop("brokers")
             .or_else(|| get_source_prop("bootstrap.servers"))
             .or_else(|| {
-                props
+                merged_props
                     .get("datasource.consumer_config.bootstrap.servers")
                     .cloned()
             })
             .unwrap_or_else(|| "localhost:9092".to_string());
         let topic = get_source_prop("topic")
-            .or_else(|| props.get("datasource.topic.name").cloned())
+            .or_else(|| merged_props.get("datasource.topic.name").cloned())
             .unwrap_or_else(|| default_topic.to_string());
 
         // FAIL FAST validation for suspicious topic names
@@ -57,16 +94,138 @@ impl KafkaDataSource {
             get_source_prop("group_id").unwrap_or_else(|| format!("velo-sql-{}", job_name));
 
         // Create filtered config with source. properties
+        // Filter out producer-only properties that shouldn't be passed to consumers
+        let producer_only_properties = [
+            "linger.ms",
+            "batch.size",
+            "acks",
+            "retries",
+            "request.timeout.ms",
+            "delivery.timeout.ms",
+            "max.in.flight.requests.per.connection",
+            "compression.type", // This can be consumer but is typically producer
+            "buffer.memory",
+            "max.block.ms",
+            "transaction.timeout.ms",
+            "transactional.id",
+            "enable.idempotence",
+        ];
+
         let mut source_config = HashMap::new();
-        for (key, value) in props.iter() {
-            if key.starts_with("source.") {
+        log::info!("KafkaDataSource: Filtering properties for source config");
+        for (key, value) in merged_props.iter() {
+            // Skip producer-only properties
+            if producer_only_properties.contains(&key.as_str()) {
+                log::debug!("  Skipping producer-only property: {}", key);
+                continue;
+            }
+
+            // Skip performance_profiles.* properties (these are templates, not consumer config)
+            if key.starts_with("performance_profiles.") || key.starts_with("delivery_profiles.") {
+                log::debug!("  Skipping profile template property: {}", key);
+                continue;
+            }
+
+            // Skip metadata.* properties (these are documentation, not config)
+            if key.starts_with("metadata.") {
+                log::debug!("  Skipping metadata property: {}", key);
+                continue;
+            }
+
+            // Skip topic_config.* properties (these are for topic creation, not consumer)
+            if key.starts_with("topic_config.") || key.starts_with("topic.") {
+                log::debug!("  Skipping topic config property: {}", key);
+                continue;
+            }
+
+            // Skip datasink.* and type/config_file properties
+            if key.starts_with("datasink.")
+                || key == "type"
+                || key.contains(".type")
+                || key.contains(".config_file")
+                || key == "config_file"
+            {
+                log::debug!("  Skipping sink/meta property: {}", key);
+                continue;
+            }
+
+            // Handle datasource.consumer_config.* properties - strip prefix for consumer usage
+            if key.starts_with("datasource.consumer_config.") {
+                let config_key = key
+                    .strip_prefix("datasource.consumer_config.")
+                    .unwrap()
+                    .to_string();
+                log::debug!(
+                    "  Adding consumer config property: {} (from datasource.consumer_config.{})",
+                    config_key,
+                    config_key
+                );
+                source_config.insert(config_key, value.clone());
+            }
+            // Skip datasource.schema.* properties - they are fallbacks from parent config
+            // Prefer schema.* properties which come from the actual YAML config file
+            else if key.starts_with("datasource.schema.") {
+                // Check if there's already a schema.* version of this property
+                let schema_key = key.strip_prefix("datasource.").unwrap();
+                if merged_props.contains_key(schema_key) {
+                    log::debug!(
+                        "  Skipping {} - preferring {} from config file",
+                        key,
+                        schema_key
+                    );
+                    continue;
+                }
+                // Only use datasource.schema.* if schema.* doesn't exist
+                log::debug!("  Adding {} as fallback for {}", key, schema_key);
+                source_config.insert(schema_key.to_string(), value.clone());
+            } else if key.starts_with("source.") {
                 // Remove source. prefix for the config map
                 let config_key = key.strip_prefix("source.").unwrap().to_string();
+
+                // Filter out application-level properties that shouldn't be passed to rdkafka
+                // Note: "value.format" is NOT filtered - it's a valid Kafka/serialization property
+                let application_properties = [
+                    "format",      // Bare format property (application-level)
+                    "has_headers", // CSV file header flag
+                    "path",        // File path (for file sources)
+                    "append",      // File append mode
+                ];
+
+                if application_properties.contains(&config_key.as_str()) {
+                    log::debug!(
+                        "  Skipping application-level property: {} (not for Kafka consumer)",
+                        config_key
+                    );
+                    continue;
+                }
+
+                log::debug!(
+                    "  Adding source property: {} (from source.{})",
+                    config_key,
+                    config_key
+                );
                 source_config.insert(config_key, value.clone());
-            } else if !key.starts_with("sink.") && !props.contains_key(&format!("source.{}", key)) {
-                // Include unprefixed properties only if there's no prefixed version and it's not a sink property
+            } else if !key.starts_with("sink.")
+                && !key.starts_with("datasource.")
+                && !merged_props.contains_key(&format!("source.{}", key))
+            {
+                // Include unprefixed properties only if there's no prefixed version and it's not a sink/datasource property
+                log::debug!("  Adding unprefixed property: {}", key);
                 source_config.insert(key.clone(), value.clone());
+            } else {
+                log::debug!(
+                    "  Skipping property: {} (starts with sink/datasource or has source. version)",
+                    key
+                );
             }
+        }
+        log::info!(
+            "KafkaDataSource: Final source config has {} properties",
+            source_config.len()
+        );
+        log::info!("KafkaDataSource: Properties that will be passed to Kafka consumer:");
+        for (k, v) in source_config.iter() {
+            log::info!("    [consumer] {} = {}", k, v);
         }
 
         Self {
@@ -307,9 +466,13 @@ impl KafkaDataSource {
         batch_size: Option<usize>,
     ) -> Result<KafkaDataReader, Box<dyn std::error::Error + Send + Sync>> {
         // Get serialization format from config (default to JSON if not specified)
+        // Try multiple common property name patterns
         let value_format = self
             .config
             .get("value.serializer")
+            .or_else(|| self.config.get("schema.value.serializer")) // From YAML config
+            .or_else(|| self.config.get("datasource.schema.value.serializer")) // Full nested path
+            .or_else(|| self.config.get("value.format"))
             .map(|s| s.as_str())
             .unwrap_or("json");
 
@@ -322,8 +485,19 @@ impl KafkaDataSource {
         // Extract schema from config based on format
         let schema = self.extract_schema_for_format(&format)?;
 
+        // DEBUG: Log schema extraction result
+        log::info!(
+            "KafkaDataSource: Extracted schema for format {:?}: {}",
+            format,
+            if schema.is_some() {
+                format!("YES ({} bytes)", schema.as_ref().unwrap().len())
+            } else {
+                "NO SCHEMA".to_string()
+            }
+        );
+
         // Create unified reader with detected format and schema
-        KafkaDataReader::new_with_schema(
+        KafkaDataReader::new_with_schema_and_config(
             &self.brokers,
             self.topic.clone(),
             group_id,
@@ -334,6 +508,7 @@ impl KafkaDataSource {
             }),
             schema.as_deref(), // Pass schema if available
             self.event_time_config.clone(),
+            &self.config, // Pass consumer properties from YAML config
         )
         .await
     }
@@ -345,9 +520,13 @@ impl KafkaDataSource {
         batch_config: crate::velostream::datasource::BatchConfig,
     ) -> Result<KafkaDataReader, Box<dyn std::error::Error + Send + Sync>> {
         // Get serialization format from config (default to JSON if not specified)
+        // Try multiple common property name patterns
         let value_format = self
             .config
             .get("value.serializer")
+            .or_else(|| self.config.get("schema.value.serializer")) // From YAML config
+            .or_else(|| self.config.get("datasource.schema.value.serializer")) // Full nested path
+            .or_else(|| self.config.get("value.format"))
             .map(|s| s.as_str())
             .unwrap_or("json");
 
@@ -361,7 +540,7 @@ impl KafkaDataSource {
         let schema = self.extract_schema_for_format(&format)?;
 
         // Create unified reader with BatchConfig
-        KafkaDataReader::new_with_batch_config(
+        KafkaDataReader::new_with_batch_config_and_properties(
             &self.brokers,
             self.topic.clone(),
             group_id,
@@ -369,6 +548,7 @@ impl KafkaDataSource {
             batch_config,
             schema.as_deref(), // Pass schema if available
             self.event_time_config.clone(),
+            &self.config, // Pass consumer properties from YAML config
         )
         .await
     }
@@ -390,12 +570,16 @@ impl KafkaDataSource {
                     .cloned();
 
                 if schema.is_none() {
-                    // Check for schema file path
+                    // Check for schema file path (try all common patterns)
                     if let Some(schema_file) = self
                         .config
                         .get("avro.schema.file")
+                        .or_else(|| self.config.get("schema.value.schema.file")) // From YAML config
+                        .or_else(|| self.config.get("value.schema.file")) // Common pattern
                         .or_else(|| self.config.get("schema.file"))
                         .or_else(|| self.config.get("avro_schema_file"))
+                        .or_else(|| self.config.get("datasource.schema.value.schema.file"))
+                    // Full nested path
                     {
                         return self.load_schema_from_file(schema_file);
                     }

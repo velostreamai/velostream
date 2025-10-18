@@ -4,7 +4,7 @@
 //! selected via SQL WITH clauses or programmatic configuration. It replaces the
 //! hardcoded JsonSerializer approach with a flexible factory pattern.
 
-use crate::velostream::kafka::serialization::{JsonSerializer, SerializationError, Serializer};
+use crate::velostream::kafka::serialization::{JsonSerializer, Serde, SerializationError};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -267,7 +267,7 @@ impl SerializationFactory {
     /// runtime polymorphism over different serialization formats.
     pub fn create_boxed_serializer<T>(
         format: &SerializationFormat,
-    ) -> Result<Box<dyn Serializer<T>>, SerializationError>
+    ) -> Result<Box<dyn Serde<T>>, SerializationError>
     where
         T: Serialize + for<'de> Deserialize<'de> + 'static,
     {

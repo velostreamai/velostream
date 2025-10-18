@@ -383,7 +383,7 @@ performance_profiles:
     .unwrap();
 
     // Create market data topic config
-    let market_data_path = temp_dir.path().join("market_data_topic.yaml");
+    let market_data_path = temp_dir.path().join("market_data_ts_source.yaml");
     fs::write(
         &market_data_path,
         r#"

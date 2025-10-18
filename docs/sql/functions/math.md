@@ -169,6 +169,65 @@ FROM products
 GROUP BY product_category;
 ```
 
+## Comparison Functions
+
+### LEAST - Minimum of Values
+
+```sql
+-- Find minimum across multiple columns
+SELECT
+    product_id,
+    price_vendor_a,
+    price_vendor_b,
+    price_vendor_c,
+    LEAST(price_vendor_a, price_vendor_b, price_vendor_c) as best_price
+FROM product_prices;
+
+-- Cap values at maximum
+SELECT
+    order_id,
+    quantity,
+    stock_available,
+    LEAST(quantity, stock_available) as actual_quantity  -- Can't exceed stock
+FROM orders;
+
+-- Trading volume calculation (used in financial trading)
+SELECT
+    symbol,
+    bid_size,
+    ask_size,
+    LEAST(bid_size, ask_size) as available_volume  -- Maximum tradeable volume
+FROM order_book;
+```
+
+### GREATEST - Maximum of Values
+
+```sql
+-- Find maximum across multiple columns
+SELECT
+    product_id,
+    price_vendor_a,
+    price_vendor_b,
+    price_vendor_c,
+    GREATEST(price_vendor_a, price_vendor_b, price_vendor_c) as highest_price
+FROM product_prices;
+
+-- Ensure minimum value
+SELECT
+    employee_id,
+    calculated_bonus,
+    GREATEST(calculated_bonus, 1000) as final_bonus  -- Minimum $1000 bonus
+FROM employee_bonuses;
+
+-- Trading price ceiling
+SELECT
+    order_id,
+    bid_price,
+    market_cap_price,
+    GREATEST(bid_price, market_cap_price) as effective_price
+FROM trades;
+```
+
 ## Financial Calculations
 
 ### Interest and Growth Calculations
@@ -472,6 +531,8 @@ FROM interview_scores;
 | `POWER(base, exp)` | Raise to power | `POWER(2, 3)` → 8 |
 | `POW(base, exp)` | Raise to power (alias) | `POW(2, 3)` → 8 |
 | `SQRT(number)` | Square root | `SQRT(16)` → 4 |
+| `LEAST(a, b, ...)` | Minimum value | `LEAST(10, 5, 20)` → 5 |
+| `GREATEST(a, b, ...)` | Maximum value | `GREATEST(10, 5, 20)` → 20 |
 
 ## Mathematical Constants
 

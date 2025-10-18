@@ -622,7 +622,7 @@ velo-deploy --canary-percent 10 --rollback-trigger error_rate>2%
 ### **Configuration References**
 - [Kafka Transaction Configuration Guide](./kafka-transaction-configuration.md) - Detailed Kafka transaction setup
 - [Batch Configuration Guide](./batch-configuration-guide.md) - Batch processing optimization
-- [Testing and Benchmarks Guide](./testing-and-benchmarks-guide.md) - Performance validation
+- [Testing and Benchmarks Guide](performance/testing-and-benchmarks-guide.md) - Performance validation
 
 ### **Code Examples**
 - `tests/unit/stream_job/stream_job_simple_test.rs` - SimpleJobProcessor test examples

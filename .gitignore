@@ -11,3 +11,4 @@ dev-profiling/performance_report_*.txt
 
 # Temporary output files
 output.json
+/.idea/dictionaries/project.xml

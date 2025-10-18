@@ -290,7 +290,6 @@ fi
 - **Grafana Dashboards**: http://localhost:3000 (visual monitoring)
 - **Kafka UI**: http://localhost:8090 (topic browser)
 - **Prometheus**: http://localhost:9090 (metrics collection)
-- **Python Dashboard**: `python3 dashboard.py` (trading analytics)
 
 ---
 

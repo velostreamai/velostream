@@ -8,6 +8,7 @@ they don't cause rows to become grouped into a single output row.
 
 ## Supported Window Functions
 
+### Analytical Window Functions
 - **LAG(expr [, offset] [, default])** - Access previous row values
 - **LEAD(expr [, offset] [, default])** - Access next row values (limited in streaming)
 - **ROW_NUMBER()** - Sequential row numbering within partition
@@ -19,6 +20,17 @@ they don't cause rows to become grouped into a single output row.
 - **PERCENT_RANK()** - Relative rank as percentage
 - **CUME_DIST()** - Cumulative distribution
 - **NTILE(n)** - Distribute rows into n tiles
+
+### Aggregate Window Functions
+- **AVG(expr)** - Average value over window frame
+- **SUM(expr)** - Sum of values over window frame
+- **MIN(expr)** - Minimum value over window frame
+- **MAX(expr)** - Maximum value over window frame
+- **COUNT(*)** / **COUNT(expr)** - Count rows/non-NULL values over window frame
+- **STDDEV(expr)** / **STDDEV_SAMP(expr)** - Sample standard deviation over window frame
+- **STDDEV_POP(expr)** - Population standard deviation over window frame
+- **VARIANCE(expr)** / **VAR_SAMP(expr)** - Sample variance over window frame
+- **VAR_POP(expr)** - Population variance over window frame
 
 ## Enhanced Features
 
@@ -85,9 +97,19 @@ impl WindowFunctions {
             }
             "CUME_DIST" => Self::evaluate_cume_dist_function(args, over_clause, &window_context),
             "NTILE" => Self::evaluate_ntile_function(args, record, &window_context),
+            // Aggregate window functions
+            "AVG" => Self::evaluate_avg_window_function(args, &window_context),
+            "SUM" => Self::evaluate_sum_window_function(args, &window_context),
+            "MIN" => Self::evaluate_min_window_function(args, &window_context),
+            "MAX" => Self::evaluate_max_window_function(args, &window_context),
+            "COUNT" => Self::evaluate_count_window_function(args, &window_context),
+            "STDDEV" | "STDDEV_SAMP" => Self::evaluate_stddev_samp_window_function(args, &window_context),
+            "STDDEV_POP" => Self::evaluate_stddev_pop_window_function(args, &window_context),
+            "VARIANCE" | "VAR_SAMP" => Self::evaluate_variance_samp_window_function(args, &window_context),
+            "VAR_POP" => Self::evaluate_variance_pop_window_function(args, &window_context),
             other => Err(SqlError::ExecutionError {
                 message: format!(
-                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE",
+                    "Unsupported window function: '{}'. Supported window functions are: LAG, LEAD, ROW_NUMBER, RANK, DENSE_RANK, FIRST_VALUE, LAST_VALUE, NTH_VALUE, PERCENT_RANK, CUME_DIST, NTILE, AVG, SUM, MIN, MAX, COUNT, STDDEV, STDDEV_SAMP, STDDEV_POP, VARIANCE, VAR_SAMP, VAR_POP",
                     other
                 ),
                 query: Some(format!("{}(...) OVER (...)", other)),
@@ -743,5 +765,421 @@ impl WindowFunctions {
         let tile_number = ((current_row - 1) as i64 / rows_per_tile) + 1;
         let tile_number = tile_number.min(tiles); // Ensure we don't exceed max tiles
         Ok(FieldValue::Integer(tile_number))
+    }
+
+    /// Evaluate AVG as a window function - computes average over the window frame
+    fn evaluate_avg_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "AVG window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("AVG(expression) OVER (...)".to_string()),
+            });
+        }
+
+        // Get the frame bounds or use partition bounds
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        // Calculate average over the window frame
+        let mut sum = 0.0;
+        let mut count = 0i64;
+
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    match value {
+                        FieldValue::Integer(val) => {
+                            sum += val as f64;
+                            count += 1;
+                        }
+                        FieldValue::Float(val) => {
+                            sum += val;
+                            count += 1;
+                        }
+                        FieldValue::Null => {} // Skip NULL values
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        if count > 0 {
+            Ok(FieldValue::Float(sum / count as f64))
+        } else {
+            Ok(FieldValue::Null)
+        }
+    }
+
+    /// Evaluate SUM as a window function - computes sum over the window frame
+    fn evaluate_sum_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "SUM window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("SUM(expression) OVER (...)".to_string()),
+            });
+        }
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        let mut sum = 0.0;
+
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    match value {
+                        FieldValue::Integer(val) => sum += val as f64,
+                        FieldValue::Float(val) => sum += val,
+                        _ => {} // Skip non-numeric and NULL values
+                    }
+                }
+            }
+        }
+
+        Ok(FieldValue::Float(sum))
+    }
+
+    /// Evaluate MIN as a window function - finds minimum over the window frame
+    fn evaluate_min_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "MIN window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("MIN(expression) OVER (...)".to_string()),
+            });
+        }
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        let mut min_val: Option<FieldValue> = None;
+
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    if matches!(value, FieldValue::Null) {
+                        continue; // Skip NULL values
+                    }
+
+                    min_val = match min_val {
+                        None => Some(value),
+                        Some(current_min) => {
+                            if Self::compare_field_values(&value, &current_min) == std::cmp::Ordering::Less {
+                                Some(value)
+                            } else {
+                                Some(current_min)
+                            }
+                        }
+                    };
+                }
+            }
+        }
+
+        Ok(min_val.unwrap_or(FieldValue::Null))
+    }
+
+    /// Evaluate MAX as a window function - finds maximum over the window frame
+    fn evaluate_max_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "MAX window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("MAX(expression) OVER (...)".to_string()),
+            });
+        }
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        let mut max_val: Option<FieldValue> = None;
+
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    if matches!(value, FieldValue::Null) {
+                        continue; // Skip NULL values
+                    }
+
+                    max_val = match max_val {
+                        None => Some(value),
+                        Some(current_max) => {
+                            if Self::compare_field_values(&value, &current_max) == std::cmp::Ordering::Greater {
+                                Some(value)
+                            } else {
+                                Some(current_max)
+                            }
+                        }
+                    };
+                }
+            }
+        }
+
+        Ok(max_val.unwrap_or(FieldValue::Null))
+    }
+
+    /// Evaluate COUNT as a window function - counts non-NULL values over the window frame
+    fn evaluate_count_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        if args.is_empty()
+            || (args.len() == 1
+                && matches!(
+                    args[0],
+                    Expr::Literal(crate::velostream::sql::ast::LiteralValue::Integer(1))
+                ))
+        {
+            // COUNT(*) or COUNT(1) - count all rows
+            let count = (end_idx - start_idx) as i64;
+            Ok(FieldValue::Integer(count))
+        } else if args.len() == 1 {
+            // COUNT(expression) - count non-NULL values
+            let mut count = 0i64;
+
+            for i in start_idx..end_idx {
+                if i < window_context.buffer.len() {
+                    if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                        if !matches!(value, FieldValue::Null) {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+
+            Ok(FieldValue::Integer(count))
+        } else {
+            Err(SqlError::ExecutionError {
+                message: format!(
+                    "COUNT window function requires 0 or 1 argument, but {} were provided",
+                    args.len()
+                ),
+                query: Some("COUNT(*) OVER (...) or COUNT(expression) OVER (...)".to_string()),
+            })
+        }
+    }
+
+    /// Evaluate STDDEV_SAMP (sample standard deviation) as a window function
+    fn evaluate_stddev_samp_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "STDDEV_SAMP window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("STDDEV_SAMP(expression) OVER (...)".to_string()),
+            });
+        }
+
+        // Get the frame bounds or use partition bounds
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        // Collect values and calculate mean
+        let mut values = Vec::new();
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    match value {
+                        FieldValue::Integer(val) => values.push(val as f64),
+                        FieldValue::Float(val) => values.push(val),
+                        FieldValue::Null => {} // Skip NULL values
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        // Sample standard deviation requires at least 2 values
+        if values.len() < 2 {
+            return Ok(FieldValue::Null);
+        }
+
+        // Calculate mean
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+
+        // Calculate variance (sample variance uses n-1)
+        let variance =
+            values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+
+        // Standard deviation is square root of variance
+        Ok(FieldValue::Float(variance.sqrt()))
+    }
+
+    /// Evaluate STDDEV_POP (population standard deviation) as a window function
+    fn evaluate_stddev_pop_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "STDDEV_POP window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("STDDEV_POP(expression) OVER (...)".to_string()),
+            });
+        }
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        // Collect values and calculate mean
+        let mut values = Vec::new();
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    match value {
+                        FieldValue::Integer(val) => values.push(val as f64),
+                        FieldValue::Float(val) => values.push(val),
+                        FieldValue::Null => {} // Skip NULL values
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        if values.is_empty() {
+            return Ok(FieldValue::Null);
+        }
+
+        // Calculate mean
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+
+        // Calculate variance (population variance uses n)
+        let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+
+        // Standard deviation is square root of variance
+        Ok(FieldValue::Float(variance.sqrt()))
+    }
+
+    /// Evaluate VAR_SAMP (sample variance) as a window function
+    fn evaluate_variance_samp_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "VAR_SAMP window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("VAR_SAMP(expression) OVER (...)".to_string()),
+            });
+        }
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        // Collect values and calculate mean
+        let mut values = Vec::new();
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    match value {
+                        FieldValue::Integer(val) => values.push(val as f64),
+                        FieldValue::Float(val) => values.push(val),
+                        FieldValue::Null => {} // Skip NULL values
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        // Sample variance requires at least 2 values
+        if values.len() < 2 {
+            return Ok(FieldValue::Null);
+        }
+
+        // Calculate mean
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+
+        // Calculate variance (sample variance uses n-1)
+        let variance =
+            values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64;
+
+        Ok(FieldValue::Float(variance))
+    }
+
+    /// Evaluate VAR_POP (population variance) as a window function
+    fn evaluate_variance_pop_window_function(
+        args: &[Expr],
+        window_context: &WindowContext,
+    ) -> Result<FieldValue, SqlError> {
+        if args.len() != 1 {
+            return Err(SqlError::ExecutionError {
+                message: format!(
+                    "VAR_POP window function requires exactly 1 argument (expression), but {} were provided",
+                    args.len()
+                ),
+                query: Some("VAR_POP(expression) OVER (...)".to_string()),
+            });
+        }
+
+        let (start_idx, end_idx) = window_context
+            .partition_bounds
+            .unwrap_or((0, window_context.buffer.len()));
+
+        // Collect values and calculate mean
+        let mut values = Vec::new();
+        for i in start_idx..end_idx {
+            if i < window_context.buffer.len() {
+                if let Ok(value) = crate::velostream::sql::execution::expression::ExpressionEvaluator::evaluate_expression_value(&args[0], &window_context.buffer[i]) {
+                    match value {
+                        FieldValue::Integer(val) => values.push(val as f64),
+                        FieldValue::Float(val) => values.push(val),
+                        FieldValue::Null => {} // Skip NULL values
+                        _ => {} // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        if values.is_empty() {
+            return Ok(FieldValue::Null);
+        }
+
+        // Calculate mean
+        let mean = values.iter().sum::<f64>() / values.len() as f64;
+
+        // Calculate variance (population variance uses n)
+        let variance = values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64;
+
+        Ok(FieldValue::Float(variance))
     }
 }

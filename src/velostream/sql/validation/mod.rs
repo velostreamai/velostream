@@ -9,9 +9,11 @@ use serde::{Deserialize, Serialize};
 // Re-export main components
 pub mod config_validator;
 pub mod error_formatter;
+pub mod function_registry;
 pub mod query_validator;
 pub mod report_generator;
 pub mod result_types;
+pub mod semantic_validator;
 
 // Re-export for convenience
 pub use config_validator::*;

@@ -175,35 +175,24 @@ pub fn avro_value_to_field_value(
         Value::Boolean(b) => Ok(FieldValue::Boolean(*b)),
         Value::Null => Ok(FieldValue::Null),
         Value::Bytes(bytes) => {
-            // Handle Avro decimal logical type (bytes encoding)
-            // Try to decode as decimal logical type first, fall back to generic bytes
-            if let Some(scaled_integer) = try_decode_avro_decimal_bytes(bytes) {
-                Ok(scaled_integer)
-            } else {
-                // Not a decimal logical type - handle as generic bytes
-                // For now, convert to string representation for compatibility
-                Ok(FieldValue::String(
-                    bytes
-                        .iter()
-                        .map(|b| format!("{:02x}", b))
-                        .collect::<String>(),
-                ))
-            }
+            // Handle as generic bytes (for decimal logical types, use schema-aware conversion)
+            // Convert to hex string representation for compatibility
+            Ok(FieldValue::String(
+                bytes
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>(),
+            ))
         }
         Value::Fixed(_size, bytes) => {
-            // Handle Avro decimal logical type (fixed encoding)
-            // Try to decode as decimal logical type first, fall back to generic fixed
-            if let Some(scaled_integer) = try_decode_avro_decimal_bytes(bytes) {
-                Ok(scaled_integer)
-            } else {
-                // Not a decimal logical type - handle as generic fixed bytes
-                Ok(FieldValue::String(
-                    bytes
-                        .iter()
-                        .map(|b| format!("{:02x}", b))
-                        .collect::<String>(),
-                ))
-            }
+            // Handle as generic fixed bytes (for decimal logical types, use schema-aware conversion)
+            // Convert to hex string representation for compatibility
+            Ok(FieldValue::String(
+                bytes
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>(),
+            ))
         }
         Value::Array(arr) => {
             let field_arr: Result<Vec<_>, _> = arr.iter().map(avro_value_to_field_value).collect();
@@ -303,16 +292,10 @@ pub fn scaled_integer_to_avro_decimal_bytes(
 ) -> Result<apache_avro::types::Value, SerializationError> {
     use apache_avro::types::Value;
 
-    eprintln!(
-        "DEBUG: Converting ScaledInteger({}, {}) to Avro decimal for logical type",
-        value, scale
-    );
-
     // For Apache Avro 0.20.0+, use Value::Decimal when schema is parsed as Schema::Decimal
     // This provides better compatibility with the standard decimal logical type
     let decimal = apache_avro::Decimal::from(value.to_be_bytes().to_vec());
     let avro_value = Value::Decimal(decimal);
-    eprintln!("DEBUG: Created Avro value: Decimal(...) for standard logical type compatibility");
 
     Ok(avro_value)
 }
@@ -325,18 +308,11 @@ pub fn scaled_integer_to_avro_bytes_custom(
 ) -> Result<apache_avro::types::Value, SerializationError> {
     use apache_avro::types::Value;
 
-    eprintln!(
-        "DEBUG: Converting ScaledInteger({}, {}) to Avro bytes for custom properties",
-        value, scale
-    );
-
     // Encode as big-endian two's complement bytes per Avro decimal specification
     let bytes = encode_big_endian_signed(value);
-    eprintln!("DEBUG: Encoded as {} bytes: {:?}", bytes.len(), bytes);
 
     // Use Value::Bytes for custom properties approach (Flink compatibility)
     let avro_value = Value::Bytes(bytes);
-    eprintln!("DEBUG: Created Avro value: Bytes(...) for cross-system compatibility");
 
     Ok(avro_value)
 }
@@ -379,19 +355,10 @@ pub fn field_value_to_avro_with_decimal_schema(
         FieldValue::Float(f) if decimal_info.is_some() => {
             // Convert Float to decimal format when schema expects decimal
             let info = decimal_info.unwrap();
-            eprintln!(
-                "DEBUG: Converting Float({}) to decimal with schema scale={}",
-                f, info.scale
-            );
 
             // Convert float to scaled integer based on schema scale
             let scale_multiplier = 10_f64.powi(info.scale as i32);
             let scaled_value = (f * scale_multiplier).round() as i64;
-
-            eprintln!(
-                "DEBUG: Converted Float({}) to ScaledInteger({}, {})",
-                f, scaled_value, info.scale
-            );
 
             if info.is_standard_logical_type {
                 // Use Value::Decimal for standard "logicalType": "decimal"
@@ -404,19 +371,10 @@ pub fn field_value_to_avro_with_decimal_schema(
         FieldValue::Integer(i) if decimal_info.is_some() => {
             // Convert Integer to decimal format when schema expects decimal
             let info = decimal_info.unwrap();
-            eprintln!(
-                "DEBUG: Converting Integer({}) to decimal with schema scale={}",
-                i, info.scale
-            );
 
             // Scale the integer value
             let scale_multiplier = 10_i64.pow(info.scale);
             let scaled_value = i * scale_multiplier;
-
-            eprintln!(
-                "DEBUG: Converted Integer({}) to ScaledInteger({}, {})",
-                i, scaled_value, info.scale
-            );
 
             if info.is_standard_logical_type {
                 // Use Value::Decimal for standard "logicalType": "decimal"
@@ -454,10 +412,6 @@ pub fn avro_value_to_field_value_with_schema(
         }
         Value::Decimal(decimal) if field_schema.is_some() => {
             let schema_info = field_schema.unwrap();
-            eprintln!(
-                "DEBUG: Deserializing Value::Decimal with schema precision={}, scale={}",
-                schema_info.precision, schema_info.scale
-            );
 
             // Extract bytes from Apache Avro Decimal
             // In Apache Avro 0.20.0, use TryFrom<Decimal> for Vec<u8>
@@ -469,7 +423,6 @@ pub fn avro_value_to_field_value_with_schema(
                     Some(e),
                 )
             })?;
-            eprintln!("DEBUG: Extracted {} bytes from Decimal", bytes.len());
 
             // Use schema-aware decoding for decimal logical type
             decode_avro_decimal_bytes_with_schema(&bytes, schema_info.precision, schema_info.scale)
@@ -586,41 +539,6 @@ fn parse_decimal_string_to_scaled_integer(s: &str) -> Option<FieldValue> {
     } else {
         // No decimal point - could be a whole number, but we only convert obvious financial decimals
         // Let regular string parsing handle integers
-        None
-    }
-}
-
-/// Helper function to try decoding Avro bytes/fixed as decimal logical type
-/// Returns ScaledInteger if bytes look like they could be a decimal, None otherwise
-///
-/// Note: This is a heuristic approach since we don't have schema information.
-/// In a production system, this should use the actual Avro schema to determine
-/// if bytes represent a decimal logical type with specific precision/scale.
-fn try_decode_avro_decimal_bytes(bytes: &[u8]) -> Option<FieldValue> {
-    // DEPRECATED: This is heuristic-based and hardcodes scale=2
-    // For proper schema-aware decoding, use decode_avro_decimal_bytes_with_schema
-    // Keeping this for backward compatibility with non-schema-aware code
-
-    // 1. Reasonable byte length for financial decimals (1-16 bytes)
-    if bytes.is_empty() || bytes.len() > 16 {
-        return None;
-    }
-
-    // 2. Try to decode as big-endian signed integer
-    if let Some(unscaled_value) = decode_big_endian_signed(bytes) {
-        // 3. Use a common financial scale (2 decimal places for currency)
-        // WARNING: This hardcoded scale=2 may not match the actual schema scale!
-        let scale = 2;
-
-        // 4. Sanity check - value should be reasonable for financial data
-        // (not too large - under $1 trillion)
-        if unscaled_value.abs() < 100_000_000_000_000 {
-            // 100 trillion cents = 1 trillion dollars
-            Some(FieldValue::ScaledInteger(unscaled_value, scale))
-        } else {
-            None
-        }
-    } else {
         None
     }
 }

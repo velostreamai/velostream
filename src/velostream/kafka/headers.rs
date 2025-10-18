@@ -1,11 +1,16 @@
 use rdkafka::message::Headers as KafkaHeaders;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Custom headers type that provides a clean API for Kafka message headers
 ///
-/// `Headers` wraps a `HashMap<String, Option<String>>` to provide an ergonomic interface
+/// `Headers` wraps an `Arc<HashMap<String, Option<String>>>` to provide an ergonomic interface
 /// for working with Kafka message headers. It supports both valued headers and null headers,
 /// and provides builder-pattern methods for easy construction.
+///
+/// **Performance Note:** Headers uses `Arc` for shared ownership, making cloning very cheap
+/// (O(1) atomic increment). This is beneficial when messages are cloned or shared across
+/// multiple consumers.
 ///
 /// # Examples
 ///
@@ -75,33 +80,39 @@ use std::collections::HashMap;
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct Headers {
-    inner: HashMap<String, Option<String>>,
+    inner: Arc<HashMap<String, Option<String>>>,
 }
 
 impl Headers {
     /// Creates a new empty headers collection
     pub fn new() -> Self {
         Self {
-            inner: HashMap::new(),
+            inner: Arc::new(HashMap::new()),
         }
     }
 
     /// Creates a new headers collection with specified capacity
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            inner: HashMap::with_capacity(capacity),
+            inner: Arc::new(HashMap::with_capacity(capacity)),
         }
     }
 
     /// Inserts a header with a value
+    ///
+    /// This method uses copy-on-write semantics when the Arc is shared
     pub fn insert(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.inner.insert(key.into(), Some(value.into()));
+        // Copy-on-write: clone HashMap only if Arc is shared
+        Arc::make_mut(&mut self.inner).insert(key.into(), Some(value.into()));
         self
     }
 
     /// Inserts a header with no value (null header)
+    ///
+    /// This method uses copy-on-write semantics when the Arc is shared
     pub fn insert_null(mut self, key: impl Into<String>) -> Self {
-        self.inner.insert(key.into(), None);
+        // Copy-on-write: clone HashMap only if Arc is shared
+        Arc::make_mut(&mut self.inner).insert(key.into(), None);
         self
     }
 
@@ -132,14 +143,14 @@ impl Headers {
 
     /// Iterates over all headers
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Option<String>)> {
-        self.inner.iter()
+        self.inner.as_ref().iter()
     }
 
     /// Converts to rdkafka OwnedHeaders for internal use
     pub(crate) fn to_rdkafka_headers(&self) -> rdkafka::message::OwnedHeaders {
         let mut headers = rdkafka::message::OwnedHeaders::new_with_capacity(self.inner.len());
 
-        for (key, value) in &self.inner {
+        for (key, value) in self.inner.as_ref() {
             let header = rdkafka::message::Header {
                 key,
                 value: value.as_deref(),
@@ -164,13 +175,18 @@ impl Headers {
             headers.insert(key, value);
         }
 
-        Self { inner: headers }
+        Self {
+            inner: Arc::new(headers),
+        }
     }
 
     /// Converts the headers into a standard HashMap, discarding any null values.
-    /// This method consumes `self` to avoid cloning.
+    /// This method attempts to take ownership of the inner HashMap if possible,
+    /// otherwise it clones the data.
     pub fn into_map(self) -> HashMap<String, String> {
-        self.inner
+        // Try to unwrap Arc if we're the only owner, otherwise clone
+        let inner = Arc::try_unwrap(self.inner).unwrap_or_else(|arc| (*arc).clone());
+        inner
             .into_iter()
             .filter_map(|(key, value)| value.map(|v| (key, v)))
             .collect()
@@ -214,5 +230,53 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_headers_cheap_clone() {
+        // Create headers with multiple entries
+        let headers = Headers::new()
+            .insert("source", "test-system")
+            .insert("trace-id", "abc-123-def-456")
+            .insert("span-id", "xyz-789")
+            .insert("priority", "high");
+
+        // Clone is cheap (O(1) Arc increment)
+        let cloned1 = headers.clone();
+        let cloned2 = headers.clone();
+        let cloned3 = cloned1.clone();
+
+        // All clones share the same underlying data
+        assert_eq!(headers.get("source"), Some("test-system"));
+        assert_eq!(cloned1.get("source"), Some("test-system"));
+        assert_eq!(cloned2.get("source"), Some("test-system"));
+        assert_eq!(cloned3.get("source"), Some("test-system"));
+
+        // They are equal
+        assert_eq!(headers, cloned1);
+        assert_eq!(cloned1, cloned2);
+        assert_eq!(cloned2, cloned3);
+    }
+
+    #[test]
+    fn test_headers_copy_on_write() {
+        // Create headers
+        let headers = Headers::new().insert("key1", "value1");
+
+        // Clone headers
+        let cloned = headers.clone();
+
+        // Modify cloned headers (triggers copy-on-write)
+        let modified = cloned.insert("key2", "value2");
+
+        // Original is unchanged (COW worked)
+        assert_eq!(headers.len(), 1);
+        assert_eq!(headers.get("key1"), Some("value1"));
+        assert_eq!(headers.get("key2"), None);
+
+        // Modified has both
+        assert_eq!(modified.len(), 2);
+        assert_eq!(modified.get("key1"), Some("value1"));
+        assert_eq!(modified.get("key2"), Some("value2"));
     }
 }

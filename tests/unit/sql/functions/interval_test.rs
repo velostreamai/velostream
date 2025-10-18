@@ -227,11 +227,16 @@ async fn test_interval_conversion_accuracy() {
             Some(FieldValue::Interval { value, unit }) => {
                 // Convert interval to milliseconds based on unit
                 match unit {
+                    TimeUnit::Nanosecond => *value / 1_000_000,
+                    TimeUnit::Microsecond => *value / 1000,
                     TimeUnit::Millisecond => *value,
                     TimeUnit::Second => *value * 1000,
                     TimeUnit::Minute => *value * 60 * 1000,
                     TimeUnit::Hour => *value * 60 * 60 * 1000,
                     TimeUnit::Day => *value * 24 * 60 * 60 * 1000,
+                    TimeUnit::Week => *value * 7 * 24 * 60 * 60 * 1000,
+                    TimeUnit::Month => *value * 30 * 24 * 60 * 60 * 1000, // Approximate: 30 days
+                    TimeUnit::Year => *value * 365 * 24 * 60 * 60 * 1000, // Approximate: 365 days
                 }
             }
             Some(other) => panic!("Unexpected field type for interval_value: {:?}", other),
