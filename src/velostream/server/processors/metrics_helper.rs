@@ -423,6 +423,139 @@ impl ProcessorMetricsHelper {
         .await
     }
 
+    /// Generic metric emission logic with common condition/label/validation handling
+    ///
+    /// This helper consolidates the common logic shared by counter, gauge, and histogram emission.
+    /// The `emit_fn` closure handles metric-type-specific emission logic.
+    ///
+    /// # Arguments
+    /// - `annotations`: Filtered annotations for a specific metric type
+    /// - `output_records`: Records to emit metrics for
+    /// - `observability`: Observability manager
+    /// - `job_name`: Job name for logging
+    /// - `emit_fn`: Closure that emits the specific metric type
+    ///   - Takes: (metrics provider, annotation, label values, optional numeric value)
+    ///   - Returns: Result of emission
+    async fn emit_metrics_generic<F>(
+        &self,
+        annotations: Vec<&MetricAnnotation>,
+        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        observability: &Option<SharedObservabilityManager>,
+        job_name: &str,
+        emit_fn: F,
+    ) where
+        F: Fn(
+            &crate::velostream::observability::metrics::MetricsProvider,
+            &MetricAnnotation,
+            &[String],
+            Option<f64>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>,
+    {
+        if annotations.is_empty() || output_records.is_empty() {
+            return;
+        }
+
+        // Emit metrics for each output record
+        if let Some(obs) = observability {
+            let obs_lock = obs.read().await;
+            if let Some(metrics) = obs_lock.metrics() {
+                for record in output_records {
+                    let record_start = Instant::now();
+                    for annotation in &annotations {
+                        // Check if metric should be emitted based on condition
+                        let cond_start = Instant::now();
+                        if !self.should_emit_metric(annotation, record, job_name).await {
+                            self.record_condition_eval_time(
+                                cond_start.elapsed().as_micros() as u64,
+                            )
+                            .await;
+                            continue;
+                        }
+                        self.record_condition_eval_time(cond_start.elapsed().as_micros() as u64)
+                            .await;
+
+                        // Extract label values using enhanced extraction with nested field support
+                        let extract_start = Instant::now();
+                        let label_values = extract_label_values(
+                            record,
+                            &annotation.labels,
+                            &self.label_extraction_config,
+                        );
+                        self.record_label_extract_time(extract_start.elapsed().as_micros() as u64)
+                            .await;
+
+                        // Validate labels based on configuration
+                        if !self.validate_labels(annotation, label_values.len()) {
+                            debug!(
+                                "Job '{}': Skipping metric '{}' - strict mode: missing label values (expected {}, got {})",
+                                job_name,
+                                annotation.name,
+                                annotation.labels.len(),
+                                label_values.len()
+                            );
+                            continue;
+                        }
+
+                        // Extract numeric value if needed (for gauge/histogram)
+                        let numeric_value = if let Some(field_name) = &annotation.field {
+                            if let Some(field_value) = record.fields.get(field_name) {
+                                match field_value {
+                                    crate::velostream::sql::execution::FieldValue::Float(v) => {
+                                        Some(*v)
+                                    }
+                                    crate::velostream::sql::execution::FieldValue::Integer(v) => {
+                                        Some(*v as f64)
+                                    }
+                                    crate::velostream::sql::execution::FieldValue::ScaledInteger(
+                                        v,
+                                        scale,
+                                    ) => Some((*v as f64) / 10_f64.powi(*scale as i32)),
+                                    _ => {
+                                        debug!(
+                                            "Job '{}': Metric '{}' field '{}' is not numeric, skipping",
+                                            job_name, annotation.name, field_name
+                                        );
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                debug!(
+                                    "Job '{}': Metric '{}' field '{}' not found in record",
+                                    job_name, annotation.name, field_name
+                                );
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        // Skip if labels are empty but expected
+                        if label_values.is_empty() && !annotation.labels.is_empty() {
+                            debug!(
+                                "Job '{}': Skipping metric '{}' - missing label values (expected {}, got {})",
+                                job_name,
+                                annotation.name,
+                                annotation.labels.len(),
+                                label_values.len()
+                            );
+                            continue;
+                        }
+
+                        // Emit the metric using the provided closure
+                        if let Err(e) = emit_fn(metrics, annotation, &label_values, numeric_value) {
+                            debug!(
+                                "Job '{}': Failed to emit metric '{}': {:?}",
+                                job_name, annotation.name, e
+                            );
+                        }
+                    }
+                    self.record_emission_overhead(record_start.elapsed().as_micros() as u64)
+                        .await;
+                }
+            }
+        }
+    }
+
     /// Emit counter metrics for processed records
     pub async fn emit_counter_metrics(
         &self,
@@ -442,87 +575,23 @@ impl ProcessorMetricsHelper {
             _ => return, // Only CreateStream queries have annotations
         };
 
-        if counter_annotations.is_empty() || output_records.is_empty() {
-            return;
-        }
-
-        // Emit metrics for each output record
-        if let Some(obs) = observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(metrics) = obs_lock.metrics() {
-                        for record in output_records {
-                            let record_start = Instant::now();
-                            for annotation in &counter_annotations {
-                                // Check if metric should be emitted based on condition
-                                let cond_start = Instant::now();
-                                if !self.should_emit_metric(annotation, record, job_name).await {
-                                    self.record_condition_eval_time(
-                                        cond_start.elapsed().as_micros() as u64,
-                                    )
-                                    .await;
-                                    continue;
-                                }
-                                self.record_condition_eval_time(
-                                    cond_start.elapsed().as_micros() as u64
-                                )
-                                .await;
-
-                                // Extract label values using enhanced extraction with nested field support
-                                let extract_start = Instant::now();
-                                let label_values = extract_label_values(
-                                    record,
-                                    &annotation.labels,
-                                    &self.label_extraction_config,
-                                );
-                                self.record_label_extract_time(
-                                    extract_start.elapsed().as_micros() as u64
-                                )
-                                .await;
-
-                                // Validate labels based on configuration
-                                if !self.validate_labels(annotation, label_values.len()) {
-                                    debug!(
-                                        "Job '{}': Skipping counter '{}' - strict mode: missing label values (expected {}, got {})",
-                                        job_name,
-                                        annotation.name,
-                                        annotation.labels.len(),
-                                        label_values.len()
-                                    );
-                                    continue;
-                                }
-
-                                // Emit counter (label values always match expected count with enhanced extraction)
-                                if !label_values.is_empty() || annotation.labels.is_empty() {
-                                    if let Err(e) =
-                                        metrics.emit_counter(&annotation.name, &label_values)
-                                    {
-                                        debug!(
-                                            "Job '{}': Failed to emit counter '{}': {:?}",
-                                            job_name, annotation.name, e
-                                        );
-                                    } else {
-                                        debug!(
-                                            "Job '{}': Emitted counter '{}' with labels {:?}",
-                                            job_name, annotation.name, label_values
-                                        );
-                                    }
-                                } else {
-                                    debug!(
-                                        "Job '{}': Skipping counter '{}' - missing label values (expected {}, got {})",
-                                        job_name,
-                                        annotation.name,
-                                        annotation.labels.len(),
-                                        label_values.len()
-                                    );
-                                }
-                            }
-                            self.record_emission_overhead(record_start.elapsed().as_micros() as u64).await;
-                        }
-                    }
-                }
-            }
-        }
+        // Use generic emission logic with counter-specific emitter
+        self.emit_metrics_generic(
+            counter_annotations,
+            output_records,
+            observability,
+            job_name,
+            |metrics, annotation, labels, _value| {
+                debug!(
+                    "Job '{}': Emitted counter '{}' with labels {:?}",
+                    job_name, annotation.name, labels
+                );
+                metrics
+                    .emit_counter(&annotation.name, labels)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+            },
+        )
+        .await
     }
 
     /// Register gauge metrics from SQL annotations
@@ -578,120 +647,27 @@ impl ProcessorMetricsHelper {
             _ => return, // Only CreateStream queries have annotations
         };
 
-        if gauge_annotations.is_empty() || output_records.is_empty() {
-            return;
-        }
-
-        // Emit metrics for each output record
-        if let Some(obs) = observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(metrics) = obs_lock.metrics() {
-                        for record in output_records {
-                            let record_start = Instant::now();
-                            for annotation in &gauge_annotations {
-                                // Check if metric should be emitted based on condition
-                                let cond_start = Instant::now();
-                                if !self.should_emit_metric(annotation, record, job_name).await {
-                                    self.record_condition_eval_time(
-                                        cond_start.elapsed().as_micros() as u64,
-                                    )
-                                    .await;
-                                    continue;
-                                }
-                                self.record_condition_eval_time(
-                                    cond_start.elapsed().as_micros() as u64
-                                )
-                                .await;
-
-                                // Extract label values using enhanced extraction with nested field support
-                                let extract_start = Instant::now();
-                                let label_values = extract_label_values(
-                                    record,
-                                    &annotation.labels,
-                                    &self.label_extraction_config,
-                                );
-                                self.record_label_extract_time(
-                                    extract_start.elapsed().as_micros() as u64
-                                )
-                                .await;
-
-                                // Validate labels based on configuration
-                                if !self.validate_labels(annotation, label_values.len()) {
-                                    debug!(
-                                        "Job '{}': Skipping gauge '{}' - strict mode: missing label values (expected {}, got {})",
-                                        job_name,
-                                        annotation.name,
-                                        annotation.labels.len(),
-                                        label_values.len()
-                                    );
-                                    continue;
-                                }
-
-                                // Emit gauge if labels are available
-                                if !label_values.is_empty() || annotation.labels.is_empty() {
-                                    // Extract the gauge value from the specified field
-                                    if let Some(field_name) = &annotation.field {
-                                        if let Some(field_value) = record.fields.get(field_name) {
-                                            // Convert FieldValue to f64
-                                            let value = match field_value {
-                                                crate::velostream::sql::execution::FieldValue::Float(v) => *v,
-                                                crate::velostream::sql::execution::FieldValue::Integer(v) => *v as f64,
-                                                crate::velostream::sql::execution::FieldValue::ScaledInteger(v, scale) => {
-                                                    (*v as f64) / 10_f64.powi(*scale as i32)
-                                                }
-                                                _ => {
-                                                    debug!(
-                                                        "Job '{}': Gauge '{}' field '{}' is not numeric, skipping",
-                                                        job_name, annotation.name, field_name
-                                                    );
-                                                    continue;
-                                                }
-                                            };
-
-                                            if let Err(e) = metrics.emit_gauge(
-                                                &annotation.name,
-                                                &label_values,
-                                                value,
-                                            ) {
-                                                debug!(
-                                                    "Job '{}': Failed to emit gauge '{}': {:?}",
-                                                    job_name, annotation.name, e
-                                                );
-                                            } else {
-                                                debug!(
-                                                    "Job '{}': Emitted gauge '{}' = {} with labels {:?}",
-                                                    job_name, annotation.name, value, label_values
-                                                );
-                                            }
-                                        } else {
-                                            debug!(
-                                                "Job '{}': Gauge '{}' field '{}' not found in record",
-                                                job_name, annotation.name, field_name
-                                            );
-                                        }
-                                    } else {
-                                        debug!(
-                                            "Job '{}': Gauge '{}' has no field specified",
-                                            job_name, annotation.name
-                                        );
-                                    }
-                                } else {
-                                    debug!(
-                                        "Job '{}': Skipping gauge '{}' - missing label values (expected {}, got {})",
-                                        job_name,
-                                        annotation.name,
-                                        annotation.labels.len(),
-                                        label_values.len()
-                                    );
-                                }
-                            }
-                            self.record_emission_overhead(record_start.elapsed().as_micros() as u64).await;
-                        }
-                    }
+        // Use generic emission logic with gauge-specific emitter
+        self.emit_metrics_generic(
+            gauge_annotations,
+            output_records,
+            observability,
+            job_name,
+            |metrics, annotation, labels, value| {
+                if let Some(v) = value {
+                    debug!(
+                        "Job '{}': Emitted gauge '{}' = {} with labels {:?}",
+                        job_name, annotation.name, v, labels
+                    );
+                    metrics
+                        .emit_gauge(&annotation.name, labels, v)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                } else {
+                    Err("Gauge metric requires a numeric value".into())
                 }
-            }
-        }
+            },
+        )
+        .await
     }
 
     /// Register histogram metrics from SQL annotations
@@ -752,120 +728,27 @@ impl ProcessorMetricsHelper {
             _ => return, // Only CreateStream queries have annotations
         };
 
-        if histogram_annotations.is_empty() || output_records.is_empty() {
-            return;
-        }
-
-        // Emit metrics for each output record
-        if let Some(obs) = observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(metrics) = obs_lock.metrics() {
-                        for record in output_records {
-                            let record_start = Instant::now();
-                            for annotation in &histogram_annotations {
-                                // Check if metric should be emitted based on condition
-                                let cond_start = Instant::now();
-                                if !self.should_emit_metric(annotation, record, job_name).await {
-                                    self.record_condition_eval_time(
-                                        cond_start.elapsed().as_micros() as u64,
-                                    )
-                                    .await;
-                                    continue;
-                                }
-                                self.record_condition_eval_time(
-                                    cond_start.elapsed().as_micros() as u64
-                                )
-                                .await;
-
-                                // Extract label values using enhanced extraction with nested field support
-                                let extract_start = Instant::now();
-                                let label_values = extract_label_values(
-                                    record,
-                                    &annotation.labels,
-                                    &self.label_extraction_config,
-                                );
-                                self.record_label_extract_time(
-                                    extract_start.elapsed().as_micros() as u64
-                                )
-                                .await;
-
-                                // Validate labels based on configuration
-                                if !self.validate_labels(annotation, label_values.len()) {
-                                    debug!(
-                                        "Job '{}': Skipping histogram '{}' - strict mode: missing label values (expected {}, got {})",
-                                        job_name,
-                                        annotation.name,
-                                        annotation.labels.len(),
-                                        label_values.len()
-                                    );
-                                    continue;
-                                }
-
-                                // Emit histogram if labels are available
-                                if !label_values.is_empty() || annotation.labels.is_empty() {
-                                    // Extract the histogram value from the specified field
-                                    if let Some(field_name) = &annotation.field {
-                                        if let Some(field_value) = record.fields.get(field_name) {
-                                            // Convert FieldValue to f64
-                                            let value = match field_value {
-                                                crate::velostream::sql::execution::FieldValue::Float(v) => *v,
-                                                crate::velostream::sql::execution::FieldValue::Integer(v) => *v as f64,
-                                                crate::velostream::sql::execution::FieldValue::ScaledInteger(v, scale) => {
-                                                    (*v as f64) / 10_f64.powi(*scale as i32)
-                                                }
-                                                _ => {
-                                                    debug!(
-                                                        "Job '{}': Histogram '{}' field '{}' is not numeric, skipping",
-                                                        job_name, annotation.name, field_name
-                                                    );
-                                                    continue;
-                                                }
-                                            };
-
-                                            if let Err(e) = metrics.emit_histogram(
-                                                &annotation.name,
-                                                &label_values,
-                                                value,
-                                            ) {
-                                                debug!(
-                                                    "Job '{}': Failed to emit histogram '{}': {:?}",
-                                                    job_name, annotation.name, e
-                                                );
-                                            } else {
-                                                debug!(
-                                                    "Job '{}': Emitted histogram '{}' observed value {} with labels {:?}",
-                                                    job_name, annotation.name, value, label_values
-                                                );
-                                            }
-                                        } else {
-                                            debug!(
-                                                "Job '{}': Histogram '{}' field '{}' not found in record",
-                                                job_name, annotation.name, field_name
-                                            );
-                                        }
-                                    } else {
-                                        debug!(
-                                            "Job '{}': Histogram '{}' has no field specified",
-                                            job_name, annotation.name
-                                        );
-                                    }
-                                } else {
-                                    debug!(
-                                        "Job '{}': Skipping histogram '{}' - missing label values (expected {}, got {})",
-                                        job_name,
-                                        annotation.name,
-                                        annotation.labels.len(),
-                                        label_values.len()
-                                    );
-                                }
-                            }
-                            self.record_emission_overhead(record_start.elapsed().as_micros() as u64).await;
-                        }
-                    }
+        // Use generic emission logic with histogram-specific emitter
+        self.emit_metrics_generic(
+            histogram_annotations,
+            output_records,
+            observability,
+            job_name,
+            |metrics, annotation, labels, value| {
+                if let Some(v) = value {
+                    debug!(
+                        "Job '{}': Emitted histogram '{}' observed value {} with labels {:?}",
+                        job_name, annotation.name, v, labels
+                    );
+                    metrics
+                        .emit_histogram(&annotation.name, labels, v)
+                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+                } else {
+                    Err("Histogram metric requires a numeric value".into())
                 }
-            }
-        }
+            },
+        )
+        .await
     }
 }
 
