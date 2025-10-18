@@ -75,6 +75,7 @@ impl Default for MetricsPerformanceTelemetry {
 ///
 /// # Performance Optimizations
 /// - Conditions are parsed once at registration time and cached
+/// - Label extraction config is cached at initialization time (no per-record recreation)
 /// - Uses RwLock for efficient concurrent read access
 /// - Minimal lock contention on hot paths
 /// - Performance telemetry tracks overhead without measurable impact
@@ -84,6 +85,8 @@ pub struct ProcessorMetricsHelper {
     metric_conditions: Arc<RwLock<HashMap<String, Arc<Expr>>>>,
     /// Label handling configuration (strict vs permissive mode)
     pub label_config: LabelHandlingConfig,
+    /// Cached label extraction config (initialized once, reused for all records)
+    label_extraction_config: LabelExtractionConfig,
     /// Performance telemetry (thread-local accumulated data)
     telemetry: Arc<RwLock<MetricsPerformanceTelemetry>>,
 }
@@ -99,6 +102,7 @@ impl ProcessorMetricsHelper {
         Self {
             metric_conditions: Arc::new(RwLock::new(HashMap::new())),
             label_config,
+            label_extraction_config: LabelExtractionConfig::default(),
             telemetry: Arc::new(RwLock::new(MetricsPerformanceTelemetry::default())),
         }
     }
@@ -466,9 +470,11 @@ impl ProcessorMetricsHelper {
 
                                 // Extract label values using enhanced extraction with nested field support
                                 let extract_start = Instant::now();
-                                let config = LabelExtractionConfig::default();
-                                let label_values =
-                                    extract_label_values(record, &annotation.labels, &config);
+                                let label_values = extract_label_values(
+                                    record,
+                                    &annotation.labels,
+                                    &self.label_extraction_config,
+                                );
                                 self.record_label_extract_time(
                                     extract_start.elapsed().as_micros() as u64
                                 )
@@ -600,9 +606,11 @@ impl ProcessorMetricsHelper {
 
                                 // Extract label values using enhanced extraction with nested field support
                                 let extract_start = Instant::now();
-                                let config = LabelExtractionConfig::default();
-                                let label_values =
-                                    extract_label_values(record, &annotation.labels, &config);
+                                let label_values = extract_label_values(
+                                    record,
+                                    &annotation.labels,
+                                    &self.label_extraction_config,
+                                );
                                 self.record_label_extract_time(
                                     extract_start.elapsed().as_micros() as u64
                                 )
@@ -772,9 +780,11 @@ impl ProcessorMetricsHelper {
 
                                 // Extract label values using enhanced extraction with nested field support
                                 let extract_start = Instant::now();
-                                let config = LabelExtractionConfig::default();
-                                let label_values =
-                                    extract_label_values(record, &annotation.labels, &config);
+                                let label_values = extract_label_values(
+                                    record,
+                                    &annotation.labels,
+                                    &self.label_extraction_config,
+                                );
                                 self.record_label_extract_time(
                                     extract_start.elapsed().as_micros() as u64
                                 )
