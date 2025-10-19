@@ -640,9 +640,9 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, rate(velo_error_messages_total{job=~\"velo.*\"}[5m]))",
+          "expr": "topk(5, velo_error_message)",
           "interval": "",
-          "legendFormat": "{{error_type}}",
+          "legendFormat": "{{message}}",
           "refId": "A"
         }
       ],

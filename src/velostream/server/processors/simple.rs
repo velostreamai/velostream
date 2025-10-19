@@ -849,27 +849,40 @@ impl SimpleJobProcessor {
             source_batches.push((source_name.clone(), batch, deser_start, deser_duration));
         }
 
-        // Create batch span with trace context from first non-empty batch
+        // Create parent batch span for the overall multi-source batch operation
         let first_batch = source_batches
             .iter()
             .find(|(_, batch, _, _)| !batch.is_empty())
             .map(|(_, batch, _, _)| batch.as_slice())
             .unwrap_or(&[]);
 
-        let mut batch_span_guard = ObservabilityHelper::start_batch_span(
+        let mut parent_batch_span_guard = ObservabilityHelper::start_batch_span(
             &self.observability,
             job_name,
             stats.batches_processed,
             first_batch,
         );
 
-        // Now process all collected batches
+        // Now process all collected batches with per-source batch spans
         for (source_name, batch, deser_start, deser_duration) in source_batches {
-            // Record deserialization telemetry and metrics
+            // Create per-source batch span linked to parent batch span for proper tracing
+            // This ensures each source's data is traced independently while maintaining parent-child relationship
+            debug!(
+                "🔗 Creating per-source batch span for source '{}' linked to parent batch span",
+                source_name
+            );
+            let mut source_batch_span_guard = ObservabilityHelper::start_batch_span(
+                &self.observability,
+                &format!("{} (source: {})", job_name, source_name),
+                stats.batches_processed,
+                if !batch.is_empty() { &batch } else { &[] },
+            );
+
+            // Record deserialization telemetry and metrics on per-source span
             ObservabilityHelper::record_deserialization(
                 &self.observability,
                 job_name,
-                &batch_span_guard,
+                &source_batch_span_guard,
                 batch.len(),
                 deser_duration,
                 None,
@@ -895,11 +908,11 @@ impl SimpleJobProcessor {
             let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
             let sql_duration = sql_start.elapsed().as_millis() as u64;
 
-            // Record SQL processing telemetry and metrics
+            // Record SQL processing telemetry and metrics on per-source span
             ObservabilityHelper::record_sql_processing(
                 &self.observability,
                 job_name,
-                &batch_span_guard,
+                &source_batch_span_guard,
                 &batch_result,
                 sql_duration,
             );
@@ -985,7 +998,7 @@ impl SimpleJobProcessor {
         if should_commit {
             // Inject trace context into all output records for distributed tracing
             ObservabilityHelper::inject_trace_context_into_records(
-                &batch_span_guard,
+                &parent_batch_span_guard,
                 &mut all_output_records,
                 job_name,
             );
@@ -1014,7 +1027,7 @@ impl SimpleJobProcessor {
                             ObservabilityHelper::record_serialization_success(
                                 &self.observability,
                                 job_name,
-                                &batch_span_guard,
+                                &parent_batch_span_guard,
                                 all_output_records.len(),
                                 ser_duration,
                                 None,
@@ -1060,7 +1073,7 @@ impl SimpleJobProcessor {
                                 ObservabilityHelper::record_serialization_success(
                                     &self.observability,
                                     job_name,
-                                    &batch_span_guard,
+                                    &parent_batch_span_guard,
                                     all_output_records.len(),
                                     ser_duration,
                                     None,
@@ -1143,7 +1156,7 @@ impl SimpleJobProcessor {
             );
 
             // Complete batch span with success
-            if let Some(ref mut batch_span) = batch_span_guard {
+            if let Some(ref mut batch_span) = parent_batch_span_guard {
                 let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);
@@ -1167,7 +1180,7 @@ impl SimpleJobProcessor {
             );
 
             // Complete batch span with error
-            if let Some(ref mut batch_span) = batch_span_guard {
+            if let Some(ref mut batch_span) = parent_batch_span_guard {
                 let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);

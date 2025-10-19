@@ -357,28 +357,30 @@ impl TelemetryProvider {
             ));
         }
 
-        // Start span with parent context if provided for proper parent-child hierarchy
-        let mut span = if let Some(parent_ctx) = parent_context {
-            use opentelemetry::trace::{TraceContextExt, Tracer as _};
-            // Create a context with the parent span context for proper parent-child relationship
-            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start_with_context(&tracer, &parent_cx)
-        } else {
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start(&tracer)
-        };
+        // Start span with parent context using Span Links (Send-safe across async boundaries)
+        // Span Links preserve parent-child relationships without requiring ContextGuard (!Send)
+        let mut span_builder = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Internal)
+            .with_attributes(attributes);
 
+        // Add parent span as a link if provided (async-boundary safe alternative to ContextGuard)
+        if let Some(parent_ctx) = parent_context {
+            if parent_ctx.is_valid() {
+                log::debug!(
+                    "🔗 Linking SQL query span to parent span: {}",
+                    parent_ctx.trace_id()
+                );
+                span_builder = span_builder
+                    .with_links(vec![opentelemetry::trace::Link::new(parent_ctx, vec![])]);
+            }
+        }
+
+        let mut span = span_builder.start(&tracer);
         span.set_status(Status::Ok);
 
         log::debug!(
-            "🔍 Started SQL query span: {} from source: {} (child of parent span, exporting to Tempo)",
+            "🔍 Started SQL query span: {} from source: {} (linked to parent, exporting to Tempo)",
             operation_name,
             source
         );
@@ -429,28 +431,30 @@ impl TelemetryProvider {
             ));
         }
 
-        // Start span with parent context if provided for proper parent-child hierarchy
-        let mut span = if let Some(parent_ctx) = parent_context {
-            use opentelemetry::trace::{TraceContextExt, Tracer as _};
-            // Create a context with the parent span context for proper parent-child relationship
-            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start_with_context(&tracer, &parent_cx)
-        } else {
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start(&tracer)
-        };
+        // Start span with parent context using Span Links (Send-safe across async boundaries)
+        // Span Links preserve parent-child relationships without requiring ContextGuard (!Send)
+        let mut span_builder = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Internal)
+            .with_attributes(attributes);
 
+        // Add parent span as a link if provided (async-boundary safe alternative to ContextGuard)
+        if let Some(parent_ctx) = parent_context {
+            if parent_ctx.is_valid() {
+                log::debug!(
+                    "🔗 Linking streaming span to parent span: {}",
+                    parent_ctx.trace_id()
+                );
+                span_builder = span_builder
+                    .with_links(vec![opentelemetry::trace::Link::new(parent_ctx, vec![])]);
+            }
+        }
+
+        let mut span = span_builder.start(&tracer);
         span.set_status(Status::Ok);
 
         log::debug!(
-            "🔍 Started streaming span: {} with {} records (child of parent span, exporting to Tempo)",
+            "🔍 Started streaming span: {} with {} records (linked to parent, exporting to Tempo)",
             operation,
             record_count
         );
@@ -464,6 +468,7 @@ impl TelemetryProvider {
         job_name: &str,
         function: &str,
         window_type: &str,
+        parent_context: Option<opentelemetry::trace::SpanContext>,
     ) -> AggregationSpan {
         if !self.active {
             return AggregationSpan::new_inactive();
@@ -498,16 +503,30 @@ impl TelemetryProvider {
             ));
         }
 
-        let mut span = tracer
+        // Start span with parent context using Span Links (Send-safe across async boundaries)
+        // Span Links preserve parent-child relationships without requiring ContextGuard (!Send)
+        let mut span_builder = tracer
             .span_builder(format!("aggregation:{}", function))
             .with_kind(SpanKind::Internal)
-            .with_attributes(attributes)
-            .start(&tracer);
+            .with_attributes(attributes);
 
+        // Add parent span as a link if provided (async-boundary safe alternative to ContextGuard)
+        if let Some(parent_ctx) = parent_context {
+            if parent_ctx.is_valid() {
+                log::debug!(
+                    "🔗 Linking aggregation span to parent span: {}",
+                    parent_ctx.trace_id()
+                );
+                span_builder = span_builder
+                    .with_links(vec![opentelemetry::trace::Link::new(parent_ctx, vec![])]);
+            }
+        }
+
+        let mut span = span_builder.start(&tracer);
         span.set_status(Status::Ok);
 
         log::debug!(
-            "🔍 Started aggregation span: {} with window: {} (exporting to Tempo)",
+            "🔍 Started aggregation span: {} with window: {} (linked to parent, exporting to Tempo)",
             function,
             window_type
         );
@@ -575,27 +594,30 @@ impl TelemetryProvider {
             ));
         }
 
-        // Start span with parent context if provided
-        let mut span = if let Some(parent_ctx) = parent_context {
-            use opentelemetry::trace::{TraceContextExt, Tracer as _};
-            let parent_cx = opentelemetry::Context::current().with_remote_span_context(parent_ctx);
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start_with_context(&tracer, &parent_cx)
-        } else {
-            tracer
-                .span_builder(span_name)
-                .with_kind(SpanKind::Internal)
-                .with_attributes(attributes)
-                .start(&tracer)
-        };
+        // Start span with parent context using Span Links (Send-safe across async boundaries)
+        // Span Links preserve parent-child relationships without requiring ContextGuard (!Send)
+        let mut span_builder = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Internal)
+            .with_attributes(attributes);
 
+        // Add parent span as a link if provided (async-boundary safe alternative to ContextGuard)
+        if let Some(parent_ctx) = parent_context {
+            if parent_ctx.is_valid() {
+                log::debug!(
+                    "🔗 Linking profiling phase span to parent span: {}",
+                    parent_ctx.trace_id()
+                );
+                span_builder = span_builder
+                    .with_links(vec![opentelemetry::trace::Link::new(parent_ctx, vec![])]);
+            }
+        }
+
+        let mut span = span_builder.start(&tracer);
         span.set_status(Status::Ok);
 
         log::debug!(
-            "🔍 Started profiling phase span: {} (phase: {}, records: {}, latency: {}ms)",
+            "🔍 Started profiling phase span: {} (phase: {}, records: {}, latency: {}ms, linked to parent)",
             job_name,
             phase,
             record_count,
@@ -603,6 +625,83 @@ impl TelemetryProvider {
         );
 
         StreamingSpan::new_active(span, record_count)
+    }
+
+    /// Create a new trace span for job lifecycle events (submit, queue, execute, complete)
+    ///
+    /// # Arguments
+    /// * `job_name` - Name of the job
+    /// * `lifecycle_event` - Event type: "submit", "queue", "execute", or "complete"
+    /// * `parent_context` - Optional parent span context for linking
+    pub fn start_job_lifecycle_span(
+        &self,
+        job_name: &str,
+        lifecycle_event: &str,
+        parent_context: Option<opentelemetry::trace::SpanContext>,
+    ) -> StreamingSpan {
+        if !self.active {
+            return StreamingSpan::new_inactive();
+        }
+
+        let tracer = global::tracer(self.config.service_name.clone());
+        let span_name = format!("job.lifecycle:{}", lifecycle_event);
+
+        // Build attributes with deployment context
+        let mut attributes = vec![
+            KeyValue::new("job.name", job_name.to_string()),
+            KeyValue::new("job.lifecycle_event", lifecycle_event.to_string()),
+            KeyValue::new("span.kind", "internal"),
+        ];
+
+        // Add deployment context attributes if set
+        if let Some(ref node_id) = self.deployment_node_id {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
+                node_id.clone(),
+            ));
+        }
+        if let Some(ref node_name) = self.deployment_node_name {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::HOST_NAME,
+                node_name.clone(),
+            ));
+        }
+        if let Some(ref region) = self.deployment_region {
+            attributes.push(KeyValue::new(
+                opentelemetry_semantic_conventions::resource::CLOUD_REGION,
+                region.clone(),
+            ));
+        }
+
+        // Start span with parent context using Span Links (Send-safe across async boundaries)
+        let mut span_builder = tracer
+            .span_builder(span_name)
+            .with_kind(SpanKind::Internal)
+            .with_attributes(attributes);
+
+        // Link to parent span if provided
+        if let Some(parent_ctx) = parent_context {
+            if parent_ctx.is_valid() {
+                log::debug!(
+                    "🔗 Linking job lifecycle span ({}) to parent span: {}",
+                    lifecycle_event,
+                    parent_ctx.trace_id()
+                );
+                span_builder = span_builder
+                    .with_links(vec![opentelemetry::trace::Link::new(parent_ctx, vec![])]);
+            }
+        }
+
+        let mut span = span_builder.start(&tracer);
+        span.set_status(Status::Ok);
+
+        log::info!(
+            "📍 Job lifecycle event: {} -> {} (exporting to Tempo)",
+            job_name,
+            lifecycle_event
+        );
+
+        StreamingSpan::new_active(span, 0)
     }
 
     /// Extract operation name from SQL query for span naming

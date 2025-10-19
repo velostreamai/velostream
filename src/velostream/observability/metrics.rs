@@ -374,16 +374,16 @@ impl MetricsProvider {
         &self,
         cpu_usage: f64,
         memory_usage: u64,
-        active_connections: i64,
+        active_jobs: i64,
     ) {
         if self.active {
             self.system_metrics
-                .update(cpu_usage, memory_usage, active_connections);
+                .update(cpu_usage, memory_usage, active_jobs);
             log::trace!(
-                "📊 Updated system metrics: cpu={:.2}%, memory={}MB, connections={}",
+                "📊 Updated system metrics: cpu={:.2}%, memory={}MB, active_jobs={}",
                 cpu_usage,
                 memory_usage / (1024 * 1024),
-                active_connections
+                active_jobs
             );
         }
     }
@@ -407,13 +407,6 @@ impl MetricsProvider {
 
     /// Get metrics statistics for monitoring
     pub fn get_stats(&self) -> MetricsStats {
-        // For per-node metrics, get from "unknown" node (default if not set)
-        let active_connections = self
-            .system_metrics
-            .active_connections
-            .with_label_values(&["unknown", "unknown", "unknown"])
-            .get();
-
         // For labeled metrics, retrieve using "unknown" labels for backward compatibility
         let sql_queries_total = self
             .sql_metrics
@@ -433,7 +426,6 @@ impl MetricsProvider {
             streaming_operations_total: self.streaming_metrics.get_total_operations(),
             records_processed_total,
             records_streamed_total: self.streaming_metrics.get_total_records(),
-            active_connections,
         }
     }
 
@@ -1240,7 +1232,6 @@ pub struct MetricsStats {
     pub streaming_operations_total: u64,
     pub records_processed_total: u64,
     pub records_streamed_total: u64,
-    pub active_connections: i64,
 }
 
 /// SQL execution metrics
@@ -1866,7 +1857,8 @@ struct SystemMetrics {
     // Per-node system resource metrics with node_id, node_name, region labels
     cpu_usage: GaugeVec, // velo_cpu_usage_percent{node_id, node_name, region}
     memory_usage: IntGaugeVec, // velo_memory_usage_bytes{node_id, node_name, region}
-    active_connections: IntGaugeVec, // velo_active_connections{node_id, node_name, region}
+    active_jobs: IntGauge, // velo_active_jobs - Number of currently active jobs
+    up: IntGaugeVec, // up{job} - Standard Prometheus metric indicating service availability (1=UP, 0=DOWN)
     // Current node context
     node_id: Arc<Mutex<Option<String>>>,
     node_name: Arc<Mutex<Option<String>>>,
@@ -1901,23 +1893,41 @@ impl SystemMetrics {
             message: format!("Failed to register memory metrics: {}", e),
         })?;
 
-        // Register active connections gauge with per-node labels
-        let active_connections = register_int_gauge_vec_with_registry!(
+        // Register active jobs gauge
+        let active_jobs = register_int_gauge_with_registry!(
             Opts::new(
-                "velo_active_connections",
-                "Number of active connections per node"
+                "velo_active_jobs",
+                "Number of currently active jobs"
             ),
-            &["node_id", "node_name", "region"],
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
-            message: format!("Failed to register connection metrics: {}", e),
+            message: format!("Failed to register active jobs metric: {}", e),
         })?;
+
+        // Register standard Prometheus "up" metric indicating service availability
+        // This metric is required for Grafana health dashboards and service monitoring
+        // Value: 1 = UP, 0 = DOWN
+        let up = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "up",
+                "Velostream telemetry service availability (1=UP, 0=DOWN)"
+            ),
+            &["job"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register 'up' metric: {}", e),
+        })?;
+
+        // Initialize the 'up' metric with value 1 (service is UP)
+        up.with_label_values(&["velostream-telemetry"]).set(1);
 
         Ok(Self {
             cpu_usage,
             memory_usage,
-            active_connections,
+            active_jobs,
+            up,
             node_id: Arc::new(Mutex::new(None)),
             node_name: Arc::new(Mutex::new(None)),
             region: Arc::new(Mutex::new(None)),
@@ -1951,7 +1961,7 @@ impl SystemMetrics {
         Ok(())
     }
 
-    fn update(&self, cpu_usage: f64, memory_usage: u64, active_connections: i64) {
+    fn update(&self, cpu_usage: f64, memory_usage: u64, active_jobs: i64) {
         // Get current label values
         let node_id = self
             .node_id
@@ -1981,8 +1991,6 @@ impl SystemMetrics {
         self.memory_usage
             .with_label_values(label_values)
             .set(memory_usage as i64);
-        self.active_connections
-            .with_label_values(label_values)
-            .set(active_connections);
+        self.active_jobs.set(active_jobs);
     }
 }
