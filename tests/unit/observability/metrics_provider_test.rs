@@ -95,7 +95,9 @@ fn test_streaming_metrics_creation() {
 #[test]
 fn test_system_metrics_creation() {
     let config = PrometheusConfig::default();
-    assert!(config.enable_histograms || !config.enable_histograms); // Config created successfully
+    // Verify config is created with valid default values
+    assert!(!config.metrics_path.is_empty());
+    assert!(config.port > 0);
 }
 
 // ===== Dynamic Counter Metrics Tests =====
