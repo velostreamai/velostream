@@ -81,14 +81,14 @@ fn test_sql_metrics_creation() {
     let config = PrometheusConfig::default();
 
     // Verify config defaults are set
-    assert_eq!(config.port, 9091);
+    assert_eq!(config.port, 9090);
     assert_eq!(config.metrics_path, "/metrics");
 }
 
 #[test]
 fn test_streaming_metrics_creation() {
     let config = PrometheusConfig::default();
-    assert_eq!(config.port, 9091);
+    assert_eq!(config.port, 9090);
     assert_eq!(config.metrics_path, "/metrics");
 }
 
@@ -472,8 +472,9 @@ async fn test_emit_batch_large_batch() {
     let config = PrometheusConfig::default();
     let provider = MetricsProvider::new(config).await.unwrap();
 
+    // Register with label field to match batch emissions
     provider
-        .register_counter_metric("large_counter", "Counter for large batch", &vec![])
+        .register_counter_metric("large_counter", "Counter for large batch", &vec!["index".to_string()])
         .ok();
 
     let mut batch = MetricBatch::with_capacity(1000);

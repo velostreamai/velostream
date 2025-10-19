@@ -125,22 +125,10 @@ mod tests {
     async fn test_telemetry_snapshot() {
         let helper = ProcessorMetricsHelper::new();
 
-        // In telemetry-enabled builds: values should accumulate
-        // In disabled builds: values remain zero
-        #[cfg(feature = "telemetry")]
-        {
-            helper.record_condition_eval_time(100);
-            let telemetry = helper.get_telemetry().await;
-            assert!(telemetry.condition_eval_time_us > 0);
-        }
-
-        #[cfg(not(feature = "telemetry"))]
-        {
-            helper.record_condition_eval_time(100);
-            let telemetry = helper.get_telemetry().await;
-            // No-op: telemetry should be zero
-            assert_eq!(telemetry.condition_eval_time_us, 0);
-        }
+        // Telemetry is always enabled now (not feature-gated)
+        helper.record_condition_eval_time(100);
+        let telemetry = helper.get_telemetry().await;
+        assert!(telemetry.condition_eval_time_us > 0);
     }
 
     /// Test 10: Reset telemetry
@@ -148,22 +136,12 @@ mod tests {
     async fn test_reset_telemetry() {
         let helper = ProcessorMetricsHelper::new();
 
-        #[cfg(feature = "telemetry")]
-        {
-            helper.record_condition_eval_time(100);
-            helper.reset_telemetry().await;
-            let telemetry = helper.get_telemetry().await;
-            // After reset, should be zero
-            assert_eq!(telemetry.condition_eval_time_us, 0);
-        }
-
-        #[cfg(not(feature = "telemetry"))]
-        {
-            // Reset is no-op when feature disabled
-            helper.reset_telemetry().await;
-            let telemetry = helper.get_telemetry().await;
-            assert_eq!(telemetry.condition_eval_time_us, 0);
-        }
+        // Telemetry is always enabled now (not feature-gated)
+        helper.record_condition_eval_time(100);
+        helper.reset_telemetry().await;
+        let telemetry = helper.get_telemetry().await;
+        // After reset, should be zero
+        assert_eq!(telemetry.condition_eval_time_us, 0);
     }
 
     /// Test 11: Telemetry overhead is negligible
