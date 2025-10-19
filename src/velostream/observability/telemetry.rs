@@ -159,11 +159,20 @@ impl TelemetryProvider {
         ]);
 
         // Create tracer provider with batch exporter
+        // Use config sampling ratio instead of hardcoded 100%
+        let sampler = if config.sampling_ratio >= 0.99 {
+            Sampler::ParentBased(Box::new(Sampler::AlwaysOn))
+        } else if config.sampling_ratio <= 0.01 {
+            Sampler::ParentBased(Box::new(Sampler::AlwaysOff))
+        } else {
+            Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.sampling_ratio)))
+        };
+
         let provider = TracerProvider::builder()
             .with_batch_exporter(exporter, runtime::Tokio)
             .with_config(
                 opentelemetry_sdk::trace::config()
-                    .with_sampler(Sampler::ParentBased(Box::new(Sampler::AlwaysOn)))
+                    .with_sampler(sampler)
                     .with_id_generator(RandomIdGenerator::default())
                     .with_resource(resource),
             )
@@ -173,7 +182,10 @@ impl TelemetryProvider {
         global::set_tracer_provider(provider);
 
         log::info!("✅ OpenTelemetry tracer initialized - spans will be exported to Tempo");
-        log::info!("🔍 Trace sampling: 100% (AlwaysOn for demo)");
+        log::info!(
+            "🔍 Trace sampling: {:.1}% (using config sampling_ratio)",
+            config.sampling_ratio * 100.0
+        );
 
         Ok(Self {
             config,

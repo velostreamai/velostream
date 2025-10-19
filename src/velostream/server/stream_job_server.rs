@@ -260,6 +260,7 @@ impl StreamJobServer {
         // Spawn background task to periodically collect system metrics
         if let Some(ref obs_mgr) = observability {
             let obs_manager_clone = Arc::clone(obs_mgr);
+            let jobs_clone = Arc::clone(&server.jobs);
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
                 loop {
@@ -267,22 +268,46 @@ impl StreamJobServer {
 
                     let obs_lock = obs_manager_clone.read().await;
                     if let Some(metrics_provider) = obs_lock.metrics() {
-                        // Collect simulated system metrics
-                        // In production, these would come from actual system monitoring
-                        let cpu_usage = 45.5; // Fixed CPU for demo
-                        let memory_usage = 1024 * 1024 * 512; // 512 MB
-                        let active_connections = 15i64;
+                        // Collect real system metrics using sysinfo
+                        let (cpu_usage, memory_usage) = tokio::task::spawn_blocking(|| {
+                            use sysinfo::System;
+                            let mut system = System::new_all();
+                            system.refresh_all();
+
+                            // Get average CPU usage across all cores
+                            let total_cpu: f64 =
+                                system.cpus().iter().map(|cpu| cpu.cpu_usage() as f64).sum();
+                            let cpu_count = system.cpus().len() as f64;
+                            let avg_cpu = if cpu_count > 0.0 {
+                                (total_cpu / cpu_count).min(100.0)
+                            } else {
+                                0.0
+                            };
+
+                            // Get used memory
+                            let used_memory = system.used_memory();
+
+                            (avg_cpu, used_memory)
+                        })
+                        .await
+                        .unwrap_or((0.0, 0));
+
+                        // Count active jobs (number of currently running jobs)
+                        let active_jobs = jobs_clone
+                            .try_read()
+                            .map(|jobs| jobs.len() as i64)
+                            .unwrap_or(0);
 
                         metrics_provider.update_system_metrics(
                             cpu_usage,
                             memory_usage,
-                            active_connections,
+                            active_jobs,
                         );
                         debug!(
-                            "Updated system metrics: cpu={:.1}%, memory={}MB, connections={}",
+                            "Updated system metrics: cpu={:.1}%, memory={}MB, active_jobs={}",
                             cpu_usage,
                             memory_usage / (1024 * 1024),
-                            active_connections
+                            active_jobs
                         );
                     }
                 }
@@ -299,6 +324,10 @@ impl StreamJobServer {
         if let Some(ref obs_manager) = self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if let Some(metrics_provider) = obs_lock.metrics() {
+                    // Sync error metrics to Prometheus gauges before export
+                    // This ensures error buffer data is current in the exported metrics
+                    metrics_provider.sync_error_metrics();
+
                     // Export Prometheus metrics from the MetricsProvider
                     return metrics_provider.get_metrics_text().ok();
                 }
@@ -311,6 +340,10 @@ impl StreamJobServer {
                 if let Some(ref job_obs) = job.observability {
                     if let Ok(obs_lock) = job_obs.try_read() {
                         if let Some(metrics_provider) = obs_lock.metrics() {
+                            // Sync error metrics to Prometheus gauges before export
+                            // This ensures error buffer data is current in the exported metrics
+                            metrics_provider.sync_error_metrics();
+
                             // Return metrics from the first job that has them
                             // Note: All jobs share the same MetricsProvider via Arc, so any job's metrics will have all data
                             return metrics_provider.get_metrics_text().ok();
