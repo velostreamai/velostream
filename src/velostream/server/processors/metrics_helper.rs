@@ -107,7 +107,8 @@ impl AtomicMetricsPerformanceTelemetry {
     pub fn record_condition_eval_time(&self, duration_us: u64) {
         let current = self.condition_eval_time_us.load(Ordering::Relaxed);
         let new_value = current.saturating_add(duration_us);
-        self.condition_eval_time_us.store(new_value, Ordering::Relaxed);
+        self.condition_eval_time_us
+            .store(new_value, Ordering::Relaxed);
     }
 
     /// Record label extraction time (lock-free, no async required)
@@ -115,7 +116,8 @@ impl AtomicMetricsPerformanceTelemetry {
     pub fn record_label_extract_time(&self, duration_us: u64) {
         let current = self.label_extract_time_us.load(Ordering::Relaxed);
         let new_value = current.saturating_add(duration_us);
-        self.label_extract_time_us.store(new_value, Ordering::Relaxed);
+        self.label_extract_time_us
+            .store(new_value, Ordering::Relaxed);
     }
 
     /// Record total emission overhead (lock-free, no async required)
@@ -123,7 +125,8 @@ impl AtomicMetricsPerformanceTelemetry {
     pub fn record_emission_overhead(&self, duration_us: u64) {
         let current = self.total_emission_overhead_us.load(Ordering::Relaxed);
         let new_value = current.saturating_add(duration_us);
-        self.total_emission_overhead_us.store(new_value, Ordering::Relaxed);
+        self.total_emission_overhead_us
+            .store(new_value, Ordering::Relaxed);
     }
 
     /// Get current condition evaluation time (atomic load)

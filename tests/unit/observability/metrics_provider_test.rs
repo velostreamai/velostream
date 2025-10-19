@@ -474,7 +474,11 @@ async fn test_emit_batch_large_batch() {
 
     // Register with label field to match batch emissions
     provider
-        .register_counter_metric("large_counter", "Counter for large batch", &vec!["index".to_string()])
+        .register_counter_metric(
+            "large_counter",
+            "Counter for large batch",
+            &vec!["index".to_string()],
+        )
         .ok();
 
     let mut batch = MetricBatch::with_capacity(1000);
