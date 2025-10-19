@@ -370,12 +370,7 @@ impl MetricsProvider {
     }
 
     /// Update system resource metrics
-    pub fn update_system_metrics(
-        &self,
-        cpu_usage: f64,
-        memory_usage: u64,
-        active_jobs: i64,
-    ) {
+    pub fn update_system_metrics(&self, cpu_usage: f64, memory_usage: u64, active_jobs: i64) {
         if self.active {
             self.system_metrics
                 .update(cpu_usage, memory_usage, active_jobs);
@@ -1895,10 +1890,7 @@ impl SystemMetrics {
 
         // Register active jobs gauge
         let active_jobs = register_int_gauge_with_registry!(
-            Opts::new(
-                "velo_active_jobs",
-                "Number of currently active jobs"
-            ),
+            Opts::new("velo_active_jobs", "Number of currently active jobs"),
             registry
         )
         .map_err(|e| SqlError::ConfigurationError {
