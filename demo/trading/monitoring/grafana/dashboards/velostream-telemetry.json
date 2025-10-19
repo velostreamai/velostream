@@ -924,7 +924,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "SQL-native metric emission latency (FR-073)",
+      "description": "Job-specific SQL latency breakdown",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -970,7 +970,7 @@
               }
             ]
           },
-          "unit": "µs"
+          "unit": "ms"
         },
         "overrides": []
       },
@@ -983,10 +983,7 @@
       "id": 11,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
+          "calcs": ["mean", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1002,8 +999,8 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_sql_metric_emission_duration_seconds_sum[1m]) / rate(velo_sql_metric_emission_duration_seconds_count[1m]) * 1000000",
-          "legendFormat": "Metric Emission (avg)",
+          "expr": "histogram_quantile(0.95, rate(velo_sql_query_duration_by_job_seconds_bucket[1m])) * 1000",
+          "legendFormat": "{{job_name}} (p95)",
           "refId": "A"
         },
         {
@@ -1011,21 +1008,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "histogram_quantile(0.95, rate(velo_sql_metric_emission_duration_seconds_bucket[1m])) * 1000000",
-          "legendFormat": "Metric Emission (p95)",
+          "expr": "histogram_quantile(0.99, rate(velo_sql_query_duration_by_job_seconds_bucket[1m])) * 1000",
+          "legendFormat": "{{job_name}} (p99)",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "histogram_quantile(0.99, rate(velo_sql_metric_emission_duration_seconds_bucket[1m])) * 1000000",
-          "legendFormat": "Metric Emission (p99)",
-          "refId": "C"
         }
       ],
-      "title": "SQL-Native Metric Emission Latency",
+      "title": "Job-Specific SQL Latency",
       "type": "timeseries"
     },
     {
@@ -1033,7 +1021,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Condition evaluation overhead for conditional metrics (FR-073)",
+      "description": "Profiling phase performance breakdown",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1079,7 +1067,7 @@
               }
             ]
           },
-          "unit": "µs"
+          "unit": "ms"
         },
         "overrides": []
       },
@@ -1092,10 +1080,7 @@
       "id": 12,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
+          "calcs": ["mean", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1111,8 +1096,8 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_sql_condition_evaluation_duration_seconds_sum[1m]) / rate(velo_sql_condition_evaluation_duration_seconds_count[1m]) * 1000000",
-          "legendFormat": "Condition Evaluation (avg)",
+          "expr": "histogram_quantile(0.95, rate(velo_profiling_phase_duration_seconds_bucket[1m])) * 1000",
+          "legendFormat": "{{job_name}} - {{phase}} (p95)",
           "refId": "A"
         },
         {
@@ -1120,21 +1105,12 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "histogram_quantile(0.95, rate(velo_sql_condition_evaluation_duration_seconds_bucket[1m])) * 1000000",
-          "legendFormat": "Condition Evaluation (p95)",
+          "expr": "histogram_quantile(0.99, rate(velo_profiling_phase_duration_seconds_bucket[1m])) * 1000",
+          "legendFormat": "{{job_name}} - {{phase}} (p99)",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "histogram_quantile(0.99, rate(velo_sql_condition_evaluation_duration_seconds_bucket[1m])) * 1000000",
-          "legendFormat": "Condition Evaluation (p99)",
-          "refId": "C"
         }
       ],
-      "title": "Metric Condition Evaluation Overhead",
+      "title": "Profiling Phase Duration",
       "type": "timeseries"
     },
     {
@@ -1142,7 +1118,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Label extraction performance for SQL-native metrics (FR-073)",
+      "description": "Pipeline operation latencies by job",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1188,7 +1164,7 @@
               }
             ]
           },
-          "unit": "µs"
+          "unit": "ms"
         },
         "overrides": []
       },
@@ -1201,10 +1177,7 @@
       "id": 13,
       "options": {
         "legend": {
-          "calcs": [
-            "mean",
-            "max"
-          ],
+          "calcs": ["mean", "max"],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1220,8 +1193,8 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_sql_label_extraction_duration_seconds_sum[1m]) / rate(velo_sql_label_extraction_duration_seconds_count[1m]) * 1000000",
-          "legendFormat": "Label Extraction (avg)",
+          "expr": "histogram_quantile(0.95, rate(velo_pipeline_operation_duration_seconds_bucket[1m])) * 1000",
+          "legendFormat": "{{job_name}} - {{operation}} (p95)",
           "refId": "A"
         },
         {
@@ -1229,28 +1202,19 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "histogram_quantile(0.95, rate(velo_sql_label_extraction_duration_seconds_bucket[1m])) * 1000000",
-          "legendFormat": "Label Extraction (p95)",
+          "expr": "histogram_quantile(0.99, rate(velo_pipeline_operation_duration_seconds_bucket[1m])) * 1000",
+          "legendFormat": "{{job_name}} - {{operation}} (p99)",
           "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "histogram_quantile(0.99, rate(velo_sql_label_extraction_duration_seconds_bucket[1m])) * 1000000",
-          "legendFormat": "Label Extraction (p99)",
-          "refId": "C"
         }
       ],
-      "title": "Label Extraction Performance",
+      "title": "Pipeline Operation Duration",
       "type": "timeseries"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["velostream", "telemetry", "observability"],
+  "tags": ["velostream", "performance", "profiling", "metrics"],
   "templating": {
     "list": []
   },
@@ -1260,7 +1224,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Velostream Telemetry & Tracing",
+  "title": "Velostream Performance & Profiling",
   "uid": "velostream-telemetry",
   "version": 1,
   "weekStart": ""
