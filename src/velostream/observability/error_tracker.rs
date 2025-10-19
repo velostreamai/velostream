@@ -147,7 +147,9 @@ impl fmt::Display for ErrorEntry {
         };
 
         // Place deployment context at the beginning of the message for visibility
-        write!(f, "{}{} (count: {})", context_str, self.message, self.count)
+        // NOTE: We do NOT include (count: {}) here to allow proper deduplication
+        // The count is tracked in the ErrorEntry.count field separately
+        write!(f, "{}{}", context_str, self.message)
     }
 }
 
@@ -683,7 +685,8 @@ mod tests {
         let display_str = entry.to_string();
 
         assert!(display_str.contains("Test error"));
-        assert!(display_str.contains("count: 1"));
+        // Count is NOT included in display string - it's tracked separately in entry.count
+        assert!(!display_str.contains("count:"));
         assert!(!display_str.contains("node_id="));
     }
 
@@ -694,7 +697,8 @@ mod tests {
 
         assert!(display_str.contains("Test error"));
         assert!(display_str.contains("node=prod-node-1"));
-        assert!(display_str.contains("count: 1"));
+        // Count is NOT included in display string - it's tracked separately in entry.count
+        assert!(!display_str.contains("count:"));
     }
 
     #[test]
