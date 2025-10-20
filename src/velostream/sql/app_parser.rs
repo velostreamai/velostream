@@ -163,16 +163,13 @@ impl DeploymentConfig {
         // Split by | to get priority-ordered list
         let parts: Vec<&str> = spec.split('|').collect();
 
-        // Try primary variables (all but the last)
-        for part in &parts[..parts.len().saturating_sub(1)] {
-            if let Ok(value) = std::env::var(part) {
-                return value;
-            }
-        }
+        // Try all parts in order (each part may or may not have a default)
+        for (idx, part) in parts.iter().enumerate() {
+            let is_last = idx == parts.len() - 1;
 
-        // Handle the last part (may have default or special handling)
-        if let Some(last_part) = parts.last() {
-            if let Some((var_name, default)) = last_part.split_once(':') {
+            // Check if this part has a default (contains ':')
+            if let Some((var_name, default)) = part.split_once(':') {
+                // This part has a default
                 if let Ok(value) = std::env::var(var_name) {
                     return value;
                 } else if var_name == "NODE_ID" {
@@ -180,23 +177,27 @@ impl DeploymentConfig {
                     return hostname::get()
                         .map(|h| h.to_string_lossy().to_string())
                         .unwrap_or_else(|_| default.to_string());
-                } else {
+                } else if is_last {
+                    // Last part with default - use it
                     return default.to_string();
                 }
+                // Not last part, so continue to next in fallback chain
             } else {
-                // No default specified, just a var name
-                if let Ok(value) = std::env::var(last_part) {
+                // This part is just a variable name (no default)
+                if let Ok(value) = std::env::var(part) {
                     return value;
-                } else if *last_part == "NODE_ID" {
+                } else if *part == "NODE_ID" {
                     return hostname::get()
                         .map(|h| h.to_string_lossy().to_string())
                         .unwrap_or_else(|_| {
                             format!("node-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
                         });
                 }
+                // Variable not set, continue to next in fallback chain
             }
         }
 
+        // No variables found and no default was provided
         spec.to_string()
     }
 }
