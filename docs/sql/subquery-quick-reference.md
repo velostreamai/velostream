@@ -1,5 +1,11 @@
 # Subquery Quick Reference Guide
 
+**⚠️ STATUS: BETA (v0.1) - Only HAVING EXISTS/NOT EXISTS Work**
+
+This guide covers **currently implemented features**. See "Supported Patterns" section below for what works vs what errors.
+
+---
+
 ## 🔥 **Prerequisites: CTAS Table Creation**
 
 **CRITICAL**: All subquery operations require tables to be explicitly created via `CREATE TABLE AS SELECT` before use. This ensures shared state across multiple queries and prevents memory duplication.
@@ -35,9 +41,24 @@ FROM users u;
 
 ---
 
+## ⚠️ **Supported Patterns - What Works vs What Errors**
+
+### ✅ WORKS (Use These Now)
+- **HAVING EXISTS** - Filter aggregated groups
+- **HAVING NOT EXISTS** - Exclude groups based on existence
+
+### ❌ WILL ERROR (Coming Soon - Do Not Use)
+- **WHERE EXISTS** - Will throw "EXISTS subqueries are not yet implemented"
+- **WHERE NOT EXISTS** - Will throw "NOT EXISTS subqueries are not yet implemented"
+- **Scalar Subqueries** - Will throw "Scalar subqueries are not yet implemented" (even with MAX, MIN, AVG, SUM, COUNT)
+- **IN/NOT IN** - Will throw "not yet implemented" error
+- **ANY/ALL** - Will throw "unsupported in boolean context" error
+
+---
+
 ## Quick Syntax Guide
 
-### Scalar Subqueries with Aggregates ✅ **FULL SUPPORT**
+### Scalar Subqueries with Aggregates ⚠️ **NOT YET IMPLEMENTED**
 ```sql
 -- Simple field extraction
 SELECT user_id, (SELECT max_limit FROM config) as limit FROM users;
@@ -55,17 +76,19 @@ SELECT user_id,
 FROM users u;
 ```
 
-### EXISTS
+### EXISTS ⚠️ **NOT YET IMPLEMENTED (WHERE clause)**
 ```sql
+-- This will ERROR: "EXISTS subqueries are not yet implemented"
 SELECT * FROM orders WHERE EXISTS (SELECT 1 FROM customers WHERE id = orders.customer_id);
 ```
 
-### NOT EXISTS
+### NOT EXISTS ⚠️ **NOT YET IMPLEMENTED (WHERE clause)**
 ```sql
+-- This will ERROR: "NOT EXISTS subqueries are not yet implemented"
 SELECT * FROM users WHERE NOT EXISTS (SELECT 1 FROM blocked_users WHERE user_id = users.id);
 ```
 
-### EXISTS in HAVING Clauses ✅ **NEW**
+### EXISTS in HAVING Clauses ✅ **WORKS**
 ```sql
 -- Filter aggregated groups based on existence checks
 SELECT symbol, COUNT(*) as spike_count

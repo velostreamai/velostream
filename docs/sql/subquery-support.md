@@ -1,6 +1,10 @@
 # Table SQL Subquery Support in Velostream
 
-Velostream provides **production-ready** SQL subquery support with full Table integration, enabling complex analytical queries against real-time Table state. This feature enables advanced streaming SQL capabilities with complete subquery execution against Table data sources.
+**⚠️ STATUS: BETA (v0.1) - Limited Functionality**
+
+Velostream provides **partial** SQL subquery support with Table integration for specific use cases. Currently only **HAVING EXISTS/NOT EXISTS** subqueries are fully functional. Other subquery types (WHERE EXISTS, Scalar, IN/NOT IN, ANY/ALL) are **not yet implemented** and will return errors.
+
+This document describes both currently-working features and future planned capabilities.
 
 ## Table of Contents
 
@@ -17,13 +21,20 @@ Velostream provides **production-ready** SQL subquery support with full Table in
 
 Subqueries are nested SELECT statements that can be used within other SQL statements to perform complex data analysis. Velostream supports all standard SQL subquery types, adapted for streaming data processing.
 
-### Key Features
+### Currently Working Features
 
-- ✅ **Complete SQL Standard Support**: All major subquery types (EXISTS, IN, scalar, etc.)
-- ✅ **Streaming-Aware**: Designed for continuous data processing
-- ✅ **Type Safety**: Full Rust type system integration
-- ✅ **Performance Optimized**: Mock implementations ready for production enhancement
-- ✅ **Error Handling**: Comprehensive validation and error messages
+- ✅ **HAVING EXISTS/NOT EXISTS**: Full support in HAVING clauses with GROUP BY and WINDOW queries
+- ✅ **Parser**: Recognizes all SQL subquery syntax (no parse errors)
+- ✅ **Type System**: Integrated with FieldValue system
+- ✅ **Error Messages**: Clear error messages for unsupported features
+
+### Not Yet Implemented
+
+- ❌ **WHERE EXISTS/NOT EXISTS**: Returns "not yet implemented" error
+- ❌ **Scalar Subqueries**: Returns "not yet implemented" error (even with aggregates)
+- ❌ **IN/NOT IN Subqueries**: Returns "not yet implemented" error
+- ❌ **ANY/ALL Operators**: Returns "not yet implemented" error
+- ❌ **Subqueries in JOINs**: Parser limitation - not supported
 
 ### Architecture
 
@@ -450,13 +461,18 @@ WHERE customer_id IN (
 
 ## Current Status and Future Enhancements
 
-### Production Ready Features ✅
+### Implemented Features ✅
 
-1. **Complete Subquery Support**: All major subquery types (EXISTS, IN, scalar, ANY/ALL) implemented
-2. **Table Integration**: Full SqlQueryable trait implementation with ProcessorContext
-3. **Performance Optimization**: Direct HashMap access with CompactTable memory optimization
-4. **Type Safety**: Complete FieldValue integration with comprehensive error handling
-5. **WINDOW Support**: EXISTS/NOT EXISTS subqueries fully supported in HAVING clauses with WINDOW queries
+1. **HAVING EXISTS/NOT EXISTS**: Fully functional in HAVING clauses with GROUP BY and WINDOW queries
+2. **Parser**: Complete syntax support for all 7 subquery types
+3. **Error Handling**: Clear error messages for unimplemented features
+
+### Architecture / Infrastructure ✅ (Ready for Implementation)
+
+1. **SubqueryExecutor Trait**: Processor delegation pattern established
+2. **ProcessorContext**: State table access infrastructure in place
+3. **Expression Evaluator**: Recursive evaluation paths ready for extension
+4. **Type System**: FieldValue integration complete
 
 ### Future Enhancements
 
@@ -516,6 +532,19 @@ log::debug!("EXISTS subquery result: {:?}", result);
 
 ## Conclusion
 
-Velostream subquery support provides a solid foundation for complex streaming SQL analytics. The implementation follows SQL standards while being optimized for streaming contexts, offering both immediate utility through mock implementations and a clear path to production enhancement.
+Velostream subquery support is currently in **BETA with limited functionality (v0.1)**:
 
-For questions or contributions, see the main Velostream documentation or open an issue on GitHub.
+**Currently Usable:**
+- HAVING EXISTS and NOT EXISTS in GROUP BY and WINDOW queries work reliably
+- Use these patterns for filtering aggregated groups
+
+**Currently NOT Usable (Will Error):**
+- WHERE EXISTS/NOT EXISTS - not yet implemented
+- Scalar subqueries - not yet implemented
+- IN/NOT IN subqueries - not yet implemented
+- ANY/ALL operators - not yet implemented
+- Subqueries in JOINs - parser limitation
+
+**Roadmap:** Implementation will proceed in phases: WHERE EXISTS → Scalar Subqueries → IN/NOT IN → ANY/ALL. See `/docs/feature/fr-078-comprehensive-subquery-analysis.md` for detailed implementation plan.
+
+For workarounds and current capabilities, see the "Currently Working Features" section above. For questions or contributions, see the main Velostream documentation or open an issue on GitHub.
