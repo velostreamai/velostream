@@ -507,11 +507,12 @@ impl SelectProcessor {
                     }
                     SelectField::Expression { expr, alias } => {
                         // NEW: Use alias context-aware evaluator for expressions
-                        let value = ExpressionEvaluator::evaluate_expression_value_with_alias_context(
-                            expr,
-                            &joined_record,
-                            &alias_context,
-                        )?;
+                        let value =
+                            ExpressionEvaluator::evaluate_expression_value_with_alias_context(
+                                expr,
+                                &joined_record,
+                                &alias_context,
+                            )?;
                         let field_name = alias
                             .as_ref()
                             .unwrap_or(&Self::get_expression_name(expr))

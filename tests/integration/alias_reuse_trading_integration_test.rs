@@ -66,7 +66,10 @@ fn create_trade_record(
     fields.insert("price".to_string(), FieldValue::Float(price));
     fields.insert("avg_volume".to_string(), FieldValue::Float(avg_volume));
     fields.insert("avg_price".to_string(), FieldValue::Float(avg_price));
-    fields.insert("timestamp".to_string(), FieldValue::Integer(1000 + trade_id));
+    fields.insert(
+        "timestamp".to_string(),
+        FieldValue::Integer(1000 + trade_id),
+    );
 
     StreamRecord {
         fields,
@@ -119,20 +122,31 @@ mod trading_integration_tests {
         // Test case 1: Extreme spike (volume = 10x average)
         let record1 = create_trade_record(1, "AAPL", 10000.0, 150.0, 1000.0, 150.0);
         let result1 = engine.execute_with_record(&query, record1).await;
-        assert!(result1.is_ok(), "Query should execute for extreme spike case");
+        assert!(
+            result1.is_ok(),
+            "Query should execute for extreme spike case"
+        );
 
         let output1 = rx.try_recv().unwrap();
         // Spike ratio = 10000.0 / 1000.0 = 10.0
         match output1.fields.get("spike_ratio") {
             Some(FieldValue::Float(ratio)) => {
-                assert!((ratio - 10.0).abs() < 0.1, "Expected spike_ratio ~10.0, got {}", ratio);
+                assert!(
+                    (ratio - 10.0).abs() < 0.1,
+                    "Expected spike_ratio ~10.0, got {}",
+                    ratio
+                );
             }
             other => panic!("Expected spike_ratio Float(10.0), got {:?}", other),
         }
         // Spike percentage = 10.0 * 100 = 1000.0
         match output1.fields.get("spike_percentage") {
             Some(FieldValue::Float(pct)) => {
-                assert!((pct - 1000.0).abs() < 1.0, "Expected spike_percentage ~1000.0, got {}", pct);
+                assert!(
+                    (pct - 1000.0).abs() < 1.0,
+                    "Expected spike_percentage ~1000.0, got {}",
+                    pct
+                );
             }
             other => panic!("Expected spike_percentage Float(1000.0), got {:?}", other),
         }
@@ -201,7 +215,10 @@ mod trading_integration_tests {
         }
         match output1.fields.get("price_change_percent") {
             Some(FieldValue::Float(pct)) => {
-                assert!((pct - 10.0).abs() < 0.1, "Price change percent should be ~10%");
+                assert!(
+                    (pct - 10.0).abs() < 0.1,
+                    "Price change percent should be ~10%"
+                );
             }
             other => panic!("Expected price_change_percent Float(10.0), got {:?}", other),
         }
@@ -275,7 +292,11 @@ mod trading_integration_tests {
         // alert_score = 4.0333 * 2 = 8.0666
         match output2.fields.get("alert_score") {
             Some(FieldValue::Float(score)) => {
-                assert!(*score > 7.0 && *score < 10.0, "Expected alert_score between 7 and 10, got {}", score);
+                assert!(
+                    *score > 7.0 && *score < 10.0,
+                    "Expected alert_score between 7 and 10, got {}",
+                    score
+                );
             }
             other => panic!("Expected alert_score to be Float, got {:?}", other),
         }
@@ -359,7 +380,11 @@ mod trading_integration_tests {
         // risk_level = 6.05 * 10 = 60.5
         match output2.fields.get("risk_level") {
             Some(FieldValue::Float(risk)) => {
-                assert!(*risk > 50.0 && *risk < 70.0, "Expected risk_level between 50 and 70, got {}", risk);
+                assert!(
+                    *risk > 50.0 && *risk < 70.0,
+                    "Expected risk_level between 50 and 70, got {}",
+                    risk
+                );
             }
             other => panic!("Expected risk_level Float, got {:?}", other),
         }
@@ -408,7 +433,11 @@ mod trading_integration_tests {
         // roi_doubled = 30.0 * 2 = 60.0
         match output1.fields.get("roi_doubled") {
             Some(FieldValue::Float(roi)) => {
-                assert!((roi - 60.0).abs() < 1.0, "Expected roi_doubled ~60.0, got {}", roi);
+                assert!(
+                    (roi - 60.0).abs() < 1.0,
+                    "Expected roi_doubled ~60.0, got {}",
+                    roi
+                );
             }
             other => panic!("Expected roi_doubled Float, got {:?}", other),
         }
@@ -451,7 +480,11 @@ mod trading_integration_tests {
         let output = rx.try_recv().unwrap();
 
         // Should have exactly 3 fields: symbol, ratio, doubled_ratio
-        assert_eq!(output.fields.len(), 3, "Should have exactly 3 fields in output");
+        assert_eq!(
+            output.fields.len(),
+            3,
+            "Should have exactly 3 fields in output"
+        );
         assert!(output.fields.contains_key("symbol"));
         assert!(output.fields.contains_key("ratio"));
         assert!(output.fields.contains_key("doubled_ratio"));
@@ -496,7 +529,7 @@ mod trading_integration_tests {
         // Send multiple records with varying spike ratios
         let records = vec![
             create_trade_record(1, "AAPL", 5000.0, 150.0, 1000.0, 150.0), // ratio=5, score=50
-            create_trade_record(2, "MSFT", 2000.0, 300.0, 1000.0, 300.0),  // ratio=2, score=20
+            create_trade_record(2, "MSFT", 2000.0, 300.0, 1000.0, 300.0), // ratio=2, score=20
             create_trade_record(3, "GOOGL", 4500.0, 2800.0, 1000.0, 2800.0), // ratio=4.5, score=45
         ];
 
@@ -509,7 +542,11 @@ mod trading_integration_tests {
         let output1 = rx.try_recv().unwrap();
         match output1.fields.get("spike_score") {
             Some(FieldValue::Float(score)) => {
-                assert!((score - 50.0).abs() < 1.0, "Expected score ~50.0, got {}", score);
+                assert!(
+                    (score - 50.0).abs() < 1.0,
+                    "Expected score ~50.0, got {}",
+                    score
+                );
             }
             other => panic!("Expected spike_score Float, got {:?}", other),
         }
@@ -517,7 +554,11 @@ mod trading_integration_tests {
         let output2 = rx.try_recv().unwrap();
         match output2.fields.get("spike_score") {
             Some(FieldValue::Float(score)) => {
-                assert!((score - 20.0).abs() < 1.0, "Expected score ~20.0, got {}", score);
+                assert!(
+                    (score - 20.0).abs() < 1.0,
+                    "Expected score ~20.0, got {}",
+                    score
+                );
             }
             other => panic!("Expected spike_score Float, got {:?}", other),
         }
@@ -525,7 +566,11 @@ mod trading_integration_tests {
         let output3 = rx.try_recv().unwrap();
         match output3.fields.get("spike_score") {
             Some(FieldValue::Float(score)) => {
-                assert!((score - 45.0).abs() < 1.0, "Expected score ~45.0, got {}", score);
+                assert!(
+                    (score - 45.0).abs() < 1.0,
+                    "Expected score ~45.0, got {}",
+                    score
+                );
             }
             other => panic!("Expected spike_score Float, got {:?}", other),
         }
@@ -596,7 +641,11 @@ mod trading_integration_tests {
         // Verify normalized_risk
         match output.fields.get("normalized_risk") {
             Some(FieldValue::Float(norm_risk)) => {
-                assert!(*norm_risk > 50.0, "Expected normalized_risk > 50.0, got {}", norm_risk);
+                assert!(
+                    *norm_risk > 50.0,
+                    "Expected normalized_risk > 50.0, got {}",
+                    norm_risk
+                );
             }
             other => panic!("Expected normalized_risk Float, got {:?}", other),
         }

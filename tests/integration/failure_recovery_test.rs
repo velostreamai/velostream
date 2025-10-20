@@ -211,7 +211,10 @@ async fn test_consumer_graceful_degradation() {
 
     // Note: received_count may be 0 if Kafka connection issues occur, which is acceptable for degradation test
     // The test validates that the consumer handles errors gracefully, not that messages are always received
-    println!("📊 Received {} out of 3 sent messages (graceful degradation)", received_count);
+    println!(
+        "📊 Received {} out of 3 sent messages (graceful degradation)",
+        received_count
+    );
 }
 
 /// Test retry mechanisms with exponential backoff

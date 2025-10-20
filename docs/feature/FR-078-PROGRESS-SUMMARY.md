@@ -6,29 +6,76 @@
 
 ---
 
-## 📊 Overall Progress
+## 📊 FR-078 Master Status Dashboard
 
-### SELECT Column Alias Reuse (COMPLETE ✅)
+### Quick Stats
+```
+✅ SELECT Alias Reuse:        PRODUCTION READY (100%)
+⏳ Subquery Support:          30% complete (Phase 4 ready)
+📋 Window Frame Bounds:       Documented, Phase 5 (est. 8-12h)
+────────────────────────────────────────────────────
+Total Completed:             4/4 alias reuse phases ✅
+Total In Roadmap:            6 subquery/window phases
+Overall FR-078 Progress:     ~35% complete
+```
+
+### Phase Breakdown
+
+#### ✅ SELECT Column Alias Reuse (ALL 4 PHASES COMPLETE)
 ```
 Phase 1: Core Infrastructure   ✅ COMPLETE (SelectAliasContext, enhanced evaluator)
 Phase 2: SELECT Integration    ✅ COMPLETE (Non-grouped, GROUP BY, HAVING)
 Phase 3: Comprehensive Testing ✅ COMPLETE (17/17 tests passing - 9 unit + 8 integration)
 Phase 4: Documentation         ✅ COMPLETE (600+ line user guide)
 
-Current: 100% Complete | Production Ready 🚀
+Status:    100% COMPLETE | PRODUCTION READY 🚀
+Tests:     17/17 passing (9 unit + 8 integration)
+Commits:   3 commits (9f67405, 377e3af, ad4f464)
+Documentation: Comprehensive user guide + design doc
 ```
 
-### Subquery Support (READY FOR PHASE 4)
+#### ⏳ Subquery Support (PHASE 1-3 COMPLETE, PHASE 4 READY)
 ```
-Phase 1-2: Documentation    ✅ COMPLETE
-Phase 3:   Analysis         ✅ COMPLETE
-Phase 4:   WHERE EXISTS     ⏳ READY TO START (Est. 4-5 hours)
+Phase 1-2: Documentation    ✅ COMPLETE (2 commits, 71 insertions)
+Phase 3:   Architecture     ✅ COMPLETE (398 insertions, proven design)
+Phase 4:   WHERE EXISTS     ⏳ READY TO START (Est. 4-5 hours, LOW risk)
 Phase 5:   Scalar Subq      📋 PLANNED (Est. 5-7 days)
 Phase 6:   IN/NOT IN        📋 PLANNED (Est. 3-4 days)
 Phase 7:   ANY/ALL          📋 PLANNED (Est. 5-7 days)
 
-Current: 30% Complete | Remaining: ~18-23 days
+Status:    30% COMPLETE | Remaining: ~18-23 days
+Tests:     7 HAVING EXISTS tests passing
+Architecture: Zero blockers identified, fully analyzed
+Next:      WHERE EXISTS implementation ready
 ```
+
+#### 📋 Window Function Frame Bounds (PHASE 5 - DOCUMENTED LIMITATION)
+```
+Status:          DOCUMENTED (awaiting Phase 5 implementation)
+Limitation:      Frame bounds parsed but ignored in execution
+Affected:        SUM, COUNT, STDDEV aggregate functions
+Impact:          5 window functions in demo use frame bounds
+Effort Est:      8-12 hours for full implementation
+Documentation:   `/docs/feature/FR-078-WINDOW-FRAME-BOUNDS-ANALYSIS.md`
+Priority:        Medium (Phase 5 of FR-078 roadmap)
+```
+
+---
+
+## 📈 Key Metrics Summary
+
+| Metric | Value | Target | Status |
+|--------|-------|--------|--------|
+| **Alias Reuse - Unit Tests** | 9/9 | 9/9 | ✅ 100% |
+| **Alias Reuse - Integration Tests** | 8/8 | 8/8 | ✅ 100% |
+| **Alias Reuse - Pre-existing Fixes** | 3/3 | 3/3 | ✅ 100% |
+| **Total Alias Reuse Tests** | 17/17 | 17/17 | ✅ 100% |
+| **Subquery - HAVING EXISTS Tests** | 7/7 | 7/7 | ✅ 100% |
+| **Parser - Frame Bounds Support** | 100% | 100% | ✅ 100% |
+| **Documentation - SELECT Alias** | 600+ lines | 500+ | ✅ Exceeded |
+| **Documentation - Subquery Analysis** | 1784 lines | 1500+ | ✅ Exceeded |
+| **Documentation - Window Bounds** | 378 lines | 300+ | ✅ Exceeded |
+| **Total Documentation** | 2762 lines | 2000+ | ✅ Exceeded |
 
 ---
 
