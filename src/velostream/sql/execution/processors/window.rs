@@ -5,7 +5,7 @@
 
 use super::{ProcessorContext, WindowContext};
 use crate::velostream::sql::ast::WindowSpec;
-use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
 use crate::velostream::sql::execution::internal::WindowState;
 use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStrategy};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
@@ -546,6 +546,8 @@ impl WindowProcessor {
 
             // Step 2: For windowed queries, create aggregated result
             let mut result_fields = HashMap::new();
+            // Create alias context for storing computed field values during SELECT processing
+            let mut agg_alias_context = SelectAliasContext::new();
 
             debug!("AGG: Creating aggregated result fields");
 
@@ -583,12 +585,19 @@ impl WindowProcessor {
                             );
 
                             // Handle aggregate functions properly for windowed queries
-                            match Self::evaluate_aggregate_expression(expr, &filtered_records) {
+                            // Pass alias context so expressions can reference previously-computed aliases
+                            match Self::evaluate_aggregate_expression(
+                                expr,
+                                &filtered_records,
+                                &agg_alias_context,
+                            ) {
                                 Ok(value) => {
                                     debug!(
                                         "AGG: Successfully evaluated field '{}' = {:?}",
                                         field_name, value
                                     );
+                                    // Add computed value to alias context for later field references
+                                    agg_alias_context.add_alias(field_name.clone(), value.clone());
                                     result_fields.insert(field_name, value);
                                 }
                                 Err(e) => {
@@ -652,10 +661,12 @@ impl WindowProcessor {
                 };
 
                 // Evaluate HAVING clause with aggregate expressions
+                // Pass alias context so HAVING expressions can reference computed SELECT fields
                 let having_result = Self::evaluate_having_expression(
                     having_expr,
                     &filtered_records,
                     &temp_record,
+                    &agg_alias_context,
                     context,
                 )?;
 
@@ -934,6 +945,7 @@ impl WindowProcessor {
         expr: &crate::velostream::sql::ast::Expr,
         records: &[&StreamRecord],
         temp_record: &StreamRecord,
+        alias_context: &SelectAliasContext,
         context: &ProcessorContext,
     ) -> Result<bool, SqlError> {
         use crate::velostream::sql::ast::{BinaryOperator, Expr};
@@ -943,18 +955,38 @@ impl WindowProcessor {
                 match op {
                     BinaryOperator::And => {
                         // Recursively evaluate both sides
-                        let left_result =
-                            Self::evaluate_having_expression(left, records, temp_record, context)?;
-                        let right_result =
-                            Self::evaluate_having_expression(right, records, temp_record, context)?;
+                        let left_result = Self::evaluate_having_expression(
+                            left,
+                            records,
+                            temp_record,
+                            alias_context,
+                            context,
+                        )?;
+                        let right_result = Self::evaluate_having_expression(
+                            right,
+                            records,
+                            temp_record,
+                            alias_context,
+                            context,
+                        )?;
                         Ok(left_result && right_result)
                     }
                     BinaryOperator::Or => {
                         // Recursively evaluate both sides
-                        let left_result =
-                            Self::evaluate_having_expression(left, records, temp_record, context)?;
-                        let right_result =
-                            Self::evaluate_having_expression(right, records, temp_record, context)?;
+                        let left_result = Self::evaluate_having_expression(
+                            left,
+                            records,
+                            temp_record,
+                            alias_context,
+                            context,
+                        )?;
+                        let right_result = Self::evaluate_having_expression(
+                            right,
+                            records,
+                            temp_record,
+                            alias_context,
+                            context,
+                        )?;
                         Ok(left_result || right_result)
                     }
                     BinaryOperator::GreaterThanOrEqual
@@ -964,7 +996,8 @@ impl WindowProcessor {
                     | BinaryOperator::Equal
                     | BinaryOperator::NotEqual => {
                         // Handle comparison operators with aggregate functions
-                        let left_value = Self::evaluate_aggregate_expression(left, records)?;
+                        let left_value =
+                            Self::evaluate_aggregate_expression(left, records, alias_context)?;
                         let right_value = if let Ok(value) =
                             ExpressionEvaluator::evaluate_expression_value(right, temp_record)
                         {
@@ -1105,6 +1138,7 @@ impl WindowProcessor {
     fn evaluate_aggregate_expression(
         expr: &crate::velostream::sql::ast::Expr,
         records: &[&StreamRecord],
+        alias_context: &SelectAliasContext,
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::Expr;
 
@@ -1274,15 +1308,29 @@ impl WindowProcessor {
                 }
             }
             Expr::Column(column_name) => {
-                // For column references in windowed queries, return the value from the first record
-                // This represents the GROUP BY key value for the window
+                // For column references in windowed queries, check alias context first,
+                // then fall back to the first record's field value
                 debug!(
                     "AGG: Processing column '{}' in aggregate context",
                     column_name
                 );
+
+                // Check alias context first (for previously-computed SELECT field aliases)
+                if let Some(value) = alias_context.get_alias(column_name) {
+                    debug!(
+                        "AGG: Found column '{}' in alias context = {:?}",
+                        column_name, value
+                    );
+                    return Ok(value.clone());
+                }
+
+                // Fall back to record fields (GROUP BY keys)
                 if let Some(first_record) = records.first() {
                     if let Some(value) = first_record.fields.get(column_name) {
-                        debug!("AGG: Found column '{}' = {:?}", column_name, value);
+                        debug!(
+                            "AGG: Found column '{}' in record = {:?}",
+                            column_name, value
+                        );
                         Ok(value.clone())
                     } else {
                         debug!("AGG: Column '{}' not found, returning Null", column_name);
@@ -1293,10 +1341,15 @@ impl WindowProcessor {
                 }
             }
             _ => {
-                // For non-function expressions, evaluate on first record
+                // For non-function expressions, try to evaluate with alias context support
                 debug!("AGG: Processing non-function expression: {:?}", expr);
                 if let Some(first_record) = records.first() {
-                    ExpressionEvaluator::evaluate_expression_value(expr, first_record)
+                    // Use alias-aware evaluator so that CASE WHEN and IN expressions can reference computed aliases
+                    ExpressionEvaluator::evaluate_expression_value_with_alias_context(
+                        expr,
+                        first_record,
+                        alias_context,
+                    )
                 } else {
                     Ok(FieldValue::Null)
                 }

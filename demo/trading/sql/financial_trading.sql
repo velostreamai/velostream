@@ -231,7 +231,8 @@ SELECT
         ELSE 'FILTERED_OUT'
     END as filter_result,
 
-    TUMBLE_END(event_time, INTERVAL '1' MINUTE) as window_end
+    _window_start AS window_start,
+    _window_end AS window_end,
 FROM market_data_ts
 GROUP BY symbol
 WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)

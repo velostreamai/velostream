@@ -204,8 +204,11 @@ async fn test_in_operator_with_alias_in_case_when() {
         ])),
     };
 
-    let result =
-        ExpressionEvaluator::evaluate_expression_value_with_alias_context(&in_expr, &record, &alias_context);
+    let result = ExpressionEvaluator::evaluate_expression_value_with_alias_context(
+        &in_expr,
+        &record,
+        &alias_context,
+    );
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), FieldValue::Boolean(true));
@@ -246,8 +249,11 @@ async fn test_in_operator_with_alias_false_case() {
         ])),
     };
 
-    let result =
-        ExpressionEvaluator::evaluate_expression_value_with_alias_context(&in_expr, &record, &alias_context);
+    let result = ExpressionEvaluator::evaluate_expression_value_with_alias_context(
+        &in_expr,
+        &record,
+        &alias_context,
+    );
 
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), FieldValue::Boolean(false));
