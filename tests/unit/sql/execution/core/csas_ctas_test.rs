@@ -44,6 +44,8 @@ mod tests {
                 as_select,
                 properties,
                 emit_mode: _,
+                metric_annotations: _,
+                job_name: _,
             } => {
                 assert_eq!(name, "high_value_orders");
                 assert!(columns.is_none());

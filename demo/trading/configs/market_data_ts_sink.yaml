@@ -14,9 +14,8 @@ performance_profile: ultra_low_latency
 # Topic-specific schema
 schema:
   key.field: symbol
-  value.serializer: "avro"
   value.schema.file: "schemas/market_data_ts.avsc"
-  
+
   # Alternative inline schema definition:
   # avro.schema: |
   #   {
@@ -30,12 +29,12 @@ schema:
   #       {"name": "timestamp_us", "type": "long"}
   #     ]
   #   }
-  
+
 # Topic properties
 topic_config:
   partitions: 12  # High parallelism for market data
   retention.ms: 86400000  # 1 day retention
-  
+
 # Business context
 metadata:
   description: "High-frequency trading market data feed"

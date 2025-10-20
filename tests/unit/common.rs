@@ -12,7 +12,7 @@ pub use velostream::velostream::kafka::{
     Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message,
 };
 // Import from correct modules
-pub use velostream::velostream::kafka::serialization::Serializer;
+pub use velostream::velostream::kafka::serialization::Serde;
 pub use velostream::velostream::serialization::SerializationError;
 
 // Re-export commonly used external crates

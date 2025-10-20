@@ -41,8 +41,8 @@ Subqueries are nested SELECT statements that can be used within other SQL statem
 | Type | Description | Streaming Context |
 |------|-------------|------------------|
 | **Scalar** | Returns a single value | Configuration values, thresholds |
-| **EXISTS** | Tests for row existence | Validation, filtering |
-| **NOT EXISTS** | Tests for non-existence | Exclusion filters |
+| **EXISTS** | Tests for row existence | Validation, filtering (WHERE and HAVING) |
+| **NOT EXISTS** | Tests for non-existence | Exclusion filters (WHERE and HAVING) |
 | **IN** | Membership testing | Whitelist/blacklist operations |
 | **NOT IN** | Non-membership testing | Exclusion operations |
 | **ANY/SOME** | Comparison with any value | Threshold comparisons |
@@ -137,6 +137,64 @@ WHERE credit_score >= ALL (
     SELECT minimum_score FROM loan_requirements
 );
 ```
+
+### EXISTS/NOT EXISTS in HAVING Clauses ✅ **NEW**
+
+Filter aggregated groups based on existence checks against other tables:
+
+```sql
+-- Volume spike detection in trading with GROUP BY
+SELECT symbol, COUNT(*) as spike_count
+FROM market_data
+GROUP BY symbol
+HAVING EXISTS (
+    SELECT 1 FROM market_data_ts m2
+    WHERE m2.symbol = market_data.symbol
+    AND m2.volume > 10000
+)
+AND COUNT(*) >= 5;
+
+-- Volume spike detection in trading with WINDOW
+SELECT symbol, volume, event_time,
+    COUNT(*) OVER (
+        PARTITION BY symbol
+        ORDER BY event_time
+        RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW
+    ) as recent_count
+FROM market_data_ts
+HAVING EXISTS (
+    SELECT 1 FROM market_data_ts m2
+    WHERE m2.symbol = market_data_ts.symbol
+    AND m2.event_time >= market_data_ts.event_time - INTERVAL '1' MINUTE
+    AND m2.volume > 10000
+)
+AND COUNT(*) >= 5
+WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
+EMIT CHANGES;
+
+-- Customer segmentation with multiple conditions
+SELECT customer_tier,
+    COUNT(*) as customer_count,
+    AVG(lifetime_value) as avg_ltv
+FROM customers
+GROUP BY customer_tier
+HAVING EXISTS (
+    SELECT 1 FROM premium_features
+    WHERE tier = customer_tier
+)
+AND NOT EXISTS (
+    SELECT 1 FROM deprecated_tiers
+    WHERE name = customer_tier
+)
+AND COUNT(*) > 100;
+```
+
+**Key Features:**
+- **Context-Aware Evaluation**: HAVING subqueries have access to both aggregated values and current record
+- **Performance Optimized**: Evaluates EXISTS checks efficiently during GROUP BY and WINDOW processing
+- **Correlation Support**: Can reference columns from the outer GROUP BY or WINDOW query
+- **Multiple Conditions**: Combine EXISTS with aggregate functions (COUNT, SUM, etc.)
+- **WINDOW Support**: Full EXISTS/NOT EXISTS support in HAVING clauses with WINDOW queries
 
 ## Examples
 
@@ -398,12 +456,13 @@ WHERE customer_id IN (
 2. **Table Integration**: Full SqlQueryable trait implementation with ProcessorContext
 3. **Performance Optimization**: Direct HashMap access with CompactTable memory optimization
 4. **Type Safety**: Complete FieldValue integration with comprehensive error handling
+5. **WINDOW Support**: EXISTS/NOT EXISTS subqueries fully supported in HAVING clauses with WINDOW queries
 
 ### Future Enhancements
 
 1. **Advanced Correlated Subqueries**: Enhanced support for complex outer reference patterns
 2. **Cross-Table Optimization**: Query plan optimization across multiple Table sources
-3. **Window Integration**: Native subquery support within window function specifications
+3. **Additional Subquery Types in WINDOW**: Scalar, IN, ANY/ALL subquery support in HAVING with WINDOW
 4. **Schema Evolution**: Automatic schema adaptation for subquery results
 
 ### API Status

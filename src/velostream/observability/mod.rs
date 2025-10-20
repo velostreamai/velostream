@@ -8,14 +8,50 @@
 //
 // All features are configurable and disabled by default for backward compatibility.
 
+pub mod error_tracker;
+pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
 pub mod telemetry;
+pub mod trace_propagation;
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::StreamingConfig;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+/// Simplified Prometheus configuration for tests
+#[derive(Debug, Clone)]
+pub struct PrometheusConfig {
+    pub port: u16,
+    pub enabled: bool,
+}
+
+/// Simplified Telemetry configuration for tests
+#[derive(Debug, Clone, Default)]
+pub struct TelemetryConfig {
+    // Empty for now, can be expanded later
+}
+
+impl PrometheusConfig {
+    /// Convert to full PrometheusConfig from execution config
+    fn to_full_config(&self) -> crate::velostream::sql::execution::config::PrometheusConfig {
+        crate::velostream::sql::execution::config::PrometheusConfig {
+            metrics_path: "/metrics".to_string(),
+            bind_address: if self.port == 0 {
+                "127.0.0.1".to_string()
+            } else {
+                "0.0.0.0".to_string()
+            },
+            port: self.port,
+            enable_histograms: false,
+            enable_query_metrics: true,
+            enable_streaming_metrics: false,
+            collection_interval_seconds: 15,
+            max_labels_per_metric: 10,
+        }
+    }
+}
 
 /// Central observability manager for Velostream Phase 4
 #[derive(Debug)]
@@ -29,7 +65,7 @@ pub struct ObservabilityManager {
 
 impl ObservabilityManager {
     /// Create a new observability manager with the given configuration
-    pub fn new(config: StreamingConfig) -> Self {
+    pub fn from_streaming_config(config: StreamingConfig) -> Self {
         Self {
             config,
             telemetry: None,
@@ -39,16 +75,47 @@ impl ObservabilityManager {
         }
     }
 
+    /// Create and initialize a new observability manager with simplified configs (for tests)
+    pub async fn new(
+        prometheus_config: PrometheusConfig,
+        _telemetry_config: TelemetryConfig,
+    ) -> Result<Self, SqlError> {
+        let full_prometheus = prometheus_config.to_full_config();
+
+        let streaming_config = if prometheus_config.enabled {
+            StreamingConfig::default().with_prometheus_config(full_prometheus)
+        } else {
+            StreamingConfig::default()
+        };
+
+        let mut manager = Self::from_streaming_config(streaming_config);
+        manager.initialize().await?;
+        Ok(manager)
+    }
+
     /// Initialize all enabled observability features
     pub async fn initialize(&mut self) -> Result<(), SqlError> {
         if self.initialized {
             return Ok(());
         }
 
+        // Extract deployment context for all providers
+        let deployment_node_id = self.config.deployment_node_id.clone();
+        if let Some(ref node_id) = deployment_node_id {
+            log::info!("📍 Node identification: {}", node_id);
+        }
+
         // Initialize distributed tracing if enabled
         if self.config.enable_distributed_tracing {
             if let Some(ref tracing_config) = self.config.tracing_config {
-                let telemetry = telemetry::TelemetryProvider::new(tracing_config.clone()).await?;
+                let mut telemetry =
+                    telemetry::TelemetryProvider::new(tracing_config.clone()).await?;
+                // Pass deployment config to telemetry
+                telemetry.set_deployment_context(
+                    deployment_node_id.clone(),
+                    self.config.deployment_node_name.clone(),
+                    self.config.deployment_region.clone(),
+                )?;
                 self.telemetry = Some(telemetry);
                 log::info!("✅ Phase 4: Distributed tracing initialized");
             }
@@ -57,7 +124,9 @@ impl ObservabilityManager {
         // Initialize Prometheus metrics if enabled
         if self.config.enable_prometheus_metrics {
             if let Some(ref prometheus_config) = self.config.prometheus_config {
-                let metrics = metrics::MetricsProvider::new(prometheus_config.clone()).await?;
+                let mut metrics = metrics::MetricsProvider::new(prometheus_config.clone()).await?;
+                // Pass deployment config to metrics
+                metrics.set_node_id(deployment_node_id.clone())?;
                 self.metrics = Some(metrics);
                 log::info!(
                     "✅ Phase 4: Prometheus metrics initialized on port {}",
@@ -69,7 +138,14 @@ impl ObservabilityManager {
         // Initialize performance profiling if enabled
         if self.config.enable_performance_profiling {
             if let Some(ref profiling_config) = self.config.profiling_config {
-                let profiling = profiling::ProfilingProvider::new(profiling_config.clone()).await?;
+                let mut profiling =
+                    profiling::ProfilingProvider::new(profiling_config.clone()).await?;
+                // Pass deployment config to profiling
+                profiling.set_deployment_context(
+                    deployment_node_id.clone(),
+                    self.config.deployment_node_name.clone(),
+                    self.config.deployment_region.clone(),
+                )?;
                 self.profiling = Some(profiling);
                 log::info!("✅ Phase 4: Performance profiling initialized");
             }
@@ -107,6 +183,54 @@ impl ObservabilityManager {
         self.profiling.as_ref()
     }
 
+    /// Set deployment context for error tracking (job-level customization)
+    ///
+    /// This allows setting or updating deployment context after initialization,
+    /// enabling per-job deployment metadata in error messages across all observability integrations.
+    ///
+    /// Updates deployment context in:
+    /// - **Metrics**: Error tracker with deployment metadata
+    /// - **Telemetry**: Span attributes with node, name, and region
+    /// - **Profiling**: Profiling reports with deployment identification
+    pub fn set_deployment_context_for_job(
+        &mut self,
+        deployment_ctx: error_tracker::DeploymentContext,
+    ) -> Result<(), SqlError> {
+        // Update metrics provider with deployment context (for error tracking, system metrics, and SQL metrics)
+        if let Some(ref mut metrics) = self.metrics {
+            metrics.set_deployment_context(deployment_ctx.clone())?;
+        }
+
+        // Update telemetry provider with deployment context (for distributed tracing spans)
+        if let Some(ref mut telemetry) = self.telemetry {
+            telemetry.set_deployment_context(
+                deployment_ctx.node_id.clone(),
+                deployment_ctx.node_name.clone(),
+                deployment_ctx.region.clone(),
+            )?;
+        }
+
+        // Update profiling provider with deployment context (for performance profiling reports)
+        if let Some(ref mut profiling) = self.profiling {
+            profiling.set_deployment_context(
+                deployment_ctx.node_id.clone(),
+                deployment_ctx.node_name.clone(),
+                deployment_ctx.region.clone(),
+            )?;
+        }
+
+        log::info!(
+            "Deployment context initialized across all observability integrations: \
+            node_id={:?}, node_name={:?}, region={:?}, version={:?}",
+            deployment_ctx.node_id,
+            deployment_ctx.node_name,
+            deployment_ctx.region,
+            deployment_ctx.version
+        );
+
+        Ok(())
+    }
+
     /// Shutdown all observability features gracefully
     pub async fn shutdown(&mut self) -> Result<(), SqlError> {
         if let Some(mut telemetry) = self.telemetry.take() {
@@ -135,7 +259,9 @@ pub type SharedObservabilityManager = Arc<RwLock<ObservabilityManager>>;
 
 /// Create a shared observability manager with the given configuration
 pub fn create_shared_manager(config: StreamingConfig) -> SharedObservabilityManager {
-    Arc::new(RwLock::new(ObservabilityManager::new(config)))
+    Arc::new(RwLock::new(ObservabilityManager::from_streaming_config(
+        config,
+    )))
 }
 
 /// Initialize observability features for the given configuration
@@ -160,7 +286,7 @@ mod tests {
     #[tokio::test]
     async fn test_observability_manager_creation() {
         let config = StreamingConfig::default();
-        let manager = ObservabilityManager::new(config);
+        let manager = ObservabilityManager::from_streaming_config(config);
 
         assert!(!manager.initialized);
         assert!(!manager.is_any_feature_enabled());
@@ -176,7 +302,7 @@ mod tests {
             .with_prometheus_metrics()
             .with_performance_profiling();
 
-        let manager = ObservabilityManager::new(config);
+        let manager = ObservabilityManager::from_streaming_config(config);
         assert!(manager.is_any_feature_enabled());
     }
 

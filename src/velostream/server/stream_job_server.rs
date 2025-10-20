@@ -5,7 +5,10 @@
 //! hardcoded Kafka-only processing.
 
 use crate::velostream::datasource::DataWriter;
-use crate::velostream::observability::{ObservabilityManager, SharedObservabilityManager};
+use crate::velostream::observability::{
+    error_tracker::DeploymentContext, ObservabilityManager, SharedObservabilityManager,
+};
+use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
     create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
     SimpleJobProcessor, TransactionalJobProcessor,
@@ -135,7 +138,7 @@ impl StreamJobServer {
 
             let streaming_config = StreamingConfig::default().with_prometheus_metrics();
 
-            let mut obs_manager = ObservabilityManager::new(streaming_config);
+            let mut obs_manager = ObservabilityManager::from_streaming_config(streaming_config);
             match obs_manager.initialize().await {
                 Ok(()) => {
                     info!("✅ Server-level observability initialized (shared by all jobs)");
@@ -169,12 +172,162 @@ impl StreamJobServer {
         }
     }
 
+    /// Create server with full observability configuration (tracing, metrics, profiling)
+    pub async fn new_with_observability(
+        _brokers: String,
+        base_group_id: String,
+        max_jobs: usize,
+        streaming_config: StreamingConfig,
+    ) -> Self {
+        let performance_monitor = if streaming_config.enable_prometheus_metrics {
+            let monitor = Arc::new(PerformanceMonitor::new());
+            info!("Performance monitoring enabled for StreamJobServer");
+            Some(monitor)
+        } else {
+            None
+        };
+
+        // Initialize shared observability manager with full config (tracing, metrics, profiling)
+        let observability = if streaming_config.enable_distributed_tracing
+            || streaming_config.enable_prometheus_metrics
+            || streaming_config.enable_performance_profiling
+        {
+            use crate::velostream::observability::ObservabilityManager;
+
+            let mut obs_manager =
+                ObservabilityManager::from_streaming_config(streaming_config.clone());
+            match obs_manager.initialize().await {
+                Ok(()) => {
+                    info!("✅ Server-level observability initialized with full configuration");
+                    if streaming_config.enable_distributed_tracing {
+                        info!("  🔍 Distributed tracing: ACTIVE");
+                    }
+                    if streaming_config.enable_prometheus_metrics {
+                        info!("  📊 Prometheus metrics: ACTIVE");
+                    }
+                    if streaming_config.enable_performance_profiling {
+                        info!("  ⚡ Performance profiling: ACTIVE");
+                    }
+                    Some(Arc::new(RwLock::new(obs_manager)))
+                }
+                Err(e) => {
+                    warn!("⚠️ Failed to initialize observability: {}. Continuing without observability.", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let table_registry_config = TableRegistryConfig {
+            max_tables: 100,
+            enable_ttl: false,
+            ttl_duration_secs: None,
+            kafka_brokers: "localhost:9092".to_string(),
+            base_group_id: base_group_id.clone(),
+        };
+
+        let server = Self {
+            jobs: Arc::new(RwLock::new(HashMap::new())),
+            base_group_id,
+            max_jobs,
+            job_counter: Arc::new(Mutex::new(0)),
+            performance_monitor,
+            table_registry: TableRegistry::with_config(table_registry_config),
+            observability: observability.clone(),
+        };
+
+        // Initialize server-level deployment context for system metrics
+        if let Some(ref obs_mgr) = observability {
+            let deployment_ctx = Self::build_deployment_context("velostream-server", "");
+            if let Ok(mut obs_lock) = obs_mgr.try_write() {
+                match obs_lock.set_deployment_context_for_job(deployment_ctx.clone()) {
+                    Ok(()) => {
+                        info!(
+                            "✅ Server-level deployment context initialized: node_id={:?}, node_name={:?}, region={:?}",
+                            deployment_ctx.node_id,
+                            deployment_ctx.node_name,
+                            deployment_ctx.region
+                        );
+                    }
+                    Err(e) => {
+                        warn!("⚠️ Failed to set server-level deployment context: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Spawn background task to periodically collect system metrics
+        if let Some(ref obs_mgr) = observability {
+            let obs_manager_clone = Arc::clone(obs_mgr);
+            let jobs_clone = Arc::clone(&server.jobs);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(10));
+                loop {
+                    interval.tick().await;
+
+                    let obs_lock = obs_manager_clone.read().await;
+                    if let Some(metrics_provider) = obs_lock.metrics() {
+                        // Collect real system metrics using sysinfo
+                        let (cpu_usage, memory_usage) = tokio::task::spawn_blocking(|| {
+                            use sysinfo::System;
+                            let mut system = System::new_all();
+                            system.refresh_all();
+
+                            // Get average CPU usage across all cores
+                            let total_cpu: f64 =
+                                system.cpus().iter().map(|cpu| cpu.cpu_usage() as f64).sum();
+                            let cpu_count = system.cpus().len() as f64;
+                            let avg_cpu = if cpu_count > 0.0 {
+                                (total_cpu / cpu_count).min(100.0)
+                            } else {
+                                0.0
+                            };
+
+                            // Get used memory
+                            let used_memory = system.used_memory();
+
+                            (avg_cpu, used_memory)
+                        })
+                        .await
+                        .unwrap_or((0.0, 0));
+
+                        // Count active jobs (number of currently running jobs)
+                        let active_jobs = jobs_clone
+                            .try_read()
+                            .map(|jobs| jobs.len() as i64)
+                            .unwrap_or(0);
+
+                        metrics_provider.update_system_metrics(
+                            cpu_usage,
+                            memory_usage,
+                            active_jobs,
+                        );
+                        debug!(
+                            "Updated system metrics: cpu={:.1}%, memory={}MB, active_jobs={}",
+                            cpu_usage,
+                            memory_usage / (1024 * 1024),
+                            active_jobs
+                        );
+                    }
+                }
+            });
+            info!("✅ System metrics collection task started (updates every 10s)");
+        }
+
+        server
+    }
+
     /// Get performance metrics (if monitoring is enabled)
     pub fn get_performance_metrics(&self) -> Option<String> {
         // First try to get metrics from server-level ObservabilityManager (Phase 4)
         if let Some(ref obs_manager) = self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if let Some(metrics_provider) = obs_lock.metrics() {
+                    // Sync error metrics to Prometheus gauges before export
+                    // This ensures error buffer data is current in the exported metrics
+                    metrics_provider.sync_error_metrics();
+
                     // Export Prometheus metrics from the MetricsProvider
                     return metrics_provider.get_metrics_text().ok();
                 }
@@ -187,6 +340,10 @@ impl StreamJobServer {
                 if let Some(ref job_obs) = job.observability {
                     if let Ok(obs_lock) = job_obs.try_read() {
                         if let Some(metrics_provider) = obs_lock.metrics() {
+                            // Sync error metrics to Prometheus gauges before export
+                            // This ensures error buffer data is current in the exported metrics
+                            metrics_provider.sync_error_metrics();
+
                             // Return metrics from the first job that has them
                             // Note: All jobs share the same MetricsProvider via Arc, so any job's metrics will have all data
                             return metrics_provider.get_metrics_text().ok();
@@ -423,6 +580,11 @@ impl StreamJobServer {
         // Extract StreamingConfig from WITH clauses (Phase 1B-4 features)
         let streaming_config = Self::extract_streaming_config_from_query(&parsed_query)?;
 
+        // Extract and merge observability settings from SQL annotations (app-level settings)
+        let annotation_config = ObservabilityConfigExtractor::extract_from_sql_string(&query)?;
+        let streaming_config =
+            ObservabilityConfigExtractor::merge_configs(streaming_config, annotation_config);
+
         // Generate unique consumer group ID
         let mut counter = self.job_counter.lock().await;
         *counter += 1;
@@ -476,6 +638,27 @@ impl StreamJobServer {
             name,
             observability_manager.is_some()
         );
+
+        // Initialize deployment context for error tracking and observability
+        if let Some(ref obs_manager) = observability_manager {
+            let deployment_ctx = Self::build_deployment_context(&name, &version);
+            if let Ok(mut obs_lock) = obs_manager.try_write() {
+                match obs_lock.set_deployment_context_for_job(deployment_ctx.clone()) {
+                    Ok(()) => {
+                        info!(
+                            "Job '{}': Deployment context initialized (node_id={:?}, region={:?}, version={})",
+                            name,
+                            deployment_ctx.node_id,
+                            deployment_ctx.region,
+                            deployment_ctx.version.as_deref().unwrap_or("unknown")
+                        );
+                    }
+                    Err(e) => {
+                        warn!("Job '{}': Failed to set deployment context: {}", name, e);
+                    }
+                }
+            }
+        }
 
         // Enable performance monitoring for this job if available
         if let Some(monitor) = &self.performance_monitor {
@@ -914,6 +1097,26 @@ impl StreamJobServer {
             app.metadata.name, app.metadata.version
         );
 
+        // Log SQL application annotations (top-level metadata)
+        if let Some(ref application) = app.metadata.application {
+            info!("  @application: {}", application);
+        }
+        if let Some(ref phase) = app.metadata.phase {
+            info!("  @phase: {}", phase);
+        }
+        if let Some(ref sla_latency) = app.metadata.sla_latency_p99 {
+            info!("  @sla.latency.p99: {}", sla_latency);
+        }
+        if let Some(ref sla_availability) = app.metadata.sla_availability {
+            info!("  @sla.availability: {}", sla_availability);
+        }
+        if let Some(ref data_retention) = app.metadata.data_retention {
+            info!("  @data_retention: {}", data_retention);
+        }
+        if let Some(ref compliance) = app.metadata.compliance {
+            info!("  @compliance: {}", compliance);
+        }
+
         // Pre-deployment SQL validation to prevent runtime failures
         info!("Validating SQL application before deployment...");
         let validator = SqlValidator::new();
@@ -993,6 +1196,17 @@ impl StreamJobServer {
 
         let mut deployed_jobs = Vec::new();
 
+        // Log app-level observability configuration
+        if let Some(metrics_enabled) = app.metadata.observability_metrics_enabled {
+            info!("  @observability.metrics.enabled: {}", metrics_enabled);
+        }
+        if let Some(tracing_enabled) = app.metadata.observability_tracing_enabled {
+            info!("  @observability.tracing.enabled: {}", tracing_enabled);
+        }
+        if let Some(profiling_enabled) = app.metadata.observability_profiling_enabled {
+            info!("  @observability.profiling.enabled: {}", profiling_enabled);
+        }
+
         // Deploy statements in order
         for stmt in &app.statements {
             match stmt.statement_type {
@@ -1002,36 +1216,56 @@ impl StreamJobServer {
                 | crate::velostream::sql::app_parser::StatementType::CreateStream
                 | crate::velostream::sql::app_parser::StatementType::CreateTable => {
                     // Extract job name from the SQL statement
+                    // Priority: @job_name annotation > stmt.name > auto-generated
                     let job_name = if let Some(name) = &stmt.name {
                         name.clone()
                     } else {
-                        // Generate compact, meaningful job name: filename_snippet_timestamp_id
-                        let file_prefix = source_filename
-                            .as_ref()
-                            .and_then(|path| {
-                                std::path::Path::new(path)
-                                    .file_stem()
-                                    .and_then(|s| s.to_str())
-                            })
-                            .map(|name| {
-                                // Take first few chars of filename, clean it up
-                                name.chars()
-                                    .filter(|c| c.is_alphanumeric() || *c == '_')
-                                    .take(8)
-                                    .collect::<String>()
-                            })
-                            .unwrap_or_else(|| "app".to_string());
+                        // Check for @job_name annotation in parsed query
+                        let custom_job_name =
+                            if let Ok(parsed_query) = StreamingSqlParser::new().parse(&stmt.sql) {
+                                match parsed_query {
+                                    StreamingQuery::CreateStream { job_name, .. } => job_name,
+                                    _ => None,
+                                }
+                            } else {
+                                None
+                            };
 
-                        let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
-                        let timestamp = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs()
-                            % 100000; // Last 5 digits for compactness
-                        format!(
-                            "{}_{}_{}_{:02}",
-                            file_prefix, sql_snippet, timestamp, stmt.order
-                        )
+                        if let Some(custom_name) = custom_job_name {
+                            info!(
+                                "Using custom job name from @job_name annotation: '{}'",
+                                custom_name
+                            );
+                            custom_name
+                        } else {
+                            // Generate compact, meaningful job name: filename_snippet_timestamp_id
+                            let file_prefix = source_filename
+                                .as_ref()
+                                .and_then(|path| {
+                                    std::path::Path::new(path)
+                                        .file_stem()
+                                        .and_then(|s| s.to_str())
+                                })
+                                .map(|name| {
+                                    // Take first few chars of filename, clean it up
+                                    name.chars()
+                                        .filter(|c| c.is_alphanumeric() || *c == '_')
+                                        .take(8)
+                                        .collect::<String>()
+                                })
+                                .unwrap_or_else(|| "app".to_string());
+
+                            let sql_snippet = Self::extract_sql_snippet(&stmt.sql);
+                            let timestamp = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs()
+                                % 100000; // Last 5 digits for compactness
+                            format!(
+                                "{}_{}_{}_{:02}",
+                                file_prefix, sql_snippet, timestamp, stmt.order
+                            )
+                        }
                     };
 
                     // Determine topic from statement dependencies or use default
@@ -1043,12 +1277,44 @@ impl StreamJobServer {
                         format!("processed_data_{}", job_name) // Auto-generate topic for SELECT statements
                     };
 
+                    // Merge app-level observability settings with per-stream settings
+                    // Per-stream settings override app-level if explicitly set
+                    let mut merged_sql = stmt.sql.clone();
+
+                    // Inject app-level observability as comment annotations
+                    // These will be parsed by extract_streaming_config_from_query
+                    if let Some(true) = app.metadata.observability_metrics_enabled {
+                        if !merged_sql.contains("'observability.metrics.enabled'")
+                            && !merged_sql.contains("@observability.metrics.enabled")
+                        {
+                            merged_sql.push_str("\n-- App-level observability injection");
+                            merged_sql.push_str("\n-- @observability.metrics.enabled: true");
+                        }
+                    }
+                    if let Some(true) = app.metadata.observability_tracing_enabled {
+                        if !merged_sql.contains("'observability.tracing.enabled'")
+                            && !merged_sql.contains("@observability.tracing.enabled")
+                        {
+                            merged_sql.push_str("\n-- @observability.tracing.enabled: true");
+                        }
+                    }
+                    if let Some(profiling_mode) = app.metadata.observability_profiling_enabled {
+                        if !merged_sql.contains("'observability.profiling.enabled'")
+                            && !merged_sql.contains("@observability.profiling.enabled")
+                        {
+                            merged_sql.push_str(&format!(
+                                "\n-- @observability.profiling.enabled: {}",
+                                profiling_mode
+                            ));
+                        }
+                    }
+
                     // Deploy the job - fail entire deployment if any single job fails
                     match self
                         .deploy_job(
                             job_name.clone(),
                             app.metadata.version.clone(),
-                            stmt.sql.clone(),
+                            merged_sql,
                             topic,
                         )
                         .await
@@ -1437,6 +1703,44 @@ impl StreamJobServer {
         );
 
         Ok(config)
+    }
+
+    /// Build deployment context from environment and job metadata
+    ///
+    /// Extracts deployment context (node_id, region, version) from:
+    /// 1. Environment variables (NODE_ID, REGION, etc.)
+    /// 2. Job metadata (version parameter)
+    /// 3. Hostname fallback
+    ///
+    /// This context is attached to all error messages for production observability.
+    fn build_deployment_context(job_name: &str, version: &str) -> DeploymentContext {
+        let node_id = std::env::var("NODE_ID")
+            .ok()
+            .or_else(|| std::env::var("HOSTNAME").ok())
+            .or_else(|| std::env::var("POD_NAME").ok());
+
+        let node_name = std::env::var("NODE_NAME")
+            .ok()
+            .or_else(|| std::env::var("SERVICE_NAME").ok());
+
+        let region = std::env::var("AWS_REGION")
+            .ok()
+            .or_else(|| std::env::var("REGION").ok())
+            .or_else(|| std::env::var("DEPLOYMENT_REGION").ok());
+
+        // Version comes from job metadata, fallback to environment or "unknown"
+        let app_version = if version.is_empty() {
+            std::env::var("APP_VERSION").ok()
+        } else {
+            Some(version.to_string())
+        };
+
+        DeploymentContext {
+            node_id,
+            node_name,
+            region,
+            version: app_version,
+        }
     }
 
     /// Parse duration string (e.g., "5s", "100ms", "1m") to Duration

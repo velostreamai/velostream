@@ -7,6 +7,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+use sysinfo::System;
 use tokio::sync::RwLock;
 
 /// Performance profiling provider for bottleneck detection
@@ -16,6 +17,11 @@ pub struct ProfilingProvider {
     profiling_sessions: Arc<RwLock<HashMap<String, ProfilingSession>>>,
     output_directory: PathBuf,
     active: bool,
+    deployment_node_id: Option<String>,
+    deployment_node_name: Option<String>,
+    deployment_region: Option<String>,
+    /// Cached system information for efficient CPU/memory queries
+    system: Arc<RwLock<System>>,
 }
 
 impl ProfilingProvider {
@@ -33,6 +39,10 @@ impl ProfilingProvider {
             })?;
         }
 
+        // Initialize system information cache for efficient CPU/memory queries
+        let mut system = System::new_all();
+        system.refresh_all();
+
         log::info!("🔧 Phase 4: Performance profiling initialized");
         log::info!(
             "🔧 Profiling configuration: cpu={}, memory={}, output_dir={}",
@@ -40,13 +50,48 @@ impl ProfilingProvider {
             config.enable_memory_profiling,
             config.output_directory
         );
+        log::info!(
+            "🔧 System information initialized: {} CPUs, {} GB total memory",
+            system.cpus().len(),
+            system.total_memory() / (1024 * 1024 * 1024)
+        );
 
         Ok(Self {
             config,
             profiling_sessions: Arc::new(RwLock::new(HashMap::new())),
             output_directory,
             active: true,
+            deployment_node_id: None,
+            deployment_node_name: None,
+            deployment_region: None,
+            system: Arc::new(RwLock::new(system)),
         })
+    }
+
+    /// Set deployment context (node ID, name, and region) for profiling reports
+    ///
+    /// This adds deployment identification to performance profiling reports and profiling sessions.
+    pub fn set_deployment_context(
+        &mut self,
+        node_id: Option<String>,
+        node_name: Option<String>,
+        region: Option<String>,
+    ) -> Result<(), SqlError> {
+        self.deployment_node_id = node_id.clone();
+        self.deployment_node_name = node_name.clone();
+        self.deployment_region = region.clone();
+
+        if let Some(ref id) = node_id {
+            log::info!("🔧 Profiling deployment context set - Instance: {}", id);
+        }
+        if let Some(ref name) = node_name {
+            log::info!("🔧 Profiling deployment context set - Node: {}", name);
+        }
+        if let Some(ref r) = region {
+            log::info!("🔧 Profiling deployment context set - Region: {}", r);
+        }
+
+        Ok(())
     }
 
     /// Start a new profiling session for a specific operation
@@ -110,13 +155,43 @@ impl ProfilingProvider {
         let cpu_usage = self.get_current_cpu_usage()?;
         let memory_usage = self.get_current_memory_usage()?;
 
+        // Build deployment context section if available
+        let deployment_section = if self.deployment_node_id.is_some()
+            || self.deployment_node_name.is_some()
+            || self.deployment_region.is_some()
+        {
+            let node_id = self
+                .deployment_node_id
+                .as_ref()
+                .map(|id| format!("Instance ID: {}\n", id))
+                .unwrap_or_default();
+            let node_name = self
+                .deployment_node_name
+                .as_ref()
+                .map(|name| format!("Node Name: {}\n", name))
+                .unwrap_or_default();
+            let region = self
+                .deployment_region
+                .as_ref()
+                .map(|r| format!("Region: {}\n", r))
+                .unwrap_or_default();
+
+            format!(
+                "\n=== Deployment Context ===\n\
+                 {}{}{}\n",
+                node_id, node_name, region
+            )
+        } else {
+            String::new()
+        };
+
         let report_content = format!(
             "Performance Report: {}\n\
              Generated: {}\n\
              Operation: {}\n\
              CPU Usage: {:.2}%\n\
              Memory Usage: {} bytes\n\
-             Status: {}\n",
+             Status: {}{}\n",
             report_name,
             timestamp,
             operation_name,
@@ -126,7 +201,8 @@ impl ProfilingProvider {
                 "WARNING: High CPU"
             } else {
                 "OK"
-            }
+            },
+            deployment_section
         );
 
         fs::write(&report_path, &report_content).map_err(|e| SqlError::ConfigurationError {
@@ -213,21 +289,63 @@ impl ProfilingProvider {
         bottlenecks
     }
 
-    /// Get current CPU usage percentage (simplified implementation)
+    /// Get current CPU usage percentage using system information
+    ///
+    /// Calculates the average CPU usage across all cores
     fn get_current_cpu_usage(&self) -> Result<f64, SqlError> {
-        // In a real implementation, you'd use system APIs or libraries like `sysinfo`
-        Ok(rand::random::<f64>() * 100.0) // Placeholder for demo
+        // Note: This is a blocking operation, ideally use tokio::task::block_in_place in async context
+        // For now, we provide the average CPU usage across all processors
+        let result = std::thread::spawn({
+            let system_arc = self.system.clone();
+            move || {
+                // Use a new thread to avoid blocking async context
+                // Calculate CPU usage from all CPUs
+                let system = system_arc.blocking_read();
+                let total_usage: f64 = system.cpus().iter().map(|cpu| cpu.cpu_usage() as f64).sum();
+                let cpu_count = system.cpus().len() as f64;
+
+                if cpu_count > 0.0 {
+                    (total_usage / cpu_count).min(100.0) // Cap at 100%
+                } else {
+                    0.0
+                }
+            }
+        })
+        .join()
+        .unwrap_or(0.0);
+
+        Ok(result)
     }
 
-    /// Get current memory usage in bytes (simplified implementation)
+    /// Get current memory usage in bytes using system information
+    ///
+    /// Returns the currently used memory (not available memory)
     fn get_current_memory_usage(&self) -> Result<u64, SqlError> {
-        // In a real implementation, you'd use system APIs or libraries like `sysinfo`
-        Ok(rand::random::<u64>() % (8 * 1024 * 1024 * 1024)) // Placeholder for demo (0-8GB)
+        let result = std::thread::spawn({
+            let system_arc = self.system.clone();
+            move || {
+                let system = system_arc.blocking_read();
+                system.used_memory()
+            }
+        })
+        .join()
+        .unwrap_or(0);
+
+        Ok(result)
     }
 
-    /// Get total available memory in bytes
+    /// Get total available memory in bytes using system information
     fn get_total_memory(&self) -> u64 {
-        16 * 1024 * 1024 * 1024 // 16GB placeholder
+        // Try to get from cached system, fallback to spawned thread
+        std::thread::spawn({
+            let system_arc = self.system.clone();
+            move || {
+                let system = system_arc.blocking_read();
+                system.total_memory()
+            }
+        })
+        .join()
+        .unwrap_or(0)
     }
 
     /// Clean up old profiling data based on retention policy
@@ -305,13 +423,24 @@ impl ProfilingSession {
     }
 
     fn get_allocated_memory(&self) -> u64 {
-        // Placeholder implementation
-        rand::random::<u64>() % (1024 * 1024 * 1024) // 0-1GB
+        // Note: sysinfo doesn't provide exact heap allocation details
+        // Using used_memory as proxy for current allocation
+        std::thread::spawn({
+            let system = System::new_all();
+            move || system.used_memory()
+        })
+        .join()
+        .unwrap_or(0)
     }
 
     fn get_heap_size(&self) -> u64 {
-        // Placeholder implementation
-        rand::random::<u64>() % (2 * 1024 * 1024 * 1024) // 0-2GB
+        // Total available memory as proxy for heap size
+        std::thread::spawn({
+            let system = System::new_all();
+            move || system.total_memory()
+        })
+        .join()
+        .unwrap_or(0)
     }
 }
 
@@ -436,7 +565,8 @@ mod tests {
         let provider = ProfilingProvider::new(config).await.unwrap();
 
         let bottlenecks = provider.detect_bottlenecks().await;
-        // Result depends on random CPU/memory values in test
+        // Result depends on actual system CPU/memory at test time
+        // Most systems will have low CPU usage during tests (0 bottlenecks expected)
         assert!(bottlenecks.len() <= 2);
     }
 
@@ -493,5 +623,75 @@ mod tests {
 
         // Test that all variants can be created
         let _severities = [Info, Warning, Critical];
+    }
+
+    #[tokio::test]
+    async fn test_deployment_context_in_performance_report() {
+        let config = ProfilingConfig::development();
+        let mut provider = ProfilingProvider::new(config).await.unwrap();
+
+        // Set deployment context
+        let result = provider.set_deployment_context(
+            Some("prod-node-1".to_string()),
+            Some("Production Server 1".to_string()),
+            Some("us-east-1".to_string()),
+        );
+        assert!(result.is_ok());
+
+        // Generate report
+        let report = provider
+            .generate_performance_report("test_operation_with_context")
+            .await;
+        assert!(report.is_ok());
+
+        let report = report.unwrap();
+
+        // Read the report file and verify deployment context is included
+        let content = std::fs::read_to_string(&report.path).expect("Failed to read report file");
+
+        assert!(
+            content.contains("=== Deployment Context ==="),
+            "Deployment context section missing from report"
+        );
+        assert!(
+            content.contains("Instance ID: prod-node-1"),
+            "Instance ID missing from report"
+        );
+        assert!(
+            content.contains("Node Name: Production Server 1"),
+            "Node name missing from report"
+        );
+        assert!(
+            content.contains("Region: us-east-1"),
+            "Region missing from report"
+        );
+
+        // Clean up test file
+        let _ = std::fs::remove_file(&report.path);
+    }
+
+    #[tokio::test]
+    async fn test_performance_report_without_deployment_context() {
+        let config = ProfilingConfig::development();
+        let provider = ProfilingProvider::new(config).await.unwrap();
+
+        // Generate report WITHOUT setting deployment context
+        let report = provider
+            .generate_performance_report("test_operation_no_context")
+            .await;
+        assert!(report.is_ok());
+
+        let report = report.unwrap();
+
+        // Read the report file and verify deployment context section is NOT included
+        let content = std::fs::read_to_string(&report.path).expect("Failed to read report file");
+
+        assert!(
+            !content.contains("=== Deployment Context ==="),
+            "Deployment context section should not be present when not set"
+        );
+
+        // Clean up test file
+        let _ = std::fs::remove_file(&report.path);
     }
 }

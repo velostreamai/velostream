@@ -1,10 +1,13 @@
 use clap::{Parser, Subcommand};
-use log::{error, info};
+use log::{debug, error, info};
 use std::fs;
 use std::time::Duration;
 use velostream::velostream::{
     server::stream_job_server::StreamJobServer,
-    sql::{app_parser::SqlApplicationParser, validator::SqlValidator},
+    sql::{
+        annotation_parser::SqlAnnotationParser, app_parser::SqlApplicationParser,
+        validator::SqlValidator,
+    },
 };
 
 #[derive(Parser)]
@@ -167,7 +170,7 @@ async fn start_metrics_server_multi(
     loop {
         match listener.accept().await {
             Ok((stream, addr)) => {
-                info!("StreamJobServer metrics request from: {}", addr);
+                debug!("StreamJobServer metrics request from: {}", addr);
                 let server = server.clone();
 
                 tokio::spawn(async move {
@@ -375,12 +378,16 @@ async fn deploy_sql_application_from_file(
     if enable_tracing || enable_metrics || enable_profiling {
         info!("🔍 Observability Configuration:");
         if enable_tracing {
+            // Dev default: 100% sampling (1.0), Prod default: 1% sampling (0.01)
+            let actual_sampling = sampling_ratio.unwrap_or(1.0); // Default to dev mode
             info!(
                 "  • Distributed Tracing: ENABLED (sampling: {})",
-                sampling_ratio.unwrap_or(1.0)
+                actual_sampling
             );
             if let Some(ref endpoint) = otlp_endpoint {
                 info!("  • OTLP Endpoint: {}", endpoint);
+            } else {
+                info!("  • OTLP Endpoint: http://localhost:4317 (default)");
             }
         }
         if enable_metrics {
@@ -401,6 +408,30 @@ async fn deploy_sql_application_from_file(
         e
     })?;
     println!("Successfully read {} bytes from file", content.len());
+
+    // Parse deployment context from SQL annotations
+    println!("Extracting deployment context from SQL annotations...");
+    let sql_deployment_ctx = SqlAnnotationParser::parse_deployment_context(&content);
+    if sql_deployment_ctx.node_id.is_some()
+        || sql_deployment_ctx.node_name.is_some()
+        || sql_deployment_ctx.region.is_some()
+    {
+        println!("✅ Deployment context extracted from annotations:");
+        if let Some(ref node_id) = sql_deployment_ctx.node_id {
+            println!("   • Node ID: {}", node_id);
+            std::env::set_var("NODE_ID", node_id);
+        }
+        if let Some(ref node_name) = sql_deployment_ctx.node_name {
+            println!("   • Node Name: {}", node_name);
+            std::env::set_var("NODE_NAME", node_name);
+        }
+        if let Some(ref region) = sql_deployment_ctx.region {
+            println!("   • Region: {}", region);
+            std::env::set_var("REGION", region);
+        }
+    } else {
+        println!("ℹ️  No deployment context annotations found in SQL file");
+    }
 
     // Validate SQL before deployment using SqlValidator
     println!("Validating SQL application...");
@@ -514,12 +545,69 @@ async fn deploy_sql_application_from_file(
 
     // Keep logging for server operations, but rely on println! for deployment output
 
-    // Create a temporary server instance for deployment
+    // Create a temporary server instance for deployment with observability configuration
     println!(
         "Creating StreamJobServer with brokers: {}, group_id: {}",
         brokers, group_id
     );
-    let server = StreamJobServer::new_with_monitoring(brokers, group_id, 100, true).await; // High limit for app deployment with monitoring
+
+    // Build StreamingConfig with observability features based on CLI flags
+    use velostream::velostream::sql::execution::config::{
+        PrometheusConfig, StreamingConfig, TracingConfig,
+    };
+
+    let mut streaming_config = StreamingConfig::default();
+
+    // Configure distributed tracing if enabled
+    if enable_tracing {
+        // Start with development defaults and override with CLI arguments
+        let mut tracing_config = TracingConfig::development();
+
+        // Override with custom values from CLI
+        tracing_config.service_name =
+            format!("velo-sql-{}", file_path.split('/').last().unwrap_or("app"));
+        tracing_config.sampling_ratio = sampling_ratio.unwrap_or(1.0); // Dev default: 100%, Prod: use --sampling-ratio 0.01
+
+        if let Some(endpoint) = otlp_endpoint.clone() {
+            tracing_config.otlp_endpoint = Some(endpoint);
+        }
+
+        info!(
+            "🔍 Initializing distributed tracing with service name: {}",
+            tracing_config.service_name
+        );
+        streaming_config = streaming_config.with_tracing_config(tracing_config);
+    }
+
+    // Configure Prometheus metrics if enabled
+    if enable_metrics {
+        let prometheus_config = PrometheusConfig {
+            metrics_path: "/metrics".to_string(),
+            bind_address: "0.0.0.0".to_string(),
+            port: metrics_port,
+            enable_histograms: true,
+            enable_query_metrics: true,
+            enable_streaming_metrics: true,
+            collection_interval_seconds: 15,
+            max_labels_per_metric: 10,
+        };
+        streaming_config = streaming_config.with_prometheus_config(prometheus_config);
+    }
+
+    // Configure performance profiling if enabled
+    if enable_profiling {
+        use velostream::velostream::sql::execution::config::ProfilingConfig;
+        streaming_config = streaming_config.with_profiling_config(ProfilingConfig::development());
+    }
+
+    // Create server with full observability configuration
+    let server = StreamJobServer::new_with_observability(
+        brokers,
+        group_id,
+        100, // High limit for app deployment
+        streaming_config,
+    )
+    .await;
 
     // Deploy the application
     println!(

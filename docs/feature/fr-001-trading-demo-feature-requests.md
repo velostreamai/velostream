@@ -40,30 +40,6 @@ The trading demo currently provides:
 - Rich data flowing to `price_alerts`, `risk_alerts`, `arbitrage_opportunities` topics
 - Meaningful demo showing actual financial use cases
 
-#### 1.2 Interactive Trading Dashboard
-**Priority:** High | **Effort:** High | **Impact:** High
-
-**Current Limitation:** The Python dashboard is basic and requires manual setup.
-
-**Proposed Features:**
-```python
-# Enhanced dashboard with:
-- Real-time price charts for all 8 stocks
-- Live alerts panel showing trading signals
-- Volume spike visualization with historical context
-- Risk monitoring for simulated traders
-- Arbitrage opportunity tracking
-- P&L visualization
-- Market sentiment indicators
-```
-
-**Implementation:**
-- Enhance `dashboard.py` with comprehensive real-time visualizations
-- Add WebSocket connections for live data streaming
-- Implement interactive chart controls (zoom, timeframe selection)
-- Add alert sound notifications for critical trading events
-- Create risk heatmap for trader positions
-
 ### Phase 2: Production-Ready Features (Medium Priority)
 
 #### 2.1 Multi-Asset Class Support
@@ -161,7 +137,6 @@ The trading demo currently provides:
 ### Q1 2024: Core Analytics
 - ✅ Fix SQL job deployment issues
 - ✅ Complete all 5 financial analytics jobs
-- ✅ Enhanced dashboard with real-time visualizations
 - ✅ Comprehensive monitoring and alerting
 
 ### Q2 2024: Advanced Features
@@ -293,12 +268,6 @@ The trading demo currently provides:
 3. Validate each SQL job independently
 4. Ensure clean topic separation
 
-**For Dashboard Enhancement (FR-002):**
-1. Use WebSocket for real-time updates
-2. Implement proper error handling
-3. Add responsive design for mobile
-4. Include data export capabilities
-
 **For Advanced Features:**
 1. Design for extensibility from the start
 2. Use plugin architecture for external integrations
@@ -345,6 +314,6 @@ The trading demo currently provides:
 
 **🎯 Priority Summary:**
 - **Critical:** Fix multi-job SQL server (FR-001)
-- **High:** Enhanced analytics, real-time dashboard
+- **High:** Enhanced analytics
 - **Medium:** Multi-asset support, advanced risk management
 - **Future:** Enterprise integration, ML capabilities

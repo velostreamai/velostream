@@ -39,3 +39,12 @@ pub mod concat_operator_test;
 
 // CSAS/CTAS configuration extraction tests
 pub mod csas_ctas_config_extraction_test;
+
+// SQL validator subquery tests
+pub mod sql_validator_subquery_test;
+
+// ProfilingMode parsing tests
+pub mod profiling_mode_test;
+
+// Node identification tests
+pub mod node_identification_test;

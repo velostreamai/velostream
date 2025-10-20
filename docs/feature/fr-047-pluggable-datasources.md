@@ -282,7 +282,7 @@ delivery_profiles:
 #### Topic-Specific Configurations
 
 ```yaml
-# configs/market_data_topic.yaml
+# configs/market_data_ts_source.yaml
 extends: common_kafka_source.yaml
 
 topic:
@@ -300,7 +300,7 @@ metadata:
 ```
 
 ```yaml
-# configs/risk_alerts_topic.yaml
+# configs/risk_alerts_sink.yaml
 extends: common_kafka_sink.yaml
 
 topic:
@@ -354,8 +354,8 @@ SELECT trader_id, position_value, risk_status
 FROM trading_positions 
 WHERE position_value > 1000000
 WITH (
-    source_config = 'configs/trading_positions_topic.yaml',
-    sink_config = 'configs/risk_alerts_topic.yaml'
+    source_config = 'configs/trading_positions_source.yaml',
+    sink_config = 'configs/risk_alerts_sink.yaml'
 );
 ```
 

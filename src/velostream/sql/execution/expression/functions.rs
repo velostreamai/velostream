@@ -83,11 +83,22 @@ impl BuiltinFunctions {
     }
 
     /// Evaluates a function by name with arguments
+    ///
+    /// First checks the inventory system for self-registered functions,
+    /// then falls back to the legacy match statement for backward compatibility.
     pub fn evaluate_function_by_name(
         name: &str,
         args: &[Expr],
         record: &StreamRecord,
     ) -> Result<FieldValue, SqlError> {
+        use crate::velostream::sql::execution::expression::function_metadata;
+
+        // First, try to find function in inventory (self-registered functions)
+        if let Some(func_def) = function_metadata::find_function(name) {
+            return (func_def.handler)(args, record);
+        }
+
+        // Fall back to legacy match statement for functions not yet migrated
         match name.to_uppercase().as_str() {
             // Aggregate functions
             "COUNT" => Self::count_function(args, record),
@@ -170,6 +181,8 @@ impl BuiltinFunctions {
             // Date/Time functions
             "NOW" => Self::now_function(args, record),
             "CURRENT_TIMESTAMP" => Self::current_timestamp_function(args, record),
+            "TUMBLE_START" => Self::tumble_start_function(args, record),
+            "TUMBLE_END" => Self::tumble_end_function(args, record),
             "DATE_FORMAT" => Self::date_format_function(args, record),
             "FROM_UNIXTIME" => Self::from_unixtime_function(args, record),
             "UNIX_TIMESTAMP" => Self::unix_timestamp_function(args, record),
@@ -203,7 +216,7 @@ impl BuiltinFunctions {
         }
     }
 
-    fn evaluate_variance(args: &&[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    fn evaluate_variance(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         // VARIANCE(column) - sample variance
         if args.len() != 1 {
             return Err(SqlError::ExecutionError {
@@ -2095,6 +2108,39 @@ impl BuiltinFunctions {
         Self::now_function(args, record)
     }
 
+    /// TUMBLE_START function - returns the start timestamp of the current tumbling window
+    /// Reads the _window_start metadata field added by the window processor
+    fn tumble_start_function(
+        _args: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        // TUMBLE_START can accept 0-2 arguments (event_time column and window size)
+        // However, in practice it reads the window boundaries from record metadata
+
+        // Try to get _window_start from record metadata
+        if let Some(window_start) = record.fields.get("_window_start") {
+            return Ok(window_start.clone());
+        }
+
+        // Fallback: If no metadata, return record timestamp (for non-windowed queries)
+        Ok(FieldValue::Integer(record.timestamp))
+    }
+
+    /// TUMBLE_END function - returns the end timestamp of the current tumbling window
+    /// Reads the _window_end metadata field added by the window processor
+    fn tumble_end_function(_args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+        // TUMBLE_END can accept 0-2 arguments (event_time column and window size)
+        // However, in practice it reads the window boundaries from record metadata
+
+        // Try to get _window_end from record metadata
+        if let Some(window_end) = record.fields.get("_window_end") {
+            return Ok(window_end.clone());
+        }
+
+        // Fallback: If no metadata, return record timestamp (for non-windowed queries)
+        Ok(FieldValue::Integer(record.timestamp))
+    }
+
     fn date_format_function(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
         if args.len() != 2 {
             return Err(SqlError::ExecutionError {
@@ -2706,3 +2752,738 @@ impl BuiltinFunctions {
         }
     }
 }
+
+// ============================================================================
+// FUNCTION SELF-REGISTRATION
+// ============================================================================
+//
+// All SQL functions register themselves using the inventory pattern.
+// This ensures they are automatically available in both the function registry
+// and execution engine without manual updates.
+//
+// Organization:
+// - Aggregate Functions
+// - Mathematical Functions
+// - String Functions
+// - Date/Time Functions
+// - Conditional Functions
+// - JSON Functions
+// - Array/Map Functions
+// - Scalar/Utility Functions
+// - Statistical Functions
+// - Header Functions
+// ============================================================================
+
+use crate::register_sql_function;
+use crate::velostream::sql::execution::expression::function_metadata::FunctionCategory;
+
+// ============================================================================
+// AGGREGATE FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "COUNT",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::count_function
+);
+
+register_sql_function!(
+    name: "SUM",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::sum_function
+);
+
+register_sql_function!(
+    name: "AVG",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::avg_function
+);
+
+register_sql_function!(
+    name: "MIN",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::min_function
+);
+
+register_sql_function!(
+    name: "MAX",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::max_function
+);
+
+register_sql_function!(
+    name: "APPROX_COUNT_DISTINCT",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::approx_count_distinct_function
+);
+
+register_sql_function!(
+    name: "COUNT_DISTINCT",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::count_distinct_function
+);
+
+register_sql_function!(
+    name: "FIRST_VALUE",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: true,
+    handler: BuiltinFunctions::first_value_function
+);
+
+register_sql_function!(
+    name: "LAST_VALUE",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: true,
+    handler: BuiltinFunctions::last_value_function
+);
+
+register_sql_function!(
+    name: "LISTAGG",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::listagg_function
+);
+
+register_sql_function!(
+    name: "STRING_AGG",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::string_agg_function
+);
+
+register_sql_function!(
+    name: "MEDIAN",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::median_function
+);
+
+// ============================================================================
+// STATISTICAL AGGREGATE FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "STDDEV",
+    aliases: ["STDDEV_SAMP"],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: true,
+    handler: BuiltinFunctions::stddev_function
+);
+
+register_sql_function!(
+    name: "STDDEV_POP",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: true,
+    handler: BuiltinFunctions::stddev_pop_function
+);
+
+register_sql_function!(
+    name: "VARIANCE",
+    aliases: ["VAR_SAMP"],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: true,
+    handler: BuiltinFunctions::evaluate_variance
+);
+
+register_sql_function!(
+    name: "VAR_POP",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: true,
+    handler: BuiltinFunctions::var_pop_function
+);
+
+register_sql_function!(
+    name: "PERCENTILE_CONT",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::percentile_cont_function
+);
+
+register_sql_function!(
+    name: "PERCENTILE_DISC",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::percentile_disc_function
+);
+
+register_sql_function!(
+    name: "CORR",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::corr_function
+);
+
+register_sql_function!(
+    name: "COVAR_POP",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::covar_pop_function
+);
+
+register_sql_function!(
+    name: "COVAR_SAMP",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::covar_samp_function
+);
+
+register_sql_function!(
+    name: "REGR_SLOPE",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::regr_slope_function
+);
+
+register_sql_function!(
+    name: "REGR_INTERCEPT",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::regr_intercept_function
+);
+
+register_sql_function!(
+    name: "REGR_R2",
+    aliases: [],
+    category: FunctionCategory::Aggregate,
+    aggregate: true,
+    window: false,
+    handler: BuiltinFunctions::regr_r2_function
+);
+
+// ============================================================================
+// MATHEMATICAL FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "ABS",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::abs_function
+);
+
+register_sql_function!(
+    name: "ROUND",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::round_function
+);
+
+register_sql_function!(
+    name: "CEIL",
+    aliases: ["CEILING"],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::ceil_function
+);
+
+register_sql_function!(
+    name: "FLOOR",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::floor_function
+);
+
+register_sql_function!(
+    name: "SQRT",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::sqrt_function
+);
+
+register_sql_function!(
+    name: "POWER",
+    aliases: ["POW"],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::power_function
+);
+
+register_sql_function!(
+    name: "MOD",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::mod_function
+);
+
+register_sql_function!(
+    name: "LEAST",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::least_function
+);
+
+register_sql_function!(
+    name: "GREATEST",
+    aliases: [],
+    category: FunctionCategory::Math,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::greatest_function
+);
+
+// ============================================================================
+// STRING FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "UPPER",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::upper_function
+);
+
+register_sql_function!(
+    name: "LOWER",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::lower_function
+);
+
+register_sql_function!(
+    name: "SUBSTRING",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::substring_function
+);
+
+register_sql_function!(
+    name: "REPLACE",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::replace_function
+);
+
+register_sql_function!(
+    name: "TRIM",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::trim_function
+);
+
+register_sql_function!(
+    name: "LTRIM",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::ltrim_function
+);
+
+register_sql_function!(
+    name: "RTRIM",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::rtrim_function
+);
+
+register_sql_function!(
+    name: "LENGTH",
+    aliases: ["LEN"],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::length_function
+);
+
+register_sql_function!(
+    name: "CONCAT",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::concat_function
+);
+
+register_sql_function!(
+    name: "SPLIT",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::split_function
+);
+
+register_sql_function!(
+    name: "JOIN",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::join_function
+);
+
+register_sql_function!(
+    name: "LEFT",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::left_function
+);
+
+register_sql_function!(
+    name: "RIGHT",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::right_function
+);
+
+register_sql_function!(
+    name: "POSITION",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::position_function
+);
+
+register_sql_function!(
+    name: "REGEXP",
+    aliases: [],
+    category: FunctionCategory::String,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::regexp_function
+);
+
+// ============================================================================
+// DATE/TIME FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "NOW",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::now_function
+);
+
+register_sql_function!(
+    name: "CURRENT_TIMESTAMP",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::current_timestamp_function
+);
+
+register_sql_function!(
+    name: "TIMESTAMP",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::timestamp_function
+);
+
+register_sql_function!(
+    name: "EXTRACT",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::extract_function
+);
+
+register_sql_function!(
+    name: "DATE_FORMAT",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::date_format_function
+);
+
+register_sql_function!(
+    name: "DATEDIFF",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::datediff_function
+);
+
+register_sql_function!(
+    name: "TUMBLE_START",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::tumble_start_function
+);
+
+register_sql_function!(
+    name: "TUMBLE_END",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::tumble_end_function
+);
+
+register_sql_function!(
+    name: "FROM_UNIXTIME",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::from_unixtime_function
+);
+
+register_sql_function!(
+    name: "UNIX_TIMESTAMP",
+    aliases: [],
+    category: FunctionCategory::DateTime,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::unix_timestamp_function
+);
+
+// ============================================================================
+// CONDITIONAL FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "COALESCE",
+    aliases: [],
+    category: FunctionCategory::Conditional,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::coalesce_function
+);
+
+register_sql_function!(
+    name: "NULLIF",
+    aliases: [],
+    category: FunctionCategory::Conditional,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::nullif_function
+);
+
+register_sql_function!(
+    name: "CAST",
+    aliases: [],
+    category: FunctionCategory::Conditional,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::cast_function
+);
+
+// ============================================================================
+// JSON FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "JSON_EXTRACT",
+    aliases: [],
+    category: FunctionCategory::Json,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::json_extract_function
+);
+
+register_sql_function!(
+    name: "JSON_VALUE",
+    aliases: [],
+    category: FunctionCategory::Json,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::json_value_function
+);
+
+// ============================================================================
+// ARRAY/MAP FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "ARRAY",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::array_function
+);
+
+register_sql_function!(
+    name: "STRUCT",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::struct_function
+);
+
+register_sql_function!(
+    name: "MAP",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::map_function
+);
+
+register_sql_function!(
+    name: "ARRAY_LENGTH",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::array_length_function
+);
+
+register_sql_function!(
+    name: "ARRAY_CONTAINS",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::array_contains_function
+);
+
+register_sql_function!(
+    name: "MAP_KEYS",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::map_keys_function
+);
+
+register_sql_function!(
+    name: "MAP_VALUES",
+    aliases: [],
+    category: FunctionCategory::Array,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::map_values_function
+);
+
+// ============================================================================
+// HEADER/SCALAR FUNCTIONS
+// ============================================================================
+
+register_sql_function!(
+    name: "HEADER",
+    aliases: [],
+    category: FunctionCategory::Scalar,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::header_function
+);
+
+register_sql_function!(
+    name: "HEADER_KEYS",
+    aliases: [],
+    category: FunctionCategory::Scalar,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::header_keys_function
+);
+
+register_sql_function!(
+    name: "HAS_HEADER",
+    aliases: [],
+    category: FunctionCategory::Scalar,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::has_header_function
+);
+
+register_sql_function!(
+    name: "SET_HEADER",
+    aliases: [],
+    category: FunctionCategory::Scalar,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::set_header_function
+);
+
+register_sql_function!(
+    name: "REMOVE_HEADER",
+    aliases: [],
+    category: FunctionCategory::Scalar,
+    aggregate: false,
+    window: false,
+    handler: BuiltinFunctions::remove_header_function
+);

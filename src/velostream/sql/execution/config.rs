@@ -86,6 +86,14 @@ pub struct StreamingConfig {
     /// Performance profiling configuration
     /// Default: None (use default profiling settings)
     pub profiling_config: Option<ProfilingConfig>,
+
+    // === DEPLOYMENT CONFIGURATION ===
+    /// Node identifier for observability context (resolved from environment variables)
+    pub deployment_node_id: Option<String>,
+    /// Node name for observability context (human-readable)
+    pub deployment_node_name: Option<String>,
+    /// Region/zone for observability context
+    pub deployment_region: Option<String>,
 }
 
 impl Default for StreamingConfig {
@@ -113,6 +121,10 @@ impl Default for StreamingConfig {
             tracing_config: None,
             prometheus_config: None,
             profiling_config: None,
+            // Deployment defaults - no configuration by default
+            deployment_node_id: None,
+            deployment_node_name: None,
+            deployment_region: None,
         }
     }
 }
@@ -160,6 +172,10 @@ impl StreamingConfig {
             tracing_config: None,
             prometheus_config: Some(PrometheusConfig::enterprise()),
             profiling_config: None,
+            // Deployment defaults - no configuration by default
+            deployment_node_id: None,
+            deployment_node_name: None,
+            deployment_region: None,
         }
     }
 
@@ -338,6 +354,19 @@ impl StreamingConfig {
             // Include all enhanced features
             ..Self::enhanced()
         }
+    }
+
+    /// Set deployment configuration for node identification
+    pub fn with_deployment_config(
+        mut self,
+        node_id: Option<String>,
+        node_name: Option<String>,
+        region: Option<String>,
+    ) -> Self {
+        self.deployment_node_id = node_id;
+        self.deployment_node_name = node_name;
+        self.deployment_region = region;
+        self
     }
 }
 

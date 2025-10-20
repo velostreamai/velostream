@@ -14,9 +14,12 @@ datasink:
     batch.size: 16384
 
   schema:
-    key.format: string
-    value.format: avro
-    schema.registry.url: "http://schema-registry:8081"
+    key.field: symbol
+#    value.format: json
+#    value.serializer: "json"
+    value.schema.file: "schemas/volume_spikes.avsc"
+    # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
+    # schema.registry.url: "http://schema-registry:8081"
 
   topic:
     name: "volume-spikes"

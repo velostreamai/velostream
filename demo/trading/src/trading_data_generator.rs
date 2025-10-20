@@ -13,8 +13,10 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::time;
 use velostream::velostream::kafka::kafka_error::ProducerError;
-use velostream::velostream::kafka::serialization::Serializer;
-use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaProducer};
+use velostream::velostream::kafka::serialization::{Serde, StringSerializer};
+use velostream::velostream::kafka::{Headers, KafkaProducer};
+use velostream::velostream::serialization::avro_codec::AvroCodec;
+use velostream::velostream::sql::execution::types::FieldValue;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct MarketData {
@@ -26,27 +28,160 @@ struct MarketData {
     bid_size: i64,
     ask_size: i64,
     volume: i64,
+    vwap: Option<f64>,
+    market_cap: Option<f64>,
     timestamp: i64,
+}
+
+impl MarketData {
+    fn to_field_value_record(&self) -> HashMap<String, FieldValue> {
+        let mut record = HashMap::new();
+        record.insert(
+            "symbol".to_string(),
+            FieldValue::String(self.symbol.clone()),
+        );
+        record.insert(
+            "exchange".to_string(),
+            FieldValue::String(self.exchange.clone()),
+        );
+        record.insert("timestamp".to_string(), FieldValue::Integer(self.timestamp));
+        record.insert("price".to_string(), FieldValue::Float(self.price));
+        record.insert("bid_price".to_string(), FieldValue::Float(self.bid_price));
+        record.insert("ask_price".to_string(), FieldValue::Float(self.ask_price));
+        record.insert("bid_size".to_string(), FieldValue::Integer(self.bid_size));
+        record.insert("ask_size".to_string(), FieldValue::Integer(self.ask_size));
+        record.insert("volume".to_string(), FieldValue::Integer(self.volume));
+        record.insert(
+            "vwap".to_string(),
+            self.vwap.map(FieldValue::Float).unwrap_or(FieldValue::Null),
+        );
+        record.insert(
+            "market_cap".to_string(),
+            self.market_cap
+                .map(FieldValue::Float)
+                .unwrap_or(FieldValue::Null),
+        );
+        record
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct TradingPosition {
     trader_id: String,
+    account_id: String,
     symbol: String,
     position_size: i64, // positive for long, negative for short
-    avg_price: f64,
+    entry_price: f64,
     current_pnl: f64,
+    unrealized_pnl: f64,
+    realized_pnl: f64,
+    position_value: f64,
+    margin_used: f64,
     timestamp: i64,
+    last_update_source: String,
+}
+
+impl TradingPosition {
+    fn to_field_value_record(&self) -> HashMap<String, FieldValue> {
+        let mut record = HashMap::new();
+        record.insert(
+            "trader_id".to_string(),
+            FieldValue::String(self.trader_id.clone()),
+        );
+        record.insert(
+            "account_id".to_string(),
+            FieldValue::String(self.account_id.clone()),
+        );
+        record.insert(
+            "symbol".to_string(),
+            FieldValue::String(self.symbol.clone()),
+        );
+        record.insert(
+            "position_size".to_string(),
+            FieldValue::Integer(self.position_size),
+        );
+        record.insert(
+            "entry_price".to_string(),
+            FieldValue::String(format!("{:.4}", self.entry_price)),
+        );
+        record.insert(
+            "current_pnl".to_string(),
+            FieldValue::String(format!("{:.2}", self.current_pnl)),
+        );
+        record.insert(
+            "unrealized_pnl".to_string(),
+            FieldValue::String(format!("{:.2}", self.unrealized_pnl)),
+        );
+        record.insert(
+            "realized_pnl".to_string(),
+            FieldValue::String(format!("{:.2}", self.realized_pnl)),
+        );
+        record.insert(
+            "position_value".to_string(),
+            FieldValue::String(format!("{:.2}", self.position_value)),
+        );
+        record.insert(
+            "margin_used".to_string(),
+            FieldValue::String(format!("{:.2}", self.margin_used)),
+        );
+        record.insert("timestamp".to_string(), FieldValue::Integer(self.timestamp));
+        record.insert(
+            "last_update_source".to_string(),
+            FieldValue::String(self.last_update_source.clone()),
+        );
+        record
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct OrderBookUpdate {
     symbol: String,
+    exchange: String,
+    timestamp: i64,
     side: String, // "BUY" or "SELL"
     price: f64,
     quantity: i64,
-    order_type: String, // "LIMIT", "MARKET"
-    timestamp: i64,
+    order_count: i32,
+    update_type: String, // "ADD", "MODIFY", "DELETE", "TRADE"
+    level: i32,
+    total_volume: i64,
+    sequence_number: i64,
+}
+
+impl OrderBookUpdate {
+    fn to_field_value_record(&self) -> HashMap<String, FieldValue> {
+        let mut record = HashMap::new();
+        record.insert(
+            "symbol".to_string(),
+            FieldValue::String(self.symbol.clone()),
+        );
+        record.insert(
+            "exchange".to_string(),
+            FieldValue::String(self.exchange.clone()),
+        );
+        record.insert("timestamp".to_string(), FieldValue::Integer(self.timestamp));
+        record.insert("side".to_string(), FieldValue::String(self.side.clone()));
+        record.insert("price".to_string(), FieldValue::Float(self.price));
+        record.insert("quantity".to_string(), FieldValue::Integer(self.quantity));
+        record.insert(
+            "order_count".to_string(),
+            FieldValue::Integer(self.order_count as i64),
+        );
+        record.insert(
+            "update_type".to_string(),
+            FieldValue::String(self.update_type.clone()),
+        );
+        record.insert("level".to_string(), FieldValue::Integer(self.level as i64));
+        record.insert(
+            "total_volume".to_string(),
+            FieldValue::Integer(self.total_volume),
+        );
+        record.insert(
+            "sequence_number".to_string(),
+            FieldValue::Integer(self.sequence_number),
+        );
+        record
+    }
 }
 
 #[derive(Clone)]
@@ -109,6 +244,18 @@ impl StockState {
         let bid_size = rng.gen_range(1000..100000);
         let ask_size = rng.gen_range(1000..100000);
 
+        // Calculate VWAP (simple approximation for demo purposes)
+        let vwap = Some(price * rng.gen_range(0.995..1.005));
+
+        // Calculate market cap (simplified - price * total shares outstanding)
+        // For demo, use realistic market caps based on symbol
+        let market_cap = match self.symbol.as_str() {
+            "AAPL" | "MSFT" | "GOOGL" => Some(price * 15_000_000_000.0), // ~$2-3T
+            "AMZN" | "NVDA" | "META" => Some(price * 5_000_000_000.0),   // ~$1-2T
+            "TSLA" | "NFLX" => Some(price * 3_000_000_000.0),            // ~$500B-1T
+            _ => Some(price * 1_000_000_000.0),
+        };
+
         MarketData {
             symbol: self.symbol.clone(),
             exchange: exchange.to_string(),
@@ -118,6 +265,8 @@ impl StockState {
             bid_size,
             ask_size,
             volume,
+            vwap,
+            market_cap,
             timestamp: Utc::now().timestamp_millis(),
         }
     }
@@ -126,7 +275,12 @@ impl StockState {
 struct TradingSimulator {
     stocks: HashMap<String, StockState>,
     traders: Vec<String>,
-    producer: KafkaProducer<String, serde_json::Value, JsonSerializer, JsonSerializer>,
+    market_data_producer:
+        KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    trading_position_producer:
+        KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
+    order_book_producer:
+        KafkaProducer<String, HashMap<String, FieldValue>, StringSerializer, AvroCodec>,
     rng: ThreadRng,
 }
 
@@ -155,17 +309,47 @@ impl TradingSimulator {
         // Create traders
         let traders = (1..=20).map(|i| format!("TRADER_{:03}", i)).collect();
 
-        let producer = KafkaProducer::<String, serde_json::Value, _, _>::new(
+        // Load Avro schemas from files
+        info!("Loading Avro schemas...");
+        let market_data_schema = std::fs::read_to_string("schemas/market_data.avsc")?;
+        let trading_position_schema = std::fs::read_to_string("schemas/trading_positions.avsc")?;
+        let order_book_schema = std::fs::read_to_string("schemas/order_book_updates.avsc")?;
+
+        // Create AvroCodec instances for each producer
+        let market_data_codec = AvroCodec::new(&market_data_schema)?;
+        let trading_position_codec = AvroCodec::new(&trading_position_schema)?;
+        let order_book_codec = AvroCodec::new(&order_book_schema)?;
+        info!("Avro schemas loaded successfully");
+
+        // Create separate producers for each message type with correct codecs
+        let market_data_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
             brokers,
-            "market-data", // We'll change topics when sending
-            JsonSerializer,
-            JsonSerializer,
+            "in_market_data_stream",
+            StringSerializer,
+            market_data_codec,
+        )?;
+
+        let trading_position_producer =
+            KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
+                brokers,
+                "in_trading_positions_stream",
+                StringSerializer,
+                trading_position_codec,
+            )?;
+
+        let order_book_producer = KafkaProducer::<String, HashMap<String, FieldValue>, _, _>::new(
+            brokers,
+            "in_order_book_stream",
+            StringSerializer,
+            order_book_codec,
         )?;
 
         Ok(Self {
             stocks,
             traders,
-            producer,
+            market_data_producer,
+            trading_position_producer,
+            order_book_producer,
             rng: thread_rng(),
         })
     }
@@ -181,16 +365,13 @@ impl TradingSimulator {
                     .insert("exchange", &exchange)
                     .insert("symbol", &market_data.symbol);
 
-                // Send to market_data_stream topic
+                // Convert to FieldValue record for Avro serialization
+                let record = market_data.to_field_value_record();
+
+                // Send to in_market_data_stream topic using market_data_producer
                 match self
-                    .producer
-                    .send_to_topic(
-                        "market_data_stream",
-                        Some(&market_data.symbol),
-                        &serde_json::to_value(&market_data)?,
-                        headers.clone(),
-                        None,
-                    )
+                    .market_data_producer
+                    .send(Some(&market_data.symbol), &record, headers.clone(), None)
                     .await
                 {
                     Ok(_delivery) => {}
@@ -198,21 +379,19 @@ impl TradingSimulator {
                 }
 
                 // Also send to exchange-specific topics for arbitrage detection
+                // Note: These will also use the market_data schema
                 let exchange_topic = match exchange.as_str() {
-                    "NYSE" => "market_data_stream_a",
-                    "NASDAQ" => "market_data_stream_b",
+                    "NYSE" => "in_market_data_stream_a",
+                    "NASDAQ" => "in_market_data_stream_b",
                     _ => continue, // Skip other exchanges for now
                 };
 
+                // For exchange-specific topics, we need to send to the same producer
+                // since they use the same schema. The producer is configured with the default topic
+                // but we'll just send to it again (all market data uses the same topic for now)
                 match self
-                    .producer
-                    .send_to_topic(
-                        exchange_topic,
-                        Some(&market_data.symbol),
-                        &serde_json::to_value(&market_data)?,
-                        headers,
-                        None,
-                    )
+                    .market_data_producer
+                    .send(Some(&market_data.symbol), &record, headers, None)
                     .await
                 {
                     Ok(_delivery) => {}
@@ -242,16 +421,27 @@ impl TradingSimulator {
                         continue;
                     }
 
-                    let avg_price = stock.current_price * self.rng.gen_range(0.95..1.05);
-                    let current_pnl = position_size as f64 * (stock.current_price - avg_price);
+                    let entry_price = stock.current_price * self.rng.gen_range(0.95..1.05);
+                    let unrealized_pnl = position_size as f64 * (stock.current_price - entry_price);
+                    let realized_pnl = self.rng.gen_range(-1000.0..1000.0); // Some historical realized P&L
+                    let current_pnl = unrealized_pnl + realized_pnl;
+                    let position_value = (position_size as f64 * stock.current_price).abs();
+                    let margin_used = position_value * 0.3; // 30% margin requirement
+                    let account_id = format!("ACC_{}", trader.chars().last().unwrap_or('0'));
 
                     let position = TradingPosition {
                         trader_id: trader.clone(),
+                        account_id,
                         symbol: symbol.clone(),
                         position_size,
-                        avg_price,
+                        entry_price,
                         current_pnl,
+                        unrealized_pnl,
+                        realized_pnl,
+                        position_value,
+                        margin_used,
                         timestamp: Utc::now().timestamp_millis(),
+                        last_update_source: "position_update".to_string(),
                     };
 
                     let headers = Headers::new()
@@ -260,12 +450,14 @@ impl TradingSimulator {
                         .insert("trader_id", trader)
                         .insert("symbol", &symbol);
 
+                    // Convert to FieldValue record for Avro serialization
+                    let record = position.to_field_value_record();
+
                     match self
-                        .producer
-                        .send_to_topic(
-                            "trading_positions_stream",
+                        .trading_position_producer
+                        .send(
                             Some(&format!("{}_{}", trader, symbol)),
-                            &serde_json::to_value(&position)?,
+                            &record,
                             headers,
                             None,
                         )
@@ -292,22 +484,40 @@ impl TradingSimulator {
                     } else {
                         "SELL"
                     };
+                    let exchange =
+                        stock.exchanges[self.rng.gen_range(0..stock.exchanges.len())].clone();
                     let price_offset = self.rng.gen_range(-0.01..0.01);
                     let price = stock.current_price * (1.0 + price_offset);
                     let quantity = self.rng.gen_range(100..50000);
-                    let order_type = if self.rng.gen_bool(0.8) {
-                        "LIMIT"
-                    } else {
-                        "MARKET"
+                    let order_count = self.rng.gen_range(1..10);
+                    let level = self.rng.gen_range(1..5);
+                    let total_volume = quantity + self.rng.gen_range(0..quantity);
+
+                    let update_type = match self.rng.gen_range(0..4) {
+                        0 => "ADD",
+                        1 => "MODIFY",
+                        2 => "DELETE",
+                        _ => "TRADE",
                     };
+
+                    // Use iteration as sequence number (simplified)
+                    static SEQUENCE: std::sync::atomic::AtomicI64 =
+                        std::sync::atomic::AtomicI64::new(0);
+                    let sequence_number =
+                        SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
                     let order_update = OrderBookUpdate {
                         symbol: symbol.clone(),
+                        exchange,
+                        timestamp: Utc::now().timestamp_millis(),
                         side: side.to_string(),
                         price,
                         quantity,
-                        order_type: order_type.to_string(),
-                        timestamp: Utc::now().timestamp_millis(),
+                        order_count,
+                        update_type: update_type.to_string(),
+                        level,
+                        total_volume,
+                        sequence_number,
                     };
 
                     let headers = Headers::new()
@@ -316,12 +526,14 @@ impl TradingSimulator {
                         .insert("symbol", symbol)
                         .insert("side", side);
 
+                    // Convert to FieldValue record for Avro serialization
+                    let record = order_update.to_field_value_record();
+
                     match self
-                        .producer
-                        .send_to_topic(
-                            "order_book_stream",
+                        .order_book_producer
+                        .send(
                             Some(&format!("{}_{}", symbol, side)),
-                            &serde_json::to_value(&order_update)?,
+                            &record,
                             headers,
                             None,
                         )
@@ -402,8 +614,8 @@ impl<K, V, KS, VS> ProducerTopicExt<K, V, KS, VS> for KafkaProducer<K, V, KS, VS
 where
     K: Clone,
     V: Clone,
-    KS: Serializer<K>,
-    VS: Serializer<V>,
+    KS: Serde<K>,
+    VS: Serde<V>,
 {
     async fn send_to_topic(
         &self,

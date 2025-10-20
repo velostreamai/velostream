@@ -12,32 +12,32 @@ topic:
 performance_profile: ultra_low_latency
 
 # Topic-specific schema
-schema:
-  key.field: symbol
-  value.serializer: "avro"
-  value.schema.file: "schemas/market_data_ts.avsc"
-  
-  # Alternative inline schema definition:
-  # avro.schema: |
-  #   {
-  #     "type": "record",
-  #     "name": "MarketData",
-  #     "fields
-  #       {"name": "symbol", "type": "string"},
-  #       {"name": "bid", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
-  #       {"name": "ask", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
-  #       {"name": "volume", "type": "long"},
-  #       {"name": "timestamp_us", "type": "long"}
-  #     ]
-  #   }
-  
+datasource:
+  schema:
+    key.field: symbol
+    value.schema.file: "schemas/market_data_ts.avsc"
+    
+    # Alternative inline schema definition:
+    # avro.schema: |
+    #   {
+    #     "type": "record",
+    #     "name": "MarketData",
+    #     "fields
+    #       {"name": "symbol", "type": "string"},
+    #       {"name": "bid", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+    #       {"name": "ask", "type": {"type": "bytes", "logicalType": "decimal", "precision": 19, "scale": 4}},
+    #       {"name": "volume", "type": "long"},
+    #       {"name": "timestamp_us", "type": "long"}
+    #     ]
+    #   }
+    
 # Topic properties
 topic_config:
-  partitions: 12  # High parallelism for market data
-  retention.ms: 86400000  # 1 day retention
-  
+    partitions: 12  # High parallelism for market data
+    retention.ms: 86400000  # 1 day retention
+    
 # Business context
 metadata:
-  description: "High-frequency trading market data feed"
-  data.classification: "real_time_financial"
-  update.frequency: "microseconds"
+    description: "High-frequency trading market data feed"
+    data.classification: "real_time_financial"
+    update.frequency: "microseconds"

@@ -4,7 +4,10 @@
 
 use super::result_types::QueryValidationResult;
 use crate::velostream::{
-    datasource::kafka::{data_sink::KafkaDataSink, data_source::KafkaDataSource},
+    datasource::{
+        file::{FileDataSink, FileDataSource},
+        kafka::{data_sink::KafkaDataSink, data_source::KafkaDataSource},
+    },
     sql::{
         config::yaml_loader::load_yaml_config,
         execution::processors::{BatchProcessingValidator, BatchValidationTarget},
@@ -183,7 +186,12 @@ impl ConfigurationValidator {
     fn validate_source_configurations(&self, query_results: &mut Vec<QueryValidationResult>) {
         for result in query_results.iter_mut() {
             for (source_name, config) in &result.source_configs.clone() {
-                self.validate_kafka_source_config(source_name, config, result);
+                // Determine source type and delegate to appropriate validator
+                if self.is_kafka_config(config) {
+                    self.validate_kafka_source_config(source_name, config, result);
+                } else if self.is_file_config(config) {
+                    self.validate_file_source_config(source_name, config, result);
+                }
             }
         }
     }
@@ -191,7 +199,12 @@ impl ConfigurationValidator {
     fn validate_sink_configurations(&self, query_results: &mut Vec<QueryValidationResult>) {
         for result in query_results.iter_mut() {
             for (sink_name, config) in &result.sink_configs.clone() {
-                self.validate_kafka_sink_config(sink_name, config, result);
+                // Determine sink type and delegate to appropriate validator
+                if self.is_kafka_config(config) {
+                    self.validate_kafka_sink_config(sink_name, config, result);
+                } else if self.is_file_config(config) {
+                    self.validate_file_sink_config(sink_name, config, result);
+                }
             }
         }
     }
@@ -243,6 +256,78 @@ impl ConfigurationValidator {
                 .performance_warnings
                 .push(format!("Kafka sink '{}': {}", sink_name, recommendation));
         }
+    }
+
+    fn validate_file_source_config(
+        &self,
+        source_name: &str,
+        config: &HashMap<String, String>,
+        result: &mut QueryValidationResult,
+    ) {
+        let (errors, warnings, recommendations) =
+            FileDataSource::validate_source_config(config, source_name);
+
+        for error in errors {
+            result.add_configuration_error(format!("File source '{}': {}", source_name, error));
+        }
+
+        for warning in warnings {
+            result.add_warning(format!("File source '{}': {}", source_name, warning));
+        }
+
+        for recommendation in recommendations {
+            result
+                .performance_warnings
+                .push(format!("File source '{}': {}", source_name, recommendation));
+        }
+    }
+
+    fn validate_file_sink_config(
+        &self,
+        sink_name: &str,
+        config: &HashMap<String, String>,
+        result: &mut QueryValidationResult,
+    ) {
+        let (errors, warnings, recommendations) =
+            FileDataSink::validate_sink_config(config, sink_name);
+
+        for error in errors {
+            result.add_configuration_error(format!("File sink '{}': {}", sink_name, error));
+        }
+
+        for warning in warnings {
+            result.add_warning(format!("File sink '{}': {}", sink_name, warning));
+        }
+
+        for recommendation in recommendations {
+            result
+                .performance_warnings
+                .push(format!("File sink '{}': {}", sink_name, recommendation));
+        }
+    }
+
+    // Helper methods to determine config type
+    fn is_kafka_config(&self, config: &HashMap<String, String>) -> bool {
+        config.keys().any(|k| {
+            k.contains("bootstrap.servers")
+                || k.contains("kafka")
+                || k.contains("topic.name")
+                || k.contains("producer_config")
+                || k.contains("consumer_config")
+        })
+    }
+
+    fn is_file_config(&self, config: &HashMap<String, String>) -> bool {
+        config.keys().any(|k| {
+            k == "path"
+                || k.contains("source.path")
+                || k.contains("sink.path")
+                || k.contains("file.")
+                || (k == "format"
+                    && config.get("format").map_or(false, |v| {
+                        ["csv", "csv_no_header", "json", "jsonlines", "jsonl"].contains(&v.as_str())
+                    }))
+        })
     }
 }
 

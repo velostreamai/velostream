@@ -1,12 +1,21 @@
 -- SQL Application: Real-Time Trading Analytics (FR-058 Phase 1B-4 Features)
--- Version: 5.0.0  
--- Description: Advanced trading analytics showcasing Phase 1B-4 capabilities
--- Author: Quantitative Trading Team
--- Features: Watermarks, Circuit Breakers, Advanced SQL, Observability
--- Data Sources: Named sources with configuration-based approach
--- Tag: latency:ultra-low
--- Tag: compliance:regulatory
--- Tag: features:watermarks,circuit-breakers,advanced-sql,observability
+-- @application: real_time_trading_analytics
+-- @version: 5.0.0
+-- @phase: 1B-4
+-- @description: Real-Time Trading Analytics Demo showcasing Phase 1B-4 features
+-- @author: Quantitative Trading Team
+-- @sla.latency.p99: 5ms
+-- @sla.availability: 99.9%
+-- @data_retention: 24h
+-- @compliance: SEC_FINRA_CFTC
+-- @tags: trading, risk-management, market-data, real-time
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+-- @deployment.node_id: prod-trading-cluster-${TRADING_POD_ID:1}
+-- @deployment.node_name: Production Trading Analytics Platform
+-- @deployment.region: ${AWS_REGION:us-east-1}
 
 -- ====================================================================================
 -- PHASE 1B: EVENT-TIME WATERMARK PROCESSING - Market Data Stream
@@ -14,6 +23,19 @@
 -- Showcases event-time processing with watermarks for handling out-of-order market data
 -- Demonstrates late data detection and proper windowing based on trade execution time
 
+-- FR-073 SQL-Native Observability: Market Data Throughput Counter
+-- @metric: velo_trading_market_data_total
+-- @metric_type: counter
+-- @metric_help: "Total market data records processed"
+-- @metric_labels: symbol, exchange
+
+-- FR-073 SQL-Native Observability: Current Price Gauge
+-- @metric: velo_trading_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current market price per symbol"
+-- @metric_field: price
+-- @metric_labels: symbol, exchange
+-- @job_name: market-data-event-time-1
 CREATE STREAM market_data_ts AS
 SELECT
     symbol,
@@ -28,7 +50,7 @@ SELECT
     volume,
     vwap,
     market_cap
-FROM market_data_stream
+FROM in_market_data_stream
 EMIT CHANGES
 WITH (
     -- Phase 1B: Configure event-time processing
@@ -38,17 +60,34 @@ WITH (
     'watermark.max_out_of_orderness' = '5s',  -- 5s tolerance for market data
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
 
-    'market_data_stream.type' = 'kafka_source',
-    'market_data_stream.config_file' = 'configs/market_data_source.yaml',
+    'in_market_data_stream.type' = 'kafka_source',
+    'in_market_data_stream.config_file' = 'configs/market_data_source.yaml',
 
     'market_data_ts.type' = 'kafka_sink',
-    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml'
 );
 
+-- FR-073 SQL-Native Observability: Tick Data Processing Rate
+-- @metric: velo_trading_tick_buckets_total
+-- @metric_type: counter
+-- @metric_help: "Tick buckets created per symbol"
+-- @metric_labels: symbol
+
+-- FR-073 SQL-Native Observability: Trade Count per Bucket
+-- @metric: velo_trading_trades_per_bucket
+-- @metric_type: gauge
+-- @metric_help: "Number of trades in each 1-second bucket"
+-- @metric_field: trade_count
+-- @metric_labels: symbol
+
+-- FR-073 SQL-Native Observability: Volume Distribution
+-- @metric: velo_trading_tick_volume_distribution
+-- @metric_type: histogram
+-- @metric_help: "Distribution of trading volume per tick"
+-- @metric_field: total_volume
+-- @metric_labels: symbol
+-- @metric_buckets: 100, 500, 1000, 5000, 10000, 50000, 100000
+-- @job_name: tick_buckets_streams
 CREATE STREAM tick_buckets AS
 SELECT
     symbol,
@@ -70,11 +109,7 @@ WITH (
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
     'tick_buckets.type' = 'kafka_sink',
-    'tick_buckets.config_file' = 'configs/market_data_clean_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'tick_buckets.config_file' = 'configs/tick_buckets_sink.yaml'
 );
 
 -- ====================================================================================
@@ -83,6 +118,21 @@ WITH (
 -- Uses advanced window functions with event-time based windowing
 -- Demonstrates RANK, DENSE_RANK, PERCENT_RANK, and LAG/LEAD functions
 
+-- FR-073 SQL-Native Observability: Price Alerts Counter
+-- @metric: velo_trading_price_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Price movement alerts by severity"
+-- @metric_labels: symbol, movement_severity
+-- @metric_condition: movement_severity IN ('SIGNIFICANT', 'MODERATE')
+
+-- FR-073 SQL-Native Observability: Price Change Distribution
+-- @metric: velo_trading_price_change_percent
+-- @metric_type: histogram
+-- @metric_help: "Distribution of price changes"
+-- @metric_field: price_change_pct
+-- @metric_labels: symbol
+-- @metric_buckets: 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0
+-- @job_name: advanced_price_movement_alerts
 CREATE STREAM advanced_price_movement_alerts AS
 SELECT 
     symbol,
@@ -132,18 +182,13 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
+    'advanced_price_movement_alerts.type' = 'kafka_sink',
+    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml',
+
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '5',
-    'circuit.breaker.timeout' = '60s',
-
-    -- Phase 4: Observability integration
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true',
-    'observability.span.name' = 'price_movement_detection',
-
-    'advanced_price_movement_alerts.type' = 'kafka_sink',
-    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml'
+    'circuit.breaker.timeout' = '60s'
 );
 
 -- ====================================================================================
@@ -152,6 +197,13 @@ WITH (
 -- Demonstrates resource limits, circuit breakers, and retry logic
 -- Includes sophisticated volume anomaly detection with advanced aggregations
 
+-- FR-073 SQL-Native Observability: Volume Spikes Counter
+-- @metric: velo_trading_volume_spikes_total
+-- @metric_type: counter
+-- @metric_help: "Volume spike detections by classification"
+-- @metric_labels: symbol, spike_classification
+-- @metric_condition: spike_classification IN ('EXTREME_SPIKE', 'HIGH_SPIKE', 'STATISTICAL_ANOMALY')
+-- @job_name: volume_spike_analysis
 CREATE STREAM volume_spike_analysis AS
 SELECT 
     symbol,
@@ -266,24 +318,17 @@ WITH (
     'retry.max.delay' = '30s',
     'retry.multiplier' = '2.0',
 
-    -- Phase 4: Advanced observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true',
-    'observability.profiling.enabled' = 'true',
-    'observability.span.name' = 'volume_spike_analysis',
-    'prometheus.histogram.buckets' = '0.1,0.5,1.0,5.0,10.0,30.0',
-
     'volume_spike_analysis.type' = 'kafka_sink',
     'volume_spike_analysis.config_file' = 'configs/volume_spikes_sink.yaml'
 );
 
 -- ====================================================================================
--- PHASE 1B+3: COMPLEX JOINS WITH EVENT-TIME - Risk Management Monitor  
+-- PHASE 1B+3: COMPLEX JOINS WITH EVENT-TIME - Risk Management Monitor
 -- ====================================================================================
 -- Demonstrates time-based joins with event-time processing and complex aggregations
 -- Shows late data handling across multiple streams
 
--- First create positions stream with event-time processing
+-- @job_name: trading_positions_with_event_time
 CREATE STREAM trading_positions_with_event_time AS
 SELECT
     trader_id,
@@ -292,7 +337,7 @@ SELECT
     current_pnl,
     timestamp,
     timestamp as event_time
-FROM trading_positions_stream
+FROM in_trading_positions_stream
 EMIT CHANGES
 WITH (
     'event.time.field' = 'timestamp',
@@ -301,108 +346,99 @@ WITH (
     'watermark.max_out_of_orderness' = '2s',  -- Stricter for positions
     'late.data.strategy' = 'update_previous',  -- Update positions
 
-    'trading_positions_stream.type' = 'kafka_source',
-    'trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
+    'in_trading_positions_stream.type' = 'kafka_source',
+    'in_trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
 
     'trading_positions_with_event_time.type' = 'kafka_sink',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_sink.yaml'
 );
 
+-- FR-073 SQL-Native Observability: Risk Alerts Counter
+-- @metric: velo_trading_risk_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Risk management alerts by classification"
+-- @metric_labels: trader_id, risk_classification
+-- @metric_condition: risk_classification IN ('POSITION_LIMIT_EXCEEDED', 'DAILY_LOSS_LIMIT_EXCEEDED', 'HIGH_VOLATILITY_TRADER')
+
+-- @job_name: risk-monitoring-stream
 CREATE STREAM comprehensive_risk_monitor AS
-SELECT 
+SELECT
     p.trader_id,
     p.symbol,
     p.position_size,
     p.current_pnl,
-    p.event_time as position_time,
-    m.event_time as market_time,
-    m.price as current_price,
-    
-    -- Phase 3: Advanced window functions for risk calculations
+    p.event_time AS position_time,
+    m.event_time AS market_time,
+    m.price AS current_price,
+
+    -- Continuous rolling stats
     SUM(p.current_pnl) OVER (
-        PARTITION BY p.trader_id 
-        ORDER BY p.event_time
-        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-    ) as cumulative_pnl,
-    
+          PARTITION BY p.trader_id
+          ORDER BY p.event_time
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS cumulative_pnl,
+
     COUNT(*) OVER (
-        PARTITION BY p.trader_id
-        ORDER BY p.event_time
-        RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
-    ) as trades_today,
-    
-    -- Statistical risk measures
+          PARTITION BY p.trader_id
+          ORDER BY p.event_time  -- ✅ FIXED: Added ORDER BY
+          RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
+      ) AS trades_today,
+
     STDDEV(p.current_pnl) OVER (
-        PARTITION BY p.trader_id 
-        ORDER BY p.event_time
-        ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
-    ) as pnl_volatility,
-    
-    -- Position value and exposure calculations
-    ABS(p.position_size * m.price) as position_value,
-    SUM(ABS(p.position_size * m.price)) OVER (
-        PARTITION BY p.trader_id
-    ) as total_exposure,
-    
-    -- VaR calculation (simplified 95% percentile)
-    PERCENT_RANK() OVER (
-        PARTITION BY p.trader_id 
-        ORDER BY p.current_pnl
-    ) as pnl_percentile,
-    
-    -- Complex risk classification using CASE and subqueries
-    CASE 
-        WHEN ABS(p.position_size * m.price) > 1000000 THEN 'POSITION_LIMIT_EXCEEDED'
-        WHEN SUM(p.current_pnl) OVER (PARTITION BY p.trader_id) < -100000 THEN 'DAILY_LOSS_LIMIT_EXCEEDED'
-        WHEN EXISTS (
-            SELECT 1 FROM trading_positions_with_event_time p2 
-            WHERE p2.trader_id = p.trader_id 
-            AND p2.event_time >= p.event_time - INTERVAL '1' HOUR
-            AND ABS(p2.current_pnl) > 50000
-        ) THEN 'HIGH_VOLATILITY_TRADER'
-        WHEN ABS(p.position_size * m.price) > 500000 THEN 'POSITION_WARNING'
+          PARTITION BY p.trader_id
+          ORDER BY p.event_time  -- ✅ FIXED: Added ORDER BY
+          ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
+      ) AS pnl_volatility,
+
+    ABS(p.position_size * COALESCE(m.price, 0)) AS position_value,
+
+    SUM(ABS(p.position_size * COALESCE(m.price, 0))) OVER (
+          PARTITION BY p.trader_id
+          ORDER BY p.event_time
+          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+      ) AS total_exposure,
+
+    CASE
+        WHEN ABS(p.position_size * COALESCE(m.price, 0)) > 1000000 THEN 'POSITION_LIMIT_EXCEEDED'
+        WHEN SUM(p.current_pnl) OVER (
+              PARTITION BY p.trader_id
+              ORDER BY p.event_time
+              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          ) < -100000 THEN 'DAILY_LOSS_LIMIT_EXCEEDED'
+        WHEN ABS(p.position_size * COALESCE(m.price, 0)) > 500000 THEN 'POSITION_WARNING'
+        -- ⚠️ Comment out if STDDEV not implemented
         WHEN STDDEV(p.current_pnl) OVER (
-            PARTITION BY p.trader_id 
-            ORDER BY p.event_time
-            ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
-        ) > 25000 THEN 'HIGH_RISK_PROFILE'
+              PARTITION BY p.trader_id
+              ORDER BY p.event_time  -- ✅ FIXED: Added ORDER BY
+              ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
+          ) > 25000 THEN 'HIGH_RISK_PROFILE'
         ELSE 'WITHIN_LIMITS'
-    END as risk_classification,
-    
-    -- Time difference for late data analysis
-    EXTRACT(EPOCH FROM (m.event_time - p.event_time)) as time_lag_seconds,
-    
-    NOW() as risk_check_time
+        END AS risk_classification,
+
+    EXTRACT(EPOCH FROM (m.event_time - p.event_time)) AS time_lag_seconds,
+    NOW() AS risk_check_time
+
 FROM trading_positions_with_event_time p
--- Phase 1B+3: Time-based join with tolerance window
-LEFT JOIN market_data_ts m ON p.symbol = m.symbol
-    AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND
-                         AND p.event_time + INTERVAL '30' SECOND
--- Phase 3: Complex HAVING with nested aggregations and subqueries
-HAVING (
-    -- High-value positions
-    ABS(p.position_size * COALESCE(m.price, 0)) > 100000
-    OR p.current_pnl < -10000
-    OR
-    -- Traders with multiple large positions
-    (SELECT COUNT(*) FROM trading_positions_with_event_time p3
-     WHERE p3.trader_id = p.trader_id
-     AND ABS(p3.position_size * COALESCE(m.price, 0)) > 250000) > 3
-)
-AND COUNT(*) >= 1  -- At least one position in session
--- Phase 1B: Event-time windows with session semantics (4-hour session gap)
-WINDOW SESSION(4h)
-EMIT CHANGES
+         LEFT JOIN market_data_ts m
+                   ON p.symbol = m.symbol
+                       AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND
+                          AND p.event_time + INTERVAL '30' SECOND
+
+WHERE ABS(p.position_size * COALESCE(m.price, 0)) > 100000
+   OR p.current_pnl < -10000
+
+    EMIT CHANGES
 WITH (
     -- Source configurations
     'trading_positions_with_event_time.type' = 'kafka_source',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_topic.yaml',
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_source.yaml',
+
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'comprehensive_risk_monitor.type' = 'kafka_sink',
+    'comprehensive_risk_monitor.config_file' = 'configs/risk_alerts_sink.yaml',
+
 
     -- Phase 2: Full resource management and fault tolerance
     'max.memory.mb' = '2048',
@@ -425,18 +461,7 @@ WITH (
 
     -- Dead letter queue for failed risk calculations
     'dead.letter.queue.enabled' = 'true',
-    'dead.letter.queue.topic' = 'risk-calculation-failures',
-
-    -- Phase 4: Critical system observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true',
-    'observability.profiling.enabled' = 'true',
-    'observability.span.name' = 'risk_management_monitor',
-    'observability.alerts.enabled' = 'true',
-    'prometheus.histogram.buckets' = '0.01,0.1,0.5,1.0,5.0,10.0,30.0,60.0',
-
-    'comprehensive_risk_monitor.type' = 'kafka_sink',
-    'comprehensive_risk_monitor.config_file' = 'configs/risk_alerts_sink.yaml'
+    'dead.letter.queue.topic' = 'risk-calculation-failures'
 );
 
 -- ====================================================================================
@@ -484,6 +509,14 @@ WITH (
 -- ORDER FLOW IMBALANCE: Detects institutional trading patterns (FR-047)
 -- ====================================================================================
 
+-- FR-073 SQL-Native Observability: Order Flow Imbalance Counter
+-- @metric: velo_trading_order_imbalance_total
+-- @metric_type: counter
+-- @metric_help: "Order flow imbalance detections"
+-- @metric_labels: symbol
+-- @metric_condition: buy_ratio > 0.7 OR sell_ratio > 0.7
+
+-- @job_name: order_flow_imbalance_detection
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
     symbol,
@@ -493,7 +526,7 @@ SELECT
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) AS buy_ratio,
     SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) AS sell_ratio,
     TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
-FROM order_book_stream
+FROM in_order_book_stream
 GROUP BY symbol
 HAVING
     SUM(quantity) > 10000
@@ -504,21 +537,24 @@ HAVING
 WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 EMIT CHANGES
 WITH (
-    'order_book_stream.type' = 'kafka_source',
-    'order_book_stream.config_file' = 'configs/order_book_source.yaml',
+    'in_order_book_stream.type' = 'kafka_source',
+    'in_order_book_stream.config_file' = 'configs/order_book_source.yaml',
 
     'order_flow_imbalance_detection.type' = 'kafka_sink',
-    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml'
 );
 
 -- ====================================================================================
 -- ARBITRAGE OPPORTUNITIES: Cross-exchange price discrepancy detection (FR-047)
 -- ====================================================================================
 
+-- FR-073 SQL-Native Observability: Arbitrage Opportunities Counter
+-- @metric: velo_trading_arbitrage_opportunities_total
+-- @metric_type: counter
+-- @metric_help: "Cross-exchange arbitrage opportunities detected"
+-- @metric_labels: symbol, exchange_a, exchange_b
+
+-- @job_name: arbitrage_opportunities_detection
 CREATE STREAM arbitrage_opportunities_detection AS
 SELECT 
     a.symbol,
@@ -531,23 +567,19 @@ SELECT
     LEAST(a.bid_size, b.ask_size) as available_volume,
     (a.bid_price - b.ask_price) * LEAST(a.bid_size, b.ask_size) as potential_profit,
     timestamp() as opportunity_time
-FROM market_data_stream_a a
-JOIN market_data_stream_b b ON a.symbol = b.symbol
+FROM in_market_data_stream_a a
+JOIN in_market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
     AND (a.bid_price - b.ask_price) / b.ask_price * 10000 > 10
     AND LEAST(a.bid_size, b.ask_size) > 50000
 EMIT CHANGES
 WITH (
-    'market_data_stream_a.type' = 'kafka_source',
-    'market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
+    'in_market_data_stream_a.type' = 'kafka_source',
+    'in_market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
 
-    'market_data_stream_b.type' = 'kafka_source',
-    'market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
+    'in_market_data_stream_b.type' = 'kafka_source',
+    'in_market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
 
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
-    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml',
-
-    -- Observability
-    'observability.metrics.enabled' = 'true',
-    'observability.tracing.enabled' = 'true'
+    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
 );

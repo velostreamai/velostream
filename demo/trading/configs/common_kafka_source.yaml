@@ -7,7 +7,7 @@ datasource:
   
   # Standard consumer configuration for trading system
   consumer_config:
-    bootstrap.servers: "broker:9092"
+    bootstrap.servers: "localhost:9092"
     # Use 'earliest' for demos to process all existing data from topic start
     # Use 'latest' in production to only process new messages after subscription
     auto.offset.reset: "earliest"
@@ -22,12 +22,14 @@ datasource:
   # Common schema settings
   schema:
     key.format: string
-    value.format: avro
-    schema.registry.url: "http://schema-registry:8081"
-    
+#    value.format: avro
+    # Note: Schema registry NOT used - Avro schemas are reverenced via config files
+    # schema.registry.url: "http://schema-registry:8081"
+
     # Schema configuration for value serialization
-    value.serializer: "avro"
-    
+#    value.serializer: "avro"
+    value.serializer: "json"
+
     # Schema Registry authentication (if needed)
     # registry_username: "trading_user"
     # registry_password: "trading_pass"

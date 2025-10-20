@@ -3,6 +3,7 @@
 use crate::velostream::config::{
     ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
 };
+use crate::velostream::datasource::config_loader::merge_config_file_properties;
 use crate::velostream::datasource::{
     BatchConfig, BatchStrategy, DataSink, DataWriter, SinkConfig, SinkMetadata,
 };
@@ -12,7 +13,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::error::KafkaDataSourceError;
+use super::error::KafkaDataSinkError;
 use super::writer::KafkaDataWriter;
 
 /// Kafka DataSink implementation
@@ -34,34 +35,58 @@ impl KafkaDataSink {
 
     /// Create a Kafka data sink from properties
     pub fn from_properties(props: &HashMap<String, String>, job_name: &str) -> Self {
+        // Load and merge config file with provided properties
+        // Uses common config_loader helper
+        let merged_props = merge_config_file_properties(props, "KafkaDataSink");
+
         // Helper function to get property with sink. prefix fallback
         let get_sink_prop = |key: &str| {
-            props
+            merged_props
                 .get(&format!("sink.{}", key))
-                .or_else(|| props.get(key))
+                .or_else(|| merged_props.get(key))
                 .cloned()
         };
 
         let brokers = get_sink_prop("brokers")
             .or_else(|| get_sink_prop("bootstrap.servers"))
             .or_else(|| {
-                props
+                merged_props
                     .get("datasink.producer_config.bootstrap.servers")
                     .cloned()
             })
             .unwrap_or_else(|| "localhost:9092".to_string());
         let topic = get_sink_prop("topic")
-            .or_else(|| props.get("datasink.topic.name").cloned())
+            .or_else(|| merged_props.get("datasink.topic.name").cloned())
             .unwrap_or_else(|| format!("{}_output", job_name));
 
         // Create filtered config with sink. properties
         let mut sink_config = HashMap::new();
-        for (key, value) in props.iter() {
+        for (key, value) in merged_props.iter() {
             if key.starts_with("sink.") {
                 // Remove sink. prefix for the config map
                 let config_key = key.strip_prefix("sink.").unwrap().to_string();
+
+                // Filter out application-level properties that shouldn't be passed to rdkafka
+                // Note: "value.format" is NOT filtered - it's a valid Kafka/serialization property
+                let application_properties = [
+                    "format",      // Bare format property (application-level)
+                    "has_headers", // CSV file header flag
+                    "path",        // File path (for file sinks)
+                    "append",      // File append mode
+                ];
+
+                if application_properties.contains(&config_key.as_str()) {
+                    log::debug!(
+                        "  Skipping application-level property: {} (not for Kafka producer)",
+                        config_key
+                    );
+                    continue;
+                }
+
                 sink_config.insert(config_key, value.clone());
-            } else if !key.starts_with("source.") && !props.contains_key(&format!("sink.{}", key)) {
+            } else if !key.starts_with("source.")
+                && !merged_props.contains_key(&format!("sink.{}", key))
+            {
                 // Include unprefixed properties only if there's no prefixed version and it's not a source property
                 sink_config.insert(key.clone(), value.clone());
             }
@@ -417,7 +442,7 @@ impl DataSink for KafkaDataSink {
                 self.config = properties;
                 Ok(())
             }
-            _ => Err(Box::new(KafkaDataSourceError::Configuration(
+            _ => Err(Box::new(KafkaDataSinkError::Configuration(
                 "Expected Kafka configuration".to_string(),
             ))),
         }
@@ -437,7 +462,7 @@ impl DataSink for KafkaDataSink {
     ) -> Result<Box<dyn DataWriter>, Box<dyn std::error::Error + Send + Sync>> {
         // Create the unified writer
         let writer = self.create_unified_writer().await.map_err(|e| {
-            Box::new(KafkaDataSourceError::Configuration(format!(
+            Box::new(KafkaDataSinkError::Configuration(format!(
                 "Failed to create writer: {}",
                 e
             ))) as Box<dyn std::error::Error + Send + Sync>
@@ -455,7 +480,7 @@ impl DataSink for KafkaDataSink {
             .create_unified_writer_with_batch_config(batch_config)
             .await
             .map_err(|e| {
-                Box::new(KafkaDataSourceError::Configuration(format!(
+                Box::new(KafkaDataSinkError::Configuration(format!(
                     "Failed to create batch-optimized writer: {}",
                     e
                 ))) as Box<dyn std::error::Error + Send + Sync>

@@ -61,6 +61,146 @@ use crate::velostream::sql::{SqlError, StreamingQuery, StreamingSqlParser};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::str::FromStr;
+
+/// Profiling mode for performance monitoring
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProfilingMode {
+    /// Off: Profiling disabled (0% overhead)
+    Off,
+    /// Dev: Development mode (1000 Hz sampling, flame graphs, 8-10% overhead)
+    Dev,
+    /// Prod: Production mode (50 Hz sampling, minimal overhead, 2-3%)
+    Prod,
+}
+
+impl ProfilingMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProfilingMode::Off => "off",
+            ProfilingMode::Dev => "dev",
+            ProfilingMode::Prod => "prod",
+        }
+    }
+
+    pub fn overhead_percent(&self) -> f64 {
+        match self {
+            ProfilingMode::Off => 0.0,
+            ProfilingMode::Dev => 9.0,  // 8-10%
+            ProfilingMode::Prod => 2.5, // 2-3%
+        }
+    }
+
+    pub fn sampling_hz(&self) -> u32 {
+        match self {
+            ProfilingMode::Off => 0,
+            ProfilingMode::Dev => 1000,
+            ProfilingMode::Prod => 50,
+        }
+    }
+}
+
+impl FromStr for ProfilingMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "off" => Ok(ProfilingMode::Off),
+            "dev" => Ok(ProfilingMode::Dev),
+            "prod" => Ok(ProfilingMode::Prod),
+            other => Err(format!(
+                "Invalid profiling mode '{}'. Expected: off, dev, or prod",
+                other
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for ProfilingMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// Deployment configuration for node identification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentConfig {
+    /// Node identifier (supports ${ENV_VAR} syntax)
+    pub node_id: Option<String>,
+    /// Node name (human-readable, supports ${ENV_VAR} syntax)
+    pub node_name: Option<String>,
+    /// Region/zone (supports ${ENV_VAR} syntax)
+    pub region: Option<String>,
+}
+
+impl DeploymentConfig {
+    /// Resolve ${ENV_VAR} and ${ENV_VAR:default} syntax in a pattern
+    pub fn resolve_pattern(pattern: &str) -> String {
+        if !pattern.contains("${") {
+            return pattern.to_string();
+        }
+
+        let mut result = pattern.to_string();
+
+        // Find and replace all ${...} patterns
+        while let Some(start) = result.find("${") {
+            if let Some(end) = result[start..].find('}') {
+                let end = start + end;
+                let var_spec = &result[start + 2..end];
+                let replacement = Self::resolve_var_spec(var_spec);
+                result.replace_range(start..=end, &replacement);
+            } else {
+                break;
+            }
+        }
+
+        result
+    }
+
+    /// Resolve a single variable specification
+    /// Supports: VAR, VAR:default, VAR1|VAR2|VAR3, VAR1|VAR2:default
+    fn resolve_var_spec(spec: &str) -> String {
+        // Split by | to get priority-ordered list
+        let parts: Vec<&str> = spec.split('|').collect();
+
+        // Try all parts in order (each part may or may not have a default)
+        for (idx, part) in parts.iter().enumerate() {
+            let is_last = idx == parts.len() - 1;
+
+            // Check if this part has a default (contains ':')
+            if let Some((var_name, default)) = part.split_once(':') {
+                // This part has a default
+                if let Ok(value) = std::env::var(var_name) {
+                    return value;
+                } else if var_name == "NODE_ID" {
+                    // Special case: NODE_ID falls back to hostname, then UUID
+                    return hostname::get()
+                        .map(|h| h.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| default.to_string());
+                } else if is_last {
+                    // Last part with default - use it
+                    return default.to_string();
+                }
+                // Not last part, so continue to next in fallback chain
+            } else {
+                // This part is just a variable name (no default)
+                if let Ok(value) = std::env::var(part) {
+                    return value;
+                } else if *part == "NODE_ID" {
+                    return hostname::get()
+                        .map(|h| h.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| {
+                            format!("node-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+                        });
+                }
+                // Variable not set, continue to next in fallback chain
+            }
+        }
+
+        // No variables found and no default was provided
+        spec.to_string()
+    }
+}
 
 /// Represents a complete SQL application with metadata and multiple statements
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +220,21 @@ pub struct ApplicationMetadata {
     pub dependencies: Vec<String>,
     pub created_at: DateTime<Utc>,
     pub tags: HashMap<String, String>,
+    pub application: Option<String>,      // @application annotation
+    pub phase: Option<String>,            // @phase annotation
+    pub sla_latency_p99: Option<String>,  // @sla.latency.p99 annotation
+    pub sla_availability: Option<String>, // @sla.availability annotation
+    pub data_retention: Option<String>,   // @data_retention annotation
+    pub compliance: Option<String>,       // @compliance annotation
+    // App-level observability configuration
+    pub observability_metrics_enabled: Option<bool>, // @observability.metrics.enabled
+    pub observability_tracing_enabled: Option<bool>, // @observability.tracing.enabled
+    pub observability_profiling_enabled: Option<ProfilingMode>, // @observability.profiling.enabled
+    pub observability_error_reporting_enabled: Option<bool>, // @observability.error_reporting.enabled
+    // Deployment configuration for node identification
+    pub deployment_node_id: Option<String>, // @deployment.node_id
+    pub deployment_node_name: Option<String>, // @deployment.node_name
+    pub deployment_region: Option<String>,  // @deployment.region
 }
 
 /// Individual SQL statement within an application
@@ -153,6 +308,19 @@ impl SqlApplicationParser {
         let mut author = None;
         let mut dependencies = Vec::new();
         let mut tags = HashMap::new();
+        let mut application = None;
+        let mut phase = None;
+        let mut sla_latency_p99 = None;
+        let mut sla_availability = None;
+        let mut data_retention = None;
+        let mut compliance = None;
+        let mut observability_metrics_enabled = None;
+        let mut observability_tracing_enabled = None;
+        let mut observability_profiling_enabled = None;
+        let mut observability_error_reporting_enabled = None;
+        let mut deployment_node_id = None;
+        let mut deployment_node_name = None;
+        let mut deployment_region = None;
 
         for line in content.lines() {
             let line = line.trim();
@@ -178,6 +346,62 @@ impl SqlApplicationParser {
                 if let Some((key, value)) = tag_str.split_once(':') {
                     tags.insert(key.trim().to_string(), value.trim().to_string());
                 }
+            } else if line.starts_with("-- @application:") {
+                application = Some(line.replace("-- @application:", "").trim().to_string());
+            } else if line.starts_with("-- @phase:") {
+                phase = Some(line.replace("-- @phase:", "").trim().to_string());
+            } else if line.starts_with("-- @sla.latency.p99:") {
+                sla_latency_p99 = Some(line.replace("-- @sla.latency.p99:", "").trim().to_string());
+            } else if line.starts_with("-- @sla.availability:") {
+                sla_availability =
+                    Some(line.replace("-- @sla.availability:", "").trim().to_string());
+            } else if line.starts_with("-- @data_retention:") {
+                data_retention = Some(line.replace("-- @data_retention:", "").trim().to_string());
+            } else if line.starts_with("-- @compliance:") {
+                compliance = Some(line.replace("-- @compliance:", "").trim().to_string());
+            } else if line.starts_with("-- @observability.metrics.enabled:") {
+                let val = line
+                    .replace("-- @observability.metrics.enabled:", "")
+                    .trim()
+                    .to_lowercase();
+                observability_metrics_enabled = Some(val == "true");
+            } else if line.starts_with("-- @observability.tracing.enabled:") {
+                let val = line
+                    .replace("-- @observability.tracing.enabled:", "")
+                    .trim()
+                    .to_lowercase();
+                observability_tracing_enabled = Some(val == "true");
+            } else if line.starts_with("-- @observability.profiling.enabled:") {
+                let val_str = line.replace("-- @observability.profiling.enabled:", "");
+                let val = val_str.trim();
+                // Parse profiling mode: off, dev, prod
+                if let Ok(mode) = ProfilingMode::from_str(val) {
+                    observability_profiling_enabled = Some(mode);
+                }
+            } else if line.starts_with("-- @observability.error_reporting.enabled:") {
+                let val = line
+                    .replace("-- @observability.error_reporting.enabled:", "")
+                    .trim()
+                    .to_lowercase();
+                observability_error_reporting_enabled = Some(val == "true");
+            } else if line.starts_with("-- @deployment.node_id:") {
+                let raw_value = line
+                    .replace("-- @deployment.node_id:", "")
+                    .trim()
+                    .to_string();
+                deployment_node_id = Some(DeploymentConfig::resolve_pattern(&raw_value));
+            } else if line.starts_with("-- @deployment.node_name:") {
+                let raw_value = line
+                    .replace("-- @deployment.node_name:", "")
+                    .trim()
+                    .to_string();
+                deployment_node_name = Some(DeploymentConfig::resolve_pattern(&raw_value));
+            } else if line.starts_with("-- @deployment.region:") {
+                let raw_value = line
+                    .replace("-- @deployment.region:", "")
+                    .trim()
+                    .to_string();
+                deployment_region = Some(DeploymentConfig::resolve_pattern(&raw_value));
             }
         }
 
@@ -201,6 +425,19 @@ impl SqlApplicationParser {
             dependencies,
             created_at: Utc::now(),
             tags,
+            application,
+            phase,
+            sla_latency_p99,
+            sla_availability,
+            data_retention,
+            compliance,
+            observability_metrics_enabled,
+            observability_tracing_enabled,
+            observability_profiling_enabled,
+            observability_error_reporting_enabled,
+            deployment_node_id,
+            deployment_node_name,
+            deployment_region,
         })
     }
 
@@ -242,18 +479,17 @@ impl SqlApplicationParser {
                 continue;
             }
 
-            // Skip empty lines and regular comments
-            if trimmed.is_empty()
-                || (trimmed.starts_with("--")
-                    && !trimmed.starts_with("-- Name:")
-                    && !trimmed.starts_with("-- Property:"))
-            {
+            // Skip empty lines when no statement is being built
+            // Include regular comments in the statement (for @metric annotations)
+            if trimmed.is_empty() {
                 if !current_statement.trim().is_empty() {
                     current_statement.push('\n');
                 }
                 continue;
             }
 
+            // Always include all lines (including comments) in the current statement
+            // This preserves @metric annotations for the SQL parser
             current_statement.push_str(line);
             current_statement.push('\n');
 

@@ -11,6 +11,7 @@ pub mod kafka_advanced_test;
 pub mod kafka_basic_test;
 pub mod sql;
 pub mod sql_integration_test;
+pub mod sql_metrics_integration_test;
 pub mod sql_parser_comprehensive_test;
 pub mod table;
 pub mod timeout_config_test;
@@ -23,6 +24,13 @@ pub mod ctas_sql_integration_test;
 // Kafka serialization and validation tests
 pub mod kafka_configurable_serialization_test;
 pub mod post_cleanup_validation_test;
+
+// Datasource integration tests
+pub mod datasource;
+
+// Observability integration tests
+pub mod observability_job_processor_trace_test;
+pub mod observability_trace_propagation_test;
 
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

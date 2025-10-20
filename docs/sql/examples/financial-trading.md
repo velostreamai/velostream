@@ -4,6 +4,47 @@ Copy-paste SQL queries for real-time financial trading analysis and risk managem
 
 **NEW**: Enhanced with latest SQL parser features including table aliases in window functions, INTERVAL-based window frames, and SQL standard EXTRACT syntax.
 
+## SQL Application Deployment
+
+Deploy these queries as a complete trading analytics application with comprehensive observability:
+
+```sql
+-- SQL Application: Production Trading Analytics
+-- Version: 1.0.0
+-- Description: Real-time financial trading analysis platform
+-- Author: Finance Engineering Team
+-- Dependencies: market_data, positions, orders, trades
+-- Tag: environment:production
+-- Tag: criticality:high
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+-- @metric: market_volatility
+-- @metric: trading_volume
+-- @metric: portfolio_risk
+-- @metric: execution_quality
+
+-- These streaming jobs inherit production-level observability (prod profiling: 2-3% overhead)
+-- Use per-job WITH clauses to override for specific needs
+```
+
+### Profiling Mode Recommendations
+
+- **Production queries** (`prod` mode): Standard market data, risk monitoring, compliance tracking - use default `prod` (2-3% overhead)
+- **Development queries** (`dev` mode): When debugging complex window functions or signal generation - upgrade to `dev` (8-10% overhead)
+- **Ultra-low-latency queries** (`off` mode): High-frequency trade execution analysis - disable profiling (0% overhead)
+
+Example per-job override for high-frequency analysis:
+```sql
+-- @job_name: hft-execution-analysis-1
+-- Name: High-Frequency Trade Execution
+-- WITH (observability.profiling.enabled = off)
+CREATE STREAM hft_execution AS
+SELECT ...
+EMIT CHANGES;
+```
+
 ## Market Data Analysis
 
 ### Real-Time Price Monitoring

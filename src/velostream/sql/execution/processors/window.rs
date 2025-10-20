@@ -11,6 +11,7 @@ use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStra
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use chrono::{DateTime, Utc};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 
 /// Window processing utilities
@@ -52,10 +53,9 @@ impl WindowProcessor {
 
                 // Phase 1B: Update watermark for this source
                 if let Some(watermark_event) = context.update_watermark(source_id, record) {
-                    log::debug!(
+                    debug!(
                         "Watermark updated for source {}: {:?}",
-                        source_id,
-                        watermark_event
+                        source_id, watermark_event
                     );
                 }
 
@@ -91,11 +91,14 @@ impl WindowProcessor {
                 };
 
                 if should_emit {
+                    // Drop window_state borrow before calling process_window_emission_state
+                    // which needs mutable access to context
                     return Self::process_window_emission_state(
+                        query_id,
                         query,
                         window_spec,
-                        window_state,
                         event_time,
+                        context,
                     );
                 }
 
@@ -139,11 +142,13 @@ impl WindowProcessor {
 
                 // Check if window should emit using optimized timing logic
                 if Self::should_emit_window_state(window_state, event_time, window_spec) {
+                    // Drop window_state borrow before calling process_window_emission_state
                     return Self::process_window_emission_state(
+                        query_id,
                         query,
                         window_spec,
-                        window_state,
                         event_time,
+                        context,
                     );
                 }
 
@@ -165,31 +170,62 @@ impl WindowProcessor {
 
     /// Process window emission when triggered for WindowState (high-performance version)
     fn process_window_emission_state(
+        query_id: &str,
         query: &StreamingQuery,
         window_spec: &WindowSpec,
-        window_state: &mut WindowState,
         event_time: i64,
+        context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
+        // Get window state reference - borrow will be released after cloning buffer
+        let window_state = context.get_or_create_window_state(query_id, window_spec);
         let last_emit_time = window_state.last_emit;
         let buffer = window_state.buffer.clone();
+        // window_state borrow ends here
 
-        // Filter buffer for current window
-        let windowed_buffer = match window_spec {
+        // Calculate window boundaries for metadata
+        let (window_start, window_end) = match window_spec {
             WindowSpec::Tumbling { size, .. } => {
                 let window_size_ms = size.as_millis() as i64;
-                let completed_window_start = if last_emit_time == 0 {
+                let start = if last_emit_time == 0 {
                     0 // First window: 0 to window_size_ms
                 } else {
                     last_emit_time
                 };
-                let completed_window_end = completed_window_start + window_size_ms;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Sliding { size, advance, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let advance_ms = advance.as_millis() as i64;
+                let start = last_emit_time;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Session { gap, .. } => {
+                // For session windows, use the first and last record times
+                if buffer.is_empty() {
+                    (event_time, event_time)
+                } else {
+                    let first_time =
+                        Self::extract_event_time(&buffer[0], window_spec.time_column());
+                    let last_time = Self::extract_event_time(
+                        &buffer[buffer.len() - 1],
+                        window_spec.time_column(),
+                    );
+                    (first_time, last_time)
+                }
+            }
+        };
 
+        // Filter buffer for current window
+        let windowed_buffer = match window_spec {
+            WindowSpec::Tumbling { .. } => {
                 // Filter records that belong to the completed window
                 buffer
                     .iter()
                     .filter(|r| {
                         let record_time = Self::extract_event_time(r, window_spec.time_column());
-                        record_time >= completed_window_start && record_time < completed_window_end
+                        record_time >= window_start && record_time < window_end
                     })
                     .cloned()
                     .collect()
@@ -197,8 +233,14 @@ impl WindowProcessor {
             _ => buffer, // For other window types, use all buffered records
         };
 
-        // Execute aggregation on filtered records
-        let result_option = match Self::execute_windowed_aggregation_impl(query, &windowed_buffer) {
+        // Execute aggregation on filtered records with window boundaries
+        let result_option = match Self::execute_windowed_aggregation_impl(
+            query,
+            &windowed_buffer,
+            window_start,
+            window_end,
+            context,
+        ) {
             Ok(result) => Some(result),
             Err(SqlError::ExecutionError { message, .. })
                 if message == "No records after filtering" =>
@@ -218,6 +260,9 @@ impl WindowProcessor {
             Err(e) => return Err(e),
         };
 
+        // Get window state again for updates (new mutable borrow)
+        let window_state = context.get_or_create_window_state(query_id, window_spec);
+
         // Update window state after aggregation
         Self::update_window_state_direct(window_state, window_spec, event_time);
 
@@ -227,33 +272,78 @@ impl WindowProcessor {
         Ok(result_option)
     }
 
-    /// Process window emission when triggered
+    /// Process window emission when triggered (DEPRECATED: Legacy method without context support)
+    /// This method cannot support EXISTS subqueries in HAVING clauses.
+    /// Use process_window_emission_state instead for full feature support.
+    #[deprecated(
+        note = "Use process_window_emission_state for full feature support including EXISTS subqueries"
+    )]
     fn process_window_emission(
         query: &StreamingQuery,
         window_spec: &WindowSpec,
         window_context: &mut WindowContext,
         event_time: i64,
     ) -> Result<Option<StreamRecord>, SqlError> {
+        // Check if query has EXISTS/NOT EXISTS subqueries in HAVING clause
+        // This legacy method cannot support them without ProcessorContext
+        if let StreamingQuery::Select { having, .. } = query {
+            if let Some(having_expr) = having {
+                if Self::contains_exists_subquery(having_expr) {
+                    return Err(SqlError::ExecutionError {
+                        message: "EXISTS/NOT EXISTS subqueries in HAVING clauses require ProcessorContext. Use process_window_emission_state instead.".to_string(),
+                        query: None,
+                    });
+                }
+            }
+        }
+
         let last_emit_time = window_context.last_emit;
         let buffer = window_context.buffer.clone();
 
-        // Filter buffer for current window
-        let windowed_buffer = match window_spec {
+        // Calculate window boundaries for metadata
+        let (window_start, window_end) = match window_spec {
             WindowSpec::Tumbling { size, .. } => {
                 let window_size_ms = size.as_millis() as i64;
-                let completed_window_start = if last_emit_time == 0 {
+                let start = if last_emit_time == 0 {
                     0 // First window: 0 to window_size_ms
                 } else {
                     last_emit_time
                 };
-                let completed_window_end = completed_window_start + window_size_ms;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Sliding { size, advance, .. } => {
+                let window_size_ms = size.as_millis() as i64;
+                let advance_ms = advance.as_millis() as i64;
+                let start = last_emit_time;
+                let end = start + window_size_ms;
+                (start, end)
+            }
+            WindowSpec::Session { gap, .. } => {
+                // For session windows, use the first and last record times
+                if buffer.is_empty() {
+                    (event_time, event_time)
+                } else {
+                    let first_time =
+                        Self::extract_event_time(&buffer[0], window_spec.time_column());
+                    let last_time = Self::extract_event_time(
+                        &buffer[buffer.len() - 1],
+                        window_spec.time_column(),
+                    );
+                    (first_time, last_time)
+                }
+            }
+        };
 
+        // Filter buffer for current window
+        let windowed_buffer = match window_spec {
+            WindowSpec::Tumbling { .. } => {
                 // Filter records that belong to the completed window
                 buffer
                     .iter()
                     .filter(|r| {
                         let record_time = Self::extract_event_time(r, window_spec.time_column());
-                        record_time >= completed_window_start && record_time < completed_window_end
+                        record_time >= window_start && record_time < window_end
                     })
                     .cloned()
                     .collect()
@@ -261,8 +351,18 @@ impl WindowProcessor {
             _ => buffer, // For other window types, use all buffered records
         };
 
-        // Execute aggregation on filtered records
-        let result_option = match Self::execute_windowed_aggregation_impl(query, &windowed_buffer) {
+        // Create a minimal context for non-EXISTS queries
+        // This context has no tables, so EXISTS subqueries would fail anyway
+        let context = ProcessorContext::new("legacy_window_emission");
+
+        // Execute aggregation on filtered records with window boundaries
+        let result_option = match Self::execute_windowed_aggregation_impl(
+            query,
+            &windowed_buffer,
+            window_start,
+            window_end,
+            &context,
+        ) {
             Ok(result) => Some(result),
             Err(SqlError::ExecutionError { message, .. })
                 if message == "No records after filtering" =>
@@ -384,16 +484,19 @@ impl WindowProcessor {
     fn execute_windowed_aggregation_impl(
         query: &StreamingQuery,
         windowed_buffer: &[StreamRecord],
+        window_start: i64,
+        window_end: i64,
+        context: &ProcessorContext,
     ) -> Result<StreamRecord, SqlError> {
         use crate::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
 
-        println!(
-            "DEBUG: execute_windowed_aggregation_impl called with {} records",
+        debug!(
+            "AGG: execute_windowed_aggregation_impl called with {} records",
             windowed_buffer.len()
         );
 
         if windowed_buffer.is_empty() {
-            println!("DEBUG: No records in windowed buffer");
+            debug!("AGG: No records in windowed buffer");
             return Err(SqlError::ExecutionError {
                 message: "No records after filtering".to_string(),
                 query: None,
@@ -408,12 +511,9 @@ impl WindowProcessor {
             ..
         } = query
         {
-            println!(
-                "DEBUG: Processing SELECT query with {} fields",
-                fields.len()
-            );
+            debug!("AGG: Processing SELECT query with {} fields", fields.len());
             for (i, field) in fields.iter().enumerate() {
-                println!("DEBUG: Field {}: {:?}", i, field);
+                debug!("AGG: Field {}: {:?}", i, field);
             }
 
             // Step 1: Filter records by WHERE clause
@@ -423,7 +523,7 @@ impl WindowProcessor {
                     if let Some(where_expr) = where_clause {
                         let result = ExpressionEvaluator::evaluate_expression(where_expr, record)
                             .unwrap_or(false);
-                        println!("DEBUG: WHERE clause evaluated to: {}", result);
+                        debug!("AGG: WHERE clause evaluated to: {}", result);
                         result
                     } else {
                         true
@@ -431,13 +531,13 @@ impl WindowProcessor {
                 })
                 .collect();
 
-            println!(
-                "DEBUG: After WHERE filtering: {} records remain",
+            debug!(
+                "AGG: After WHERE filtering: {} records remain",
                 filtered_records.len()
             );
 
             if filtered_records.is_empty() {
-                println!("DEBUG: No records after WHERE filtering");
+                debug!("AGG: No records after WHERE filtering");
                 return Err(SqlError::ExecutionError {
                     message: "No records after filtering".to_string(),
                     query: None,
@@ -447,19 +547,19 @@ impl WindowProcessor {
             // Step 2: For windowed queries, create aggregated result
             let mut result_fields = HashMap::new();
 
-            println!("DEBUG: Creating aggregated result fields");
+            debug!("AGG: Creating aggregated result fields");
 
             // Simple aggregation logic - process the first record as representative
             if let Some(first_record) = filtered_records.first() {
-                println!("DEBUG: Processing {} SELECT fields", fields.len());
+                debug!("AGG: Processing {} SELECT fields", fields.len());
 
                 // Process SELECT fields
                 for (field_idx, field) in fields.iter().enumerate() {
-                    println!("DEBUG: Processing field {}: {:?}", field_idx, field);
+                    debug!("AGG: Processing field {}: {:?}", field_idx, field);
 
                     match field {
                         crate::velostream::sql::ast::SelectField::Wildcard => {
-                            println!("DEBUG: Processing wildcard field");
+                            debug!("AGG: Processing wildcard field");
                             // For windowed aggregations, add basic aggregate info instead of all fields
                             result_fields.insert(
                                 "window_size".to_string(),
@@ -477,53 +577,51 @@ impl WindowProcessor {
                                 }
                             });
 
-                            println!(
-                                "DEBUG: Processing expression field '{}': {:?}",
+                            debug!(
+                                "AGG: Processing expression field '{}': {:?}",
                                 field_name, expr
                             );
 
                             // Handle aggregate functions properly for windowed queries
                             match Self::evaluate_aggregate_expression(expr, &filtered_records) {
                                 Ok(value) => {
-                                    println!(
-                                        "DEBUG: Successfully evaluated field '{}' = {:?}",
+                                    debug!(
+                                        "AGG: Successfully evaluated field '{}' = {:?}",
                                         field_name, value
                                     );
                                     result_fields.insert(field_name, value);
                                 }
                                 Err(e) => {
-                                    println!(
-                                        "DEBUG: Failed to evaluate field '{}': {:?}",
-                                        field_name, e
+                                    log::error!(
+                                        "AGG: Failed to evaluate field '{}': {:?}",
+                                        field_name,
+                                        e
                                     );
                                     return Err(e);
                                 }
                             }
                         }
                         crate::velostream::sql::ast::SelectField::Column(column_name) => {
-                            println!("DEBUG: Processing column field '{}'", column_name);
+                            debug!("AGG: Processing column field '{}'", column_name);
                             // Simple column reference
                             if let Some(value) = first_record.fields.get(column_name) {
-                                println!("DEBUG: Found column '{}' = {:?}", column_name, value);
+                                debug!("AGG: Found column '{}' = {:?}", column_name, value);
                                 result_fields.insert(column_name.clone(), value.clone());
                             } else {
-                                println!("DEBUG: Column '{}' not found in record", column_name);
+                                error!("AGG: Column '{}' not found in record", column_name);
                             }
                         }
                         crate::velostream::sql::ast::SelectField::AliasedColumn {
                             column,
                             alias,
                         } => {
-                            println!(
-                                "DEBUG: Processing aliased column '{}' -> '{}'",
-                                column, alias
-                            );
+                            debug!("AGG: Processing aliased column '{}' -> '{}'", column, alias);
                             // Aliased column reference
                             if let Some(value) = first_record.fields.get(column) {
-                                println!("DEBUG: Found aliased column '{}' = {:?}", column, value);
+                                debug!("AGG: Found aliased column '{}' = {:?}", column, value);
                                 result_fields.insert(alias.clone(), value.clone());
                             } else {
-                                println!("DEBUG: Aliased column '{}' not found in record", column);
+                                error!("AGG: Aliased column '{}' not found in record", column);
                             }
                         }
                     }
@@ -535,6 +633,11 @@ impl WindowProcessor {
                 "_window_record_count".to_string(),
                 FieldValue::Integer(filtered_records.len() as i64),
             );
+            result_fields.insert(
+                "_window_start".to_string(),
+                FieldValue::Integer(window_start),
+            );
+            result_fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
 
             // Step 3: Apply HAVING clause filtering
             if let Some(having_expr) = having {
@@ -548,52 +651,13 @@ impl WindowProcessor {
                     event_time: None,
                 };
 
-                // For HAVING clauses with aggregates, we need special handling
-                // Check if the HAVING expression contains aggregates
-                let having_result = match having_expr {
-                    crate::velostream::sql::ast::Expr::BinaryOp { left, op, right } => {
-                        // Handle HAVING COUNT(*) >= 2 style expressions
-                        let left_value =
-                            Self::evaluate_aggregate_expression(left, &filtered_records)?;
-                        let right_value = if let Ok(value) =
-                            ExpressionEvaluator::evaluate_expression_value(right, &temp_record)
-                        {
-                            value
-                        } else {
-                            FieldValue::Null
-                        };
-
-                        // Apply comparison
-                        match (left_value, right_value, op) {
-                            (
-                                FieldValue::Integer(left_int),
-                                FieldValue::Integer(right_int),
-                                crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual,
-                            ) => left_int >= right_int,
-                            (
-                                FieldValue::Integer(left_int),
-                                FieldValue::Float(right_float),
-                                crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual,
-                            ) => (left_int as f64) >= right_float,
-                            (
-                                FieldValue::Float(left_float),
-                                FieldValue::Integer(right_int),
-                                crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual,
-                            ) => left_float >= (right_int as f64),
-                            (
-                                FieldValue::Float(left_float),
-                                FieldValue::Float(right_float),
-                                crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual,
-                            ) => left_float >= right_float,
-                            _ => false,
-                        }
-                    }
-                    _ => {
-                        // For non-binary ops, use regular evaluation
-                        ExpressionEvaluator::evaluate_expression(having_expr, &temp_record)
-                            .unwrap_or(false)
-                    }
-                };
+                // Evaluate HAVING clause with aggregate expressions
+                let having_result = Self::evaluate_having_expression(
+                    having_expr,
+                    &filtered_records,
+                    &temp_record,
+                    context,
+                )?;
 
                 if !having_result {
                     return Err(SqlError::ExecutionError {
@@ -846,6 +910,197 @@ impl WindowProcessor {
         }
     }
 
+    /// Check if an expression contains EXISTS or NOT EXISTS subqueries (recursive)
+    fn contains_exists_subquery(expr: &crate::velostream::sql::ast::Expr) -> bool {
+        use crate::velostream::sql::ast::{Expr, SubqueryType};
+
+        match expr {
+            Expr::Subquery { subquery_type, .. } => {
+                matches!(
+                    subquery_type,
+                    SubqueryType::Exists | SubqueryType::NotExists
+                )
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::contains_exists_subquery(left) || Self::contains_exists_subquery(right)
+            }
+            Expr::UnaryOp { expr: inner, .. } => Self::contains_exists_subquery(inner),
+            _ => false,
+        }
+    }
+
+    /// Evaluate HAVING clause expression (handles aggregates, EXISTS subqueries, and logical operators)
+    fn evaluate_having_expression(
+        expr: &crate::velostream::sql::ast::Expr,
+        records: &[&StreamRecord],
+        temp_record: &StreamRecord,
+        context: &ProcessorContext,
+    ) -> Result<bool, SqlError> {
+        use crate::velostream::sql::ast::{BinaryOperator, Expr};
+
+        match expr {
+            Expr::BinaryOp { left, op, right } => {
+                match op {
+                    BinaryOperator::And => {
+                        // Recursively evaluate both sides
+                        let left_result =
+                            Self::evaluate_having_expression(left, records, temp_record, context)?;
+                        let right_result =
+                            Self::evaluate_having_expression(right, records, temp_record, context)?;
+                        Ok(left_result && right_result)
+                    }
+                    BinaryOperator::Or => {
+                        // Recursively evaluate both sides
+                        let left_result =
+                            Self::evaluate_having_expression(left, records, temp_record, context)?;
+                        let right_result =
+                            Self::evaluate_having_expression(right, records, temp_record, context)?;
+                        Ok(left_result || right_result)
+                    }
+                    BinaryOperator::GreaterThanOrEqual
+                    | BinaryOperator::GreaterThan
+                    | BinaryOperator::LessThanOrEqual
+                    | BinaryOperator::LessThan
+                    | BinaryOperator::Equal
+                    | BinaryOperator::NotEqual => {
+                        // Handle comparison operators with aggregate functions
+                        let left_value = Self::evaluate_aggregate_expression(left, records)?;
+                        let right_value = if let Ok(value) =
+                            ExpressionEvaluator::evaluate_expression_value(right, temp_record)
+                        {
+                            value
+                        } else {
+                            FieldValue::Null
+                        };
+
+                        // Apply comparison
+                        Ok(Self::compare_field_values(&left_value, &right_value, op))
+                    }
+                    _ => {
+                        // For other binary operators, use regular evaluation
+                        Ok(ExpressionEvaluator::evaluate_expression(expr, temp_record)
+                            .unwrap_or(false))
+                    }
+                }
+            }
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => {
+                // EXISTS/NOT EXISTS subqueries in HAVING clauses
+                use crate::velostream::sql::ast::SubqueryType;
+                use crate::velostream::sql::execution::expression::SubqueryExecutor;
+                use crate::velostream::sql::execution::processors::select::SelectProcessor;
+
+                match subquery_type {
+                    SubqueryType::Exists | SubqueryType::NotExists => {
+                        // Use SelectProcessor as the subquery executor (same pattern as SELECT processor)
+                        let executor = SelectProcessor;
+                        let exists_result = executor.execute_exists_subquery(
+                            query.as_ref(),
+                            temp_record,
+                            context,
+                        )?;
+
+                        let result = match subquery_type {
+                            SubqueryType::Exists => exists_result,
+                            SubqueryType::NotExists => !exists_result,
+                            _ => unreachable!(),
+                        };
+
+                        Ok(result)
+                    }
+                    _ => {
+                        // Other subquery types
+                        Err(SqlError::ExecutionError {
+                            message: "Only EXISTS/NOT EXISTS subqueries are currently supported in HAVING clauses with WINDOW".to_string(),
+                            query: None,
+                        })
+                    }
+                }
+            }
+            _ => {
+                // For non-binary-op expressions, use regular evaluation
+                Ok(ExpressionEvaluator::evaluate_expression(expr, temp_record).unwrap_or(false))
+            }
+        }
+    }
+
+    /// Compare two FieldValues using a binary operator
+    fn compare_field_values(
+        left: &FieldValue,
+        right: &FieldValue,
+        op: &crate::velostream::sql::ast::BinaryOperator,
+    ) -> bool {
+        use crate::velostream::sql::ast::BinaryOperator;
+        match (left, right, op) {
+            // Integer comparisons
+            (
+                FieldValue::Integer(l),
+                FieldValue::Integer(r),
+                BinaryOperator::GreaterThanOrEqual,
+            ) => l >= r,
+            (FieldValue::Integer(l), FieldValue::Integer(r), BinaryOperator::GreaterThan) => l > r,
+            (FieldValue::Integer(l), FieldValue::Integer(r), BinaryOperator::LessThanOrEqual) => {
+                l <= r
+            }
+            (FieldValue::Integer(l), FieldValue::Integer(r), BinaryOperator::LessThan) => l < r,
+            (FieldValue::Integer(l), FieldValue::Integer(r), BinaryOperator::Equal) => l == r,
+            (FieldValue::Integer(l), FieldValue::Integer(r), BinaryOperator::NotEqual) => l != r,
+            // Float comparisons
+            (FieldValue::Float(l), FieldValue::Float(r), BinaryOperator::GreaterThanOrEqual) => {
+                l >= r
+            }
+            (FieldValue::Float(l), FieldValue::Float(r), BinaryOperator::GreaterThan) => l > r,
+            (FieldValue::Float(l), FieldValue::Float(r), BinaryOperator::LessThanOrEqual) => l <= r,
+            (FieldValue::Float(l), FieldValue::Float(r), BinaryOperator::LessThan) => l < r,
+            (FieldValue::Float(l), FieldValue::Float(r), BinaryOperator::Equal) => {
+                (l - r).abs() < f64::EPSILON
+            }
+            (FieldValue::Float(l), FieldValue::Float(r), BinaryOperator::NotEqual) => {
+                (l - r).abs() >= f64::EPSILON
+            }
+            // Mixed integer/float comparisons
+            (FieldValue::Integer(l), FieldValue::Float(r), BinaryOperator::GreaterThanOrEqual) => {
+                (*l as f64) >= *r
+            }
+            (FieldValue::Integer(l), FieldValue::Float(r), BinaryOperator::GreaterThan) => {
+                (*l as f64) > *r
+            }
+            (FieldValue::Integer(l), FieldValue::Float(r), BinaryOperator::LessThanOrEqual) => {
+                (*l as f64) <= *r
+            }
+            (FieldValue::Integer(l), FieldValue::Float(r), BinaryOperator::LessThan) => {
+                (*l as f64) < *r
+            }
+            (FieldValue::Integer(l), FieldValue::Float(r), BinaryOperator::Equal) => {
+                ((*l as f64) - r).abs() < f64::EPSILON
+            }
+            (FieldValue::Integer(l), FieldValue::Float(r), BinaryOperator::NotEqual) => {
+                ((*l as f64) - r).abs() >= f64::EPSILON
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::GreaterThanOrEqual) => {
+                *l >= (*r as f64)
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::GreaterThan) => {
+                *l > (*r as f64)
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::LessThanOrEqual) => {
+                *l <= (*r as f64)
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::LessThan) => {
+                *l < (*r as f64)
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::Equal) => {
+                (*l - (*r as f64)).abs() < f64::EPSILON
+            }
+            (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::NotEqual) => {
+                (*l - (*r as f64)).abs() >= f64::EPSILON
+            }
+            _ => false,
+        }
+    }
+
     /// Evaluate aggregate expression across multiple records in a window
     fn evaluate_aggregate_expression(
         expr: &crate::velostream::sql::ast::Expr,
@@ -853,8 +1108,8 @@ impl WindowProcessor {
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::Expr;
 
-        println!(
-            "DEBUG: evaluate_aggregate_expression called with {} records, expr: {:?}",
+        debug!(
+            "AGG: evaluate_aggregate_expression called with {} records, expr: {:?}",
             records.len(),
             expr
         );
@@ -1021,16 +1276,16 @@ impl WindowProcessor {
             Expr::Column(column_name) => {
                 // For column references in windowed queries, return the value from the first record
                 // This represents the GROUP BY key value for the window
-                println!(
-                    "DEBUG: Processing column '{}' in aggregate context",
+                debug!(
+                    "AGG: Processing column '{}' in aggregate context",
                     column_name
                 );
                 if let Some(first_record) = records.first() {
                     if let Some(value) = first_record.fields.get(column_name) {
-                        println!("DEBUG: Found column '{}' = {:?}", column_name, value);
+                        debug!("AGG: Found column '{}' = {:?}", column_name, value);
                         Ok(value.clone())
                     } else {
-                        println!("DEBUG: Column '{}' not found, returning Null", column_name);
+                        debug!("AGG: Column '{}' not found, returning Null", column_name);
                         Ok(FieldValue::Null)
                     }
                 } else {
@@ -1039,7 +1294,7 @@ impl WindowProcessor {
             }
             _ => {
                 // For non-function expressions, evaluate on first record
-                println!("DEBUG: Processing non-function expression: {:?}", expr);
+                debug!("AGG: Processing non-function expression: {:?}", expr);
                 if let Some(first_record) = records.first() {
                     ExpressionEvaluator::evaluate_expression_value(expr, first_record)
                 } else {
@@ -1145,7 +1400,7 @@ impl WindowProcessor {
 
         if let Some(duration) = lateness {
             log::warn!(
-                "Late record detected: {}ms late (event_time: {:?}, timestamp: {}) for query: {}",
+                "AGG: Late record detected: {}ms late (event_time: {:?}, timestamp: {}) for query: {}",
                 duration.as_millis(),
                 record.event_time,
                 record.timestamp,
@@ -1162,20 +1417,20 @@ impl WindowProcessor {
 
             match action {
                 LateDataAction::Process => {
-                    log::info!("Processing late record for query: {}", query_id);
+                    info!("LATE: Processing late record for query: {}", query_id);
                     // Return None to indicate the record should be processed normally
                     // The caller will continue with regular window processing
                     Ok(None)
                 }
 
                 LateDataAction::Drop => {
-                    log::info!("Dropping late record for query: {}", query_id);
+                    info!("LATE: Dropping late record for query: {}", query_id);
                     Ok(None)
                 }
 
                 LateDataAction::DeadLetter => {
-                    log::warn!(
-                        "Sending late record to dead letter queue for query: {}",
+                    warn!(
+                        "LATE: Sending late record to dead letter queue for query: {}",
                         query_id
                     );
                     // In a real implementation, this would send to a dead letter queue
@@ -1184,10 +1439,9 @@ impl WindowProcessor {
                 }
 
                 LateDataAction::UpdatePrevious { window_end } => {
-                    log::info!(
-                        "Late record should update previous window (end: {}) for query: {}",
-                        window_end,
-                        query_id
+                    info!(
+                        "LATE: Late record should update previous window (end: {}) for query: {}",
+                        window_end, query_id
                     );
                     // This would require stateful window storage to update previous results
                     // For Phase 1B, log and drop for now
@@ -1196,8 +1450,8 @@ impl WindowProcessor {
             }
         } else {
             // No watermark manager - drop late data and log
-            log::warn!(
-                "Late record dropped (no watermark manager) for query: {}",
+            warn!(
+                "LATE: record dropped (no watermark manager) for query: {}",
                 query_id
             );
             Ok(None)
