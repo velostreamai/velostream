@@ -205,93 +205,65 @@ WITH (
 -- @metric_condition: spike_classification IN ('EXTREME_SPIKE', 'HIGH_SPIKE', 'STATISTICAL_ANOMALY')
 -- @job_name: volume_spike_analysis
 CREATE STREAM volume_spike_analysis AS
-SELECT 
+SELECT
     symbol,
-    volume,
-    event_time,
-    
-    -- Phase 3: Advanced statistical aggregations
+    _window_start AS window_start,
+    _window_end AS window_end,
+
+    -- Aggregations within the sliding window
+    COUNT(*) AS trade_count,
+    AVG(volume) AS avg_volume,
+    STDDEV_POP(volume) AS stddev_volume,
+    MAX(volume) AS max_volume,
+    MIN(volume) AS min_volume,
+
+    -- Per-event rolling metrics (last 20 trades inside the window)
     AVG(volume) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
+        PARTITION BY symbol
+        ORDER BY event_time
         ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-    ) as avg_volume_20,
-    
-    STDDEV(volume) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
+    ) AS rolling_avg_20,
+
+    STDDEV_POP(volume) OVER (
+        PARTITION BY symbol
+        ORDER BY event_time
         ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-    ) as volume_stddev,
-    
-    VARIANCE(volume) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
-        ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-    ) as volume_variance,
-    
+    ) AS rolling_stddev_20,
+
     -- Percentile-based anomaly detection
     PERCENT_RANK() OVER (
-        PARTITION BY symbol 
-        ORDER BY volume
-    ) as volume_percentile,
-    
-    -- Multiple anomaly detection thresholds
-    volume / NULLIF(AVG(volume) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
-        ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-    ), 0) as volume_ratio,
-    
-    -- Z-score calculation for statistical anomalies
-    (volume - AVG(volume) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
-        ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-    )) / NULLIF(STDDEV(volume) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
-        ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-    ), 0) as volume_z_score,
-    
-    price,
-    
-    -- Complex CASE expression for anomaly classification
+      PARTITION BY symbol
+      ORDER BY volume
+      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+  ) AS volume_percentile,
+
+    -- Tiered anomaly classification
     CASE
-        WHEN volume > 5 * AVG(volume) OVER (
-            PARTITION BY symbol 
-            ORDER BY event_time 
-            ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-        ) THEN 'EXTREME_SPIKE'
-        WHEN volume > 3 * AVG(volume) OVER (
-            PARTITION BY symbol 
-            ORDER BY event_time 
-            ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-        ) THEN 'HIGH_SPIKE'
-        WHEN ABS((volume - AVG(volume) OVER (
-            PARTITION BY symbol 
-            ORDER BY event_time 
-            ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-        )) / NULLIF(STDDEV(volume) OVER (
-            PARTITION BY symbol 
-            ORDER BY event_time 
-            ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
-        ), 0)) > 2.0 THEN 'STATISTICAL_ANOMALY'
+        WHEN MAX(volume) > 5 * AVG(volume) THEN 'EXTREME_SPIKE'
+        WHEN MAX(volume) > 3 * AVG(volume) THEN 'HIGH_SPIKE'
+        WHEN STDDEV_POP(volume) > 0
+            AND ABS((MAX(volume) - AVG(volume)) / STDDEV_POP(volume)) > 2.0
+            THEN 'STATISTICAL_ANOMALY'
         ELSE 'NORMAL'
-    END as spike_classification,
-    
-    NOW() as detection_time
+        END AS spike_classification,
+
+    -- Circuit breaker logic
+    CASE
+        WHEN MAX(volume) > 10 * AVG(volume) THEN 'TRIGGER_BREAKER'
+        WHEN spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+            AND STDDEV_POP(volume) > 3 THEN 'PAUSE_FEED'
+        WHEN spike_classification = 'HIGH_SPIKE'
+            AND STDDEV_POP(volume) > 2 * VARIANCE(volume) THEN 'SLOW_MODE'
+        ELSE 'ALLOW'
+        END AS circuit_state,
+
+    NOW() AS detection_time
+
 FROM market_data_ts
--- Phase 3: Complex subquery in HAVING clause
-HAVING EXISTS (
-    SELECT 1 FROM market_data_ts m2
-    WHERE m2.symbol = market_data_ts.symbol
-    AND m2.event_time >= market_data_ts.event_time - INTERVAL '1' MINUTE
-    AND m2.volume > 10000
-)
-AND COUNT(*) >= 5  -- Minimum 5 trades in window
--- Phase 1B: Event-time sliding windows (5-minute windows, 1-minute slide)
-WINDOW SLIDING(INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
-EMIT CHANGES
+GROUP BY
+    symbol,
+    WINDOW SLIDING(event_time, INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
+    EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',

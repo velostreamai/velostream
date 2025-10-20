@@ -46,6 +46,47 @@ mod scaled_integer_helper {
     }
 }
 
+/// Maintains intermediate alias values during SELECT clause processing.
+///
+/// This context is used to track aliases that have been computed during SELECT
+/// field evaluation, allowing later fields in the same SELECT to reference them.
+/// This enables queries like:
+/// ```sql
+/// SELECT
+///     x + 1 AS computed_value,
+///     computed_value * 2 AS result  -- Can reference the alias
+/// ```
+#[derive(Debug, Clone)]
+pub struct SelectAliasContext {
+    /// Map of alias name → computed FieldValue for current record
+    pub aliases: std::collections::HashMap<String, FieldValue>,
+}
+
+impl SelectAliasContext {
+    /// Creates a new empty alias context
+    pub fn new() -> Self {
+        Self {
+            aliases: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Adds an alias with its computed value to the context
+    pub fn add_alias(&mut self, name: String, value: FieldValue) {
+        self.aliases.insert(name, value);
+    }
+
+    /// Retrieves an alias value if it exists
+    pub fn get_alias(&self, name: &str) -> Option<&FieldValue> {
+        self.aliases.get(name)
+    }
+}
+
+impl Default for SelectAliasContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Main expression evaluator that handles all SQL expression types
 pub struct ExpressionEvaluator;
 
@@ -1535,6 +1576,151 @@ impl ExpressionEvaluator {
                     query: None,
                 })
             }
+        }
+    }
+
+    /// Evaluates an expression with support for SELECT alias references.
+    ///
+    /// This method is used during SELECT clause processing to allow columns
+    /// to reference earlier-computed alias values from the same SELECT clause.
+    /// Aliases take priority over record fields when resolving column references.
+    ///
+    /// # Arguments
+    ///
+    /// * `expr` - The expression to evaluate
+    /// * `record` - The current stream record with field values
+    /// * `alias_context` - The context containing previously-computed aliases
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// SELECT
+    ///     x + 1 AS computed,           -- First: evaluate and store as alias
+    ///     computed * 2 AS result       -- Second: can reference alias "computed"
+    /// ```
+    pub fn evaluate_expression_value_with_alias_context(
+        expr: &Expr,
+        record: &StreamRecord,
+        alias_context: &SelectAliasContext,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Column(name) => {
+                // NEW: Check alias context FIRST (before record fields)
+                // This gives aliases priority over original columns (alias shadowing)
+                if let Some(value) = alias_context.get_alias(name) {
+                    return Ok(value.clone());
+                }
+
+                // Fall back to original column lookup (record fields and system columns)
+                Self::evaluate_expression_value(expr, record)
+            }
+            Expr::BinaryOp { left, op, right } => {
+                // Recursively evaluate both sides with alias context
+                let left_val = Self::evaluate_expression_value_with_alias_context(
+                    left,
+                    record,
+                    alias_context,
+                )?;
+                let right_val = Self::evaluate_expression_value_with_alias_context(
+                    right,
+                    record,
+                    alias_context,
+                )?;
+
+                // Use existing binary operation logic
+                match op {
+                    BinaryOperator::Add => left_val.add(&right_val),
+                    BinaryOperator::Subtract => left_val.subtract(&right_val),
+                    BinaryOperator::Multiply => left_val.multiply(&right_val),
+                    BinaryOperator::Divide => left_val.divide(&right_val),
+                    BinaryOperator::Concat => match (&left_val, &right_val) {
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+                        (FieldValue::String(s1), FieldValue::String(s2)) => {
+                            Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                        }
+                        _ => Self::evaluate_expression_value(expr, record),
+                    },
+                    // For comparison operators, delegate to original implementation
+                    _ => Self::evaluate_expression_value(expr, record),
+                }
+            }
+            Expr::UnaryOp { op, expr: inner } => {
+                // Recursively evaluate inner expression with alias context
+                match op {
+                    crate::velostream::sql::ast::UnaryOperator::Not => {
+                        let inner_result = Self::evaluate_expression_value_with_alias_context(
+                            inner,
+                            record,
+                            alias_context,
+                        )?;
+                        match inner_result {
+                            FieldValue::Boolean(b) => Ok(FieldValue::Boolean(!b)),
+                            _ => {
+                                let bool_val = Self::field_value_to_bool(&inner_result)?;
+                                Ok(FieldValue::Boolean(!bool_val))
+                            }
+                        }
+                    }
+                    crate::velostream::sql::ast::UnaryOperator::IsNull => {
+                        let inner_result = Self::evaluate_expression_value_with_alias_context(
+                            inner,
+                            record,
+                            alias_context,
+                        )?;
+                        Ok(FieldValue::Boolean(matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    crate::velostream::sql::ast::UnaryOperator::IsNotNull => {
+                        let inner_result = Self::evaluate_expression_value_with_alias_context(
+                            inner,
+                            record,
+                            alias_context,
+                        )?;
+                        Ok(FieldValue::Boolean(!matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    _ => Self::evaluate_expression_value(expr, record),
+                }
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                // Evaluate CASE conditions and results with alias context support
+                for (condition, result_expr) in when_clauses {
+                    let cond_val = Self::evaluate_expression_value_with_alias_context(
+                        condition,
+                        record,
+                        alias_context,
+                    )?;
+                    let cond_bool = Self::field_value_to_bool(&cond_val)?;
+                    if cond_bool {
+                        return Self::evaluate_expression_value_with_alias_context(
+                            result_expr,
+                            record,
+                            alias_context,
+                        );
+                    }
+                }
+
+                // If no condition matched, evaluate ELSE clause
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_expression_value_with_alias_context(
+                        else_expr,
+                        record,
+                        alias_context,
+                    )
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+            // For all other expression types (literals, functions, etc.),
+            // delegate to the original evaluator since they don't reference aliases
+            _ => Self::evaluate_expression_value(expr, record),
         }
     }
 

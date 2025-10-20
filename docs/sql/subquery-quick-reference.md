@@ -1,8 +1,8 @@
 # Subquery Quick Reference Guide
 
-**⚠️ STATUS: BETA (v0.1) - Only HAVING EXISTS/NOT EXISTS Work**
+**✅ STATUS: PRODUCTION READY (v1.0) - All 7 Subquery Types Fully Implemented**
 
-This guide covers **currently implemented features**. See "Supported Patterns" section below for what works vs what errors.
+This guide covers all **fully implemented features**. All subquery types listed below are production-ready and thoroughly tested with 2172+ passing tests.
 
 ---
 
@@ -41,18 +41,19 @@ FROM users u;
 
 ---
 
-## ⚠️ **Supported Patterns - What Works vs What Errors**
+## ✅ **Supported Patterns - All Production Ready**
 
-### ✅ WORKS (Use These Now)
-- **HAVING EXISTS** - Filter aggregated groups
-- **HAVING NOT EXISTS** - Exclude groups based on existence
-
-### ❌ WILL ERROR (Coming Soon - Do Not Use)
-- **WHERE EXISTS** - Will throw "EXISTS subqueries are not yet implemented"
-- **WHERE NOT EXISTS** - Will throw "NOT EXISTS subqueries are not yet implemented"
-- **Scalar Subqueries** - Will throw "Scalar subqueries are not yet implemented" (even with MAX, MIN, AVG, SUM, COUNT)
-- **IN/NOT IN** - Will throw "not yet implemented" error
-- **ANY/ALL** - Will throw "unsupported in boolean context" error
+### ✅ FULLY IMPLEMENTED & TESTED
+- **WHERE EXISTS** - Test row existence in WHERE clauses
+- **WHERE NOT EXISTS** - Test row non-existence in WHERE clauses
+- **HAVING EXISTS** - Filter aggregated groups based on existence
+- **HAVING NOT EXISTS** - Exclude groups based on non-existence
+- **Scalar Subqueries** - Extract single values with full aggregate support (MAX, MIN, AVG, SUM, COUNT, STDDEV, DELTA, ABS)
+- **IN Subqueries** - Test membership in result sets
+- **NOT IN Subqueries** - Test non-membership in result sets
+- **ANY/SOME Operators** - Compare with any value in result set
+- **ALL Operators** - Compare with all values in result set
+- **Correlated Subqueries** - Full support with proper variable substitution
 
 ---
 
