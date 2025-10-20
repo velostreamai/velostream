@@ -239,8 +239,8 @@ SELECT
 
     -- Tiered anomaly classification
     CASE
-        WHEN MAX(volume) > 5 * AVG(volume) THEN 'EXTREME_SPIKE'
-        WHEN MAX(volume) > 3 * AVG(volume) THEN 'HIGH_SPIKE'
+        WHEN AVG(volume) > 0 AND MAX(volume) > 5 * AVG(volume) THEN 'EXTREME_SPIKE'
+        WHEN AVG(volume) > 0 AND MAX(volume) > 3 * AVG(volume) THEN 'HIGH_SPIKE'
         WHEN STDDEV_POP(volume) > 0
             AND ABS((MAX(volume) - AVG(volume)) / STDDEV_POP(volume)) > 2.0
             THEN 'STATISTICAL_ANOMALY'
@@ -249,11 +249,11 @@ SELECT
 
     -- Circuit breaker logic
     CASE
-        WHEN MAX(volume) > 10 * AVG(volume) THEN 'TRIGGER_BREAKER'
+        WHEN AVG(volume) > 0 AND MAX(volume) > 10 * AVG(volume) THEN 'TRIGGER_BREAKER'
         WHEN spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
             AND STDDEV_POP(volume) > 3 THEN 'PAUSE_FEED'
         WHEN spike_classification = 'HIGH_SPIKE'
-            AND STDDEV_POP(volume) > 2 * VARIANCE(volume) THEN 'SLOW_MODE'
+            AND STDDEV_POP(volume) > 2 THEN 'SLOW_MODE'
         ELSE 'ALLOW'
         END AS circuit_state,
 
