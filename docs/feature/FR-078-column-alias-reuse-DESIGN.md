@@ -823,25 +823,51 @@ SELECT classification, circuit_state FROM temp1;
 
 ## 10. Appendix: Code Location Reference
 
-### Key Files to Modify
+### Key Files - Implementation Complete
 
-```
-src/velostream/sql/execution/
-├── expression/
-│   ├── evaluator.rs              [ADD: SelectAliasContext, enhanced methods]
-│   └── mod.rs                    [UPDATE: export SelectAliasContext]
-└── processors/
-    └── select.rs                 [UPDATE: integrate alias context in 3 places]
+**Phase 1 (Core Infrastructure):**
+- `src/velostream/sql/execution/expression/evaluator.rs:49-88` - SelectAliasContext struct
+- `src/velostream/sql/execution/expression/evaluator.rs:1601-1715` - evaluate_expression_value_with_alias_context()
+- `src/velostream/sql/execution/expression/mod.rs:23` - SelectAliasContext re-export
 
-tests/unit/sql/execution/
-├── select_alias_reuse_test.rs    [NEW: unit tests]
+**Phase 2.1 (Non-Grouped SELECT):**
+- `src/velostream/sql/execution/processors/select.rs:467-527` - Non-grouped field processing
+- `src/velostream/sql/execution/processors/select.rs:1089-1120` - Helper method
 
-tests/integration/
-└── trading_alias_reuse_test.rs   [NEW: integration tests]
+**Phase 2.2 (GROUP BY Integration):**
+- `src/velostream/sql/execution/processors/select.rs:699-965` - GROUP BY field processing
+- All aggregate functions updated: COUNT, SUM, AVG, MIN, MAX, STRING_AGG, VARIANCE, STDDEV, FIRST, LAST, COUNT_DISTINCT
 
-docs/sql/
-└── SELECT-ALIAS-REUSE.md         [NEW: user documentation]
-```
+**Phase 2.3 (HAVING Integration):**
+- `src/velostream/sql/execution/processors/select.rs:986-992` - HAVING call site with alias_context
+- `src/velostream/sql/execution/processors/select.rs:1282-1289` - evaluate_having_expression() signature
+- `src/velostream/sql/execution/processors/select.rs:1426-1432` - evaluate_having_value_expression() signature
+- `src/velostream/sql/execution/processors/select.rs:1611-1617` - lookup_aggregated_field_by_alias() signature
+
+### Test Files to Create (Phase 3)
+
+**Planned Unit Tests:**
+- `tests/unit/sql/execution/select_alias_reuse_test.rs` - Core alias reuse scenarios
+  - test_simple_alias_reuse()
+  - test_multiple_alias_chain()
+  - test_alias_shadowing()
+  - test_group_by_alias_reuse()
+  - test_having_with_alias_context()
+  - test_window_function_with_alias()
+  - test_case_expressions_with_alias()
+  - test_backward_compatibility()
+
+**Planned Integration Tests:**
+- `tests/integration/trading_alias_reuse_test.rs` - Real-world trading scenarios
+  - test_volume_spike_classification_with_circuit_state()
+  - test_market_anomaly_detection()
+  - test_complex_financial_analysis()
+
+### Documentation Files
+
+**Already Created:**
+- `docs/feature/FR-078-column-alias-reuse-DESIGN.md` - Complete design document (this file)
+- `docs/feature/FR-078-column-alias-APPROACH-COMPARISON.md` - Three approach comparison
 
 ---
 
