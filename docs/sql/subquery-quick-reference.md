@@ -59,12 +59,12 @@ FROM users u;
 
 ## Quick Syntax Guide
 
-### Scalar Subqueries with Aggregates ⚠️ **NOT YET IMPLEMENTED**
+### Scalar Subqueries with Aggregates ✅ **FULLY IMPLEMENTED**
 ```sql
 -- Simple field extraction
 SELECT user_id, (SELECT max_limit FROM config) as limit FROM users;
 
--- Aggregate functions (NEW: Fully implemented)
+-- Aggregate functions (✅ Fully implemented)
 SELECT user_id,
     (SELECT MAX(amount) FROM orders WHERE user_id = u.id) as max_order,
     (SELECT MIN(amount) FROM orders WHERE user_id = u.id) as min_order,
@@ -77,15 +77,15 @@ SELECT user_id,
 FROM users u;
 ```
 
-### EXISTS ⚠️ **NOT YET IMPLEMENTED (WHERE clause)**
+### EXISTS ✅ **FULLY IMPLEMENTED (WHERE clause)**
 ```sql
--- This will ERROR: "EXISTS subqueries are not yet implemented"
+-- WHERE EXISTS - Test row existence in WHERE clauses
 SELECT * FROM orders WHERE EXISTS (SELECT 1 FROM customers WHERE id = orders.customer_id);
 ```
 
-### NOT EXISTS ⚠️ **NOT YET IMPLEMENTED (WHERE clause)**
+### NOT EXISTS ✅ **FULLY IMPLEMENTED (WHERE clause)**
 ```sql
--- This will ERROR: "NOT EXISTS subqueries are not yet implemented"
+-- WHERE NOT EXISTS - Test row non-existence in WHERE clauses
 SELECT * FROM users WHERE NOT EXISTS (SELECT 1 FROM blocked_users WHERE user_id = users.id);
 ```
 
