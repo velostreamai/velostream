@@ -10,7 +10,7 @@ use super::{
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::execution::{
     aggregation::{state::GroupByStateManager, AccumulatorManager},
-    expression::{ExpressionEvaluator, SubqueryExecutor},
+    expression::{ExpressionEvaluator, SelectAliasContext, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
     FieldValue, StreamRecord,
 };
@@ -466,6 +466,7 @@ impl SelectProcessor {
 
             // Apply SELECT fields
             let mut result_fields = HashMap::new();
+            let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
 
             for field in fields {
@@ -500,21 +501,26 @@ impl SelectProcessor {
                         };
 
                         if let Some(value) = field_value {
-                            result_fields.insert(alias.clone(), value);
+                            result_fields.insert(alias.clone(), value.clone());
+                            alias_context.add_alias(alias.clone(), value);
                         }
                     }
                     SelectField::Expression { expr, alias } => {
-                        let value = Self::evaluate_expression_value_with_window(
+                        // NEW: Use alias context-aware evaluator for expressions
+                        let value = ExpressionEvaluator::evaluate_expression_value_with_alias_context(
                             expr,
                             &joined_record,
-                            &mut Vec::new(),
-                            context,
+                            &alias_context,
                         )?;
                         let field_name = alias
                             .as_ref()
                             .unwrap_or(&Self::get_expression_name(expr))
                             .clone();
-                        result_fields.insert(field_name, value);
+                        result_fields.insert(field_name.clone(), value.clone());
+                        // NEW: Add this field's alias to context for next field
+                        if let Some(alias_name) = alias {
+                            alias_context.add_alias(alias_name.clone(), value);
+                        }
                     }
                 }
             }
