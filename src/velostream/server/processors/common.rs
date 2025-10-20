@@ -233,6 +233,10 @@ pub async fn process_batch_with_output(
         )
     };
 
+    // Track null output records for debugging
+    let mut null_output_count = 0;
+    let mut null_output_example_idx = None;
+
     // Process batch WITHOUT holding engine lock (high performance)
     for (index, record) in batch.into_iter().enumerate() {
         // Create lightweight context with shared state
@@ -249,6 +253,18 @@ pub async fn process_batch_with_output(
                 // (not input passthrough - this is the critical fix!)
                 if let Some(output) = result.record {
                     output_records.push(output);
+                } else {
+                    // DIAGNOSTIC: Record when result.record is None
+                    // This indicates the query executed but produced no output for this record
+                    null_output_count += 1;
+                    if null_output_example_idx.is_none() {
+                        null_output_example_idx = Some(index);
+                    }
+
+                    debug!(
+                        "Job '{}' record {} processed successfully but produced no output (result.record is None)",
+                        job_name, index
+                    );
                 }
 
                 // Update shared state for next iteration
@@ -276,6 +292,27 @@ pub async fn process_batch_with_output(
                 );
                 debug!("Full error details: {:?}", e);
             }
+        }
+    }
+
+    // DIAGNOSTIC: Log summary of null output records
+    if null_output_count > 0 {
+        warn!(
+            "Job '{}': ⚠️  DIAGNOSTIC: {} out of {} processed records produced no output (result.record was None)",
+            job_name, null_output_count, records_processed
+        );
+        if let Some(idx) = null_output_example_idx {
+            warn!(
+                "Job '{}': First example of null output at record index {}",
+                job_name, idx
+            );
+            warn!("Job '{}': Possible causes:", job_name);
+            warn!(
+                "   1. Query produces no output (e.g., no rows match filters, window not complete)"
+            );
+            warn!("   2. Stream/JOIN produces no output by design");
+            warn!("   3. Aggregation hasn't collected enough records to emit");
+            warn!("   4. Record is filtered out (WHERE/HAVING clauses exclude it)");
         }
     }
 

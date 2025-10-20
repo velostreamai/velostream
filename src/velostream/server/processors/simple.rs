@@ -1119,6 +1119,31 @@ impl SimpleJobProcessor {
                     job_name,
                     all_output_records.len()
                 );
+            } else if total_records_processed > 0 && all_output_records.is_empty() {
+                // DIAGNOSTIC: Silent failure case - records processed but no output
+                warn!(
+                    "Job '{}': ⚠️  CRITICAL DIAGNOSTIC: {} records processed but 0 output records!",
+                    job_name, total_records_processed
+                );
+                warn!(
+                    "Job '{}': This indicates that QueryProcessor.process_query() is returning None for result.record",
+                    job_name
+                );
+                warn!("Job '{}': Possible root causes:", job_name);
+                warn!(
+                    "   1. Window aggregation not emitting (window not yet complete or no EMIT mode)"
+                );
+                warn!("   2. Query has filtering that removes all records (WHERE/HAVING clauses)");
+                warn!(
+                    "   3. Stream produces no output by design (passthrough with no transformation)"
+                );
+                warn!("Job '{}': Recommended debugging steps:", job_name);
+                warn!(
+                    "   1. Check log output for '⚠️  DIAGNOSTIC: X out of Y processed records produced no output'"
+                );
+                warn!("   2. Verify window configuration has EMIT CHANGES or EMIT FINAL");
+                warn!("   3. Check HAVING/WHERE clauses are not filtering out all records");
+                warn!("   4. Review QueryProcessor::process_query() return values");
             }
 
             // Commit all sources
