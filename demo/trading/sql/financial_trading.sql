@@ -261,8 +261,8 @@ SELECT
 
 FROM market_data_ts
 GROUP BY
-    symbol,
-    WINDOW SLIDING(event_time, INTERVAL '5' MINUTE, INTERVAL '1' MINUTE)
+    symbol
+    WINDOW SLIDING(event_time, 5m, 1m)
     EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',

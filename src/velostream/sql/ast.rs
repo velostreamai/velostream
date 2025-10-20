@@ -989,7 +989,7 @@ impl WindowSpec {
         match self {
             WindowSpec::Tumbling { time_column, .. } => time_column.as_deref(),
             WindowSpec::Sliding { time_column, .. } => time_column.as_deref(),
-            WindowSpec::Session { .. } => None, // Session windows use event time implicitly
+            WindowSpec::Session { time_column, .. } => time_column.as_deref(),
         }
     }
 
