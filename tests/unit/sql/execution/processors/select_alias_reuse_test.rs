@@ -18,9 +18,9 @@ to be referenced in subsequent fields during the same SELECT clause.
 */
 
 use std::collections::HashMap;
+use velostream::velostream::sql::execution::processors::{ProcessorContext, QueryProcessor};
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::sql::execution::processors::{QueryProcessor, ProcessorContext};
 
 fn create_test_record() -> StreamRecord {
     let mut fields = HashMap::new();
@@ -66,16 +66,15 @@ fn test_backward_compatibility_basic_query() {
     let record = create_test_record();
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);
-    assert!(
-        result.is_ok(),
-        "Query should execute: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
 
     if let Ok(proc_result) = result {
         if let Some(output) = proc_result.record {
             assert_eq!(output.fields.get("id"), Some(&FieldValue::Integer(1)));
-            assert_eq!(output.fields.get("volume"), Some(&FieldValue::Float(1000.0)));
+            assert_eq!(
+                output.fields.get("volume"),
+                Some(&FieldValue::Float(1000.0))
+            );
             assert_eq!(output.fields.get("price"), Some(&FieldValue::Float(100.0)));
         }
     }
@@ -107,11 +106,7 @@ fn test_extended_backward_compatibility() {
     let record = create_test_record();
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);
-    assert!(
-        result.is_ok(),
-        "Query should execute: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
 
     if let Ok(proc_result) = result {
         if let Some(output) = proc_result.record {
@@ -120,9 +115,15 @@ fn test_extended_backward_compatibility() {
                 output.fields.get("symbol"),
                 Some(&FieldValue::String("AAPL".to_string()))
             );
-            assert_eq!(output.fields.get("volume"), Some(&FieldValue::Float(1000.0)));
+            assert_eq!(
+                output.fields.get("volume"),
+                Some(&FieldValue::Float(1000.0))
+            );
             assert_eq!(output.fields.get("price"), Some(&FieldValue::Float(100.0)));
-            assert_eq!(output.fields.get("quantity"), Some(&FieldValue::Integer(100)));
+            assert_eq!(
+                output.fields.get("quantity"),
+                Some(&FieldValue::Integer(100))
+            );
         }
     }
 }
