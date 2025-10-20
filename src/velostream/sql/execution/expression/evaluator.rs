@@ -164,10 +164,11 @@ impl ExpressionEvaluator {
                                 Ok(false)
                             }
                             Expr::Subquery { .. } => {
-                                Err(SqlError::ExecutionError {
-                                    message: "IN subqueries are not yet implemented. Please use EXISTS instead.".to_string(),
-                                    query: None,
-                                })
+                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
+                                unreachable!(
+                                    "IN subqueries cannot be evaluated with basic evaluator. \
+                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
+                                )
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -197,10 +198,11 @@ impl ExpressionEvaluator {
                                 Ok(true)
                             }
                             Expr::Subquery { .. } => {
-                                Err(SqlError::ExecutionError {
-                                    message: "NOT IN subqueries are not yet implemented. Please use NOT EXISTS instead.".to_string(),
-                                    query: None,
-                                })
+                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
+                                unreachable!(
+                                    "NOT IN subqueries cannot be evaluated with basic evaluator. \
+                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
+                                )
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -268,33 +270,14 @@ impl ExpressionEvaluator {
                     }
                 }
             }
-            Expr::Subquery {
-                query: _,
-                subquery_type,
-            } => {
-                // Handle subqueries in boolean context
-                use crate::velostream::sql::ast::SubqueryType;
-                match subquery_type {
-                    SubqueryType::Exists => Err(SqlError::ExecutionError {
-                        message: "EXISTS subqueries are not yet implemented.".to_string(),
-                        query: None,
-                    }),
-                    SubqueryType::NotExists => Err(SqlError::ExecutionError {
-                        message: "NOT EXISTS subqueries are not yet implemented.".to_string(),
-                        query: None,
-                    }),
-                    SubqueryType::Scalar => Err(SqlError::ExecutionError {
-                        message: "Scalar subqueries are not yet implemented.".to_string(),
-                        query: None,
-                    }),
-                    _ => Err(SqlError::ExecutionError {
-                        message: format!(
-                            "Unsupported subquery type in boolean context: {:?}",
-                            subquery_type
-                        ),
-                        query: None,
-                    }),
-                }
+            Expr::Subquery { .. } => {
+                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
+                // which routes them to the appropriate SubqueryExecutor implementation.
+                // This basic evaluator cannot handle subqueries.
+                unreachable!(
+                    "Subqueries cannot be evaluated with basic evaluator. \
+                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
+                )
             }
             Expr::UnaryOp {
                 op,
@@ -594,10 +577,11 @@ impl ExpressionEvaluator {
                                 Ok(FieldValue::Boolean(false))
                             }
                             Expr::Subquery { .. } => {
-                                Err(SqlError::ExecutionError {
-                                    message: "IN subqueries are not yet implemented. Please use EXISTS instead.".to_string(),
-                                    query: None,
-                                })
+                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
+                                unreachable!(
+                                    "IN subqueries cannot be evaluated with basic evaluator. \
+                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
+                                )
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
@@ -621,10 +605,11 @@ impl ExpressionEvaluator {
                                 Ok(FieldValue::Boolean(true))
                             }
                             Expr::Subquery { .. } => {
-                                Err(SqlError::ExecutionError {
-                                    message: "NOT IN subqueries are not yet implemented. Please use NOT EXISTS instead.".to_string(),
-                                    query: None,
-                                })
+                                // Subqueries MUST be evaluated using evaluate_expression_with_subqueries()
+                                unreachable!(
+                                    "NOT IN subqueries cannot be evaluated with basic evaluator. \
+                                    Use evaluate_expression_with_subqueries() with SubqueryExecutor instead."
+                                )
                             }
                             _ => Err(SqlError::ExecutionError {
                                 message:
