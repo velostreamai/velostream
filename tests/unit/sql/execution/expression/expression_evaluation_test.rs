@@ -165,3 +165,135 @@ async fn test_complex_expression_evaluation() {
         panic!("Expected numeric result for complex expression");
     }
 }
+
+#[tokio::test]
+async fn test_in_operator_with_alias_in_case_when() {
+    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
+    use velostream::velostream::sql::execution::expression::evaluator::SelectAliasContext;
+
+    // Test IN operator with column alias in CASE WHEN
+    // This tests the fix for: spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+    let record = {
+        let mut fields = HashMap::new();
+        fields.insert("price".to_string(), FieldValue::Float(100.0));
+        fields.insert("volume".to_string(), FieldValue::Integer(1000));
+        StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        }
+    };
+
+    // Create alias context with spike_classification = "EXTREME_SPIKE"
+    let mut alias_context = SelectAliasContext::new();
+    alias_context.add_alias(
+        "spike_classification".to_string(),
+        FieldValue::String("EXTREME_SPIKE".to_string()),
+    );
+
+    // Test IN operator: spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+    let in_expr = Expr::BinaryOp {
+        left: Box::new(Expr::Column("spike_classification".to_string())),
+        op: BinaryOperator::In,
+        right: Box::new(Expr::List(vec![
+            Expr::Literal(LiteralValue::String("EXTREME_SPIKE".to_string())),
+            Expr::Literal(LiteralValue::String("STATISTICAL_ANOMALY".to_string())),
+        ])),
+    };
+
+    let result =
+        ExpressionEvaluator::evaluate_expression_value_with_alias_context(&in_expr, &record, &alias_context);
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), FieldValue::Boolean(true));
+}
+
+#[tokio::test]
+async fn test_in_operator_with_alias_false_case() {
+    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
+    use velostream::velostream::sql::execution::expression::evaluator::SelectAliasContext;
+
+    let record = {
+        let mut fields = HashMap::new();
+        fields.insert("price".to_string(), FieldValue::Float(100.0));
+        StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        }
+    };
+
+    // Create alias context with spike_classification = "NORMAL"
+    let mut alias_context = SelectAliasContext::new();
+    alias_context.add_alias(
+        "spike_classification".to_string(),
+        FieldValue::String("NORMAL".to_string()),
+    );
+
+    // Test IN operator: spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+    let in_expr = Expr::BinaryOp {
+        left: Box::new(Expr::Column("spike_classification".to_string())),
+        op: BinaryOperator::In,
+        right: Box::new(Expr::List(vec![
+            Expr::Literal(LiteralValue::String("EXTREME_SPIKE".to_string())),
+            Expr::Literal(LiteralValue::String("STATISTICAL_ANOMALY".to_string())),
+        ])),
+    };
+
+    let result =
+        ExpressionEvaluator::evaluate_expression_value_with_alias_context(&in_expr, &record, &alias_context);
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), FieldValue::Boolean(false));
+}
+
+#[tokio::test]
+async fn test_not_in_operator_with_alias() {
+    use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
+    use velostream::velostream::sql::execution::expression::evaluator::SelectAliasContext;
+
+    let record = {
+        let mut fields = HashMap::new();
+        fields.insert("price".to_string(), FieldValue::Float(100.0));
+        StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 1,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        }
+    };
+
+    // Create alias context
+    let mut alias_context = SelectAliasContext::new();
+    alias_context.add_alias(
+        "spike_classification".to_string(),
+        FieldValue::String("NORMAL".to_string()),
+    );
+
+    // Test NOT IN operator: spike_classification NOT IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY')
+    let not_in_expr = Expr::BinaryOp {
+        left: Box::new(Expr::Column("spike_classification".to_string())),
+        op: BinaryOperator::NotIn,
+        right: Box::new(Expr::List(vec![
+            Expr::Literal(LiteralValue::String("EXTREME_SPIKE".to_string())),
+            Expr::Literal(LiteralValue::String("STATISTICAL_ANOMALY".to_string())),
+        ])),
+    };
+
+    let result = ExpressionEvaluator::evaluate_expression_value_with_alias_context(
+        &not_in_expr,
+        &record,
+        &alias_context,
+    );
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), FieldValue::Boolean(true));
+}

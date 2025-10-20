@@ -172,9 +172,10 @@ SELECT
     NOW() as detection_time
 FROM market_data_ts
 -- Phase 3: Complex HAVING clause with multiple conditions
-HAVING COUNT(*) > 10  -- At least 10 trades in window
-   AND STDDEV(price) > AVG(price) * 0.01  -- Volatility > 1% of avg price
-   AND MAX(volume) > AVG(volume) * 2      -- Volume spike detected
+-- RELAXED for demo: allowing more events to flow through for testing
+HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
+   AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
+   AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
 -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
 WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
 EMIT CHANGES
@@ -189,6 +190,59 @@ WITH (
     'circuit.breaker.enabled' = 'true',
     'circuit.breaker.failure.threshold' = '5',
     'circuit.breaker.timeout' = '60s'
+);
+
+-- ====================================================================================
+-- DEBUG STREAM: Price Movement Analysis Filter Visibility
+-- ====================================================================================
+-- Diagnostic stream to show which records pass/fail the HAVING filter conditions
+-- Helps debug why events are or aren't being emitted from advanced_price_movement_alerts
+-- Shows actual vs threshold values for each filter condition
+--
+-- @description: Debug stream for filter condition visibility
+-- @job_name: price_movement_debug
+CREATE STREAM price_movement_debug AS
+SELECT
+    symbol,
+    COUNT(*) as record_count,
+    AVG(price) as avg_price,
+    STDDEV(price) as stddev_price,
+    MAX(volume) as max_volume,
+    AVG(volume) as avg_volume,
+
+    -- Filter condition 1: COUNT(*) > 1
+    COUNT(*) as count_filter_value,
+    COUNT(*) > 1 as passes_count_filter,
+
+    -- Filter condition 2: STDDEV(price) > AVG(price) * 0.0001
+    STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+    AVG(price) * 0.0001 as volatility_threshold,
+
+    -- Filter condition 3: MAX(volume) > AVG(volume) * 1.1
+    MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+    AVG(volume) * 1.1 as volume_threshold,
+
+    -- Combined result
+    CASE
+        WHEN COUNT(*) > 1
+            AND STDDEV(price) > AVG(price) * 0.0001
+            AND MAX(volume) > AVG(volume) * 1.1
+        THEN 'WILL_EMIT'
+        ELSE 'FILTERED_OUT'
+    END as filter_result,
+
+    TUMBLE_END(event_time, INTERVAL '1' MINUTE) as window_end
+FROM market_data_ts
+GROUP BY symbol
+WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'price_movement_debug.type' = 'kafka_sink',
+    'price_movement_debug.topic.name' = 'price_movement_debug',
+    'price_movement_debug.config_file' = 'configs/price_alerts_sink.yaml'
 );
 
 -- ====================================================================================

@@ -258,15 +258,23 @@ pub async fn process_batch_with_output(
             }
             Err(e) => {
                 records_failed += 1;
+
+                // Extract and log detailed error context
+                let detailed_msg = extract_error_context(&e);
+                let recoverable = is_recoverable_error(&e);
+
                 error_details.push(ProcessingError {
                     record_index: index,
-                    error_message: format!("{:?}", e),
-                    recoverable: is_recoverable_error(&e),
+                    error_message: detailed_msg.clone(),
+                    recoverable,
                 });
+
+                // Log with human-readable context and full debug info
                 warn!(
-                    "Job '{}' failed to process record {}: {:?}",
-                    job_name, index, e
+                    "Job '{}' failed to process record {}: {} [Recoverable: {}]",
+                    job_name, index, detailed_msg, recoverable
                 );
+                debug!("Full error details: {:?}", e);
             }
         }
     }
@@ -320,7 +328,63 @@ fn generate_query_id(query: &StreamingQuery) -> String {
     }
 }
 
+/// Extract human-readable error context from SqlError
+///
+/// Provides detailed, actionable error messages by extracting type-specific information
+/// instead of relying on generic debug formatting. This improves production diagnostics.
+fn extract_error_context(error: &crate::velostream::sql::SqlError) -> String {
+    match error {
+        crate::velostream::sql::SqlError::ExecutionError { message, query: _ } => {
+            format!("ExecutionError: {}", message)
+        }
+        crate::velostream::sql::SqlError::ParseError { message, position } => match position {
+            Some(pos) => format!("ParseError at position {}: {}", pos, message),
+            None => format!("ParseError: {}", message),
+        },
+        crate::velostream::sql::SqlError::TypeError {
+            expected,
+            actual,
+            value,
+        } => match value {
+            Some(val) => {
+                format!(
+                    "TypeError: expected {}, got {} for value '{}'",
+                    expected, actual, val
+                )
+            }
+            None => format!("TypeError: expected {}, got {}", expected, actual),
+        },
+        crate::velostream::sql::SqlError::SchemaError { message, column } => match column {
+            Some(col) => format!("SchemaError for column '{}': {}", col, message),
+            None => format!("SchemaError: {}", message),
+        },
+        crate::velostream::sql::SqlError::StreamError {
+            stream_name,
+            message,
+        } => format!("StreamError for '{}': {}", stream_name, message),
+        crate::velostream::sql::SqlError::WindowError {
+            message,
+            window_type,
+        } => match window_type {
+            Some(wtype) => format!("WindowError for {} window: {}", wtype, message),
+            None => format!("WindowError: {}", message),
+        },
+        crate::velostream::sql::SqlError::ResourceError { resource, message } => {
+            format!("ResourceError for {}: {}", resource, message)
+        }
+        crate::velostream::sql::SqlError::TableNotFound { table_name } => {
+            format!("TableNotFound: '{}'", table_name)
+        }
+        crate::velostream::sql::SqlError::ConfigurationError { message } => {
+            format!("ConfigurationError: {}", message)
+        }
+    }
+}
+
 /// Determine if an error is recoverable
+///
+/// Classifies errors to inform retry and fallback strategies.
+/// Currently conservative (most errors non-recoverable).
 fn is_recoverable_error(_error: &crate::velostream::sql::SqlError) -> bool {
     // This is a simple implementation - could be extended based on error types
     // Add specific error pattern matching here

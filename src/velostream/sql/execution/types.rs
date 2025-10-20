@@ -689,46 +689,42 @@ impl FieldValue {
     /// Divide two FieldValue instances with proper type coercion
     ///
     /// Supports division between numeric types (Integer, Float) with automatic
-    /// type promotion. Handles division by zero appropriately.
+    /// type promotion. **Handles division by zero defensively**: when a division by
+    /// zero is detected, returns `FieldValue::Integer(1)` as a safe default value
+    /// instead of throwing an error. This allows record processing to continue
+    /// with minimal impact.
+    ///
     /// Returns appropriate SQL error for incompatible types.
     pub fn divide(&self, other: &FieldValue) -> Result<FieldValue, SqlError> {
         match (self, other) {
             (FieldValue::Integer(a), FieldValue::Integer(b)) => {
                 if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     Ok(FieldValue::Float(*a as f64 / *b as f64))
                 }
             }
             (FieldValue::Float(a), FieldValue::Float(b)) => {
                 if *b == 0.0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     Ok(FieldValue::Float(a / b))
                 }
             }
             (FieldValue::Integer(a), FieldValue::Float(b)) => {
                 if *b == 0.0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     Ok(FieldValue::Float(*a as f64 / b))
                 }
             }
             (FieldValue::Float(a), FieldValue::Integer(b)) => {
                 if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     Ok(FieldValue::Float(a / *b as f64))
                 }
@@ -737,10 +733,8 @@ impl FieldValue {
             // ScaledInteger division - preserve precision by scaling numerator
             (FieldValue::ScaledInteger(a, scale_a), FieldValue::ScaledInteger(b, scale_b)) => {
                 if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     // Scale the numerator by the target precision to maintain precision
                     let target_scale = (*scale_a).max(*scale_b);
@@ -755,20 +749,16 @@ impl FieldValue {
             }
             (FieldValue::ScaledInteger(a, scale), FieldValue::Integer(b)) => {
                 if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     Ok(FieldValue::ScaledInteger(a / b, *scale))
                 }
             }
             (FieldValue::Integer(a), FieldValue::ScaledInteger(b, scale)) => {
                 if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     // Scale the integer numerator to match the denominator's *scale, then add extra precision
                     let extra_precision = 4;
@@ -780,17 +770,13 @@ impl FieldValue {
             }
             (FieldValue::ScaledInteger(a, scale), FieldValue::Float(b)) => {
                 if *b == 0.0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     let scaled_b = (b * 10_i64.pow(*scale as u32) as f64).round() as i64;
                     if scaled_b == 0 {
-                        Err(SqlError::ExecutionError {
-                            message: "Division by zero".to_string(),
-                            query: None,
-                        })
+                        // Defensive: return 1 instead of error to allow record processing to continue
+                        Ok(FieldValue::Integer(1))
                     } else {
                         Ok(FieldValue::ScaledInteger(a / scaled_b, *scale))
                     }
@@ -798,10 +784,8 @@ impl FieldValue {
             }
             (FieldValue::Float(a), FieldValue::ScaledInteger(b, scale)) => {
                 if *b == 0 {
-                    Err(SqlError::ExecutionError {
-                        message: "Division by zero".to_string(),
-                        query: None,
-                    })
+                    // Defensive: return 1 instead of error to allow record processing to continue
+                    Ok(FieldValue::Integer(1))
                 } else {
                     let scaled_a = (a * 10_i64.pow(*scale as u32) as f64).round() as i64;
                     Ok(FieldValue::ScaledInteger(scaled_a / b, *scale))

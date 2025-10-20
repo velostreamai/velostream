@@ -1615,33 +1615,106 @@ impl ExpressionEvaluator {
                 Self::evaluate_expression_value(expr, record)
             }
             Expr::BinaryOp { left, op, right } => {
-                // Recursively evaluate both sides with alias context
-                let left_val = Self::evaluate_expression_value_with_alias_context(
-                    left,
-                    record,
-                    alias_context,
-                )?;
-                let right_val = Self::evaluate_expression_value_with_alias_context(
-                    right,
-                    record,
-                    alias_context,
-                )?;
-
-                // Use existing binary operation logic
+                // Handle IN/NOT IN operators with special alias context support
                 match op {
-                    BinaryOperator::Add => left_val.add(&right_val),
-                    BinaryOperator::Subtract => left_val.subtract(&right_val),
-                    BinaryOperator::Multiply => left_val.multiply(&right_val),
-                    BinaryOperator::Divide => left_val.divide(&right_val),
-                    BinaryOperator::Concat => match (&left_val, &right_val) {
-                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
-                        (FieldValue::String(s1), FieldValue::String(s2)) => {
-                            Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                    BinaryOperator::In => {
+                        let left_val = Self::evaluate_expression_value_with_alias_context(
+                            left,
+                            record,
+                            alias_context,
+                        )?;
+
+                        // SQL semantics: NULL IN (...) always returns NULL (false in boolean context)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
                         }
-                        _ => Self::evaluate_expression_value(expr, record),
-                    },
-                    // For comparison operators, delegate to original implementation
-                    _ => Self::evaluate_expression_value(expr, record),
+
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_expression_value_with_alias_context(
+                                        value_expr,
+                                        record,
+                                        alias_context,
+                                    )?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(false))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        let left_val = Self::evaluate_expression_value_with_alias_context(
+                            left,
+                            record,
+                            alias_context,
+                        )?;
+
+                        // SQL semantics: NULL NOT IN (...) always returns NULL (false in boolean context)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_expression_value_with_alias_context(
+                                        value_expr,
+                                        record,
+                                        alias_context,
+                                    )?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(true))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    _ => {
+                        // For all other operators, recursively evaluate both sides with alias context
+                        let left_val = Self::evaluate_expression_value_with_alias_context(
+                            left,
+                            record,
+                            alias_context,
+                        )?;
+                        let right_val = Self::evaluate_expression_value_with_alias_context(
+                            right,
+                            record,
+                            alias_context,
+                        )?;
+
+                        // Use existing binary operation logic
+                        match op {
+                            BinaryOperator::Add => left_val.add(&right_val),
+                            BinaryOperator::Subtract => left_val.subtract(&right_val),
+                            BinaryOperator::Multiply => left_val.multiply(&right_val),
+                            BinaryOperator::Divide => left_val.divide(&right_val),
+                            BinaryOperator::Concat => match (&left_val, &right_val) {
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Null)
+                                }
+                                (FieldValue::String(s1), FieldValue::String(s2)) => {
+                                    Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                                }
+                                _ => Self::evaluate_expression_value(expr, record),
+                            },
+                            // For comparison operators, delegate to original implementation
+                            _ => Self::evaluate_expression_value(expr, record),
+                        }
+                    }
                 }
             }
             Expr::UnaryOp { op, expr: inner } => {
@@ -1751,57 +1824,158 @@ impl ExpressionEvaluator {
                     return Ok(value.clone());
                 }
                 // Fall back to column evaluation (with subquery support)
-                Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context)
+                Self::evaluate_expression_value_with_subqueries(
+                    expr,
+                    record,
+                    subquery_executor,
+                    context,
+                )
             }
             Expr::Subquery { .. } => {
                 // Delegate subquery execution to the enhanced evaluator with subquery support
-                Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context)
+                Self::evaluate_expression_value_with_subqueries(
+                    expr,
+                    record,
+                    subquery_executor,
+                    context,
+                )
             }
             Expr::BinaryOp { left, op, right } => {
-                // Recursively evaluate both sides with BOTH alias and subquery context
-                let left_val = Self::evaluate_expression_value_with_alias_and_subquery_context(
-                    left,
-                    record,
-                    alias_context,
-                    subquery_executor,
-                    context,
-                )?;
-                let right_val = Self::evaluate_expression_value_with_alias_and_subquery_context(
-                    right,
-                    record,
-                    alias_context,
-                    subquery_executor,
-                    context,
-                )?;
-
-                // Use existing binary operation logic
+                // Handle IN/NOT IN operators with special alias AND subquery context support
                 match op {
-                    BinaryOperator::Add => left_val.add(&right_val),
-                    BinaryOperator::Subtract => left_val.subtract(&right_val),
-                    BinaryOperator::Multiply => left_val.multiply(&right_val),
-                    BinaryOperator::Divide => left_val.divide(&right_val),
-                    BinaryOperator::Concat => match (&left_val, &right_val) {
-                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
-                        (FieldValue::String(s1), FieldValue::String(s2)) => {
-                            Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                    BinaryOperator::In => {
+                        let left_val =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                left,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
+
+                        // SQL semantics: NULL IN (...) always returns NULL (false in boolean context)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
                         }
-                        _ => Self::evaluate_expression_value(expr, record),
-                    },
-                    // For comparison and other operators, delegate to subquery-aware evaluator
-                    _ => Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context),
+
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                        value_expr,
+                                        record,
+                                        alias_context,
+                                        subquery_executor,
+                                        context,
+                                    )?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(false))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        let left_val =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                left,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
+
+                        // SQL semantics: NULL NOT IN (...) always returns NULL (false in boolean context)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+
+                        match &**right {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                        value_expr,
+                                        record,
+                                        alias_context,
+                                        subquery_executor,
+                                        context,
+                                    )?;
+                                    if Self::values_equal(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(true))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    _ => {
+                        // For all other operators, recursively evaluate both sides with BOTH alias and subquery context
+                        let left_val =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                left,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
+                        let right_val =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                right,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
+
+                        // Use existing binary operation logic
+                        match op {
+                            BinaryOperator::Add => left_val.add(&right_val),
+                            BinaryOperator::Subtract => left_val.subtract(&right_val),
+                            BinaryOperator::Multiply => left_val.multiply(&right_val),
+                            BinaryOperator::Divide => left_val.divide(&right_val),
+                            BinaryOperator::Concat => match (&left_val, &right_val) {
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Null)
+                                }
+                                (FieldValue::String(s1), FieldValue::String(s2)) => {
+                                    Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                                }
+                                _ => Self::evaluate_expression_value(expr, record),
+                            },
+                            // For comparison and other operators, delegate to subquery-aware evaluator
+                            _ => Self::evaluate_expression_value_with_subqueries(
+                                expr,
+                                record,
+                                subquery_executor,
+                                context,
+                            ),
+                        }
+                    }
                 }
             }
             Expr::UnaryOp { op, expr: inner } => {
                 // Recursively evaluate inner expression with alias and subquery context
                 match op {
                     crate::velostream::sql::ast::UnaryOperator::Not => {
-                        let inner_result = Self::evaluate_expression_value_with_alias_and_subquery_context(
-                            inner,
-                            record,
-                            alias_context,
-                            subquery_executor,
-                            context,
-                        )?;
+                        let inner_result =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                inner,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
                         match inner_result {
                             FieldValue::Boolean(b) => Ok(FieldValue::Boolean(!b)),
                             _ => {
@@ -1811,26 +1985,28 @@ impl ExpressionEvaluator {
                         }
                     }
                     crate::velostream::sql::ast::UnaryOperator::IsNull => {
-                        let inner_result = Self::evaluate_expression_value_with_alias_and_subquery_context(
-                            inner,
-                            record,
-                            alias_context,
-                            subquery_executor,
-                            context,
-                        )?;
+                        let inner_result =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                inner,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
                         Ok(FieldValue::Boolean(matches!(
                             inner_result,
                             FieldValue::Null
                         )))
                     }
                     crate::velostream::sql::ast::UnaryOperator::IsNotNull => {
-                        let inner_result = Self::evaluate_expression_value_with_alias_and_subquery_context(
-                            inner,
-                            record,
-                            alias_context,
-                            subquery_executor,
-                            context,
-                        )?;
+                        let inner_result =
+                            Self::evaluate_expression_value_with_alias_and_subquery_context(
+                                inner,
+                                record,
+                                alias_context,
+                                subquery_executor,
+                                context,
+                            )?;
                         Ok(FieldValue::Boolean(!matches!(
                             inner_result,
                             FieldValue::Null
@@ -1878,7 +2054,12 @@ impl ExpressionEvaluator {
                 }
             }
             // For all other expression types, delegate to subquery-aware evaluator
-            _ => Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context),
+            _ => Self::evaluate_expression_value_with_subqueries(
+                expr,
+                record,
+                subquery_executor,
+                context,
+            ),
         }
     }
 
