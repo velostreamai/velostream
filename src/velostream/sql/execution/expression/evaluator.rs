@@ -1724,6 +1724,164 @@ impl ExpressionEvaluator {
         }
     }
 
+    /// Evaluates an expression with support for BOTH SELECT alias references AND subqueries.
+    ///
+    /// This method combines the capabilities of alias context and subquery execution,
+    /// allowing SELECT fields to reference both previous aliases and execute subqueries.
+    /// This is used in Phase 5 to wire scalar subqueries into SELECT clause processing.
+    ///
+    /// # Arguments
+    ///
+    /// * `expr` - The expression to evaluate
+    /// * `record` - The current stream record with field values
+    /// * `alias_context` - The context containing previously-computed aliases
+    /// * `subquery_executor` - Implementation of SubqueryExecutor for executing subqueries
+    /// * `context` - The processor context for subquery state management
+    pub fn evaluate_expression_value_with_alias_and_subquery_context<T: SubqueryExecutor>(
+        expr: &Expr,
+        record: &StreamRecord,
+        alias_context: &SelectAliasContext,
+        subquery_executor: &T,
+        context: &ProcessorContext,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            Expr::Column(name) => {
+                // Check alias context FIRST (priority to aliases), then fall back to fields
+                if let Some(value) = alias_context.get_alias(name) {
+                    return Ok(value.clone());
+                }
+                // Fall back to column evaluation (with subquery support)
+                Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context)
+            }
+            Expr::Subquery { .. } => {
+                // Delegate subquery execution to the enhanced evaluator with subquery support
+                Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context)
+            }
+            Expr::BinaryOp { left, op, right } => {
+                // Recursively evaluate both sides with BOTH alias and subquery context
+                let left_val = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                    left,
+                    record,
+                    alias_context,
+                    subquery_executor,
+                    context,
+                )?;
+                let right_val = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                    right,
+                    record,
+                    alias_context,
+                    subquery_executor,
+                    context,
+                )?;
+
+                // Use existing binary operation logic
+                match op {
+                    BinaryOperator::Add => left_val.add(&right_val),
+                    BinaryOperator::Subtract => left_val.subtract(&right_val),
+                    BinaryOperator::Multiply => left_val.multiply(&right_val),
+                    BinaryOperator::Divide => left_val.divide(&right_val),
+                    BinaryOperator::Concat => match (&left_val, &right_val) {
+                        (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
+                        (FieldValue::String(s1), FieldValue::String(s2)) => {
+                            Ok(FieldValue::String(format!("{}{}", s1, s2)))
+                        }
+                        _ => Self::evaluate_expression_value(expr, record),
+                    },
+                    // For comparison and other operators, delegate to subquery-aware evaluator
+                    _ => Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context),
+                }
+            }
+            Expr::UnaryOp { op, expr: inner } => {
+                // Recursively evaluate inner expression with alias and subquery context
+                match op {
+                    crate::velostream::sql::ast::UnaryOperator::Not => {
+                        let inner_result = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                            inner,
+                            record,
+                            alias_context,
+                            subquery_executor,
+                            context,
+                        )?;
+                        match inner_result {
+                            FieldValue::Boolean(b) => Ok(FieldValue::Boolean(!b)),
+                            _ => {
+                                let bool_val = Self::field_value_to_bool(&inner_result)?;
+                                Ok(FieldValue::Boolean(!bool_val))
+                            }
+                        }
+                    }
+                    crate::velostream::sql::ast::UnaryOperator::IsNull => {
+                        let inner_result = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                            inner,
+                            record,
+                            alias_context,
+                            subquery_executor,
+                            context,
+                        )?;
+                        Ok(FieldValue::Boolean(matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    crate::velostream::sql::ast::UnaryOperator::IsNotNull => {
+                        let inner_result = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                            inner,
+                            record,
+                            alias_context,
+                            subquery_executor,
+                            context,
+                        )?;
+                        Ok(FieldValue::Boolean(!matches!(
+                            inner_result,
+                            FieldValue::Null
+                        )))
+                    }
+                    _ => Self::evaluate_expression_value(expr, record),
+                }
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                // Evaluate CASE conditions and results with alias and subquery context support
+                for (condition, result_expr) in when_clauses {
+                    let cond_val = Self::evaluate_expression_value_with_alias_and_subquery_context(
+                        condition,
+                        record,
+                        alias_context,
+                        subquery_executor,
+                        context,
+                    )?;
+                    let cond_bool = Self::field_value_to_bool(&cond_val)?;
+                    if cond_bool {
+                        return Self::evaluate_expression_value_with_alias_and_subquery_context(
+                            result_expr,
+                            record,
+                            alias_context,
+                            subquery_executor,
+                            context,
+                        );
+                    }
+                }
+
+                // If no condition matched, evaluate ELSE clause
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_expression_value_with_alias_and_subquery_context(
+                        else_expr,
+                        record,
+                        alias_context,
+                        subquery_executor,
+                        context,
+                    )
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+            // For all other expression types, delegate to subquery-aware evaluator
+            _ => Self::evaluate_expression_value_with_subqueries(expr, record, subquery_executor, context),
+        }
+    }
+
     /// Helper method to convert FieldValue to f64 for comparison purposes
     fn to_comparable_float(value: &FieldValue) -> Result<f64, SqlError> {
         match value {

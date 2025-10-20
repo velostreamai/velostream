@@ -506,12 +506,16 @@ impl SelectProcessor {
                         }
                     }
                     SelectField::Expression { expr, alias } => {
-                        // NEW: Use alias context-aware evaluator for expressions
+                        // NEW: Use evaluator that supports BOTH alias context AND subqueries
+                        // This enables scalar subqueries in SELECT fields to work properly (Phase 5)
+                        let subquery_executor = SelectProcessor;
                         let value =
-                            ExpressionEvaluator::evaluate_expression_value_with_alias_context(
+                            ExpressionEvaluator::evaluate_expression_value_with_alias_and_subquery_context(
                                 expr,
                                 &joined_record,
                                 &alias_context,
+                                &subquery_executor,
+                                context,
                             )?;
                         let field_name = alias
                             .as_ref()
