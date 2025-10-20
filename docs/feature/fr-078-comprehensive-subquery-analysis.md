@@ -588,11 +588,114 @@ But the actual mock implementation at `subquery_test.rs:201` returns `FieldValue
 6. **Mock Layer**: ✅ 100% - All mocks properly stubbed
 7. **Real Execution**: ❌ 0% - No real SQL queryable implementations
 
+## Part 9: WHERE EXISTS Implementation Readiness
+
+### Architecture Investigation
+
+A detailed analysis of the SubqueryExecutor trait and SelectProcessor implementation reveals a critical finding:
+
+**WHERE EXISTS/NOT EXISTS infrastructure is COMPLETE but UNUSED for WHERE clauses.**
+
+#### What's Already Implemented
+
+1. **SubqueryExecutor Trait** (`subquery_executor.rs:20-98`)
+   - `execute_exists_subquery()` method defined
+   - Helper function `evaluate_subquery_with_executor()` fully implemented
+   - Properly handles `SubqueryType::Exists` and `SubqueryType::NotExists`
+
+2. **SelectProcessor Implementation** (`select.rs:2298+`)
+   - Implements all SubqueryExecutor methods
+   - `execute_exists_subquery()` (lines 2332-2379) works correctly
+   - ProcessorContext provides table access
+
+3. **ExpressionEvaluator Enhancement** (`evaluator.rs:716-1305`)
+   - Method: `evaluate_expression_with_subqueries()` fully implemented
+   - Properly recurses through all expression types
+   - Correctly delegates EXISTS/NOT EXISTS to SubqueryExecutor
+   - **This is what HAVING EXISTS uses successfully**
+
+#### Why HAVING EXISTS Works But WHERE EXISTS Doesn't
+
+**HAVING clause code path** (working):
+```rust
+// HAVING uses the enhanced evaluator:
+if !ExpressionEvaluator::evaluate_expression_with_subqueries(
+    having_expr,
+    &group_record,
+    self,  // SelectProcessor implementing SubqueryExecutor
+    &context,
+)? {
+    continue;  // ← This logic works perfectly
+}
+```
+
+**WHERE clause code path** (broken):
+```rust
+// WHERE uses the basic evaluator that throws errors:
+Expr::Subquery { query: _, subquery_type } => {
+    match subquery_type {
+        SubqueryType::Exists => Err(SqlError::ExecutionError {
+            message: "EXISTS subqueries are not yet implemented.".to_string(),
+            // ← This error thrown instead of delegating to executor
+        }),
+        // ...
+    }
+}
+```
+
+#### Implementation Path to Enable WHERE EXISTS
+
+**Single change required** in SelectProcessor's WHERE clause processing:
+
+From:
+```rust
+ExpressionEvaluator::evaluate_expression(where_expr, record)
+```
+
+To:
+```rust
+ExpressionEvaluator::evaluate_expression_with_subqueries(
+    where_expr,
+    record,
+    self,
+    &context,
+)
+```
+
+**Estimated effort**: 1-2 hours
+**Risk level**: LOW - Uses proven infrastructure from HAVING EXISTS
+**Testing**: Existing WHERE EXISTS tests can be enabled
+
+### Key Finding: Zero New Code Needed
+
+The SelectProcessor **already has all required methods**:
+- ✅ `execute_exists_subquery()`
+- ✅ `execute_scalar_subquery()`
+- ✅ `execute_in_subquery()`
+- ✅ `execute_any_all_subquery()`
+
+The ExpressionEvaluator **already has the enhanced path**:
+- ✅ `evaluate_expression_with_subqueries()`
+- ✅ `evaluate_expression_value_with_subqueries()`
+
+The ProcessorContext **already provides table access**:
+- ✅ `state_tables` HashMap with table references
+
+### Evidence: Why This Works
+
+From `having_exists_subquery_test.rs` (7 passing tests):
+- Tests verify `evaluate_expression_with_subqueries()` works correctly
+- Tests confirm `SelectProcessor.execute_exists_subquery()` works correctly
+- Tests show ProcessorContext table access functions properly
+- **Identical code path would work for WHERE clauses**
+
+---
+
 ## Conclusion
 
-**The analysis is now fully validated with direct code evidence.**
+**The analysis is now fully validated with direct code evidence AND architectural readiness assessment.**
 
-Velostream's subquery implementation represents a **proof-of-concept masquerading as production-ready software**. The documentation is misleading and contradicts the actual implementation:
+Velostream's subquery implementation represents a **proof-of-concept masquerading as production-ready software** with a critical secondary finding: **WHERE EXISTS is trivially easy to implement**.
 
 ### Evidence Summary
 - **40 total tests** across 5 test files (counted and verified)
@@ -601,6 +704,7 @@ Velostream's subquery implementation represents a **proof-of-concept masqueradin
 - **Mock implementations**: Ubiquitous throughout (returns hardcoded values like 1, 100)
 - **Documentation claims**: "Production-ready" but tests show mock stubs
 - **User expectations**: Seriously misaligned with capabilities
+- **WHERE EXISTS readiness**: Infrastructure complete, awaiting single integration point
 
 ### Immediate Issues
 1. **Documentation Mismatch** (CRITICAL): Claims "production-ready" but tests prove mock-only implementation
@@ -609,14 +713,31 @@ Velostream's subquery implementation represents a **proof-of-concept masqueradin
 4. **No Aggregates** (HIGH): Scalar subqueries with MAX/MIN/AVG/SUM all mock-based
 5. **No WHERE EXISTS** (MEDIUM): Only HAVING EXISTS works, WHERE EXISTS "not yet implemented"
 6. **No IN/NOT IN** (MEDIUM): Parser supports syntax but execution not implemented
+7. **WHERE EXISTS Paradox** (MEDIUM): All infrastructure exists but not wired together for WHERE clauses
 
-**Recommendation**: Mark all subquery documentation with version 0.1-beta label and update to accurately reflect that only HAVING EXISTS/NOT EXISTS are functional.
+### Recommendations
+
+#### Immediate (Phase 1-2: COMPLETE ✅)
+- ✅ Mark all subquery documentation with version 0.1-beta label
+- ✅ Accurately reflect that only HAVING EXISTS/NOT EXISTS are functional
+- ✅ Document this status in subquery-support.md and subquery-quick-reference.md
+
+#### Phase 3: WHERE EXISTS Implementation
+- Wire WHERE clause processing through `evaluate_expression_with_subqueries()`
+- Estimated effort: 1-2 hours
+- See `fr-078-WHERE-EXISTS-IMPLEMENTATION-STATUS.md` for detailed implementation guide
+- **No new code required** - Use existing infrastructure
+
+#### Phase 4-6: Other Subquery Types
+- Scalar, IN/NOT IN, ANY/ALL subqueries
+- Estimated effort: 1-2 days per type after WHERE EXISTS
 
 ---
 
 **Report Generated**: 2025-10-20
-**Analysis Scope**: First pass + Second pass + Direct code evidence verification
+**Analysis Scope**: First pass + Second pass + Direct code evidence + Architectural assessment
 **Test Files Analyzed**: 5 files with 40+ tests
 **Documentation Files Analyzed**: 2 comprehensive docs (520+ lines)
 **Total Evidence**: 100% from actual source code and tests
-**Confidence Level**: Very High - Direct code quotes provided
+**Additional Documentation**: `fr-078-WHERE-EXISTS-IMPLEMENTATION-STATUS.md` with implementation roadmap
+**Confidence Level**: Very High - Direct code quotes + architectural validation provided
