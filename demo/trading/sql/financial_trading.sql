@@ -437,6 +437,26 @@ WITH (
 );
 
 -- ====================================================================================
+-- ⚠️  KNOWN LIMITATION: Window Function Frame Bounds
+-- ====================================================================================
+-- This demo uses window functions with frame bounds (ROWS BETWEEN, RANGE BETWEEN).
+--
+-- LIMITATION: Frame bounds are parsed but not yet fully implemented in execution.
+-- Window functions currently operate over the entire partition, not the specified frame.
+--
+-- AFFECTED METRICS:
+-- - cumulative_pnl: Shows total P&L instead of running cumulative
+-- - trades_today: Shows all-time count instead of last 24 hours
+-- - pnl_volatility: Shows all-time STDDEV instead of last 100 trades
+-- - total_exposure: Shows all-time total instead of running cumulative
+-- - risk_classification: Based on all-time metrics instead of recent metrics
+--
+-- STATUS: Documented as Phase 5 of FR-078 roadmap
+-- See: docs/feature/FR-078-WINDOW-FRAME-BOUNDS-ANALYSIS.md
+--
+-- IMPACT FOR DEMO: Risk calculations use full partition scope (more conservative)
+--
+-- ====================================================================================
 -- PHASE 1B-4 FEATURE SUMMARY
 -- ====================================================================================
 -- This trading analytics demo showcases ALL Phase 1B-4 features:

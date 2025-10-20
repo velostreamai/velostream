@@ -395,8 +395,14 @@ let where_result = ExpressionEvaluator::evaluate_expression_with_subqueries(
 ⏳ **Ready to Start**:
 - Phase 4: WHERE EXISTS implementation (4-5 hours, LOW risk)
 
-📋 **Planned**:
-- Phases 5-7: Complete subquery support (18-23 days)
+📋 **Planned - Phase 5**: Window Function Frame Bounds Support
+- Window frame bounds (ROWS BETWEEN, RANGE BETWEEN, INTERVAL)
+- Affect: SUM, COUNT, STDDEV aggregate functions
+- Documented Limitation: `/docs/feature/FR-078-WINDOW-FRAME-BOUNDS-ANALYSIS.md`
+- Estimated Effort: 8-12 hours
+- Impact: Enables production-grade risk calculations
+
+📋 **Planned - Phases 6-8**: Complete subquery support (18-23 days)
 
 The foundation is solid, the path is clear, and all infrastructure is in place. Phase 4 can begin immediately.
 
