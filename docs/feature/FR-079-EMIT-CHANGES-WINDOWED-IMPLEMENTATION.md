@@ -89,7 +89,7 @@ fn execute_windowed_aggregation_impl(
 
 ### Why This Was Missed
 
-See `fr-079-emit-changes-window-gap-ANALYSIS.md` for complete gap analysis. Summary:
+See `FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md` for complete gap analysis. Summary:
 
 1. **Intentional Deferral**: Windowed EMIT CHANGES explicitly marked as "not implemented" in design docs
 2. **Test Coverage Metrics**: 30+ tests written to boost coverage claims, but feature wasn't implemented
@@ -342,8 +342,8 @@ cargo test test_emit_changes_rapid_updates --no-default-features
 ## References
 
 ### Analysis Documents
-- **Root Cause**: `fr-079-emit-changes-window-group-by-ANALYSIS.md`
-- **Gap Analysis**: `fr-079-emit-changes-window-gap-ANALYSIS.md`
+- **Root Cause**: `FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md`
+- **Gap Analysis**: `FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md`
 
 ### Related Code
 - **Window Processor**: `src/velostream/sql/execution/processors/window.rs:519-733`

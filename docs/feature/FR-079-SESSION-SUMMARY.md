@@ -12,13 +12,13 @@
 
 **4 Comprehensive Analysis Documents Created** (57.3 KB total):
 
-1. **fr-079-emit-changes-window-group-by-ANALYSIS.md** (9.3 KB)
+1. **FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md** (9.3 KB)
    - Technical root cause analysis
    - Architecture flow diagrams
    - GROUP BY detection and splitting strategy
    - Multi-result emission options with trade-offs
 
-2. **fr-079-emit-changes-window-gap-ANALYSIS.md** (11 KB)
+2. **FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md** (11 KB)
    - Why feature was missed (documented gap)
    - Official "NOT IMPLEMENTED" references
    - Documentation contradictions discovered
@@ -142,8 +142,8 @@ test_emit_changes_with_tumbling_window_same_window
 - ✅ Reverted to clean state
 
 ### Analysis Documents (Preserved)
-- ✅ fr-079-emit-changes-window-group-by-ANALYSIS.md
-- ✅ fr-079-emit-changes-window-gap-ANALYSIS.md
+- ✅ FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md
+- ✅ FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md
 - ✅ FR-079-EMIT-CHANGES-WINDOWED-IMPLEMENTATION.md
 - ✅ FR-079-IMPLEMENTATION-PLAN.md
 
@@ -172,8 +172,8 @@ test_emit_changes_with_tumbling_window_same_window
 ## 📝 Document Reference
 
 **For Understanding**:
-1. fr-079-emit-changes-window-group-by-ANALYSIS.md - Technical problem
-2. fr-079-emit-changes-window-gap-ANALYSIS.md - Why it was missed
+1. FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md - Technical problem
+2. FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md - Why it was missed
 3. FR-079-EMIT-CHANGES-WINDOWED-IMPLEMENTATION.md - Design approach
 
 **For Implementation**:

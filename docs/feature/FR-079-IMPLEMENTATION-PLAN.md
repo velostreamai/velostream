@@ -730,8 +730,8 @@ pub fn process_windowed_group_by_emission(...)
 ## ✅ Pre-Implementation Checklist
 
 - [ ] Read and approved: `FR-079-EMIT-CHANGES-WINDOWED-IMPLEMENTATION.md`
-- [ ] Read and approved: `fr-079-emit-changes-window-group-by-ANALYSIS.md`
-- [ ] Read and approved: `fr-079-emit-changes-window-gap-ANALYSIS.md`
+- [ ] Read and approved: `FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md`
+- [ ] Read and approved: `FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md`
 - [ ] Discussed with team (architecture & scope)
 - [ ] Setup development branch: `fr-079-windowed-emit-changes`
 - [ ] Created testing environment
@@ -855,8 +855,8 @@ Before submitting for review:
 
 ## 📚 Reference Documents
 
-- **Root Cause Analysis**: `fr-079-emit-changes-window-group-by-ANALYSIS.md`
-- **Gap Analysis**: `fr-079-emit-changes-window-gap-ANALYSIS.md`
+- **Root Cause Analysis**: `FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md`
+- **Gap Analysis**: `FR-079-EMIT-CHANGES-WINDOW-GAP-ANALYSIS.md`
 - **Design Document**: `FR-079-EMIT-CHANGES-WINDOWED-IMPLEMENTATION.md`
 - **Source Files**:
   - `src/velostream/sql/execution/processors/window.rs`
