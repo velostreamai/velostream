@@ -582,21 +582,31 @@ impl StreamExecutionEngine {
                 // Efficiently persist only modified window states (zero-copy for unchanged states)
                 self.save_window_states_from_context(&context);
 
-                // FR-079 Phase 4: Store pending results for later emission outside this context block
-                let pending = context.has_pending_results(&query_id);
-                if pending {
-                    // Store pending flag for later processing
-                    if let Some(execution) = self.active_queries.get_mut(&query_id) {
-                        execution.state = ExecutionState::Running; // Keep running to process pending
+                // FR-079 Phase 6: Emit pending results from queue
+                // After processing the current record, check if there are additional results queued
+                let mut pending_results = Vec::new();
+                while context.has_pending_results(&query_id) {
+                    if let Some(pending_result) = context.dequeue_result(&query_id) {
+                        pending_results.push(pending_result);
+                    } else {
+                        break;
                     }
                 }
 
-                result
+                // Store pending results for later emission outside context block
+                if !pending_results.is_empty() {
+                    log::debug!("FR-079 Phase 6: Dequeued {} pending results for emission", pending_results.len());
+                }
+
+                (result, pending_results)
             }
         } else {
             // Regular non-windowed processing
-            self.apply_query(query, &stream_record)?
+            (self.apply_query(query, &stream_record)?, Vec::new())
         };
+
+        // Unpack result and pending results
+        let (result, pending_results) = result;
 
         // Process result if any
         if let Some(result) = result {
@@ -619,6 +629,30 @@ impl StreamExecutionEngine {
                 .send(result)
                 .map_err(|e| SqlError::ExecutionError {
                     message: format!("Failed to send result to output channel: {}", e),
+                    query: None,
+                })?;
+        }
+
+        // FR-079 Phase 6: Emit all pending results queued from GROUP BY emission
+        for pending_result in pending_results {
+            log::debug!("FR-079 Phase 6: Emitting queued result for windowed GROUP BY");
+            let correlation_id = ExecutionMessage::generate_correlation_id();
+            self.message_sender
+                .send(ExecutionMessage::QueryResult {
+                    query_id: "default".to_string(),
+                    result: pending_result.clone(),
+                    correlation_id,
+                })
+                .map_err(|_| SqlError::ExecutionError {
+                    message: "Failed to send pending result".to_string(),
+                    query: None,
+                })?;
+
+            // Send pending result to output channel
+            self.output_sender
+                .send(pending_result)
+                .map_err(|e| SqlError::ExecutionError {
+                    message: format!("Failed to send pending result to output channel: {}", e),
                     query: None,
                 })?;
         }
