@@ -582,6 +582,15 @@ impl StreamExecutionEngine {
                 // Efficiently persist only modified window states (zero-copy for unchanged states)
                 self.save_window_states_from_context(&context);
 
+                // FR-079 Phase 4: Store pending results for later emission outside this context block
+                let pending = context.has_pending_results(&query_id);
+                if pending {
+                    // Store pending flag for later processing
+                    if let Some(execution) = self.active_queries.get_mut(&query_id) {
+                        execution.state = ExecutionState::Running; // Keep running to process pending
+                    }
+                }
+
                 result
             }
         } else {

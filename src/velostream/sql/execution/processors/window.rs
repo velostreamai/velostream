@@ -219,60 +219,50 @@ impl WindowProcessor {
                 WindowSpec::Session { .. } => buffer,
             };
 
-            // Phase 3: Call process_windowed_group_by_emission to compute all group results
-            match Self::process_windowed_group_by_emission(
+            // Phase 3/4: Compute ALL group results and queue for emission
+            let all_results = Self::compute_all_group_results(
                 cols,
                 &windowed_buffer,
                 query,
                 window_spec,
                 context,
-            ) {
-                Ok(Some(first_result)) => {
-                    debug!("FR-079 Phase 3: Got first group result, queuing additional results");
+            )?;
 
-                    // Get all group results for queuing
-                    let all_results = Self::compute_all_group_results(
-                        cols,
-                        &windowed_buffer,
-                        query,
-                        window_spec,
-                        context,
-                    )?;
-
-                    // Queue additional results count in metadata for Phase 4
-                    // Phase 4 will implement a result queue mechanism for proper multi-emission
-                    if all_results.len() > 1 {
-                        let remaining_count = all_results.len() - 1;
-                        context.set_metadata(
-                            &format!("fr079_pending_count_{}", query_id),
-                            &remaining_count.to_string(),
-                        );
-                        debug!(
-                            "FR-079 Phase 3: Recorded {} additional group results for queuing in Phase 4",
-                            remaining_count
-                        );
-                    }
-
-                    // Update window state after aggregation
-                    let window_state = context.get_or_create_window_state(query_id, window_spec);
-                    Self::update_window_state_direct(window_state, window_spec, event_time);
-                    Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
-
-                    Ok(Some(first_result))
-                }
-                Ok(None) => {
-                    debug!("FR-079 Phase 3: No group results from aggregation");
-                    // Update window state even if no results
-                    let window_state = context.get_or_create_window_state(query_id, window_spec);
-                    Self::update_window_state_direct(window_state, window_spec, event_time);
-                    Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
-                    Ok(None)
-                }
-                Err(e) => {
-                    debug!("FR-079 Phase 3: Error in group-by emission: {:?}", e);
-                    Err(e)
-                }
+            if all_results.is_empty() {
+                debug!("FR-079 Phase 3/4: No group results from aggregation");
+                // Update window state even if no results
+                let window_state = context.get_or_create_window_state(query_id, window_spec);
+                Self::update_window_state_direct(window_state, window_spec, event_time);
+                Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+                return Ok(None);
             }
+
+            debug!(
+                "FR-079 Phase 4: Computed {} group results for emission",
+                all_results.len()
+            );
+
+            // Phase 4: Queue additional results (2nd, 3rd, etc.) for emission in subsequent cycles
+            let mut result_iter = all_results.into_iter();
+            let first_result = result_iter
+                .next()
+                .expect("all_results is not empty, already checked");
+            let remaining_results: Vec<_> = result_iter.collect();
+
+            if !remaining_results.is_empty() {
+                context.queue_results(query_id, remaining_results.clone());
+                debug!(
+                    "FR-079 Phase 4: Queued {} additional group results for later emission",
+                    remaining_results.len()
+                );
+            }
+
+            // Update window state after aggregation
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+            Self::update_window_state_direct(window_state, window_spec, event_time);
+            Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+
+            Ok(Some(first_result))
         } else {
             // Original single-result path (non-GROUP BY + EMIT CHANGES queries)
             // Get window state reference - borrow will be released after cloning buffer

@@ -82,6 +82,12 @@ pub struct ProcessorContext {
     /// Current correlation context for correlated subqueries
     /// This replaces the global lazy_static state for thread safety
     pub correlation_context: Option<TableReference>,
+
+    // === FR-079 PHASE 4: RESULT QUEUE FOR MULTI-EMISSION ===
+    /// Queue for pending GROUP BY + EMIT CHANGES results
+    /// Maps query_id to Vec of StreamRecords waiting to be emitted
+    /// Used for windowed queries that produce multiple group results
+    pub pending_results: HashMap<String, Vec<StreamRecord>>,
 }
 
 /// Table reference with optional alias for SQL parsing and correlation
@@ -142,6 +148,7 @@ impl ProcessorContext {
             watermark_manager: None, // Disabled by default for backward compatibility
             state_tables: HashMap::new(),
             correlation_context: None,
+            pending_results: HashMap::new(), // FR-079 Phase 4: Initialize result queue
         }
     }
 
@@ -835,5 +842,110 @@ impl ProcessorContext {
     /// Removes all loaded tables, typically used during cleanup or context reset.
     pub fn clear_tables(&mut self) {
         self.state_tables.clear();
+    }
+
+    // === FR-079 PHASE 4: RESULT QUEUE MANAGEMENT ===
+
+    /// Queue a result for later emission (Phase 4)
+    ///
+    /// Used by windowed GROUP BY + EMIT CHANGES queries to queue additional group results
+    /// for emission in subsequent processing cycles.
+    ///
+    /// # Arguments
+    /// * `query_id` - The query identifier
+    /// * `result` - The StreamRecord result to queue
+    pub fn queue_result(&mut self, query_id: &str, result: StreamRecord) {
+        self.pending_results
+            .entry(query_id.to_string())
+            .or_insert_with(Vec::new)
+            .push(result);
+    }
+
+    /// Queue multiple results (Phase 4)
+    ///
+    /// Convenient method to queue multiple results at once.
+    ///
+    /// # Arguments
+    /// * `query_id` - The query identifier
+    /// * `results` - Vector of StreamRecord results to queue
+    pub fn queue_results(&mut self, query_id: &str, results: Vec<StreamRecord>) {
+        self.pending_results
+            .entry(query_id.to_string())
+            .or_insert_with(Vec::new)
+            .extend(results);
+    }
+
+    /// Dequeue a single result (Phase 4)
+    ///
+    /// Retrieves the next queued result for a specific query.
+    /// Returns None if no results are queued.
+    ///
+    /// # Arguments
+    /// * `query_id` - The query identifier
+    ///
+    /// # Returns
+    /// Some(StreamRecord) if a result is available, None otherwise
+    pub fn dequeue_result(&mut self, query_id: &str) -> Option<StreamRecord> {
+        self.pending_results
+            .get_mut(query_id)
+            .and_then(|queue| {
+                if queue.is_empty() {
+                    None
+                } else {
+                    Some(queue.remove(0))
+                }
+            })
+            .and_then(|result| {
+                // Clean up empty queues
+                if let Some(queue) = self.pending_results.get(query_id) {
+                    if queue.is_empty() {
+                        self.pending_results.remove(query_id);
+                    }
+                }
+                Some(result)
+            })
+    }
+
+    /// Check if there are pending results for a query (Phase 4)
+    ///
+    /// # Arguments
+    /// * `query_id` - The query identifier
+    ///
+    /// # Returns
+    /// true if there are queued results, false otherwise
+    pub fn has_pending_results(&self, query_id: &str) -> bool {
+        self.pending_results
+            .get(query_id)
+            .map(|queue| !queue.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Get count of pending results for a query (Phase 4)
+    ///
+    /// # Arguments
+    /// * `query_id` - The query identifier
+    ///
+    /// # Returns
+    /// Number of queued results waiting to be emitted
+    pub fn pending_result_count(&self, query_id: &str) -> usize {
+        self.pending_results
+            .get(query_id)
+            .map(|queue| queue.len())
+            .unwrap_or(0)
+    }
+
+    /// Clear all pending results for a query (Phase 4)
+    ///
+    /// # Arguments
+    /// * `query_id` - The query identifier
+    pub fn clear_pending_results(&mut self, query_id: &str) {
+        self.pending_results.remove(query_id);
+    }
+
+    /// Clear all pending results from all queries (Phase 4)
+    ///
+    /// Used during context cleanup or reset.
+    pub fn clear_all_pending_results(&mut self) {
+        self.pending_results.clear();
     }
 }
