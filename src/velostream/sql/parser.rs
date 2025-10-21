@@ -2780,17 +2780,63 @@ impl<'a> TokenParser<'a> {
             "SLIDING" => {
                 self.advance();
                 self.expect(TokenType::LeftParen)?;
-                let duration_str = self.parse_duration_token()?;
-                self.expect(TokenType::Comma)?;
-                let advance_str = self.parse_duration_token()?;
+
+                // Check if this is complex SLIDING syntax with time column
+                // Complex: SLIDING (time_column, size, advance)
+                // Simple: SLIDING(size, advance)
+                let time_column;
+                let size;
+                let advance;
+
+                // Peek ahead to see if we have a comma after the first parameter
+                let first_param = self.parse_session_parameter()?;
+
+                if self.current_token().token_type == TokenType::Comma {
+                    // Could be either:
+                    // 1. Complex: SLIDING (time_column, size, advance)
+                    // 2. Simple: SLIDING (size, advance) where first_param is size
+
+                    // Look ahead to determine which one
+                    // If there are exactly 2 commas, it's complex syntax
+                    // Save current position to tentatively assume complex
+                    let tentative_time_column = Some(first_param.clone());
+                    self.advance(); // consume comma
+
+                    let second_param = self.parse_session_parameter()?;
+
+                    if self.current_token().token_type == TokenType::Comma {
+                        // Complex syntax confirmed: SLIDING (time_column, size, advance)
+                        time_column = tentative_time_column;
+                        let size_str = second_param;
+                        self.advance(); // consume comma
+
+                        let advance_str = self.parse_duration_token()?;
+
+                        size = self.parse_duration(&size_str)?;
+                        advance = self.parse_duration(&advance_str)?;
+                    } else {
+                        // Simple syntax: SLIDING (size, advance)
+                        time_column = None;
+                        let size_str = first_param;
+                        let advance_str = second_param;
+
+                        size = self.parse_duration(&size_str)?;
+                        advance = self.parse_duration(&advance_str)?;
+                    }
+                } else {
+                    // This shouldn't happen in valid SLIDING syntax, but handle it
+                    return Err(SqlError::ParseError {
+                        message: "SLIDING window requires at least two parameters (size, advance) or three parameters (time_column, size, advance)".to_string(),
+                        position: None,
+                    });
+                }
+
                 self.expect(TokenType::RightParen)?;
 
-                let size = self.parse_duration(&duration_str)?;
-                let advance = self.parse_duration(&advance_str)?;
                 WindowSpec::Sliding {
                     size,
                     advance,
-                    time_column: None,
+                    time_column,
                 }
             }
             "SESSION" => {

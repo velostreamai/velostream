@@ -11,7 +11,7 @@ use crate::velostream::server::processors::observability_utils::{
     calculate_throughput, with_observability_try_lock,
 };
 use crate::velostream::sql::execution::StreamRecord;
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::time::Instant;
 
 /// Helper for recording batch processing observability data
@@ -45,12 +45,12 @@ impl ObservabilityHelper {
                     let upstream_context = batch_records.first().and_then(|record| {
                         let ctx = trace_propagation::extract_trace_context(&record.headers);
                         if ctx.is_some() {
-                            info!(
+                            debug!(
                                 "Job '{}': 🔗 Extracted upstream trace context from Kafka headers",
                                 job_name
                             );
                         } else {
-                            info!(
+                            debug!(
                                 "Job '{}': 🆕 No upstream trace context - starting new trace",
                                 job_name
                             );
@@ -86,7 +86,7 @@ impl ObservabilityHelper {
         if let Some(span) = batch_span {
             if let Some(span_ctx) = span.span_context() {
                 if span_ctx.is_valid() {
-                    info!(
+                    debug!(
                         "Job '{}': 📤 Injecting trace context into {} output records",
                         job_name,
                         output_records.len()
@@ -123,7 +123,7 @@ impl ObservabilityHelper {
         metadata: Option<(&str, i32, i64)>, // (topic, partition, offset)
     ) {
         if let Some(obs) = observability {
-            info!(
+            debug!(
                 "Job '{}': Recording deserialization metrics (batch_size={}, duration={}ms)",
                 job_name, record_count, duration_ms
             );
@@ -146,7 +146,7 @@ impl ObservabilityHelper {
                     }
 
                     span.set_success();
-                    info!(
+                    debug!(
                         "Job '{}': Telemetry span recorded for deserialization",
                         job_name
                     );
@@ -173,7 +173,7 @@ impl ObservabilityHelper {
                         throughput,
                     );
 
-                    info!(
+                    debug!(
                         "Job '{}': Metrics recorded for deserialization (throughput={:.2} rec/s)",
                         job_name, throughput
                     );
@@ -385,7 +385,7 @@ impl ObservabilityHelper {
                     // Phase 2.4: Job-specific throughput gauge
                     metrics.record_throughput_by_job(job_name, throughput_rps);
 
-                    info!(
+                    debug!(
                         "Job '{}': Batch throughput recorded: {:.2} rec/s",
                         job_name, throughput_rps
                     );

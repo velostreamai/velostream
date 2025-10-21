@@ -20,7 +20,7 @@ pub mod subquery_executor;
 pub mod window_functions;
 
 // Re-export the main API
-pub use evaluator::ExpressionEvaluator;
+pub use evaluator::{ExpressionEvaluator, SelectAliasContext};
 pub use function_metadata::{FunctionCategory, SqlFunctionDef};
 pub use subquery_executor::SubqueryExecutor;
 pub use window_functions::WindowFunctions;

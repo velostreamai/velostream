@@ -1,6 +1,9 @@
 // Integration Tests - Require running Kafka
 // These tests interact with actual Kafka instances and may be slow
 
+// Alias reuse integration tests - FR-078
+pub mod alias_reuse_trading_integration_test;
+
 // Basic integration tests
 pub mod builder_pattern_test;
 pub mod emit_functionality_test;

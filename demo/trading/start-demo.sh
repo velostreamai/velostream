@@ -283,6 +283,14 @@ REQUIRED_TOPICS=(
     "in_market_data_stream_b:12"
     "in_trading_positions_stream:8"
     "in_order_book_stream:12"
+    "price_movement_debug:1"
+    "tick_buckets:1"
+    "advanced_price_movement_alerts:1"
+    "volume_spike_analysis:1"
+    "trading_positions_with_event_time:1"
+    "comprehensive_risk_monitor:1"
+    "order_flow_imbalance_detection:1"
+    "arbitrage_opportunities_detection:1"
 )
 
 for topic_spec in "${REQUIRED_TOPICS[@]}"; do

@@ -275,28 +275,81 @@ impl WindowFunctions {
         Ok(key)
     }
 
-    /// Calculate window frame bounds
+    /// Calculate window frame bounds based on WindowFrame specification
+    /// Returns (start_offset, end_offset) relative to current_position
+    /// where negative offsets mean rows before current, positive mean rows after
     fn calculate_frame_bounds(
         window_frame: &Option<WindowFrame>,
         current_position: usize,
         partition_bounds: &Option<(usize, usize)>,
         buffer: &[StreamRecord],
     ) -> Result<Option<(i64, i64)>, SqlError> {
-        let _frame = match window_frame {
-            Some(frame) => frame,
+        let frame = match window_frame {
+            Some(f) => f,
             None => {
                 // Default frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
                 return Ok(Some((-(current_position as i64), 0)));
             }
         };
 
-        // For now, use simplified frame calculation
-        // In a complete implementation, this would handle ROWS/RANGE and various frame bounds
-        let (start, end) = partition_bounds.unwrap_or((0, buffer.len()));
-        let frame_start = start as i64 - current_position as i64;
-        let frame_end = end as i64 - current_position as i64 - 1;
+        let (partition_start, partition_end) = partition_bounds.unwrap_or((0, buffer.len()));
 
-        Ok(Some((frame_start, frame_end)))
+        // Calculate frame bounds based on frame type and bounds
+        use crate::velostream::sql::ast::{FrameBound, FrameType};
+
+        let start_bound = &frame.start_bound;
+        let end_bound = &frame.end_bound.as_ref().unwrap_or(&FrameBound::CurrentRow);
+
+        // Calculate start offset
+        let start_offset = match (&frame.frame_type, start_bound) {
+            // UNBOUNDED PRECEDING = all rows from start of partition
+            (_, FrameBound::UnboundedPreceding) => {
+                -(current_position as i64 - partition_start as i64)
+            }
+            // CURRENT ROW = current row only
+            (_, FrameBound::CurrentRow) => 0,
+            // N PRECEDING = N rows before current
+            (FrameType::Rows, FrameBound::Preceding(n)) => -(*n as i64),
+            // N FOLLOWING = N rows after current
+            (FrameType::Rows, FrameBound::Following(n)) => *n as i64,
+            // For RANGE type, we treat PRECEDING/FOLLOWING similarly to ROWS
+            // (In a full implementation, you'd need to look at ORDER BY values for true RANGE semantics)
+            (FrameType::Range, FrameBound::Preceding(n)) => -(*n as i64),
+            (FrameType::Range, FrameBound::Following(n)) => *n as i64,
+            (_, FrameBound::UnboundedFollowing) => {
+                (partition_end as i64 - current_position as i64 - 1)
+            }
+            _ => {
+                // Default to CURRENT ROW if unknown
+                0
+            }
+        };
+
+        // Calculate end offset
+        let end_offset = match (&frame.frame_type, end_bound) {
+            // UNBOUNDED FOLLOWING = all rows to end of partition
+            (_, FrameBound::UnboundedFollowing) => {
+                (partition_end as i64 - current_position as i64 - 1)
+            }
+            // CURRENT ROW = current row only
+            (_, FrameBound::CurrentRow) => 0,
+            // N PRECEDING = N rows before current
+            (FrameType::Rows, FrameBound::Preceding(n)) => -(*n as i64),
+            // N FOLLOWING = N rows after current
+            (FrameType::Rows, FrameBound::Following(n)) => *n as i64,
+            // For RANGE type, similar to ROWS
+            (FrameType::Range, FrameBound::Preceding(n)) => -(*n as i64),
+            (FrameType::Range, FrameBound::Following(n)) => *n as i64,
+            (_, FrameBound::UnboundedPreceding) => {
+                -(current_position as i64 - partition_start as i64)
+            }
+            _ => {
+                // Default to CURRENT ROW if unknown
+                0
+            }
+        };
+
+        Ok(Some((start_offset, end_offset)))
     }
 
     /// Enhanced LAG function with proper window context
@@ -782,10 +835,21 @@ impl WindowFunctions {
             });
         }
 
-        // Get the frame bounds or use partition bounds
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         // Calculate average over the window frame
         let mut sum = 0.0;
@@ -832,9 +896,21 @@ impl WindowFunctions {
             });
         }
 
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         let mut sum = 0.0;
 
@@ -948,9 +1024,21 @@ impl WindowFunctions {
         args: &[Expr],
         window_context: &WindowContext,
     ) -> Result<FieldValue, SqlError> {
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         if args.is_empty()
             || (args.len() == 1
@@ -1003,10 +1091,21 @@ impl WindowFunctions {
             });
         }
 
-        // Get the frame bounds or use partition bounds
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         // Collect values and calculate mean
         let mut values = Vec::new();
@@ -1054,9 +1153,21 @@ impl WindowFunctions {
             });
         }
 
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         // Collect values and calculate mean
         let mut values = Vec::new();
@@ -1102,9 +1213,21 @@ impl WindowFunctions {
             });
         }
 
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         // Collect values and calculate mean
         let mut values = Vec::new();
@@ -1151,9 +1274,21 @@ impl WindowFunctions {
             });
         }
 
-        let (start_idx, end_idx) = window_context
-            .partition_bounds
-            .unwrap_or((0, window_context.buffer.len()));
+        // Calculate actual frame indices using frame bounds
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()))
+            };
 
         // Collect values and calculate mean
         let mut values = Vec::new();

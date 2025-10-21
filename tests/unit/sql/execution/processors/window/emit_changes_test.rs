@@ -91,6 +91,34 @@ async fn test_emit_changes_with_tumbling_window() {
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
 }
 
+/// Test EMIT CHANGES with tumbling windows
+#[tokio::test]
+async fn test_emit_changes_with_tumbling_window_same_window() {
+    let sql = r#"
+        SELECT
+            status,
+            SUM(amount) as total_amount,
+            COUNT(*) as order_count
+        FROM orders
+        WINDOW TUMBLING(1m)
+        GROUP BY status
+        EMIT CHANGES
+    "#;
+
+    let records = vec![
+        TestDataBuilder::order_record(1, 100, 100.0, "pending", 10), // Window 1
+        TestDataBuilder::order_record(2, 101, 200.0, "pending", 20), // Window 1
+        TestDataBuilder::order_record(3, 102, 150.0, "completed", 30), // Window 1
+        TestDataBuilder::order_record(4, 103, 300.0, "pending", 40), // Window 1
+        TestDataBuilder::order_record(5, 104, 250.0, "completed", 50), // Window 1
+    ];
+
+    let results = SqlExecutor::execute_query(sql, records).await;
+
+    WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES with Tumbling Window");
+    WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
+}
+
 /// Test EMIT CHANGES with sliding windows - complex scenario
 #[tokio::test]
 async fn test_emit_changes_with_sliding_window() {
