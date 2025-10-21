@@ -92,6 +92,8 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
         watermark_manager: None,
         correlation_context: None,
+        // === FR-079 PHASE 4: RESULT QUEUE FOR MULTI-EMISSION ===
+        pending_results: HashMap::new(),
     }
 }
 
@@ -438,6 +440,8 @@ async fn test_show_streams_empty_context() {
         // === PHASE 1B: TIME SEMANTICS & WATERMARKS ===
         watermark_manager: None,
         correlation_context: None,
+        // === FR-079 PHASE 4: RESULT QUEUE FOR MULTI-EMISSION ===
+        pending_results: HashMap::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);
