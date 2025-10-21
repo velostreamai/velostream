@@ -1,10 +1,63 @@
 # FR-079: Windowed EMIT CHANGES Implementation Plan
 
 **Feature**: EMIT CHANGES with GROUP BY for Windowed Queries
-**Status**: Planning Phase
+**Status**: Phase 1 Complete, Phase 2-4 Pending
 **Estimated Total Effort**: 12-17 hours
 **Priority**: High (Streaming Core Feature)
 **Difficulty**: Medium
+
+---
+
+## 🚀 Progress Tracking
+
+### Phase 1: GROUP BY Detection ✅ COMPLETE
+**Status**: Complete (2025-10-21)
+**Commits**: `04f29be` - Implement FR-079 Phase 1
+
+**Deliverables**:
+- ✅ `get_group_by_columns()` helper function (window.rs:510-524)
+- ✅ `is_emit_changes()` helper function (window.rs:526-543)
+- ✅ Enhanced `process_window_emission_state()` routing (window.rs:179-193)
+- ✅ 12 comprehensive detection tests (fr079_phase1_detection_test.rs)
+- ✅ Clean compilation (cargo check passed)
+- ✅ Routing detection logic in place for Phase 2
+
+**Time Spent**: ~45 minutes
+**Next Phase**: Phase 2 (Group Splitting & Aggregation)
+
+### Phase 2: Group Splitting & Aggregation ⏳ PENDING
+**Estimated Time**: 5-6 hours
+**Status**: Awaiting implementation
+**Prerequisites**: Phase 1 complete ✅
+
+**Tasks**:
+- [ ] Implement `extract_group_key()` helper
+- [ ] Implement `split_buffer_by_groups()` function
+- [ ] Implement `compute_group_aggregate()` for per-group aggregation
+- [ ] Update window state management for groups
+- [ ] Write Phase 2 tests
+
+### Phase 3: Engine Integration ⏳ PENDING
+**Estimated Time**: 2-3 hours
+**Status**: Awaiting implementation
+**Prerequisites**: Phase 2 complete
+
+**Tasks**:
+- [ ] Change `process_window_emission_state()` return type to `Vec<StreamRecord>`
+- [ ] Update engine execution flow
+- [ ] Update emission loop for multiple results
+- [ ] Integration testing
+
+### Phase 4: Testing & Validation ⏳ PENDING
+**Estimated Time**: 2-3 hours
+**Status**: Awaiting implementation
+**Prerequisites**: Phase 3 complete
+
+**Tasks**:
+- [ ] Enable 30+ failing tests
+- [ ] Regression testing
+- [ ] Performance validation
+- [ ] Documentation updates
 
 ---
 
