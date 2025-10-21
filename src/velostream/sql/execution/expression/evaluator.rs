@@ -1711,8 +1711,67 @@ impl ExpressionEvaluator {
                                 }
                                 _ => Self::evaluate_expression_value(expr, record),
                             },
-                            // For comparison operators, delegate to original implementation
-                            _ => Self::evaluate_expression_value(expr, record),
+                            // For comparison operators, construct the result
+                            BinaryOperator::Equal => Ok(FieldValue::Boolean(Self::values_equal(
+                                &left_val, &right_val,
+                            ))),
+                            BinaryOperator::NotEqual => Ok(FieldValue::Boolean(
+                                !Self::values_equal(&left_val, &right_val),
+                            )),
+                            BinaryOperator::LessThan => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp < 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::LessThanOrEqual => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp <= 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::GreaterThan => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp > 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::GreaterThanOrEqual => {
+                                Self::compare_values(&left_val, &right_val, |cmp| cmp >= 0)
+                                    .map(FieldValue::Boolean)
+                            }
+                            BinaryOperator::And => Ok(FieldValue::Boolean(
+                                Self::field_value_to_bool(&left_val)?
+                                    && Self::field_value_to_bool(&right_val)?,
+                            )),
+                            BinaryOperator::Or => Ok(FieldValue::Boolean(
+                                Self::field_value_to_bool(&left_val)?
+                                    || Self::field_value_to_bool(&right_val)?,
+                            )),
+                            BinaryOperator::Like => match (&left_val, &right_val) {
+                                (FieldValue::String(text), FieldValue::String(pattern)) => {
+                                    Ok(FieldValue::Boolean(Self::match_pattern(text, pattern)))
+                                }
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Boolean(false))
+                                }
+                                _ => Err(SqlError::TypeError {
+                                    expected: "string".to_string(),
+                                    actual: "non-string".to_string(),
+                                    value: None,
+                                }),
+                            },
+                            BinaryOperator::NotLike => match (&left_val, &right_val) {
+                                (FieldValue::String(text), FieldValue::String(pattern)) => {
+                                    Ok(FieldValue::Boolean(!Self::match_pattern(text, pattern)))
+                                }
+                                (FieldValue::Null, _) | (_, FieldValue::Null) => {
+                                    Ok(FieldValue::Boolean(false))
+                                }
+                                _ => Err(SqlError::TypeError {
+                                    expected: "string".to_string(),
+                                    actual: "non-string".to_string(),
+                                    value: None,
+                                }),
+                            },
+                            _ => Err(SqlError::ExecutionError {
+                                message: format!("Unsupported binary operator: {:?}", op),
+                                query: None,
+                            }),
                         }
                     }
                 }

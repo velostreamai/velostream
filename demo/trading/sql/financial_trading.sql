@@ -233,6 +233,9 @@ SELECT
 
     _window_start AS window_start,
     _window_end AS window_end,
+
+    NOW() AS debug_timestamp
+
 FROM market_data_ts
 GROUP BY symbol
 WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
