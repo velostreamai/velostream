@@ -100,8 +100,8 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
             SUM(amount) as total_amount,
             COUNT(*) as order_count
         FROM orders
-        WINDOW TUMBLING(1m)
         GROUP BY status
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 

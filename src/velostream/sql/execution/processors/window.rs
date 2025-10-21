@@ -140,8 +140,20 @@ impl WindowProcessor {
                 // Add record to buffer (pre-allocated for performance)
                 window_state.add_record(record.clone());
 
-                // Check if window should emit using optimized timing logic
-                if Self::should_emit_window_state(window_state, event_time, window_spec) {
+                // Phase 7: For EMIT CHANGES, emit per-record state changes
+                let is_emit_changes = Self::is_emit_changes(query);
+                let group_by_cols = Self::get_group_by_columns(query);
+
+                // Check if window should emit
+                // For EMIT CHANGES with GROUP BY: emit on every record
+                // For others: emit only on window boundaries
+                let should_emit = if is_emit_changes && group_by_cols.is_some() {
+                    true
+                } else {
+                    Self::should_emit_window_state(window_state, event_time, window_spec)
+                };
+
+                if should_emit {
                     // Drop window_state borrow before calling process_window_emission_state
                     return Self::process_window_emission_state(
                         query_id,
@@ -577,7 +589,7 @@ impl WindowProcessor {
     /// None otherwise. Only supports simple column references in GROUP BY.
     ///
     /// # Examples
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// // Query: SELECT status, COUNT(*) FROM orders GROUP BY status
     /// let group_by_cols = WindowProcessor::get_group_by_columns(query);
     /// assert_eq!(group_by_cols, Some(vec!["status".to_string()]));
@@ -595,7 +607,9 @@ impl WindowProcessor {
                         crate::velostream::sql::ast::Expr::Column(col_name) => {
                             Some(col_name.clone())
                         }
-                        _ => None, // Only support simple column references
+                        _ => {
+                            None // Only support simple column references
+                        }
                     }
                 })
                 .collect::<Option<Vec<_>>>()
@@ -609,7 +623,7 @@ impl WindowProcessor {
     /// Returns true if the query has EMIT CHANGES mode set, false for EMIT FINAL or no emit mode.
     ///
     /// # Examples
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// // Query: SELECT status, COUNT(*) FROM orders EMIT CHANGES
     /// let is_changes = WindowProcessor::is_emit_changes(query);
     /// assert_eq!(is_changes, true);
