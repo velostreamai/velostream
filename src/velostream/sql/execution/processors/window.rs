@@ -176,6 +176,22 @@ impl WindowProcessor {
         event_time: i64,
         context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
+        // Phase 1: GROUP BY Detection for EMIT CHANGES + Window combination
+        // Check if this is a GROUP BY + EMIT CHANGES windowed query
+        let group_by_cols = Self::get_group_by_columns(query);
+        let is_emit_changes = Self::is_emit_changes(query);
+
+        if group_by_cols.is_some() && is_emit_changes {
+            // TODO: Phase 2/3 implementation
+            // For now, log the detection (will be replaced with actual GROUP BY handling)
+            debug!(
+                "Detected GROUP BY + EMIT CHANGES windowed query ({}): GROUP BY columns detected",
+                query_id
+            );
+            // Continue with existing single-result path for Phase 1
+            // Phase 2 will implement process_windowed_group_by_emission()
+        }
+
         // Get window state reference - borrow will be released after cloning buffer
         let window_state = context.get_or_create_window_state(query_id, window_spec);
         let last_emit_time = window_state.last_emit;
@@ -477,6 +493,51 @@ impl WindowProcessor {
                 // For now, emit after we have at least one record to enable basic functionality
                 !window_state.buffer.is_empty()
             }
+        }
+    }
+
+    /// Extract GROUP BY columns from query (Phase 1: GROUP BY Detection)
+    ///
+    /// Returns Some(Vec<String>) with the GROUP BY column names if GROUP BY exists,
+    /// None otherwise. Only supports simple column references in GROUP BY.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // Query: SELECT status, COUNT(*) FROM orders GROUP BY status
+    /// let group_by_cols = WindowProcessor::get_group_by_columns(query);
+    /// assert_eq!(group_by_cols, Some(vec!["status".to_string()]));
+    /// ```
+    pub fn get_group_by_columns(query: &StreamingQuery) -> Option<Vec<String>> {
+        if let StreamingQuery::Select { group_by: Some(exprs), .. } = query {
+            exprs
+                .iter()
+                .map(|expr| {
+                    match expr {
+                        crate::velostream::sql::ast::Expr::Column(col_name) => Some(col_name.clone()),
+                        _ => None, // Only support simple column references
+                    }
+                })
+                .collect::<Option<Vec<_>>>()
+        } else {
+            None
+        }
+    }
+
+    /// Check if query uses EMIT CHANGES mode (Phase 1: GROUP BY Detection)
+    ///
+    /// Returns true if the query has EMIT CHANGES mode set, false for EMIT FINAL or no emit mode.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // Query: SELECT status, COUNT(*) FROM orders EMIT CHANGES
+    /// let is_changes = WindowProcessor::is_emit_changes(query);
+    /// assert_eq!(is_changes, true);
+    /// ```
+    pub fn is_emit_changes(query: &StreamingQuery) -> bool {
+        if let StreamingQuery::Select { emit_mode, .. } = query {
+            matches!(emit_mode, Some(crate::velostream::sql::ast::EmitMode::Changes))
+        } else {
+            false
         }
     }
 
