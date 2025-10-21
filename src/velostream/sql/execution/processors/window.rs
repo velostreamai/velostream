@@ -163,7 +163,6 @@ impl WindowProcessor {
                         context,
                     );
                 }
-
                 // No emission this cycle - state is automatically marked dirty by context
                 Ok(None)
             } else {
@@ -245,7 +244,8 @@ impl WindowProcessor {
                 // Update window state even if no results
                 let window_state = context.get_or_create_window_state(query_id, window_spec);
                 Self::update_window_state_direct(window_state, window_spec, event_time);
-                Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+                // FR-079 Phase 7 FIX: Don't cleanup for EMIT CHANGES
+                // We need to keep the buffer intact to re-emit state changes on every record
                 return Ok(None);
             }
 
@@ -272,7 +272,10 @@ impl WindowProcessor {
             // Update window state after aggregation
             let window_state = context.get_or_create_window_state(query_id, window_spec);
             Self::update_window_state_direct(window_state, window_spec, event_time);
-            Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+
+            // FR-079 Phase 7 FIX: Don't cleanup buffer for EMIT CHANGES
+            // We need to re-emit state changes on every record, so we keep the buffer intact
+            // Only cleanup when window boundary is reached (handled elsewhere for standard windows)
 
             Ok(Some(first_result))
         } else {
