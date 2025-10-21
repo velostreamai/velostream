@@ -595,7 +595,10 @@ impl StreamExecutionEngine {
 
                 // Store pending results for later emission outside context block
                 if !pending_results.is_empty() {
-                    log::debug!("FR-079 Phase 6: Dequeued {} pending results for emission", pending_results.len());
+                    log::debug!(
+                        "FR-079 Phase 6: Dequeued {} pending results for emission",
+                        pending_results.len()
+                    );
                 }
 
                 (result, pending_results)
