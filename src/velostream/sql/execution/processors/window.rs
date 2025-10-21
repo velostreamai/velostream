@@ -541,6 +541,196 @@ impl WindowProcessor {
         }
     }
 
+    /// Extract GROUP BY key from a record (Phase 2: Group Splitting)
+    ///
+    /// Extracts the values of GROUP BY columns from a record to form a group key.
+    /// Returns a Vec<FieldValue> representing the group key for matching.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // For query: SELECT status, COUNT(*) FROM orders GROUP BY status
+    /// // Record: {id: 1, status: "pending", amount: 100}
+    /// // Result: vec![FieldValue::String("pending")]
+    /// ```
+    fn extract_group_key(record: &StreamRecord, group_by_cols: &[String]) -> Vec<FieldValue> {
+        group_by_cols
+            .iter()
+            .map(|col_name| {
+                record
+                    .fields
+                    .get(col_name)
+                    .cloned()
+                    .unwrap_or(FieldValue::String("NULL".to_string()))
+            })
+            .collect()
+    }
+
+    /// Split window buffer into groups by GROUP BY columns (Phase 2: Group Splitting)
+    ///
+    /// Partitions records by their GROUP BY key values, similar to Flink's keyBy() operation.
+    /// Uses string representation of keys since FieldValue doesn't implement Eq+Hash.
+    /// Returns a HashMap where keys are string representations and values are vectors of records in that group.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // Input: 5 records (3 "pending", 2 "completed")
+    /// // Output: HashMap with 2 entries:
+    /// //   "pending" → [rec1, rec2, rec4]
+    /// //   "completed" → [rec3, rec5]
+    /// ```
+    fn split_buffer_by_groups(
+        records: &[StreamRecord],
+        group_by_cols: &[String],
+    ) -> HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)> {
+        let mut groups: HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)> = HashMap::new();
+
+        for record in records {
+            let group_key = Self::extract_group_key(record, group_by_cols);
+            // Use debug representation as HashMap key (safe because FieldValue is Eq semantically)
+            let key_str = format!("{:?}", group_key);
+            groups
+                .entry(key_str)
+                .or_insert_with(|| (group_key.clone(), Vec::new()))
+                .1
+                .push(record.clone());
+        }
+
+        groups
+    }
+
+    /// Compute aggregation result for a single GROUP BY group (Phase 2: Per-Group Aggregation)
+    ///
+    /// Applies the same aggregation logic as execute_windowed_aggregation_impl but for a single group.
+    /// Includes the GROUP BY column values in the result.
+    ///
+    /// # Parameters
+    /// - `group_key`: Vec of FieldValues representing the GROUP BY key
+    /// - `group_records`: Records belonging to this group
+    /// - `query`: The streaming query with SELECT/WHERE/HAVING expressions
+    /// - `window_spec`: Window specification for boundaries
+    /// - `context`: Processor context for EXISTS subquery support
+    ///
+    /// # Returns
+    /// A StreamRecord with aggregated values for this group, or SqlError if computation fails
+    fn compute_group_aggregate(
+        group_key: &[FieldValue],
+        group_records: &[StreamRecord],
+        query: &StreamingQuery,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+        group_by_cols: &[String],
+    ) -> Result<StreamRecord, SqlError> {
+        // Execute aggregation on this group using the existing logic
+        // This reuses execute_windowed_aggregation_impl but we need to call it carefully
+        let mut result = Self::execute_windowed_aggregation_impl(query, group_records, 0, 0, context)?;
+
+        // Prepend GROUP BY columns to the result (at the beginning)
+        // This ensures GROUP BY columns appear first in result
+        let mut group_by_fields: HashMap<String, FieldValue> = HashMap::new();
+        for (i, col_name) in group_by_cols.iter().enumerate() {
+            if let Some(key_val) = group_key.get(i) {
+                group_by_fields.insert(col_name.clone(), key_val.clone());
+            }
+        }
+
+        // Merge GROUP BY fields with aggregation results
+        // GROUP BY fields take precedence (appear first)
+        let mut final_fields = group_by_fields;
+        for (key, value) in result.fields {
+            // Don't override GROUP BY columns
+            if !final_fields.contains_key(&key) {
+                final_fields.insert(key, value);
+            }
+        }
+
+        result.fields = final_fields;
+        Ok(result)
+    }
+
+    /// Process windowed GROUP BY query with EMIT CHANGES (Phase 2: Main Orchestration)
+    ///
+    /// This function implements the complete GROUP BY + EMIT CHANGES flow:
+    /// 1. Split buffer into groups by GROUP BY columns
+    /// 2. Compute per-group aggregations
+    /// 3. Return first result (caller will queue additional results in context for Phase 3)
+    ///
+    /// # Returns
+    /// Returns the first group's result, or None if no groups exist.
+    /// Additional group results should be queued for emission in Phase 3.
+    fn process_windowed_group_by_emission(
+        group_by_cols: &[String],
+        buffer: &[StreamRecord],
+        query: &StreamingQuery,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        debug!(
+            "FR-079 Phase 2: process_windowed_group_by_emission called with {} records, {} GROUP BY columns",
+            buffer.len(),
+            group_by_cols.len()
+        );
+
+        if buffer.is_empty() {
+            debug!("FR-079 Phase 2: Empty buffer, no groups to process");
+            return Ok(None);
+        }
+
+        // Step 1: Split buffer into groups
+        let groups = Self::split_buffer_by_groups(buffer, group_by_cols);
+        debug!(
+            "FR-079 Phase 2: Split buffer into {} distinct groups",
+            groups.len()
+        );
+
+        if groups.is_empty() {
+            return Ok(None);
+        }
+
+        // Step 2: Compute aggregations for each group
+        let mut results = Vec::new();
+        for (_key_str, (group_key, group_records)) in groups.iter() {
+            debug!(
+                "FR-079 Phase 2: Computing aggregate for group {:?} with {} records",
+                group_key,
+                group_records.len()
+            );
+
+            match Self::compute_group_aggregate(
+                group_key,
+                group_records,
+                query,
+                window_spec,
+                context,
+                group_by_cols,
+            ) {
+                Ok(result) => {
+                    debug!("FR-079 Phase 2: Successfully computed aggregate for group {:?}", group_key);
+                    results.push(result);
+                }
+                Err(e) => {
+                    debug!("FR-079 Phase 2: Error computing aggregate for group {:?}: {:?}", group_key, e);
+                    // Continue to next group on error (may be HAVING clause filtering)
+                    continue;
+                }
+            }
+        }
+
+        // Step 3: Return first result (Phase 3 will handle multi-result emission)
+        // For now, return the first result to maintain backward compatibility
+        // Phase 3 will implement Vec<StreamRecord> return type for all results
+        if !results.is_empty() {
+            debug!(
+                "FR-079 Phase 2: Returning first of {} group results",
+                results.len()
+            );
+            // TODO: Phase 3 will queue remaining results in context for emission
+            Ok(Some(results.into_iter().next().unwrap()))
+        } else {
+            debug!("FR-079 Phase 2: No valid results after aggregation");
+            Ok(None)
+        }
+    }
+
     /// Execute windowed aggregation implementation using logic from legacy method
     fn execute_windowed_aggregation_impl(
         query: &StreamingQuery,
