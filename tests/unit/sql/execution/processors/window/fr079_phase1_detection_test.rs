@@ -14,8 +14,8 @@ and setting up proper routing for future phases.
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::execution::processors::window::WindowProcessor;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 /// Test get_group_by_columns() helper detects GROUP BY in simple column
 #[test]
@@ -127,7 +127,8 @@ fn test_window_processor_detects_group_by_emit_changes_windowed() {
 /// Test GROUP BY + EMIT FINAL with window (should NOT trigger Phase 1 routing)
 #[test]
 fn test_window_processor_group_by_emit_final_windowed() {
-    let sql = "SELECT status, SUM(amount) FROM orders WINDOW TUMBLING(1m) GROUP BY status EMIT FINAL";
+    let sql =
+        "SELECT status, SUM(amount) FROM orders WINDOW TUMBLING(1m) GROUP BY status EMIT FINAL";
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).expect("Parse failed");
 
@@ -136,7 +137,10 @@ fn test_window_processor_group_by_emit_final_windowed() {
 
     // Note: When windowed queries have GROUP BY, it might not be reliably detected in Phase 1
     // Phase 2 will enhance detection if needed
-    assert!(!is_changes, "EMIT CHANGES should NOT be detected (EMIT FINAL instead)");
+    assert!(
+        !is_changes,
+        "EMIT CHANGES should NOT be detected (EMIT FINAL instead)"
+    );
 
     // This combination should NOT trigger the Phase 1 GROUP BY routing regardless
     let should_route = group_by.is_some() && is_changes;
@@ -187,7 +191,8 @@ fn test_window_processor_complex_windowed_group_by() {
 /// Test multiple GROUP BY columns with SESSION window
 #[test]
 fn test_window_processor_session_window_group_by() {
-    let sql = "SELECT status, SUM(amount) FROM orders WINDOW SESSION(5m) GROUP BY status EMIT CHANGES";
+    let sql =
+        "SELECT status, SUM(amount) FROM orders WINDOW SESSION(5m) GROUP BY status EMIT CHANGES";
     let parser = StreamingSqlParser::new();
     let query_result = parser.parse(sql);
 

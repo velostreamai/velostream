@@ -252,7 +252,7 @@ For EMIT CHANGES + WINDOW + GROUP BY, need:
 3. Mark failing test as expected to fail with clear comment
 
 ### Medium Term
-1. Implement windowed EMIT CHANGES per `emit-changes-window-group-by-ANALYSIS.md`
+1. Implement windowed EMIT CHANGES per `FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md`
 2. Fix window processor to support per-group aggregation
 3. Enable currently-failing tests
 
@@ -278,5 +278,5 @@ For EMIT CHANGES + WINDOW + GROUP BY, need:
 - ✅ `tests/unit/sql/execution/processors/window/emit_changes_test.rs:96-120` - Failing test
 
 **Analysis**:
-- ✅ `/docs/feature/emit-changes-window-group-by-ANALYSIS.md` - This session's root cause analysis
+- ✅ `/docs/feature/FR-079-EMIT-CHANGES-WINDOW-GROUP-BY-ANALYSIS.md` - This session's root cause analysis
 

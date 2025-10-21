@@ -181,111 +181,196 @@ impl WindowProcessor {
         let group_by_cols = Self::get_group_by_columns(query);
         let is_emit_changes = Self::is_emit_changes(query);
 
-        if group_by_cols.is_some() && is_emit_changes {
-            // TODO: Phase 2/3 implementation
-            // For now, log the detection (will be replaced with actual GROUP BY handling)
+        // Phase 3: ENGINE INTEGRATION - Activate GROUP BY routing
+        if let (Some(ref cols), true) = (&group_by_cols, is_emit_changes) {
             debug!(
-                "Detected GROUP BY + EMIT CHANGES windowed query ({}): GROUP BY columns detected",
+                "FR-079 Phase 3: Activating GROUP BY + EMIT CHANGES windowed query routing for query: {}",
                 query_id
             );
-            // Continue with existing single-result path for Phase 1
-            // Phase 2 will implement process_windowed_group_by_emission()
-        }
 
-        // Get window state reference - borrow will be released after cloning buffer
-        let window_state = context.get_or_create_window_state(query_id, window_spec);
-        let last_emit_time = window_state.last_emit;
-        let buffer = window_state.buffer.clone();
-        // window_state borrow ends here
+            // Get window state reference - borrow will be released after cloning buffer
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+            let last_emit_time = window_state.last_emit;
+            let buffer = window_state.buffer.clone();
+            // window_state borrow ends here
 
-        // Calculate window boundaries for metadata
-        let (window_start, window_end) = match window_spec {
-            WindowSpec::Tumbling { size, .. } => {
-                let window_size_ms = size.as_millis() as i64;
-                let start = if last_emit_time == 0 {
-                    0 // First window: 0 to window_size_ms
-                } else {
-                    last_emit_time
-                };
-                let end = start + window_size_ms;
-                (start, end)
-            }
-            WindowSpec::Sliding { size, advance, .. } => {
-                let window_size_ms = size.as_millis() as i64;
-                let advance_ms = advance.as_millis() as i64;
-                let start = last_emit_time;
-                let end = start + window_size_ms;
-                (start, end)
-            }
-            WindowSpec::Session { gap, .. } => {
-                // For session windows, use the first and last record times
-                if buffer.is_empty() {
-                    (event_time, event_time)
-                } else {
-                    let first_time =
-                        Self::extract_event_time(&buffer[0], window_spec.time_column());
-                    let last_time = Self::extract_event_time(
-                        &buffer[buffer.len() - 1],
-                        window_spec.time_column(),
-                    );
-                    (first_time, last_time)
+            // Filter buffer for current window
+            let windowed_buffer = match window_spec {
+                WindowSpec::Tumbling { size, .. } => {
+                    let window_size_ms = size.as_millis() as i64;
+                    let start = if last_emit_time == 0 {
+                        0 // First window: 0 to window_size_ms
+                    } else {
+                        last_emit_time
+                    };
+                    let end = start + window_size_ms;
+                    // Filter records that belong to the completed window
+                    buffer
+                        .iter()
+                        .filter(|r| {
+                            let record_time =
+                                Self::extract_event_time(r, window_spec.time_column());
+                            record_time >= start && record_time < end
+                        })
+                        .cloned()
+                        .collect()
+                }
+                WindowSpec::Sliding { .. } => buffer, // For other window types, use all buffered records
+                WindowSpec::Session { .. } => buffer,
+            };
+
+            // Phase 3: Call process_windowed_group_by_emission to compute all group results
+            match Self::process_windowed_group_by_emission(
+                cols,
+                &windowed_buffer,
+                query,
+                window_spec,
+                context,
+            ) {
+                Ok(Some(first_result)) => {
+                    debug!("FR-079 Phase 3: Got first group result, queuing additional results");
+
+                    // Get all group results for queuing
+                    let all_results = Self::compute_all_group_results(
+                        cols,
+                        &windowed_buffer,
+                        query,
+                        window_spec,
+                        context,
+                    )?;
+
+                    // Queue additional results count in metadata for Phase 4
+                    // Phase 4 will implement a result queue mechanism for proper multi-emission
+                    if all_results.len() > 1 {
+                        let remaining_count = all_results.len() - 1;
+                        context.set_metadata(
+                            &format!("fr079_pending_count_{}", query_id),
+                            &remaining_count.to_string(),
+                        );
+                        debug!(
+                            "FR-079 Phase 3: Recorded {} additional group results for queuing in Phase 4",
+                            remaining_count
+                        );
+                    }
+
+                    // Update window state after aggregation
+                    let window_state = context.get_or_create_window_state(query_id, window_spec);
+                    Self::update_window_state_direct(window_state, window_spec, event_time);
+                    Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+
+                    Ok(Some(first_result))
+                }
+                Ok(None) => {
+                    debug!("FR-079 Phase 3: No group results from aggregation");
+                    // Update window state even if no results
+                    let window_state = context.get_or_create_window_state(query_id, window_spec);
+                    Self::update_window_state_direct(window_state, window_spec, event_time);
+                    Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+                    Ok(None)
+                }
+                Err(e) => {
+                    debug!("FR-079 Phase 3: Error in group-by emission: {:?}", e);
+                    Err(e)
                 }
             }
-        };
+        } else {
+            // Original single-result path (non-GROUP BY + EMIT CHANGES queries)
+            // Get window state reference - borrow will be released after cloning buffer
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+            let last_emit_time = window_state.last_emit;
+            let buffer = window_state.buffer.clone();
+            // window_state borrow ends here
 
-        // Filter buffer for current window
-        let windowed_buffer = match window_spec {
-            WindowSpec::Tumbling { .. } => {
-                // Filter records that belong to the completed window
-                buffer
-                    .iter()
-                    .filter(|r| {
-                        let record_time = Self::extract_event_time(r, window_spec.time_column());
-                        record_time >= window_start && record_time < window_end
-                    })
-                    .cloned()
-                    .collect()
-            }
-            _ => buffer, // For other window types, use all buffered records
-        };
+            // Calculate window boundaries for metadata
+            let (window_start, window_end) = match window_spec {
+                WindowSpec::Tumbling { size, .. } => {
+                    let window_size_ms = size.as_millis() as i64;
+                    let start = if last_emit_time == 0 {
+                        0 // First window: 0 to window_size_ms
+                    } else {
+                        last_emit_time
+                    };
+                    let end = start + window_size_ms;
+                    (start, end)
+                }
+                WindowSpec::Sliding { size, advance, .. } => {
+                    let window_size_ms = size.as_millis() as i64;
+                    let advance_ms = advance.as_millis() as i64;
+                    let start = last_emit_time;
+                    let end = start + window_size_ms;
+                    (start, end)
+                }
+                WindowSpec::Session { gap, .. } => {
+                    // For session windows, use the first and last record times
+                    if buffer.is_empty() {
+                        (event_time, event_time)
+                    } else {
+                        let first_time =
+                            Self::extract_event_time(&buffer[0], window_spec.time_column());
+                        let last_time = Self::extract_event_time(
+                            &buffer[buffer.len() - 1],
+                            window_spec.time_column(),
+                        );
+                        (first_time, last_time)
+                    }
+                }
+            };
 
-        // Execute aggregation on filtered records with window boundaries
-        let result_option = match Self::execute_windowed_aggregation_impl(
-            query,
-            &windowed_buffer,
-            window_start,
-            window_end,
-            context,
-        ) {
-            Ok(result) => Some(result),
-            Err(SqlError::ExecutionError { message, .. })
-                if message == "No records after filtering" =>
-            {
-                None
-            }
-            Err(SqlError::ExecutionError { message, .. })
-                if message == "HAVING clause not satisfied" =>
-            {
-                None
-            }
-            Err(SqlError::ExecutionError { message, .. })
-                if message == "No groups satisfied HAVING clause" =>
-            {
-                None
-            }
-            Err(e) => return Err(e),
-        };
+            // Filter buffer for current window
+            let windowed_buffer = match window_spec {
+                WindowSpec::Tumbling { .. } => {
+                    // Filter records that belong to the completed window
+                    buffer
+                        .iter()
+                        .filter(|r| {
+                            let record_time =
+                                Self::extract_event_time(r, window_spec.time_column());
+                            record_time >= window_start && record_time < window_end
+                        })
+                        .cloned()
+                        .collect()
+                }
+                _ => buffer, // For other window types, use all buffered records
+            };
 
-        // Get window state again for updates (new mutable borrow)
-        let window_state = context.get_or_create_window_state(query_id, window_spec);
+            // Execute aggregation on filtered records with window boundaries
+            let result_option = match Self::execute_windowed_aggregation_impl(
+                query,
+                &windowed_buffer,
+                window_start,
+                window_end,
+                context,
+            ) {
+                Ok(result) => Some(result),
+                Err(SqlError::ExecutionError { message, .. })
+                    if message == "No records after filtering" =>
+                {
+                    None
+                }
+                Err(SqlError::ExecutionError { message, .. })
+                    if message == "HAVING clause not satisfied" =>
+                {
+                    None
+                }
+                Err(SqlError::ExecutionError { message, .. })
+                    if message == "No groups satisfied HAVING clause" =>
+                {
+                    None
+                }
+                Err(e) => return Err(e),
+            };
 
-        // Update window state after aggregation
-        Self::update_window_state_direct(window_state, window_spec, event_time);
+            // Get window state again for updates (new mutable borrow)
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
 
-        // Clear or adjust buffer based on window type
-        Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+            // Update window state after aggregation
+            Self::update_window_state_direct(window_state, window_spec, event_time);
 
-        Ok(result_option)
+            // Clear or adjust buffer based on window type
+            Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+
+            Ok(result_option)
+        }
     }
 
     /// Process window emission when triggered (DEPRECATED: Legacy method without context support)
@@ -508,12 +593,18 @@ impl WindowProcessor {
     /// assert_eq!(group_by_cols, Some(vec!["status".to_string()]));
     /// ```
     pub fn get_group_by_columns(query: &StreamingQuery) -> Option<Vec<String>> {
-        if let StreamingQuery::Select { group_by: Some(exprs), .. } = query {
+        if let StreamingQuery::Select {
+            group_by: Some(exprs),
+            ..
+        } = query
+        {
             exprs
                 .iter()
                 .map(|expr| {
                     match expr {
-                        crate::velostream::sql::ast::Expr::Column(col_name) => Some(col_name.clone()),
+                        crate::velostream::sql::ast::Expr::Column(col_name) => {
+                            Some(col_name.clone())
+                        }
                         _ => None, // Only support simple column references
                     }
                 })
@@ -535,7 +626,10 @@ impl WindowProcessor {
     /// ```
     pub fn is_emit_changes(query: &StreamingQuery) -> bool {
         if let StreamingQuery::Select { emit_mode, .. } = query {
-            matches!(emit_mode, Some(crate::velostream::sql::ast::EmitMode::Changes))
+            matches!(
+                emit_mode,
+                Some(crate::velostream::sql::ast::EmitMode::Changes)
+            )
         } else {
             false
         }
@@ -622,7 +716,8 @@ impl WindowProcessor {
     ) -> Result<StreamRecord, SqlError> {
         // Execute aggregation on this group using the existing logic
         // This reuses execute_windowed_aggregation_impl but we need to call it carefully
-        let mut result = Self::execute_windowed_aggregation_impl(query, group_records, 0, 0, context)?;
+        let mut result =
+            Self::execute_windowed_aggregation_impl(query, group_records, 0, 0, context)?;
 
         // Prepend GROUP BY columns to the result (at the beginning)
         // This ensures GROUP BY columns appear first in result
@@ -645,6 +740,85 @@ impl WindowProcessor {
 
         result.fields = final_fields;
         Ok(result)
+    }
+
+    /// Compute all group results for GROUP BY queries (Phase 3: Multi-Result Collection)
+    ///
+    /// This function computes aggregations for ALL groups, returning all results.
+    /// Used to collect results that will be queued for emission.
+    ///
+    /// # Returns
+    /// Vec<StreamRecord> containing aggregation results for all groups
+    fn compute_all_group_results(
+        group_by_cols: &[String],
+        buffer: &[StreamRecord],
+        query: &StreamingQuery,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        debug!(
+            "FR-079 Phase 3: compute_all_group_results called with {} records, {} GROUP BY columns",
+            buffer.len(),
+            group_by_cols.len()
+        );
+
+        if buffer.is_empty() {
+            debug!("FR-079 Phase 3: Empty buffer, no groups to process");
+            return Ok(Vec::new());
+        }
+
+        // Step 1: Split buffer into groups
+        let groups = Self::split_buffer_by_groups(buffer, group_by_cols);
+        debug!(
+            "FR-079 Phase 3: Split buffer into {} distinct groups",
+            groups.len()
+        );
+
+        if groups.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Step 2: Compute aggregations for each group
+        let mut all_results = Vec::new();
+        for (_key_str, (group_key, group_records)) in groups.iter() {
+            debug!(
+                "FR-079 Phase 3: Computing aggregate for group {:?} with {} records",
+                group_key,
+                group_records.len()
+            );
+
+            match Self::compute_group_aggregate(
+                group_key,
+                group_records,
+                query,
+                window_spec,
+                context,
+                group_by_cols,
+            ) {
+                Ok(result) => {
+                    debug!(
+                        "FR-079 Phase 3: Successfully computed aggregate for group {:?}",
+                        group_key
+                    );
+                    all_results.push(result);
+                }
+                Err(e) => {
+                    debug!(
+                        "FR-079 Phase 3: Error computing aggregate for group {:?}: {:?}",
+                        group_key, e
+                    );
+                    // Continue to next group on error (may be HAVING clause filtering)
+                    continue;
+                }
+            }
+        }
+
+        debug!(
+            "FR-079 Phase 3: Collected {} group results",
+            all_results.len()
+        );
+
+        Ok(all_results)
     }
 
     /// Process windowed GROUP BY query with EMIT CHANGES (Phase 2: Main Orchestration)
@@ -704,11 +878,17 @@ impl WindowProcessor {
                 group_by_cols,
             ) {
                 Ok(result) => {
-                    debug!("FR-079 Phase 2: Successfully computed aggregate for group {:?}", group_key);
+                    debug!(
+                        "FR-079 Phase 2: Successfully computed aggregate for group {:?}",
+                        group_key
+                    );
                     results.push(result);
                 }
                 Err(e) => {
-                    debug!("FR-079 Phase 2: Error computing aggregate for group {:?}: {:?}", group_key, e);
+                    debug!(
+                        "FR-079 Phase 2: Error computing aggregate for group {:?}: {:?}",
+                        group_key, e
+                    );
                     // Continue to next group on error (may be HAVING clause filtering)
                     continue;
                 }

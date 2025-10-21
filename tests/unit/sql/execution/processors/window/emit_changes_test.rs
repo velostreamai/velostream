@@ -115,7 +115,7 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES with Tumbling Window");
+    WindowTestAssertions::assert_result_count_min(&results, 5, "EMIT CHANGES with Tumbling Window");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
 }
 
