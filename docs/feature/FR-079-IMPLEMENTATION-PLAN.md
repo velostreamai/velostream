@@ -137,6 +137,52 @@ Record Input → Phase 3: GROUP BY Detection
 **Feature Status**: 🎉 PRODUCTION READY
 All phases complete and tested. FR-079 windowed EMIT CHANGES with GROUP BY is ready for deployment.
 
+### Phase 6: Engine Result Emission Loop ✅ INFRASTRUCTURE COMPLETE
+**Status**: Architecture implemented (2025-10-21)
+**Commits**: `d8fe6e7` - Implement FR-079 Phase 6 - Engine Result Emission Loop
+**Time Spent**: ~30 minutes
+
+**Deliverables**:
+- ✅ Pending results dequeue mechanism in engine (engine.rs:585-601)
+- ✅ Emission loop for queued results (engine.rs:636-658)
+- ✅ Results sent through both message and output channels
+- ✅ Comprehensive debug logging for result tracking
+- ✅ Compilation successful with no errors
+
+**Implementation Details**:
+- WindowProcessor returns tuple: (Option<StreamRecord>, Vec<StreamRecord>)
+- Engine dequeues ALL pending results after window processing
+- Each pending result emitted to message and output channels
+- Non-windowed queries wrap with empty pending results vector
+
+**Architecture Complete**:
+```
+Per-Record Processing:
+  Record Input → Window Processing
+             → compute_all_group_results (all groups)
+             → Return first result
+             → Queue remaining results (Phase 4)
+             → Engine dequeues and emits (Phase 6)
+             → Results flow to output channels
+```
+
+**Note on EMIT CHANGES Semantics**:
+EMIT CHANGES requires emitting intermediate results on **EVERY incoming record**,
+not just at window boundaries. Current implementation emits once per window.
+
+For true per-record EMIT CHANGES semantics, the window processor needs to:
+1. Trigger aggregation on each record (not just at window boundaries)
+2. Compute incremental state changes for each group
+3. Emit state deltas for changed groups on each record
+
+This would be **Phase 7: Incremental EMIT CHANGES** implementation.
+
+**Current Test Status**:
+- test_emit_changes_with_tumbling_window_same_window
+  - Expected: 5 results (one per record with EMIT CHANGES)
+  - Actual: 1-2 results (one at window boundary)
+  - Root cause: Window processor only evaluates at boundaries, not per-record
+
 ---
 
 ## 📋 Executive Summary
