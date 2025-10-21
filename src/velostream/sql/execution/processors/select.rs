@@ -330,68 +330,42 @@ impl SelectProcessor {
             ..
         } = query
         {
-            // Route windowed queries based on emit mode
+            // Route windowed queries to WindowProcessor first
             if let Some(_window_spec) = window {
-                // Check if EMIT CHANGES - requires streaming aggregation without buffering
-                let is_emit_changes = emit_mode
-                    .as_ref()
-                    .map(|m| matches!(m, crate::velostream::sql::ast::EmitMode::Changes))
-                    .unwrap_or(false);
-
-                if is_emit_changes {
-                    // EMIT CHANGES: Stream aggregation - emit current window state for each record
-                    // WindowProcessor still tracks windows but doesn't buffer
-                    if let Some(group_exprs) = group_by {
-                        // Process record through GROUP BY handler which emits immediately
-                        return Self::handle_group_by_record(
-                            query, record, group_exprs, fields, having, emit_mode, context,
-                        );
-                    } else {
-                        // Windowed query without GROUP BY - shouldn't reach here with EMIT CHANGES
-                        // but handle gracefully
-                        return Ok(ProcessorResult {
-                            record: None,
-                            header_mutations: Vec::new(),
-                            should_count: false,
-                        });
+                // Generate query ID based on stream name for consistent window state management
+                let query_id = match from {
+                    StreamSource::Stream(name) | StreamSource::Table(name) => {
+                        format!("select_{}_windowed", name)
                     }
+                    StreamSource::Uri(uri) => {
+                        format!(
+                            "select_{}_windowed",
+                            uri.replace("://", "_").replace("/", "_")
+                        )
+                    }
+                    StreamSource::Subquery(_) => "select_subquery_windowed".to_string(),
+                };
+
+                let window_result = crate::velostream::sql::execution::processors::WindowProcessor::process_windowed_query(
+                    &query_id,
+                    query,
+                    record,
+                    context,
+                )?;
+
+                if let Some(windowed_record) = window_result {
+                    return Ok(ProcessorResult {
+                        record: Some(windowed_record),
+                        header_mutations: Vec::new(),
+                        should_count: true,
+                    });
                 } else {
-                    // EMIT FINAL (or default): Use existing WindowProcessor buffering
-                    // Generate query ID based on stream name for consistent window state management
-                    let query_id = match from {
-                        StreamSource::Stream(name) | StreamSource::Table(name) => {
-                            format!("select_{}_windowed", name)
-                        }
-                        StreamSource::Uri(uri) => {
-                            format!(
-                                "select_{}_windowed",
-                                uri.replace("://", "_").replace("/", "_")
-                            )
-                        }
-                        StreamSource::Subquery(_) => "select_subquery_windowed".to_string(),
-                    };
-
-                    let window_result = crate::velostream::sql::execution::processors::WindowProcessor::process_windowed_query(
-                        &query_id,
-                        query,
-                        record,
-                        context,
-                    )?;
-
-                    if let Some(windowed_record) = window_result {
-                        return Ok(ProcessorResult {
-                            record: Some(windowed_record),
-                            header_mutations: Vec::new(),
-                            should_count: true,
-                        });
-                    } else {
-                        // No window emission yet, but record was processed
-                        return Ok(ProcessorResult {
-                            record: None,
-                            header_mutations: Vec::new(),
-                            should_count: false,
-                        });
-                    }
+                    // No window emission yet, but record was processed
+                    return Ok(ProcessorResult {
+                        record: None,
+                        header_mutations: Vec::new(),
+                        should_count: false,
+                    });
                 }
             }
 
