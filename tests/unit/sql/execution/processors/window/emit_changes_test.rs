@@ -25,6 +25,8 @@ from streaming queries, particularly important for:
 - Inventory management with stock level changes
 */
 
+use rust_decimal::Decimal;
+use std::str::FromStr;
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
 use velostream::velostream::sql::execution::types::FieldValue;
 
@@ -98,6 +100,12 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
         SELECT
             status,
             SUM(amount) as total_amount,
+            COUNT(*) > 1 as passes_count_filter,
+            STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+     AVG(price) * 0.0001 as volatility_threshold,
+     MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+     AVG(volume) * 1.1 as volume_threshold
+
             COUNT(*) as order_count
         FROM orders
         GROUP BY status
@@ -105,13 +113,17 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
         EMIT CHANGES
     "#;
 
-    let records = vec![
-        TestDataBuilder::order_record(1, 100, 100.0, "pending", 10), // Window 1
-        TestDataBuilder::order_record(2, 101, 200.0, "pending", 20), // Window 1
-        TestDataBuilder::order_record(3, 102, 150.0, "completed", 30), // Window 1
-        TestDataBuilder::order_record(4, 103, 300.0, "pending", 40), // Window 1
-        TestDataBuilder::order_record(5, 104, 250.0, "completed", 50), // Window 1
-    ];
+
+    let records = TestDataBuilder::generate_market_data_series(
+        "AAPL", "NASDQ",  10.50, 1000, 100);
+
+    // let records = vec![
+    //     TestDataBuilder::order_record(1, 100, 100.0, "pending", 10), // Window 1
+    //     TestDataBuilder::order_record(2, 101, 200.0, "pending", 20), // Window 1
+    //     TestDataBuilder::order_record(3, 102, 150.0, "completed", 30), // Window 1
+    //     TestDataBuilder::order_record(4, 103, 300.0, "pending", 40), // Window 1
+    //     TestDataBuilder::order_record(5, 104, 250.0, "completed", 50), // Window 1
+    // ];
 
     let results = SqlExecutor::execute_query(sql, records).await;
 

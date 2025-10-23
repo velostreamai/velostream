@@ -1017,6 +1017,42 @@ impl WindowProcessor {
         }
     }
 
+    /// FR-079 Phase 6: Build GroupAccumulator from records for aggregate expression evaluation
+    ///
+    /// This helper function constructs a GroupAccumulator containing all numeric values from
+    /// the records, enabling proper calculation of statistical functions like STDDEV and VARIANCE
+    /// in aggregate expressions.
+    fn build_accumulator_from_records(records: &[&StreamRecord]) -> GroupAccumulator {
+        let mut accumulator = GroupAccumulator::new();
+
+        for record in records {
+            accumulator.increment_count();
+
+            // Extract numeric values for all fields in the record
+            // This populates numeric_values HashMap used by STDDEV/VARIANCE functions
+            for (field_name, value) in &record.fields {
+                match value {
+                    FieldValue::Float(f) => {
+                        accumulator.add_value_for_stats(field_name, *f);
+                    }
+                    FieldValue::Integer(i) => {
+                        accumulator.add_value_for_stats(field_name, *i as f64);
+                    }
+                    FieldValue::ScaledInteger(val, scale) => {
+                        // Convert scaled integer to f64
+                        let float_val = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                        accumulator.add_value_for_stats(field_name, float_val);
+                    }
+                    _ => {
+                        // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        accumulator
+    }
+
     /// Execute windowed aggregation implementation using logic from legacy method
     fn execute_windowed_aggregation_impl(
         query: &StreamingQuery,
@@ -1086,6 +1122,10 @@ impl WindowProcessor {
             // Create alias context for storing computed field values during SELECT processing
             let mut agg_alias_context = SelectAliasContext::new();
 
+            // FR-079 Phase 6: Build accumulator with numeric values from all filtered records
+            // This enables proper calculation of statistical functions like STDDEV and VARIANCE
+            let group_accumulator = Self::build_accumulator_from_records(&filtered_records);
+
             debug!("AGG: Creating aggregated result fields");
 
             // Simple aggregation logic - process the first record as representative
@@ -1123,12 +1163,12 @@ impl WindowProcessor {
 
                             // Handle aggregate functions properly for windowed queries
                             // Pass alias context so expressions can reference previously-computed aliases
-                            // FR-079: Pass None for accumulator - will be threaded through in Phase 2
+                            // FR-079 Phase 6: Pass the accumulator for real STDDEV/VARIANCE computation
                             match Self::evaluate_aggregate_expression(
                                 expr,
                                 &filtered_records,
                                 &agg_alias_context,
-                                None,
+                                Some(&group_accumulator),
                             ) {
                                 Ok(value) => {
                                     debug!(
@@ -1535,9 +1575,10 @@ impl WindowProcessor {
                     | BinaryOperator::Equal
                     | BinaryOperator::NotEqual => {
                         // Handle comparison operators with aggregate functions
-                        // FR-079: Pass None for accumulator - will be threaded through in Phase 2
+                        // FR-079 Phase 6: Build accumulator for HAVING clause evaluation
+                        let having_accumulator = Self::build_accumulator_from_records(records);
                         let left_value =
-                            Self::evaluate_aggregate_expression(left, records, alias_context, None)?;
+                            Self::evaluate_aggregate_expression(left, records, alias_context, Some(&having_accumulator))?;
                         let right_value = if let Ok(value) =
                             ExpressionEvaluator::evaluate_expression_value(right, temp_record)
                         {

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 /// Shared utilities for window testing
-use std::sync::Arc;
 use tokio::sync::mpsc;
-
+use rust_decimal::Decimal;
+use std::str::FromStr;
+use rust_decimal::prelude::FromPrimitive;
 use velostream::velostream::{
-    serialization::JsonFormat,
     sql::{
         execution::{
             types::{FieldValue, StreamRecord},
@@ -59,6 +59,43 @@ impl TestDataBuilder {
         StreamRecord::new(fields)
     }
 
+    /// Create a market data record based on the market_data_ts.avsc schema
+    pub fn market_data_record(
+        symbol: &str,
+        exchange: &str,
+        price: Decimal,
+        bid_price: Decimal,
+        ask_price: Decimal,
+        bid_size: i64,
+        ask_size: i64,
+        volume: i64,
+        timestamp_millis: i64,
+        vwap: Option<Decimal>,
+        market_cap: Option<Decimal>,
+    ) -> StreamRecord {
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String(symbol.to_string()));
+        fields.insert("exchange".to_string(), FieldValue::String(exchange.to_string()));
+        fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp_millis));
+        fields.insert("event_timestamp".to_string(), FieldValue::Integer(timestamp_millis));
+        fields.insert("price".to_string(), FieldValue::Decimal(price));
+        fields.insert("bid_price".to_string(), FieldValue::Decimal(bid_price));
+        fields.insert("ask_price".to_string(), FieldValue::Decimal(ask_price));
+        fields.insert("bid_size".to_string(), FieldValue::Integer(bid_size));
+        fields.insert("ask_size".to_string(), FieldValue::Integer(ask_size));
+        fields.insert("volume".to_string(), FieldValue::Integer(volume));
+
+        if let Some(vwap_value) = vwap {
+            fields.insert("vwap".to_string(), FieldValue::Decimal(vwap_value));
+        }
+
+        if let Some(market_cap_value) = market_cap {
+            fields.insert("market_cap".to_string(), FieldValue::Decimal(market_cap_value));
+        }
+
+        StreamRecord::new(fields)
+    }
+
     /// Generate a sequence of records with gradual price changes
     pub fn generate_price_series(
         symbol: &str,
@@ -89,6 +126,46 @@ impl TestDataBuilder {
                     base_price + (i as f64 * 0.01)
                 };
                 Self::ticker_record(symbol, price, 1000, i as i64 * 60)
+            })
+            .collect()
+    }
+
+    /// Generate a sequence of market data records
+    pub fn generate_market_data_series(
+        symbol: &str,
+        exchange: &str,
+        a_base_price: f64,
+        count: usize,
+        interval_millis: i64,
+    ) -> Vec<StreamRecord> {
+        let base_time = chrono::Utc::now().timestamp_millis();
+
+        let base_price = Decimal::from_f64(a_base_price).unwrap();
+
+        (0..count)
+            .map(|i| {
+                let increment = Decimal::from_str(&format!("{:.4}", (i as f64) * 0.01)).unwrap();
+                let price = base_price + increment;
+                let bid_price = price - Decimal::from_str("0.01").unwrap();
+                let ask_price = price + Decimal::from_str("0.01").unwrap();
+                let volume = 1000 + (i * 100) as i64;
+                let timestamp = base_time + (i as i64 * interval_millis);
+                let vwap = Some(price); // Simplified VWAP calculation
+                let market_cap = Some(price * Decimal::from(1_000_000)); // Simple market cap calculation
+
+                Self::market_data_record(
+                    symbol,
+                    exchange,
+                    price,
+                    bid_price,
+                    ask_price,
+                    volume / 2, // bid_size
+                    volume / 2, // ask_size
+                    volume,
+                    timestamp,
+                    vwap,
+                    market_cap,
+                )
             })
             .collect()
     }

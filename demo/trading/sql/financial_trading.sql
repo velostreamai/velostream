@@ -636,3 +636,60 @@ WITH (
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
     'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
 );
+
+-- ====================================================================================
+-- FR-079 PHASE 7: SIMPLIFIED WINDOWED GROUP BY WITH EMIT CHANGES (DEBUG)
+-- ====================================================================================
+-- @job_name: simple-price-movement-test
+-- @phase: 7
+-- Testing basic GROUP BY + WINDOW + EMIT CHANGES with window pseudo-columns
+-- This simplified version tests the window boundary fix without complex aggregations
+--
+-- Query Logic:
+-- 1. Groups market data by symbol
+-- 2. Emits changes per record (EMIT CHANGES)
+-- 3. Includes window metadata (_window_start, _window_end)
+-- 4. Uses 1-minute tumbling windows
+-- Expected output: Should emit records with window boundaries for each price update
+
+CREATE STREAM price_movement_simple AS
+SELECT
+    symbol,
+    COUNT(*) as record_count,
+    AVG(price) as avg_price,
+    _window_start AS window_start,
+    _window_end AS window_end,
+--
+--     STDDEV(price) as stddev_price,
+--     MAX(volume) as max_volume,
+--     AVG(volume) as avg_volume,
+--     COUNT(*) as count_filter_value,
+--     COUNT(*) > 1 as passes_count_filter,
+--     STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+--     AVG(price) * 0.0001 as volatility_threshold,
+--     MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+--     AVG(volume) * 1.1 as volume_threshold
+
+    -- Combined result
+--     CASE
+--         WHEN COUNT(*) > 1
+--             AND STDDEV(price) > AVG(price) * 0.0001
+--             AND MAX(volume) > AVG(volume) * 1.1
+--             THEN 'WILL_EMIT'
+--         ELSE 'FILTERED_OUT'
+--         END as filter_result,
+
+    NOW() AS debug_timestamp
+
+FROM market_data_ts
+GROUP BY symbol
+WINDOW TUMBLING(1m)
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'price_movement_simple.type' = 'kafka_sink',
+    'price_movement_simple.topic.name' = 'price_movement_debug_2',
+    'price_movement_simple.config_file' = 'configs/price_alerts_sink.yaml'
+);
