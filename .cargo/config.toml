@@ -1,0 +1,7 @@
+# Cargo build configuration for faster compilation
+
+[target.x86_64-unknown-linux-gnu]
+# Use lld linker for faster linking (cross-platform, ships with rustc)
+# Note: mold is faster but requires separate installation
+# To use mold: rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
