@@ -6,7 +6,7 @@
 use super::{ProcessorContext, WindowContext};
 use crate::velostream::sql::ast::WindowSpec;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
-use crate::velostream::sql::execution::internal::WindowState;
+use crate::velostream::sql::execution::internal::{GroupAccumulator, WindowState};
 use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStrategy};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::{SqlError, StreamingQuery};
@@ -206,28 +206,39 @@ impl WindowProcessor {
             // window_state borrow ends here
 
             // Filter buffer for current window
-            let windowed_buffer = match window_spec {
-                WindowSpec::Tumbling { size, .. } => {
-                    let window_size_ms = size.as_millis() as i64;
-                    let start = if last_emit_time == 0 {
-                        0 // First window: 0 to window_size_ms
-                    } else {
-                        last_emit_time
-                    };
-                    let end = start + window_size_ms;
-                    // Filter records that belong to the completed window
-                    buffer
-                        .iter()
-                        .filter(|r| {
-                            let record_time =
-                                Self::extract_event_time(r, window_spec.time_column());
-                            record_time >= start && record_time < end
-                        })
-                        .cloned()
-                        .collect()
+            // For EMIT CHANGES with GROUP BY, use all buffered records (no window boundary filtering)
+            // For standard window emissions, filter by window completion
+            let is_emit_changes = Self::is_emit_changes(query);
+            let (windowed_buffer, window_start, window_end) = if is_emit_changes {
+                // EMIT CHANGES: Use ALL records in buffer, don't filter by window boundary
+                debug!("FR-079 Phase 7: EMIT CHANGES mode - using all buffered records");
+                (buffer.clone(), 0, 0)
+            } else {
+                // Standard window emission: Filter by window completion
+                match window_spec {
+                    WindowSpec::Tumbling { size, .. } => {
+                        let window_size_ms = size.as_millis() as i64;
+                        let start = if last_emit_time == 0 {
+                            0 // First window: 0 to window_size_ms
+                        } else {
+                            last_emit_time
+                        };
+                        let end = start + window_size_ms;
+                        // Filter records that belong to the completed window
+                        let filtered = buffer
+                            .iter()
+                            .filter(|r| {
+                                let record_time =
+                                    Self::extract_event_time(r, window_spec.time_column());
+                                record_time >= start && record_time < end
+                            })
+                            .cloned()
+                            .collect();
+                        (filtered, start, end)
+                    }
+                    WindowSpec::Sliding { .. } => (buffer.clone(), 0, 0), // For other window types, use all buffered records
+                    WindowSpec::Session { .. } => (buffer.clone(), 0, 0),
                 }
-                WindowSpec::Sliding { .. } => buffer, // For other window types, use all buffered records
-                WindowSpec::Session { .. } => buffer,
             };
 
             // Phase 3/4: Compute ALL group results and queue for emission
@@ -237,9 +248,14 @@ impl WindowProcessor {
                 query,
                 window_spec,
                 context,
+                window_start,
+                window_end,
             )?;
 
             if all_results.is_empty() {
+                debug!(
+                    "⚠️  FR-079 Phase 7: No group results from aggregation - all groups may have failed"
+                );
                 debug!("FR-079 Phase 3/4: No group results from aggregation");
                 // Update window state even if no results
                 let window_state = context.get_or_create_window_state(query_id, window_spec);
@@ -720,11 +736,13 @@ impl WindowProcessor {
         window_spec: &WindowSpec,
         context: &ProcessorContext,
         group_by_cols: &[String],
+        window_start: i64,
+        window_end: i64,
     ) -> Result<StreamRecord, SqlError> {
         // Execute aggregation on this group using the existing logic
-        // This reuses execute_windowed_aggregation_impl but we need to call it carefully
+        // Pass the correct window boundaries to ensure _window_start and _window_end are set correctly
         let mut result =
-            Self::execute_windowed_aggregation_impl(query, group_records, 0, 0, context)?;
+            Self::execute_windowed_aggregation_impl(query, group_records, window_start, window_end, context)?;
 
         // Prepend GROUP BY columns to the result (at the beginning)
         // This ensures GROUP BY columns appear first in result
@@ -762,11 +780,15 @@ impl WindowProcessor {
         query: &StreamingQuery,
         window_spec: &WindowSpec,
         context: &ProcessorContext,
+        window_start: i64,
+        window_end: i64,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         debug!(
-            "FR-079 Phase 3: compute_all_group_results called with {} records, {} GROUP BY columns",
+            "FR-079 Phase 3: compute_all_group_results called with {} records, {} GROUP BY columns, window=[{}..{}]",
             buffer.len(),
-            group_by_cols.len()
+            group_by_cols.len(),
+            window_start,
+            window_end
         );
 
         if buffer.is_empty() {
@@ -801,6 +823,8 @@ impl WindowProcessor {
                 window_spec,
                 context,
                 group_by_cols,
+                window_start,
+                window_end,
             ) {
                 Ok(result) => {
                     debug!(
@@ -811,11 +835,40 @@ impl WindowProcessor {
                 }
                 Err(e) => {
                     debug!(
+                        "⚠️  FR-079 Phase 3: Error computing aggregate for group {:?}: {}",
+                        group_key, e
+                    );
+                    debug!(
                         "FR-079 Phase 3: Error computing aggregate for group {:?}: {:?}",
                         group_key, e
                     );
-                    // Continue to next group on error (may be HAVING clause filtering)
-                    continue;
+                    // Emit partial result with GROUP BY columns AND window metadata when aggregation fails
+                    let mut partial_fields = HashMap::new();
+                    for (i, col_name) in group_by_cols.iter().enumerate() {
+                        if let Some(key_val) = group_key.get(i) {
+                            partial_fields.insert(col_name.clone(), key_val.clone());
+                        }
+                    }
+
+                    // Add window metadata to partial result
+                    partial_fields.insert(
+                        "_window_start".to_string(),
+                        FieldValue::Integer(window_start),
+                    );
+                    partial_fields.insert(
+                        "_window_end".to_string(),
+                        FieldValue::Integer(window_end),
+                    );
+
+                    let partial_result = StreamRecord {
+                        fields: partial_fields,
+                        headers: HashMap::new(),
+                        event_time: None,
+                        timestamp: 0,
+                        offset: 0,
+                        partition: 0,
+                    };
+                    all_results.push(partial_result);
                 }
             }
         }
@@ -844,6 +897,8 @@ impl WindowProcessor {
         query: &StreamingQuery,
         window_spec: &WindowSpec,
         context: &ProcessorContext,
+        window_start: i64,
+        window_end: i64,
     ) -> Result<Option<StreamRecord>, SqlError> {
         debug!(
             "FR-079 Phase 2: process_windowed_group_by_emission called with {} records, {} GROUP BY columns",
@@ -852,6 +907,7 @@ impl WindowProcessor {
         );
 
         if buffer.is_empty() {
+            debug!("⚠️  FR-079 Phase 7: Empty buffer, no groups to process");
             debug!("FR-079 Phase 2: Empty buffer, no groups to process");
             return Ok(None);
         }
@@ -864,6 +920,8 @@ impl WindowProcessor {
         );
 
         if groups.is_empty() {
+            debug!("⚠️  FR-079 Phase 7: Failed to split buffer into groups");
+            debug!("FR-079 Phase 2: No distinct groups found from buffer");
             return Ok(None);
         }
 
@@ -883,6 +941,8 @@ impl WindowProcessor {
                 window_spec,
                 context,
                 group_by_cols,
+                window_start,
+                window_end,
             ) {
                 Ok(result) => {
                     debug!(
@@ -893,11 +953,50 @@ impl WindowProcessor {
                 }
                 Err(e) => {
                     debug!(
-                        "FR-079 Phase 2: Error computing aggregate for group {:?}: {:?}",
+                        "⚠️  FR-079 Phase 7: Error computing aggregate for group {:?}: {}",
                         group_key, e
                     );
-                    // Continue to next group on error (may be HAVING clause filtering)
-                    continue;
+                    debug!(
+                        "FR-079 Phase 7: Error computing aggregate for group {:?}: {:?}",
+                        group_key, e
+                    );
+                    debug!(
+                        "FR-079 Phase 7: Will emit partial result with {} GROUP BY columns AND window metadata: {:?}",
+                        group_by_cols.len(),
+                        group_by_cols
+                    );
+                    // Emit partial result with GROUP BY columns AND window metadata when aggregation fails
+                    let mut partial_fields = HashMap::new();
+                    for (i, col_name) in group_by_cols.iter().enumerate() {
+                        if let Some(key_val) = group_key.get(i) {
+                            partial_fields.insert(col_name.clone(), key_val.clone());
+                        }
+                    }
+
+                    // Add window metadata to partial result
+                    partial_fields.insert(
+                        "_window_start".to_string(),
+                        FieldValue::Integer(window_start),
+                    );
+                    partial_fields.insert(
+                        "_window_end".to_string(),
+                        FieldValue::Integer(window_end),
+                    );
+
+                    debug!(
+                        "FR-079 Phase 7: Emitting partial result with {} fields",
+                        partial_fields.len()
+                    );
+
+                    let partial_result = StreamRecord {
+                        fields: partial_fields,
+                        headers: HashMap::new(),
+                        event_time: None,
+                        timestamp: 0,
+                        offset: 0,
+                        partition: 0,
+                    };
+                    results.push(partial_result);
                 }
             }
         }
@@ -1024,10 +1123,12 @@ impl WindowProcessor {
 
                             // Handle aggregate functions properly for windowed queries
                             // Pass alias context so expressions can reference previously-computed aliases
+                            // FR-079: Pass None for accumulator - will be threaded through in Phase 2
                             match Self::evaluate_aggregate_expression(
                                 expr,
                                 &filtered_records,
                                 &agg_alias_context,
+                                None,
                             ) {
                                 Ok(value) => {
                                     debug!(
@@ -1434,8 +1535,9 @@ impl WindowProcessor {
                     | BinaryOperator::Equal
                     | BinaryOperator::NotEqual => {
                         // Handle comparison operators with aggregate functions
+                        // FR-079: Pass None for accumulator - will be threaded through in Phase 2
                         let left_value =
-                            Self::evaluate_aggregate_expression(left, records, alias_context)?;
+                            Self::evaluate_aggregate_expression(left, records, alias_context, None)?;
                         let right_value = if let Ok(value) =
                             ExpressionEvaluator::evaluate_expression_value(right, temp_record)
                         {
@@ -1577,13 +1679,15 @@ impl WindowProcessor {
         expr: &crate::velostream::sql::ast::Expr,
         records: &[&StreamRecord],
         alias_context: &SelectAliasContext,
+        accumulator: Option<&GroupAccumulator>,
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::Expr;
 
         debug!(
-            "AGG: evaluate_aggregate_expression called with {} records, expr: {:?}",
+            "AGG: evaluate_aggregate_expression called with {} records, expr: {:?}, has_accumulator: {}",
             records.len(),
-            expr
+            expr,
+            accumulator.is_some()
         );
 
         match expr {
@@ -1735,6 +1839,115 @@ impl WindowProcessor {
                         }
                         Ok(max_val.unwrap_or(FieldValue::Null))
                     }
+                    "STDDEV" | "STDDEV_SAMP" | "STDDEV_POP" => {
+                        // Standard deviation - requires accumulator data with all numeric values
+                        if args.is_empty() {
+                            return Err(SqlError::ExecutionError {
+                                message: "STDDEV requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        // Try to get the field name from the argument
+                        let field_name = match &args[0] {
+                            Expr::Column(col_name) => col_name.clone(),
+                            _ => {
+                                // If not a simple column, fall back to evaluating without accumulator
+                                return ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]));
+                            }
+                        };
+
+                        // FR-079 Phase 2: Use accumulator if available
+                        if let Some(acc) = accumulator {
+                            if let Some(values) = acc.numeric_values.get(&field_name) {
+                                if values.len() < 2 {
+                                    // Need at least 2 values for sample stddev
+                                    return Ok(FieldValue::Null);
+                                }
+
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance = if name.to_uppercase() == "STDDEV_POP" {
+                                    // Population variance
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64
+                                } else {
+                                    // Sample variance (divid by n-1)
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
+                                };
+                                let stddev = variance.sqrt();
+                                debug!(
+                                    "AGG: STDDEV computed from accumulator: {} values, mean={}, stddev={}",
+                                    values.len(),
+                                    mean,
+                                    stddev
+                                );
+                                Ok(FieldValue::Float(stddev))
+                            } else {
+                                // Field not in accumulator, fall back to single-record evaluation
+                                debug!(
+                                    "AGG: Field '{}' not found in accumulator, falling back to single-record",
+                                    field_name
+                                );
+                                Ok(FieldValue::Float(0.0))
+                            }
+                        } else {
+                            // No accumulator provided, fall back to regular evaluation (returns 0.0 for single record)
+                            ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]))
+                        }
+                    }
+                    "VARIANCE" | "VAR_SAMP" | "VAR_POP" => {
+                        // Variance - similar to STDDEV but returns variance instead of stddev
+                        if args.is_empty() {
+                            return Err(SqlError::ExecutionError {
+                                message: "VARIANCE requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        // Try to get the field name from the argument
+                        let field_name = match &args[0] {
+                            Expr::Column(col_name) => col_name.clone(),
+                            _ => {
+                                // If not a simple column, fall back to evaluating without accumulator
+                                return ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]));
+                            }
+                        };
+
+                        // FR-079 Phase 2: Use accumulator if available
+                        if let Some(acc) = accumulator {
+                            if let Some(values) = acc.numeric_values.get(&field_name) {
+                                if values.len() < 2 {
+                                    // Need at least 2 values for variance
+                                    return Ok(FieldValue::Null);
+                                }
+
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance = if name.to_uppercase() == "VAR_POP" {
+                                    // Population variance
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64
+                                } else {
+                                    // Sample variance (divide by n-1)
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
+                                };
+                                debug!(
+                                    "AGG: VARIANCE computed from accumulator: {} values, mean={}, variance={}",
+                                    values.len(),
+                                    mean,
+                                    variance
+                                );
+                                Ok(FieldValue::Float(variance))
+                            } else {
+                                // Field not in accumulator, fall back to single-record evaluation
+                                debug!(
+                                    "AGG: Field '{}' not found in accumulator, falling back to single-record",
+                                    field_name
+                                );
+                                Ok(FieldValue::Float(0.0))
+                            }
+                        } else {
+                            // No accumulator provided, fall back to regular evaluation (returns 0.0 for single record)
+                            ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]))
+                        }
+                    }
                     _ => {
                         // For non-aggregate functions, just evaluate on first record
                         if let Some(first_record) = records.first() {
@@ -1776,6 +1989,104 @@ impl WindowProcessor {
                     }
                 } else {
                     Ok(FieldValue::Null)
+                }
+            }
+            Expr::BinaryOp { left, right, op } => {
+                // FR-079 Phase 3: Handle binary operations with aggregate functions on either side
+                debug!(
+                    "AGG: Processing binary operation: {:?} {:?} {:?}",
+                    left, op, right
+                );
+
+                // Recursively evaluate both sides - they may contain aggregates
+                let left_value = Self::evaluate_aggregate_expression(left, records, alias_context, accumulator)?;
+                let right_value = Self::evaluate_aggregate_expression(right, records, alias_context, accumulator)?;
+
+                // Apply the binary operation
+                match op {
+                    crate::velostream::sql::ast::BinaryOperator::Add => {
+                        // Addition for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Integer(l + r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(*l as f64 + r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(l + *r as f64)),
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(l + r)),
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Subtract => {
+                        // Subtraction for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Integer(l - r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(*l as f64 - r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(l - *r as f64)),
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(l - r)),
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Multiply => {
+                        // Multiplication for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Integer(l * r)),
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(*l as f64 * r)),
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(l * *r as f64)),
+                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(l * r)),
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Divide => {
+                        // Division for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                if *r == 0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(*l as f64 / *r as f64))
+                                }
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                if *r == 0.0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(*l as f64 / r))
+                                }
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                if *r == 0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(l / *r as f64))
+                                }
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                if *r == 0.0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(l / r))
+                                }
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual
+                    | crate::velostream::sql::ast::BinaryOperator::GreaterThan
+                    | crate::velostream::sql::ast::BinaryOperator::LessThanOrEqual
+                    | crate::velostream::sql::ast::BinaryOperator::LessThan
+                    | crate::velostream::sql::ast::BinaryOperator::Equal
+                    | crate::velostream::sql::ast::BinaryOperator::NotEqual => {
+                        // For comparisons, return a FieldValue::Boolean
+                        let comparison_result = Self::compare_field_values(&left_value, &right_value, op);
+                        Ok(FieldValue::Boolean(comparison_result))
+                    }
+                    _ => {
+                        // For other operators, try regular evaluation
+                        debug!("AGG: Unsupported binary operator in aggregate expression, falling back to regular evaluation");
+                        if let Some(first_record) = records.first() {
+                            ExpressionEvaluator::evaluate_expression_value(expr, first_record)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
                 }
             }
             _ => {
