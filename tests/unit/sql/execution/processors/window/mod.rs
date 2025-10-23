@@ -7,6 +7,7 @@ pub mod emit_changes_basic_test;
 pub mod emit_changes_late_data_semantics_test;
 pub mod emit_changes_test;
 pub mod financial_ticker_analytics_test;
+pub mod fr079_aggregate_expressions_test;
 pub mod fr079_phase1_detection_test;
 pub mod shared_test_utils;
 pub mod unified_window_test;
