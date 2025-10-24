@@ -2,40 +2,436 @@
 
 ---
 
-Currently working on finacial_trading.sql to make all queries work.
+## Task: Fixing Financial Trading Queries
 
-Using this test emit_changes_test.rs -> "test_emit_changes_with_tumbling_window_same_window"
-I have discovered that
+**Status**: 🔍 **INVESTIGATION REQUIRED**
+**Related Files**:
+- Test: `tests/unit/sql/execution/processors/window/emit_changes_test.rs` → `test_emit_changes_with_tumbling_window_same_window`
+- SQL: `demo/trading/sql/financial_trading.sql`
+- Core: `src/velostream/sql/execution/processors/select.rs` (process method)
 
-1: **Runtime field validation:** 
+**Description**: Currently working on `financial_trading.sql` to make all queries work. Discovered critical issues with field validation, aggregate function handling, and query routing complexity.
 
-SQL the referenced fields that do exist in the data payload does not fail - for example:
+---
 
+### 🔴 **Issue #1: Missing Field Validation at Runtime**
+
+**Problem**: Invalid column references in GROUP BY clauses do not fail during execution, allowing defective queries to pass silently.
+
+**Evidence**:
 ```sql
-       SELECT
-            symbol,
-            SUM(amount) as total_amount,
-            COUNT(*) > 1 as passes_count_filter,
-            STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
-            AVG(price) * 0.0001 as volatility_threshold,
-            MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
-            AVG(volume) * 1.1 as volume_threshold,
-            COUNT(*) as order_count
-        FROM orders
-        GROUP BY XXXX
-        WINDOW TUMBLING(1m)
-        EMIT CHANGES
+-- This query SHOULD FAIL but currently PASSES
+SELECT
+    symbol,
+    SUM(amount) as total_amount,
+    COUNT(*) as order_count
+FROM orders
+GROUP BY XXXX                    -- ← XXXX doesn't exist in payload!
+WINDOW TUMBLING(1m)
+EMIT CHANGES
 ```
 
-Field XXXX does not exist and yet the test passes. it would make sense to
-- Implement a runtime validator - that on first execution pass - looks at the payload fields and cross references them with the SQL fields. When a cross reference fails it should fail fast with an appropriate error message. 
-- Subsquent passes should not re-validate - only the first pass. i.e. store a boolean flag in the processor context to indicate validation has been done.
+**Root Cause**:
+- Parser validates SQL syntax ✅ (grammar is correct)
+- Parser does NOT validate field existence ❌ (semantic validation missing)
+- Runtime executor assumes all fields are valid ❌
 
+**Impacted Components**:
+1. **Parser** (`src/velostream/sql/parser/`) - No field validation
+   - `StreamingSqlParser::parse()` returns `Ok()` for syntactically valid SQL
+   - No reference to data schema during parsing
 
-2: The code has 'aggregate' functions like AVG STD DEV inside sq/execution/expression/functions.rs - line 1831 they do not make sense - because there is no aggregate state and no-group-by. this path should never be called - and these functions removed and unrecognised functions should throw an exception.
-The SQLValidator should detect Aggregate functions without a GROUP_BY and throw an exception
+2. **Execution Engine** (`src/velostream/sql/execution/engine.rs`)
+   - `execute_with_record()` receives records with specific fields
+   - Never cross-references SQL field references against actual record fields
+   - Fails silently when field not found
 
-3: the routing code in select.rs process() method is very complex. can it be simplified by breaking it into smaller methods?
+3. **Processor/Select** (`src/velostream/sql/execution/processors/select.rs`)
+   - `process()` method tries to evaluate expressions
+   - When field missing, likely returns NULL or defaults
+
+**Solution**:
+
+Implement a **two-stage validation strategy**:
+
+```rust
+// Stage 1: Runtime field validation (on FIRST execution only)
+pub struct ProcessorContext {
+    // ... existing fields ...
+
+    /// Has schema validation been performed? (optimization flag)
+    pub validated_schema: bool,
+}
+
+// Implementation in select.rs:process()
+pub async fn process(
+    &self,
+    record: &StreamRecord,
+    context: &mut ProcessorContext,
+    query: &StreamingQuery,
+) -> Result<ProcessorResult> {
+    // FIRST PASS: Validate field existence against actual payload
+    if !context.validated_schema {
+        self.validate_fields_exist(&record, query)?;
+        context.validated_schema = true;  // Skip on subsequent calls
+    }
+
+    // Continue with normal execution...
+    self.process_with_validated_record(record, context, query).await
+}
+
+fn validate_fields_exist(
+    &self,
+    record: &StreamRecord,
+    query: &StreamingQuery,
+) -> Result<()> {
+    let required_fields = self.extract_all_field_references(query);
+    let available_fields = record.fields.keys().cloned().collect::<HashSet<_>>();
+
+    for field in required_fields {
+        if !available_fields.contains(&field) {
+            return Err(SqlError::FieldNotFound {
+                field: field.clone(),
+                available: available_fields.iter().cloned().collect(),
+                source_location: query.source_reference(),
+            });
+        }
+    }
+
+    Ok(())
+}
+```
+
+**Files to Modify**:
+1. `src/velostream/sql/execution/processors/context.rs:33` - Add `validated_schema: bool` field
+2. `src/velostream/sql/execution/processors/select.rs:668` - Add validation before process logic
+3. `src/velostream/sql/error.rs` - Add `FieldNotFound` error variant with available fields list
+
+**Testing**:
+- Add test in `tests/unit/sql/execution/processors/window/emit_changes_test.rs`:
+  ```rust
+  #[tokio::test]
+  async fn test_invalid_group_by_field_fails() {
+      // Group by XXXX (doesn't exist)
+      // Should fail on first execution
+      // Should NOT retry on second execution
+  }
+  ```
+
+---
+
+### 🔴 **Issue #2: Aggregate Functions Without GROUP BY Context**
+
+**Problem**: Aggregate functions (AVG, STDDEV, SUM, etc.) are allowed in expression evaluation without GROUP BY, causing undefined behavior.
+
+**Evidence**:
+```rust
+// File: src/velostream/sql/execution/expression/functions.rs:1831
+// These functions exist but should NEVER be called without GROUP BY context
+fn evaluate_avg(values: &[FieldValue]) -> FieldValue { ... }
+fn evaluate_stddev(values: &[FieldValue]) -> FieldValue { ... }
+fn evaluate_max(values: &[FieldValue]) -> FieldValue { ... }
+```
+
+**Root Cause**:
+- Aggregate functions require **state accumulation** across multiple records
+- Cannot be evaluated on a single record in isolation
+- Current design allows them to be called without state context
+
+**Impacted Components**:
+1. **Function Registry** (`src/velostream/sql/execution/expression/functions.rs:1831+`)
+   - `evaluate_function()` tries to call aggregate functions
+   - No check for GROUP BY context
+
+2. **SQL Validator** - No semantic validation
+   - Parser allows: `SELECT AVG(price) FROM orders` (invalid without GROUP BY)
+   - Should reject with clear error
+
+**Solution**:
+
+Implement **aggregate function validation** in parser and executor:
+
+```rust
+// File: src/velostream/sql/parser/validator.rs (NEW)
+pub struct AggregateValidator;
+
+impl AggregateValidator {
+    /// Validate that aggregate functions only appear in valid contexts
+    pub fn validate(query: &StreamingQuery) -> Result<()> {
+        match query {
+            StreamingQuery::Select {
+                fields,
+                group_by,
+                window,
+                ..
+            } => {
+                // Extract all function calls from SELECT fields
+                let aggregates = Self::extract_aggregate_functions(fields);
+
+                // Aggregate functions ONLY valid if:
+                // 1. GROUP BY is present, OR
+                // 2. WINDOW is present (implicit grouping)
+                let has_grouping = group_by.is_some() || window.is_some();
+
+                if !aggregates.is_empty() && !has_grouping {
+                    return Err(SqlError::AggregateWithoutGrouping {
+                        functions: aggregates,
+                        suggestion: "Add GROUP BY clause or WINDOW clause".to_string(),
+                    });
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn extract_aggregate_functions(fields: &[SelectField]) -> Vec<String> {
+        // Return names of aggregate functions found (AVG, SUM, STDDEV, etc.)
+    }
+}
+
+// File: src/velostream/sql/parser/mod.rs
+pub struct StreamingSqlParser { /* ... */ }
+
+impl StreamingSqlParser {
+    pub fn parse(&self, sql: &str) -> Result<StreamingQuery> {
+        // 1. Parse SQL syntax
+        let query = self.parse_syntax(sql)?;
+
+        // 2. Validate semantics (NEW)
+        AggregateValidator::validate(&query)?;
+
+        // 3. Return validated query
+        Ok(query)
+    }
+}
+```
+
+**Error Type**:
+```rust
+// File: src/velostream/sql/error.rs
+pub enum SqlError {
+    // ... existing variants ...
+
+    #[error("Aggregate functions {functions:?} used without GROUP BY or WINDOW clause")]
+    AggregateWithoutGrouping {
+        functions: Vec<String>,
+        suggestion: String,
+    },
+}
+```
+
+**Files to Modify**:
+1. `src/velostream/sql/parser/validator.rs` - Create new validator module (200 lines)
+2. `src/velostream/sql/parser/mod.rs:StreamingSqlParser::parse()` - Call validator after parsing
+3. `src/velostream/sql/error.rs` - Add `AggregateWithoutGrouping` error variant
+4. `src/velostream/sql/execution/expression/functions.rs:1831` - Add panic/error if aggregate called without state
+
+**Testing**:
+- Tests in `tests/unit/sql/parser/aggregate_validation_test.rs`:
+  ```rust
+  #[test]
+  fn test_avg_without_group_by_fails() {
+      let sql = "SELECT AVG(price) FROM orders";
+      let parser = StreamingSqlParser::new();
+      assert!(matches!(
+          parser.parse(sql),
+          Err(SqlError::AggregateWithoutGrouping { .. })
+      ));
+  }
+
+  #[test]
+  fn test_avg_with_group_by_succeeds() {
+      let sql = "SELECT symbol, AVG(price) FROM orders GROUP BY symbol";
+      let parser = StreamingSqlParser::new();
+      assert!(parser.parse(sql).is_ok());
+  }
+
+  #[test]
+  fn test_avg_with_window_succeeds() {
+      let sql = "SELECT symbol, AVG(price) FROM orders WINDOW TUMBLING(1m)";
+      let parser = StreamingSqlParser::new();
+      assert!(parser.parse(sql).is_ok());
+  }
+  ```
+
+---
+
+### 🟡 **Issue #3: Complex Query Routing in select.rs**
+
+**Problem**: The `process()` method in `select.rs` has high cyclomatic complexity with deeply nested routing logic.
+
+**Evidence**:
+```rust
+// File: src/velostream/sql/execution/processors/select.rs:668+
+pub async fn process(
+    &self,
+    record: &StreamRecord,
+    context: &mut ProcessorContext,
+) -> Result<ProcessorResult> {
+    // Massive conditional logic handling multiple execution paths:
+    // - SELECT * (passthrough)
+    // - SELECT field1, field2 (projection)
+    // - SELECT with WHERE clause
+    // - SELECT with GROUP BY
+    // - SELECT with GROUP BY + WINDOW
+    // - SELECT with HAVING clause
+    // - Each path with EMIT CHANGES / EMIT FINAL variants
+    // Result: ~300 lines of nested if/match statements
+}
+```
+
+**Root Cause**:
+- All execution paths (simple → complex) handled in single method
+- No separation of concerns (filtering, projection, grouping, emission)
+- Difficult to test individual paths
+- High risk of bugs when adding new features
+
+**Solution**:
+
+Refactor into **focused processor pipeline**:
+
+```rust
+// File: src/velostream/sql/execution/processors/select.rs
+
+/// Process SELECT queries using pipeline pattern
+pub struct SelectProcessor {
+    /// Filter records by WHERE clause (optional)
+    filter_processor: Option<Arc<dyn RecordFilter>>,
+
+    /// Project/transform fields
+    projection_processor: Arc<dyn RecordProjector>,
+
+    /// Group records by GROUP BY clause (optional)
+    group_processor: Option<Arc<dyn RecordGrouper>>,
+
+    /// Window aggregation (optional)
+    window_processor: Option<Arc<dyn WindowAggregator>>,
+
+    /// Filter groups by HAVING clause (optional)
+    having_processor: Option<Arc<dyn GroupFilter>>,
+}
+
+impl SelectProcessor {
+    pub async fn process(
+        &self,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+    ) -> Result<ProcessorResult> {
+        let mut record = record.clone();
+
+        // Pipeline execution
+        // 1. Filter by WHERE
+        if let Some(ref filter) = self.filter_processor {
+            if !filter.matches(&record)? {
+                return Ok(ProcessorResult {
+                    record: None,
+                    should_count: false,
+                });
+            }
+        }
+
+        // 2. Grouping (if GROUP BY)
+        let group_key = if let Some(ref grouper) = self.group_processor {
+            Some(grouper.extract_group_key(&record)?)
+        } else {
+            None
+        };
+
+        // 3. Window processing (if WINDOW)
+        if let Some(ref window) = self.window_processor {
+            // Handle window-based aggregation
+        }
+
+        // 4. Projection
+        let output = self.projection_processor.project(&record, context)?;
+
+        // 5. HAVING filter (if present)
+        if let Some(ref having) = self.having_processor {
+            if !having.matches(&output, context)? {
+                return Ok(ProcessorResult {
+                    record: None,
+                    should_count: false,
+                });
+            }
+        }
+
+        // 6. Emit decision
+        self.emit_record(output, context)
+    }
+}
+
+// Separate trait implementations for clarity
+pub trait RecordFilter: Send + Sync {
+    fn matches(&self, record: &StreamRecord) -> Result<bool>;
+}
+
+pub trait RecordProjector: Send + Sync {
+    fn project(&self, record: &StreamRecord, context: &ProcessorContext) -> Result<StreamRecord>;
+}
+
+pub trait RecordGrouper: Send + Sync {
+    fn extract_group_key(&self, record: &StreamRecord) -> Result<String>;
+}
+
+pub trait GroupFilter: Send + Sync {
+    fn matches(&self, record: &StreamRecord, context: &ProcessorContext) -> Result<bool>;
+}
+```
+
+**Benefits**:
+- ✅ Single Responsibility Principle - each processor handles one concern
+- ✅ Easier testing - test each processor independently
+- ✅ Easier to extend - add new processors without modifying existing code
+- ✅ Better error messages - know exactly which stage failed
+- ✅ Performance optimization - pipeline can be optimized at each stage
+
+**Implementation Plan**:
+1. **Phase 1** (1 day): Create trait definitions and split logic
+   - Create `record_filter.rs`, `projector.rs`, `grouper.rs`, `having.rs`
+   - Each ~100 lines
+
+2. **Phase 2** (1 day): Refactor `process()` method
+   - Rewrite using pipeline pattern
+   - Keep public API same (backward compatible)
+
+3. **Phase 3** (0.5 day): Comprehensive testing
+   - Test each processor independently
+   - Test combined pipeline
+   - Verify no behavior change
+
+**Files to Create/Modify**:
+1. `src/velostream/sql/execution/processors/filter.rs` (NEW) - WHERE clause processing
+2. `src/velostream/sql/execution/processors/projector.rs` (NEW) - Field selection/transformation
+3. `src/velostream/sql/execution/processors/grouper.rs` (NEW) - GROUP BY processing
+4. `src/velostream/sql/execution/processors/select.rs` - Refactor main process() method
+5. Tests for each new processor
+
+---
+
+## Summary & Logical Sequence
+
+### 🎯 **Recommended Fix Order** (Priority & Dependencies):
+
+**Phase 1: Validation Foundation** (3-4 days)
+- [ ] Issue #2: Aggregate validation (parser level) - **BLOCKING** other fixes
+  - Prevents execution of invalid SQL early
+  - Gives clear error messages
+
+**Phase 2: Runtime Safety** (2-3 days)
+- [ ] Issue #1: Field validation at runtime
+  - Builds on Phase 1 validation
+  - Provides safety net for dynamic records
+
+**Phase 3: Maintainability** (2-3 days)
+- [ ] Issue #3: Refactor select processor pipeline
+  - Easier to debug Issues #1 and #2
+  - Cleaner codebase for future features
+
+**Total Effort**: ~1-2 weeks
+**Risk Level**: 🟢 LOW (all changes additive, backward compatible)
+**Expected Benefit**: 🟢 HIGH (prevents silent failures, improves code quality)
 
 
 
