@@ -13,6 +13,8 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::Message as KafkaMessage;
 use std::marker::PhantomData;
 use std::time::Duration;
+use log::debug;
+use log::error;
 
 /// A Kafka consumer that handles deserialization automatically for keys, values, and headers
 ///
@@ -252,7 +254,7 @@ where
                 // Attempt value deserialization
                 let value = match self.value_serde.deserialize(payload) {
                     Ok(v) => {
-                        log::debug!(
+                        debug!(
                             target: "kafka_consumer",
                             topic = msg.topic(),
                             partition = msg.partition(),
@@ -263,7 +265,7 @@ where
                         v
                     }
                     Err(e) => {
-                        log::error!(
+                        error!(
                             target: "kafka_consumer",
                             "Failed to deserialize message value: topic={} partition={} offset={} payload_size={} error={:?}",
                             msg.topic(),

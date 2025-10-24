@@ -2,6 +2,43 @@
 
 ---
 
+Currently working on finacial_trading.sql to make all queries work.
+
+Using this test emit_changes_test.rs -> "test_emit_changes_with_tumbling_window_same_window"
+I have discovered that
+
+1: **Runtime field validation:** 
+
+SQL the referenced fields that do exist in the data payload does not fail - for example:
+
+```sql
+       SELECT
+            symbol,
+            SUM(amount) as total_amount,
+            COUNT(*) > 1 as passes_count_filter,
+            STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+            AVG(price) * 0.0001 as volatility_threshold,
+            MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+            AVG(volume) * 1.1 as volume_threshold,
+            COUNT(*) as order_count
+        FROM orders
+        GROUP BY XXXX
+        WINDOW TUMBLING(1m)
+        EMIT CHANGES
+```
+
+Field XXXX does not exist and yet the test passes. it would make sense to
+- Implement a runtime validator - that on first execution pass - looks at the payload fields and cross references them with the SQL fields. When a cross reference fails it should fail fast with an appropriate error message. 
+- Subsquent passes should not re-validate - only the first pass. i.e. store a boolean flag in the processor context to indicate validation has been done.
+
+
+2: The code has 'aggregate' functions like AVG STD DEV inside sq/execution/expression/functions.rs - line 1831 they do not make sense - because there is no aggregate state and no-group-by. this path should never be called - and these functions removed and unrecognised functions should throw an exception.
+The SQLValidator should detect Aggregate functions without a GROUP_BY and throw an exception
+
+3: the routing code in 
+
+
+
 ## 🔍 **ACTIVE INVESTIGATION: Tokio Async Framework Overhead**
 
 **Identified**: October 8, 2025

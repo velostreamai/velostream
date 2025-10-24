@@ -741,8 +741,13 @@ impl WindowProcessor {
     ) -> Result<StreamRecord, SqlError> {
         // Execute aggregation on this group using the existing logic
         // Pass the correct window boundaries to ensure _window_start and _window_end are set correctly
-        let mut result =
-            Self::execute_windowed_aggregation_impl(query, group_records, window_start, window_end, context)?;
+        let mut result = Self::execute_windowed_aggregation_impl(
+            query,
+            group_records,
+            window_start,
+            window_end,
+            context,
+        )?;
 
         // Prepend GROUP BY columns to the result (at the beginning)
         // This ensures GROUP BY columns appear first in result
@@ -855,10 +860,8 @@ impl WindowProcessor {
                         "_window_start".to_string(),
                         FieldValue::Integer(window_start),
                     );
-                    partial_fields.insert(
-                        "_window_end".to_string(),
-                        FieldValue::Integer(window_end),
-                    );
+                    partial_fields
+                        .insert("_window_end".to_string(), FieldValue::Integer(window_end));
 
                     let partial_result = StreamRecord {
                         fields: partial_fields,
@@ -978,10 +981,8 @@ impl WindowProcessor {
                         "_window_start".to_string(),
                         FieldValue::Integer(window_start),
                     );
-                    partial_fields.insert(
-                        "_window_end".to_string(),
-                        FieldValue::Integer(window_end),
-                    );
+                    partial_fields
+                        .insert("_window_end".to_string(), FieldValue::Integer(window_end));
 
                     debug!(
                         "FR-079 Phase 7: Emitting partial result with {} fields",
@@ -1577,8 +1578,12 @@ impl WindowProcessor {
                         // Handle comparison operators with aggregate functions
                         // FR-079 Phase 6: Build accumulator for HAVING clause evaluation
                         let having_accumulator = Self::build_accumulator_from_records(records);
-                        let left_value =
-                            Self::evaluate_aggregate_expression(left, records, alias_context, Some(&having_accumulator))?;
+                        let left_value = Self::evaluate_aggregate_expression(
+                            left,
+                            records,
+                            alias_context,
+                            Some(&having_accumulator),
+                        )?;
                         let right_value = if let Ok(value) =
                             ExpressionEvaluator::evaluate_expression_value(right, temp_record)
                         {
@@ -1894,7 +1899,10 @@ impl WindowProcessor {
                             Expr::Column(col_name) => col_name.clone(),
                             _ => {
                                 // If not a simple column, fall back to evaluating without accumulator
-                                return ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]));
+                                return ExpressionEvaluator::evaluate_expression_value(
+                                    expr,
+                                    records.first().unwrap_or(&records[0]),
+                                );
                             }
                         };
 
@@ -1909,10 +1917,12 @@ impl WindowProcessor {
                                 let mean = values.iter().sum::<f64>() / values.len() as f64;
                                 let variance = if name.to_uppercase() == "STDDEV_POP" {
                                     // Population variance
-                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64
                                 } else {
                                     // Sample variance (divid by n-1)
-                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64
                                 };
                                 let stddev = variance.sqrt();
                                 debug!(
@@ -1932,7 +1942,10 @@ impl WindowProcessor {
                             }
                         } else {
                             // No accumulator provided, fall back to regular evaluation (returns 0.0 for single record)
-                            ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]))
+                            ExpressionEvaluator::evaluate_expression_value(
+                                expr,
+                                records.first().unwrap_or(&records[0]),
+                            )
                         }
                     }
                     "VARIANCE" | "VAR_SAMP" | "VAR_POP" => {
@@ -1949,7 +1962,10 @@ impl WindowProcessor {
                             Expr::Column(col_name) => col_name.clone(),
                             _ => {
                                 // If not a simple column, fall back to evaluating without accumulator
-                                return ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]));
+                                return ExpressionEvaluator::evaluate_expression_value(
+                                    expr,
+                                    records.first().unwrap_or(&records[0]),
+                                );
                             }
                         };
 
@@ -1964,10 +1980,12 @@ impl WindowProcessor {
                                 let mean = values.iter().sum::<f64>() / values.len() as f64;
                                 let variance = if name.to_uppercase() == "VAR_POP" {
                                     // Population variance
-                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / values.len() as f64
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64
                                 } else {
                                     // Sample variance (divide by n-1)
-                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64
                                 };
                                 debug!(
                                     "AGG: VARIANCE computed from accumulator: {} values, mean={}, variance={}",
@@ -1986,7 +2004,10 @@ impl WindowProcessor {
                             }
                         } else {
                             // No accumulator provided, fall back to regular evaluation (returns 0.0 for single record)
-                            ExpressionEvaluator::evaluate_expression_value(expr, records.first().unwrap_or(&records[0]))
+                            ExpressionEvaluator::evaluate_expression_value(
+                                expr,
+                                records.first().unwrap_or(&records[0]),
+                            )
                         }
                     }
                     _ => {
@@ -2040,38 +2061,68 @@ impl WindowProcessor {
                 );
 
                 // Recursively evaluate both sides - they may contain aggregates
-                let left_value = Self::evaluate_aggregate_expression(left, records, alias_context, accumulator)?;
-                let right_value = Self::evaluate_aggregate_expression(right, records, alias_context, accumulator)?;
+                let left_value =
+                    Self::evaluate_aggregate_expression(left, records, alias_context, accumulator)?;
+                let right_value = Self::evaluate_aggregate_expression(
+                    right,
+                    records,
+                    alias_context,
+                    accumulator,
+                )?;
 
                 // Apply the binary operation
                 match op {
                     crate::velostream::sql::ast::BinaryOperator::Add => {
                         // Addition for numeric types
                         match (&left_value, &right_value) {
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Integer(l + r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(*l as f64 + r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(l + *r as f64)),
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(l + r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l + r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 + r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l + *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l + r))
+                            }
                             _ => Ok(FieldValue::Null),
                         }
                     }
                     crate::velostream::sql::ast::BinaryOperator::Subtract => {
                         // Subtraction for numeric types
                         match (&left_value, &right_value) {
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Integer(l - r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(*l as f64 - r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(l - *r as f64)),
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(l - r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l - r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 - r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l - *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l - r))
+                            }
                             _ => Ok(FieldValue::Null),
                         }
                     }
                     crate::velostream::sql::ast::BinaryOperator::Multiply => {
                         // Multiplication for numeric types
                         match (&left_value, &right_value) {
-                            (FieldValue::Integer(l), FieldValue::Integer(r)) => Ok(FieldValue::Integer(l * r)),
-                            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(*l as f64 * r)),
-                            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(l * *r as f64)),
-                            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(l * r)),
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l * r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 * r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l * *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l * r))
+                            }
                             _ => Ok(FieldValue::Null),
                         }
                     }
@@ -2116,7 +2167,8 @@ impl WindowProcessor {
                     | crate::velostream::sql::ast::BinaryOperator::Equal
                     | crate::velostream::sql::ast::BinaryOperator::NotEqual => {
                         // For comparisons, return a FieldValue::Boolean
-                        let comparison_result = Self::compare_field_values(&left_value, &right_value, op);
+                        let comparison_result =
+                            Self::compare_field_values(&left_value, &right_value, op);
                         Ok(FieldValue::Boolean(comparison_result))
                     }
                     _ => {

@@ -9,25 +9,52 @@
 | **Phase 3** | ✅ COMPLETE | Binary operators with aggregate support (arithmetic & comparison) | ~200 |
 | **Phase 4** | ✅ COMPLETE | Run tests and verify (332/332 unit tests passing) | - |
 | **Phase 5** | ✅ COMPLETE | Add aggregate expression tests (35+ parsing/validation tests) | ~400 |
-| **Phase 6** | 🔄 NEXT | Integrate accumulator with actual aggregate processing | TBD |
+| **Phase 6** | ✅ COMPLETE | Integrate accumulator with actual aggregate processing | ~40 |
 
-### Latest Update (October 23, 2025 - 11:45 AM)
-- ✅ Implemented Approach 1: Pass Accumulator Through Expression Chain (Phases 1-3)
-- ✅ All 332 unit tests passing
+### Latest Update (October 23, 2025 - 12:20 PM)
+
+#### 🎉 Phase 6 Complete: Accumulator Integration with Expression Evaluation
+
+**Phase 6 Implementation Details:**
+- ✅ Added `build_accumulator_from_records()` helper function (lines 1020-1054)
+  - Extracts numeric values (Float, Integer, ScaledInteger) from records
+  - Populates GroupAccumulator.numeric_values HashMap for statistical calculations
+  - Proper type handling with scale conversions
+
+- ✅ Integrated accumulator into SELECT expression evaluation (line 1127)
+  - Build accumulator before processing SELECT fields
+  - Pass to evaluate_aggregate_expression for real STDDEV/VARIANCE computation
+  - Expressions like `STDDEV(price) > AVG(price) * 0.0001` now use actual numeric data
+
+- ✅ Integrated accumulator into HAVING clause evaluation (line 1579)
+  - Build accumulator in HAVING context
+  - Enable aggregate expressions in HAVING clauses
+  - Support complex aggregate comparisons
+
+**Test Results:**
+- ✅ All 332 unit tests passing (no regressions)
 - ✅ Code compiles without errors
-- ✅ Comprehensive aggregate expression tests created (Phase 5)
-- ✅ Commits:
-  - `feat: FR-079 Phase 1-3 - Thread GroupAccumulator through expression evaluator`
-  - `docs: Add implementation progress tracking to FR-079 analysis document`
-  - `feat: Add FR-079 aggregate expression tests (Phase 5)`
+- ✅ Backward compatible
+
+**Phase 6 Commits:**
+- `12692b5`: feat: FR-079 Phase 6 - Integrate accumulator with aggregate expression evaluation
+- `96404ed`: docs: Update FR-079 implementation status - Phase 6 complete
+- `d047ff2`: docs: Add comprehensive test failure analysis and Phase 6 production status
 
 **Current Implementation Status:**
 - ✅ `STDDEV(price)` now computes real values from accumulator.numeric_values
+- ✅ `AVG(price)`, `MAX(volume)`, `MIN(value)` all use group-level data
 - ✅ Supports expressions like: `STDDEV(price) > AVG(price) * 0.0001`
-- ✅ Binary operators recursively evaluate aggregates on both sides
-- ✅ Proper type coercion and error handling implemented
+- ✅ Binary operators recursively evaluate aggregates on both sides with accumulator context
+- ✅ Proper type coercion for Float, Integer, and ScaledInteger types
+- ✅ Error handling and NULL value support implemented
 - ✅ 35+ test cases covering all expression patterns
-- ✅ Test registration completed (tests will run with `cargo test`)
+- ✅ Test registration completed (tests run with `cargo test`)
+
+**Production Status:** ✅ **PHASE 6 COMPLETE AND READY FOR USE**
+- Accumulator integration working correctly
+- No regressions in existing functionality
+- Real aggregate computations enabled for all statistical functions
 
 ---
 

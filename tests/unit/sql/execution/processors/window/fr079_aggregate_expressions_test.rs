@@ -20,9 +20,9 @@ in expression contexts, such as:
 */
 
 use super::shared_test_utils::TestDataBuilder;
+use std::collections::HashMap;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use std::collections::HashMap;
 
 /// Helper to create test records with numeric data
 fn create_numeric_records(values: Vec<f64>) -> Vec<StreamRecord> {
@@ -33,7 +33,10 @@ fn create_numeric_records(values: Vec<f64>) -> Vec<StreamRecord> {
             let mut fields = HashMap::new();
             fields.insert("price".to_string(), FieldValue::Float(val));
             fields.insert("id".to_string(), FieldValue::Integer(i as i64));
-            fields.insert("timestamp".to_string(), FieldValue::Integer(1000 + i as i64));
+            fields.insert(
+                "timestamp".to_string(),
+                FieldValue::Integer(1000 + i as i64),
+            );
             StreamRecord::new(fields)
         })
         .collect()
@@ -88,7 +91,10 @@ fn test_stddev_greater_than_avg_multiplied() {
     let query = parser.parse(sql).expect("Parse failed");
 
     // Verify it parses correctly
-    assert!(matches!(query, velostream::velostream::sql::StreamingQuery::Select { .. }));
+    assert!(matches!(
+        query,
+        velostream::velostream::sql::StreamingQuery::Select { .. }
+    ));
 }
 
 /// Test aggregate expression with arithmetic: (SUM - SUM) / COUNT
@@ -236,7 +242,9 @@ fn test_windowed_aggregate_expression_with_emit_changes() {
     let query = parser.parse(sql).expect("Parse failed");
 
     match query {
-        velostream::velostream::sql::StreamingQuery::Select { window, emit_mode, .. } => {
+        velostream::velostream::sql::StreamingQuery::Select {
+            window, emit_mode, ..
+        } => {
             assert!(window.is_some(), "Should have window specification");
             assert!(emit_mode.is_some(), "Should have EMIT clause");
         }
@@ -371,8 +379,14 @@ fn test_stddev_samp_equals_stddev() {
     let q1 = parser.parse(sql1).expect("STDDEV parse failed");
     let q2 = parser.parse(sql2).expect("STDDEV_SAMP parse failed");
 
-    assert!(matches!(q1, velostream::velostream::sql::StreamingQuery::Select { .. }));
-    assert!(matches!(q2, velostream::velostream::sql::StreamingQuery::Select { .. }));
+    assert!(matches!(
+        q1,
+        velostream::velostream::sql::StreamingQuery::Select { .. }
+    ));
+    assert!(matches!(
+        q2,
+        velostream::velostream::sql::StreamingQuery::Select { .. }
+    ));
 }
 
 /// Integration test: Complex real-world pattern
@@ -394,11 +408,18 @@ fn test_financial_volatility_detection() {
 
     match query {
         velostream::velostream::sql::StreamingQuery::Select {
-            fields, group_by, having, where_clause, ..
+            fields,
+            group_by,
+            having,
+            where_clause,
+            ..
         } => {
             assert!(!fields.is_empty(), "Should have SELECT fields");
             assert!(group_by.is_some(), "Should have GROUP BY");
-            assert!(having.is_some(), "Should have HAVING with aggregate expression");
+            assert!(
+                having.is_some(),
+                "Should have HAVING with aggregate expression"
+            );
             assert!(where_clause.is_some(), "Should have WHERE clause");
         }
         _ => panic!("Expected SELECT query"),
@@ -440,6 +461,10 @@ fn test_simple_aggregates_still_work() {
     let parser = StreamingSqlParser::new();
 
     for sql in simple_aggregates {
-        assert!(parser.parse(sql).is_ok(), "Should parse simple aggregate: {}", sql);
+        assert!(
+            parser.parse(sql).is_ok(),
+            "Should parse simple aggregate: {}",
+            sql
+        );
     }
 }

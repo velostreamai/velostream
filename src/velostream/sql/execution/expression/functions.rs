@@ -21,6 +21,7 @@ use super::super::types::{FieldValue, StreamRecord};
 use super::evaluator::ExpressionEvaluator;
 use crate::velostream::sql::ast::{Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
+use backtrace::Backtrace;
 use chrono::Utc;
 use regex::Regex;
 use serde_json;
@@ -1827,10 +1828,20 @@ impl BuiltinFunctions {
             });
         }
 
+        // let bt = Backtrace::new();
+        //
+        // // 2. Print the backtrace
+        // // This will print the stack frames, including
+        // // function names, file names, and line numbers.
+        // println!("{:?}", bt);
+
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => {
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => {
                 // For streaming, return 0.0 since we only have one value
                 // In a real implementation, this would calculate over a window of values
                 // warn!(
@@ -1857,7 +1868,10 @@ impl BuiltinFunctions {
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => Ok(FieldValue::Float(0.0)),
             _ => Err(SqlError::ExecutionError {
                 message: "STDDEV_POP requires numeric argument".to_string(),
                 query: None,
@@ -1877,7 +1891,10 @@ impl BuiltinFunctions {
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => Ok(FieldValue::Float(0.0)),
             _ => Err(SqlError::ExecutionError {
                 message: "VAR_POP requires numeric argument".to_string(),
                 query: None,
@@ -1897,7 +1914,10 @@ impl BuiltinFunctions {
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => Ok(FieldValue::Float(0.0)),
             _ => Err(SqlError::ExecutionError {
                 message: "VARIANCE requires numeric argument".to_string(),
                 query: None,

@@ -1,18 +1,30 @@
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
+use std::str::FromStr;
 /// Shared utilities for window testing
 use tokio::sync::mpsc;
-use rust_decimal::Decimal;
-use std::str::FromStr;
-use rust_decimal::prelude::FromPrimitive;
-use velostream::velostream::{
-    sql::{
-        execution::{
-            types::{FieldValue, StreamRecord},
-            StreamExecutionEngine,
-        },
-        parser::StreamingSqlParser,
+use velostream::velostream::sql::{
+    ast::StreamingQuery,
+    execution::{
+        types::{FieldValue, StreamRecord},
+        StreamExecutionEngine,
     },
+    parser::StreamingSqlParser,
 };
+
+/// SQL validation helper - validates SQL and panics with clear error on invalid syntax
+/// This should be used instead of `.unwrap()` when parsing SQL in tests
+pub fn validate_sql(parser: &StreamingSqlParser, sql: &str) -> StreamingQuery {
+    match parser.parse(sql) {
+        Ok(query) => query,
+        Err(e) => {
+            eprintln!("❌ SQL Validation Error: {:?}", e);
+            eprintln!("   Invalid SQL: {}", sql);
+            panic!("SQL validation failed: {:?}", e);
+        }
+    }
+}
 
 /// Common record creation utilities
 pub struct TestDataBuilder;
@@ -75,9 +87,18 @@ impl TestDataBuilder {
     ) -> StreamRecord {
         let mut fields = HashMap::new();
         fields.insert("symbol".to_string(), FieldValue::String(symbol.to_string()));
-        fields.insert("exchange".to_string(), FieldValue::String(exchange.to_string()));
-        fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp_millis));
-        fields.insert("event_timestamp".to_string(), FieldValue::Integer(timestamp_millis));
+        fields.insert(
+            "exchange".to_string(),
+            FieldValue::String(exchange.to_string()),
+        );
+        fields.insert(
+            "timestamp".to_string(),
+            FieldValue::Integer(timestamp_millis),
+        );
+        fields.insert(
+            "event_timestamp".to_string(),
+            FieldValue::Integer(timestamp_millis),
+        );
         fields.insert("price".to_string(), FieldValue::Decimal(price));
         fields.insert("bid_price".to_string(), FieldValue::Decimal(bid_price));
         fields.insert("ask_price".to_string(), FieldValue::Decimal(ask_price));
@@ -90,7 +111,10 @@ impl TestDataBuilder {
         }
 
         if let Some(market_cap_value) = market_cap {
-            fields.insert("market_cap".to_string(), FieldValue::Decimal(market_cap_value));
+            fields.insert(
+                "market_cap".to_string(),
+                FieldValue::Decimal(market_cap_value),
+            );
         }
 
         StreamRecord::new(fields)
@@ -181,7 +205,9 @@ impl SqlExecutor {
         let mut engine = StreamExecutionEngine::new(tx);
 
         let parser = StreamingSqlParser::new();
-        let query = parser.parse(sql).expect("Failed to parse SQL");
+
+        // Validate SQL before execution using helper function
+        let query = validate_sql(&parser, sql);
 
         // Execute records
         for (i, record) in records.iter().enumerate() {
