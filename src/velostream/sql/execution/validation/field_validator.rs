@@ -85,6 +85,8 @@ pub enum ValidationContext {
     HavingClause,
     /// Validating window frame definitions
     WindowFrame,
+    /// Validating ORDER BY clause fields
+    OrderByClause,
 }
 
 impl std::fmt::Display for ValidationContext {
@@ -98,6 +100,7 @@ impl std::fmt::Display for ValidationContext {
             ValidationContext::Aggregation => write!(f, "aggregation"),
             ValidationContext::HavingClause => write!(f, "HAVING clause"),
             ValidationContext::WindowFrame => write!(f, "window frame"),
+            ValidationContext::OrderByClause => write!(f, "ORDER BY clause"),
         }
     }
 }

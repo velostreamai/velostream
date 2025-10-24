@@ -328,6 +328,7 @@ impl SelectProcessor {
             group_by,
             window,
             emit_mode,
+            order_by,
             ..
         } = query
         {
@@ -604,6 +605,45 @@ impl SelectProcessor {
                         header_mutations: Vec::new(),
                         should_count: false,
                     });
+                }
+            }
+
+            // Phase 4: Validate ORDER BY clause fields exist in result or original scope
+            if let Some(order_exprs) = order_by {
+                if !order_exprs.is_empty() {
+                    // ORDER BY can reference both result fields (aliases) and original fields
+                    // Merge result_fields with original joined_record fields
+                    let mut combined_fields = result_fields.clone();
+                    for (field_name, field_value) in &joined_record.fields {
+                        // Don't override result fields with original fields
+                        // This ensures aliases take precedence, but original fields are available
+                        if !combined_fields.contains_key(field_name) {
+                            combined_fields.insert(field_name.clone(), field_value.clone());
+                        }
+                    }
+
+                    let order_by_record = StreamRecord {
+                        fields: combined_fields,
+                        timestamp: joined_record.timestamp,
+                        offset: joined_record.offset,
+                        partition: joined_record.partition,
+                        headers: joined_record.headers.clone(),
+                        event_time: None,
+                    };
+
+                    // Extract expressions from ORDER BY entries
+                    let order_by_expressions: Vec<&Expr> =
+                        order_exprs.iter().map(|ob| &ob.expr).collect();
+
+                    FieldValidator::validate_expressions(
+                        &order_by_record,
+                        &order_by_expressions
+                            .into_iter()
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        ValidationContext::OrderByClause,
+                    )
+                    .map_err(|e| e.to_sql_error())?;
                 }
             }
 
