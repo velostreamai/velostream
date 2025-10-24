@@ -18,8 +18,10 @@
 //! - **JOIN Conditions**: Validates ON clause fields from both tables
 //! - **HAVING Clause**: Validates fields in HAVING expressions
 
+pub mod aggregation_validator;
 pub mod field_validator;
 pub mod type_validator;
 
+pub use aggregation_validator::AggregationValidator;
 pub use field_validator::{FieldValidationError, FieldValidator, ValidationContext};
 pub use type_validator::{TypeCategory, TypeCompatibilityError, TypeValidator};
