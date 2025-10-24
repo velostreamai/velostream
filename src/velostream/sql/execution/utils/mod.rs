@@ -3,6 +3,9 @@ pub mod field_value_comparator;
 ///
 /// This module contains utility classes extracted from the engine to:
 /// - Reduce engine size and complexity
-/// - Improve separation of concerns  
+/// - Improve separation of concerns
 /// - Enable reuse across processors and components
 pub mod time_extractor;
+
+// Re-export for convenience
+pub use field_value_comparator::FieldValueComparator;

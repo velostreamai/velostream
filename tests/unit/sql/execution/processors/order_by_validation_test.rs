@@ -237,8 +237,7 @@ fn test_order_by_with_complex_select_success() {
     // Test: ORDER BY with complex SELECT and expressions should pass
     let record = create_test_record();
     let parser = StreamingSqlParser::new();
-    let query_str =
-        "SELECT id, name, price * quantity as total FROM test_stream ORDER BY total";
+    let query_str = "SELECT id, name, price * quantity as total FROM test_stream ORDER BY total";
 
     let query = parser.parse(query_str).expect("Should parse");
     let mut context = ProcessorContext::new("test");

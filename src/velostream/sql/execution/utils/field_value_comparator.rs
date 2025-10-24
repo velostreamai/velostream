@@ -256,7 +256,8 @@ impl FieldValueComparator {
     }
 
     /// Convert ScaledInteger to f64 for comparison operations
-    fn scaled_to_f64(value: i64, scale: u8) -> f64 {
+    /// Convert a ScaledInteger to f64 by dividing by the scale factor
+    pub fn scaled_to_f64(value: i64, scale: u8) -> f64 {
         let divisor = 10_i64.pow(scale as u32) as f64;
         value as f64 / divisor
     }
