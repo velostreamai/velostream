@@ -456,8 +456,33 @@ impl StreamingSqlParser {
         let (tokens, comments) = self.tokenize_with_comments(sql)?;
         let query = self.parse_tokens_with_context(tokens, sql, comments)?;
 
-        // Validate semantic constraints (e.g., aggregate functions without GROUP BY/WINDOW)
-        AggregateValidator::validate(&query)?;
+        // IMPORTANT: Aggregate function validation is NOT done here at parse time.
+        //
+        // RATIONALE:
+        // The parser should only validate syntax. Semantic validation of aggregates
+        // is handled in dedicated layers that understand context:
+        //
+        // 1. SqlValidator.validate_aggregation_rules()
+        //    - Issues WARNINGS for aggregates without GROUP BY (global aggregation)
+        //    - Called during SQL validation phase (not parsing)
+        //    - Allows valid patterns: SELECT COUNT(*) FROM orders
+        //
+        // 2. Phase 7 AggregationValidator (execution layer)
+        //    - Validates GROUP BY completeness (all non-agg columns in GROUP BY)
+        //    - Validates aggregate placement (no aggregates in WHERE/ORDER BY)
+        //    - Validates HAVING clause field references
+        //    - Runtime validation for proper execution semantics
+        //
+        // VALID PATTERNS (all must parse successfully):
+        // - SELECT COUNT(*) FROM orders
+        //   (Global aggregation - warning only, valid SQL)
+        // - SELECT status, COUNT(*) FROM orders GROUP BY status
+        //   (With GROUP BY - valid)
+        // - SELECT symbol, AVG(price) FROM orders WINDOW TUMBLING(1m)
+        //   (With WINDOW - valid)
+        //
+        // The commented-out call was rejecting valid queries at parse time:
+        // AggregateValidator::validate(&query)?;
 
         Ok(query)
     }
