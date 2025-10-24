@@ -22,7 +22,17 @@ pretty_env_logger = "0.5.0"
 log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
-tokio = { version = "1.47.0", features = ["full"] }
+tokio = { version = "1.47.0", features = [
+    "rt-multi-thread",  # Multi-threaded async runtime with task management
+    "time",              # Timing utilities: sleep, timeout, interval
+    "sync",              # Synchronization: mpsc, Mutex, RwLock, Semaphore
+    "macros",            # Attribute macros: #[tokio::main], #[tokio::test]
+    "fs",                # Async file system operations
+    "io-util",           # Async I/O: AsyncWriteExt, AsyncReadExt
+    "net",               # Async networking: TcpListener, TcpStream
+    "process",           # Subprocess handling for integration tests
+    "signal",            # Unix signal handling (Ctrl+C) for examples
+] }
 chrono = { version = "0.4.41", features = ["serde"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 logtest = "2.0.0"
@@ -112,11 +122,6 @@ path = "src/bin/velo-sql-multi.rs"
 [[bin]]
 name = "velo-cli"
 path = "src/bin/velo_cli.rs"
-
-# SQL Validator Binary (Object-Oriented Version)
-[[bin]]
-name = "sql-validator-new"
-path = "src/bin/sql_validator_new.rs"
 
 # File Processing Demo Binary
 [[bin]]
