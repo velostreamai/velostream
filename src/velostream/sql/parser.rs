@@ -104,6 +104,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub mod annotations;
+pub mod validator;
+
+use self::validator::AggregateValidator;
 
 /// Main parser for streaming SQL queries.
 ///
@@ -451,7 +454,12 @@ impl StreamingSqlParser {
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         // Use tokenize_with_comments to extract annotations
         let (tokens, comments) = self.tokenize_with_comments(sql)?;
-        self.parse_tokens_with_context(tokens, sql, comments)
+        let query = self.parse_tokens_with_context(tokens, sql, comments)?;
+
+        // Validate semantic constraints (e.g., aggregate functions without GROUP BY/WINDOW)
+        AggregateValidator::validate(&query)?;
+
+        Ok(query)
     }
 
     // Keep the old method for backward compatibility

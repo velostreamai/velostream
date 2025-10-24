@@ -415,6 +415,16 @@ fn extract_error_context(error: &crate::velostream::sql::SqlError) -> String {
         crate::velostream::sql::SqlError::ConfigurationError { message } => {
             format!("ConfigurationError: {}", message)
         }
+        crate::velostream::sql::SqlError::AggregateWithoutGrouping {
+            functions,
+            suggestion,
+        } => {
+            format!(
+                "AggregateWithoutGrouping: aggregate functions {} cannot be used without GROUP BY or WINDOW clause. {}",
+                functions.join(", "),
+                suggestion
+            )
+        }
     }
 }
 
