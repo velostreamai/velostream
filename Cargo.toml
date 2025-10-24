@@ -17,6 +17,7 @@ debug-assertions = true
 overflow-checks = true
 
 [dependencies]
+backtrace = "0.3.76"
 pretty_env_logger = "0.5.0"
 log = "0.4.27"
 env_logger = "0.11.8"
@@ -131,31 +132,6 @@ path = "demo/datasource-demo/complete_pipeline_demo.rs"
 [[bin]]
 name = "sql-batch"
 path = "src/bin/sql_batch.rs"
-
-# Debug Encoding Test
-[[bin]]
-name = "debug_encoding_test"
-path = "tests/debug/debug_encoding_test.rs"
-
-
-
-# Performance Benchmarks
-# (No active benchmarks currently - use cargo test for performance tests)
-
-# Simple Conversion Performance Test
-[[bin]]
-name = "simple_conversion_test"
-path = "tests/debug/simple_conversion_test.rs"
-
-# StreamRecord Performance Test
-[[bin]]
-name = "test_streamrecord_performance" 
-path = "tests/debug/test_streamrecord_performance.rs"
-
-# Final Complete Performance Test
-[[bin]]
-name = "test_final_performance"
-path = "tests/debug/test_final_performance.rs"
 
 
 
