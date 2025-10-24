@@ -7,6 +7,7 @@ use super::{ProcessorContext, WindowContext};
 use crate::velostream::sql::ast::WindowSpec;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
 use crate::velostream::sql::execution::internal::{GroupAccumulator, WindowState};
+use crate::velostream::sql::execution::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStrategy};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::{SqlError, StreamingQuery};
@@ -669,8 +670,20 @@ impl WindowProcessor {
     /// // Record: {id: 1, status: "pending", amount: 100}
     /// // Result: vec![FieldValue::String("pending")]
     /// ```
-    fn extract_group_key(record: &StreamRecord, group_by_cols: &[String]) -> Vec<FieldValue> {
-        group_by_cols
+    fn extract_group_key(
+        record: &StreamRecord,
+        group_by_cols: &[String],
+    ) -> Result<Vec<FieldValue>, SqlError> {
+        // Phase 2: Validate that all GROUP BY fields exist in the record
+        FieldValidator::validate_fields_exist(
+            record,
+            &group_by_cols.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            ValidationContext::GroupBy,
+        )
+        .map_err(|e| e.to_sql_error())?;
+
+        // Extract field values for GROUP BY columns
+        let group_key = group_by_cols
             .iter()
             .map(|col_name| {
                 record
@@ -679,7 +692,9 @@ impl WindowProcessor {
                     .cloned()
                     .unwrap_or(FieldValue::String("NULL".to_string()))
             })
-            .collect()
+            .collect();
+
+        Ok(group_key)
     }
 
     /// Split window buffer into groups by GROUP BY columns (Phase 2: Group Splitting)
@@ -698,11 +713,11 @@ impl WindowProcessor {
     fn split_buffer_by_groups(
         records: &[StreamRecord],
         group_by_cols: &[String],
-    ) -> HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)> {
+    ) -> Result<HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)>, SqlError> {
         let mut groups: HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)> = HashMap::new();
 
         for record in records {
-            let group_key = Self::extract_group_key(record, group_by_cols);
+            let group_key = Self::extract_group_key(record, group_by_cols)?;
             // Use debug representation as HashMap key (safe because FieldValue is Eq semantically)
             let key_str = format!("{:?}", group_key);
             groups
@@ -712,7 +727,7 @@ impl WindowProcessor {
                 .push(record.clone());
         }
 
-        groups
+        Ok(groups)
     }
 
     /// Compute aggregation result for a single GROUP BY group (Phase 2: Per-Group Aggregation)
@@ -802,7 +817,7 @@ impl WindowProcessor {
         }
 
         // Step 1: Split buffer into groups
-        let groups = Self::split_buffer_by_groups(buffer, group_by_cols);
+        let groups = Self::split_buffer_by_groups(buffer, group_by_cols)?;
         debug!(
             "FR-079 Phase 3: Split buffer into {} distinct groups",
             groups.len()
@@ -916,7 +931,7 @@ impl WindowProcessor {
         }
 
         // Step 1: Split buffer into groups
-        let groups = Self::split_buffer_by_groups(buffer, group_by_cols);
+        let groups = Self::split_buffer_by_groups(buffer, group_by_cols)?;
         debug!(
             "FR-079 Phase 2: Split buffer into {} distinct groups",
             groups.len()
