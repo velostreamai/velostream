@@ -6,7 +6,9 @@
 use crate::velostream::sql::{
     ast::{Expr, SelectField, StreamingQuery, SubqueryType},
     config::with_clause_parser::WithClauseParser,
-    parser::{annotations::parse_metric_annotations, StreamingSqlParser},
+    parser::{
+        annotations::parse_metric_annotations, validator::AggregateValidator, StreamingSqlParser,
+    },
     query_analyzer::{
         DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType, QueryAnalyzer,
     },
@@ -684,6 +686,26 @@ impl SqlValidator {
                     severity: ErrorSeverity::Error,
                 });
                 result.is_valid = false;
+            }
+        }
+
+        // Validate aggregate function usage semantics
+        // This catches queries like "SELECT id, COUNT(*) FROM orders" without GROUP BY
+        if result.is_valid {
+            match AggregateValidator::validate(&parsed_query) {
+                Ok(_) => {
+                    // Query passed aggregate validation
+                }
+                Err(e) => {
+                    // Add semantic validation error
+                    result.parsing_errors.push(ValidationError {
+                        message: format!("Semantic validation: {}", e),
+                        line: Some(start_line),
+                        column: None,
+                        severity: ErrorSeverity::Error,
+                    });
+                    result.is_valid = false;
+                }
             }
         }
 
