@@ -21,7 +21,9 @@
 pub mod aggregation_validator;
 pub mod field_validator;
 pub mod type_validator;
+pub mod window_frame_validator;
 
 pub use aggregation_validator::AggregationValidator;
 pub use field_validator::{FieldValidationError, FieldValidator, ValidationContext};
 pub use type_validator::{TypeCategory, TypeCompatibilityError, TypeValidator};
+pub use window_frame_validator::WindowFrameValidator;
