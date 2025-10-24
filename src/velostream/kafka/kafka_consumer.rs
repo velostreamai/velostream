@@ -5,6 +5,7 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::serialization::Serde;
 use futures::StreamExt;
+use log::{debug, error};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{
     Consumer, ConsumerContext, DefaultConsumerContext, MessageStream, StreamConsumer,
@@ -13,8 +14,6 @@ use rdkafka::error::KafkaError;
 use rdkafka::message::Message as KafkaMessage;
 use std::marker::PhantomData;
 use std::time::Duration;
-use log::debug;
-use log::error;
 
 /// A Kafka consumer that handles deserialization automatically for keys, values, and headers
 ///

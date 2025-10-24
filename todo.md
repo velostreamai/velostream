@@ -35,7 +35,7 @@ Field XXXX does not exist and yet the test passes. it would make sense to
 2: The code has 'aggregate' functions like AVG STD DEV inside sq/execution/expression/functions.rs - line 1831 they do not make sense - because there is no aggregate state and no-group-by. this path should never be called - and these functions removed and unrecognised functions should throw an exception.
 The SQLValidator should detect Aggregate functions without a GROUP_BY and throw an exception
 
-3: the routing code in 
+3: the routing code in select.rs process() method is very complex. can it be simplified by breaking it into smaller methods?
 
 
 
