@@ -12,6 +12,7 @@ use crate::velostream::sql::execution::{
     aggregation::{state::GroupByStateManager, AccumulatorManager},
     expression::{ExpressionEvaluator, SelectAliasContext, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
+    validation::{FieldValidator, ValidationContext},
     FieldValue, StreamRecord,
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
@@ -391,6 +392,14 @@ impl SelectProcessor {
 
             // Apply WHERE clause
             let where_passed = if let Some(where_expr) = where_clause {
+                // Phase 3: Validate WHERE clause fields exist in the joined record
+                FieldValidator::validate_expressions(
+                    &joined_record,
+                    &[where_expr.clone()],
+                    ValidationContext::WhereClause,
+                )
+                .map_err(|e| e.to_sql_error())?;
+
                 // Create a SelectProcessor instance for subquery evaluation
                 let subquery_executor = SelectProcessor;
                 let where_result = ExpressionEvaluator::evaluate_expression_with_subqueries(
@@ -420,6 +429,14 @@ impl SelectProcessor {
 
             // Handle GROUP BY if present
             if let Some(group_exprs) = group_by {
+                // Phase 3: Validate GROUP BY clause fields exist in the joined record
+                FieldValidator::validate_expressions(
+                    &joined_record,
+                    group_exprs,
+                    ValidationContext::GroupBy,
+                )
+                .map_err(|e| e.to_sql_error())?;
+
                 // Validate EMIT clause usage
                 if let Some(emit) = emit_mode {
                     match emit {
@@ -465,6 +482,26 @@ impl SelectProcessor {
             }
 
             // Apply SELECT fields
+            // Phase 3: Validate SELECT clause expressions exist in the joined record
+            let select_expressions: Vec<&Expr> = fields
+                .iter()
+                .filter_map(|f| {
+                    if let SelectField::Expression { expr, .. } = f {
+                        Some(expr)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if !select_expressions.is_empty() {
+                FieldValidator::validate_expressions(
+                    &joined_record,
+                    &select_expressions.into_iter().cloned().collect::<Vec<_>>(),
+                    ValidationContext::SelectClause,
+                )
+                .map_err(|e| e.to_sql_error())?;
+            }
+
             let mut result_fields = HashMap::new();
             let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
@@ -545,6 +582,14 @@ impl SelectProcessor {
                     headers: joined_record.headers.clone(),
                     event_time: None,
                 };
+
+                // Phase 3: Validate HAVING clause fields exist in combined scope
+                FieldValidator::validate_expressions(
+                    &result_record,
+                    &[having_expr.clone()],
+                    ValidationContext::HavingClause,
+                )
+                .map_err(|e| e.to_sql_error())?;
 
                 // Use subquery-aware evaluator for HAVING clauses (supports EXISTS, etc.)
                 let subquery_executor = SelectProcessor;
