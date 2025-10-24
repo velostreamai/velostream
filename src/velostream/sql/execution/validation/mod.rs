@@ -19,5 +19,7 @@
 //! - **HAVING Clause**: Validates fields in HAVING expressions
 
 pub mod field_validator;
+pub mod type_validator;
 
 pub use field_validator::{FieldValidationError, FieldValidator, ValidationContext};
+pub use type_validator::{TypeCategory, TypeCompatibilityError, TypeValidator};
