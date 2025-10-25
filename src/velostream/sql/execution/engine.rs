@@ -142,9 +142,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 // Processor imports for Phase 5B integration
 use super::processors::{
-    HeaderMutation, HeaderOperation,
-    HeaderMutation as ProcessorHeaderMutation, HeaderOperation as ProcessorHeaderOperation,
-    JoinContext, ProcessorContext, QueryProcessor, SelectProcessor, WindowContext, WindowProcessor,
+    HeaderMutation, HeaderMutation as ProcessorHeaderMutation, HeaderOperation,
+    HeaderOperation as ProcessorHeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
+    SelectProcessor, WindowContext, WindowProcessor,
 };
 
 pub struct StreamExecutionEngine {
@@ -497,11 +497,7 @@ impl StreamExecutionEngine {
                     // SET_HEADER: Add or update header value
                     if let Some(value) = &mutation.value {
                         record.headers.insert(mutation.key.clone(), value.clone());
-                        log::debug!(
-                            "Applied header mutation: SET {} = {}",
-                            mutation.key,
-                            value
-                        );
+                        log::debug!("Applied header mutation: SET {} = {}", mutation.key, value);
                     }
                 }
                 HeaderOperation::Remove => {

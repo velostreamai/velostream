@@ -344,10 +344,11 @@ async fn test_set_header_mutation_applied_to_record() {
 
 #[tokio::test]
 async fn test_set_header_overwrite_existing() {
-    let results =
-        execute_query("SELECT id, SET_HEADER('source', 'new-source') as new_source FROM test_stream")
-            .await
-            .unwrap();
+    let results = execute_query(
+        "SELECT id, SET_HEADER('source', 'new-source') as new_source FROM test_stream",
+    )
+    .await
+    .unwrap();
 
     assert_eq!(results.len(), 1);
 
@@ -361,9 +362,10 @@ async fn test_set_header_overwrite_existing() {
 
 #[tokio::test]
 async fn test_set_header_with_field_mutation() {
-    let results = execute_query("SELECT id, SET_HEADER('name_header', name) as name_hdr FROM test_stream")
-        .await
-        .unwrap();
+    let results =
+        execute_query("SELECT id, SET_HEADER('name_header', name) as name_hdr FROM test_stream")
+            .await
+            .unwrap();
 
     assert_eq!(results.len(), 1);
 
@@ -377,14 +379,16 @@ async fn test_set_header_with_field_mutation() {
 
 #[tokio::test]
 async fn test_remove_header_mutation_applied() {
-    let results = execute_query("SELECT id, REMOVE_HEADER('source') as old_source FROM test_stream")
-        .await
-        .unwrap();
+    let results =
+        execute_query("SELECT id, REMOVE_HEADER('source') as old_source FROM test_stream")
+            .await
+            .unwrap();
 
     assert_eq!(results.len(), 1);
 
     // The header should be removed from the record
-    assert!(!results[0].headers.contains_key("source"),
+    assert!(
+        !results[0].headers.contains_key("source"),
         "REMOVE_HEADER mutation should remove header from output record"
     );
 
@@ -403,7 +407,7 @@ async fn test_multiple_mutations_to_same_header() {
             id,
             SET_HEADER('request-id', 'first') as first_set,
             SET_HEADER('request-id', 'second') as second_set
-         FROM test_stream"
+         FROM test_stream",
     )
     .await
     .unwrap();
@@ -427,7 +431,7 @@ async fn test_complex_mutation_sequence() {
             SET_HEADER('span-id', 'span456') as span,
             SET_HEADER('user-id', name) as user,
             REMOVE_HEADER('version') as old_version
-         FROM test_stream"
+         FROM test_stream",
     )
     .await
     .unwrap();
@@ -450,7 +454,8 @@ async fn test_complex_mutation_sequence() {
         Some(&"test".to_string()),
         "SET_HEADER with field value should be applied"
     );
-    assert!(!results[0].headers.contains_key("version"),
+    assert!(
+        !results[0].headers.contains_key("version"),
         "REMOVE_HEADER mutation should be applied"
     );
 
