@@ -104,6 +104,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub mod annotations;
+pub mod validator;
+
+use self::validator::AggregateValidator;
 
 /// Main parser for streaming SQL queries.
 ///
@@ -451,7 +454,37 @@ impl StreamingSqlParser {
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         // Use tokenize_with_comments to extract annotations
         let (tokens, comments) = self.tokenize_with_comments(sql)?;
-        self.parse_tokens_with_context(tokens, sql, comments)
+        let query = self.parse_tokens_with_context(tokens, sql, comments)?;
+
+        // IMPORTANT: Aggregate function validation is NOT done here at parse time.
+        //
+        // RATIONALE:
+        // The parser should only validate syntax. Semantic validation of aggregates
+        // is handled in dedicated layers that understand context:
+        //
+        // 1. SqlValidator.validate_aggregation_rules()
+        //    - Issues WARNINGS for aggregates without GROUP BY (global aggregation)
+        //    - Called during SQL validation phase (not parsing)
+        //    - Allows valid patterns: SELECT COUNT(*) FROM orders
+        //
+        // 2. Phase 7 AggregationValidator (execution layer)
+        //    - Validates GROUP BY completeness (all non-agg columns in GROUP BY)
+        //    - Validates aggregate placement (no aggregates in WHERE/ORDER BY)
+        //    - Validates HAVING clause field references
+        //    - Runtime validation for proper execution semantics
+        //
+        // VALID PATTERNS (all must parse successfully):
+        // - SELECT COUNT(*) FROM orders
+        //   (Global aggregation - warning only, valid SQL)
+        // - SELECT status, COUNT(*) FROM orders GROUP BY status
+        //   (With GROUP BY - valid)
+        // - SELECT symbol, AVG(price) FROM orders WINDOW TUMBLING(1m)
+        //   (With WINDOW - valid)
+        //
+        // The commented-out call was rejecting valid queries at parse time:
+        // AggregateValidator::validate(&query)?;
+
+        Ok(query)
     }
 
     // Keep the old method for backward compatibility
@@ -1163,6 +1196,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse WINDOW clause first (if present)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1174,12 +1215,6 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Having {
             self.advance();
             having = Some(self.parse_expression()?);
-        }
-
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
         }
 
         let mut order_by = None;
@@ -1518,6 +1553,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse WINDOW clause first (if present)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1529,20 +1572,6 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Having {
             self.advance();
             having = Some(self.parse_expression()?);
-        }
-
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
-
-            // Check for incorrect clause order: WINDOW before GROUP BY
-            if self.current_token().token_type == TokenType::GroupBy {
-                return Err(SqlError::ParseError {
-                    message: "Syntax error: WINDOW clause must come AFTER GROUP BY clause. Correct order: SELECT ... FROM ... GROUP BY ... WINDOW ...".to_string(),
-                    position: Some(self.current_token().position),
-                });
-            }
         }
 
         let mut order_by = None;
@@ -1723,6 +1752,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse WINDOW clause first (if present)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1734,12 +1771,6 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Having {
             self.advance();
             having = Some(self.parse_expression()?);
-        }
-
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
         }
 
         let mut order_by = None;

@@ -1,352 +1,439 @@
 # Velostream Active Development TODO
 
-**Last Updated**: October 9, 2025 (Evening)
-**Status**: ✅ **ALL TESTS PASSING** - Observability & Metrics Complete
-**Current Priority**: **Production-Ready with Comprehensive Observability**
+---
+
+## Task: Fixing Financial Trading Queries
+
+**Status**: 🔍 **INVESTIGATION REQUIRED**
+**Related Files**:
+- Test: `tests/unit/sql/execution/processors/window/emit_changes_test.rs` → `test_emit_changes_with_tumbling_window_same_window`
+- SQL: `demo/trading/sql/financial_trading.sql`
+- Core: `src/velostream/sql/execution/processors/select.rs` (process method)
+
+**Description**: Currently working on `financial_trading.sql` to make all queries work. Discovered critical issues with field validation, aggregate function handling, and query routing complexity.
 
 ---
 
-1. Make KafkaDataWriter property config handling should be consistent with KafkaDataReader
-2. Should StreamRecord has a 'key' field?
-3. check error msgs have enough context (job name) - and dont fail silently: 
-4. See  error!("AGG: Column '{}' not found in record", column_name);
-5. analyse the code for metrics, tracing and telemetry - ensure its consistent and complete
-## 🚀 **COMPREHENSIVE OBSERVABILITY ENHANCEMENT - PLANNED**
+### 🔴 **Issue #1: Missing Field Validation at Runtime**
 
-**Status**: 📋 **PLANNED** - Ready for implementation
-**Priority**: 🔥 **HIGH** - Critical infrastructure enhancement
-**Timeline**: 3-4 weeks
-**Scope**: All observability touchpoints with deployment context
+**Problem**: Invalid column references in GROUP BY clauses do not fail during execution, allowing defective queries to pass silently.
 
-### **Objective**
-Enhance all observability systems to include deployment context across:
-1. **Distributed Tracing (Spans)** - Job-name + deployment metadata
-2. **Profiling Metrics** - Deserialization, processing, serialization latency
-3. **Throughput Tracking** - Records/sec with job-name breakdown
-4. **Pipeline Operations** - Phase-specific latency and metrics
-5. **SQL Processing Latency** - Breakdown by job-name and query type
+**Evidence**:
+```sql
+-- This query SHOULD FAIL but currently PASSES
+SELECT
+    symbol,
+    SUM(amount) as total_amount,
+    COUNT(*) as order_count
+FROM orders
+GROUP BY XXXX                    -- ← XXXX doesn't exist in payload!
+WINDOW TUMBLING(1m)
+EMIT CHANGES
+```
 
-### **Architecture Overview**
+**Root Cause**:
+- Parser validates SQL syntax ✅ (grammar is correct)
+- Parser does NOT validate field existence ❌ (semantic validation missing)
+- Runtime executor assumes all fields are valid ❌
 
-**Three Integration Layers**:
+**Impacted Components**:
+1. **Parser** (`src/velostream/sql/parser/`) - No field validation
+   - `StreamingSqlParser::parse()` returns `Ok()` for syntactically valid SQL
+   - No reference to data schema during parsing
 
-#### **Layer 1: Telemetry (OpenTelemetry Spans)**
+2. **Execution Engine** (`src/velostream/sql/execution/engine.rs`)
+   - `execute_with_record()` receives records with specific fields
+   - Never cross-references SQL field references against actual record fields
+   - Fails silently when field not found
+
+3. **Processor/Select** (`src/velostream/sql/execution/processors/select.rs`)
+   - `process()` method tries to evaluate expressions
+   - When field missing, likely returns NULL or defaults
+
+**Solution**:
+
+Implement a **two-stage validation strategy**:
+
 ```rust
-// BEFORE: No job context in spans
-start_batch_span(batch_id, ...)
+// Stage 1: Runtime field validation (on FIRST execution only)
+pub struct ProcessorContext {
+    // ... existing fields ...
 
-// AFTER: Job context + deployment metadata
-start_batch_span(job_name, batch_id, ...)  // ← NEW: job_name
-  └─ attributes: [
-       ("job.name", job_name),
-       ("service.instance.id", node_id),      // ← Deployment context
-       ("host.name", node_name),
-       ("cloud.region", region),
-       ("service.version", version)
-     ]
+    /// Has schema validation been performed? (optimization flag)
+    pub validated_schema: bool,
+}
 
-// BEFORE: Streaming spans lack phase information
-start_streaming_span(operation, records, ...)
+// Implementation in select.rs:process()
+pub async fn process(
+    &self,
+    record: &StreamRecord,
+    context: &mut ProcessorContext,
+    query: &StreamingQuery,
+) -> Result<ProcessorResult> {
+    // FIRST PASS: Validate field existence against actual payload
+    if !context.validated_schema {
+        self.validate_fields_exist(&record, query)?;
+        context.validated_schema = true;  // Skip on subsequent calls
+    }
 
-// AFTER: Phase-aware profiling spans
-start_profiling_phase_span(job_name, phase: "deserialization" | "processing" | "serialization", ...)
-  └─ attributes: [
-       ("job.name", job_name),
-       ("profiling.phase", phase),
-       ("throughput_rps", records_per_sec),
-       ("latency_ms", duration_ms)
-     ]
+    // Continue with normal execution...
+    self.process_with_validated_record(record, context, query).await
+}
+
+fn validate_fields_exist(
+    &self,
+    record: &StreamRecord,
+    query: &StreamingQuery,
+) -> Result<()> {
+    let required_fields = self.extract_all_field_references(query);
+    let available_fields = record.fields.keys().cloned().collect::<HashSet<_>>();
+
+    for field in required_fields {
+        if !available_fields.contains(&field) {
+            return Err(SqlError::FieldNotFound {
+                field: field.clone(),
+                available: available_fields.iter().cloned().collect(),
+                source_location: query.source_reference(),
+            });
+        }
+    }
+
+    Ok(())
+}
 ```
 
-#### **Layer 2: Prometheus Metrics**
+**Files to Modify**:
+1. `src/velostream/sql/execution/processors/context.rs:33` - Add `validated_schema: bool` field
+2. `src/velostream/sql/execution/processors/select.rs:668` - Add validation before process logic
+3. `src/velostream/sql/error.rs` - Add `FieldNotFound` error variant with available fields list
+
+**Testing**:
+- Add test in `tests/unit/sql/execution/processors/window/emit_changes_test.rs`:
+  ```rust
+  #[tokio::test]
+  async fn test_invalid_group_by_field_fails() {
+      // Group by XXXX (doesn't exist)
+      // Should fail on first execution
+      // Should NOT retry on second execution
+  }
+  ```
+
+---
+
+### 🔴 **Issue #2: Aggregate Functions Without GROUP BY Context**
+
+**Problem**: Aggregate functions (AVG, STDDEV, SUM, etc.) are allowed in expression evaluation without GROUP BY, causing undefined behavior.
+
+**Evidence**:
 ```rust
-// NEW: Job-specific SQL latency histogram
-velo_sql_query_duration_by_job_seconds{job_name="trading_enrichment", query_type="select"}
-
-// NEW: Profiling phase latency breakdown
-velo_profiling_phase_duration_seconds{job_name="...", phase="deserialization" | "processing" | "serialization"}
-
-// NEW: Throughput by job
-velo_streaming_throughput_by_job_rps{job_name="..."}
-
-// NEW: Pipeline operations per job
-velo_pipeline_operation_duration_seconds{job_name="...", operation="deserialize" | "process" | "serialize"}
-
-// ENHANCED: Error tracking with deployment context (COMPLETED ✅)
-velo_error_messages_total{job_name="..."}
+// File: src/velostream/sql/execution/expression/functions.rs:1831
+// These functions exist but should NEVER be called without GROUP BY context
+fn evaluate_avg(values: &[FieldValue]) -> FieldValue { ... }
+fn evaluate_stddev(values: &[FieldValue]) -> FieldValue { ... }
+fn evaluate_max(values: &[FieldValue]) -> FieldValue { ... }
 ```
 
-#### **Layer 3: Deployment Context Propagation**
+**Root Cause**:
+- Aggregate functions require **state accumulation** across multiple records
+- Cannot be evaluated on a single record in isolation
+- Current design allows them to be called without state context
+
+**Impacted Components**:
+1. **Function Registry** (`src/velostream/sql/execution/expression/functions.rs:1831+`)
+   - `evaluate_function()` tries to call aggregate functions
+   - No check for GROUP BY context
+
+2. **SQL Validator** - No semantic validation
+   - Parser allows: `SELECT AVG(price) FROM orders` (invalid without GROUP BY)
+   - Should reject with clear error
+
+**Solution**:
+
+Implement **aggregate function validation** in parser and executor:
+
+```rust
+// File: src/velostream/sql/parser/validator.rs (NEW)
+pub struct AggregateValidator;
+
+impl AggregateValidator {
+    /// Validate that aggregate functions only appear in valid contexts
+    pub fn validate(query: &StreamingQuery) -> Result<()> {
+        match query {
+            StreamingQuery::Select {
+                fields,
+                group_by,
+                window,
+                ..
+            } => {
+                // Extract all function calls from SELECT fields
+                let aggregates = Self::extract_aggregate_functions(fields);
+
+                // Aggregate functions ONLY valid if:
+                // 1. GROUP BY is present, OR
+                // 2. WINDOW is present (implicit grouping)
+                let has_grouping = group_by.is_some() || window.is_some();
+
+                if !aggregates.is_empty() && !has_grouping {
+                    return Err(SqlError::AggregateWithoutGrouping {
+                        functions: aggregates,
+                        suggestion: "Add GROUP BY clause or WINDOW clause".to_string(),
+                    });
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn extract_aggregate_functions(fields: &[SelectField]) -> Vec<String> {
+        // Return names of aggregate functions found (AVG, SUM, STDDEV, etc.)
+    }
+}
+
+// File: src/velostream/sql/parser/mod.rs
+pub struct StreamingSqlParser { /* ... */ }
+
+impl StreamingSqlParser {
+    pub fn parse(&self, sql: &str) -> Result<StreamingQuery> {
+        // 1. Parse SQL syntax
+        let query = self.parse_syntax(sql)?;
+
+        // 2. Validate semantics (NEW)
+        AggregateValidator::validate(&query)?;
+
+        // 3. Return validated query
+        Ok(query)
+    }
+}
 ```
-StreamingConfig (deployment_node_id, deployment_node_name, deployment_region, version)
-    ↓
-ObservabilityManager::initialize()
-    ├─→ TelemetryProvider.set_deployment_context()    (DONE ✅)
-    ├─→ MetricsProvider.set_deployment_context()      (DONE ✅)
-    ├─→ ProfilingProvider.set_deployment_context()    (DONE ✅)
-    └─→ ErrorTracker.set_deployment_context()         (DONE ✅)
+
+**Error Type**:
+```rust
+// File: src/velostream/sql/error.rs
+pub enum SqlError {
+    // ... existing variants ...
+
+    #[error("Aggregate functions {functions:?} used without GROUP BY or WINDOW clause")]
+    AggregateWithoutGrouping {
+        functions: Vec<String>,
+        suggestion: String,
+    },
+}
 ```
 
-### **Implementation Plan (3-4 Weeks)**
+**Files to Modify**:
+1. `src/velostream/sql/parser/validator.rs` - Create new validator module (200 lines)
+2. `src/velostream/sql/parser/mod.rs:StreamingSqlParser::parse()` - Call validator after parsing
+3. `src/velostream/sql/error.rs` - Add `AggregateWithoutGrouping` error variant
+4. `src/velostream/sql/execution/expression/functions.rs:1831` - Add panic/error if aggregate called without state
 
-#### **Phase 1: Telemetry Enhancements (Spans) - Week 1**
+**Testing**:
+- Tests in `tests/unit/sql/parser/aggregate_validation_test.rs`:
+  ```rust
+  #[test]
+  fn test_avg_without_group_by_fails() {
+      let sql = "SELECT AVG(price) FROM orders";
+      let parser = StreamingSqlParser::new();
+      assert!(matches!(
+          parser.parse(sql),
+          Err(SqlError::AggregateWithoutGrouping { .. })
+      ));
+  }
 
-**Task 1.1: Add job_name to all span methods** (2 days)
-- File: `src/velostream/observability/telemetry.rs`
-- Add `job_name: &str` parameter to:
-  - `start_batch_span(job_name, batch_id, ...)`
-  - `start_sql_query_span(job_name, query, ...)`
-  - `start_streaming_span(job_name, operation, ...)`
-  - `start_aggregation_span(job_name, function, ...)`
-- Include `job.name` attribute in all span creations
-- Update all call sites (tests, processors)
+  #[test]
+  fn test_avg_with_group_by_succeeds() {
+      let sql = "SELECT symbol, AVG(price) FROM orders GROUP BY symbol";
+      let parser = StreamingSqlParser::new();
+      assert!(parser.parse(sql).is_ok());
+  }
 
-**Task 1.2: Add profiling phase tracking** (2 days)
-- Create `start_profiling_phase_span()` method
-- Support phases: "deserialization", "processing", "serialization"
-- Track phase-specific latency and throughput
-- Add nested span hierarchy (batch → phase → operation)
-
-**Task 1.3: Extend throughput attributes** (1 day)
-- Enhance `StreamingSpan.set_throughput(records_per_sec)`
-- Add to all pipeline operation spans
-- Calculate records/sec with proper denominator
-- Expose in span attributes
-
-**Deliverables**:
-- ✅ job_name in all 4 span methods
-- ✅ Profiling phase spans (deserialization, processing, serialization)
-- ✅ Throughput tracking in all spans
-- ✅ Tests for span hierarchy and attributes
-- ✅ All spans include deployment context from TelemetryProvider
-
-#### **Phase 2: Prometheus Metrics Enhancement - Week 2**
-
-**Status**: ✅ **SKELETON COMPLETE** - Infrastructure and Phase 2.1 Implementation Done
-**Completion Date**: October 17, 2025 (Evening)
-**Commit**: 68b5d73
-
-**✅ Task 2.1: Job-specific SQL latency metrics** (COMPLETE - IMPLEMENTED)
-- ✅ Created `velo_sql_query_duration_by_job_seconds` histogram with labels:
-  - ✅ `job_name` - Streaming job name
-  - ✅ `query_type` - select, insert, update, delete
-- ✅ File: `src/velostream/observability/metrics.rs` (SqlMetrics struct)
-- ✅ Added `query_duration_by_job: HistogramVec` field
-- ✅ Added `record_query_by_job()` method for job-aware metrics
-- ✅ Histogram initialized in `SqlMetrics::new()` with appropriate buckets
-- ✅ Tracks separate latency per job+query_type combination
-- ✅ Compilation verified (0 errors, 10 warnings from unrelated code)
-
-**Task 2.2: Profiling phase metrics** (2 days) - READY FOR IMPLEMENTATION
-- Create `velo_profiling_phase_duration_seconds` histogram with labels:
-  - `job_name` - Streaming job name
-  - `phase` - deserialization | processing | serialization
-- Create `velo_profiling_phase_throughput_rps` gauge
-- Track phase-specific performance per job
-- **Implementation Note**: Add `profiling_phase_duration: HistogramVec` and `profiling_phase_throughput: GaugeVec` to StreamingMetrics struct (skeleton already in place)
-
-**Task 2.3: Pipeline operations metrics** (1 day) - READY FOR IMPLEMENTATION
-- Create `velo_pipeline_operation_duration_seconds` histogram with labels:
-  - `job_name` - Streaming job name
-  - `operation` - deserialize | process | serialize
-- Record operation counts and durations per job
-- **Implementation Note**: Add `pipeline_operation_duration: HistogramVec` to StreamingMetrics struct (skeleton already in place)
-
-**Task 2.4: Enhanced job-specific throughput** (1 day) - READY FOR IMPLEMENTATION
-- Create `velo_streaming_throughput_by_job_rps` gauge with labels:
-  - `job_name` - Streaming job name
-- Replace/supplement generic throughput metric
-- **Implementation Note**: Add `throughput_by_job: GaugeVec` to StreamingMetrics struct (skeleton already in place)
-
-**✅ Phase 2.2-2.4: Metrics Skeleton Infrastructure** (COMPLETE - SCAFFOLDING)
-- ✅ Added 4 new metric fields to StreamingMetrics struct
-- ✅ Profiling phase histogram and gauge initialized in new()
-- ✅ Pipeline operations histogram initialized in new()
-- ✅ Job-specific throughput gauge initialized in new()
-- ✅ All metrics properly registered with Prometheus
-- ✅ Compilation verified (357 tests passing)
-
-**Deliverables (Phase 2 Complete)**:
-- ✅ Job-specific SQL latency histogram fully implemented
-- ✅ Profiling phase metrics infrastructure (ready for recording methods)
-- ✅ Pipeline operations metrics infrastructure (ready for recording methods)
-- ✅ Enhanced throughput tracking by job infrastructure
-- ✅ All metrics properly labeled with job_name and phase/operation labels
-- ✅ Prometheus naming compliance validated
-
-**✅ Phase 2.2-2.4 Recording Methods Implementation (COMPLETE)**:
-- ✅ Implemented private recording methods in StreamingMetrics:
-  - `record_profiling_phase()` for Phase 2.2 (latency/throughput by job/phase)
-  - `record_pipeline_operation()` for Phase 2.3 (duration by job/operation)
-  - `record_throughput_by_job()` for Phase 2.4 (job-specific throughput gauge)
-- ✅ Added public MetricsProvider API wrappers with activity checks and trace logging
-- ✅ Fixed telemetry test method signatures to use updated TelemetryProvider API
-- ✅ Integrated recording methods into observability_helper for processor instrumentation
-- ✅ Enhanced record_deserialization() to call record_profiling_phase()
-- ✅ Enhanced record_sql_processing() to call record_pipeline_operation()
-- ✅ Enhanced record_serialization_success() to call record_profiling_phase()
-- ✅ Enhanced record_serialization_failure() to call record_profiling_phase()
-- ✅ Added record_batch_throughput() method for Phase 2.4 tracking
-- ✅ All 357 unit tests passing
-- ✅ Pre-commit validation: formatting, compilation, clippy all passed
-- **Completion Date**: October 17, 2025 (Evening)
-- **Commits**: bcaab6c (metrics methods), d2ecf11 (helper integration)
-
-**Next Steps for Phase 2 (DEFERRED - Phase 2 Infrastructure Complete)**:
-- [ ] Add comprehensive unit tests for the new recording methods
-- [ ] Add integration tests for observability_helper integration
-- [ ] Update processors (SimpleJobProcessor, TransactionalJobProcessor) to call record_batch_throughput()
-- [ ] Add end-to-end observability tests
-
-#### **Phase 3: Integration & Instrumentation - Week 3**
-
-**Task 3.1: Update metrics recording in processors** (2 days)
-- File: `src/velostream/server/processors/common.rs`
-- Update `record_sql_query()` to include job_name
-- Add phase-specific profiling measurements
-- Calculate and emit throughput metrics
-
-**Task 3.2: Update job/stream processing** (2 days)
-- File: `src/velostream/server/stream_job_server.rs`
-- Pass job_name to all observability calls
-- Register job-specific metrics on job start
-- Cleanup metrics on job termination
-
-**Task 3.3: Enhance error tracking with job context** (1 day)
-- Ensure all error messages include job_name
-- Link error metrics to specific jobs
-- Add error rate per job tracking
-
-**Deliverables**:
-- ✅ Processors emit job-aware metrics
-- ✅ Job server integrates observability
-- ✅ Error tracking with job context
-- ✅ Metrics lifecycle management (register/unregister)
-
-#### **Phase 4: Testing & Validation - Week 4**
-
-**Task 4.1: Add telemetry tests** (2 days)
-- Test job_name in all span methods
-- Verify span attribute propagation
-- Test span hierarchy and parent-child relationships
-- Test profiling phase tracking
-- Test throughput calculations
-
-**Task 4.2: Add metrics tests** (2 days)
-- Test job-specific latency metrics
-- Verify profiling phase breakdown
-- Test pipeline operations tracking
-- Test throughput by job
-- Test metric labels and values
-
-**Task 4.3: Add integration tests** (1 day)
-- End-to-end observability flow with multiple jobs
-- Verify span-to-metrics correlation
-- Test deployment context propagation
-- Test multi-job scenarios
-
-**Deliverables**:
-- ✅ 15+ telemetry span tests
-- ✅ 15+ metrics tests
-- ✅ 5+ integration tests
-- ✅ All tests passing with pre-commit validation
-- ✅ Zero regressions in existing tests
-
-### **Key Design Patterns**
-
-1. **Labels Over Metrics**: Use labels (job_name, phase) rather than separate metrics
-2. **Hierarchical Spans**: Phase spans nested under batch spans via parent context
-3. **Lazy Initialization**: Register metrics only for active jobs
-4. **Consistent Naming**: All job names match StreamingQuery/job definitions
-5. **Performance**: Zero overhead for disabled observability features
-
-### **Success Criteria**
-
-- ✅ All observability touchpoints include job_name
-- ✅ Deployment context (node_id, node_name, region, version) in all spans
-- ✅ Profiling phases (deserialization, processing, serialization) tracked separately
-- ✅ Throughput (records/sec) exposed in spans and metrics
-- ✅ SQL latency breakdown by job-name in Prometheus
-- ✅ Pipeline operations tracked per phase per job
-- ✅ Zero performance regression
-- ✅ 100% test coverage for new features
-- ✅ All pre-commit checks passing
-
-### **Reference Documents**
-
-- **Telemetry (Spans)**: `src/velostream/observability/telemetry.rs`
-- **Metrics**: `src/velostream/observability/metrics.rs`
-- **Error Tracking**: `src/velostream/observability/error_tracker.rs` ✅
-- **ObservabilityManager**: `src/velostream/observability/mod.rs`
-- **Processors**: `src/velostream/server/processors/common.rs`
-
-### **Blocked By**
-
-None - Ready to start immediately
-
-### **Blocks**
-
-None - Other teams can proceed in parallel
+  #[test]
+  fn test_avg_with_window_succeeds() {
+      let sql = "SELECT symbol, AVG(price) FROM orders WINDOW TUMBLING(1m)";
+      let parser = StreamingSqlParser::new();
+      assert!(parser.parse(sql).is_ok());
+  }
+  ```
 
 ---
 
-## 📋 **RECENT COMPLETIONS**
+### 🟡 **Issue #3: Complex Query Routing in select.rs**
 
-### **October 17, 2025 (Continued)**
-- ✅ **Phase 1: Telemetry Enhancements Complete** (commit eb1dcb7)
-  - Added job_name parameter to all span methods (batch, SQL, streaming, aggregation)
-  - Implemented start_profiling_phase_span() for phase-specific tracing
-  - All spans now include deployment context attributes
-  - Updated observability_helper call sites with job_name
-  - Profiling phases: deserialization, processing, serialization
-  - Throughput calculation and exposure (records/sec)
-  - 357 tests passing, zero compilation errors
-  - Status: Ready for Phase 2 metrics enhancement
+**Problem**: The `process()` method in `select.rs` has high cyclomatic complexity with deeply nested routing logic.
 
-### **October 17, 2025**
-- ✅ **Deployment Metadata in Error Reporting** (commit c488dd7)
-  - Enhanced ErrorEntry with DeploymentContext (node_id, node_name, region, version)
-  - Updated ErrorMessageBuffer to track and propagate deployment context
-  - Extended MetricsProvider with set_deployment_context() method
-  - Display format includes full deployment metadata inline in error messages
-  - Integration test verifies end-to-end deployment context flow
-  - 357 total tests passing (9 new deployment context tests)
-  - Pre-commit validation: formatting, compilation, clippy, unit tests all passed
-  - Ready for production deployment
+**Evidence**:
+```rust
+// File: src/velostream/sql/execution/processors/select.rs:668+
+pub async fn process(
+    &self,
+    record: &StreamRecord,
+    context: &mut ProcessorContext,
+) -> Result<ProcessorResult> {
+    // Massive conditional logic handling multiple execution paths:
+    // - SELECT * (passthrough)
+    // - SELECT field1, field2 (projection)
+    // - SELECT with WHERE clause
+    // - SELECT with GROUP BY
+    // - SELECT with GROUP BY + WINDOW
+    // - SELECT with HAVING clause
+    // - Each path with EMIT CHANGES / EMIT FINAL variants
+    // Result: ~300 lines of nested if/match statements
+}
+```
 
-### **October 9, 2025**
-- ✅ **Enhanced FR-073 RFC with Comprehensive Implementation Plan** (commit 9213215)
-  - Added strategic differentiation section: Dual-Plane Observability (Prometheus + ClickHouse)
-  - Integrated OpenTelemetry distributed tracing vision
-  - Added detailed 6-phase implementation plan with complete code examples
-  - Comprehensive technical specifications: ~2,300 LOC, 39 tests, 14 files, 7 weeks
-  - Level of effort breakdown by phase with file locations and test counts
-  - MVP scope defined: 2 weeks for counter metrics only
-  - Complete documentation requirements (12 deliverables)
-  - RFC now ready for implementation with zero ambiguity
+**Root Cause**:
+- All execution paths (simple → complex) handled in single method
+- No separation of concerns (filtering, projection, grouping, emission)
+- Difficult to test individual paths
+- High risk of bugs when adding new features
 
-- ✅ **Complete Observability and Grafana Dashboard Integration** (commits 8cf22db, 66a6b55)
-  - Fixed shared ObservabilityManager initialization using `.with_prometheus_metrics()` builder
-  - Added operation-labeled metrics (deserialization, serialization, sql_processing)
-  - Fixed Grafana dashboard datasource UIDs and metric names
-  - Grafana "Velostream Overview" dashboard fully functional
-  - All metrics properly exported on port 9091
-  - See [docs/feature/FR-073-UNIFIED-OBSERVABILITY.md](docs/feature/FR-073-UNIFIED-OBSERVABILITY.md) for complete feature specification
+**Solution**:
 
-### **October 8, 2025**
-- ✅ **Multi-Sink Write Performance Optimization** (commit 10832d3)
-  - +8-11% throughput improvement (283K → 308K records/sec)
-  - Zero-copy mock implementations with `mem::take()` pattern
-  - Lazy `has_more()` checks to reduce async calls
-  - Atomic writer operations eliminating lock contention
-  - Comprehensive execution chain profiling (91.3% framework overhead identified)
-  - See [todo-complete.md](todo-complete.md#-completed-multi-sink-write-performance-optimization---october-8-2025) for details
+Refactor into **focused processor pipeline**:
 
-### **October 7, 2025**
-- ✅ **Multi-Source Processor Tests Registered** (commit f278619)
-  - See [todo-complete.md](todo-complete.md#-completed-multi-source-processor-tests-registration---october-7-2025) for details
+```rust
+// File: src/velostream/sql/execution/processors/select.rs
+
+/// Process SELECT queries using pipeline pattern
+pub struct SelectProcessor {
+    /// Filter records by WHERE clause (optional)
+    filter_processor: Option<Arc<dyn RecordFilter>>,
+
+    /// Project/transform fields
+    projection_processor: Arc<dyn RecordProjector>,
+
+    /// Group records by GROUP BY clause (optional)
+    group_processor: Option<Arc<dyn RecordGrouper>>,
+
+    /// Window aggregation (optional)
+    window_processor: Option<Arc<dyn WindowAggregator>>,
+
+    /// Filter groups by HAVING clause (optional)
+    having_processor: Option<Arc<dyn GroupFilter>>,
+}
+
+impl SelectProcessor {
+    pub async fn process(
+        &self,
+        record: &StreamRecord,
+        context: &mut ProcessorContext,
+    ) -> Result<ProcessorResult> {
+        let mut record = record.clone();
+
+        // Pipeline execution
+        // 1. Filter by WHERE
+        if let Some(ref filter) = self.filter_processor {
+            if !filter.matches(&record)? {
+                return Ok(ProcessorResult {
+                    record: None,
+                    should_count: false,
+                });
+            }
+        }
+
+        // 2. Grouping (if GROUP BY)
+        let group_key = if let Some(ref grouper) = self.group_processor {
+            Some(grouper.extract_group_key(&record)?)
+        } else {
+            None
+        };
+
+        // 3. Window processing (if WINDOW)
+        if let Some(ref window) = self.window_processor {
+            // Handle window-based aggregation
+        }
+
+        // 4. Projection
+        let output = self.projection_processor.project(&record, context)?;
+
+        // 5. HAVING filter (if present)
+        if let Some(ref having) = self.having_processor {
+            if !having.matches(&output, context)? {
+                return Ok(ProcessorResult {
+                    record: None,
+                    should_count: false,
+                });
+            }
+        }
+
+        // 6. Emit decision
+        self.emit_record(output, context)
+    }
+}
+
+// Separate trait implementations for clarity
+pub trait RecordFilter: Send + Sync {
+    fn matches(&self, record: &StreamRecord) -> Result<bool>;
+}
+
+pub trait RecordProjector: Send + Sync {
+    fn project(&self, record: &StreamRecord, context: &ProcessorContext) -> Result<StreamRecord>;
+}
+
+pub trait RecordGrouper: Send + Sync {
+    fn extract_group_key(&self, record: &StreamRecord) -> Result<String>;
+}
+
+pub trait GroupFilter: Send + Sync {
+    fn matches(&self, record: &StreamRecord, context: &ProcessorContext) -> Result<bool>;
+}
+```
+
+**Benefits**:
+- ✅ Single Responsibility Principle - each processor handles one concern
+- ✅ Easier testing - test each processor independently
+- ✅ Easier to extend - add new processors without modifying existing code
+- ✅ Better error messages - know exactly which stage failed
+- ✅ Performance optimization - pipeline can be optimized at each stage
+
+**Implementation Plan**:
+1. **Phase 1** (1 day): Create trait definitions and split logic
+   - Create `record_filter.rs`, `projector.rs`, `grouper.rs`, `having.rs`
+   - Each ~100 lines
+
+2. **Phase 2** (1 day): Refactor `process()` method
+   - Rewrite using pipeline pattern
+   - Keep public API same (backward compatible)
+
+3. **Phase 3** (0.5 day): Comprehensive testing
+   - Test each processor independently
+   - Test combined pipeline
+   - Verify no behavior change
+
+**Files to Create/Modify**:
+1. `src/velostream/sql/execution/processors/filter.rs` (NEW) - WHERE clause processing
+2. `src/velostream/sql/execution/processors/projector.rs` (NEW) - Field selection/transformation
+3. `src/velostream/sql/execution/processors/grouper.rs` (NEW) - GROUP BY processing
+4. `src/velostream/sql/execution/processors/select.rs` - Refactor main process() method
+5. Tests for each new processor
 
 ---
+
+## Summary & Logical Sequence
+
+### 🎯 **Recommended Fix Order** (Priority & Dependencies):
+
+**Phase 1: Validation Foundation** (3-4 days)
+- [ ] Issue #2: Aggregate validation (parser level) - **BLOCKING** other fixes
+  - Prevents execution of invalid SQL early
+  - Gives clear error messages
+
+**Phase 2: Runtime Safety** (2-3 days)
+- [ ] Issue #1: Field validation at runtime
+  - Builds on Phase 1 validation
+  - Provides safety net for dynamic records
+
+**Phase 3: Maintainability** (2-3 days)
+- [ ] Issue #3: Refactor select processor pipeline
+  - Easier to debug Issues #1 and #2
+  - Cleaner codebase for future features
+
+**Total Effort**: ~1-2 weeks
+**Risk Level**: 🟢 LOW (all changes additive, backward compatible)
+**Expected Benefit**: 🟢 HIGH (prevents silent failures, improves code quality)
+
+
 
 ## 🔍 **ACTIVE INVESTIGATION: Tokio Async Framework Overhead**
 

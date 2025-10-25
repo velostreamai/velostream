@@ -26,6 +26,8 @@ from streaming queries, particularly important for:
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
+use rust_decimal::Decimal;
+use std::str::FromStr;
 use velostream::velostream::sql::execution::types::FieldValue;
 
 /// Test basic EMIT CHANGES functionality without windows
@@ -96,26 +98,25 @@ async fn test_emit_changes_with_tumbling_window() {
 async fn test_emit_changes_with_tumbling_window_same_window() {
     let sql = r#"
         SELECT
-            status,
+            symbol,
             SUM(amount) as total_amount,
+            COUNT(*) > 1 as passes_count_filter,
+            STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+            AVG(price) * 0.0001 as volatility_threshold,
+            MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+            AVG(volume) * 1.1 as volume_threshold,
             COUNT(*) as order_count
         FROM orders
+        GROUP BY XXXX
         WINDOW TUMBLING(1m)
-        GROUP BY status
         EMIT CHANGES
     "#;
 
-    let records = vec![
-        TestDataBuilder::order_record(1, 100, 100.0, "pending", 10), // Window 1
-        TestDataBuilder::order_record(2, 101, 200.0, "pending", 20), // Window 1
-        TestDataBuilder::order_record(3, 102, 150.0, "completed", 30), // Window 1
-        TestDataBuilder::order_record(4, 103, 300.0, "pending", 40), // Window 1
-        TestDataBuilder::order_record(5, 104, 250.0, "completed", 50), // Window 1
-    ];
+    let records = TestDataBuilder::generate_market_data_series("AAPL", "NASDQ", 10.50, 10, 100);
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES with Tumbling Window");
+    WindowTestAssertions::assert_result_count_min(&results, 5, "EMIT CHANGES with Tumbling Window");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
 }
 
@@ -123,14 +124,15 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
 #[tokio::test]
 async fn test_emit_changes_with_sliding_window() {
     let sql = r#"
-        SELECT 
+        CREATE STREAM price_movement_simple AS
+        SELECT
             customer_id,
             AVG(amount) as avg_amount,
             COUNT(*) as order_count,
             MIN(timestamp) as window_start
-        FROM orders 
-        WINDOW SLIDING(3m, 1m)
+        FROM orders
         GROUP BY customer_id
+        WINDOW SLIDING(3m, 1m)
         EMIT CHANGES
     "#;
 

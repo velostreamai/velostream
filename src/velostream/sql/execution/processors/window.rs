@@ -6,7 +6,8 @@
 use super::{ProcessorContext, WindowContext};
 use crate::velostream::sql::ast::WindowSpec;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
-use crate::velostream::sql::execution::internal::WindowState;
+use crate::velostream::sql::execution::internal::{GroupAccumulator, WindowState};
+use crate::velostream::sql::execution::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStrategy};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::{SqlError, StreamingQuery};
@@ -140,8 +141,20 @@ impl WindowProcessor {
                 // Add record to buffer (pre-allocated for performance)
                 window_state.add_record(record.clone());
 
-                // Check if window should emit using optimized timing logic
-                if Self::should_emit_window_state(window_state, event_time, window_spec) {
+                // Phase 7: For EMIT CHANGES, emit per-record state changes
+                let is_emit_changes = Self::is_emit_changes(query);
+                let group_by_cols = Self::get_group_by_columns(query);
+
+                // Check if window should emit
+                // For EMIT CHANGES with GROUP BY: emit on every record
+                // For others: emit only on window boundaries
+                let should_emit = if is_emit_changes && group_by_cols.is_some() {
+                    true
+                } else {
+                    Self::should_emit_window_state(window_state, event_time, window_spec)
+                };
+
+                if should_emit {
                     // Drop window_state borrow before calling process_window_emission_state
                     return Self::process_window_emission_state(
                         query_id,
@@ -151,7 +164,6 @@ impl WindowProcessor {
                         context,
                     );
                 }
-
                 // No emission this cycle - state is automatically marked dirty by context
                 Ok(None)
             } else {
@@ -176,100 +188,211 @@ impl WindowProcessor {
         event_time: i64,
         context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        // Get window state reference - borrow will be released after cloning buffer
-        let window_state = context.get_or_create_window_state(query_id, window_spec);
-        let last_emit_time = window_state.last_emit;
-        let buffer = window_state.buffer.clone();
-        // window_state borrow ends here
+        // Phase 1: GROUP BY Detection for EMIT CHANGES + Window combination
+        // Check if this is a GROUP BY + EMIT CHANGES windowed query
+        let group_by_cols = Self::get_group_by_columns(query);
+        let is_emit_changes = Self::is_emit_changes(query);
 
-        // Calculate window boundaries for metadata
-        let (window_start, window_end) = match window_spec {
-            WindowSpec::Tumbling { size, .. } => {
-                let window_size_ms = size.as_millis() as i64;
-                let start = if last_emit_time == 0 {
-                    0 // First window: 0 to window_size_ms
-                } else {
-                    last_emit_time
-                };
-                let end = start + window_size_ms;
-                (start, end)
-            }
-            WindowSpec::Sliding { size, advance, .. } => {
-                let window_size_ms = size.as_millis() as i64;
-                let advance_ms = advance.as_millis() as i64;
-                let start = last_emit_time;
-                let end = start + window_size_ms;
-                (start, end)
-            }
-            WindowSpec::Session { gap, .. } => {
-                // For session windows, use the first and last record times
-                if buffer.is_empty() {
-                    (event_time, event_time)
-                } else {
-                    let first_time =
-                        Self::extract_event_time(&buffer[0], window_spec.time_column());
-                    let last_time = Self::extract_event_time(
-                        &buffer[buffer.len() - 1],
-                        window_spec.time_column(),
-                    );
-                    (first_time, last_time)
+        // Phase 3: ENGINE INTEGRATION - Activate GROUP BY routing
+        if let (Some(ref cols), true) = (&group_by_cols, is_emit_changes) {
+            debug!(
+                "FR-079 Phase 3: Activating GROUP BY + EMIT CHANGES windowed query routing for query: {}",
+                query_id
+            );
+
+            // Get window state reference - borrow will be released after cloning buffer
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+            let last_emit_time = window_state.last_emit;
+            let buffer = window_state.buffer.clone();
+            // window_state borrow ends here
+
+            // Filter buffer for current window
+            // For EMIT CHANGES with GROUP BY, use all buffered records (no window boundary filtering)
+            // For standard window emissions, filter by window completion
+            let is_emit_changes = Self::is_emit_changes(query);
+            let (windowed_buffer, window_start, window_end) = if is_emit_changes {
+                // EMIT CHANGES: Use ALL records in buffer, don't filter by window boundary
+                debug!("FR-079 Phase 7: EMIT CHANGES mode - using all buffered records");
+                (buffer.clone(), 0, 0)
+            } else {
+                // Standard window emission: Filter by window completion
+                match window_spec {
+                    WindowSpec::Tumbling { size, .. } => {
+                        let window_size_ms = size.as_millis() as i64;
+                        let start = if last_emit_time == 0 {
+                            0 // First window: 0 to window_size_ms
+                        } else {
+                            last_emit_time
+                        };
+                        let end = start + window_size_ms;
+                        // Filter records that belong to the completed window
+                        let filtered = buffer
+                            .iter()
+                            .filter(|r| {
+                                let record_time =
+                                    Self::extract_event_time(r, window_spec.time_column());
+                                record_time >= start && record_time < end
+                            })
+                            .cloned()
+                            .collect();
+                        (filtered, start, end)
+                    }
+                    WindowSpec::Sliding { .. } => (buffer.clone(), 0, 0), // For other window types, use all buffered records
+                    WindowSpec::Session { .. } => (buffer.clone(), 0, 0),
                 }
+            };
+
+            // Phase 3/4: Compute ALL group results and queue for emission
+            let all_results = Self::compute_all_group_results(
+                cols,
+                &windowed_buffer,
+                query,
+                window_spec,
+                context,
+                window_start,
+                window_end,
+            )?;
+
+            if all_results.is_empty() {
+                debug!(
+                    "⚠️  FR-079 Phase 7: No group results from aggregation - all groups may have failed"
+                );
+                debug!("FR-079 Phase 3/4: No group results from aggregation");
+                // Update window state even if no results
+                let window_state = context.get_or_create_window_state(query_id, window_spec);
+                Self::update_window_state_direct(window_state, window_spec, event_time);
+                // FR-079 Phase 7 FIX: Don't cleanup for EMIT CHANGES
+                // We need to keep the buffer intact to re-emit state changes on every record
+                return Ok(None);
             }
-        };
 
-        // Filter buffer for current window
-        let windowed_buffer = match window_spec {
-            WindowSpec::Tumbling { .. } => {
-                // Filter records that belong to the completed window
-                buffer
-                    .iter()
-                    .filter(|r| {
-                        let record_time = Self::extract_event_time(r, window_spec.time_column());
-                        record_time >= window_start && record_time < window_end
-                    })
-                    .cloned()
-                    .collect()
+            debug!(
+                "FR-079 Phase 4: Computed {} group results for emission",
+                all_results.len()
+            );
+
+            // Phase 4: Queue additional results (2nd, 3rd, etc.) for emission in subsequent cycles
+            let mut result_iter = all_results.into_iter();
+            let first_result = result_iter
+                .next()
+                .expect("all_results is not empty, already checked");
+            let remaining_results: Vec<_> = result_iter.collect();
+
+            if !remaining_results.is_empty() {
+                context.queue_results(query_id, remaining_results.clone());
+                debug!(
+                    "FR-079 Phase 4: Queued {} additional group results for later emission",
+                    remaining_results.len()
+                );
             }
-            _ => buffer, // For other window types, use all buffered records
-        };
 
-        // Execute aggregation on filtered records with window boundaries
-        let result_option = match Self::execute_windowed_aggregation_impl(
-            query,
-            &windowed_buffer,
-            window_start,
-            window_end,
-            context,
-        ) {
-            Ok(result) => Some(result),
-            Err(SqlError::ExecutionError { message, .. })
-                if message == "No records after filtering" =>
-            {
-                None
-            }
-            Err(SqlError::ExecutionError { message, .. })
-                if message == "HAVING clause not satisfied" =>
-            {
-                None
-            }
-            Err(SqlError::ExecutionError { message, .. })
-                if message == "No groups satisfied HAVING clause" =>
-            {
-                None
-            }
-            Err(e) => return Err(e),
-        };
+            // Update window state after aggregation
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+            Self::update_window_state_direct(window_state, window_spec, event_time);
 
-        // Get window state again for updates (new mutable borrow)
-        let window_state = context.get_or_create_window_state(query_id, window_spec);
+            // FR-079 Phase 7 FIX: Don't cleanup buffer for EMIT CHANGES
+            // We need to re-emit state changes on every record, so we keep the buffer intact
+            // Only cleanup when window boundary is reached (handled elsewhere for standard windows)
 
-        // Update window state after aggregation
-        Self::update_window_state_direct(window_state, window_spec, event_time);
+            Ok(Some(first_result))
+        } else {
+            // Original single-result path (non-GROUP BY + EMIT CHANGES queries)
+            // Get window state reference - borrow will be released after cloning buffer
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+            let last_emit_time = window_state.last_emit;
+            let buffer = window_state.buffer.clone();
+            // window_state borrow ends here
 
-        // Clear or adjust buffer based on window type
-        Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+            // Calculate window boundaries for metadata
+            let (window_start, window_end) = match window_spec {
+                WindowSpec::Tumbling { size, .. } => {
+                    let window_size_ms = size.as_millis() as i64;
+                    let start = if last_emit_time == 0 {
+                        0 // First window: 0 to window_size_ms
+                    } else {
+                        last_emit_time
+                    };
+                    let end = start + window_size_ms;
+                    (start, end)
+                }
+                WindowSpec::Sliding { size, advance, .. } => {
+                    let window_size_ms = size.as_millis() as i64;
+                    let advance_ms = advance.as_millis() as i64;
+                    let start = last_emit_time;
+                    let end = start + window_size_ms;
+                    (start, end)
+                }
+                WindowSpec::Session { gap, .. } => {
+                    // For session windows, use the first and last record times
+                    if buffer.is_empty() {
+                        (event_time, event_time)
+                    } else {
+                        let first_time =
+                            Self::extract_event_time(&buffer[0], window_spec.time_column());
+                        let last_time = Self::extract_event_time(
+                            &buffer[buffer.len() - 1],
+                            window_spec.time_column(),
+                        );
+                        (first_time, last_time)
+                    }
+                }
+            };
 
-        Ok(result_option)
+            // Filter buffer for current window
+            let windowed_buffer = match window_spec {
+                WindowSpec::Tumbling { .. } => {
+                    // Filter records that belong to the completed window
+                    buffer
+                        .iter()
+                        .filter(|r| {
+                            let record_time =
+                                Self::extract_event_time(r, window_spec.time_column());
+                            record_time >= window_start && record_time < window_end
+                        })
+                        .cloned()
+                        .collect()
+                }
+                _ => buffer, // For other window types, use all buffered records
+            };
+
+            // Execute aggregation on filtered records with window boundaries
+            let result_option = match Self::execute_windowed_aggregation_impl(
+                query,
+                &windowed_buffer,
+                window_start,
+                window_end,
+                context,
+            ) {
+                Ok(result) => Some(result),
+                Err(SqlError::ExecutionError { message, .. })
+                    if message == "No records after filtering" =>
+                {
+                    None
+                }
+                Err(SqlError::ExecutionError { message, .. })
+                    if message == "HAVING clause not satisfied" =>
+                {
+                    None
+                }
+                Err(SqlError::ExecutionError { message, .. })
+                    if message == "No groups satisfied HAVING clause" =>
+                {
+                    None
+                }
+                Err(e) => return Err(e),
+            };
+
+            // Get window state again for updates (new mutable borrow)
+            let window_state = context.get_or_create_window_state(query_id, window_spec);
+
+            // Update window state after aggregation
+            Self::update_window_state_direct(window_state, window_spec, event_time);
+
+            // Clear or adjust buffer based on window type
+            Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time);
+
+            Ok(result_option)
+        }
     }
 
     /// Process window emission when triggered (DEPRECATED: Legacy method without context support)
@@ -480,6 +603,472 @@ impl WindowProcessor {
         }
     }
 
+    /// Extract GROUP BY columns from query (Phase 1: GROUP BY Detection)
+    ///
+    /// Returns Some(Vec<String>) with the GROUP BY column names if GROUP BY exists,
+    /// None otherwise. Only supports simple column references in GROUP BY.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// // Query: SELECT status, COUNT(*) FROM orders GROUP BY status
+    /// let group_by_cols = WindowProcessor::get_group_by_columns(query);
+    /// assert_eq!(group_by_cols, Some(vec!["status".to_string()]));
+    /// ```
+    pub fn get_group_by_columns(query: &StreamingQuery) -> Option<Vec<String>> {
+        if let StreamingQuery::Select {
+            group_by: Some(exprs),
+            ..
+        } = query
+        {
+            exprs
+                .iter()
+                .map(|expr| {
+                    match expr {
+                        crate::velostream::sql::ast::Expr::Column(col_name) => {
+                            Some(col_name.clone())
+                        }
+                        _ => {
+                            None // Only support simple column references
+                        }
+                    }
+                })
+                .collect::<Option<Vec<_>>>()
+        } else {
+            None
+        }
+    }
+
+    /// Check if query uses EMIT CHANGES mode (Phase 1: GROUP BY Detection)
+    ///
+    /// Returns true if the query has EMIT CHANGES mode set, false for EMIT FINAL or no emit mode.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// // Query: SELECT status, COUNT(*) FROM orders EMIT CHANGES
+    /// let is_changes = WindowProcessor::is_emit_changes(query);
+    /// assert_eq!(is_changes, true);
+    /// ```
+    pub fn is_emit_changes(query: &StreamingQuery) -> bool {
+        if let StreamingQuery::Select { emit_mode, .. } = query {
+            matches!(
+                emit_mode,
+                Some(crate::velostream::sql::ast::EmitMode::Changes)
+            )
+        } else {
+            false
+        }
+    }
+
+    /// Extract GROUP BY key from a record (Phase 2: Group Splitting)
+    ///
+    /// Extracts the values of GROUP BY columns from a record to form a group key.
+    /// Returns a Vec<FieldValue> representing the group key for matching.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // For query: SELECT status, COUNT(*) FROM orders GROUP BY status
+    /// // Record: {id: 1, status: "pending", amount: 100}
+    /// // Result: vec![FieldValue::String("pending")]
+    /// ```
+    fn extract_group_key(
+        record: &StreamRecord,
+        group_by_cols: &[String],
+    ) -> Result<Vec<FieldValue>, SqlError> {
+        // Phase 2: Validate that all GROUP BY fields exist in the record
+        FieldValidator::validate_fields_exist(
+            record,
+            &group_by_cols.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+            ValidationContext::GroupBy,
+        )
+        .map_err(|e| e.to_sql_error())?;
+
+        // Extract field values for GROUP BY columns
+        let group_key = group_by_cols
+            .iter()
+            .map(|col_name| {
+                record
+                    .fields
+                    .get(col_name)
+                    .cloned()
+                    .unwrap_or(FieldValue::String("NULL".to_string()))
+            })
+            .collect();
+
+        Ok(group_key)
+    }
+
+    /// Split window buffer into groups by GROUP BY columns (Phase 2: Group Splitting)
+    ///
+    /// Partitions records by their GROUP BY key values, similar to Flink's keyBy() operation.
+    /// Uses string representation of keys since FieldValue doesn't implement Eq+Hash.
+    /// Returns a HashMap where keys are string representations and values are vectors of records in that group.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// // Input: 5 records (3 "pending", 2 "completed")
+    /// // Output: HashMap with 2 entries:
+    /// //   "pending" → [rec1, rec2, rec4]
+    /// //   "completed" → [rec3, rec5]
+    /// ```
+    fn split_buffer_by_groups(
+        records: &[StreamRecord],
+        group_by_cols: &[String],
+    ) -> Result<HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)>, SqlError> {
+        let mut groups: HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)> = HashMap::new();
+
+        for record in records {
+            let group_key = Self::extract_group_key(record, group_by_cols)?;
+            // Use debug representation as HashMap key (safe because FieldValue is Eq semantically)
+            let key_str = format!("{:?}", group_key);
+            groups
+                .entry(key_str)
+                .or_insert_with(|| (group_key.clone(), Vec::new()))
+                .1
+                .push(record.clone());
+        }
+
+        Ok(groups)
+    }
+
+    /// Compute aggregation result for a single GROUP BY group (Phase 2: Per-Group Aggregation)
+    ///
+    /// Applies the same aggregation logic as execute_windowed_aggregation_impl but for a single group.
+    /// Includes the GROUP BY column values in the result.
+    ///
+    /// # Parameters
+    /// - `group_key`: Vec of FieldValues representing the GROUP BY key
+    /// - `group_records`: Records belonging to this group
+    /// - `query`: The streaming query with SELECT/WHERE/HAVING expressions
+    /// - `window_spec`: Window specification for boundaries
+    /// - `context`: Processor context for EXISTS subquery support
+    ///
+    /// # Returns
+    /// A StreamRecord with aggregated values for this group, or SqlError if computation fails
+    fn compute_group_aggregate(
+        group_key: &[FieldValue],
+        group_records: &[StreamRecord],
+        query: &StreamingQuery,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+        group_by_cols: &[String],
+        window_start: i64,
+        window_end: i64,
+    ) -> Result<StreamRecord, SqlError> {
+        // Execute aggregation on this group using the existing logic
+        // Pass the correct window boundaries to ensure _window_start and _window_end are set correctly
+        let mut result = Self::execute_windowed_aggregation_impl(
+            query,
+            group_records,
+            window_start,
+            window_end,
+            context,
+        )?;
+
+        // Prepend GROUP BY columns to the result (at the beginning)
+        // This ensures GROUP BY columns appear first in result
+        let mut group_by_fields: HashMap<String, FieldValue> = HashMap::new();
+        for (i, col_name) in group_by_cols.iter().enumerate() {
+            if let Some(key_val) = group_key.get(i) {
+                group_by_fields.insert(col_name.clone(), key_val.clone());
+            }
+        }
+
+        // Merge GROUP BY fields with aggregation results
+        // GROUP BY fields take precedence (appear first)
+        let mut final_fields = group_by_fields;
+        for (key, value) in result.fields {
+            // Don't override GROUP BY columns
+            if !final_fields.contains_key(&key) {
+                final_fields.insert(key, value);
+            }
+        }
+
+        result.fields = final_fields;
+        Ok(result)
+    }
+
+    /// Compute all group results for GROUP BY queries (Phase 3: Multi-Result Collection)
+    ///
+    /// This function computes aggregations for ALL groups, returning all results.
+    /// Used to collect results that will be queued for emission.
+    ///
+    /// # Returns
+    /// Vec<StreamRecord> containing aggregation results for all groups
+    fn compute_all_group_results(
+        group_by_cols: &[String],
+        buffer: &[StreamRecord],
+        query: &StreamingQuery,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+        window_start: i64,
+        window_end: i64,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        debug!(
+            "FR-079 Phase 3: compute_all_group_results called with {} records, {} GROUP BY columns, window=[{}..{}]",
+            buffer.len(),
+            group_by_cols.len(),
+            window_start,
+            window_end
+        );
+
+        if buffer.is_empty() {
+            debug!("FR-079 Phase 3: Empty buffer, no groups to process");
+            return Ok(Vec::new());
+        }
+
+        // Step 1: Split buffer into groups
+        let groups = Self::split_buffer_by_groups(buffer, group_by_cols)?;
+        debug!(
+            "FR-079 Phase 3: Split buffer into {} distinct groups",
+            groups.len()
+        );
+
+        if groups.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Step 2: Compute aggregations for each group
+        let mut all_results = Vec::new();
+        for (_key_str, (group_key, group_records)) in groups.iter() {
+            debug!(
+                "FR-079 Phase 3: Computing aggregate for group {:?} with {} records",
+                group_key,
+                group_records.len()
+            );
+
+            match Self::compute_group_aggregate(
+                group_key,
+                group_records,
+                query,
+                window_spec,
+                context,
+                group_by_cols,
+                window_start,
+                window_end,
+            ) {
+                Ok(result) => {
+                    debug!(
+                        "FR-079 Phase 3: Successfully computed aggregate for group {:?}",
+                        group_key
+                    );
+                    all_results.push(result);
+                }
+                Err(e) => {
+                    debug!(
+                        "⚠️  FR-079 Phase 3: Error computing aggregate for group {:?}: {}",
+                        group_key, e
+                    );
+                    debug!(
+                        "FR-079 Phase 3: Error computing aggregate for group {:?}: {:?}",
+                        group_key, e
+                    );
+                    // Emit partial result with GROUP BY columns AND window metadata when aggregation fails
+                    let mut partial_fields = HashMap::new();
+                    for (i, col_name) in group_by_cols.iter().enumerate() {
+                        if let Some(key_val) = group_key.get(i) {
+                            partial_fields.insert(col_name.clone(), key_val.clone());
+                        }
+                    }
+
+                    // Add window metadata to partial result
+                    partial_fields.insert(
+                        "_window_start".to_string(),
+                        FieldValue::Integer(window_start),
+                    );
+                    partial_fields
+                        .insert("_window_end".to_string(), FieldValue::Integer(window_end));
+
+                    let partial_result = StreamRecord {
+                        fields: partial_fields,
+                        headers: HashMap::new(),
+                        event_time: None,
+                        timestamp: 0,
+                        offset: 0,
+                        partition: 0,
+                    };
+                    all_results.push(partial_result);
+                }
+            }
+        }
+
+        debug!(
+            "FR-079 Phase 3: Collected {} group results",
+            all_results.len()
+        );
+
+        Ok(all_results)
+    }
+
+    /// Process windowed GROUP BY query with EMIT CHANGES (Phase 2: Main Orchestration)
+    ///
+    /// This function implements the complete GROUP BY + EMIT CHANGES flow:
+    /// 1. Split buffer into groups by GROUP BY columns
+    /// 2. Compute per-group aggregations
+    /// 3. Return first result (caller will queue additional results in context for Phase 3)
+    ///
+    /// # Returns
+    /// Returns the first group's result, or None if no groups exist.
+    /// Additional group results should be queued for emission in Phase 3.
+    fn process_windowed_group_by_emission(
+        group_by_cols: &[String],
+        buffer: &[StreamRecord],
+        query: &StreamingQuery,
+        window_spec: &WindowSpec,
+        context: &ProcessorContext,
+        window_start: i64,
+        window_end: i64,
+    ) -> Result<Option<StreamRecord>, SqlError> {
+        debug!(
+            "FR-079 Phase 2: process_windowed_group_by_emission called with {} records, {} GROUP BY columns",
+            buffer.len(),
+            group_by_cols.len()
+        );
+
+        if buffer.is_empty() {
+            debug!("⚠️  FR-079 Phase 7: Empty buffer, no groups to process");
+            debug!("FR-079 Phase 2: Empty buffer, no groups to process");
+            return Ok(None);
+        }
+
+        // Step 1: Split buffer into groups
+        let groups = Self::split_buffer_by_groups(buffer, group_by_cols)?;
+        debug!(
+            "FR-079 Phase 2: Split buffer into {} distinct groups",
+            groups.len()
+        );
+
+        if groups.is_empty() {
+            debug!("⚠️  FR-079 Phase 7: Failed to split buffer into groups");
+            debug!("FR-079 Phase 2: No distinct groups found from buffer");
+            return Ok(None);
+        }
+
+        // Step 2: Compute aggregations for each group
+        let mut results = Vec::new();
+        for (_key_str, (group_key, group_records)) in groups.iter() {
+            debug!(
+                "FR-079 Phase 2: Computing aggregate for group {:?} with {} records",
+                group_key,
+                group_records.len()
+            );
+
+            match Self::compute_group_aggregate(
+                group_key,
+                group_records,
+                query,
+                window_spec,
+                context,
+                group_by_cols,
+                window_start,
+                window_end,
+            ) {
+                Ok(result) => {
+                    debug!(
+                        "FR-079 Phase 2: Successfully computed aggregate for group {:?}",
+                        group_key
+                    );
+                    results.push(result);
+                }
+                Err(e) => {
+                    debug!(
+                        "⚠️  FR-079 Phase 7: Error computing aggregate for group {:?}: {}",
+                        group_key, e
+                    );
+                    debug!(
+                        "FR-079 Phase 7: Error computing aggregate for group {:?}: {:?}",
+                        group_key, e
+                    );
+                    debug!(
+                        "FR-079 Phase 7: Will emit partial result with {} GROUP BY columns AND window metadata: {:?}",
+                        group_by_cols.len(),
+                        group_by_cols
+                    );
+                    // Emit partial result with GROUP BY columns AND window metadata when aggregation fails
+                    let mut partial_fields = HashMap::new();
+                    for (i, col_name) in group_by_cols.iter().enumerate() {
+                        if let Some(key_val) = group_key.get(i) {
+                            partial_fields.insert(col_name.clone(), key_val.clone());
+                        }
+                    }
+
+                    // Add window metadata to partial result
+                    partial_fields.insert(
+                        "_window_start".to_string(),
+                        FieldValue::Integer(window_start),
+                    );
+                    partial_fields
+                        .insert("_window_end".to_string(), FieldValue::Integer(window_end));
+
+                    debug!(
+                        "FR-079 Phase 7: Emitting partial result with {} fields",
+                        partial_fields.len()
+                    );
+
+                    let partial_result = StreamRecord {
+                        fields: partial_fields,
+                        headers: HashMap::new(),
+                        event_time: None,
+                        timestamp: 0,
+                        offset: 0,
+                        partition: 0,
+                    };
+                    results.push(partial_result);
+                }
+            }
+        }
+
+        // Step 3: Return first result (Phase 3 will handle multi-result emission)
+        // For now, return the first result to maintain backward compatibility
+        // Phase 3 will implement Vec<StreamRecord> return type for all results
+        if !results.is_empty() {
+            debug!(
+                "FR-079 Phase 2: Returning first of {} group results",
+                results.len()
+            );
+            // TODO: Phase 3 will queue remaining results in context for emission
+            Ok(Some(results.into_iter().next().unwrap()))
+        } else {
+            debug!("FR-079 Phase 2: No valid results after aggregation");
+            Ok(None)
+        }
+    }
+
+    /// FR-079 Phase 6: Build GroupAccumulator from records for aggregate expression evaluation
+    ///
+    /// This helper function constructs a GroupAccumulator containing all numeric values from
+    /// the records, enabling proper calculation of statistical functions like STDDEV and VARIANCE
+    /// in aggregate expressions.
+    fn build_accumulator_from_records(records: &[&StreamRecord]) -> GroupAccumulator {
+        let mut accumulator = GroupAccumulator::new();
+
+        for record in records {
+            accumulator.increment_count();
+
+            // Extract numeric values for all fields in the record
+            // This populates numeric_values HashMap used by STDDEV/VARIANCE functions
+            for (field_name, value) in &record.fields {
+                match value {
+                    FieldValue::Float(f) => {
+                        accumulator.add_value_for_stats(field_name, *f);
+                    }
+                    FieldValue::Integer(i) => {
+                        accumulator.add_value_for_stats(field_name, *i as f64);
+                    }
+                    FieldValue::ScaledInteger(val, scale) => {
+                        // Convert scaled integer to f64
+                        let float_val = *val as f64 / 10_i64.pow(*scale as u32) as f64;
+                        accumulator.add_value_for_stats(field_name, float_val);
+                    }
+                    _ => {
+                        // Skip non-numeric values
+                    }
+                }
+            }
+        }
+
+        accumulator
+    }
+
     /// Execute windowed aggregation implementation using logic from legacy method
     fn execute_windowed_aggregation_impl(
         query: &StreamingQuery,
@@ -549,6 +1138,10 @@ impl WindowProcessor {
             // Create alias context for storing computed field values during SELECT processing
             let mut agg_alias_context = SelectAliasContext::new();
 
+            // FR-079 Phase 6: Build accumulator with numeric values from all filtered records
+            // This enables proper calculation of statistical functions like STDDEV and VARIANCE
+            let group_accumulator = Self::build_accumulator_from_records(&filtered_records);
+
             debug!("AGG: Creating aggregated result fields");
 
             // Simple aggregation logic - process the first record as representative
@@ -586,10 +1179,12 @@ impl WindowProcessor {
 
                             // Handle aggregate functions properly for windowed queries
                             // Pass alias context so expressions can reference previously-computed aliases
+                            // FR-079 Phase 6: Pass the accumulator for real STDDEV/VARIANCE computation
                             match Self::evaluate_aggregate_expression(
                                 expr,
                                 &filtered_records,
                                 &agg_alias_context,
+                                Some(&group_accumulator),
                             ) {
                                 Ok(value) => {
                                     debug!(
@@ -996,8 +1591,14 @@ impl WindowProcessor {
                     | BinaryOperator::Equal
                     | BinaryOperator::NotEqual => {
                         // Handle comparison operators with aggregate functions
-                        let left_value =
-                            Self::evaluate_aggregate_expression(left, records, alias_context)?;
+                        // FR-079 Phase 6: Build accumulator for HAVING clause evaluation
+                        let having_accumulator = Self::build_accumulator_from_records(records);
+                        let left_value = Self::evaluate_aggregate_expression(
+                            left,
+                            records,
+                            alias_context,
+                            Some(&having_accumulator),
+                        )?;
                         let right_value = if let Ok(value) =
                             ExpressionEvaluator::evaluate_expression_value(right, temp_record)
                         {
@@ -1139,13 +1740,15 @@ impl WindowProcessor {
         expr: &crate::velostream::sql::ast::Expr,
         records: &[&StreamRecord],
         alias_context: &SelectAliasContext,
+        accumulator: Option<&GroupAccumulator>,
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::ast::Expr;
 
         debug!(
-            "AGG: evaluate_aggregate_expression called with {} records, expr: {:?}",
+            "AGG: evaluate_aggregate_expression called with {} records, expr: {:?}, has_accumulator: {}",
             records.len(),
-            expr
+            expr,
+            accumulator.is_some()
         );
 
         match expr {
@@ -1297,6 +1900,131 @@ impl WindowProcessor {
                         }
                         Ok(max_val.unwrap_or(FieldValue::Null))
                     }
+                    "STDDEV" | "STDDEV_SAMP" | "STDDEV_POP" => {
+                        // Standard deviation - requires accumulator data with all numeric values
+                        if args.is_empty() {
+                            return Err(SqlError::ExecutionError {
+                                message: "STDDEV requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        // Try to get the field name from the argument
+                        let field_name = match &args[0] {
+                            Expr::Column(col_name) => col_name.clone(),
+                            _ => {
+                                // If not a simple column, fall back to evaluating without accumulator
+                                return ExpressionEvaluator::evaluate_expression_value(
+                                    expr,
+                                    records.first().unwrap_or(&records[0]),
+                                );
+                            }
+                        };
+
+                        // FR-079 Phase 2: Use accumulator if available
+                        if let Some(acc) = accumulator {
+                            if let Some(values) = acc.numeric_values.get(&field_name) {
+                                if values.len() < 2 {
+                                    // Need at least 2 values for sample stddev
+                                    return Ok(FieldValue::Null);
+                                }
+
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance = if name.to_uppercase() == "STDDEV_POP" {
+                                    // Population variance
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64
+                                } else {
+                                    // Sample variance (divid by n-1)
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64
+                                };
+                                let stddev = variance.sqrt();
+                                debug!(
+                                    "AGG: STDDEV computed from accumulator: {} values, mean={}, stddev={}",
+                                    values.len(),
+                                    mean,
+                                    stddev
+                                );
+                                Ok(FieldValue::Float(stddev))
+                            } else {
+                                // Field not in accumulator, fall back to single-record evaluation
+                                debug!(
+                                    "AGG: Field '{}' not found in accumulator, falling back to single-record",
+                                    field_name
+                                );
+                                Ok(FieldValue::Float(0.0))
+                            }
+                        } else {
+                            // No accumulator provided, fall back to regular evaluation (returns 0.0 for single record)
+                            ExpressionEvaluator::evaluate_expression_value(
+                                expr,
+                                records.first().unwrap_or(&records[0]),
+                            )
+                        }
+                    }
+                    "VARIANCE" | "VAR_SAMP" | "VAR_POP" => {
+                        // Variance - similar to STDDEV but returns variance instead of stddev
+                        if args.is_empty() {
+                            return Err(SqlError::ExecutionError {
+                                message: "VARIANCE requires exactly one argument".to_string(),
+                                query: None,
+                            });
+                        }
+
+                        // Try to get the field name from the argument
+                        let field_name = match &args[0] {
+                            Expr::Column(col_name) => col_name.clone(),
+                            _ => {
+                                // If not a simple column, fall back to evaluating without accumulator
+                                return ExpressionEvaluator::evaluate_expression_value(
+                                    expr,
+                                    records.first().unwrap_or(&records[0]),
+                                );
+                            }
+                        };
+
+                        // FR-079 Phase 2: Use accumulator if available
+                        if let Some(acc) = accumulator {
+                            if let Some(values) = acc.numeric_values.get(&field_name) {
+                                if values.len() < 2 {
+                                    // Need at least 2 values for variance
+                                    return Ok(FieldValue::Null);
+                                }
+
+                                let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                let variance = if name.to_uppercase() == "VAR_POP" {
+                                    // Population variance
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / values.len() as f64
+                                } else {
+                                    // Sample variance (divide by n-1)
+                                    values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                        / (values.len() - 1) as f64
+                                };
+                                debug!(
+                                    "AGG: VARIANCE computed from accumulator: {} values, mean={}, variance={}",
+                                    values.len(),
+                                    mean,
+                                    variance
+                                );
+                                Ok(FieldValue::Float(variance))
+                            } else {
+                                // Field not in accumulator, fall back to single-record evaluation
+                                debug!(
+                                    "AGG: Field '{}' not found in accumulator, falling back to single-record",
+                                    field_name
+                                );
+                                Ok(FieldValue::Float(0.0))
+                            }
+                        } else {
+                            // No accumulator provided, fall back to regular evaluation (returns 0.0 for single record)
+                            ExpressionEvaluator::evaluate_expression_value(
+                                expr,
+                                records.first().unwrap_or(&records[0]),
+                            )
+                        }
+                    }
                     _ => {
                         // For non-aggregate functions, just evaluate on first record
                         if let Some(first_record) = records.first() {
@@ -1338,6 +2066,135 @@ impl WindowProcessor {
                     }
                 } else {
                     Ok(FieldValue::Null)
+                }
+            }
+            Expr::BinaryOp { left, right, op } => {
+                // FR-079 Phase 3: Handle binary operations with aggregate functions on either side
+                debug!(
+                    "AGG: Processing binary operation: {:?} {:?} {:?}",
+                    left, op, right
+                );
+
+                // Recursively evaluate both sides - they may contain aggregates
+                let left_value =
+                    Self::evaluate_aggregate_expression(left, records, alias_context, accumulator)?;
+                let right_value = Self::evaluate_aggregate_expression(
+                    right,
+                    records,
+                    alias_context,
+                    accumulator,
+                )?;
+
+                // Apply the binary operation
+                match op {
+                    crate::velostream::sql::ast::BinaryOperator::Add => {
+                        // Addition for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l + r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 + r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l + *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l + r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Subtract => {
+                        // Subtraction for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l - r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 - r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l - *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l - r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Multiply => {
+                        // Multiplication for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l * r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 * r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l * *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l * r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Divide => {
+                        // Division for numeric types
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                if *r == 0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(*l as f64 / *r as f64))
+                                }
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                if *r == 0.0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(*l as f64 / r))
+                                }
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                if *r == 0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(l / *r as f64))
+                                }
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                if *r == 0.0 {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Ok(FieldValue::Float(l / r))
+                                }
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual
+                    | crate::velostream::sql::ast::BinaryOperator::GreaterThan
+                    | crate::velostream::sql::ast::BinaryOperator::LessThanOrEqual
+                    | crate::velostream::sql::ast::BinaryOperator::LessThan
+                    | crate::velostream::sql::ast::BinaryOperator::Equal
+                    | crate::velostream::sql::ast::BinaryOperator::NotEqual => {
+                        // For comparisons, return a FieldValue::Boolean
+                        let comparison_result =
+                            Self::compare_field_values(&left_value, &right_value, op);
+                        Ok(FieldValue::Boolean(comparison_result))
+                    }
+                    _ => {
+                        // For other operators, try regular evaluation
+                        debug!("AGG: Unsupported binary operator in aggregate expression, falling back to regular evaluation");
+                        if let Some(first_record) = records.first() {
+                            ExpressionEvaluator::evaluate_expression_value(expr, first_record)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
                 }
             }
             _ => {

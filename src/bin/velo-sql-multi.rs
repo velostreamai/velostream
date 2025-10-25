@@ -307,6 +307,9 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Log build timestamp
+    info!("🏗️  Binary built: {}", env!("BUILD_TIME"));
+
     let cli = Cli::parse();
 
     match cli.command {
