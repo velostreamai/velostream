@@ -303,7 +303,9 @@ impl FieldValidator {
             .into_iter()
             .filter(|name| {
                 // Include in missing list only if it's NOT a system column AND not in fields
-                !system_columns::is_system_column(name) && !record.fields.contains_key(name)
+                // Use normalize_if_system_column() instead of is_system_column() for efficiency
+                // (avoid allocating a String for every field check)
+                system_columns::normalize_if_system_column(name).is_none() && !record.fields.contains_key(name)
             })
             .collect();
 

@@ -124,14 +124,6 @@ pub mod system_columns {
         get_system_columns_set().contains(name_upper)
     }
 
-    /// Legacy function for backwards compatibility - normalizes once and checks
-    ///
-    /// This is less efficient than normalizing at parse time.
-    /// Prefer normalizing column names once at parse/validation time instead.
-    #[inline]
-    pub fn is_system_column(name: &str) -> bool {
-        normalize_if_system_column(name).is_some()
-    }
 }
 
 impl FieldValue {
