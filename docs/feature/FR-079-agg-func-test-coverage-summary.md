@@ -112,7 +112,7 @@ fn test_stddev_in_comparison_expression() {
 #[tokio::test]
 async fn test_aggregate_expressions_with_tumbling_window() {
     // SELECT STDDEV(price) > threshold FROM ...
-    // GROUP BY ... WINDOW TUMBLING(1m) EMIT CHANGES
+    // WINDOW TUMBLING(1m) GROUP BY ... EMIT CHANGES
 }
 ```
 

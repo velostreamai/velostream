@@ -1196,6 +1196,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse WINDOW clause first (if present)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1207,12 +1215,6 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Having {
             self.advance();
             having = Some(self.parse_expression()?);
-        }
-
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
         }
 
         let mut order_by = None;
@@ -1551,6 +1553,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse WINDOW clause first (if present)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1562,20 +1572,6 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Having {
             self.advance();
             having = Some(self.parse_expression()?);
-        }
-
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
-
-            // Check for incorrect clause order: WINDOW before GROUP BY
-            if self.current_token().token_type == TokenType::GroupBy {
-                return Err(SqlError::ParseError {
-                    message: "Syntax error: WINDOW clause must come AFTER GROUP BY clause. Correct order: SELECT ... FROM ... GROUP BY ... WINDOW ...".to_string(),
-                    position: Some(self.current_token().position),
-                });
-            }
         }
 
         let mut order_by = None;
@@ -1756,6 +1752,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse WINDOW clause first (if present)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1767,12 +1771,6 @@ impl<'a> TokenParser<'a> {
         if self.current_token().token_type == TokenType::Having {
             self.advance();
             having = Some(self.parse_expression()?);
-        }
-
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
         }
 
         let mut order_by = None;

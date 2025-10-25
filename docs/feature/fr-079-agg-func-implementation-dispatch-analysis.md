@@ -79,7 +79,7 @@ let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
 For test: `test_emit_changes_with_tumbling_window_same_window` which uses:
 ```sql
 SELECT STDDEV(price) > AVG(price) * 0.0001 FROM orders
-GROUP BY status WINDOW TUMBLING(1m) EMIT CHANGES
+WINDOW TUMBLING(1m) GROUP BY status EMIT CHANGES
 ```
 
 ---
@@ -168,7 +168,7 @@ The correct execution path for the test query:
 ```
 test SQL:
   SELECT STDDEV(price) > AVG(price) * 0.0001 FROM orders
-  GROUP BY status WINDOW TUMBLING(1m) EMIT CHANGES
+  WINDOW TUMBLING(1m) GROUP BY status EMIT CHANGES
 
         ↓
 
