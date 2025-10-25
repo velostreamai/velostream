@@ -46,7 +46,7 @@
 | Phase | Title | Status | Effort | Duration | Files | Tests |
 |-------|-------|--------|--------|----------|-------|-------|
 | **1** | Regular System Columns | 🟢 COMPLETED | 2.5h | 1 day | 3 files, 150 lines | ✅ 11/11 passing |
-| **2** | Header Write Functions | 🔴 NOT STARTED | 3-4h | 1 day | 2 files, 90 lines | +5 new |
+| **2** | Header Write Functions | 🟡 IN_PROGRESS | 3-4h | 1 day | 2 files, 90 lines | +5 new |
 | **3** | Documentation | 🔴 NOT STARTED | 2h | 0.5 day | 2 new docs | - |
 | **4** | SQLValidator Reference | 🔴 NOT STARTED | 2-3h | 0.5 day | 1 file, 50 lines | +3 new |
 | | **TOTAL** | | **10-13h** | **~3 days** | | |
@@ -66,15 +66,17 @@
 
 ## Executive Summary
 
-Velostream has a **unique competitive advantage** in exposing Kafka metadata and headers as system columns in SQL - something no other streaming SQL engine does. However, there are several gaps:
+Velostream has a **unique competitive advantage** in exposing Kafka metadata and headers as system columns in SQL - something no other streaming SQL engine does.
 
-1. **Regular System Columns** (`_timestamp`, `_offset`, `_partition`) - ❌ **NOT EXPOSED** (FieldValidator blocks them)
-2. **Event-Time System Column** (`_event_time`) - ❌ **NOT EXPOSED** (No evaluator support)
-3. **Window Metadata** (`_window_start`, `_window_end`) - ✅ **WORKING** (via TUMBLE_START/END)
+**Phase 1 Complete** ✅ All regular system columns now fully functional:
+
+1. **Regular System Columns** (`_timestamp`, `_offset`, `_partition`) - ✅ **FULLY IMPLEMENTED** (UPPERCASE normalization strategy, O(1) lookups)
+2. **Event-Time System Column** (`_event_time`) - ✅ **FULLY IMPLEMENTED** (DateTime→milliseconds conversion)
+3. **Window Metadata** (`_window_start`, `_window_end`) - ✅ **WORKING** (via late binding injection)
 4. **Header Reading** (HEADER, HAS_HEADER, HEADER_KEYS) - ✅ **WORKING**
-5. **Header Writing** (SET_HEADER, REMOVE_HEADER) - ⚠️ **PARTIALLY IMPLEMENTED** (mutations collected but not applied)
+5. **Header Writing** (SET_HEADER, REMOVE_HEADER) - 🟡 **IN PROGRESS** (Phase 2: implementing mutation application)
 
-This RFC details all gaps and proposes implementation phases to complete the system columns architecture.
+This RFC details the implementation strategy and tracks remaining work to complete the system columns architecture.
 
 ---
 

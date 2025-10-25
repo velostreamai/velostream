@@ -123,7 +123,6 @@ pub mod system_columns {
     pub fn is_system_column_upper(name_upper: &str) -> bool {
         get_system_columns_set().contains(name_upper)
     }
-
 }
 
 impl FieldValue {
