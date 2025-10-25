@@ -305,7 +305,7 @@ async fn test_set_header_with_non_string_key() {
 #[tokio::test]
 async fn test_header_functions_in_complex_expression() {
     let results = execute_query(
-        "SELECT 
+        "SELECT
             id,
             CONCAT('Result: ', SET_HEADER('computed', CONCAT('id_', id))) as complex_result
          FROM test_stream",
@@ -319,5 +319,191 @@ async fn test_header_functions_in_complex_expression() {
     assert_eq!(
         results[0].fields.get("complex_result"),
         Some(&FieldValue::String("Result: id_1".to_string()))
+    );
+}
+
+// ===== Phase 2: Header Mutation Tests =====
+// These tests verify that SET_HEADER and REMOVE_HEADER actually modify the output record's headers
+
+#[tokio::test]
+async fn test_set_header_mutation_applied_to_record() {
+    let results =
+        execute_query("SELECT id, SET_HEADER('trace-id', 'abc123') as trace FROM test_stream")
+            .await
+            .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // The mutation should actually modify the record's headers
+    assert_eq!(
+        results[0].headers.get("trace-id"),
+        Some(&"abc123".to_string()),
+        "SET_HEADER mutation should add header to output record"
+    );
+}
+
+#[tokio::test]
+async fn test_set_header_overwrite_existing() {
+    let results =
+        execute_query("SELECT id, SET_HEADER('source', 'new-source') as new_source FROM test_stream")
+            .await
+            .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // The mutation should overwrite the existing header
+    assert_eq!(
+        results[0].headers.get("source"),
+        Some(&"new-source".to_string()),
+        "SET_HEADER should overwrite existing header"
+    );
+}
+
+#[tokio::test]
+async fn test_set_header_with_field_mutation() {
+    let results = execute_query("SELECT id, SET_HEADER('name_header', name) as name_hdr FROM test_stream")
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // The field value should be set in the header
+    assert_eq!(
+        results[0].headers.get("name_header"),
+        Some(&"test".to_string()),
+        "SET_HEADER with field value should add field value to header"
+    );
+}
+
+#[tokio::test]
+async fn test_remove_header_mutation_applied() {
+    let results = execute_query("SELECT id, REMOVE_HEADER('source') as old_source FROM test_stream")
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // The header should be removed from the record
+    assert!(!results[0].headers.contains_key("source"),
+        "REMOVE_HEADER mutation should remove header from output record"
+    );
+
+    // Function return value should still be correct
+    assert_eq!(
+        results[0].fields.get("old_source"),
+        Some(&FieldValue::String("test-system".to_string())),
+        "REMOVE_HEADER should return the removed value"
+    );
+}
+
+#[tokio::test]
+async fn test_multiple_mutations_to_same_header() {
+    let results = execute_query(
+        "SELECT
+            id,
+            SET_HEADER('request-id', 'first') as first_set,
+            SET_HEADER('request-id', 'second') as second_set
+         FROM test_stream"
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // Last SET_HEADER should win
+    assert_eq!(
+        results[0].headers.get("request-id"),
+        Some(&"second".to_string()),
+        "Last SET_HEADER mutation to same key should win"
+    );
+}
+
+#[tokio::test]
+async fn test_complex_mutation_sequence() {
+    let results = execute_query(
+        "SELECT
+            id,
+            SET_HEADER('trace-id', 'trace123') as trace,
+            SET_HEADER('span-id', 'span456') as span,
+            SET_HEADER('user-id', name) as user,
+            REMOVE_HEADER('version') as old_version
+         FROM test_stream"
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // Verify all mutations were applied
+    assert_eq!(
+        results[0].headers.get("trace-id"),
+        Some(&"trace123".to_string()),
+        "First SET_HEADER mutation should be applied"
+    );
+    assert_eq!(
+        results[0].headers.get("span-id"),
+        Some(&"span456".to_string()),
+        "Second SET_HEADER mutation should be applied"
+    );
+    assert_eq!(
+        results[0].headers.get("user-id"),
+        Some(&"test".to_string()),
+        "SET_HEADER with field value should be applied"
+    );
+    assert!(!results[0].headers.contains_key("version"),
+        "REMOVE_HEADER mutation should be applied"
+    );
+
+    // Existing header should still be there
+    assert_eq!(
+        results[0].headers.get("existing_header"),
+        Some(&"existing_value".to_string()),
+        "Untouched headers should remain"
+    );
+}
+
+#[tokio::test]
+async fn test_set_header_with_numeric_value_mutation() {
+    let results =
+        execute_query("SELECT id, SET_HEADER('count', amount) as count_hdr FROM test_stream")
+            .await
+            .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // Numeric value should be converted to string in header
+    assert_eq!(
+        results[0].headers.get("count"),
+        Some(&"123.45".to_string()),
+        "Numeric values should be converted to strings in headers"
+    );
+}
+
+#[tokio::test]
+async fn test_mutation_preserves_original_headers() {
+    let results =
+        execute_query("SELECT id, SET_HEADER('new_trace', 'xyz') as new_tr FROM test_stream")
+            .await
+            .unwrap();
+
+    assert_eq!(results.len(), 1);
+
+    // Original headers should still be present
+    assert_eq!(
+        results[0].headers.get("source"),
+        Some(&"test-system".to_string()),
+        "Original headers should be preserved"
+    );
+    assert_eq!(
+        results[0].headers.get("version"),
+        Some(&"1.0.0".to_string()),
+        "Original headers should be preserved"
+    );
+
+    // New header should be added
+    assert_eq!(
+        results[0].headers.get("new_trace"),
+        Some(&"xyz".to_string()),
+        "New header should be added"
     );
 }

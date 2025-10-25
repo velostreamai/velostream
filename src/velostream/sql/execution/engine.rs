@@ -142,6 +142,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 // Processor imports for Phase 5B integration
 use super::processors::{
+    HeaderMutation, HeaderOperation,
     HeaderMutation as ProcessorHeaderMutation, HeaderOperation as ProcessorHeaderOperation,
     JoinContext, ProcessorContext, QueryProcessor, SelectProcessor, WindowContext, WindowProcessor,
 };
@@ -449,10 +450,13 @@ impl StreamExecutionEngine {
             self.record_count += 1;
         }
 
-        // Apply header mutations
-        self.apply_header_mutations(&result.header_mutations)?;
+        // Apply header mutations to the output record
+        let mut final_record = result.record;
+        if let Some(ref mut record) = final_record {
+            self.apply_header_mutations_to_record(record, &result.header_mutations)?;
+        }
 
-        Ok(result.record)
+        Ok(final_record)
     }
 
     /// Generate a consistent query ID for processor context management
@@ -480,26 +484,31 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Header mutation application handler
-    fn apply_header_mutations(
-        &mut self,
-        mutations: &[ProcessorHeaderMutation],
+    /// Apply header mutations directly to a StreamRecord
+    /// This modifies the record's headers HashMap based on SET/REMOVE operations
+    fn apply_header_mutations_to_record(
+        &self,
+        record: &mut StreamRecord,
+        mutations: &[HeaderMutation],
     ) -> Result<(), SqlError> {
-        // Store mutations to apply to output records
-        // Implementation depends on how headers are currently handled
         for mutation in mutations {
             match &mutation.operation {
-                ProcessorHeaderOperation::Set => {
-                    // SET_HEADER implementation would go here
-                    log::debug!(
-                        "Header mutation: SET {} = {:?}",
-                        mutation.key,
-                        mutation.value
-                    );
+                HeaderOperation::Set => {
+                    // SET_HEADER: Add or update header value
+                    if let Some(value) = &mutation.value {
+                        record.headers.insert(mutation.key.clone(), value.clone());
+                        log::debug!(
+                            "Applied header mutation: SET {} = {}",
+                            mutation.key,
+                            value
+                        );
+                    }
                 }
-                ProcessorHeaderOperation::Remove => {
-                    // REMOVE_HEADER implementation would go here
-                    log::debug!("Header mutation: REMOVE {}", mutation.key);
+                HeaderOperation::Remove => {
+                    // REMOVE_HEADER: Remove header from record
+                    if record.headers.remove(&mutation.key).is_some() {
+                        log::debug!("Applied header mutation: REMOVE {}", mutation.key);
+                    }
                 }
             }
         }
