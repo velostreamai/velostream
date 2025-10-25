@@ -2,6 +2,606 @@
 
 ---
 
+## 📋 MASTER ANALYSIS INDEX
+
+**Status**: ✅ **ALL SYSTEM COLUMNS ANALYSIS COMPLETE**
+
+This section consolidates all research and findings about system columns architecture. Use this as reference for implementation phases below.
+
+### Quick Reference Table
+
+| Column Type | Storage Location | Access Method | Status | Fix Needed |
+|---|---|---|---|---|
+| `_timestamp` | StreamRecord.timestamp property | evaluator.rs direct access | ❌ Fails FieldValidator | ✅ Phase 1 |
+| `_offset` | StreamRecord.offset property | evaluator.rs direct access | ❌ Fails FieldValidator | ✅ Phase 1 |
+| `_partition` | StreamRecord.partition property | evaluator.rs direct access | ❌ Fails FieldValidator | ✅ Phase 1 |
+| `_event_time` | StreamRecord.event_time Option field | evaluator.rs access | ❌ Not implemented | ✅ Phase 1 |
+| `_window_start` | StreamRecord.fields HashMap | Injected by WindowProcessor | ✅ Working | ❌ No fix needed |
+| `_window_end` | StreamRecord.fields HashMap | Injected by WindowProcessor | ✅ Working | ❌ No fix needed |
+
+### Architecture Overview
+
+**Three Distinct System Column Categories**:
+
+1. **Processing-Time System Columns** (`_timestamp`, `_offset`, `_partition`):
+   - Stored in StreamRecord struct properties (not in fields HashMap)
+   - `_timestamp`: milliseconds since epoch (processing time)
+   - `_offset`: Kafka partition offset
+   - `_partition`: Kafka partition number
+   - Parsed correctly by parser ✅
+   - Evaluated correctly in 3 evaluator methods ✅
+   - **Problem**: FieldValidator checks only record.fields HashMap, fails before execution ❌
+   - **Solution**: Update FieldValidator to check StreamRecord properties
+
+2. **Event-Time System Column** (`_event_time`):
+   - Stored in StreamRecord.event_time as Option<DateTime<Utc>>
+   - Watermark-based event-time for time-series processing
+   - Used instead of processing-time (_timestamp) when configured
+   - NOT currently exposed as system column ❌
+   - **Problem**: No evaluator support for `_EVENT_TIME`
+   - **Solution**: Add support in Phase 1 (convert DateTime to i64 milliseconds)
+
+3. **Window Metadata Columns** (`_window_start`, `_window_end`):
+   - Injected into StreamRecord.fields HashMap by WindowProcessor
+   - Accessed via TUMBLE_START() and TUMBLE_END() functions
+   - Work correctly because they're inserted post-validation ✅
+   - **No fix needed** - different mechanism, already working
+
+### Code Structure Reference
+
+**StreamRecord Definition** (`types.rs:883-898`):
+```rust
+pub struct StreamRecord {
+    pub fields: HashMap<String, FieldValue>,        // Regular columns
+    pub timestamp: i64,                              // ← _timestamp system column
+    pub offset: i64,                                 // ← _offset system column
+    pub partition: i32,                              // ← _partition system column
+    pub headers: HashMap<String, String>,            // Kafka headers
+    pub event_time: Option<DateTime<Utc>>,          // Internal: event-time watermarking
+                                                     // (NOT exposed as system column)
+}
+```
+
+**System Column Evaluation** (3 locations in evaluator.rs):
+- `evaluate_expression()` (lines 128-131): `_TIMESTAMP`, `_OFFSET`, `_PARTITION` handling
+- `evaluate_expression_value()` (lines 379-382): System column value extraction
+- `evaluate_expression_value_with_subqueries()` (lines 1330-1363): Full expression evaluation
+
+**Window Column Injection** (WindowProcessor):
+- Location 1: `window.rs:874-879` - Partial results
+- Location 2: `window.rs:1240-1244` - Main aggregation
+
+**Window Column Access** (Functions):
+- `TUMBLE_START()` implementation: `functions.rs:2133-2147`
+- `TUMBLE_END()` implementation: `functions.rs:2151-2162`
+
+### Problem Analysis
+
+**Root Cause**: FieldValidator at `select.rs:588-589`
+- Checks if columns exist in `record.fields` HashMap only
+- System columns are NOT in fields HashMap - they're StreamRecord properties
+- Validation fails before execution can demonstrate they work
+
+**Evidence**:
+- 4/8 tests pass (parsing/aliasing/expression tests that don't execute)
+- 4/8 tests fail (execution tests that hit FieldValidator)
+
+**Impact**:
+- System columns can't be used in SELECT, WHERE, or any execution context
+- Only parser and expression AST creation work
+- Window columns work because they're injected into fields HashMap post-validation
+
+### Window Columns Special Case
+
+Window columns use a "late binding" pattern:
+1. WindowProcessor computes window_start and window_end timestamps
+2. Creates result records with `_window_start` and `_window_end` in fields HashMap
+3. SelectProcessor can reference these as normal fields
+4. FieldValidator never sees uninjected window columns (they're created during processing)
+
+This is why window columns work without fixes - they bypass validation entirely.
+
+### Implementation Strategy
+
+**Phase 1-4 Focus**: Fix only `_timestamp`, `_offset`, `_partition`
+- These have dual-storage problem (properties + need in HashMap for validation)
+- Window columns are orthogonal - they're already solved differently
+
+**Not Included in Phases 1-4**: Window columns
+- Already working through different mechanism
+- Documented separately in research below
+- Future optional: Add to evaluator.rs for consistency (Phase 5+)
+
+### Header Access Architecture
+
+**Velostream Header Functions** (`functions.rs:451-515`):
+- `HEADER(key)` - Get value of a Kafka header by name
+  - Returns: String or NULL if not found
+  - Example: `SELECT HEADER('user-agent') FROM events`
+  - Location: `functions.rs:451-476`
+
+- `HAS_HEADER(key)` - Check if header exists
+  - Returns: Boolean true/false
+  - Example: `WHERE HAS_HEADER('trace-id')`
+  - Location: `functions.rs:491-515`
+
+- `HEADER_KEYS()` - Get all header keys
+  - Returns: Comma-separated string
+  - Example: `SELECT HEADER_KEYS() FROM events`
+  - Location: `functions.rs:478-489`
+
+- `SET_HEADER(key, value)` - Set/update header (for output)
+  - Returns: Updated record (not direct system column)
+  - Example: `SELECT SET_HEADER('new-header', 'value')`
+  - Location: `functions.rs:2374+`
+
+- `REMOVE_HEADER(key)` - Remove header from record
+  - Returns: Updated record (not direct system column)
+  - Location: `functions.rs` (with SET_HEADER)
+
+**Storage**: StreamRecord.headers HashMap<String, String>
+
+### Industry Comparison: System Columns & Headers
+
+**Apache Flink SQL** system columns:
+- `$rowtime` - Event time timestamp (TIMESTAMP type)
+- `$proctime` - Processing time timestamp (TIMESTAMP type)
+- `$virtualset` - Virtual set (for temporal joins)
+- No partition/offset access in standard SQL (available via DataStream API)
+
+**ksqlDB (Kafka Streams)** system pseudo-columns:
+- `ROWTIME` - Timestamp (event-time or processing-time)
+- `ROWKEY` - Message key
+- No direct partition/offset access in SELECT
+- Uses `EMIT CHANGES` for streaming similar to Velostream
+
+**Velostream** system columns (current vs planned):
+
+| System Column | Type | Velostream Status | Flink | ksqlDB |
+|---|---|---|---|---|
+| Processing time | i64 ms | `_timestamp` ✅ Phase 1 | `$proctime` | Not standard |
+| Event time | DateTime | `_event_time` ✅ Phase 1 | `$rowtime` | `ROWTIME` |
+| Partition offset | i64 | `_offset` ✅ Phase 1 | DataStream only | Not standard |
+| Partition number | i32 | `_partition` ✅ Phase 1 | DataStream only | Not standard |
+| Window boundaries | i64 ms | `_window_start`, `_window_end` ✅ (via TUMBLE_START/END) | Implicit in GROUP BY | Implicit in GROUP BY |
+| **Kafka Headers** | **String** | **✅ FULLY SUPPORTED** | **❌ Not in SQL** | **❌ Not supported** |
+
+### Header Access Comparison
+
+| Capability | Velostream | Flink SQL | ksqlDB |
+|---|---|---|---|
+| Read header value | `HEADER('key')` ✅ | Not available | Not available |
+| Check header exists | `HAS_HEADER('key')` ✅ | Not available | Not available |
+| Get all header keys | `HEADER_KEYS()` ✅ | Not available | Not available |
+| Set header on output | `SET_HEADER('k', 'v')` ✅ | DataStream only | Not available |
+| Remove header | `REMOVE_HEADER('key')` ✅ | DataStream only | Not available |
+| Support level | **SQL functions** | **Java/Scala API** | **Not supported** |
+
+**Example Velostream Queries** (Headers):
+```sql
+-- Read trace-id from Kafka headers
+SELECT trace_id, HEADER('trace-id') as request_trace FROM events
+
+-- Filter by header presence
+SELECT * FROM events WHERE HAS_HEADER('auth-token')
+
+-- Get all header keys for debugging
+SELECT HEADER_KEYS(), * FROM events LIMIT 1
+
+-- Set correlation header on output
+SELECT SET_HEADER('correlation-id', request_id), * FROM events
+
+-- Complex: Extract trace-id and validate format
+SELECT
+  *,
+  HEADER('trace-id') as trace,
+  CASE WHEN HAS_HEADER('trace-id') THEN 'yes' ELSE 'no' END as has_trace
+FROM orders
+WHERE HAS_HEADER('x-request-id')
+```
+
+**Competitive Advantage**:
+Velostream is the **ONLY streaming SQL engine** that exposes Kafka headers directly in SQL:
+- Flink requires Java/Scala DataStream API
+- ksqlDB doesn't support headers at all
+- Velostream enables full header-based correlation tracking in SQL
+
+### ⚠️ CRITICAL: Header Write Functions NOT IMPLEMENTED
+
+**Current Status**: SET_HEADER and REMOVE_HEADER are **PARTIALLY IMPLEMENTED**
+
+**Architecture**:
+1. **Collection Phase** (WORKING ✅):
+   - `select.rs:1662-1687` - Collect mutations from SELECT statements
+   - Detects SET_HEADER and REMOVE_HEADER function calls
+   - Creates HeaderMutation objects with key/operation/value
+
+2. **Application Phase** (NOT IMPLEMENTED ❌):
+   - `engine.rs:484-507` - apply_header_mutations() function
+   - **PROBLEM**: Only logs debug messages, doesn't actually apply mutations
+   - Lines 492-504: Comments say "Implementation depends on how headers are currently handled"
+   - **Result**: Headers are never written to output records
+
+**Impact**:
+- `HEADER('key')` - Works ✅ (reads headers)
+- `HAS_HEADER('key')` - Works ✅ (checks headers)
+- `HEADER_KEYS()` - Works ✅ (lists headers)
+- `SET_HEADER('key', 'value')` - Returns value but **doesn't modify headers** ❌
+- `REMOVE_HEADER('key')` - Returns old value but **doesn't remove headers** ❌
+
+**Root Cause**:
+Headers are read-only at execution layer. To write headers, the mutations need to be:
+1. Collected from SELECT expressions ✅ (already done)
+2. Applied to output records before publishing (NOT DONE)
+
+**Code Location**:
+- Mutations collection: `src/velostream/sql/execution/processors/select.rs:1643-1720`
+- Mutations application (stub): `src/velostream/sql/execution/engine.rs:484-507`
+- HeaderMutation struct: `src/velostream/sql/execution/processors/processor_types.rs:10`
+
+**Required Fix**:
+Implement header mutations application in engine.rs:
+
+```rust
+fn apply_header_mutations(&mut self, mutations: &[ProcessorHeaderMutation]) {
+    for mutation in mutations {
+        match &mutation.operation {
+            ProcessorHeaderOperation::Set => {
+                // Apply to output records before they're sent to output stream
+                // self.pending_headers.insert(mutation.key, mutation.value);
+            }
+            ProcessorHeaderOperation::Remove => {
+                // Remove from output records
+                // self.pending_headers.remove(&mutation.key);
+            }
+        }
+    }
+}
+```
+
+**Effort**: 3-4 hours (design + implementation + tests)
+**Priority**: MEDIUM (reads work, writes needed for complete tracing support)
+
+**Key Differences**:
+- **Velostream**: Exposes Kafka metadata (_partition, _offset) as system columns (unique advantage)
+- **Flink**: Uses `$` prefix, focuses on time semantics, metadata via DataStream API
+- **ksqlDB**: Uses UPPERCASE naming, simpler system column set
+- **Velostream Phase 1**: Will support both processing-time and event-time semantics
+
+**Competitive Advantage**:
+Velostream is the only SQL engine that exposes Kafka partition/offset metadata directly in SQL, enabling queries like:
+```sql
+SELECT _partition, _offset, _timestamp, _event_time, _window_start
+FROM kafka_stream
+WHERE _partition = 0 AND _offset > 1000
+```
+
+This is valuable for:
+- Debugging data flow issues
+- Exactly-once semantics verification
+- Partition-aware processing
+- Offset management and checkpointing
+
+---
+
+## 🔴 **TOP PRIORITY: System Columns Test Failures Analysis**
+
+**Status**: 🔍 **ANALYSIS COMPLETE - ROOT CAUSE IDENTIFIED**
+**Test Failures**: 56 tests failing in system_columns_test.rs
+**Root Cause**: FieldValidator rejects system columns because they're not in record.fields HashMap
+
+### Problem Summary
+
+System columns (`_timestamp`, `_offset`, `_partition`) are stored as **separate fields in StreamRecord**, not in the fields HashMap:
+
+```rust
+pub struct StreamRecord {
+    pub fields: HashMap<String, FieldValue>,  // Regular data fields
+    pub timestamp: i64,                         // Maps to _timestamp
+    pub offset: i64,                            // Maps to _offset
+    pub partition: i32,                         // Maps to _partition
+}
+```
+
+### Current Architecture Status
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| **Parser** | ✅ WORKS | Parses system columns as regular identifiers |
+| **Expression Evaluator** | ✅ WORKS | 3 different evaluation methods support system columns |
+| **SELECT Processor** | ✅ WORKS | Explicitly handles `_TIMESTAMP`, `_OFFSET`, `_PARTITION` |
+| **FieldValidator** | ❌ **FAILS** | `select.rs:588` - Rejects system columns (not in fields HashMap) |
+
+### Test Results
+
+**Passing (4/8)**: ✅
+- `test_system_column_parsing` - Parser works correctly
+- `test_system_column_aliasing` - Aliases work correctly
+- `test_system_column_in_expression` - Expressions work correctly
+- `test_system_column_reserved_names` - AST creation works correctly
+
+**Failing (4/8)**: ❌ At execution step (not parsing)
+- `test_system_column_execution` - FieldValidator rejects before execution
+- `test_system_column_with_aliases` - FieldValidator rejects before execution
+- `test_system_column_in_where_clause` - FieldValidator rejects before execution
+- `test_system_columns_case_insensitive` - FieldValidator rejects before execution
+
+### Root Cause - FieldValidator Issue
+
+**File**: `src/velostream/sql/execution/processors/select.rs:588`
+**Problem**:
+```rust
+// This validator checks if all columns exist in record.fields
+// But system columns are NOT in fields HashMap - they're in StreamRecord properties
+// So FieldValidator throws error before execution continues
+```
+
+### Dual Storage Model Impact
+
+The architecture uses **dual storage**:
+- **Regular columns**: Stored in `StreamRecord.fields` HashMap
+- **System columns**: Stored directly in StreamRecord (`timestamp`, `offset`, `partition` fields)
+
+This causes:
+1. Parser/Evaluator code duplicated 3+ times to handle system columns separately
+2. Some validators only check fields HashMap (FieldValidator)
+3. Inconsistent behavior between different validators
+
+### Recommended Fix Strategy
+
+1. **Short-term (Debug)**:
+   - Modify FieldValidator to handle system columns separately
+   - Add check: if column starts with `_`, validate against StreamRecord properties
+   - Accept `_TIMESTAMP`, `_OFFSET`, `_PARTITION` as valid system columns
+
+2. **Medium-term (Improve)**:
+   - Create centralized `resolve_column()` function
+   - Update all validators to use centralized function
+   - Eliminate code duplication in evaluator
+
+3. **Long-term (Refactor)**:
+   - Consider unified storage model
+   - Add comprehensive system columns documentation
+   - Test system columns with windows and aggregations
+
+### Files Involved
+
+| File | Lines | Component | Issue |
+|------|-------|-----------|-------|
+| `types.rs` | 884-898 | StreamRecord definition | ✅ Correct dual storage |
+| `evaluator.rs` | 128-131, 377-390, 1330-1363 | System column evaluation | ✅ Handles correctly |
+| `select.rs` | 516-545 | SELECT processor | ✅ Handles correctly |
+| `select.rs` | **588-589** | **FieldValidator** | **❌ NEEDS FIX** |
+
+### Detailed Analysis
+
+Full comprehensive analysis available in: `/Users/navery/RustroverProjects/velostream/SYSTEM_COLUMNS_ANALYSIS.md`
+
+### Implementation Phase Plan
+
+#### **Phase 1: FieldValidator Fix (1-2 hours)**
+**Objective**: Fix FieldValidator to recognize system columns as valid
+
+**Changes Required**:
+1. Modify `src/velostream/sql/execution/processors/select.rs:588-589`
+   - Update validation logic to check for system columns separately
+   - Pattern: if column starts with `_`, validate against StreamRecord properties
+   - Accept: `_TIMESTAMP`, `_OFFSET`, `_PARTITION` (case-insensitive)
+
+2. Add system column validation helper:
+   ```rust
+   fn is_valid_system_column(column_name: &str) -> bool {
+       matches!(column_name.to_uppercase().as_str(),
+           "_TIMESTAMP" | "_OFFSET" | "_PARTITION")
+   }
+   ```
+
+3. Update FieldValidator logic:
+   ```rust
+   // Before rejecting, check if it's a system column
+   if !record.fields.contains_key(&col_name) {
+       if is_valid_system_column(&col_name) {
+           // System columns are valid - continue
+       } else {
+           // Regular column not found - error
+       }
+   }
+   ```
+
+**Tests Fixed**: 4/8 system_columns tests should pass
+**Expected Result**: ✅ test_system_column_execution, test_system_column_with_aliases, etc.
+
+---
+
+#### **Phase 2: Code Deduplication (2-3 hours)**
+**Objective**: Create centralized system column handling
+
+**Changes Required**:
+1. Create `src/velostream/sql/execution/system_columns.rs`:
+   - Centralized system column definitions
+   - Helper functions for validation and resolution
+   - Mapping logic between column names and StreamRecord properties
+
+2. Consolidate duplicate code in:
+   - `evaluator.rs:128-131` (evaluate_condition_expression)
+   - `evaluator.rs:377-390` (evaluate_expression_value)
+   - `evaluator.rs:1330-1363` (evaluate_expression_value_with_subqueries)
+   - Replace with centralized function calls
+
+3. Add to module exports:
+   ```rust
+   // In src/velostream/sql/execution/mod.rs
+   pub mod system_columns;
+   ```
+
+**Tests Status**: All 8/8 tests should continue passing
+
+---
+
+#### **Phase 3: Validator Updates (1-2 hours)**
+**Objective**: Update all validators to use centralized system column handling
+
+**Changes Required**:
+1. Update FieldValidator in `select.rs:588`
+   - Use centralized system column functions
+
+2. Audit other validators that check record.fields:
+   - Update to recognize system columns
+   - Eliminate individual system column handling
+
+3. Add comprehensive comments explaining dual storage model
+
+**Tests Status**: All tests remain passing
+
+---
+
+#### **Phase 4: Documentation & Testing (1-2 hours)**
+**Objective**: Document system columns and add comprehensive tests
+
+**Changes Required**:
+1. Add system columns documentation:
+   - `docs/sql/system-columns.md` - User guide
+   - Code comments in `system_columns.rs`
+   - Architecture notes in CLAUDE.md
+
+2. Add new tests:
+   - System columns with GROUP BY
+   - System columns with windowing
+   - System columns with aggregations
+   - Case sensitivity verification
+
+3. Update existing tests to verify system columns work in:
+   - WHERE clauses ✓
+   - SELECT expressions ✓
+   - Aliases ✓
+   - Aggregations (new)
+   - Window functions (new)
+
+**Expected Results**:
+- ✅ All 8 existing system_columns tests pass
+- ✅ 4+ new comprehensive tests pass
+- ✅ Complete documentation
+
+---
+
+### Summary of Changes
+
+| Phase | Files Modified | Lines Changed | Tests Affected | Effort |
+|-------|---|---|---|---|
+| 1 | select.rs | ~15 | +4 passing | 1-2h |
+| 2 | system_columns.rs (new), evaluator.rs | ~100 | 0 change | 2-3h |
+| 3 | select.rs, other validators | ~30 | 0 change | 1-2h |
+| 4 | docs, system_columns_test.rs | ~200 | +4 new | 1-2h |
+| **Total** | | **~345** | **+8 total** | **5-9h** |
+
+---
+
+## 📊 WINDOW-RELATED SYSTEM COLUMNS ANALYSIS
+
+**Status**: 🔍 **ANALYSIS COMPLETE - IMPLEMENTATION FOUND**
+
+### Overview
+
+Window-related system columns (`_window_start`, `_window_end`) **ARE FULLY IMPLEMENTED** in Velostream, but through a different mechanism than regular system columns:
+
+| Column | Type | Storage | Access Method | Status |
+|--------|------|---------|---|---|
+| `_timestamp` | Regular System Column | StreamRecord.timestamp | Direct property access | ✅ Working |
+| `_offset` | Regular System Column | StreamRecord.offset | Direct property access | ✅ Working |
+| `_partition` | Regular System Column | StreamRecord.partition | Direct property access | ✅ Working |
+| `_window_start` | **Window Metadata** | StreamRecord.fields HashMap | Inserted as regular field | ✅ Working |
+| `_window_end` | **Window Metadata** | StreamRecord.fields HashMap | Inserted as regular field | ✅ Working |
+
+### Key Finding: Window Columns in fields HashMap
+
+Unlike `_timestamp`, `_offset`, `_partition` which are StreamRecord properties, window-related columns are **injected into the fields HashMap** during window processing:
+
+**Location 1**: `src/velostream/sql/execution/processors/window.rs:874-879`
+```rust
+// Add window metadata to partial result
+partial_fields.insert(
+    "_window_start".to_string(),
+    FieldValue::Integer(window_start),
+);
+partial_fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
+```
+
+**Location 2**: `src/velostream/sql/execution/processors/window.rs:1240-1244`
+```rust
+result_fields.insert(
+    "_window_start".to_string(),
+    FieldValue::Integer(window_start),
+);
+result_fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
+```
+
+### Window Column Access via Functions
+
+Window columns are accessed through dedicated functions (`TUMBLE_START()` and `TUMBLE_END()`), not as direct column references:
+
+**Location**: `src/velostream/sql/execution/expression/functions.rs:2133-2162`
+
+```rust
+fn tumble_start_function(_args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    // Try to get _window_start from record metadata
+    if let Some(window_start) = record.fields.get("_window_start") {
+        return Ok(window_start.clone());
+    }
+    // Fallback: If no metadata, return record timestamp (for non-windowed queries)
+    Ok(FieldValue::Integer(record.timestamp))
+}
+
+fn tumble_end_function(_args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {
+    // Try to get _window_end from record metadata
+    if let Some(window_end) = record.fields.get("_window_end") {
+        return Ok(window_end.clone());
+    }
+    // Fallback: If no metadata, return record timestamp (for non-windowed queries)
+    Ok(FieldValue::Integer(record.timestamp))
+}
+```
+
+### Direct Column Access vs Function Access
+
+Window columns can theoretically be accessed in two ways:
+
+1. **Via Functions (Recommended)**:
+   - `SELECT TUMBLE_START() FROM stream WHERE ...`
+   - `SELECT TUMBLE_END() FROM stream WHERE ...`
+   - ✅ Well-tested and documented
+
+2. **Direct Column Reference (May Work)**:
+   - `SELECT _window_start FROM stream WHERE ...`
+   - `SELECT _window_end FROM stream WHERE ...`
+   - ❓ Works because window processor injects them into fields HashMap
+   - ⚠️ NOT explicitly handled in evaluator.rs like `_timestamp`, `_offset`, `_partition`
+   - ⚠️ No validation in FieldValidator (they're inserted post-validation)
+
+### Impact on System Columns Implementation Plan
+
+**Decision**: Window system columns (`_window_start`, `_window_end`) should **NOT be included** in Phase 1's FieldValidator fix.
+
+**Reason**:
+- They're injected into the fields HashMap by the WindowProcessor
+- By the time FieldValidator runs, they may not yet exist in the record
+- They're better accessed through `TUMBLE_START()` and `TUMBLE_END()` functions
+- Trying to validate them like `_timestamp` would be incorrect
+
+**Recommendation for System Columns Phases**:
+- Phase 1-4: Fix only `_timestamp`, `_offset`, `_partition`
+- Phase 5 (Future): Document window metadata columns separately
+- Phase 6 (Future): Consider adding `_window_start`/`_window_end` to evaluator.rs for consistency (optional enhancement)
+
+### Test Considerations
+
+When testing system columns with windows:
+- ✅ Use `TUMBLE_START()` and `TUMBLE_END()` for window boundaries
+- ✅ Use `_timestamp`, `_offset`, `_partition` for regular system columns
+- ⚠️ Avoid direct `_window_start`/`_window_end` reference - use function calls instead
+- ✅ Test both with and without windowing to verify fallback behavior
+
+---
+
 ## Task: Fixing Financial Trading Queries
 
 **Status**: 🔍 **INVESTIGATION REQUIRED**
@@ -2182,6 +2782,138 @@ SELECT * FROM market_data WHERE volume > avg_volume * 2.0;
 - Production Deployment Readiness
 
 **🚀 Accelerated Timeline**: Phase 3 completion 3 weeks early opens opportunity for expanded Phase 4 scope
+
+---
+
+## 📝 NEW TASK: SQLValidator System Columns Reference Output
+
+**Status**: 🔷 **PLANNED**
+**Priority**: MEDIUM
+**Effort**: 2-3 hours
+**Related**: System Columns Implementation (Phases 1-4)
+
+### Objective
+
+Make SQLValidator always print available system columns as reference output, helping users understand what system columns are available for their queries.
+
+### Rationale
+
+- Users may not know about system columns like `_timestamp`, `_offset`, `_partition`, `_event_time`
+- Velostream has unique Kafka metadata exposure that competitors don't have
+- SQLValidator is the perfect place to educate users about these capabilities
+- Reference output should appear in CLI when queries are validated
+
+### Implementation Details
+
+**Location**: `src/velostream/sql/validator.rs` - `validate_query()` method
+
+**What to Print**:
+```
+SQL Validation Results:
+========================
+
+Query: [query_text]
+Valid: Yes/No
+
+System Columns Available in Velostream:
+---------------------------------------
+
+Processing-Time Metadata:
+  _timestamp     i64          Milliseconds since epoch (processing time)
+  _offset        i64          Kafka partition offset
+  _partition     i32          Kafka partition number
+
+Event-Time Semantics:
+  _event_time    DateTime     Event-time timestamp (watermark-based)
+
+Window Operations:
+  _window_start  i64          Window start timestamp (via TUMBLE_START())
+  _window_end    i64          Window end timestamp (via TUMBLE_END())
+
+Example Queries:
+  SELECT _timestamp, _offset, _partition FROM stream WHERE _partition = 0
+  SELECT TUMBLE_START() as window_start FROM stream GROUP BY _partition
+  SELECT * FROM stream WHERE _timestamp > NOW() - INTERVAL '1' HOUR
+```
+
+### Integration Points
+
+1. **modify `validator.rs:validate_query()`**:
+   - After validation completes, print reference section
+   - Only when verbosity is enabled (don't spam CLI)
+   - Add flag: `include_system_columns_reference: bool`
+
+2. **CLI Integration**:
+   - Update velo_cli to pass flag when user requests help/info
+   - Example: `velo-sql validate --query "SELECT ..." --show-system-columns`
+
+3. **Documentation**:
+   - Update CLAUDE.md with system columns capabilities
+   - Reference in error messages when system columns are misused
+
+### Expected Output Example
+
+```
+velo-sql validate "SELECT _timestamp, _offset FROM orders"
+
+Validation: ✅ PASSED
+
+System Columns Available in Velostream:
+=========================================
+
+Processing-Time Metadata:
+  _timestamp     INT64        Milliseconds since epoch
+  _offset        INT64        Kafka partition offset
+  _partition     INT32        Kafka partition number
+
+Event-Time Semantics:
+  _event_time    TIMESTAMP    Event-time (watermark-based)
+
+Window Operations:
+  _window_start  INT64        Window start (TUMBLE_START() function)
+  _window_end    INT64        Window end (TUMBLE_END() function)
+
+Competitive Advantage:
+  ⭐ Only Velostream exposes Kafka partition/offset in SQL
+  ⭐ Enables exactly-once semantics verification
+  ⭐ Supports debug queries like: WHERE _partition = 0
+```
+
+### Testing
+
+Create test file: `tests/unit/sql/validator/system_columns_reference_test.rs`
+
+Test cases:
+1. Reference output appears in validation results
+2. Reference output shows all 5 system columns
+3. Reference output includes example queries
+4. Can disable reference output with flag
+5. Works with both valid and invalid queries
+
+### Files to Modify
+
+| File | Changes | Effort |
+|---|---|---|
+| `src/velostream/sql/validator.rs` | Add reference output method | 30 min |
+| `src/velostream/sql/validation/mod.rs` | Update config struct | 15 min |
+| `tests/unit/sql/validator/system_columns_reference_test.rs` | New test file | 30 min |
+| `CLAUDE.md` | Document capability | 15 min |
+| `docs/system-columns.md` (NEW) | User guide | 30 min |
+
+### Phase Integration
+
+- **Phase 1-4 Timing**: Can be done BEFORE Phase 1 implementation (as documentation/help feature)
+- **Phase 5 (Future)**: Enhance with dynamically showing which columns are actually available in specific queries
+- **Phase 6 (Future)**: Add auto-completion hints for system columns in IDE/CLI
+
+### Success Criteria
+
+✅ `velo-sql validate` command shows system columns reference
+✅ Reference appears by default (unless disabled)
+✅ All 5 system columns documented with descriptions
+✅ Example queries shown for each category
+✅ Tests verify output format and content
+✅ Documentation updated
 
 ---
 

@@ -8,7 +8,7 @@ use crate::velostream::sql::ast::TimeUnit;
 use crate::velostream::sql::error::SqlError;
 use chrono::{DateTime, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 /// A value in a SQL record field
@@ -44,6 +44,94 @@ pub enum FieldValue {
     Struct(HashMap<String, FieldValue>),
     /// Time interval (value, unit)
     Interval { value: i64, unit: TimeUnit },
+}
+
+/// System column names in Velostream
+///
+/// These are special columns that come from StreamRecord properties, not from field data.
+/// OPTIMIZATION: Defined in UPPERCASE for internal use. User input is normalized once at parse time.
+/// This eliminates repeated string allocations during query execution.
+pub mod system_columns {
+    use super::HashSet;
+    use std::sync::OnceLock;
+
+    /// Processing time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const TIMESTAMP: &str = "_TIMESTAMP";
+    /// Kafka partition offset for the record (UPPERCASE internal form)
+    pub const OFFSET: &str = "_OFFSET";
+    /// Kafka partition number (UPPERCASE internal form)
+    pub const PARTITION: &str = "_PARTITION";
+    /// Event time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const EVENT_TIME: &str = "_EVENT_TIME";
+    /// Window start time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const WINDOW_START: &str = "_WINDOW_START";
+    /// Window end time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const WINDOW_END: &str = "_WINDOW_END";
+
+    /// Array of all system column names (UPPERCASE) for validation
+    pub const ALL: &[&str] = &[
+        TIMESTAMP,
+        OFFSET,
+        PARTITION,
+        EVENT_TIME,
+        WINDOW_START,
+        WINDOW_END,
+    ];
+
+    /// Lazy-initialized system columns set for O(1) lookups (uses UPPERCASE)
+    fn get_system_columns_set() -> &'static HashSet<&'static str> {
+        static SYSTEM_COLUMNS_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
+        SYSTEM_COLUMNS_SET.get_or_init(|| {
+            let mut set = HashSet::with_capacity(6);
+            set.insert(TIMESTAMP);
+            set.insert(OFFSET);
+            set.insert(PARTITION);
+            set.insert(EVENT_TIME);
+            set.insert(WINDOW_START);
+            set.insert(WINDOW_END);
+            set
+        })
+    }
+
+    /// Normalize column name to UPPERCASE if it's a system column
+    ///
+    /// This should be called ONCE at parse/validation time.
+    /// Internally, all system column references use UPPERCASE to avoid repeated allocations.
+    ///
+    /// # Arguments
+    /// * `name` - User-provided column name (any case)
+    ///
+    /// # Returns
+    /// The UPPERCASE system column name if it matches, None otherwise
+    #[inline]
+    pub fn normalize_if_system_column(name: &str) -> Option<&'static str> {
+        let upper = name.to_uppercase();
+        get_system_columns_set().get(upper.as_str()).copied()
+    }
+
+    /// Check if a name (UPPERCASE) is a system column - O(1) lookup
+    ///
+    /// Use this for internal checks (after normalization).
+    /// All system column names should be in UPPERCASE form.
+    ///
+    /// # Arguments
+    /// * `name_upper` - Column name in UPPERCASE form
+    ///
+    /// # Returns
+    /// True if it's a system column, false otherwise
+    #[inline]
+    pub fn is_system_column_upper(name_upper: &str) -> bool {
+        get_system_columns_set().contains(name_upper)
+    }
+
+    /// Legacy function for backwards compatibility - normalizes once and checks
+    ///
+    /// This is less efficient than normalizing at parse time.
+    /// Prefer normalizing column names once at parse/validation time instead.
+    #[inline]
+    pub fn is_system_column(name: &str) -> bool {
+        normalize_if_system_column(name).is_some()
+    }
 }
 
 impl FieldValue {

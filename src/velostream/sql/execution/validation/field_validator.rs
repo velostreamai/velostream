@@ -5,7 +5,7 @@
 
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::{system_columns, FieldValue, StreamRecord};
 use std::collections::HashSet;
 
 /// Error type for field validation failures
@@ -301,7 +301,10 @@ impl FieldValidator {
 
         let missing: Vec<String> = all_fields
             .into_iter()
-            .filter(|name| !record.fields.contains_key(name))
+            .filter(|name| {
+                // Include in missing list only if it's NOT a system column AND not in fields
+                !system_columns::is_system_column(name) && !record.fields.contains_key(name)
+            })
             .collect();
 
         if !missing.is_empty() {
