@@ -12,6 +12,7 @@ use crate::velostream::sql::execution::{
     aggregation::{state::GroupByStateManager, AccumulatorManager},
     expression::{ExpressionEvaluator, SelectAliasContext, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
+    types::system_columns,
     validation::{FieldValidator, ValidationContext},
     FieldValue, StreamRecord,
 };
@@ -506,9 +507,13 @@ impl SelectProcessor {
                     SelectField::Column(name) => {
                         // Check for system columns first (case insensitive)
                         let field_value = match name.to_uppercase().as_str() {
-                            "_TIMESTAMP" => Some(FieldValue::Integer(joined_record.timestamp)),
-                            "_OFFSET" => Some(FieldValue::Integer(joined_record.offset)),
-                            "_PARTITION" => {
+                            system_columns::TIMESTAMP => {
+                                Some(FieldValue::Integer(joined_record.timestamp))
+                            }
+                            system_columns::OFFSET => {
+                                Some(FieldValue::Integer(joined_record.offset))
+                            }
+                            system_columns::PARTITION => {
                                 Some(FieldValue::Integer(joined_record.partition as i64))
                             }
                             _ => joined_record.fields.get(name).cloned(),
@@ -521,9 +526,13 @@ impl SelectProcessor {
                     SelectField::AliasedColumn { column, alias } => {
                         // Check for system columns first (case insensitive)
                         let field_value = match column.to_uppercase().as_str() {
-                            "_TIMESTAMP" => Some(FieldValue::Integer(joined_record.timestamp)),
-                            "_OFFSET" => Some(FieldValue::Integer(joined_record.offset)),
-                            "_PARTITION" => {
+                            system_columns::TIMESTAMP => {
+                                Some(FieldValue::Integer(joined_record.timestamp))
+                            }
+                            system_columns::OFFSET => {
+                                Some(FieldValue::Integer(joined_record.offset))
+                            }
+                            system_columns::PARTITION => {
                                 Some(FieldValue::Integer(joined_record.partition as i64))
                             }
                             _ => joined_record.fields.get(column).cloned(),
