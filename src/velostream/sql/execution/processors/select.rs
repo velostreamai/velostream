@@ -573,7 +573,9 @@ impl SelectProcessor {
                 StreamSource::Subquery(_) => "select_subquery".to_string(),
             };
 
-            if !select_expressions.is_empty() && !context.validated_select_queries.contains(&query_id) {
+            if !select_expressions.is_empty()
+                && !context.validated_select_queries.contains(&query_id)
+            {
                 // Create a temporary record that combines original fields + computed aliases
                 // This allows validation to see both record fields and alias fields
                 let mut validation_fields = joined_record.fields.clone();
