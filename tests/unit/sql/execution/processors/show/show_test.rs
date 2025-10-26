@@ -94,6 +94,8 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         correlation_context: None,
         // === FR-079 PHASE 4: RESULT QUEUE FOR MULTI-EMISSION ===
         pending_results: HashMap::new(),
+        // === FR-078: ALIAS REUSE VALIDATION ===
+        validated_select_queries: std::collections::HashSet::new(),
     }
 }
 
@@ -442,6 +444,8 @@ async fn test_show_streams_empty_context() {
         correlation_context: None,
         // === FR-079 PHASE 4: RESULT QUEUE FOR MULTI-EMISSION ===
         pending_results: HashMap::new(),
+        // === FR-078: ALIAS REUSE VALIDATION ===
+        validated_select_queries: std::collections::HashSet::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

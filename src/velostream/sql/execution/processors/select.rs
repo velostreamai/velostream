@@ -494,15 +494,6 @@ impl SelectProcessor {
                     }
                 })
                 .collect();
-            if !select_expressions.is_empty() {
-                FieldValidator::validate_expressions(
-                    &joined_record,
-                    &select_expressions.into_iter().cloned().collect::<Vec<_>>(),
-                    ValidationContext::SelectClause,
-                )
-                .map_err(|e| e.to_sql_error())?;
-            }
-
             let mut result_fields = HashMap::new();
             let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
@@ -566,6 +557,48 @@ impl SelectProcessor {
                         }
                     }
                 }
+            }
+
+            // Validate SELECT expressions with alias_context only once per query for performance
+            // This allows FR-078 (alias reuse) to work while avoiding per-record validation overhead
+            // Uses context.validated_select_queries flag to track which queries have been validated
+            // Works reliably across all datasources (not dependent on offset or record ordering)
+            let query_id = match from {
+                StreamSource::Stream(name) | StreamSource::Table(name) => {
+                    format!("select_{}", name)
+                }
+                StreamSource::Uri(uri) => {
+                    format!("select_{}", uri.replace("://", "_").replace("/", "_"))
+                }
+                StreamSource::Subquery(_) => "select_subquery".to_string(),
+            };
+
+            if !select_expressions.is_empty() && !context.validated_select_queries.contains(&query_id) {
+                // Create a temporary record that combines original fields + computed aliases
+                // This allows validation to see both record fields and alias fields
+                let mut validation_fields = joined_record.fields.clone();
+                for (alias_name, alias_value) in alias_context.aliases.iter() {
+                    validation_fields.insert(alias_name.clone(), alias_value.clone());
+                }
+
+                let validation_record = StreamRecord {
+                    fields: validation_fields,
+                    timestamp: joined_record.timestamp,
+                    offset: joined_record.offset,
+                    partition: joined_record.partition,
+                    headers: joined_record.headers.clone(),
+                    event_time: joined_record.event_time,
+                };
+
+                FieldValidator::validate_expressions(
+                    &validation_record,
+                    &select_expressions.into_iter().cloned().collect::<Vec<_>>(),
+                    ValidationContext::SelectClause,
+                )
+                .map_err(|e| e.to_sql_error())?;
+
+                // Mark this query as validated to skip validation on future records
+                context.validated_select_queries.insert(query_id);
             }
 
             // Apply HAVING clause on the result fields

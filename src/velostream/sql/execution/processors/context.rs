@@ -88,6 +88,12 @@ pub struct ProcessorContext {
     /// Maps query_id to Vec of StreamRecords waiting to be emitted
     /// Used for windowed queries that produce multiple group results
     pub pending_results: HashMap<String, Vec<StreamRecord>>,
+
+    // === FR-078: ALIAS REUSE VALIDATION ===
+    /// Track which SELECT queries have had their expressions validated
+    /// This avoids expensive per-record validation across all datasources
+    /// Maps query_id to true after first validation
+    pub validated_select_queries: std::collections::HashSet<String>,
 }
 
 /// Table reference with optional alias for SQL parsing and correlation
@@ -149,6 +155,7 @@ impl ProcessorContext {
             state_tables: HashMap::new(),
             correlation_context: None,
             pending_results: HashMap::new(), // FR-079 Phase 4: Initialize result queue
+            validated_select_queries: std::collections::HashSet::new(), // FR-078: Track validated SELECT queries
         }
     }
 
