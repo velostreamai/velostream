@@ -1453,6 +1453,9 @@ mod tests {
         let mut record2 = create_stream_record_with_fields(fields2, 2);
         record2
             .fields
+            .insert("region".to_string(), FieldValue::Null);
+        record2
+            .fields
             .insert("amount".to_string(), FieldValue::Float(200.0));
 
         let mut fields3 = HashMap::new();
@@ -1468,6 +1471,9 @@ mod tests {
         let mut fields4 = HashMap::new();
         fields4.insert("customer_id".to_string(), FieldValue::Null);
         let mut record4 = create_stream_record_with_fields(fields4, 4);
+        record4
+            .fields
+            .insert("region".to_string(), FieldValue::Null);
         record4
             .fields
             .insert("amount".to_string(), FieldValue::Float(400.0));
