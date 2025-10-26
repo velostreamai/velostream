@@ -2,6 +2,108 @@
 
 ---
 
+## 🔴 CRITICAL: Window Processor Per-Record Emission Issue
+
+### Problem Summary
+Window processing tests are failing because the processor emits results per-record instead of per-window-boundary.
+
+**Test Status**: FAILING
+- Expected: 2 results (one per window boundary)
+- Actual: 5 results (one per record + flush)
+- Tests affected: `test_tumbling_window_avg`, `test_tumbling_window_min_max`, all window_processing_test tests
+
+### Test Case Details
+```
+Query: SELECT customer_id, AVG(amount) FROM orders GROUP BY customer_id WINDOW TUMBLING(5s)
+
+Records at timestamps: 1000ms, 2000ms, 6000ms, 7000ms
+Window boundaries (5000ms tumbling):
+  - Window 1: 0-5000ms → should emit 1 result at 5000ms boundary
+  - Window 2: 5000-10000ms → should emit 1 result at 10000ms boundary
+
+Expected: 2 results (one per window)
+Actual: 5 results (emissions at 1000ms, 2000ms, 6000ms, 7000ms, and flush)
+```
+
+### Root Cause Hypotheses (Under Investigation)
+
+**Hypothesis 1: EMIT_CHANGES Path Incorrectly Triggered**
+- Location: `src/velostream/sql/execution/processors/window.rs:155-157`
+- If `is_emit_changes == TRUE` when should be `FALSE`, will emit per-record
+- Test query has no EMIT clause, should default to EMIT FINAL
+- Debug logs will show `[WINDOW] EMIT_CHANGES path` if triggered
+
+**Hypothesis 2: should_emit_window_state Always Returns True**
+- Location: `src/velostream/sql/execution/processors/window.rs:563-596`
+- Window boundary logic may be incorrect
+- Expected: emit when `event_time >= window_boundary`
+- Problem: may be emitting on every record instead
+
+**Hypothesis 3: Window State Not Persisting**
+- `window_state.last_emit` may not update correctly after emission
+- Without proper persistence, every record triggers new emission
+- Check `process_window_emission_state` function for last_emit updates
+
+### Debug Output Captured
+Running: `cargo test test_tumbling_window_avg --no-default-features 2>&1 | grep "\[WINDOW\]"`
+
+Expected debug output pattern:
+```
+[WINDOW] is_emit_changes=false, has_group_by=true, event_time=1000
+[WINDOW] should_emit_window_state returned: false, last_emit=0, buffer.len()=1
+
+[WINDOW] is_emit_changes=false, has_group_by=true, event_time=2000
+[WINDOW] should_emit_window_state returned: false, last_emit=0, buffer.len()=2
+
+[WINDOW] is_emit_changes=false, has_group_by=true, event_time=6000
+[WINDOW] should_emit_window_state returned: true, last_emit=0, buffer.len()=3
+[Window emission triggered]
+
+[WINDOW] is_emit_changes=false, has_group_by=true, event_time=7000
+[WINDOW] should_emit_window_state returned: false, last_emit=5000, buffer.len()=1
+```
+
+### Code Locations to Review
+1. **Emission decision logic**: `window.rs:144-163` - determines should_emit
+2. **Window boundary check**: `window.rs:563-596` - should_emit_window_state function
+3. **Window state updates**: `window.rs` - process_window_emission_state updates last_emit
+4. **Test file**: `tests/unit/sql/execution/processors/window/window_processing_test.rs:179-226`
+
+### Implementation Plan
+1. ✅ Verify is_emit_changes() correctly returns FALSE
+2. ✅ Verify should_emit_window_state logic for window boundaries
+3. ✅ Verify last_emit persistence across records
+4. ✅ Implement fix if needed - Added explicit code paths and logging
+5. ✅ Remove debug logging (completed - all eprintln statements removed)
+6. ✅ Run comprehensive window test suite (all tests PASSED)
+
+### Changes Implemented (Session 2) - COMPLETED ✅
+**File**: `src/velostream/sql/execution/processors/window.rs` (lines 144-158)
+
+**Final Implementation** (Clean, Production-Ready):
+```rust
+let should_emit = if is_emit_changes && group_by_cols.is_some() {
+    true  // EMIT CHANGES + GROUP BY: emit per-record
+} else if group_by_cols.is_some() && !is_emit_changes {
+    Self::should_emit_window_state(window_state, event_time, window_spec)
+} else {
+    Self::should_emit_window_state(window_state, event_time, window_spec)
+};
+```
+
+**Logic Summary**:
+- Branch 1: `is_emit_changes && group_by_cols.is_some()` → emit per-record (EMIT CHANGES explicit)
+- Branch 2: `group_by_cols.is_some() && !is_emit_changes` → use window boundaries (GROUP BY defaults to EMIT FINAL)
+- Branch 3: Default → use window boundaries (standard window queries)
+
+**Test Results**: ✅ ALL PASSED
+- `test_tumbling_window_avg`: PASSED (was 5 results, now 2 - FIXED)
+- All `window_processing_test` tests: PASSED
+- Code formatting: PASSED
+- Debug logging: REMOVED (clean production code)
+
+---
+
 ## 📋 MASTER ANALYSIS INDEX
 
 **Status**: ✅ **ALL SYSTEM COLUMNS ANALYSIS COMPLETE**

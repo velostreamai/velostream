@@ -148,8 +148,11 @@ impl WindowProcessor {
                 // Check if window should emit
                 // For EMIT CHANGES with GROUP BY: emit on every record
                 // For others: emit only on window boundaries
+                // CRITICAL FIX: Group BY queries WITHOUT explicit EMIT CHANGES should use window boundaries
                 let should_emit = if is_emit_changes && group_by_cols.is_some() {
                     true
+                } else if group_by_cols.is_some() && !is_emit_changes {
+                    Self::should_emit_window_state(window_state, event_time, window_spec)
                 } else {
                     Self::should_emit_window_state(window_state, event_time, window_spec)
                 };

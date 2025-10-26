@@ -89,7 +89,7 @@ async fn test_emit_changes_with_tumbling_window() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES with Tumbling Window");
+    WindowTestAssertions::assert_result_count_min(&results, 2, "EMIT CHANGES with Tumbling Window");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
 }
 
@@ -107,7 +107,7 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
             AVG(volume) * 1.1 as volume_threshold,
             COUNT(*) as order_count
         FROM orders
-        GROUP BY XXXX
+        GROUP BY symbol
         WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
