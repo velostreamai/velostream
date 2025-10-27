@@ -89,6 +89,41 @@ pub enum ValidationContext {
     OrderByClause,
 }
 
+/// Represents known table aliases available in a query
+/// Extracted from FROM clause and JOIN clauses
+#[derive(Debug, Clone, Default)]
+pub struct AliasContext {
+    /// Aliases from the FROM source (None if no alias provided)
+    pub from_alias: Option<String>,
+    /// Aliases from JOIN clauses (right_alias from each JOIN)
+    pub join_aliases: HashSet<String>,
+}
+
+impl AliasContext {
+    /// Create a new empty alias context
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Check if an alias is known in this context
+    pub fn contains_alias(&self, alias: &str) -> bool {
+        self.from_alias.as_ref().map(|a| a.as_str()) == Some(alias)
+            || self.join_aliases.contains(alias)
+    }
+
+    /// Get all known aliases
+    pub fn all_aliases(&self) -> HashSet<&str> {
+        let mut aliases = HashSet::new();
+        if let Some(alias) = &self.from_alias {
+            aliases.insert(alias.as_str());
+        }
+        for alias in &self.join_aliases {
+            aliases.insert(alias.as_str());
+        }
+        aliases
+    }
+}
+
 impl std::fmt::Display for ValidationContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -107,6 +142,49 @@ impl std::fmt::Display for ValidationContext {
 
 /// Core field validator for runtime validation
 pub struct FieldValidator;
+
+impl AliasContext {
+    /// Build an AliasContext from a StreamingQuery's FROM and JOIN clauses
+    /// This extracts all known table aliases that can be used in qualified column names
+    ///
+    /// # Example
+    ///
+    /// For a query like:
+    /// ```sql
+    /// SELECT m.price, p.product_name FROM market m
+    /// JOIN positions p ON m.symbol = p.symbol
+    /// ```
+    ///
+    /// This returns AliasContext with:
+    /// - from_alias: Some("m")
+    /// - join_aliases: {"p"}
+    pub fn from_streaming_query(query: &crate::velostream::sql::StreamingQuery) -> Self {
+        use crate::velostream::sql::StreamingQuery;
+
+        match query {
+            StreamingQuery::Select {
+                from_alias, joins, ..
+            } => {
+                let mut context = AliasContext {
+                    from_alias: from_alias.clone(),
+                    join_aliases: HashSet::new(),
+                };
+
+                if let Some(join_clauses) = joins {
+                    for join_clause in join_clauses {
+                        if let Some(alias) = &join_clause.right_alias {
+                            context.join_aliases.insert(alias.clone());
+                        }
+                    }
+                }
+
+                context
+            }
+            // Other query types don't have FROM/JOIN clauses
+            _ => AliasContext::default(),
+        }
+    }
+}
 
 impl FieldValidator {
     /// Validate that a field exists in the record
@@ -286,6 +364,89 @@ impl FieldValidator {
         }
     }
 
+    /// Validate all fields in expressions with qualified name alias checking
+    ///
+    /// This enhanced validation:
+    /// - Checks that unqualified fields exist in the record
+    /// - For qualified names (e.g., "p.product_name"), validates that "p" is a known alias
+    /// - Rejects queries with unknown aliases (e.g., "SELECT wrong_alias.id FROM customers")
+    ///
+    /// # Arguments
+    ///
+    /// * `record` - The stream record to validate against
+    /// * `expressions` - Expressions to validate
+    /// * `context` - Validation context for error messages
+    /// * `alias_context` - Known table aliases from FROM/JOINs
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if all fields are valid, `Err(FieldValidationError)` otherwise
+    pub fn validate_expressions_with_aliases(
+        record: &StreamRecord,
+        expressions: &[Expr],
+        context: ValidationContext,
+        alias_context: &AliasContext,
+    ) -> Result<(), FieldValidationError> {
+        let mut all_fields = HashSet::new();
+        for expr in expressions {
+            let expr_fields = Self::extract_field_names(expr);
+            all_fields.extend(expr_fields);
+        }
+
+        let missing: Vec<String> = all_fields
+            .into_iter()
+            .filter(|name| {
+                // Skip system columns - they're always available
+                if system_columns::normalize_if_system_column(name).is_some() {
+                    return false;
+                }
+
+                // Check if this is a qualified name (contains a dot)
+                if let Some(dot_pos) = name.rfind('.') {
+                    let alias = &name[..dot_pos];
+
+                    // Validate that the alias is known
+                    if !alias_context.contains_alias(alias) {
+                        // Unknown alias - this is an error
+                        return true; // Include in missing list
+                    }
+
+                    // Alias is known, but the field might not be in the record yet (will come from JOIN)
+                    // Skip strict validation - the full validation happens after joins
+                    false
+                } else {
+                    // Unqualified name - must exist in the record
+                    !record.fields.contains_key(name)
+                }
+            })
+            .collect();
+
+        if !missing.is_empty() {
+            return if missing.len() == 1 {
+                let field = &missing[0];
+                // Check if it's a qualified name with unknown alias
+                if let Some(dot_pos) = field.rfind('.') {
+                    let alias = &field[..dot_pos];
+                    Err(FieldValidationError::FieldNotFound {
+                        field_name: format!("unknown table alias '{}' (field: {})", alias, field),
+                        context: context.to_string(),
+                    })
+                } else {
+                    Err(FieldValidationError::FieldNotFound {
+                        field_name: field.clone(),
+                        context: context.to_string(),
+                    })
+                }
+            } else {
+                Err(FieldValidationError::MultipleFieldsMissing {
+                    field_names: missing,
+                    context: context.to_string(),
+                })
+            };
+        }
+        Ok(())
+    }
+
     /// Validate all fields in expressions exist in record
     ///
     /// # Arguments
@@ -315,10 +476,14 @@ impl FieldValidator {
                 // Use normalize_if_system_column() instead of is_system_column() for efficiency
                 // (avoid allocating a String for every field check)
                 system_columns::normalize_if_system_column(name).is_none() && {
-                    // For qualified names like "c.id", skip strict validation - they will be resolved
-                    // during execution when we have the fully joined record available
+                    // For qualified names like "p.product_name", skip strict validation - they
+                    // reference fields from JOINed tables that won't exist in the initial record.
+                    // These will be validated at execution time when the full joined record is available.
+                    // This is a pragmatic trade-off: errors are caught at runtime instead of validation time.
+                    // A future enhancement could extract table aliases from the FROM/JOIN clauses
+                    // to validate qualified names against known aliases at validation time.
                     if name.contains('.') {
-                        false // Don't report qualified names as missing
+                        false // Skip validation for qualified names - will be caught at runtime
                     } else {
                         // For unqualified names, validate they exist in the record
                         !record.fields.contains_key(name)
