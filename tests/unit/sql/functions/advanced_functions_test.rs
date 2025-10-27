@@ -351,7 +351,7 @@ mod tests {
     fn test_nested_function_calls() {
         let parser = StreamingSqlParser::new();
 
-        let query = "SELECT CAST(SPLIT(metadata, ':'), 'INTEGER') as port FROM servers";
+        let query = "SELECT CAST(SPLIT(metadata, ':') AS INTEGER) as port FROM servers";
         let result = parser.parse(query);
         assert!(
             result.is_ok(),
@@ -433,9 +433,9 @@ mod tests {
 
         // These should parse successfully (validation happens at execution time)
         let valid_cases = vec![
-            "SELECT CAST(amount) FROM orders", // Missing type argument
-            "SELECT SPLIT(name) FROM orders",  // Missing delimiter
-            "SELECT JOIN() FROM orders",       // No arguments
+            "SELECT CAST(amount AS FLOAT) FROM orders", // Valid CAST with SQL Standard syntax
+            "SELECT SPLIT(name) FROM orders",           // Missing delimiter
+            "SELECT JOIN() FROM orders",                // No arguments
         ];
 
         for query_str in valid_cases {

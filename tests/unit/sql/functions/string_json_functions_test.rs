@@ -208,15 +208,15 @@ mod tests {
     fn test_complex_query_with_string_and_json_functions() {
         let parser = StreamingSqlParser::new();
 
-        let query = "SELECT 
+        let query = "SELECT
             event_id,
             SUBSTRING(message, 1, 50) as short_message,
             JSON_EXTRACT(payload, '$.user.id') as user_id,
             JSON_VALUE(payload, '$.timestamp') as event_time,
-            CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT') as amount_float
-        FROM kafka_events 
+            CAST(JSON_VALUE(payload, '$.amount') AS FLOAT) as amount_float
+        FROM kafka_events
         WHERE JSON_VALUE(payload, '$.type') = 'purchase'
-        ORDER BY event_time DESC 
+        ORDER BY event_time DESC
         LIMIT 100";
 
         let result = parser.parse(query);
@@ -310,14 +310,14 @@ mod tests {
     fn test_job_deployment_with_json_processing() {
         let parser = StreamingSqlParser::new();
 
-        let query = "DEPLOY JOB json_processor VERSION '1.0.0' AS 
-            SELECT 
+        let query = "DEPLOY JOB json_processor VERSION '1.0.0' AS
+            SELECT
                 event_id,
                 JSON_EXTRACT(payload, '$.customer.id') as customer_id,
-                CAST(JSON_VALUE(payload, '$.order.amount'), 'FLOAT') as order_amount,
-                SUBSTRING(JSON_VALUE(payload, '$.customer.email'), 1, 
-                         CAST(JSON_VALUE(payload, '$.customer.email_length'), 'INTEGER')) as email_prefix
-            FROM order_events 
+                CAST(JSON_VALUE(payload, '$.order.amount') AS FLOAT) as order_amount,
+                SUBSTRING(JSON_VALUE(payload, '$.customer.email'), 1,
+                         CAST(JSON_VALUE(payload, '$.customer.email_length') AS INTEGER)) as email_prefix
+            FROM order_events
             WHERE JSON_VALUE(payload, '$.order.status') = 'completed'
             STRATEGY CANARY(20)";
 
@@ -434,18 +434,18 @@ mod tests {
         let parser = StreamingSqlParser::new();
 
         // Real-world example for processing Kafka messages with nested JSON
-        let query = "SELECT 
+        let query = "SELECT
             _timestamp as kafka_timestamp,
             _partition as kafka_partition,
             JSON_VALUE(value, '$.eventType') as event_type,
             JSON_EXTRACT(value, '$.user') as user_data,
-            CAST(JSON_VALUE(value, '$.user.id'), 'INTEGER') as user_id,
+            CAST(JSON_VALUE(value, '$.user.id') AS INTEGER) as user_id,
             SUBSTRING(JSON_VALUE(value, '$.user.email'), 1, 50) as email_truncated,
             JSON_VALUE(value, '$.order.items[0].name') as first_item_name,
-            CAST(JSON_VALUE(value, '$.order.total'), 'FLOAT') as order_total
-        FROM kafka_topic_orders 
+            CAST(JSON_VALUE(value, '$.order.total') AS FLOAT) as order_total
+        FROM kafka_topic_orders
         WHERE JSON_VALUE(value, '$.eventType') IN ('ORDER_CREATED', 'ORDER_UPDATED')
-        AND CAST(JSON_VALUE(value, '$.order.total'), 'FLOAT') > 100.0";
+        AND CAST(JSON_VALUE(value, '$.order.total') AS FLOAT) > 100.0";
 
         let result = parser.parse(query);
         assert!(
