@@ -2428,6 +2428,61 @@ impl<'a> TokenParser<'a> {
                     }
                 }
 
+                // Special handling for CAST function with SQL standard syntax support
+                if token.value.to_uppercase() == "CAST" {
+                    self.advance(); // consume CAST
+                    self.expect(TokenType::LeftParen)?; // consume '('
+
+                    // Support both syntaxes:
+                    // 1. CAST(expr AS type) - SQL standard style
+                    // 2. CAST(expr, 'type') - function call style (deprecated, for backward compatibility)
+
+                    let expr = self.parse_expression()?;
+
+                    // Check which syntax is being used
+                    if self.current_token().token_type == TokenType::As {
+                        // SQL standard syntax: CAST(expr AS type)
+                        self.advance(); // consume AS
+
+                        // Parse the type name as an identifier (not a string)
+                        let type_name = match self.current_token().token_type {
+                            TokenType::Identifier => {
+                                let name = self.current_token().value.clone();
+                                self.advance();
+                                name
+                            }
+                            _ => {
+                                return Err(SqlError::ParseError {
+                                    message: "Expected type name after AS in CAST".to_string(),
+                                    position: Some(self.current_token().position),
+                                });
+                            }
+                        };
+
+                        self.expect(TokenType::RightParen)?; // consume ')'
+
+                        return Ok(Expr::Function {
+                            name: "CAST".to_string(),
+                            args: vec![expr, Expr::Literal(LiteralValue::String(type_name))],
+                        });
+                    } else if self.current_token().token_type == TokenType::Comma {
+                        // Old syntax: CAST(expr, 'type') - for backward compatibility
+                        self.advance(); // consume ','
+                        let type_str = self.expect(TokenType::String)?.value;
+                        self.expect(TokenType::RightParen)?; // consume ')'
+
+                        return Ok(Expr::Function {
+                            name: "CAST".to_string(),
+                            args: vec![expr, Expr::Literal(LiteralValue::String(type_str))],
+                        });
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected AS or comma in CAST function".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
                 self.advance();
                 if self.current_token().token_type == TokenType::LeftParen {
                     // Function call
