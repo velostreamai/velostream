@@ -619,7 +619,7 @@ SELECT
     (a.bid_price - b.ask_price) / b.ask_price * 10000 as spread_bps,
     LEAST(a.bid_size, b.ask_size) as available_volume,
     (a.bid_price - b.ask_price) * LEAST(a.bid_size, b.ask_size) as potential_profit,
-    timestamp() as opportunity_time
+    NOW() as opportunity_time
 FROM in_market_data_stream_a a
 JOIN in_market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
