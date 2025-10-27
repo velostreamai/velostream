@@ -1749,27 +1749,43 @@ impl SelectProcessor {
                 match name.to_uppercase().as_str() {
                     "SET_HEADER" => {
                         if args.len() == 2 {
-                            if let (
-                                Expr::Literal(LiteralValue::String(key)),
-                                Expr::Literal(LiteralValue::String(value)),
-                            ) = (&args[0], &args[1])
-                            {
-                                mutations.push(HeaderMutation {
-                                    key: key.clone(),
-                                    operation: HeaderOperation::Set,
-                                    value: Some(value.clone()),
-                                });
+                            // Evaluate key expression
+                            match Self::evaluate_to_string(&args[0], record) {
+                                Ok(key_str) => {
+                                    // Evaluate value expression
+                                    match Self::evaluate_to_string(&args[1], record) {
+                                        Ok(value_str) => {
+                                            mutations.push(HeaderMutation {
+                                                key: key_str,
+                                                operation: HeaderOperation::Set,
+                                                value: Some(value_str),
+                                            });
+                                        }
+                                        Err(_) => {
+                                            // Value evaluation failed, skip mutation
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    // Key evaluation failed, skip mutation
+                                }
                             }
                         }
                     }
                     "REMOVE_HEADER" => {
                         if args.len() == 1 {
-                            if let Expr::Literal(LiteralValue::String(key)) = &args[0] {
-                                mutations.push(HeaderMutation {
-                                    key: key.clone(),
-                                    operation: HeaderOperation::Remove,
-                                    value: None,
-                                });
+                            // Evaluate key expression
+                            match Self::evaluate_to_string(&args[0], record) {
+                                Ok(key_str) => {
+                                    mutations.push(HeaderMutation {
+                                        key: key_str,
+                                        operation: HeaderOperation::Remove,
+                                        value: None,
+                                    });
+                                }
+                                Err(_) => {
+                                    // Key evaluation failed, skip mutation
+                                }
                             }
                         }
                     }
@@ -1821,6 +1837,68 @@ impl SelectProcessor {
             Expr::Column(_) | Expr::Literal(_) | Expr::Subquery { .. } => {}
         }
         Ok(())
+    }
+
+    /// Evaluate an expression and convert the result to a string
+    fn evaluate_to_string(expr: &Expr, record: &StreamRecord) -> Result<String, SqlError> {
+        match expr {
+            Expr::Literal(lit) => Ok(match lit {
+                LiteralValue::String(s) => s.clone(),
+                LiteralValue::Integer(i) => i.to_string(),
+                LiteralValue::Float(f) => f.to_string(),
+                LiteralValue::Boolean(b) => b.to_string(),
+                LiteralValue::Null => "null".to_string(),
+                LiteralValue::Decimal(d) => d.clone(),
+                LiteralValue::Interval { .. } => "[interval]".to_string(),
+            }),
+            Expr::Column(col_name) => {
+                // Get the field value from the record
+                record
+                    .fields
+                    .get(col_name)
+                    .map(|val| Self::field_value_to_string(val))
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("Column not found: {}", col_name),
+                        query: None,
+                    })
+            }
+            _ => {
+                // For complex expressions, try to evaluate them
+                // This is a simplified approach - we just return an error for now
+                Err(SqlError::ExecutionError {
+                    message: "Complex expressions in header mutations not supported".to_string(),
+                    query: None,
+                })
+            }
+        }
+    }
+
+    /// Convert a FieldValue to string
+    fn field_value_to_string(val: &FieldValue) -> String {
+        match val {
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => "null".to_string(),
+            FieldValue::Date(d) => format!("{}", d),
+            FieldValue::Timestamp(ts) => format!("{}", ts),
+            FieldValue::Decimal(d) => d.to_string(),
+            FieldValue::ScaledInteger(val, scale) => {
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = val / divisor;
+                let decimal_part = (val % divisor).abs();
+                if decimal_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    format!("{}.{:0width$}", integer_part, decimal_part, width = *scale as usize)
+                }
+            }
+            FieldValue::Array(_) => "[array]".to_string(),
+            FieldValue::Map(_) => "[map]".to_string(),
+            FieldValue::Struct(_) => "[struct]".to_string(),
+            FieldValue::Interval { .. } => "[interval]".to_string(),
+        }
     }
 
     /// Evaluate HAVING clause expression with aggregate function support
