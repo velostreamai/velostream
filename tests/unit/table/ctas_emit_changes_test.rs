@@ -168,8 +168,8 @@ fn test_create_table_emit_final_with_window() {
             COUNT(*) as sales_count,
             SUM(amount) as revenue
         FROM sales_stream
-        GROUP BY product_id
         WINDOW TUMBLING(1h)
+        GROUP BY product_id
         EMIT FINAL
     "#;
 

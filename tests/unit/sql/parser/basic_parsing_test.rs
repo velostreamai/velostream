@@ -117,8 +117,8 @@ fn test_tumbling_window_with_params() {
                 AVG(volume) * 1.1 as volume_threshold,
                 COUNT(*) as order_count
         FROM orders
-        GROUP BY status
         WINDOW TUMBLING(1m)
+        GROUP BY status
         EMIT CHANGES",
     );
 
