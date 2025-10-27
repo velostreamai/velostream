@@ -277,6 +277,15 @@ impl FieldValidator {
         }
     }
 
+    /// Extract the base column name from a potentially qualified name (table.column -> column)
+    fn normalize_column_name(name: &str) -> &str {
+        if let Some(pos) = name.rfind('.') {
+            &name[pos + 1..]
+        } else {
+            name
+        }
+    }
+
     /// Validate all fields in expressions exist in record
     ///
     /// # Arguments
@@ -305,8 +314,11 @@ impl FieldValidator {
                 // Include in missing list only if it's NOT a system column AND not in fields
                 // Use normalize_if_system_column() instead of is_system_column() for efficiency
                 // (avoid allocating a String for every field check)
-                system_columns::normalize_if_system_column(name).is_none()
-                    && !record.fields.contains_key(name)
+                system_columns::normalize_if_system_column(name).is_none() && {
+                    // For qualified names like "c.id", strip the alias and check the base name
+                    let base_name = Self::normalize_column_name(name);
+                    !record.fields.contains_key(name) && !record.fields.contains_key(base_name)
+                }
             })
             .collect();
 

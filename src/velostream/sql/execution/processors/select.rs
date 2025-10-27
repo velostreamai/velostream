@@ -516,7 +516,18 @@ impl SelectProcessor {
                             system_columns::PARTITION => {
                                 Some(FieldValue::Integer(joined_record.partition as i64))
                             }
-                            _ => joined_record.fields.get(name).cloned(),
+                            _ => {
+                                // Support qualified names like "c.id" by stripping the alias prefix
+                                if let Some(value) = joined_record.fields.get(name).cloned() {
+                                    Some(value)
+                                } else if let Some(pos) = name.rfind('.') {
+                                    // Try with just the base column name (after the dot)
+                                    let base_name = &name[pos + 1..];
+                                    joined_record.fields.get(base_name).cloned()
+                                } else {
+                                    None
+                                }
+                            }
                         };
 
                         if let Some(value) = field_value {
@@ -535,7 +546,18 @@ impl SelectProcessor {
                             system_columns::PARTITION => {
                                 Some(FieldValue::Integer(joined_record.partition as i64))
                             }
-                            _ => joined_record.fields.get(column).cloned(),
+                            _ => {
+                                // Support qualified names like "c.id" by stripping the alias prefix
+                                if let Some(value) = joined_record.fields.get(column).cloned() {
+                                    Some(value)
+                                } else if let Some(pos) = column.rfind('.') {
+                                    // Try with just the base column name (after the dot)
+                                    let base_name = &column[pos + 1..];
+                                    joined_record.fields.get(base_name).cloned()
+                                } else {
+                                    None
+                                }
+                            }
                         };
 
                         if let Some(value) = field_value {
