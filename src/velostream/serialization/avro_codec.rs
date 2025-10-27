@@ -460,9 +460,10 @@ impl AvroCodec {
             }
             AvroValue::TimestampMillis(millis) => {
                 // Convert timestamp-millis (milliseconds since Unix epoch) to Timestamp
-                use chrono::{DateTime, NaiveDateTime, Utc};
+                use chrono::NaiveDateTime;
                 let seconds = millis / 1000;
                 let nanos = ((millis % 1000) * 1_000_000) as u32;
+                #[allow(deprecated)]
                 match NaiveDateTime::from_timestamp_opt(seconds, nanos) {
                     Some(dt) => Ok(FieldValue::Timestamp(dt)),
                     None => {
@@ -473,9 +474,10 @@ impl AvroCodec {
             }
             AvroValue::TimestampMicros(micros) => {
                 // Convert timestamp-micros (microseconds since Unix epoch) to Timestamp
-                use chrono::{DateTime, NaiveDateTime, Utc};
+                use chrono::NaiveDateTime;
                 let seconds = micros / 1_000_000;
                 let nanos = ((micros % 1_000_000) * 1000) as u32;
+                #[allow(deprecated)]
                 match NaiveDateTime::from_timestamp_opt(seconds, nanos) {
                     Some(dt) => Ok(FieldValue::Timestamp(dt)),
                     None => {
