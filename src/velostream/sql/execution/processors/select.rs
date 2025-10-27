@@ -13,7 +13,7 @@ use crate::velostream::sql::execution::{
     expression::{ExpressionEvaluator, SelectAliasContext, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
     types::system_columns,
-    validation::{FieldValidator, ValidationContext},
+    validation::{AliasContext, FieldValidator, ValidationContext},
     FieldValue, StreamRecord,
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
@@ -333,6 +333,8 @@ impl SelectProcessor {
             ..
         } = query
         {
+            // Build alias context for validation (FROM/JOIN table aliases)
+            let from_join_aliases = AliasContext::from_streaming_query(query);
             // Route windowed queries to WindowProcessor first
             if let Some(_window_spec) = window {
                 // Generate query ID based on stream name for consistent window state management
@@ -395,10 +397,11 @@ impl SelectProcessor {
             // Apply WHERE clause
             let where_passed = if let Some(where_expr) = where_clause {
                 // Phase 3: Validate WHERE clause fields exist in the joined record
-                FieldValidator::validate_expressions(
+                FieldValidator::validate_expressions_with_aliases(
                     &joined_record,
                     &[where_expr.clone()],
                     ValidationContext::WhereClause,
+                    &from_join_aliases,
                 )
                 .map_err(|e| e.to_sql_error())?;
 
@@ -432,10 +435,11 @@ impl SelectProcessor {
             // Handle GROUP BY if present
             if let Some(group_exprs) = group_by {
                 // Phase 3: Validate GROUP BY clause fields exist in the joined record
-                FieldValidator::validate_expressions(
+                FieldValidator::validate_expressions_with_aliases(
                     &joined_record,
                     group_exprs,
                     ValidationContext::GroupBy,
+                    &from_join_aliases,
                 )
                 .map_err(|e| e.to_sql_error())?;
 
@@ -623,10 +627,11 @@ impl SelectProcessor {
                     event_time: joined_record.event_time,
                 };
 
-                FieldValidator::validate_expressions(
+                FieldValidator::validate_expressions_with_aliases(
                     &validation_record,
                     &select_expressions.into_iter().cloned().collect::<Vec<_>>(),
                     ValidationContext::SelectClause,
+                    &from_join_aliases,
                 )
                 .map_err(|e| e.to_sql_error())?;
 
@@ -651,10 +656,11 @@ impl SelectProcessor {
                 };
 
                 // Phase 3: Validate HAVING clause fields exist in combined scope
-                FieldValidator::validate_expressions(
+                FieldValidator::validate_expressions_with_aliases(
                     &result_record,
                     &[having_expr.clone()],
                     ValidationContext::HavingClause,
+                    &from_join_aliases,
                 )
                 .map_err(|e| e.to_sql_error())?;
 
@@ -701,13 +707,14 @@ impl SelectProcessor {
                     let order_by_expressions: Vec<&Expr> =
                         order_exprs.iter().map(|ob| &ob.expr).collect();
 
-                    FieldValidator::validate_expressions(
+                    FieldValidator::validate_expressions_with_aliases(
                         &order_by_record,
                         &order_by_expressions
                             .into_iter()
                             .cloned()
                             .collect::<Vec<_>>(),
                         ValidationContext::OrderByClause,
+                        &from_join_aliases,
                     )
                     .map_err(|e| e.to_sql_error())?;
                 }

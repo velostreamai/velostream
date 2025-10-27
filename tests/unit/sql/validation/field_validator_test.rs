@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use velostream::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue, UnaryOperator};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::validation::{
-    FieldValidationError, FieldValidator, ValidationContext,
+    AliasContext, FieldValidationError, FieldValidator, ValidationContext,
 };
 
 fn create_test_record() -> StreamRecord {
@@ -127,10 +127,12 @@ fn test_validate_expressions_all_found() {
         Expr::Column("id".to_string()),
         Expr::Column("name".to_string()),
     ];
-    let result = FieldValidator::validate_expressions(
+    let alias_context = AliasContext::new();
+    let result = FieldValidator::validate_expressions_with_aliases(
         &record,
         &expressions,
         ValidationContext::SelectClause,
+        &alias_context,
     );
     assert!(result.is_ok());
 }
@@ -142,10 +144,12 @@ fn test_validate_expressions_missing_field() {
         Expr::Column("id".to_string()),
         Expr::Column("missing".to_string()),
     ];
-    let result = FieldValidator::validate_expressions(
+    let alias_context = AliasContext::new();
+    let result = FieldValidator::validate_expressions_with_aliases(
         &record,
         &expressions,
         ValidationContext::SelectClause,
+        &alias_context,
     );
     assert!(matches!(
         result,
