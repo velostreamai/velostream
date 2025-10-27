@@ -1397,7 +1397,12 @@ impl SelectProcessor {
                             }
                             "STDDEV" => {
                                 if let Some(Expr::Column(col_name)) = args.first() {
-                                    if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                    let key = if let Some(alias_name) = alias {
+                                        alias_name.clone()
+                                    } else {
+                                        col_name.clone()
+                                    };
+                                    if let Some(values) = accumulator.numeric_values.get(&key) {
                                         if values.len() > 1 {
                                             let variance = Self::calculate_variance(values);
                                             let stddev = variance.sqrt();
