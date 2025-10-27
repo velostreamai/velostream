@@ -10,11 +10,18 @@ repository = "https://github.com/velostreamai/velostream"
 keywords = ["streaming", "sql", "kafka", "data-processing", "real-time"]
 categories = ["database-implementations", "asynchronous", "data-structures"]
 
+[profile.test]
+incremental = true
+
+[profile.release]
+incremental = true
+
 [profile.dev]
 opt-level = 0
 debug = true
 debug-assertions = true
 overflow-checks = true
+incremental = true
 
 [dependencies]
 backtrace = "0.3.76"
@@ -112,6 +119,37 @@ path = "examples/performance/datasource_performance_test.rs"
 [[example]]
 name = "quick_performance_test"
 path = "examples/performance/quick_performance_test.rs"
+
+# Benchmark examples - organized in subfolder
+[[example]]
+name = "table_performance_benchmark"
+path = "examples/performance/table_performance_benchmark.rs"
+
+[[example]]
+name = "stream_table_join_baseline_benchmark"
+path = "examples/performance/stream_table_join_baseline_benchmark.rs"
+
+[[example]]
+name = "phase4_batch_benchmark"
+path = "examples/performance/phase4_batch_benchmark.rs"
+
+# Demo examples
+[[example]]
+name = "table_financial_ctas_demo"
+path = "examples/table_financial_ctas_demo.rs"
+
+[[example]]
+name = "stream_table_join_financial_demo"
+path = "examples/stream_table_join_financial_demo.rs"
+
+# Validator and utility demos
+[[example]]
+name = "test_sql_validator_demo"
+path = "examples/test_sql_validator_demo.rs"
+
+[[example]]
+name = "test_batch_with_clause"
+path = "examples/test_batch_with_clause.rs"
 
 # Multi-Job SQL Server Binary
 [[bin]]

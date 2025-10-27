@@ -205,8 +205,9 @@ impl ProcessorContext {
         window_spec: &crate::velostream::sql::ast::WindowSpec,
     ) -> &mut WindowState {
         // Check if window state already exists
-        for (idx, (stored_query_id, _)) in self.persistent_window_states.iter().enumerate() {
+        for (idx, (stored_query_id, state)) in self.persistent_window_states.iter().enumerate() {
             if stored_query_id == query_id {
+                eprintln!("[STATE_PERSIST] FOUND existing window state for query_id='{}' at index {}, last_emit={}", query_id, idx, state.last_emit);
                 // Mark as dirty for persistence
                 if idx < 32 {
                     // Protect against bit mask overflow
@@ -218,6 +219,7 @@ impl ProcessorContext {
         }
 
         // Create new state if not found (happens rarely)
+        eprintln!("[STATE_PERSIST] CREATING new window state for query_id='{}' (total states before: {})", query_id, self.persistent_window_states.len());
         let new_state = WindowState::new(window_spec.clone());
         let new_idx = self.persistent_window_states.len();
         self.persistent_window_states
@@ -229,6 +231,7 @@ impl ProcessorContext {
             self.dirty_window_states |= 1 << (new_idx as u32);
         }
 
+        eprintln!("[STATE_PERSIST] NEW window state created at index {}, last_emit=0", new_idx);
         &mut self.persistent_window_states[new_idx].1
     }
 
