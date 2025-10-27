@@ -1891,7 +1891,12 @@ impl SelectProcessor {
                 if decimal_part == 0 {
                     integer_part.to_string()
                 } else {
-                    format!("{}.{:0width$}", integer_part, decimal_part, width = *scale as usize)
+                    format!(
+                        "{}.{:0width$}",
+                        integer_part,
+                        decimal_part,
+                        width = *scale as usize
+                    )
                 }
             }
             FieldValue::Array(_) => "[array]".to_string(),

@@ -1344,22 +1344,42 @@ impl SqlValidator {
     fn generate_system_columns_reference(&self) -> String {
         let mut output = String::new();
 
-        output.push_str("\n═══════════════════════════════════════════════════════════════════════════════\n");
+        output.push_str(
+            "\n═══════════════════════════════════════════════════════════════════════════════\n",
+        );
         output.push_str("📚 VELOSTREAM SYSTEM COLUMNS & HEADER FUNCTIONS REFERENCE\n");
-        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+        output.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n\n",
+        );
 
         // System Columns Section
         output.push_str("🔍 AVAILABLE SYSTEM COLUMNS\n");
         output.push_str("───────────────────────────\n\n");
 
-        output.push_str("| Column Name      | Type    | Description                              |\n");
-        output.push_str("|------------------|---------|------------------------------------------|\n");
-        output.push_str("| _timestamp       | INT64   | Message processing time (ms since epoch) |\n");
-        output.push_str("| _offset          | INT64   | Kafka partition offset (message number)  |\n");
-        output.push_str("| _partition       | INT32   | Kafka partition number                   |\n");
-        output.push_str("| _event_time      | TIMESTAMP| Event-time watermark                     |\n");
-        output.push_str("| _window_start    | INT64   | Tumbling window start time (ms)          |\n");
-        output.push_str("| _window_end      | INT64   | Tumbling window end time (ms)            |\n\n");
+        output.push_str(
+            "| Column Name      | Type    | Description                              |\n",
+        );
+        output.push_str(
+            "|------------------|---------|------------------------------------------|\n",
+        );
+        output.push_str(
+            "| _timestamp       | INT64   | Message processing time (ms since epoch) |\n",
+        );
+        output.push_str(
+            "| _offset          | INT64   | Kafka partition offset (message number)  |\n",
+        );
+        output.push_str(
+            "| _partition       | INT32   | Kafka partition number                   |\n",
+        );
+        output.push_str(
+            "| _event_time      | TIMESTAMP| Event-time watermark                     |\n",
+        );
+        output.push_str(
+            "| _window_start    | INT64   | Tumbling window start time (ms)          |\n",
+        );
+        output.push_str(
+            "| _window_end      | INT64   | Tumbling window end time (ms)            |\n\n",
+        );
 
         // Header Functions Section
         output.push_str("🏷️  KAFKA HEADER FUNCTIONS\n");
@@ -1383,7 +1403,9 @@ impl SqlValidator {
         output.push_str("Distributed tracing with headers:\n");
         output.push_str("  SELECT\n");
         output.push_str("      SET_HEADER('trace-id', HEADER('trace-id')) as trace,\n");
-        output.push_str("      SET_HEADER('span-id', 'span-' || _partition || '-' || _offset) as span,\n");
+        output.push_str(
+            "      SET_HEADER('span-id', 'span-' || _partition || '-' || _offset) as span,\n",
+        );
         output.push_str("      customer_id, amount\n");
         output.push_str("  FROM orders\n");
         output.push_str("  WHERE HAS_HEADER('trace-id')\n");
@@ -1403,7 +1425,9 @@ impl SqlValidator {
 
         output.push_str("| Feature                    | Velostream | Apache Flink | ksqlDB |\n");
         output.push_str("|----------------------------|------------|--------------|--------|\n");
-        output.push_str("| System columns in SQL      | ✅ Yes     | ❌ DataStream API only | ❌ No  |\n");
+        output.push_str(
+            "| System columns in SQL      | ✅ Yes     | ❌ DataStream API only | ❌ No  |\n",
+        );
         output.push_str("| Header access in SQL       | ✅ Yes     | ❌ No        | ❌ No  |\n");
         output.push_str("| Dynamic header mutations   | ✅ Yes     | ❌ No        | ❌ No  |\n");
         output.push_str("| Partition metadata access  | ✅ Yes     | ❌ No        | ❌ No  |\n");
@@ -1415,9 +1439,13 @@ impl SqlValidator {
         output.push_str("───────────────────────\n\n");
         output.push_str("• System Columns Guide: docs/sql/system-columns.md\n");
         output.push_str("• Header Access Guide: docs/sql/header-access.md\n");
-        output.push_str("• Distributed Tracing Example: docs/sql/examples/distributed-tracing.md\n\n");
+        output.push_str(
+            "• Distributed Tracing Example: docs/sql/examples/distributed-tracing.md\n\n",
+        );
 
-        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+        output.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n\n",
+        );
 
         output
     }
@@ -1900,22 +1928,42 @@ impl SubqueryAnalyzer {
     fn generate_system_columns_reference(&self) -> String {
         let mut output = String::new();
 
-        output.push_str("\n═══════════════════════════════════════════════════════════════════════════════\n");
+        output.push_str(
+            "\n═══════════════════════════════════════════════════════════════════════════════\n",
+        );
         output.push_str("📚 VELOSTREAM SYSTEM COLUMNS & HEADER FUNCTIONS REFERENCE\n");
-        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+        output.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n\n",
+        );
 
         // System Columns Section
         output.push_str("🔍 AVAILABLE SYSTEM COLUMNS\n");
         output.push_str("───────────────────────────\n\n");
 
-        output.push_str("| Column Name      | Type    | Description                              |\n");
-        output.push_str("|------------------|---------|------------------------------------------|\n");
-        output.push_str("| _timestamp       | INT64   | Message processing time (ms since epoch) |\n");
-        output.push_str("| _offset          | INT64   | Kafka partition offset (message number)  |\n");
-        output.push_str("| _partition       | INT32   | Kafka partition number                   |\n");
-        output.push_str("| _event_time      | TIMESTAMP| Event-time watermark                     |\n");
-        output.push_str("| _window_start    | INT64   | Tumbling window start time (ms)          |\n");
-        output.push_str("| _window_end      | INT64   | Tumbling window end time (ms)            |\n\n");
+        output.push_str(
+            "| Column Name      | Type    | Description                              |\n",
+        );
+        output.push_str(
+            "|------------------|---------|------------------------------------------|\n",
+        );
+        output.push_str(
+            "| _timestamp       | INT64   | Message processing time (ms since epoch) |\n",
+        );
+        output.push_str(
+            "| _offset          | INT64   | Kafka partition offset (message number)  |\n",
+        );
+        output.push_str(
+            "| _partition       | INT32   | Kafka partition number                   |\n",
+        );
+        output.push_str(
+            "| _event_time      | TIMESTAMP| Event-time watermark                     |\n",
+        );
+        output.push_str(
+            "| _window_start    | INT64   | Tumbling window start time (ms)          |\n",
+        );
+        output.push_str(
+            "| _window_end      | INT64   | Tumbling window end time (ms)            |\n\n",
+        );
 
         // Header Functions Section
         output.push_str("🏷️  KAFKA HEADER FUNCTIONS\n");
@@ -1939,7 +1987,9 @@ impl SubqueryAnalyzer {
         output.push_str("Distributed tracing with headers:\n");
         output.push_str("  SELECT\n");
         output.push_str("      SET_HEADER('trace-id', HEADER('trace-id')) as trace,\n");
-        output.push_str("      SET_HEADER('span-id', 'span-' || _partition || '-' || _offset) as span,\n");
+        output.push_str(
+            "      SET_HEADER('span-id', 'span-' || _partition || '-' || _offset) as span,\n",
+        );
         output.push_str("      customer_id, amount\n");
         output.push_str("  FROM orders\n");
         output.push_str("  WHERE HAS_HEADER('trace-id')\n");
@@ -1959,7 +2009,9 @@ impl SubqueryAnalyzer {
 
         output.push_str("| Feature                    | Velostream | Apache Flink | ksqlDB |\n");
         output.push_str("|----------------------------|------------|--------------|--------|\n");
-        output.push_str("| System columns in SQL      | ✅ Yes     | ❌ DataStream API only | ❌ No  |\n");
+        output.push_str(
+            "| System columns in SQL      | ✅ Yes     | ❌ DataStream API only | ❌ No  |\n",
+        );
         output.push_str("| Header access in SQL       | ✅ Yes     | ❌ No        | ❌ No  |\n");
         output.push_str("| Dynamic header mutations   | ✅ Yes     | ❌ No        | ❌ No  |\n");
         output.push_str("| Partition metadata access  | ✅ Yes     | ❌ No        | ❌ No  |\n");
@@ -1971,9 +2023,13 @@ impl SubqueryAnalyzer {
         output.push_str("───────────────────────\n\n");
         output.push_str("• System Columns Guide: docs/sql/system-columns.md\n");
         output.push_str("• Header Access Guide: docs/sql/header-access.md\n");
-        output.push_str("• Distributed Tracing Example: docs/sql/examples/distributed-tracing.md\n\n");
+        output.push_str(
+            "• Distributed Tracing Example: docs/sql/examples/distributed-tracing.md\n\n",
+        );
 
-        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+        output.push_str(
+            "═══════════════════════════════════════════════════════════════════════════════\n\n",
+        );
 
         output
     }
