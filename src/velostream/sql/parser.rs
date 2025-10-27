@@ -2433,13 +2433,11 @@ impl<'a> TokenParser<'a> {
                     self.advance(); // consume CAST
                     self.expect(TokenType::LeftParen)?; // consume '('
 
-                    // Support both syntaxes:
-                    // 1. CAST(expr AS type) - SQL standard style
-                    // 2. CAST(expr, 'type') - function call style (deprecated, for backward compatibility)
+                    // SQL Standard syntax only: CAST(expr AS type)
 
                     let expr = self.parse_expression()?;
 
-                    // Check which syntax is being used
+                    // Expect AS keyword (SQL Standard syntax)
                     if self.current_token().token_type == TokenType::As {
                         // SQL standard syntax: CAST(expr AS type)
                         self.advance(); // consume AS
@@ -2465,19 +2463,9 @@ impl<'a> TokenParser<'a> {
                             name: "CAST".to_string(),
                             args: vec![expr, Expr::Literal(LiteralValue::String(type_name))],
                         });
-                    } else if self.current_token().token_type == TokenType::Comma {
-                        // Old syntax: CAST(expr, 'type') - for backward compatibility
-                        self.advance(); // consume ','
-                        let type_str = self.expect(TokenType::String)?.value;
-                        self.expect(TokenType::RightParen)?; // consume ')'
-
-                        return Ok(Expr::Function {
-                            name: "CAST".to_string(),
-                            args: vec![expr, Expr::Literal(LiteralValue::String(type_str))],
-                        });
                     } else {
                         return Err(SqlError::ParseError {
-                            message: "Expected AS or comma in CAST function".to_string(),
+                            message: "Expected AS keyword in CAST(expr AS type) - SQL Standard syntax required".to_string(),
                             position: Some(self.current_token().position),
                         });
                     }
