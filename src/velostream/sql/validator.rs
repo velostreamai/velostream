@@ -76,6 +76,7 @@ pub struct ApplicationValidationResult {
     pub global_errors: Vec<String>,
     pub configuration_summary: ConfigurationSummary,
     pub recommendations: Vec<String>,
+    pub reference_output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -526,6 +527,7 @@ impl SqlValidator {
                 duplicate_names: Vec::new(),
             },
             recommendations: Vec::new(),
+            reference_output: Some(self.generate_system_columns_reference()),
         };
 
         // Extract application name from comments
@@ -591,6 +593,7 @@ impl SqlValidator {
                 duplicate_names: Vec::new(),
             },
             recommendations: Vec::new(),
+            reference_output: Some(self.generate_system_columns_reference()),
         };
 
         // Read the SQL file
@@ -1336,6 +1339,88 @@ impl SqlValidator {
             }
         }
     }
+
+    /// Generate system columns reference output for CLI
+    fn generate_system_columns_reference(&self) -> String {
+        let mut output = String::new();
+
+        output.push_str("\n═══════════════════════════════════════════════════════════════════════════════\n");
+        output.push_str("📚 VELOSTREAM SYSTEM COLUMNS & HEADER FUNCTIONS REFERENCE\n");
+        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+
+        // System Columns Section
+        output.push_str("🔍 AVAILABLE SYSTEM COLUMNS\n");
+        output.push_str("───────────────────────────\n\n");
+
+        output.push_str("| Column Name      | Type    | Description                              |\n");
+        output.push_str("|------------------|---------|------------------------------------------|\n");
+        output.push_str("| _timestamp       | INT64   | Message processing time (ms since epoch) |\n");
+        output.push_str("| _offset          | INT64   | Kafka partition offset (message number)  |\n");
+        output.push_str("| _partition       | INT32   | Kafka partition number                   |\n");
+        output.push_str("| _event_time      | TIMESTAMP| Event-time watermark                     |\n");
+        output.push_str("| _window_start    | INT64   | Tumbling window start time (ms)          |\n");
+        output.push_str("| _window_end      | INT64   | Tumbling window end time (ms)            |\n\n");
+
+        // Header Functions Section
+        output.push_str("🏷️  KAFKA HEADER FUNCTIONS\n");
+        output.push_str("──────────────────────────\n\n");
+
+        output.push_str("| Function              | Purpose                                  |\n");
+        output.push_str("|----------------------|------------------------------------------|\n");
+        output.push_str("| HEADER(key)          | Get header value (returns STRING or NULL)|\n");
+        output.push_str("| HAS_HEADER(key)      | Check if header exists (returns BOOLEAN) |\n");
+        output.push_str("| HEADER_KEYS()        | List all headers (comma-separated)       |\n");
+        output.push_str("| SET_HEADER(key,val)  | Add/update header (with dynamic values)  |\n");
+        output.push_str("| REMOVE_HEADER(key)   | Delete header from message               |\n\n");
+
+        // Quick Examples
+        output.push_str("⚡ QUICK EXAMPLES\n");
+        output.push_str("────────────────\n\n");
+
+        output.push_str("Access system metadata:\n");
+        output.push_str("  SELECT _partition, _offset, _timestamp, customer_id FROM orders;\n\n");
+
+        output.push_str("Distributed tracing with headers:\n");
+        output.push_str("  SELECT\n");
+        output.push_str("      SET_HEADER('trace-id', HEADER('trace-id')) as trace,\n");
+        output.push_str("      SET_HEADER('span-id', 'span-' || _partition || '-' || _offset) as span,\n");
+        output.push_str("      customer_id, amount\n");
+        output.push_str("  FROM orders\n");
+        output.push_str("  WHERE HAS_HEADER('trace-id')\n");
+        output.push_str("  EMIT CHANGES;\n\n");
+
+        output.push_str("Message lineage tracking:\n");
+        output.push_str("  SELECT\n");
+        output.push_str("      HEADER('trace-id') as trace_id,\n");
+        output.push_str("      _partition as partition,\n");
+        output.push_str("      _offset as message_offset,\n");
+        output.push_str("      FROM_UNIXTIME(_timestamp / 1000) as processed_at\n");
+        output.push_str("  FROM orders;\n\n");
+
+        // Competitive Advantage
+        output.push_str("🏆 VELOSTREAM'S UNIQUE ADVANTAGES\n");
+        output.push_str("──────────────────────────────────\n\n");
+
+        output.push_str("| Feature                    | Velostream | Apache Flink | ksqlDB |\n");
+        output.push_str("|----------------------------|------------|--------------|--------|\n");
+        output.push_str("| System columns in SQL      | ✅ Yes     | ❌ DataStream API only | ❌ No  |\n");
+        output.push_str("| Header access in SQL       | ✅ Yes     | ❌ No        | ❌ No  |\n");
+        output.push_str("| Dynamic header mutations   | ✅ Yes     | ❌ No        | ❌ No  |\n");
+        output.push_str("| Partition metadata access  | ✅ Yes     | ❌ No        | ❌ No  |\n");
+        output.push_str("| Pure SQL distributed tracing| ✅ Yes     | ❌ Impossible| ❌ No  |\n");
+        output.push_str("| Offset-based processing    | ✅ Yes     | ❌ No        | ❌ No  |\n\n");
+
+        // Learn More
+        output.push_str("📖 FOR MORE INFORMATION\n");
+        output.push_str("───────────────────────\n\n");
+        output.push_str("• System Columns Guide: docs/sql/system-columns.md\n");
+        output.push_str("• Header Access Guide: docs/sql/header-access.md\n");
+        output.push_str("• Distributed Tracing Example: docs/sql/examples/distributed-tracing.md\n\n");
+
+        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+
+        output
+    }
 }
 
 /// AST-based subquery analyzer for precise detection
@@ -1809,6 +1894,88 @@ impl SubqueryAnalyzer {
                 ));
             }
         }
+    }
+
+    /// Generate system columns reference output for CLI
+    fn generate_system_columns_reference(&self) -> String {
+        let mut output = String::new();
+
+        output.push_str("\n═══════════════════════════════════════════════════════════════════════════════\n");
+        output.push_str("📚 VELOSTREAM SYSTEM COLUMNS & HEADER FUNCTIONS REFERENCE\n");
+        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+
+        // System Columns Section
+        output.push_str("🔍 AVAILABLE SYSTEM COLUMNS\n");
+        output.push_str("───────────────────────────\n\n");
+
+        output.push_str("| Column Name      | Type    | Description                              |\n");
+        output.push_str("|------------------|---------|------------------------------------------|\n");
+        output.push_str("| _timestamp       | INT64   | Message processing time (ms since epoch) |\n");
+        output.push_str("| _offset          | INT64   | Kafka partition offset (message number)  |\n");
+        output.push_str("| _partition       | INT32   | Kafka partition number                   |\n");
+        output.push_str("| _event_time      | TIMESTAMP| Event-time watermark                     |\n");
+        output.push_str("| _window_start    | INT64   | Tumbling window start time (ms)          |\n");
+        output.push_str("| _window_end      | INT64   | Tumbling window end time (ms)            |\n\n");
+
+        // Header Functions Section
+        output.push_str("🏷️  KAFKA HEADER FUNCTIONS\n");
+        output.push_str("──────────────────────────\n\n");
+
+        output.push_str("| Function              | Purpose                                  |\n");
+        output.push_str("|----------------------|------------------------------------------|\n");
+        output.push_str("| HEADER(key)          | Get header value (returns STRING or NULL)|\n");
+        output.push_str("| HAS_HEADER(key)      | Check if header exists (returns BOOLEAN) |\n");
+        output.push_str("| HEADER_KEYS()        | List all headers (comma-separated)       |\n");
+        output.push_str("| SET_HEADER(key,val)  | Add/update header (with dynamic values)  |\n");
+        output.push_str("| REMOVE_HEADER(key)   | Delete header from message               |\n\n");
+
+        // Quick Examples
+        output.push_str("⚡ QUICK EXAMPLES\n");
+        output.push_str("────────────────\n\n");
+
+        output.push_str("Access system metadata:\n");
+        output.push_str("  SELECT _partition, _offset, _timestamp, customer_id FROM orders;\n\n");
+
+        output.push_str("Distributed tracing with headers:\n");
+        output.push_str("  SELECT\n");
+        output.push_str("      SET_HEADER('trace-id', HEADER('trace-id')) as trace,\n");
+        output.push_str("      SET_HEADER('span-id', 'span-' || _partition || '-' || _offset) as span,\n");
+        output.push_str("      customer_id, amount\n");
+        output.push_str("  FROM orders\n");
+        output.push_str("  WHERE HAS_HEADER('trace-id')\n");
+        output.push_str("  EMIT CHANGES;\n\n");
+
+        output.push_str("Message lineage tracking:\n");
+        output.push_str("  SELECT\n");
+        output.push_str("      HEADER('trace-id') as trace_id,\n");
+        output.push_str("      _partition as partition,\n");
+        output.push_str("      _offset as message_offset,\n");
+        output.push_str("      FROM_UNIXTIME(_timestamp / 1000) as processed_at\n");
+        output.push_str("  FROM orders;\n\n");
+
+        // Competitive Advantage
+        output.push_str("🏆 VELOSTREAM'S UNIQUE ADVANTAGES\n");
+        output.push_str("──────────────────────────────────\n\n");
+
+        output.push_str("| Feature                    | Velostream | Apache Flink | ksqlDB |\n");
+        output.push_str("|----------------------------|------------|--------------|--------|\n");
+        output.push_str("| System columns in SQL      | ✅ Yes     | ❌ DataStream API only | ❌ No  |\n");
+        output.push_str("| Header access in SQL       | ✅ Yes     | ❌ No        | ❌ No  |\n");
+        output.push_str("| Dynamic header mutations   | ✅ Yes     | ❌ No        | ❌ No  |\n");
+        output.push_str("| Partition metadata access  | ✅ Yes     | ❌ No        | ❌ No  |\n");
+        output.push_str("| Pure SQL distributed tracing| ✅ Yes     | ❌ Impossible| ❌ No  |\n");
+        output.push_str("| Offset-based processing    | ✅ Yes     | ❌ No        | ❌ No  |\n\n");
+
+        // Learn More
+        output.push_str("📖 FOR MORE INFORMATION\n");
+        output.push_str("───────────────────────\n\n");
+        output.push_str("• System Columns Guide: docs/sql/system-columns.md\n");
+        output.push_str("• Header Access Guide: docs/sql/header-access.md\n");
+        output.push_str("• Distributed Tracing Example: docs/sql/examples/distributed-tracing.md\n\n");
+
+        output.push_str("═══════════════════════════════════════════════════════════════════════════════\n\n");
+
+        output
     }
 }
 

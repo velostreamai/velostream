@@ -974,6 +974,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
+                // Print system columns reference from first result if available
+                if let Some(result) = results.first() {
+                    if let Some(ref reference_output) = result.reference_output {
+                        println!("{}", reference_output);
+                    }
+                }
+
                 // Exit with error code if validation failed and strict mode
                 if strict && valid_files < total_files {
                     std::process::exit(1);
