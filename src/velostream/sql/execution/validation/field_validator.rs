@@ -315,9 +315,14 @@ impl FieldValidator {
                 // Use normalize_if_system_column() instead of is_system_column() for efficiency
                 // (avoid allocating a String for every field check)
                 system_columns::normalize_if_system_column(name).is_none() && {
-                    // For qualified names like "c.id", strip the alias and check the base name
-                    let base_name = Self::normalize_column_name(name);
-                    !record.fields.contains_key(name) && !record.fields.contains_key(base_name)
+                    // For qualified names like "c.id", skip strict validation - they will be resolved
+                    // during execution when we have the fully joined record available
+                    if name.contains('.') {
+                        false // Don't report qualified names as missing
+                    } else {
+                        // For unqualified names, validate they exist in the record
+                        !record.fields.contains_key(name)
+                    }
                 }
             })
             .collect();
