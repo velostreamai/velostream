@@ -23,10 +23,10 @@ SELECT
     COUNT(*) as mention_count,
     COUNT(DISTINCT user_id) as unique_users,
     AVG(engagement_score) as avg_engagement,
-    timestamp() as trending_time
+    NOW() as trending_time
 FROM social_posts
 WHERE content LIKE '%#%'
-    AND timestamp >= timestamp() - INTERVAL '1' HOUR
+    AND timestamp >= NOW() - INTERVAL '1' HOUR
 GROUP BY SUBSTRING(content, POSITION('#' IN content), POSITION(' ' IN content FROM POSITION('#' IN content)) - POSITION('#' IN content))
 HAVING COUNT(*) > 100
 WINDOW TUMBLING(1h);
@@ -48,7 +48,7 @@ SELECT
     (likes_count + shares_count * 2 + comments_count * 3) as engagement_score,
     views_count,
     (likes_count + shares_count * 2 + comments_count * 3) / GREATEST(views_count, 1) as engagement_rate,
-    timestamp() as viral_detected_time
+    NOW() as viral_detected_time
 FROM social_posts
 WHERE (likes_count + shares_count * 2 + comments_count * 3) > 10000
     AND (likes_count + shares_count * 2 + comments_count * 3) / GREATEST(views_count, 1) > 0.1;
@@ -75,7 +75,7 @@ SELECT
         ELSE 'LOW'
     END as emotion_intensity,
     LENGTH(content) as content_length,
-    timestamp() as analyzed_at
+    NOW() as analyzed_at
 FROM social_posts
 WHERE content IS NOT NULL AND LENGTH(content) > 10;
 
@@ -94,10 +94,10 @@ SELECT
     SUM(likes_count + shares_count + comments_count) as total_engagement_1h,
     AVG(likes_count + shares_count + comments_count) as avg_engagement_per_post,
     MAX(likes_count + shares_count + comments_count) as max_engagement,
-    timestamp() as monitoring_time
+    NOW() as monitoring_time
 FROM social_posts
 WHERE follower_count > 10000
-    AND timestamp >= timestamp() - INTERVAL '1' HOUR
+    AND timestamp >= NOW() - INTERVAL '1' HOUR
 GROUP BY user_id, username, follower_count
 HAVING COUNT(*) > 5
 WINDOW TUMBLING(1h);
@@ -122,11 +122,11 @@ SELECT
     LISTAGG(DISTINCT location, ', ') as affected_locations,
     MIN(timestamp) as first_mention,
     MAX(timestamp) as latest_mention,
-    timestamp() as detection_time
+    NOW() as detection_time
 FROM social_posts
 WHERE (content LIKE '%disaster%' OR content LIKE '%emergency%' OR content LIKE '%breaking%' 
        OR content LIKE '%urgent%' OR content LIKE '%fire%' OR content LIKE '%earthquake%')
-    AND timestamp >= timestamp() - INTERVAL '10' MINUTE
+    AND timestamp >= NOW() - INTERVAL '10' MINUTE
 GROUP BY CASE 
     WHEN content LIKE '%disaster%' OR content LIKE '%emergency%' THEN 'DISASTER'
     WHEN content LIKE '%breaking%' OR content LIKE '%urgent%' THEN 'BREAKING_NEWS'

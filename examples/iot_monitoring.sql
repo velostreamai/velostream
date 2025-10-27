@@ -27,7 +27,7 @@ SELECT
     sensor_type,
     temperature,
     location,
-    timestamp() as alert_time,
+    NOW() as alert_time,
     'TEMPERATURE_HIGH' as alert_type
 FROM sensor_data
 WHERE sensor_type = 'temperature' AND temperature > 80;
@@ -44,7 +44,7 @@ SELECT
     sensor_type,
     pressure,
     location,
-    timestamp() as alert_time,
+    NOW() as alert_time,
     CASE 
         WHEN pressure < 5 THEN 'CRITICAL_LOW'
         WHEN pressure < 10 THEN 'WARNING_LOW'
@@ -88,7 +88,7 @@ SELECT
     location,
     battery_level,
     last_charge_time,
-    DATEDIFF('hours', last_charge_time, timestamp()) as hours_since_charge,
+    DATEDIFF('hours', last_charge_time, NOW()) as hours_since_charge,
     CASE 
         WHEN battery_level < 5 THEN 'CRITICAL'
         WHEN battery_level < 20 THEN 'LOW'
@@ -111,10 +111,10 @@ SELECT
     sensor_type,
     COUNT(*) as reading_count,
     MAX(timestamp) as last_reading,
-    DATEDIFF('minutes', MAX(timestamp), timestamp()) as minutes_since_last_reading,
+    DATEDIFF('minutes', MAX(timestamp), NOW()) as minutes_since_last_reading,
     CASE 
         WHEN COUNT(*) = 0 THEN 'OFFLINE'
-        WHEN DATEDIFF('minutes', MAX(timestamp), timestamp()) > 15 THEN 'TIMEOUT'
+        WHEN DATEDIFF('minutes', MAX(timestamp), NOW()) > 15 THEN 'TIMEOUT'
         WHEN COUNT(*) < 10 THEN 'DEGRADED'
         ELSE 'HEALTHY'
     END as health_status

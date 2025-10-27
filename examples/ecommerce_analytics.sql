@@ -19,7 +19,7 @@ SELECT
     customer_id,
     order_id,
     amount,
-    timestamp() as processed_at
+    NOW() as processed_at
 FROM orders 
 WHERE amount > 1000;
 
@@ -59,7 +59,7 @@ SELECT
         WHEN amount > 2000 THEN 'MEDIUM_RISK'
         ELSE 'LOW_RISK'
     END as risk_level,
-    timestamp() as flagged_at
+    NOW() as flagged_at
 FROM orders
 WHERE amount > 500;
 
