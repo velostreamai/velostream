@@ -158,7 +158,6 @@ impl WindowProcessor {
                 };
 
                 if should_emit {
-                    eprintln!("[WINDOW_EXEC] should_emit=true for event_time={}, calling process_window_emission_state", event_time);
                     // Drop window_state borrow before calling process_window_emission_state
                     let result = Self::process_window_emission_state(
                         query_id,
@@ -167,10 +166,8 @@ impl WindowProcessor {
                         event_time,
                         context,
                     );
-                    eprintln!("[WINDOW_EXEC] process_window_emission_state returned, result={:?}", result.is_ok());
                     return result;
                 }
-                eprintln!("[WINDOW_EXEC] should_emit=false for event_time={}, skipping emission", event_time);
                 // No emission this cycle - state is automatically marked dirty by context
                 Ok(None)
             } else {
@@ -199,11 +196,9 @@ impl WindowProcessor {
         // Check if this is a GROUP BY + EMIT CHANGES windowed query
         let group_by_cols = Self::get_group_by_columns(query);
         let is_emit_changes = Self::is_emit_changes(query);
-        eprintln!("[PROCESS_EMIT] group_by_cols={:?}, is_emit_changes={}", group_by_cols.is_some(), is_emit_changes);
 
         // Phase 3: ENGINE INTEGRATION - Activate GROUP BY routing
         if let (Some(ref cols), true) = (&group_by_cols, is_emit_changes) {
-            eprintln!("[PROCESS_EMIT] Taking GROUP BY + EMIT_CHANGES branch");
             debug!(
                 "FR-079 Phase 3: Activating GROUP BY + EMIT CHANGES windowed query routing for query: {}",
                 query_id
@@ -305,13 +300,16 @@ impl WindowProcessor {
             if !is_emit_changes {
                 // For standard GROUP BY queries, cleanup emitted records to prevent duplicate emissions
                 let window_state = context.get_or_create_window_state(query_id, window_spec);
-                Self::cleanup_window_buffer_direct(window_state, window_spec, last_emit_time_before_update);
+                Self::cleanup_window_buffer_direct(
+                    window_state,
+                    window_spec,
+                    last_emit_time_before_update,
+                );
             }
 
             Ok(Some(first_result))
         } else {
             // Original single-result path (non-GROUP BY + EMIT CHANGES queries)
-            eprintln!("[PROCESS_EMIT] Taking standard window emission path (non-GROUP BY EMIT CHANGES)");
             // Get window state reference - borrow will be released after cloning buffer
             let window_state = context.get_or_create_window_state(query_id, window_spec);
             let last_emit_time = window_state.last_emit;

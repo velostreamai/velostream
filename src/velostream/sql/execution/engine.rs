@@ -110,8 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.execute_with_record(&query, record).await?;
 
     // Process results from output channel
-    while let Some(result) = rx.recv().await {
-        println!("Query result: {:?}", result);
+    while let Some(_result) = rx.recv().await {
         break; // Just show one result for demo
     }
     Ok(())
@@ -328,10 +327,6 @@ impl StreamExecutionEngine {
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
     fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
-        println!(
-            "DEBUG: create_processor_context called for query_id: {}",
-            query_id
-        );
         let mut context = ProcessorContext::new(query_id);
 
         // Set engine state

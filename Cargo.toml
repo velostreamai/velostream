@@ -12,16 +12,24 @@ categories = ["database-implementations", "asynchronous", "data-structures"]
 
 [profile.test]
 incremental = true
+codegen-units = 256  # For fast iteration during development
+split-debuginfo = "packed"  # FASTER debug info on macOS
 
 [profile.release]
 incremental = true
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 
 [profile.dev]
 opt-level = 0
 debug = true
 debug-assertions = true
 overflow-checks = true
+codegen-units = 256  # For fast iteration during development
 incremental = true
+split-debuginfo = "packed"  # FASTER debug info on macOS
 
 [dependencies]
 backtrace = "0.3.76"

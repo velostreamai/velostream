@@ -1211,6 +1211,14 @@ impl<'a> TokenParser<'a> {
             group_by = Some(self.parse_group_by_list()?);
         }
 
+        // STRICT ORDERING VALIDATION: If GROUP BY was parsed, ensure WINDOW doesn't appear after it
+        if group_by.is_some() && self.current_token().token_type == TokenType::Window {
+            return Err(SqlError::ParseError {
+                message: "WINDOW clause must come before GROUP BY clause. Correct syntax: SELECT ... WINDOW ... GROUP BY ...".to_string(),
+                position: Some(self.current_token().position),
+            });
+        }
+
         let mut having = None;
         if self.current_token().token_type == TokenType::Having {
             self.advance();

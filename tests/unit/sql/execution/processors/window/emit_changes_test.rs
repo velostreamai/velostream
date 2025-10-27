@@ -107,8 +107,8 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
             AVG(volume) * 1.1 as volume_threshold,
             COUNT(*) as order_count
         FROM orders
-        GROUP BY symbol
         WINDOW TUMBLING(1m)
+        GROUP BY symbol
         EMIT CHANGES
     "#;
 
@@ -131,8 +131,8 @@ async fn test_emit_changes_with_sliding_window() {
             COUNT(*) as order_count,
             MIN(timestamp) as window_start
         FROM orders
-        GROUP BY customer_id
         WINDOW SLIDING(3m, 1m)
+        GROUP BY customer_id
         EMIT CHANGES
     "#;
 
