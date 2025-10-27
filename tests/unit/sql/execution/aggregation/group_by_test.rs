@@ -32,6 +32,146 @@ mod tests {
         }
     }
 
+    // Helper: Assert field value with context message
+    fn assert_field_float(record: &StreamRecord, field_name: &str, expected: f64, context: &str) {
+        match record.fields.get(field_name) {
+            Some(FieldValue::Float(actual)) => {
+                assert_eq!(
+                    *actual, expected,
+                    "Field '{}': expected {}, got {}. Context: {}",
+                    field_name, expected, actual, context
+                );
+            }
+            Some(other) => panic!(
+                "Field '{}' has type {:?}, expected Float. Context: {}",
+                field_name, other, context
+            ),
+            None => panic!(
+                "Field '{}' not found. Available: {:?}. Context: {}",
+                field_name,
+                record.fields.keys().collect::<Vec<_>>(),
+                context
+            ),
+        }
+    }
+
+    // Helper: Assert integer field with context message
+    fn assert_field_int(record: &StreamRecord, field_name: &str, expected: i64, context: &str) {
+        match record.fields.get(field_name) {
+            Some(FieldValue::Integer(actual)) => {
+                assert_eq!(
+                    *actual, expected,
+                    "Field '{}': expected {}, got {}. Context: {}",
+                    field_name, expected, actual, context
+                );
+            }
+            Some(other) => panic!(
+                "Field '{}' has type {:?}, expected Integer. Context: {}",
+                field_name, other, context
+            ),
+            None => panic!(
+                "Field '{}' not found. Available: {:?}. Context: {}",
+                field_name,
+                record.fields.keys().collect::<Vec<_>>(),
+                context
+            ),
+        }
+    }
+
+    // Helper: Assert numeric field (handles both Integer and Float)
+    fn assert_field_numeric(
+        record: &StreamRecord,
+        field_name: &str,
+        expected_int: i64,
+        expected_float: f64,
+        context: &str,
+    ) {
+        match record.fields.get(field_name) {
+            Some(FieldValue::Integer(actual)) => {
+                assert_eq!(
+                    *actual, expected_int,
+                    "Field '{}': expected {}, got {}. Context: {}",
+                    field_name, expected_int, actual, context
+                );
+            }
+            Some(FieldValue::Float(actual)) => {
+                assert_eq!(
+                    *actual, expected_float,
+                    "Field '{}': expected {}, got {}. Context: {}",
+                    field_name, expected_float, actual, context
+                );
+            }
+            Some(other) => panic!(
+                "Field '{}' has type {:?}, expected numeric (Integer or Float). Context: {}",
+                field_name, other, context
+            ),
+            None => panic!(
+                "Field '{}' not found. Available: {:?}. Context: {}",
+                field_name,
+                record.fields.keys().collect::<Vec<_>>(),
+                context
+            ),
+        }
+    }
+
+    // Helper: Assert two numeric fields match expected values (handles type coercion)
+    fn assert_numeric_pair(
+        record: &StreamRecord,
+        field1: &str,
+        field2: &str,
+        expected_vals: (f64, f64),
+        context: &str,
+    ) {
+        let get_numeric_value = |field: &str| -> f64 {
+            match record.fields.get(field) {
+                Some(FieldValue::Integer(i)) => *i as f64,
+                Some(FieldValue::Float(f)) => *f,
+                _ => 0.0,
+            }
+        };
+
+        let val1 = get_numeric_value(field1);
+        let val2 = get_numeric_value(field2);
+
+        assert_eq!(
+            (val1, val2),
+            expected_vals,
+            "Pair assertion failed for fields '{}' and '{}': expected {:?}, got {:?}. Context: {}",
+            field1,
+            field2,
+            expected_vals,
+            (val1, val2),
+            context
+        );
+    }
+
+    // Helper: Find result by matching a field condition
+    fn find_result_by_field<'a, F>(
+        results: &'a [StreamRecord],
+        matcher: F,
+        context: &str,
+    ) -> &'a StreamRecord
+    where
+        F: Fn(&StreamRecord) -> bool,
+    {
+        results.iter().find(|r| matcher(r)).unwrap_or_else(|| {
+            panic!(
+                "No result matched the condition. Available results count: {}. Context: {}",
+                results.len(),
+                context
+            );
+        })
+    }
+
+    // Helper: Create test record with float fields easily
+    fn create_float_record(fields: &[(&str, f64)], offset: i64) -> StreamRecord {
+        let mut field_map = HashMap::new();
+        for (name, value) in fields {
+            field_map.insert(name.to_string(), FieldValue::Float(*value));
+        }
+        create_stream_record_with_fields(field_map, offset)
+    }
+
     #[test]
     fn test_group_by_parsing() {
         let parser = StreamingSqlParser::new();
@@ -50,13 +190,25 @@ mod tests {
                 group_by: Some(group_exprs),
                 ..
             } => {
-                assert_eq!(group_exprs.len(), 1);
+                assert_eq!(
+                    group_exprs.len(),
+                    1,
+                    "Expected 1 GROUP BY expression, got {}",
+                    group_exprs.len()
+                );
                 match &group_exprs[0] {
-                    Expr::Column(name) => assert_eq!(name, "customer_id"),
-                    _ => panic!("Expected column expression"),
+                    Expr::Column(name) => assert_eq!(
+                        name, "customer_id",
+                        "Expected GROUP BY column 'customer_id', got '{}'",
+                        name
+                    ),
+                    other => panic!("Expected Expr::Column in GROUP BY, got: {:?}", other),
                 }
             }
-            _ => panic!("Expected Select query with GROUP BY"),
+            other => panic!(
+                "Expected Select query with GROUP BY clause, got: {:?}",
+                other
+            ),
         }
     }
 
@@ -73,16 +225,35 @@ mod tests {
                 group_by: Some(group_exprs),
                 ..
             } => {
-                assert_eq!(group_exprs.len(), 2);
+                assert_eq!(
+                    group_exprs.len(),
+                    2,
+                    "Expected 2 GROUP BY expressions, got {}",
+                    group_exprs.len()
+                );
                 match (&group_exprs[0], &group_exprs[1]) {
                     (Expr::Column(name1), Expr::Column(name2)) => {
-                        assert_eq!(name1, "customer_id");
-                        assert_eq!(name2, "region");
+                        assert_eq!(
+                            name1, "customer_id",
+                            "First GROUP BY column should be 'customer_id', got '{}'",
+                            name1
+                        );
+                        assert_eq!(
+                            name2, "region",
+                            "Second GROUP BY column should be 'region', got '{}'",
+                            name2
+                        );
                     }
-                    _ => panic!("Expected column expressions"),
+                    (expr1, expr2) => panic!(
+                        "Expected two Expr::Column variants in GROUP BY, got: {:?} and {:?}",
+                        expr1, expr2
+                    ),
                 }
             }
-            _ => panic!("Expected Select query with multiple GROUP BY"),
+            other => panic!(
+                "Expected Select query with multiple GROUP BY columns, got: {:?}",
+                other
+            ),
         }
     }
 
@@ -291,42 +462,10 @@ mod tests {
         let (mut engine, mut receiver) = create_test_engine();
         let parser = StreamingSqlParser::new();
 
-        // Create test records
-        let mut fields1 = HashMap::new();
-        fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
-        let record1 = StreamRecord {
-            fields: fields1,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            offset: 1,
-            partition: 0,
-            event_time: None,
-            headers: HashMap::new(),
-        };
-
-        let mut fields2 = HashMap::new();
-        fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        fields2.insert("amount".to_string(), FieldValue::Float(200.0));
-        let record2 = StreamRecord {
-            fields: fields2,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            offset: 2,
-            partition: 0,
-            event_time: None,
-            headers: HashMap::new(),
-        };
-
-        let mut fields3 = HashMap::new();
-        fields3.insert("customer_id".to_string(), FieldValue::Float(2.0));
-        fields3.insert("amount".to_string(), FieldValue::Float(150.0));
-        let record3 = StreamRecord {
-            fields: fields3,
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            offset: 3,
-            partition: 0,
-            event_time: None,
-            headers: HashMap::new(),
-        };
+        // Create test records using helper function - much cleaner!
+        let record1 = create_float_record(&[("customer_id", 1.0), ("amount", 100.0)], 1);
+        let record2 = create_float_record(&[("customer_id", 1.0), ("amount", 200.0)], 2);
+        let record3 = create_float_record(&[("customer_id", 2.0), ("amount", 150.0)], 3);
 
         // Test query with sum aggregation
         let query = parser
@@ -344,26 +483,23 @@ mod tests {
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
             // We should get at least one result through the channel
-            assert!(!results.is_empty());
+            assert!(!results.is_empty(), "Expected results from GROUP BY aggregation");
 
-            // Find and verify each customer's group results
-            let cust1_result = results.iter().find(|r|
-                matches!(r.fields.get("customer_id"), Some(FieldValue::Float(id)) if *id == 1.0)
-            ).expect("Should have results for customer 1");
+            // Find and verify customer 1's group results (sum should be 100 + 200 = 300)
+            let cust1_result = find_result_by_field(
+                &results,
+                |r| matches!(r.fields.get("customer_id"), Some(FieldValue::Float(id)) if *id == 1.0),
+                "customer_id = 1.0"
+            );
+            assert_field_numeric(cust1_result, "total", 300, 300.0, "Customer 1 sum: 100+200");
 
-            match cust1_result.fields.get("total") {
-                Some(FieldValue::Float(sum)) => assert_eq!(*sum, 300.0),
-                _ => panic!("Expected numeric sum for customer 1"),
-            }
-
-            let cust2_result = results.iter().find(|r|
-                matches!(r.fields.get("customer_id"), Some(FieldValue::Float(id)) if *id == 2.0)
-            ).expect("Should have results for customer 2");
-
-            match cust2_result.fields.get("total") {
-                Some(FieldValue::Float(sum)) => assert_eq!(*sum, 150.0),
-                _ => panic!("Expected numeric sum for customer 2"),
-            }
+            // Find and verify customer 2's group results (sum should be 150)
+            let cust2_result = find_result_by_field(
+                &results,
+                |r| matches!(r.fields.get("customer_id"), Some(FieldValue::Float(id)) if *id == 2.0),
+                "customer_id = 2.0"
+            );
+            assert_field_numeric(cust2_result, "total", 150, 150.0, "Customer 2 sum: 150");
         });
     }
 
@@ -1117,70 +1253,139 @@ mod tests {
             engine.execute_with_record(&query, record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
-            assert_eq!(results.len(), 1);
+            assert_eq!(
+                results.len(),
+                1,
+                "Expected 1 group (customer 1), got {}",
+                results.len()
+            );
 
             let result = &results[0];
 
-            // Verify we have all expected fields
-            assert_eq!(result.fields.len(), 8);
+            // Verify we have all expected fields:
+            // 1. customer_id (group key)
+            // 2. total_count (COUNT(*))
+            // 3. distinct_cats (COUNT_DISTINCT(category))
+            // 4. first_cat (FIRST(category))
+            // 5. last_cat (LAST(category))
+            // 6. amount_stddev (STDDEV(amount))
+            // 7. amount_variance (VARIANCE(amount))
+            // 8. cat_list (STRING_AGG(category, '|'))
+            assert_eq!(
+                result.fields.len(),
+                8,
+                "Expected 8 fields in result, got {}. Fields: {:?}",
+                result.fields.len(),
+                result.fields.keys().collect::<Vec<_>>()
+            );
 
-            // Check basic aggregates
+            // Check COUNT(*): 3 records total
             match result.fields.get("total_count") {
-                Some(FieldValue::Integer(count)) => assert_eq!(*count, 3),
-                Some(FieldValue::Float(count)) => assert_eq!(*count, 3.0),
-                _ => panic!("Expected total_count to be present"),
+                Some(FieldValue::Integer(count)) => {
+                    assert_eq!(*count, 3, "COUNT(*) expected 3 records, got {}", count);
+                }
+                Some(FieldValue::Float(count)) => {
+                    assert_eq!(*count, 3.0, "COUNT(*) expected 3.0 records, got {}", count);
+                }
+                other => panic!(
+                    "total_count has type {:?}, expected Integer or Float",
+                    other
+                ),
             }
 
+            // Check COUNT_DISTINCT(category): 2 distinct values (A appears twice, B once)
             match result.fields.get("distinct_cats") {
-                Some(FieldValue::Integer(distinct)) => assert_eq!(*distinct, 2), // A and B
-                Some(FieldValue::Float(distinct)) => assert_eq!(*distinct, 2.0),
-                _ => panic!("Expected distinct_cats to be present"),
+                Some(FieldValue::Integer(distinct)) => {
+                    assert_eq!(
+                        *distinct, 2,
+                        "COUNT_DISTINCT(category) expected 2 distinct [A,B], got {}",
+                        distinct
+                    );
+                }
+                Some(FieldValue::Float(distinct)) => {
+                    assert_eq!(
+                        *distinct, 2.0,
+                        "COUNT_DISTINCT(category) expected 2.0 distinct [A,B], got {}",
+                        distinct
+                    );
+                }
+                other => panic!(
+                    "distinct_cats has type {:?}, expected Integer or Float",
+                    other
+                ),
             }
 
-            // Check FIRST and LAST
-            assert!(result.fields.contains_key("first_cat"));
-            assert!(result.fields.contains_key("last_cat"));
+            // Check FIRST(category): first value is 'A'
+            if !result.fields.contains_key("first_cat") {
+                panic!(
+                    "FIRST(category) 'first_cat' field not found. Available: {:?}",
+                    result.fields.keys().collect::<Vec<_>>()
+                );
+            }
 
-            // Check statistical functions
+            // Check LAST(category): last value is 'A'
+            if !result.fields.contains_key("last_cat") {
+                panic!(
+                    "LAST(category) 'last_cat' field not found. Available: {:?}",
+                    result.fields.keys().collect::<Vec<_>>()
+                );
+            }
+
+            // Check STDDEV(amount): standard deviation of [100, 200, 300]
+            // Calculation using sample formula (Bessel's correction, n-1 denominator):
+            // Mean = (100 + 200 + 300) / 3 = 200
+            // Sum of squared deviations = (100-200)^2 + (200-200)^2 + (300-200)^2
+            //                           = 10000 + 0 + 10000 = 20000
+            // Sample variance = 20000 / (3-1) = 10000
+            // Sample stddev = sqrt(10000) ≈ 100.0
             match result.fields.get("amount_stddev") {
                 Some(FieldValue::Float(stddev)) => {
-                    // Standard deviation of [100, 200, 300] should be ~100
                     assert!(
                         *stddev > 80.0 && *stddev < 120.0,
-                        "Expected stddev ~100, got {}",
+                        "STDDEV(amount) for [100,200,300] expected ~100.0, got {}",
                         stddev
                     );
                 }
-                _ => panic!("Expected amount_stddev to be present as Number"),
+                other => panic!(
+                    "amount_stddev has type {:?}, expected Float. Data: [100,200,300]",
+                    other
+                ),
             }
 
+            // Check VARIANCE(amount): variance of [100, 200, 300]
+            // Using same calculation as STDDEV: variance = stddev^2 ≈ 100^2 = 10000
             match result.fields.get("amount_variance") {
                 Some(FieldValue::Float(variance)) => {
-                    // Variance should be stddev squared (~10000)
                     assert!(
                         *variance > 8000.0 && *variance < 12000.0,
-                        "Expected variance ~10000, got {}",
+                        "VARIANCE(amount) for [100,200,300] expected ~10000, got {}",
                         variance
                     );
                 }
-                _ => panic!("Expected amount_variance to be present as Number"),
+                other => panic!(
+                    "amount_variance has type {:?}, expected Float. Data: [100,200,300]",
+                    other
+                ),
             }
 
-            // Check STRING_AGG
+            // Check STRING_AGG(category, '|'): concatenate [A, B, A] with | separator
             match result.fields.get("cat_list") {
                 Some(FieldValue::String(agg_result)) => {
                     assert!(
                         agg_result.contains("A") && agg_result.contains("B"),
-                        "Expected both A and B in aggregated string: {}",
+                        "STRING_AGG should contain both A and B from [A,B,A]. Got: {}",
                         agg_result
                     );
                     assert!(
                         agg_result.contains("|"),
-                        "Expected pipe separator: {}",
+                        "STRING_AGG should contain pipe separator | Got: {}",
                         agg_result
                     );
                 }
-                _ => panic!("Expected cat_list to be present as String"),
+                other => panic!(
+                    "cat_list has type {:?}, expected String. Data: [A,B,A] with separator |",
+                    other
+                ),
             }
         });
     }

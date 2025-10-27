@@ -1136,8 +1136,8 @@ impl SelectProcessor {
                 sample_record: Some(record.clone()),
             });
 
-        // Update accumulator with this record
-        accumulator.count += 1;
+        // Note: accumulator.count will be incremented in AccumulatorManager::process_record_into_accumulator
+        // Do NOT increment it here to avoid double-counting
         if accumulator.sample_record.is_none() {
             accumulator.sample_record = Some(record.clone());
         }
