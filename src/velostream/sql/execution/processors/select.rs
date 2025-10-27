@@ -1262,212 +1262,22 @@ impl SelectProcessor {
                         } else {
                             name.to_lowercase()
                         };
-                        match name.to_uppercase().as_str() {
-                            "COUNT" => {
-                                if args.is_empty() {
-                                    // COUNT(*) - use total count
-                                    result_fields.insert(
-                                        field_name,
-                                        FieldValue::Integer(accumulator.count as i64),
-                                    );
-                                } else {
-                                    // COUNT(column) - use non-NULL count for this field
-                                    let non_null_count = accumulator
-                                        .non_null_counts
-                                        .get(&field_name)
-                                        .copied()
-                                        .unwrap_or(0);
-                                    result_fields.insert(
-                                        field_name,
-                                        FieldValue::Integer(non_null_count as i64),
-                                    );
-                                }
-                            }
-                            "SUM" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("sum_{}", col_name)
-                                    };
-                                    let sum_value =
-                                        accumulator.sums.get(&key).copied().unwrap_or(0.0);
-                                    result_fields.insert(field_name, FieldValue::Float(sum_value));
-                                }
-                            }
-                            "AVG" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("avg_{}", col_name)
-                                    };
-                                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                                        if !values.is_empty() {
-                                            let avg =
-                                                values.iter().sum::<f64>() / values.len() as f64;
-                                            result_fields
-                                                .insert(field_name, FieldValue::Float(avg));
-                                        } else {
-                                            result_fields.insert(field_name, FieldValue::Null);
-                                        }
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "MIN" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("min_{}", col_name)
-                                    };
-                                    let min_value = accumulator
-                                        .mins
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, min_value);
-                                }
-                            }
-                            "MAX" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("max_{}", col_name)
-                                    };
-                                    let max_value = accumulator
-                                        .maxs
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, max_value);
-                                }
-                            }
-                            "STRING_AGG" | "GROUP_CONCAT" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("string_agg_{}", col_name)
-                                    };
-                                    if let Some(string_values) = accumulator.string_values.get(&key)
-                                    {
-                                        // Extract separator from second argument or use default
-                                        let separator = if args.len() > 1 {
-                                            if let Expr::Literal(LiteralValue::String(sep)) =
-                                                &args[1]
-                                            {
-                                                sep.as_str()
-                                            } else {
-                                                ","
-                                            }
-                                        } else {
-                                            ","
-                                        };
-                                        let concatenated = string_values.join(separator);
-                                        result_fields
-                                            .insert(field_name, FieldValue::String(concatenated));
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "VARIANCE" | "VAR" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("variance_{}", col_name)
-                                    };
-                                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                                        if values.len() > 1 {
-                                            let variance = Self::calculate_variance(values);
-                                            result_fields
-                                                .insert(field_name, FieldValue::Float(variance));
-                                        } else {
-                                            result_fields.insert(field_name, FieldValue::Null);
-                                        }
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "STDDEV" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("stddev_{}", col_name)
-                                    };
-                                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                                        if values.len() > 1 {
-                                            let variance = Self::calculate_variance(values);
-                                            let stddev = variance.sqrt();
-                                            result_fields
-                                                .insert(field_name, FieldValue::Float(stddev));
-                                        } else {
-                                            result_fields.insert(field_name, FieldValue::Null);
-                                        }
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "FIRST" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("first_{}", col_name)
-                                    };
-                                    let first_value = accumulator
-                                        .first_values
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, first_value);
-                                }
-                            }
-                            "LAST" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("last_{}", col_name)
-                                    };
-                                    let last_value = accumulator
-                                        .last_values
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, last_value);
-                                }
-                            }
-                            "COUNT_DISTINCT" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("count_distinct_{}", col_name)
-                                    };
-                                    let distinct_count = accumulator
-                                        .distinct_values
-                                        .get(&key)
-                                        .map(|set| set.len() as i64)
-                                        .unwrap_or(0);
-                                    result_fields
-                                        .insert(field_name, FieldValue::Integer(distinct_count));
-                                }
-                            }
-                            _ => {
-                                // For unknown functions, use first value
-                                if let Some(sample) = &accumulator.sample_record {
-                                    if let Some(value) = sample.fields.values().next() {
-                                        result_fields.insert(field_name.clone(), value.clone());
-                                    }
+
+                        // Compute aggregate value using centralized dispatcher
+                        let aggregate_value = Self::compute_aggregate_from_accumulator(
+                            name,
+                            args,
+                            alias,
+                            accumulator,
+                        )?;
+
+                        if let Some(value) = aggregate_value {
+                            result_fields.insert(field_name, value);
+                        } else {
+                            // Fallback for unknown functions - use first value from sample record
+                            if let Some(sample) = &accumulator.sample_record {
+                                if let Some(value) = sample.fields.values().next() {
+                                    result_fields.insert(field_name.clone(), value.clone());
                                 }
                             }
                         }
@@ -1619,6 +1429,206 @@ impl SelectProcessor {
             LiteralValue::Null => "NULL".to_string(),
             LiteralValue::Decimal(s) => s.clone(),
             LiteralValue::Interval { .. } => "INTERVAL".to_string(),
+        }
+    }
+
+    /// Compute aggregate value from accumulator for a given aggregate function
+    /// This is the centralized dispatcher that replaces duplicated code patterns
+    /// across COUNT, SUM, AVG, MIN, MAX, VARIANCE, STDDEV, FIRST, LAST, STRING_AGG, COUNT_DISTINCT
+    fn compute_aggregate_from_accumulator(
+        name: &str,
+        args: &[Expr],
+        alias: &Option<String>,
+        accumulator: &GroupAccumulator,
+    ) -> Result<Option<FieldValue>, SqlError> {
+        match name.to_uppercase().as_str() {
+            "COUNT" => {
+                if args.is_empty() {
+                    // COUNT(*) - use total count
+                    Ok(Some(FieldValue::Integer(accumulator.count as i64)))
+                } else if let Some(Expr::Column(_col_name)) = args.first() {
+                    // COUNT(column) - use non-NULL count for this field
+                    // The field_name used as key depends on alias, but COUNT uses it differently
+                    // If there's an alias, use it; otherwise field_name is determined elsewhere
+                    if let Some(alias_name) = alias {
+                        let non_null_count = accumulator
+                            .non_null_counts
+                            .get(alias_name)
+                            .copied()
+                            .unwrap_or(0);
+                        Ok(Some(FieldValue::Integer(non_null_count as i64)))
+                    } else {
+                        // For COUNT without alias, return total count
+                        Ok(Some(FieldValue::Integer(accumulator.count as i64)))
+                    }
+                } else {
+                    Ok(Some(FieldValue::Integer(accumulator.count as i64)))
+                }
+            }
+            "SUM" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "sum");
+                    let sum_value = accumulator.sums.get(&key).copied().unwrap_or(0.0);
+                    Ok(Some(FieldValue::Float(sum_value)))
+                } else {
+                    Ok(None)
+                }
+            }
+            "AVG" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "avg");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        if !values.is_empty() {
+                            let avg = values.iter().sum::<f64>() / values.len() as f64;
+                            Ok(Some(FieldValue::Float(avg)))
+                        } else {
+                            Ok(Some(FieldValue::Null))
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "MIN" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "min");
+                    let min_value = accumulator
+                        .mins
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(min_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "MAX" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "max");
+                    let max_value = accumulator
+                        .maxs
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(max_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "STRING_AGG" | "GROUP_CONCAT" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "string_agg");
+                    if let Some(string_values) = accumulator.string_values.get(&key) {
+                        // Extract separator from second argument or use default
+                        let separator = if args.len() > 1 {
+                            if let Expr::Literal(LiteralValue::String(sep)) = &args[1] {
+                                sep.as_str()
+                            } else {
+                                ","
+                            }
+                        } else {
+                            ","
+                        };
+                        let concatenated = string_values.join(separator);
+                        Ok(Some(FieldValue::String(concatenated)))
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "VARIANCE" | "VAR" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "variance");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        if values.len() > 1 {
+                            let variance = Self::calculate_variance(values);
+                            Ok(Some(FieldValue::Float(variance)))
+                        } else {
+                            Ok(Some(FieldValue::Null))
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "STDDEV" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "stddev");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        if values.len() > 1 {
+                            let variance = Self::calculate_variance(values);
+                            let stddev = variance.sqrt();
+                            Ok(Some(FieldValue::Float(stddev)))
+                        } else {
+                            Ok(Some(FieldValue::Null))
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "FIRST" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "first");
+                    let first_value = accumulator
+                        .first_values
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(first_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "LAST" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "last");
+                    let last_value = accumulator
+                        .last_values
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(last_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "COUNT_DISTINCT" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "count_distinct");
+                    let distinct_count = accumulator
+                        .distinct_values
+                        .get(&key)
+                        .map(|set| set.len() as i64)
+                        .unwrap_or(0);
+                    Ok(Some(FieldValue::Integer(distinct_count)))
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => {
+                // For unknown functions, return None to trigger fallback behavior
+                Ok(None)
+            }
+        }
+    }
+
+    /// Resolve the aggregate key based on alias and column name
+    /// Key resolution rule: use alias if provided, otherwise use "prefix_columnname"
+    #[inline]
+    fn resolve_aggregate_key(alias: &Option<String>, col_name: &str, prefix: &str) -> String {
+        if let Some(alias_name) = alias {
+            alias_name.clone()
+        } else {
+            format!("{}_{}", prefix, col_name)
         }
     }
 
