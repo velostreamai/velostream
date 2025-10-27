@@ -428,7 +428,7 @@ mod tests {
         }
 
         // Test DEPLOY JOB with windowed underlying query
-        let windowed_deploy = "DEPLOY JOB test VERSION '1.0.0' AS SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m)";
+        let windowed_deploy = "DEPLOY JOB test VERSION '1.0.0' AS SELECT customer_id, COUNT(*) FROM orders WINDOW TUMBLING(5m) GROUP BY customer_id";
         let result = parser.parse(windowed_deploy);
         assert!(result.is_ok());
         assert!(

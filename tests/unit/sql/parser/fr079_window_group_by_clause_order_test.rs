@@ -4,6 +4,7 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[test]
 fn test_parse_group_by_then_window() {
+    // This test verifies that GROUP BY BEFORE WINDOW (invalid ordering) is rejected
     let sql = r#"
         SELECT status, SUM(amount) as total
         FROM orders
@@ -14,25 +15,22 @@ fn test_parse_group_by_then_window() {
 
     let parser = StreamingSqlParser::new();
     match parser.parse(sql) {
-        Ok(query) => {
-            if let velostream::velostream::sql::StreamingQuery::Select {
-                window, group_by, ..
-            } = query
-            {
-                println!("GROUP BY then WINDOW:");
-                println!("  window: {}", window.is_some());
-                println!("  group_by: {}", group_by.is_some());
-                assert!(
-                    group_by.is_some(),
-                    "GROUP BY should be parsed when it comes before WINDOW"
-                );
-                assert!(
-                    window.is_some(),
-                    "WINDOW should be parsed even after GROUP BY"
-                );
-            }
+        Ok(_query) => {
+            panic!("Parser should reject GROUP BY before WINDOW clause");
         }
-        Err(e) => panic!("Failed to parse: {:?}", e),
+        Err(e) => {
+            // Expected to fail with validation error about clause ordering
+            let error_msg = format!("{:?}", e);
+            assert!(
+                error_msg.contains("WINDOW") && error_msg.contains("GROUP BY"),
+                "Should have validation error about clause ordering. Got: {}",
+                error_msg
+            );
+            println!(
+                "✓ Correctly rejected invalid ordering (GROUP BY before WINDOW): {:?}",
+                e
+            );
+        }
     }
 }
 

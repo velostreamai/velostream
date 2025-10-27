@@ -11,7 +11,7 @@ use velostream::velostream::sql::{
 async fn test_emit_changes_parsing() {
     let parser = StreamingSqlParser::new();
 
-    let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m) EMIT CHANGES";
+    let query_str = "SELECT customer_id, COUNT(*) FROM orders WINDOW TUMBLING(5m) GROUP BY customer_id EMIT CHANGES";
     let result = parser.parse(query_str);
 
     assert!(result.is_ok(), "Query parsing should succeed");
@@ -82,7 +82,7 @@ async fn test_emit_overrides_windowed_mode() {
     let parser = StreamingSqlParser::new();
 
     // EMIT CHANGES should override windowed behavior and emit immediately
-    let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m) EMIT CHANGES";
+    let query_str = "SELECT customer_id, COUNT(*) FROM orders WINDOW TUMBLING(5m) GROUP BY customer_id EMIT CHANGES";
     let result = parser.parse(query_str);
 
     assert!(result.is_ok(), "Query parsing should succeed");
