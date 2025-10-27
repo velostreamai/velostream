@@ -1400,7 +1400,7 @@ impl SelectProcessor {
                                     let key = if let Some(alias_name) = alias {
                                         alias_name.clone()
                                     } else {
-                                        col_name.clone()
+                                        format!("stddev_{}", col_name)
                                     };
                                     if let Some(values) = accumulator.numeric_values.get(&key) {
                                         if values.len() > 1 {
