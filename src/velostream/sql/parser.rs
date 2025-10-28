@@ -1561,38 +1561,41 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
-        // Parse WINDOW clause (if present)
+        // Parse WINDOW, GROUP BY, HAVING, ORDER BY, LIMIT in any order
+        // This allows flexible clause ordering (though some orderings are non-standard)
         let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
-        }
-
-        // Parse GROUP BY (must continue parsing even after WINDOW)
         let mut group_by = None;
-        if self.current_token().token_type == TokenType::GroupBy {
-            self.advance();
-            self.expect_keyword("BY")?;
-            group_by = Some(self.parse_group_by_list()?);
-        }
-
         let mut having = None;
-        if self.current_token().token_type == TokenType::Having {
-            self.advance();
-            having = Some(self.parse_expression()?);
-        }
-
         let mut order_by = None;
-        if self.current_token().token_type == TokenType::OrderBy {
-            self.advance();
-            self.expect_keyword("BY")?;
-            order_by = Some(self.parse_order_by_list()?);
-        }
-
         let mut limit = None;
-        if self.current_token().token_type == TokenType::Limit {
-            self.advance();
-            limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
+
+        // Loop to parse clauses in any order - continues until no more recognized clauses
+        loop {
+            match self.current_token().token_type {
+                TokenType::Window if window.is_none() => {
+                    self.advance();
+                    window = Some(self.parse_window_spec()?);
+                }
+                TokenType::GroupBy if group_by.is_none() => {
+                    self.advance();
+                    self.expect_keyword("BY")?;
+                    group_by = Some(self.parse_group_by_list()?);
+                }
+                TokenType::Having if having.is_none() => {
+                    self.advance();
+                    having = Some(self.parse_expression()?);
+                }
+                TokenType::OrderBy if order_by.is_none() => {
+                    self.advance();
+                    self.expect_keyword("BY")?;
+                    order_by = Some(self.parse_order_by_list()?);
+                }
+                TokenType::Limit if limit.is_none() => {
+                    self.advance();
+                    limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
+                }
+                _ => break, // No more recognized clauses, exit loop
+            }
         }
 
         // Determine if from_stream is a URI or named stream

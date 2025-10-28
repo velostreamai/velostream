@@ -596,6 +596,10 @@ fn test_with_clause_properties_are_loaded() {
     let sql = r#"
         CREATE STREAM test_stream AS
         SELECT * FROM source_name
+        HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
+           AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
+           AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
+
             WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
             GROUP BY symbol
         WITH (

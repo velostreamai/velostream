@@ -101,8 +101,8 @@ SELECT
     FIRST_VALUE(price) as open_price,
     LAST_VALUE(price) as close_price
 FROM market_data_ts
-GROUP BY symbol
 WINDOW TUMBLING(event_time, INTERVAL '1' SECOND)
+GROUP BY symbol
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
@@ -162,7 +162,7 @@ SELECT
     
     -- Detect significant movements
     CASE
-        WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
+        WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) /
                  LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 5.0 THEN 'SIGNIFICANT'
         WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
                  LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 2.0 THEN 'MODERATE'
@@ -237,9 +237,9 @@ SELECT
     NOW() AS debug_timestamp
 
 FROM market_data_ts
-GROUP BY symbol
 HAVING COUNT(*) > 0
 WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+GROUP BY symbol
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
