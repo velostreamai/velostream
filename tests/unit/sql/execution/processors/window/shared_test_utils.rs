@@ -71,6 +71,26 @@ impl TestDataBuilder {
         StreamRecord::new(fields)
     }
 
+    /// Create a trade record (for use in trading-specific window tests)
+    pub fn trade_record(
+        id: i64,
+        symbol: &str,
+        price: f64,
+        volume: i64,
+        timestamp_millis: i64,
+    ) -> StreamRecord {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(id));
+        fields.insert("symbol".to_string(), FieldValue::String(symbol.to_string()));
+        fields.insert("price".to_string(), FieldValue::Float(price));
+        fields.insert("volume".to_string(), FieldValue::Integer(volume));
+        fields.insert(
+            "timestamp".to_string(),
+            FieldValue::Integer(timestamp_millis),
+        );
+        StreamRecord::new(fields)
+    }
+
     /// Create a market data record based on the market_data_ts.avsc schema
     pub fn market_data_record(
         symbol: &str,
