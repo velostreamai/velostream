@@ -1751,7 +1751,11 @@ impl WindowProcessor {
                 // Default fallback: try generic comparison for same types
                 // This handles ScaledInteger and other numeric types
                 match (left, right, op) {
-                    (FieldValue::ScaledInteger(l, l_scale), FieldValue::ScaledInteger(r, r_scale), op) => {
+                    (
+                        FieldValue::ScaledInteger(l, l_scale),
+                        FieldValue::ScaledInteger(r, r_scale),
+                        op,
+                    ) => {
                         // Normalize scales for comparison
                         let (l_val, r_val) = if l_scale == r_scale {
                             (*l, *r)

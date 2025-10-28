@@ -38,13 +38,19 @@ async fn execute_windowed_query(
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
-    engine.start_query_execution("test_query".to_string(), parsed_query).await?;
+    engine
+        .start_query_execution("test_query".to_string(), parsed_query)
+        .await?;
 
     for record in &records {
         match engine.process_stream_record("orders", record.clone()).await {
             Ok(_) => {}
             Err(e) => {
-                if !e.to_string().to_lowercase().contains("no records after filtering") {
+                if !e
+                    .to_string()
+                    .to_lowercase()
+                    .contains("no records after filtering")
+                {
                     return Err(e.into());
                 }
             }
@@ -141,7 +147,9 @@ async fn test_sum_simple_having() {
                 println!("  Result {}: {:?}", idx, result.fields);
             }
             if results.is_empty() {
-                println!("  ⚠️  No results - likely using scalar function path instead of aggregate");
+                println!(
+                    "  ⚠️  No results - likely using scalar function path instead of aggregate"
+                );
             }
         }
         Err(e) => {
@@ -166,7 +174,10 @@ async fn test_sum_literal_comparison() {
 
     match execute_windowed_query(query, records).await {
         Ok(results) => {
-            println!("✓ Literal comparison HAVING returned {} results", results.len());
+            println!(
+                "✓ Literal comparison HAVING returned {} results",
+                results.len()
+            );
             for (idx, result) in results.iter().enumerate() {
                 println!("  Result {}: {:?}", idx, result.fields);
             }
@@ -193,7 +204,10 @@ async fn test_count_and_sum_without_having() {
 
     match execute_windowed_query(query, records).await {
         Ok(results) => {
-            println!("✓ COUNT + SUM without HAVING returned {} results", results.len());
+            println!(
+                "✓ COUNT + SUM without HAVING returned {} results",
+                results.len()
+            );
             for (idx, result) in results.iter().enumerate() {
                 println!("  Result {}: {:?}", idx, result.fields);
             }

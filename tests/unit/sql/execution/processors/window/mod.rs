@@ -14,5 +14,6 @@ pub mod group_by_window_having_order_test;
 pub mod shared_test_utils;
 pub mod unified_window_test;
 pub mod window_edge_cases_test;
+pub mod window_gaps_test;
 pub mod window_processing_test;
 pub mod windowing_test;

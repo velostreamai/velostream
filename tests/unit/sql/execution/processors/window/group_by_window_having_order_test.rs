@@ -12,7 +12,7 @@ use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, 
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Use shared test utilities from the same module directory
-use super::shared_test_utils::{TestDataBuilder, SqlExecutor};
+use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
 
 fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     let mut fields = HashMap::new();
@@ -39,13 +39,19 @@ async fn execute_windowed_query(
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
-    engine.start_query_execution("test_query".to_string(), parsed_query).await?;
+    engine
+        .start_query_execution("test_query".to_string(), parsed_query)
+        .await?;
 
     for record in &records {
         match engine.process_stream_record("orders", record.clone()).await {
             Ok(_) => {}
             Err(e) => {
-                if !e.to_string().to_lowercase().contains("no records after filtering") {
+                if !e
+                    .to_string()
+                    .to_lowercase()
+                    .contains("no records after filtering")
+                {
                     return Err(e.into());
                 }
             }
@@ -73,27 +79,40 @@ async fn test_group_by_window_having_basic_execution() {
                 HAVING COUNT(*) >= 2";
 
     let records = vec![
-        create_test_record(1, 100.0, 1000),  // customer_id: 1
-        create_test_record(2, 200.0, 1500),  // customer_id: 0
-        create_test_record(3, 150.0, 2000),  // customer_id: 1
+        create_test_record(1, 100.0, 1000), // customer_id: 1
+        create_test_record(2, 200.0, 1500), // customer_id: 0
+        create_test_record(3, 150.0, 2000), // customer_id: 1
     ];
 
     match execute_windowed_query(query, records).await {
         Ok(results) => {
             // Should have results since we have groups with COUNT >= 2
-            assert!(!results.is_empty(), "Expected results from windowed query with HAVING clause");
+            assert!(
+                !results.is_empty(),
+                "Expected results from windowed query with HAVING clause"
+            );
 
             // Verify each result has the expected fields
             for result in &results {
-                assert!(result.fields.contains_key("customer_id"), "Missing customer_id field");
+                assert!(
+                    result.fields.contains_key("customer_id"),
+                    "Missing customer_id field"
+                );
                 assert!(result.fields.contains_key("cnt"), "Missing cnt field");
 
                 // Validate HAVING clause: cnt should be >= 2
                 if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
-                    assert!(*count >= 2, "HAVING clause failed: count ({}) should be >= 2", count);
+                    assert!(
+                        *count >= 2,
+                        "HAVING clause failed: count ({}) should be >= 2",
+                        count
+                    );
                 }
             }
-            println!("✓ GROUP BY → WINDOW → HAVING basic execution successful with {} results", results.len());
+            println!(
+                "✓ GROUP BY → WINDOW → HAVING basic execution successful with {} results",
+                results.len()
+            );
         }
         Err(e) => {
             panic!("GROUP BY → WINDOW → HAVING execution failed: {}", e);
@@ -109,9 +128,9 @@ async fn test_group_by_window_having_sum_aggregate() {
                 HAVING SUM(amount) > 200.0";
 
     let records = vec![
-        create_test_record(1, 100.0, 1000),  // customer_id: 1, contributes 100.0
-        create_test_record(2, 150.0, 1500),  // customer_id: 0, contributes 150.0
-        create_test_record(3, 200.0, 2000),  // customer_id: 1, contributes 200.0
+        create_test_record(1, 100.0, 1000), // customer_id: 1, contributes 100.0
+        create_test_record(2, 150.0, 1500), // customer_id: 0, contributes 150.0
+        create_test_record(3, 200.0, 2000), // customer_id: 1, contributes 200.0
     ];
 
     match execute_windowed_query(query, records).await {
@@ -121,15 +140,25 @@ async fn test_group_by_window_having_sum_aggregate() {
             if !results.is_empty() {
                 // Verify each result has the expected fields
                 for result in &results {
-                    assert!(result.fields.contains_key("customer_id"), "Missing customer_id field");
+                    assert!(
+                        result.fields.contains_key("customer_id"),
+                        "Missing customer_id field"
+                    );
                     assert!(result.fields.contains_key("total"), "Missing total field");
 
                     // Validate HAVING clause: total should be > 200.0
                     if let Some(FieldValue::Float(sum_value)) = result.fields.get("total") {
-                        assert!(*sum_value > 200.0, "HAVING clause failed: total ({}) should be > 200.0", sum_value);
+                        assert!(
+                            *sum_value > 200.0,
+                            "HAVING clause failed: total ({}) should be > 200.0",
+                            sum_value
+                        );
                     }
                 }
-                println!("✓ GROUP BY → WINDOW → HAVING with SUM aggregate successful with {} results", results.len());
+                println!(
+                    "✓ GROUP BY → WINDOW → HAVING with SUM aggregate successful with {} results",
+                    results.len()
+                );
             }
         }
         Err(e) => {
@@ -146,9 +175,9 @@ async fn test_group_by_window_having_avg_aggregate() {
                 HAVING AVG(amount) > 100.0";
 
     let records = vec![
-        create_test_record(1, 100.0, 1000),  // customer_id: 1, contributes 100.0
-        create_test_record(2, 200.0, 1500),  // customer_id: 0, contributes 200.0
-        create_test_record(3, 150.0, 2000),  // customer_id: 1, contributes 150.0
+        create_test_record(1, 100.0, 1000), // customer_id: 1, contributes 100.0
+        create_test_record(2, 200.0, 1500), // customer_id: 0, contributes 200.0
+        create_test_record(3, 150.0, 2000), // customer_id: 1, contributes 150.0
     ];
 
     match execute_windowed_query(query, records).await {
@@ -158,15 +187,28 @@ async fn test_group_by_window_having_avg_aggregate() {
             if !results.is_empty() {
                 // Verify each result has the expected fields
                 for result in &results {
-                    assert!(result.fields.contains_key("customer_id"), "Missing customer_id field");
-                    assert!(result.fields.contains_key("avg_amt"), "Missing avg_amt field");
+                    assert!(
+                        result.fields.contains_key("customer_id"),
+                        "Missing customer_id field"
+                    );
+                    assert!(
+                        result.fields.contains_key("avg_amt"),
+                        "Missing avg_amt field"
+                    );
 
                     // Validate HAVING clause: avg_amt should be > 100.0
                     if let Some(FieldValue::Float(avg_value)) = result.fields.get("avg_amt") {
-                        assert!(*avg_value > 100.0, "HAVING clause failed: avg_amt ({}) should be > 100.0", avg_value);
+                        assert!(
+                            *avg_value > 100.0,
+                            "HAVING clause failed: avg_amt ({}) should be > 100.0",
+                            avg_value
+                        );
                     }
                 }
-                println!("✓ GROUP BY → WINDOW → HAVING with AVG aggregate successful with {} results", results.len());
+                println!(
+                    "✓ GROUP BY → WINDOW → HAVING with AVG aggregate successful with {} results",
+                    results.len()
+                );
             }
         }
         Err(e) => {
@@ -183,10 +225,10 @@ async fn test_group_by_window_having_complex_condition() {
                 HAVING COUNT(*) > 1 AND SUM(amount) > 150.0";
 
     let records = vec![
-        create_test_record(1, 100.0, 1000),  // customer_id: 1, count=2, sum=250.0
-        create_test_record(2, 200.0, 1500),  // customer_id: 0, count=2, sum=300.0
-        create_test_record(3, 150.0, 2000),  // customer_id: 1, count=2, sum=250.0
-        create_test_record(4, 100.0, 2500),  // customer_id: 0, count=2, sum=300.0
+        create_test_record(1, 100.0, 1000), // customer_id: 1, count=2, sum=250.0
+        create_test_record(2, 200.0, 1500), // customer_id: 0, count=2, sum=300.0
+        create_test_record(3, 150.0, 2000), // customer_id: 1, count=2, sum=250.0
+        create_test_record(4, 100.0, 2500), // customer_id: 0, count=2, sum=300.0
     ];
 
     match execute_windowed_query(query, records).await {
@@ -196,22 +238,27 @@ async fn test_group_by_window_having_complex_condition() {
             if !results.is_empty() {
                 // Verify each result has the expected fields
                 for result in &results {
-                    assert!(result.fields.contains_key("customer_id"), "Missing customer_id field");
+                    assert!(
+                        result.fields.contains_key("customer_id"),
+                        "Missing customer_id field"
+                    );
                     assert!(result.fields.contains_key("cnt"), "Missing cnt field");
                     assert!(result.fields.contains_key("total"), "Missing total field");
 
                     // Validate HAVING clause: COUNT(*) > 1 AND SUM(amount) > 150.0
-                    let count_valid = if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
-                        *count > 1
-                    } else {
-                        false
-                    };
+                    let count_valid =
+                        if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
+                            *count > 1
+                        } else {
+                            false
+                        };
 
-                    let sum_valid = if let Some(FieldValue::Float(sum_value)) = result.fields.get("total") {
-                        *sum_value > 150.0
-                    } else {
-                        false
-                    };
+                    let sum_valid =
+                        if let Some(FieldValue::Float(sum_value)) = result.fields.get("total") {
+                            *sum_value > 150.0
+                        } else {
+                            false
+                        };
 
                     assert!(
                         count_valid && sum_valid,
@@ -222,7 +269,10 @@ async fn test_group_by_window_having_complex_condition() {
             }
         }
         Err(e) => {
-            panic!("GROUP BY → WINDOW → HAVING with complex condition failed: {}", e);
+            panic!(
+                "GROUP BY → WINDOW → HAVING with complex condition failed: {}",
+                e
+            );
         }
     }
 }
@@ -240,7 +290,7 @@ async fn test_group_by_window_having_arithmetic_expressions() {
         TestDataBuilder::trade_record(1, "AAPL", 150.0, 1000, 0),
         TestDataBuilder::trade_record(2, "AAPL", 155.0, 1200, 100),
         TestDataBuilder::trade_record(3, "AAPL", 145.0, 900, 200),
-        TestDataBuilder::trade_record(4, "GOOGL", 2000.0, 100, 300),  // Only 1 trade, won't pass COUNT > 1
+        TestDataBuilder::trade_record(4, "GOOGL", 2000.0, 100, 300), // Only 1 trade, won't pass COUNT > 1
         TestDataBuilder::trade_record(5, "MSFT", 350.0, 600, 400),
         TestDataBuilder::trade_record(6, "MSFT", 340.0, 550, 500),
     ];
@@ -258,7 +308,10 @@ async fn test_group_by_window_having_arithmetic_expressions() {
             results_str.len() > 0,
             "HAVING clause should produce filtered results"
         );
-        println!("✓ GROUP BY → WINDOW → HAVING with arithmetic expressions successful with {} results", results.len());
+        println!(
+            "✓ GROUP BY → WINDOW → HAVING with arithmetic expressions successful with {} results",
+            results.len()
+        );
     } else {
         // Empty results are acceptable - the window might not have closed yet
         println!("⚠️  No results from windowed HAVING query (window may not have closed)");
@@ -275,9 +328,9 @@ async fn test_group_by_window_having_arithmetic_with_multipliers() {
                 HAVING COUNT(*) >= 2 AND AVG(volume) > 500.0";
 
     let records = vec![
-        TestDataBuilder::trade_record(1, "AAPL", 150.0, 600, 0),    // avg_vol would be 600
+        TestDataBuilder::trade_record(1, "AAPL", 150.0, 600, 0), // avg_vol would be 600
         TestDataBuilder::trade_record(2, "AAPL", 155.0, 800, 100),
-        TestDataBuilder::trade_record(3, "MSFT", 350.0, 100, 200),  // avg_vol would be 100, filtered out
+        TestDataBuilder::trade_record(3, "MSFT", 350.0, 100, 200), // avg_vol would be 100, filtered out
         TestDataBuilder::trade_record(4, "MSFT", 340.0, 200, 300),
     ];
 
