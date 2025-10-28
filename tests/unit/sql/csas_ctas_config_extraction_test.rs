@@ -587,3 +587,120 @@ fn test_window_functions_with_config() {
     );
     println!("✅ Window functions (LAG, LEAD, ROW_NUMBER) with config parsed successfully");
 }
+
+#[test]
+fn test_with_clause_properties_are_loaded() {
+    let parser = StreamingSqlParser::new();
+
+    // Test that WITH clause properties are actually loaded and accessible
+    let sql = r#"
+        CREATE STREAM test_stream AS
+        SELECT * FROM source_name
+        WITH (
+            'source_name.type' = 'kafka_source',
+            'source_name.bootstrap.servers' = 'localhost:9092',
+            'source_name.topic' = 'input_topic',
+            'source_name.group.id' = 'test_group',
+            'source_name.auto.offset.reset' = 'earliest',
+
+            'test_stream_sink.type' = 'kafka_sink',
+            'test_stream_sink.bootstrap.servers' = 'localhost:9092',
+            'test_stream_sink.topic' = 'output_topic'
+        )
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Failed to parse SQL with WITH clause");
+
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+    let analysis = analyzer
+        .analyze(&query)
+        .expect("Should analyze query successfully");
+
+    // CRITICAL: Verify that WITH clause properties are actually loaded and accessible
+    println!(
+        "✓ WITH clause properties extracted - total properties: {}",
+        analysis.configuration.len()
+    );
+
+    // Check that source configuration properties are present
+    assert!(
+        analysis.configuration.contains_key("source_name.type"),
+        "Should contain source_name.type property in configuration"
+    );
+    assert_eq!(
+        analysis.configuration.get("source_name.type"),
+        Some(&"kafka_source".to_string()),
+        "source_name.type should have correct value"
+    );
+
+    assert!(
+        analysis
+            .configuration
+            .contains_key("source_name.bootstrap.servers"),
+        "Should contain source_name.bootstrap.servers property"
+    );
+    assert_eq!(
+        analysis.configuration.get("source_name.bootstrap.servers"),
+        Some(&"localhost:9092".to_string()),
+        "bootstrap.servers should have correct value"
+    );
+
+    assert!(
+        analysis.configuration.contains_key("source_name.topic"),
+        "Should contain source_name.topic property"
+    );
+    assert_eq!(
+        analysis.configuration.get("source_name.topic"),
+        Some(&"input_topic".to_string()),
+        "topic should have correct value"
+    );
+
+    // Check sink configuration properties
+    assert!(
+        analysis.configuration.contains_key("test_stream_sink.type"),
+        "Should contain sink type property"
+    );
+    assert_eq!(
+        analysis.configuration.get("test_stream_sink.type"),
+        Some(&"kafka_sink".to_string()),
+        "sink type should be kafka_sink"
+    );
+
+    println!(
+        "✅ WITH clause properties correctly loaded and accessible in QueryAnalysis.configuration"
+    );
+    println!("   Loaded properties:");
+    for (key, value) in &analysis.configuration {
+        println!("   • {} = {}", key, value);
+    }
+}
+
+#[test]
+fn test_with_clause_properties_empty_should_work() {
+    let parser = StreamingSqlParser::new();
+
+    // Test that empty WITH clause is handled properly
+    let sql = r#"
+        CREATE STREAM test AS SELECT * FROM source WITH ()
+    "#;
+
+    let result = parser.parse(sql);
+    assert!(result.is_ok(), "Should parse WITH empty clause");
+
+    let query = result.unwrap();
+    let analyzer = QueryAnalyzer::new("test-group".to_string());
+
+    // This should either succeed with no properties or fail with appropriate error
+    // depending on whether source configuration is required
+    if let Ok(analysis) = analyzer.analyze(&query) {
+        println!("✓ Empty WITH clause analysis succeeded");
+        println!(
+            "  Configuration properties: {}",
+            analysis.configuration.len()
+        );
+    } else {
+        println!("⚠️ Empty WITH clause analysis failed (expected if source config is required)");
+    }
+}
