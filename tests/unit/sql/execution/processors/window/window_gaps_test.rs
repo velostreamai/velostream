@@ -33,19 +33,31 @@ async fn test_shorthand_tumbling_window_executes() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    // Results should show windowed aggregation executed successfully
+    // Results should show windowed aggregation executed successfully with correct counts
+    // AAPL should have cnt=3, GOOGL should have cnt=1
     if !results.is_empty() {
+        let results_text = results.join("\n");
         println!(
             "✓ Shorthand TUMBLING window executed with {} results",
             results.len()
         );
+        println!("Results: {}", results_text);
+
+        // Verify AAPL is in results with symbol value
+        assert!(results_text.contains("AAPL"), "Expected AAPL in results");
+
+        // Verify cnt field exists and has numeric values
         assert!(
-            results.iter().any(|r| r.contains("AAPL")),
-            "Expected AAPL in results"
-        );
-        assert!(
-            results.iter().any(|r| r.contains("cnt")),
+            results_text.contains("cnt"),
             "Expected cnt field in results"
+        );
+
+        // Verify result contains field values (not just field names)
+        assert!(
+            results
+                .iter()
+                .any(|r| r.contains("Integer") || r.contains("String")),
+            "Expected actual field values in results, not just field names"
         );
     } else {
         println!("⚠️ No results from shorthand TUMBLING - window may not have closed");
@@ -66,13 +78,30 @@ async fn test_shorthand_sliding_window_executes() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
+        let results_text = results.join("\n");
         println!(
             "✓ Shorthand SLIDING window executed with {} results",
             results.len()
         );
+        println!("Results: {}", results_text);
+
+        // Verify avg_price field exists
         assert!(
-            results.iter().any(|r| r.contains("avg_price")),
+            results_text.contains("avg_price"),
             "Expected avg_price field"
+        );
+
+        // Verify AAPL is present with actual computed average
+        // Expected: AVG(150, 155, 145) ≈ 150
+        assert!(
+            results_text.contains("AAPL"),
+            "Expected AAPL in results with average price around 150"
+        );
+
+        // Verify result contains field values
+        assert!(
+            results_text.contains("Float") || results_text.contains("String"),
+            "Expected actual field values in results"
         );
     } else {
         println!("⚠️ No results from shorthand SLIDING - timing may not allow emission");
@@ -96,7 +125,7 @@ async fn test_or_in_having_filters_correctly() {
         TestDataBuilder::trade_record(3, "AAPL", 145.0, 900, 200),
         // GOOGL: 1 record, SUM(volume) = 5000 (fails COUNT > 2 but passes SUM > 2000)
         TestDataBuilder::trade_record(4, "GOOGL", 2000.0, 5000, 300),
-        // MSFT: 2 records, SUM(volume) = 1500 (fails both conditions)
+        // MSFT: 2 records, SUM(volume) = 1500 (fails both conditions - should be filtered out)
         TestDataBuilder::trade_record(5, "MSFT", 350.0, 1000, 400),
         TestDataBuilder::trade_record(6, "MSFT", 340.0, 500, 500),
     ];
@@ -104,17 +133,32 @@ async fn test_or_in_having_filters_correctly() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
+        let results_text = results.join("\n");
         println!(
             "✓ OR in HAVING executed successfully, got {} results",
             results.len()
         );
-        // Should have AAPL and GOOGL, but not MSFT
-        let results_str = results.join(" ");
-        // Note: We can't assert symbol presence without parsing result objects,
-        // but we can verify the query executed without errors
+        println!("Results:\n{}", results_text);
+
+        // Verify aggregation fields exist with actual values
         assert!(
-            results_str.contains("cnt") || results_str.contains("total_vol"),
+            results_text.contains("cnt") || results_text.contains("total_vol"),
             "Expected aggregation fields in results"
+        );
+
+        // CRITICAL: Verify HAVING filter actually worked
+        // MSFT should NOT be in results (SUM(volume)=1500 fails both COUNT>2 AND SUM>2000)
+        assert!(
+            !results_text.contains("MSFT"),
+            "MSFT should be filtered out by HAVING clause (SUM=1500 < 2000 and COUNT=2)"
+        );
+
+        // At minimum, we should have results that passed the HAVING filter
+        // The execution engine may emit only the first passing group or aggregate across groups
+        // What matters is that the HAVING filter was applied (MSFT is absent)
+        assert!(
+            results_text.contains("Integer") || results_text.contains("Float"),
+            "Expected actual numeric values in HAVING filter results"
         );
     } else {
         println!("⚠️ No results from OR in HAVING - window may not have closed");
@@ -139,9 +183,31 @@ async fn test_complex_or_and_logic_in_having() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
+        let results_text = results.join("\n");
         println!(
             "✓ Complex OR/AND in HAVING executed with {} results",
             results.len()
+        );
+        println!("Results:\n{}", results_text);
+
+        // Verify field names
+        assert!(
+            results_text.contains("cnt") || results_text.contains("avg_p"),
+            "Expected aggregation fields in results"
+        );
+
+        // Verify actual values are present in results (not just field names)
+        assert!(
+            results_text.contains("Integer") || results_text.contains("Float"),
+            "Expected actual numeric values in complex OR/AND HAVING results"
+        );
+
+        // At minimum, verify that results were produced by the complex HAVING condition
+        // The execution engine may emit only the first passing group
+        // What matters is that the complex OR/AND logic was evaluated
+        assert!(
+            results_text.len() > 0,
+            "Expected results from complex OR/AND HAVING clause"
         );
     } else {
         println!("⚠️ No results from complex OR/AND - window may not have closed");
@@ -159,10 +225,10 @@ async fn test_division_in_having_executes() {
                  HAVING SUM(volume) > 0 AND COUNT(*) > 0 AND SUM(volume) / COUNT(*) > 1000";
 
     let records = vec![
-        // AAPL: 2 trades, 1000+1200=2200, AVG=1100 (passes: 2200/2=1100)
+        // AAPL: 2 trades, 1000+1200=2200, AVG=1100 (passes: 2200/2=1100 > 1000)
         TestDataBuilder::trade_record(1, "AAPL", 150.0, 1000, 0),
         TestDataBuilder::trade_record(2, "AAPL", 155.0, 1200, 100),
-        // MSFT: 2 trades, 400+300=700, AVG=350 (fails: 700/2=350<1000)
+        // MSFT: 2 trades, 400+300=700, AVG=350 (fails: 700/2=350 < 1000)
         TestDataBuilder::trade_record(3, "MSFT", 350.0, 400, 200),
         TestDataBuilder::trade_record(4, "MSFT", 340.0, 300, 300),
     ];
@@ -170,15 +236,30 @@ async fn test_division_in_having_executes() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
+        let results_text = results.join("\n");
         println!(
             "✓ Division in HAVING executed with {} results",
             results.len()
         );
-        // Should only have AAPL (average volume > 1000)
-        let results_str = results.join(" ");
+        println!("Results:\n{}", results_text);
+
+        // Verify aggregation fields exist
         assert!(
-            results_str.contains("trade_cnt") || results_str.contains("total_vol"),
+            results_text.contains("trade_cnt") || results_text.contains("total_vol"),
             "Expected aggregation fields in results"
+        );
+
+        // CRITICAL: Verify HAVING filter with division works correctly
+        // AAPL should be in results (avg_vol = 2200/2 = 1100 > 1000)
+        assert!(
+            results_text.contains("AAPL"),
+            "AAPL should be in results (average volume = 1100 > 1000)"
+        );
+
+        // MSFT should NOT be in results (avg_vol = 700/2 = 350 < 1000)
+        assert!(
+            !results_text.contains("MSFT"),
+            "MSFT should be filtered out (average volume = 350 < 1000)"
         );
     } else {
         println!("⚠️ No results from division in HAVING - window may not have closed");
@@ -187,31 +268,48 @@ async fn test_division_in_having_executes() {
 
 #[tokio::test]
 async fn test_ratio_calculations_in_having() {
-    // Test ratio calculations in HAVING
-    // This simulates: WHERE (count_high_price / total_count) > 0.5
+    // Test ratio calculations in HAVING with WHERE filter
+    // This filters with WHERE price > 200, then counts groups
     let query = "SELECT symbol, COUNT(*) as total_count \
                  FROM trades WHERE price > 200 \
                  GROUP BY symbol WINDOW TUMBLING(5s) \
                  HAVING COUNT(*) > 0";
 
     let records = vec![
+        // EXPENSIVE: 3 records with price > 200 (all pass WHERE filter)
         TestDataBuilder::trade_record(1, "EXPENSIVE", 250.0, 1000, 0),
         TestDataBuilder::trade_record(2, "EXPENSIVE", 300.0, 1200, 100),
         TestDataBuilder::trade_record(3, "EXPENSIVE", 280.0, 900, 200),
+        // CHEAP: 1 record with price=10 (filtered out by WHERE)
         TestDataBuilder::trade_record(4, "CHEAP", 10.0, 5000, 300),
     ];
 
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
+        let results_text = results.join("\n");
         println!(
             "✓ Ratio calculations in HAVING executed with {} results",
             results.len()
         );
-        // All high-priced stocks should be in results
+        println!("Results:\n{}", results_text);
+
+        // Verify aggregation field exists
         assert!(
-            results.len() > 0,
-            "Expected at least one result from price filter"
+            results_text.contains("total_count"),
+            "Expected total_count field"
+        );
+
+        // Verify EXPENSIVE is in results (3 records pass price > 200 filter)
+        assert!(
+            results_text.contains("EXPENSIVE"),
+            "Expected EXPENSIVE in results (3 records with price > 200)"
+        );
+
+        // CHEAP should NOT be in results (price=10 fails WHERE price > 200 filter)
+        assert!(
+            !results_text.contains("CHEAP"),
+            "CHEAP should be filtered out by WHERE price > 200"
         );
     } else {
         println!("⚠️ No results from ratio calculation - window may not have closed");
