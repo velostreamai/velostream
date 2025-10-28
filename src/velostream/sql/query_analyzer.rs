@@ -224,15 +224,16 @@ impl QueryAnalyzer {
                 self.merge_analysis(&mut analysis, nested_analysis);
 
                 // ENHANCEMENT: Detect sinks defined in WITH clause
-                self.detect_sinks_from_config(&mut analysis)?;
+                // Pass the stream name so we can match properties by direct name (e.g., output_stream.type)
+                self.detect_sinks_from_config(name, &mut analysis)?;
 
                 // VALIDATION: CSAS (CREATE STREAM AS SELECT) requires a sink configuration
                 if analysis.required_sinks.is_empty() {
                     return Err(SqlError::ConfigurationError {
                         message: format!(
                             "CREATE STREAM '{}' requires a sink configuration. \
-                            Define a sink in the WITH clause with '{}_sink.type' = 'kafka_sink' (or file_sink/s3_sink). \
-                            Example: WITH ('{}_sink.type' = 'kafka_sink', '{}_sink.topic' = 'output_topic', ...)",
+                            Define a sink in the WITH clause with '{}.type' = 'kafka_sink' (or file_sink/s3_sink). \
+                            Example: WITH ('{}.type' = 'kafka_sink', '{}.topic' = 'output_topic', ...)",
                             name, name, name, name
                         ),
                     });
@@ -1017,15 +1018,20 @@ impl QueryAnalyzer {
 
     /// Detect sink definitions from WITH clause configuration
     /// Looks for patterns like '{name}.type' = '{type}_sink'
-    fn detect_sinks_from_config(&self, analysis: &mut QueryAnalysis) -> Result<(), SqlError> {
+    fn detect_sinks_from_config(
+        &self,
+        sink_name: &str,
+        analysis: &mut QueryAnalysis,
+    ) -> Result<(), SqlError> {
         let config = &analysis.configuration.clone();
 
-        // Scan for sink type definitions
-        for (key, value) in config {
-            if key.ends_with(".type") && value.ends_with("_sink") {
-                // Extract sink name from key (remove .type suffix)
-                let sink_name = key.strip_suffix(".type").unwrap();
+        // Look for sink configuration using direct name matching (e.g., output_stream.type)
+        // This matches the naming convention used for sources, avoiding the _sink postfix requirement
+        let sink_type_key = format!("{}.type", sink_name);
 
+        if let Some(value) = config.get(&sink_type_key) {
+            // Determine if this looks like a sink type (ends with _sink suffix)
+            if value.ends_with("_sink") {
                 // Extract sink type
                 let sink_type_str = value.as_str();
                 let sink_type = match sink_type_str {

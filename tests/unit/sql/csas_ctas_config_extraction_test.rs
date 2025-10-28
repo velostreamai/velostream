@@ -38,8 +38,8 @@ fn test_csas_with_named_source_config_parsing() {
             'market_data_source.topic' = 'market_data',
             'market_data_source.group.id' = 'test-group',
 
-            'price_alerts_sink.type' = 'kafka_sink',
-            'price_alerts_sink.topic' = 'price_alerts',
+            'price_alerts.type' = 'kafka_sink',
+            'price_alerts.topic' = 'price_alerts',
             'price_alerts_sink.bootstrap.servers' = 'localhost:9092'
         )
     "#;
@@ -156,9 +156,9 @@ fn test_csas_with_multiple_named_sources() {
             'trades_source.topic' = 'trades',
             'trades_source.group.id' = 'enriched-group',
 
-            'enriched_trades_sink.type' = 'kafka_sink',
+            'enriched_trades.type' = 'kafka_sink',
             'enriched_trades_sink.bootstrap.servers' = 'localhost:9092',
-            'enriched_trades_sink.topic' = 'enriched_trades'
+            'enriched_trades.topic' = 'enriched_trades'
         )
     "#;
 
@@ -199,10 +199,10 @@ fn test_property_extraction_from_with_clause() {
             'source.auto.offset.reset' = 'earliest',
             'source.enable.auto.commit' = 'false',
 
-            'sink.type' = 'kafka_sink',
-            'sink.topic' = 'output-topic',
-            'sink.compression.type' = 'snappy',
-            'sink.batch.size' = '16384'
+            'test.type' = 'kafka_sink',
+            'test.topic' = 'output-topic',
+            'test.compression.type' = 'snappy',
+            'test.batch.size' = '16384'
         )
     "#;
 
@@ -249,9 +249,9 @@ fn test_csas_phase1b4_features_with_named_sources() {
             'market_data_source.group.id' = 'alerts-group',
 
             -- Sink configuration
-            'alerts_sink.type' = 'kafka_sink',
+            'alerts.type' = 'kafka_sink',
             'alerts_sink.bootstrap.servers' = 'localhost:9092',
-            'alerts_sink.topic' = 'alerts',
+            'alerts.topic' = 'alerts',
 
             -- Phase 1B: Event-time processing
             'event.time.field' = 'trade_timestamp',
@@ -386,9 +386,9 @@ fn test_missing_source_configuration() {
         CREATE STREAM output_stream AS
         SELECT * FROM undefined_source
         WITH (
-            'output_stream_sink.type' = 'kafka_sink',
+            'output_stream.type' = 'kafka_sink',
             'output_stream_sink.bootstrap.servers' = 'localhost:9092',
-            'output_stream_sink.topic' = 'output'
+            'output_stream.topic' = 'output'
         )
     "#;
 
@@ -429,9 +429,9 @@ fn test_config_property_precedence() {
             'source.topic' = 'explicit-topic',
             'source.bootstrap.servers' = 'override-broker:9092',
 
-            'test_sink.type' = 'kafka_sink',
+            'test.type' = 'kafka_sink',
             'test_sink.bootstrap.servers' = 'localhost:9092',
-            'test_sink.topic' = 'test_output'
+            'test.topic' = 'test_output'
         )
     "#;
 
@@ -469,9 +469,9 @@ fn test_complex_where_clause_with_config() {
             'trades_source.topic' = 'trades',
             'trades_source.group.id' = 'filtered-group',
 
-            'filtered_trades_sink.type' = 'kafka_sink',
+            'filtered_trades.type' = 'kafka_sink',
             'filtered_trades_sink.bootstrap.servers' = 'localhost:9092',
-            'filtered_trades_sink.topic' = 'filtered_trades'
+            'filtered_trades.topic' = 'filtered_trades'
         )
     "#;
 
@@ -517,9 +517,9 @@ fn test_aggregation_with_config() {
             'trades_source.topic' = 'trades',
             'trades_source.group.id' = 'agg-group',
 
-            'aggregated_metrics_sink.type' = 'kafka_sink',
+            'aggregated_metrics.type' = 'kafka_sink',
             'aggregated_metrics_sink.bootstrap.servers' = 'localhost:9092',
-            'aggregated_metrics_sink.topic' = 'aggregated_metrics'
+            'aggregated_metrics.topic' = 'aggregated_metrics'
         )
     "#;
 
@@ -562,9 +562,9 @@ fn test_window_functions_with_config() {
             'trades_source.topic' = 'trades',
             'trades_source.group.id' = 'window-group',
 
-            'windowed_data_sink.type' = 'kafka_sink',
+            'windowed_data.type' = 'kafka_sink',
             'windowed_data_sink.bootstrap.servers' = 'localhost:9092',
-            'windowed_data_sink.topic' = 'windowed_data'
+            'windowed_data.topic' = 'windowed_data'
         )
     "#;
 
@@ -596,6 +596,8 @@ fn test_with_clause_properties_are_loaded() {
     let sql = r#"
         CREATE STREAM test_stream AS
         SELECT * FROM source_name
+            WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
+            GROUP BY symbol
         WITH (
             'source_name.type' = 'kafka_source',
             'source_name.bootstrap.servers' = 'localhost:9092',
@@ -603,9 +605,9 @@ fn test_with_clause_properties_are_loaded() {
             'source_name.group.id' = 'test_group',
             'source_name.auto.offset.reset' = 'earliest',
 
-            'test_stream_sink.type' = 'kafka_sink',
-            'test_stream_sink.bootstrap.servers' = 'localhost:9092',
-            'test_stream_sink.topic' = 'output_topic'
+            'test_stream.type' = 'kafka_sink',
+            'test_stream.bootstrap.servers' = 'localhost:9092',
+            'test_stream.topic' = 'output_topic'
         )
     "#;
 
@@ -659,11 +661,11 @@ fn test_with_clause_properties_are_loaded() {
 
     // Check sink configuration properties
     assert!(
-        analysis.configuration.contains_key("test_stream_sink.type"),
+        analysis.configuration.contains_key("test_stream.type"),
         "Should contain sink type property"
     );
     assert_eq!(
-        analysis.configuration.get("test_stream_sink.type"),
+        analysis.configuration.get("test_stream.type"),
         Some(&"kafka_sink".to_string()),
         "sink type should be kafka_sink"
     );

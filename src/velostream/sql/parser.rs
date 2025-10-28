@@ -1561,14 +1561,14 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
-        // Parse WINDOW clause first (if present)
+        // Parse WINDOW clause (if present)
         let mut window = None;
         if self.current_token().token_type == TokenType::Window {
             self.advance();
             window = Some(self.parse_window_spec()?);
         }
 
-        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
+        // Parse GROUP BY (must continue parsing even after WINDOW)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
