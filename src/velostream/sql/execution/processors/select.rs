@@ -594,6 +594,29 @@ impl SelectProcessor {
                 }
             }
 
+            // FR-081: Detect if any field was aliased as _EVENT_TIME for SQL-based event-time assignment
+            // This allows queries like: SELECT timestamp as _event_time FROM stream
+            let mut event_time_value: Option<FieldValue> = None;
+            for field in fields {
+                match field {
+                    SelectField::AliasedColumn { alias, .. }
+                    | SelectField::Expression {
+                        alias: Some(alias), ..
+                    } => {
+                        if system_columns::normalize_if_system_column(alias)
+                            == Some(system_columns::EVENT_TIME)
+                        {
+                            // Found _event_time assignment, get the corresponding value
+                            if let Some(value) = result_fields.get(alias) {
+                                event_time_value = Some(value.clone());
+                            }
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             // Validate SELECT expressions with alias_context only once per query for performance
             // This allows FR-078 (alias reuse) to work while avoiding per-record validation overhead
             // Uses context.validated_select_queries flag to track which queries have been validated
@@ -727,13 +750,45 @@ impl SelectProcessor {
                 &mut header_mutations,
             )?;
 
+            // FR-081: Convert event_time_value to DateTime if _event_time was assigned
+            // Default to NOW() if not assigned or conversion fails
+            let computed_event_time = match event_time_value {
+                Some(val) => {
+                    match val {
+                        FieldValue::Integer(millis) => {
+                            // Convert milliseconds since epoch to DateTime
+                            chrono::DateTime::from_timestamp(
+                                millis / 1000,
+                                ((millis % 1000) * 1_000_000) as u32,
+                            )
+                            .or_else(|| Some(chrono::Utc::now()))
+                        }
+                        FieldValue::Timestamp(naive_dt) => {
+                            // Convert NaiveDateTime to DateTime<Utc>
+                            Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                                naive_dt,
+                                chrono::Utc,
+                            ))
+                        }
+                        _ => {
+                            // Other types: String, Float, Boolean, ScaledInteger default to NOW()
+                            Some(chrono::Utc::now())
+                        }
+                    }
+                }
+                None => {
+                    // No _event_time assigned: default to NOW()
+                    Some(chrono::Utc::now())
+                }
+            };
+
             let final_record = StreamRecord {
                 fields: result_fields,
                 timestamp: joined_record.timestamp,
                 offset: joined_record.offset,
                 partition: joined_record.partition,
                 headers: joined_record.headers,
-                event_time: None,
+                event_time: computed_event_time,
             };
 
             Ok(ProcessorResult {
