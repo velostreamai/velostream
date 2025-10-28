@@ -1744,7 +1744,95 @@ impl WindowProcessor {
             (FieldValue::Float(l), FieldValue::Integer(r), BinaryOperator::NotEqual) => {
                 (*l - (*r as f64)).abs() >= f64::EPSILON
             }
-            _ => false,
+            // Handle Null values in comparisons
+            (FieldValue::Null, _, _) | (_, FieldValue::Null, _) => false,
+            // For other unhandled type combinations, try a generic field value comparison
+            _ => {
+                // Default fallback: try generic comparison for same types
+                // This handles ScaledInteger and other numeric types
+                match (left, right, op) {
+                    (FieldValue::ScaledInteger(l, l_scale), FieldValue::ScaledInteger(r, r_scale), op) => {
+                        // Normalize scales for comparison
+                        let (l_val, r_val) = if l_scale == r_scale {
+                            (*l, *r)
+                        } else if l_scale < r_scale {
+                            // Scale left up to match right
+                            let scale_diff = (r_scale - l_scale) as u32;
+                            (*l * 10_i64.pow(scale_diff), *r)
+                        } else {
+                            // Scale right up to match left
+                            let scale_diff = (l_scale - r_scale) as u32;
+                            (*l, *r * 10_i64.pow(scale_diff))
+                        };
+
+                        match op {
+                            BinaryOperator::GreaterThanOrEqual => l_val >= r_val,
+                            BinaryOperator::GreaterThan => l_val > r_val,
+                            BinaryOperator::LessThanOrEqual => l_val <= r_val,
+                            BinaryOperator::LessThan => l_val < r_val,
+                            BinaryOperator::Equal => l_val == r_val,
+                            BinaryOperator::NotEqual => l_val != r_val,
+                            _ => false,
+                        }
+                    }
+                    // ScaledInteger vs Float
+                    (FieldValue::ScaledInteger(l, scale), FieldValue::Float(r), op) => {
+                        let l_float = *l as f64 / 10_i64.pow(*scale as u32) as f64;
+                        match op {
+                            BinaryOperator::GreaterThanOrEqual => l_float >= *r,
+                            BinaryOperator::GreaterThan => l_float > *r,
+                            BinaryOperator::LessThanOrEqual => l_float <= *r,
+                            BinaryOperator::LessThan => l_float < *r,
+                            BinaryOperator::Equal => (l_float - r).abs() < f64::EPSILON,
+                            BinaryOperator::NotEqual => (l_float - r).abs() >= f64::EPSILON,
+                            _ => false,
+                        }
+                    }
+                    // Float vs ScaledInteger
+                    (FieldValue::Float(l), FieldValue::ScaledInteger(r, scale), op) => {
+                        let r_float = *r as f64 / 10_i64.pow(*scale as u32) as f64;
+                        match op {
+                            BinaryOperator::GreaterThanOrEqual => *l >= r_float,
+                            BinaryOperator::GreaterThan => *l > r_float,
+                            BinaryOperator::LessThanOrEqual => *l <= r_float,
+                            BinaryOperator::LessThan => *l < r_float,
+                            BinaryOperator::Equal => (*l - r_float).abs() < f64::EPSILON,
+                            BinaryOperator::NotEqual => (*l - r_float).abs() >= f64::EPSILON,
+                            _ => false,
+                        }
+                    }
+                    // ScaledInteger vs Integer
+                    (FieldValue::ScaledInteger(l, scale), FieldValue::Integer(r), op) => {
+                        let l_float = *l as f64 / 10_i64.pow(*scale as u32) as f64;
+                        let r_float = *r as f64;
+                        match op {
+                            BinaryOperator::GreaterThanOrEqual => l_float >= r_float,
+                            BinaryOperator::GreaterThan => l_float > r_float,
+                            BinaryOperator::LessThanOrEqual => l_float <= r_float,
+                            BinaryOperator::LessThan => l_float < r_float,
+                            BinaryOperator::Equal => (l_float - r_float).abs() < f64::EPSILON,
+                            BinaryOperator::NotEqual => (l_float - r_float).abs() >= f64::EPSILON,
+                            _ => false,
+                        }
+                    }
+                    // Integer vs ScaledInteger
+                    (FieldValue::Integer(l), FieldValue::ScaledInteger(r, scale), op) => {
+                        let l_float = *l as f64;
+                        let r_float = *r as f64 / 10_i64.pow(*scale as u32) as f64;
+                        match op {
+                            BinaryOperator::GreaterThanOrEqual => l_float >= r_float,
+                            BinaryOperator::GreaterThan => l_float > r_float,
+                            BinaryOperator::LessThanOrEqual => l_float <= r_float,
+                            BinaryOperator::LessThan => l_float < r_float,
+                            BinaryOperator::Equal => (l_float - r_float).abs() < f64::EPSILON,
+                            BinaryOperator::NotEqual => (l_float - r_float).abs() >= f64::EPSILON,
+                            _ => false,
+                        }
+                    }
+                    // For other unhandled combinations, return false
+                    _ => false,
+                }
+            }
         }
     }
 

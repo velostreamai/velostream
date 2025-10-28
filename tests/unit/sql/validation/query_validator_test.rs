@@ -93,7 +93,7 @@ fn test_performance_checks_disabled() {
 fn test_syntax_compatibility_checks() {
     let validator = QueryValidator::new();
     let queries = vec![
-        "SELECT * FROM stream WHERE col WINDOW TUMBLING(INTERVAL 5 MINUTE) GROUP BY col",
+        "SELECT * FROM stream WHERE col GROUP BY col WINDOW TUMBLING(INTERVAL 5 MINUTE)",
         "WITH RECURSIVE cte AS (SELECT 1) SELECT * FROM cte",
         "MERGE INTO target USING source ON target.id = source.id",
     ];

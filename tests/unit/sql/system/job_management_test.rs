@@ -185,7 +185,7 @@ mod tests {
     fn test_start_job_windowed() {
         let parser = StreamingSqlParser::new();
 
-        let query = "START JOB windowed_aggregation AS SELECT customer_id, COUNT(*) FROM orders WINDOW TUMBLING(5m) GROUP BY customer_id";
+        let query = "START JOB windowed_aggregation AS SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m)";
         let result = parser.parse(query);
         assert!(
             result.is_ok(),

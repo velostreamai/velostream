@@ -39,7 +39,7 @@ async fn test_implicit_windowed_mode_with_window() {
 
     // Window clause should default to EMIT FINAL behavior (when no explicit EMIT)
     let query_str =
-        "SELECT customer_id, COUNT(*) FROM orders WINDOW TUMBLING(5m) GROUP BY customer_id";
+        "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m)";
     let result = parser.parse(query_str);
 
     // Note: This might fail if WINDOW parsing isn't fully implemented
@@ -94,7 +94,7 @@ async fn test_emit_changes_with_window_override() {
     let parser = StreamingSqlParser::new();
 
     // EMIT CHANGES with WINDOW should override default windowed behavior
-    let query_str = "SELECT customer_id, COUNT(*) FROM orders WINDOW TUMBLING(5m) GROUP BY customer_id EMIT CHANGES";
+    let query_str = "SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id WINDOW TUMBLING(5m) EMIT CHANGES";
     let result = parser.parse(query_str);
 
     if let Ok(query) = result {

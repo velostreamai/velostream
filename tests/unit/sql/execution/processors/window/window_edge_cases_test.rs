@@ -280,9 +280,9 @@ mod window_edge_cases_tests {
             SELECT 
                 customer_id,
                 COUNT(*) as action_count
-            FROM orders 
-            WINDOW SESSION(0s)
+            FROM orders
             GROUP BY customer_id
+            WINDOW SESSION(0s)
         "#;
 
         let records = vec![
