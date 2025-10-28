@@ -78,7 +78,7 @@ fn test_window_processor_detects_emit_changes() {
 /// Test is_emit_changes() detects EMIT FINAL mode (should return false)
 #[test]
 fn test_window_processor_detects_emit_final_not_changes() {
-    let sql = "SELECT status, COUNT(*) FROM orders WINDOW TUMBLING(1m) GROUP BY status EMIT FINAL";
+    let sql = "SELECT status, COUNT(*) FROM orders GROUP BY status WINDOW TUMBLING(1m) EMIT FINAL";
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).expect("Parse failed");
 
@@ -105,7 +105,7 @@ fn test_window_processor_no_emit_clause() {
 #[test]
 fn test_window_processor_detects_group_by_emit_changes_windowed() {
     let sql =
-        "SELECT status, SUM(amount) FROM orders WINDOW TUMBLING(1m) GROUP BY status EMIT CHANGES";
+        "SELECT status, SUM(amount) FROM orders GROUP BY status WINDOW TUMBLING(1m) EMIT CHANGES";
     let parser = StreamingSqlParser::new();
     let query_result = parser.parse(sql);
 
@@ -128,7 +128,7 @@ fn test_window_processor_detects_group_by_emit_changes_windowed() {
 #[test]
 fn test_window_processor_group_by_emit_final_windowed() {
     let sql =
-        "SELECT status, SUM(amount) FROM orders WINDOW TUMBLING(1m) GROUP BY status EMIT FINAL";
+        "SELECT status, SUM(amount) FROM orders GROUP BY status WINDOW TUMBLING(1m) EMIT FINAL";
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).expect("Parse failed");
 
@@ -171,7 +171,7 @@ fn test_window_processor_no_group_by_emit_changes_windowed() {
 /// Test multiple GROUP BY columns with EMIT CHANGES and SLIDING window
 #[test]
 fn test_window_processor_complex_windowed_group_by() {
-    let sql = "SELECT status, customer_id, SUM(amount), COUNT(*) FROM orders WINDOW SLIDING(1m, 30s) GROUP BY status, customer_id EMIT CHANGES";
+    let sql = "SELECT status, customer_id, SUM(amount), COUNT(*) FROM orders GROUP BY status, customer_id WINDOW SLIDING(1m, 30s) EMIT CHANGES";
     let parser = StreamingSqlParser::new();
     let query_result = parser.parse(sql);
 
@@ -192,7 +192,7 @@ fn test_window_processor_complex_windowed_group_by() {
 #[test]
 fn test_window_processor_session_window_group_by() {
     let sql =
-        "SELECT status, SUM(amount) FROM orders WINDOW SESSION(5m) GROUP BY status EMIT CHANGES";
+        "SELECT status, SUM(amount) FROM orders GROUP BY status WINDOW SESSION(5m) EMIT CHANGES";
     let parser = StreamingSqlParser::new();
     let query_result = parser.parse(sql);
 

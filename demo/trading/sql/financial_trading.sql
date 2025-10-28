@@ -41,7 +41,7 @@ SELECT
     symbol,
     exchange,
     timestamp,
-    timestamp as event_timestamp,
+    timestamp as _event_time,
     price,
     bid_price,
     ask_price,
@@ -173,11 +173,13 @@ SELECT
 FROM market_data_ts
 -- Phase 3: Complex HAVING clause with multiple conditions
 -- RELAXED for demo: allowing more events to flow through for testing
-HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
-   AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
-   AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
--- Phase 1B: Event-time based windowing (1-minute tumbling windows)
-WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+GROUP BY
+    symbol
+    -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
+    WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+    HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
+       AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
+       AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
@@ -237,10 +239,10 @@ SELECT
     NOW() AS debug_timestamp
 
 FROM market_data_ts
-HAVING COUNT(*) > 0
-WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
 GROUP BY symbol
-EMIT CHANGES
+  WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+  HAVING COUNT(*) > 0
+  EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
@@ -581,13 +583,14 @@ SELECT
     TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
 FROM in_order_book_stream
 GROUP BY symbol
-HAVING
-    SUM(quantity) > 10000
+    WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+  HAVING
+     SUM(quantity) > 10000
    AND (
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
     OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
     )
-WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+
 EMIT CHANGES
 WITH (
     'in_order_book_stream.type' = 'kafka_source',
@@ -683,8 +686,8 @@ SELECT
 
 FROM market_data_ts
 GROUP BY symbol
-WINDOW TUMBLING(1m)
-EMIT CHANGES
+  WINDOW TUMBLING(1m)
+  EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',

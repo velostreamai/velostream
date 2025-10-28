@@ -9,6 +9,7 @@ pub mod emit_changes_test;
 pub mod financial_ticker_analytics_test;
 pub mod fr079_aggregate_expressions_test;
 pub mod fr079_phase1_detection_test;
+pub mod group_by_window_having_order_test;
 pub mod shared_test_utils;
 pub mod unified_window_test;
 pub mod window_edge_cases_test;

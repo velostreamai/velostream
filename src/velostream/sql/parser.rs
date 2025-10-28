@@ -1196,14 +1196,7 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
-        // Parse WINDOW clause first (if present)
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
-        }
-
-        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
+        // Parse GROUP BY first (correct ordering: GROUP BY comes first, then WINDOW)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1211,10 +1204,17 @@ impl<'a> TokenParser<'a> {
             group_by = Some(self.parse_group_by_list()?);
         }
 
-        // STRICT ORDERING VALIDATION: If GROUP BY was parsed, ensure WINDOW doesn't appear after it
-        if group_by.is_some() && self.current_token().token_type == TokenType::Window {
+        // Parse WINDOW clause after GROUP BY
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
+        }
+
+        // STRICT ORDERING VALIDATION: If WINDOW was parsed, ensure GROUP BY doesn't appear after it
+        if window.is_some() && self.current_token().token_type == TokenType::GroupBy {
             return Err(SqlError::ParseError {
-                message: "WINDOW clause must come before GROUP BY clause. Correct syntax: SELECT ... WINDOW ... GROUP BY ...".to_string(),
+                message: "GROUP BY clause must come before WINDOW clause. Correct syntax: SELECT ... GROUP BY ... WINDOW ... HAVING ...".to_string(),
                 position: Some(self.current_token().position),
             });
         }
