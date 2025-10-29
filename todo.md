@@ -177,6 +177,114 @@ Row 2 calculation:
 
 ---
 
+## Priority 0: CRITICAL - Add Value Assertions to 194 Parsing-Only Tests
+
+### Issue Discovery
+Comprehensive test audit reveals **61% of SQL tests (194/318) only validate SQL parsing, NOT computed values**. This is a systematic test quality issue across the entire codebase.
+
+### Test Quality Breakdown
+- **194 tests (61%)** - Parsing-only (HIGH RISK)
+- **124 tests (39%)** - Have value assertions (GOOD)
+- **83 tests (26%)** - ZERO assertions whatsoever
+
+### Critical Test Files (83 parsing-only tests)
+
+**Tier 1 - Most Critical (8 files, 83 tests)**:
+1. `tests/unit/sql/execution/processors/window/window_edge_cases_test.rs` (15 tests)
+2. `tests/unit/sql/execution/processors/window/statistical_functions_test.rs` (12 tests)
+3. `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs` (6 tests)
+4. `tests/unit/sql/execution/processors/window/emit_changes_late_data_semantics_test.rs` (8 tests)
+5. `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs` (9 tests)
+6. `tests/unit/sql/execution/processors/window/session_window_functions_test.rs` (8 tests)
+7. `tests/unit/sql/execution/processors/window/fr079_phase1_detection_test.rs` (22 tests)
+8. `tests/unit/sql/execution/processors/window/timebased_joins_test.rs` (3 tests)
+
+**Tier 2 - Mixed Quality (3 files, 43 tests with 50-79% assertions)**:
+- `fr079_aggregate_expressions_test.rs` (77% parsing-only)
+- `window_gaps_test.rs` (67% parsing-only)
+- `emit_changes_advanced_test.rs` (56% parsing-only)
+
+### Reference Models (Best Practices)
+These files show excellent value assertion patterns to copy from:
+- `tests/unit/sql/execution/aggregation/functions_test.rs` (100% assertions)
+- `tests/unit/sql/execution/aggregation/group_by_test.rs` (90% assertions)
+- `tests/unit/sql/execution/processors/window/emit_changes_basic_test.rs` (100% assertions)
+
+### Pattern: Before vs After
+
+**❌ BEFORE (Parsing-Only - Insufficient)**:
+```rust
+#[tokio::test]
+async fn test_window_aggregation() {
+    let results = SqlExecutor::execute_query(sql, records).await;
+    WindowTestAssertions::print_results(&results, "Debug output");
+    // ❌ No actual assertions! Bug could be hiding here.
+}
+```
+
+**✅ AFTER (With Value Assertions - Comprehensive)**:
+```rust
+#[tokio::test]
+async fn test_window_aggregation() {
+    let results = SqlExecutor::execute_query(sql, records).await;
+    assert!(!results.is_empty(), "Should produce results");
+
+    if let Some(record) = results.first() {
+        // ✅ Validate actual computed values
+        assert_eq!(
+            record.fields.get("sum_amount"),
+            Some(&FieldValue::Float(150.0)),
+            "SUM should be 150.0 for window [10, 20, 30, 40, 50]"
+        );
+        assert_eq!(
+            record.fields.get("count_rows"),
+            Some(&FieldValue::Integer(3)),
+            "COUNT should be 3"
+        );
+    }
+}
+```
+
+### Implementation Strategy
+
+**Phase 1 - High-Risk Tests (Tier 1, 83 tests)**:
+- Add 2-3 value assertions per test
+- Focus on: window boundaries, aggregation results, watermark behavior
+- Estimated effort: 2-4 weeks
+- Expected result: +26 percentage points (39% → 65% coverage)
+
+**Phase 2 - Medium-Risk Tests (Tier 2, 43 tests)**:
+- Add additional assertions to partially-tested functions
+- Estimated effort: 1-2 weeks
+- Expected result: +14 percentage points (65% → 79% coverage)
+
+**Phase 3 - Remaining Tests (remaining test files)**:
+- Systematic audit and enhancement
+- Estimated effort: 1 week
+- Expected result: +6 percentage points (79% → 85% coverage)
+
+### Business Impact
+
+**Current Risk: HIGH**
+- Bugs in aggregation logic undetected
+- Window semantics not validated at all
+- Watermark behavior not verified
+- Statistical functions not mathematically checked
+- Edge cases silently fail
+
+**After Implementation: LOW**
+- All computational bugs caught immediately
+- Complete semantic validation
+- Regression detection enabled
+- Edge cases properly verified
+
+### Success Criteria
+- Phase 1: All 83 Tier 1 tests have at least 2 value assertions
+- Phase 2: All 43 Tier 2 tests have ≥80% assertion coverage
+- Overall: Achieve 85%+ value assertion coverage across all SQL tests
+
+---
+
 ## Testing & Validation
 
 ### Window Frame Tests
