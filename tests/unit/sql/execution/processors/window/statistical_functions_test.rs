@@ -45,7 +45,8 @@ fn test_percentile_cont_parsing() {
 #[test]
 fn test_percentile_disc_parsing() {
     let parser = StreamingSqlParser::new();
-    let query = "SELECT PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency FROM metrics \
+    let query =
+        "SELECT PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency FROM metrics \
                  WINDOW TUMBLING(60s)";
 
     match parser.parse(query) {
@@ -111,7 +112,10 @@ fn test_percentile_with_group_by() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ PERCENTILE with GROUP BY parses correctly"),
-        Err(e) => println!("⚠️  PERCENTILE with GROUP BY may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  PERCENTILE with GROUP BY may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -148,7 +152,10 @@ fn test_statistical_aggregations() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Statistical aggregations parse correctly"),
-        Err(e) => println!("⚠️  Statistical aggregations may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  Statistical aggregations may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -165,7 +172,10 @@ fn test_sliding_window_percentile() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Sliding window with percentile parses correctly"),
-        Err(e) => println!("⚠️  Sliding window with percentile may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  Sliding window with percentile may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -177,10 +187,23 @@ fn test_avg_calculation_verification() {
     let sum: f64 = values.iter().sum();
     let avg = sum / values.len() as f64;
 
-    println!("✓ AVG calculation: {} values, sum={}, avg={}", values.len(), sum, avg);
-    assert!((avg - 30.0).abs() < 0.001, "Average should be 30.0, got {}", avg);
+    println!(
+        "✓ AVG calculation: {} values, sum={}, avg={}",
+        values.len(),
+        sum,
+        avg
+    );
+    assert!(
+        (avg - 30.0).abs() < 0.001,
+        "Average should be 30.0, got {}",
+        avg
+    );
     assert_eq!(values.len(), 5, "Should have 5 values");
-    assert!((sum - 150.0).abs() < 0.001, "Sum should be 150.0, got {}", sum);
+    assert!(
+        (sum - 150.0).abs() < 0.001,
+        "Sum should be 150.0, got {}",
+        sum
+    );
 }
 
 /// Test percentile calculation (simplified)
@@ -189,9 +212,9 @@ fn test_percentile_cont_manual_calculation() {
     // For sorted data [10, 20, 30, 40, 50]
     // PERCENTILE_CONT(0.5) should return the median = 30.0
     let sorted_values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
-    let p = 0.5;  // 50th percentile (median)
+    let p = 0.5; // 50th percentile (median)
     let n = sorted_values.len() as f64;
-    let h = (n - 1.0) * p;  // Linear interpolation position
+    let h = (n - 1.0) * p; // Linear interpolation position
     let h_floor = h.floor() as usize;
     let h_frac = h - h.floor();
 
@@ -202,8 +225,15 @@ fn test_percentile_cont_manual_calculation() {
         sorted_values[h_floor]
     };
 
-    println!("✓ PERCENTILE_CONT(0.5) on sorted [10,20,30,40,50] = {}", percentile);
-    assert!((percentile - 30.0).abs() < 0.001, "Percentile should be 30.0, got {}", percentile);
+    println!(
+        "✓ PERCENTILE_CONT(0.5) on sorted [10,20,30,40,50] = {}",
+        percentile
+    );
+    assert!(
+        (percentile - 30.0).abs() < 0.001,
+        "Percentile should be 30.0, got {}",
+        percentile
+    );
 }
 
 /// Test standard deviation calculation
@@ -217,14 +247,23 @@ fn test_stddev_manual_calculation() {
 
     let values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
     let mean = values.iter().sum::<f64>() / values.len() as f64;
-    let variance = values.iter()
-        .map(|x| (x - mean).powi(2))
-        .sum::<f64>() / values.len() as f64;
+    let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
     let stddev = variance.sqrt();
 
-    println!("✓ STDDEV calculation: mean={}, variance={}, stddev={}", mean, variance, stddev);
-    assert!((stddev - 14.142).abs() < 0.01, "StdDev should be ~14.142, got {}", stddev);
-    assert!((variance - 200.0).abs() < 0.001, "Variance should be 200.0, got {}", variance);
+    println!(
+        "✓ STDDEV calculation: mean={}, variance={}, stddev={}",
+        mean, variance, stddev
+    );
+    assert!(
+        (stddev - 14.142).abs() < 0.01,
+        "StdDev should be ~14.142, got {}",
+        stddev
+    );
+    assert!(
+        (variance - 200.0).abs() < 0.001,
+        "Variance should be 200.0, got {}",
+        variance
+    );
 }
 
 /// Test COUNT aggregation
@@ -250,5 +289,9 @@ fn test_sum_aggregation_verification() {
     let sum = values.iter().sum::<f64>();
 
     println!("✓ SUM(value) on [100,200,300,400,500] = {}", sum);
-    assert!((sum - 1500.0).abs() < 0.001, "Sum should be 1500.0, got {}", sum);
+    assert!(
+        (sum - 1500.0).abs() < 0.001,
+        "Sum should be 1500.0, got {}",
+        sum
+    );
 }

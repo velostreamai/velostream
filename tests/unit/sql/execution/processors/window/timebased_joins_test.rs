@@ -18,7 +18,10 @@ fn test_temporal_join_with_between() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Temporal JOIN with BETWEEN parses correctly"),
-        Err(e) => println!("⚠️  Temporal JOIN with BETWEEN may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  Temporal JOIN with BETWEEN may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -35,7 +38,10 @@ fn test_windowed_join_with_group_by() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Windowed JOIN with GROUP BY parses correctly"),
-        Err(e) => println!("⚠️  Windowed JOIN with GROUP BY may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  Windowed JOIN with GROUP BY may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -50,7 +56,10 @@ fn test_left_join_temporal() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ LEFT JOIN with temporal constraint parses correctly"),
-        Err(e) => println!("⚠️  LEFT JOIN with temporal constraint may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  LEFT JOIN with temporal constraint may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -68,7 +77,10 @@ fn test_join_with_having() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ JOIN with HAVING clause parses correctly"),
-        Err(e) => println!("⚠️  JOIN with HAVING clause may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  JOIN with HAVING clause may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -85,7 +97,10 @@ fn test_multiple_joins_temporal() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Multiple JOINs with temporal constraints parse correctly"),
-        Err(e) => println!("⚠️  Multiple JOINs with temporal constraints may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  Multiple JOINs with temporal constraints may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -100,7 +115,10 @@ fn test_self_join_temporal() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Self-JOIN with temporal condition parses correctly"),
-        Err(e) => println!("⚠️  Self-JOIN with temporal condition may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  Self-JOIN with temporal condition may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -117,7 +135,10 @@ fn test_join_with_sliding_window() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ JOIN with sliding window parses correctly"),
-        Err(e) => println!("⚠️  JOIN with sliding window may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  JOIN with sliding window may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -135,7 +156,10 @@ fn test_join_complex_temporal_filter() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ JOIN with complex temporal filter parses correctly"),
-        Err(e) => println!("⚠️  JOIN with complex temporal filter may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  JOIN with complex temporal filter may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -151,7 +175,10 @@ fn test_inner_join_timestamp_range() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ INNER JOIN with timestamp range parses correctly"),
-        Err(e) => println!("⚠️  INNER JOIN with timestamp range may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  INNER JOIN with timestamp range may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -167,6 +194,9 @@ fn test_join_with_order_by_temporal() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ JOIN with ORDER BY temporal field parses correctly"),
-        Err(e) => println!("⚠️  JOIN with ORDER BY temporal field may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  JOIN with ORDER BY temporal field may have limited support: {}",
+            e
+        ),
     }
 }

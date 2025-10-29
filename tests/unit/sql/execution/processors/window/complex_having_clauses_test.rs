@@ -17,7 +17,10 @@ fn test_having_with_nested_aggregates() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with nested aggregates parses correctly"),
-        Err(e) => println!("⚠️  HAVING with nested aggregates may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with nested aggregates may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -47,7 +50,10 @@ fn test_having_with_arithmetic_expressions() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with arithmetic expressions parses correctly"),
-        Err(e) => println!("⚠️  HAVING with arithmetic expressions may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with arithmetic expressions may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -62,7 +68,10 @@ fn test_having_with_window_frame() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with window frame parses correctly"),
-        Err(e) => println!("⚠️  HAVING with window frame may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with window frame may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -77,7 +86,10 @@ fn test_having_with_complex_boolean() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with complex boolean expressions parses correctly"),
-        Err(e) => println!("⚠️  HAVING with complex boolean may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with complex boolean may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -95,7 +107,10 @@ fn test_having_with_case_expression() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with CASE expression parses correctly"),
-        Err(e) => println!("⚠️  HAVING with CASE expression may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with CASE expression may have limited support: {}",
+            e
+        ),
     }
 }
 
@@ -110,7 +125,10 @@ fn test_having_with_subquery() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with subquery parses correctly"),
-        Err(e) => println!("⚠️  HAVING with subquery may have limited support (expected): {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with subquery may have limited support (expected): {}",
+            e
+        ),
     }
 }
 
@@ -155,6 +173,9 @@ fn test_having_with_string_aggregates() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with string aggregates parses correctly"),
-        Err(e) => println!("⚠️  HAVING with string aggregates may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  HAVING with string aggregates may have limited support: {}",
+            e
+        ),
     }
 }

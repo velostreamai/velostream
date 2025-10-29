@@ -156,6 +156,9 @@ fn test_session_window_with_order_by() {
 
     match parser.parse(query) {
         Ok(_) => println!("✓ SESSION window with ORDER BY parses correctly"),
-        Err(e) => println!("⚠️  SESSION window with ORDER BY may have limited support: {}", e),
+        Err(e) => println!(
+            "⚠️  SESSION window with ORDER BY may have limited support: {}",
+            e
+        ),
     }
 }

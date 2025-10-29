@@ -78,20 +78,35 @@ fn test_all_sql_files_parse() {
     }
 
     println!("\n================================================================================");
-    println!("RESULTS: {} passed, {} failed out of {}", passed, failed, all_files.len());
+    println!(
+        "RESULTS: {} passed, {} failed out of {}",
+        passed,
+        failed,
+        all_files.len()
+    );
     println!("================================================================================\n");
 
     if failed > 0 {
         println!("FAILED FILES:");
-        println!("--------------------------------------------------------------------------------");
+        println!(
+            "--------------------------------------------------------------------------------"
+        );
         for (name, error) in &failed_files {
             println!("\n  {}", name);
-            println!("  Error: {}", error.lines().next().unwrap_or("Unknown error"));
+            println!(
+                "  Error: {}",
+                error.lines().next().unwrap_or("Unknown error")
+            );
         }
-        println!("================================================================================\n");
+        println!(
+            "================================================================================\n"
+        );
 
         // Only fail if there are parsing failures (not including intentionally bad parse files)
-        if !failed_files.iter().any(|(n, _)| n.contains("test_parsing_error")) {
+        if !failed_files
+            .iter()
+            .any(|(n, _)| n.contains("test_parsing_error"))
+        {
             panic!(
                 "❌ {} SQL files failed to parse",
                 failed_files
@@ -130,7 +145,11 @@ fn test_demo_datasource_files_parse() {
             Ok(content) => match parser.parse(&content) {
                 Ok(_) => println!("  ✅ {}", file_name),
                 Err(e) => {
-                    println!("  ❌ {} - {}", file_name, format!("{:?}", e).lines().next().unwrap_or("Error"));
+                    println!(
+                        "  ❌ {} - {}",
+                        file_name,
+                        format!("{:?}", e).lines().next().unwrap_or("Error")
+                    );
                     panic!("Failed to parse: {}", file);
                 }
             },
@@ -164,7 +183,11 @@ fn test_demo_trading_files_parse() {
             Ok(content) => match parser.parse(&content) {
                 Ok(_) => println!("  ✅ {}", file_name),
                 Err(e) => {
-                    println!("  ❌ {} - {}", file_name, format!("{:?}", e).lines().next().unwrap_or("Error"));
+                    println!(
+                        "  ❌ {} - {}",
+                        file_name,
+                        format!("{:?}", e).lines().next().unwrap_or("Error")
+                    );
                     panic!("Failed to parse: {}", file);
                 }
             },

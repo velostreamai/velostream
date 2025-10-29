@@ -107,7 +107,11 @@ async fn test_rows_between_unbounded_preceding_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected running averages
     let expected_avgs = vec![10.0, 15.0, 20.0, 25.0, 30.0];
@@ -126,7 +130,10 @@ async fn test_rows_between_unbounded_preceding_execution() {
                 actual_avg
             );
         } else {
-            panic!("Could not extract running_avg value from result: {}", result);
+            panic!(
+                "Could not extract running_avg value from result: {}",
+                result
+            );
         }
     }
 }
@@ -153,14 +160,22 @@ async fn test_rows_between_current_and_following_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected forward averages
     let expected_avgs = vec![15.0, 25.0, 35.0, 45.0, 50.0];
     let tolerance = 0.001;
 
     for (i, result) in results.iter().enumerate() {
-        println!("✅ CURRENT ROW AND FOLLOWING - Result {}: {}", i + 1, result);
+        println!(
+            "✅ CURRENT ROW AND FOLLOWING - Result {}: {}",
+            i + 1,
+            result
+        );
 
         if let Some(actual_avg) = extract_value_from_result(result, "forward_avg") {
             let expected = expected_avgs[i];
@@ -172,7 +187,10 @@ async fn test_rows_between_current_and_following_execution() {
                 actual_avg
             );
         } else {
-            panic!("Could not extract forward_avg value from result: {}", result);
+            panic!(
+                "Could not extract forward_avg value from result: {}",
+                result
+            );
         }
     }
 }
@@ -199,14 +217,22 @@ async fn test_rows_between_preceding_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected values - only rows 3-5 have valid windows
     // Rows 1-2 have no window (not enough preceding rows)
     let tolerance = 0.001;
 
     for (i, result) in results.iter().enumerate() {
-        println!("✅ ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING - Result {}: {}", i + 1, result);
+        println!(
+            "✅ ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING - Result {}: {}",
+            i + 1,
+            result
+        );
 
         // Only rows 3-5 (indices 2-4) should have valid window values
         if i >= 2 {
@@ -250,7 +276,11 @@ async fn test_rows_between_unbounded_following_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected trailing averages
     let expected_avgs = vec![30.0, 35.0, 40.0, 45.0, 50.0];
@@ -269,7 +299,10 @@ async fn test_rows_between_unbounded_following_execution() {
                 actual_avg
             );
         } else {
-            panic!("Could not extract trailing_avg value from result: {}", result);
+            panic!(
+                "Could not extract trailing_avg value from result: {}",
+                result
+            );
         }
     }
 }
@@ -295,7 +328,11 @@ async fn test_rows_between_count_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected COUNT results: 1, 2, 2, 2, 2
     let expected_counts = vec![1i64, 2i64, 2i64, 2i64, 2i64];
@@ -306,14 +343,18 @@ async fn test_rows_between_count_execution() {
         if let Some(actual_count) = extract_int_from_result(result, "count_window") {
             let expected = expected_counts[i];
             assert_eq!(
-                actual_count, expected,
+                actual_count,
+                expected,
                 "Row {} COUNT mismatch: expected {}, got {}",
                 i + 1,
                 expected,
                 actual_count
             );
         } else {
-            panic!("Could not extract count_window value from result: {}", result);
+            panic!(
+                "Could not extract count_window value from result: {}",
+                result
+            );
         }
     }
 }
@@ -339,7 +380,11 @@ async fn test_rows_between_sum_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected SUM results: 10, 30, 60, 90, 120
     let expected_sums = vec![10.0, 30.0, 60.0, 90.0, 120.0];
@@ -385,7 +430,11 @@ async fn test_rows_between_max_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected MAX results: 20, 30, 40, 50, 50
     let expected_maxes = vec![20.0, 30.0, 40.0, 50.0, 50.0];
@@ -430,7 +479,11 @@ async fn test_rows_between_min_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // Expected MIN results: 10, 10, 20, 30, 40
     let expected_mins = vec![10.0, 10.0, 20.0, 30.0, 40.0];
@@ -475,7 +528,11 @@ async fn test_rolling_window_pattern_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert_eq!(results.len(), 5, "Should have 5 results for 5 input records");
+    assert_eq!(
+        results.len(),
+        5,
+        "Should have 5 results for 5 input records"
+    );
 
     // This is the exact pattern used in financial_trading.sql for rolling_avg_20
     // Verifies that the window frame produces correct rolling averages
@@ -498,7 +555,10 @@ async fn test_rolling_window_pattern_execution() {
                     actual_avg
                 );
             } else {
-                panic!("Could not extract rolling_avg value from result: {}", result);
+                panic!(
+                    "Could not extract rolling_avg value from result: {}",
+                    result
+                );
             }
         }
     }
