@@ -195,23 +195,160 @@ cargo run --bin velo-cli validate examples/ecommerce_analytics.sql
 
 ---
 
+## SQL Parser Gaps - Detailed Analysis
+
+### Gap 1: CREATE STREAM...WITH Configuration (3 files, 72% demo compatibility)
+
+**Files Affected**:
+- `examples/ecommerce_analytics.sql`
+- `examples/iot_monitoring.sql`
+- `examples/social_media_analytics.sql`
+
+**Error**: `Expected As, found With`
+
+**Current Issue**:
+```sql
+-- Currently FAILS
+CREATE STREAM orders WITH (
+    config_file = 'examples/configs/orders_topic.config',
+    format = 'json',
+    compression = 'gzip'
+);
+```
+
+**Parser Currently Accepts**:
+```sql
+CREATE STREAM orders AS
+SELECT * FROM kafka_source;
+```
+
+**Solution**: Implement full `CREATE STREAM ... WITH (property = value, ...) ...` syntax support
+
+**Impact**: Medium - blocks configuration-driven stream definitions
+
+---
+
+### Gap 2: WITH Clause Property Configuration (1 file)
+
+**Files Affected**:
+- `examples/file_processing_sql_demo.sql`
+
+**Error**: `Expected String, found Identifier`
+
+**Current Issue**:
+```sql
+WITH (
+    format = 'jsonlines',
+    compression = 'gzip',
+    batch_size = 1000
+)
+```
+
+**Solution**: Enhance parser for property-style WITH clauses with contextual parsing
+
+**Impact**: Medium - affects configuration blocks in various contexts
+
+---
+
+### Gap 3: Special Character Handling - Colon (1 file)
+
+**Files Affected**:
+- `examples/iot_monitoring_with_metrics.sql`
+
+**Error**: `Unexpected character ':' at position 10247`
+
+**Likely Causes**:
+- YAML-style configuration blocks (key: value)
+- URL specifications (http://...)
+- Type annotations or namespacing
+- Time specifications (12:34:56)
+
+**Solution**: Debug exact context and implement targeted colon support
+
+**Impact**: Low-Medium - context-specific, requires investigation
+
+---
+
+## Phase 1 Validation Results Summary
+
+**Date**: October 28, 2025
+**Total Files Tested**: 18
+**Passed**: 13 (72.2%)
+**Failed**: 5 (27.8%)
+
+### Successful Parses (13 files)
+- ✅ enhanced_sql_demo.sql
+- ✅ simple_test.sql
+- ✅ test_kafka.sql
+- ✅ financial_trading.sql
+- ✅ ctas_file_trading.sql
+- ✅ ecommerce_analytics_phase4.sql
+- ✅ ecommerce_with_metrics.sql
+- ✅ financial_trading_with_metrics.sql
+- ✅ iot_monitoring_phase4.sql
+- ✅ social_media_analytics_phase4.sql
+- ✅ test_emit_changes.sql
+- ✅ test_simple_validation.sql
+- ✅ test_parsing_error.sql (intentionally invalid)
+
+### Failed Parses (5 files)
+- ❌ file_processing_sql_demo.sql (Gap 2: WITH clause syntax)
+- ❌ ecommerce_analytics.sql (Gap 1: CREATE STREAM...WITH)
+- ❌ iot_monitoring.sql (Gap 1: CREATE STREAM...WITH)
+- ❌ iot_monitoring_with_metrics.sql (Gap 3: Special character handling)
+- ❌ social_media_analytics.sql (Gap 1: CREATE STREAM...WITH)
+
+---
+
+## Phase 2 Test Coverage Summary
+
+### Test Files Created (41 tests)
+1. **Session Window Functions** (8 tests)
+   - `tests/unit/sql/execution/processors/window/session_window_functions_test.rs`
+   - Tests: SESSION_DURATION, SESSION_START, SESSION_END
+   - Status: ✅ 8/8 PASSING
+
+2. **Statistical Functions** (14 tests)
+   - `tests/unit/sql/execution/processors/window/statistical_functions_test.rs`
+   - Tests: PERCENTILE_CONT, PERCENTILE_DISC, STDDEV, VARIANCE + value assertions
+   - Status: ✅ 14/14 PASSING (9 parser + 5 value assertions)
+
+3. **Complex HAVING Clauses** (10 tests)
+   - `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs`
+   - Tests: Advanced aggregation filtering with complex boolean logic
+   - Status: ✅ 10/10 COMPILED
+
+4. **Temporal JOINs** (9 tests)
+   - `tests/unit/sql/execution/processors/window/timebased_joins_test.rs`
+   - Tests: Time-based JOIN patterns with BETWEEN constraints
+   - Status: ✅ 9/9 COMPILED
+
+### Phase 2 Key Achievements
+- Implemented value assertion testing pattern (floating-point tolerance < 0.001)
+- Discovered SQL syntax requirement: GROUP BY must precede WINDOW clause
+- Created comprehensive test infrastructure for advanced SQL features
+- Total new tests: 41 (31 passing + 10 compiled)
+
+---
+
 ## References
 
-### Documentation
-- `docs/sql-feature-gaps.md` - Comprehensive gap analysis
-- `CLAUDE.md` - Project guidelines and development commands
+### Key Documentation Files
+- `CLAUDE.md` - Project guidelines, development commands, and architecture principles
+- Updated test modules in `tests/unit/sql/execution/processors/window/mod.rs`
+- Updated validation tests in `tests/unit/sql/validation/mod.rs`
 
 ### Test Files
-- `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs`
-- `tests/unit/sql/execution/processors/window/session_window_functions_test.rs`
-- `tests/unit/sql/execution/processors/window/statistical_functions_test.rs`
-- `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs`
-- `tests/unit/sql/execution/processors/window/timebased_joins_test.rs`
+- `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs` (9 tests)
+- `tests/unit/sql/execution/processors/window/session_window_functions_test.rs` (8 tests)
+- `tests/unit/sql/execution/processors/window/statistical_functions_test.rs` (14 tests)
+- `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs` (10 tests)
+- `tests/unit/sql/execution/processors/window/timebased_joins_test.rs` (9 tests)
 
-### Implementation Files
-- `src/velostream/sql/execution/expression/window_functions.rs` (lines 281-353)
-- `src/velostream/sql/execution/aggregation/accumulator.rs`
-- `src/velostream/sql/parser.rs`
+### Implementation Files (Targets)
+- `src/velostream/sql/execution/expression/window_functions.rs` (lines 281-353: calculate_frame_bounds)
+- `src/velostream/sql/execution/aggregation/accumulator.rs` (process_record_into_accumulator)
+- `src/velostream/sql/parser.rs` (CREATE STREAM, WITH clause, colon handling)
 
 ---
 
