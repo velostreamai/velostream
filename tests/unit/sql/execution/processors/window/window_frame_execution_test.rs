@@ -96,7 +96,6 @@ fn create_test_record(id: i64, value: f64, timestamp: i64) -> StreamRecord {
 /// - Row 4: AVG(10,20,30,40) = 25.0
 /// - Row 5: AVG(10,20,30,40,50) = 30.0
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_unbounded_preceding_execution() {
     let query = "SELECT id, value, AVG(value) OVER (ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as running_avg FROM test_data";
 
@@ -150,7 +149,6 @@ async fn test_rows_between_unbounded_preceding_execution() {
 /// - Row 4: AVG(40,50) = 45.0
 /// - Row 5: AVG(50) = 50.0 (no following row)
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_current_and_following_execution() {
     let query = "SELECT id, value, AVG(value) OVER (ORDER BY timestamp ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) as forward_avg FROM test_data";
 
@@ -208,7 +206,6 @@ async fn test_rows_between_current_and_following_execution() {
 /// - Row 4: AVG(20,30) = 25.0 (rows 2,3)
 /// - Row 5: AVG(30,40) = 35.0 (rows 3,4)
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_preceding_execution() {
     let query = "SELECT id, value, AVG(value) OVER (ORDER BY timestamp ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING) as prev_avg FROM test_data";
 
@@ -268,7 +265,6 @@ async fn test_rows_between_preceding_execution() {
 /// - Row 4: AVG(40,50) = 45.0
 /// - Row 5: AVG(50) = 50.0
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_unbounded_following_execution() {
     let query = "SELECT id, value, AVG(value) OVER (ORDER BY timestamp ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) as trailing_avg FROM test_data";
 
@@ -321,7 +317,6 @@ async fn test_rows_between_unbounded_following_execution() {
 /// - Row 4: COUNT(2) = 2 (1 preceding + current)
 /// - Row 5: COUNT(2) = 2 (1 preceding + current)
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_count_execution() {
     let query = "SELECT id, COUNT(*) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) as count_window FROM test_data";
 
@@ -374,7 +369,6 @@ async fn test_rows_between_count_execution() {
 /// - Row 4: SUM(20,30,40) = 90 (2 preceding + current)
 /// - Row 5: SUM(30,40,50) = 120 (2 preceding + current)
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_sum_execution() {
     let query = "SELECT id, value, SUM(value) OVER (ORDER BY timestamp ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as sum_window FROM test_data";
 
@@ -425,7 +419,6 @@ async fn test_rows_between_sum_execution() {
 /// - Row 4: MAX(30,40,50) = 50
 /// - Row 5: MAX(40,50) = 50
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_max_execution() {
     let query = "SELECT id, value, MAX(value) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as max_window FROM test_data";
 
@@ -475,7 +468,6 @@ async fn test_rows_between_max_execution() {
 /// - Row 4: MIN(30,40,50) = 30
 /// - Row 5: MIN(40,50) = 40
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rows_between_min_execution() {
     let query = "SELECT id, value, MIN(value) OVER (ORDER BY timestamp ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) as min_window FROM test_data";
 
@@ -525,7 +517,6 @@ async fn test_rows_between_min_execution() {
 /// - Row 4: AVG(10,20,30) = 20.0 (3 rows before current, excluding current)
 /// - Row 5: AVG(20,30,40) = 30.0 (3 rows before current, excluding current)
 #[tokio::test]
-#[ignore = "Window frame execution not implemented - requires frame bound filtering in aggregation"]
 async fn test_rolling_window_pattern_execution() {
     let query = "SELECT id, value, AVG(value) OVER (ORDER BY timestamp ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING) as rolling_avg FROM test_data";
 
