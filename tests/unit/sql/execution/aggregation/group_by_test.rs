@@ -690,8 +690,8 @@ mod tests {
                 customer_id,
                 SUM(amount) as window_total
             FROM orders
-            WINDOW TUMBLING(5m)
             GROUP BY customer_id
+            WINDOW TUMBLING(5m)
         ",
             )
             .unwrap();
