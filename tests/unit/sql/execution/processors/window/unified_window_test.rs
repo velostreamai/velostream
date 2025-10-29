@@ -40,8 +40,8 @@ mod unified_window_tests {
                 SUM(amount) as total_revenue,
                 AVG(amount) as avg_order_value
             FROM orders 
-            WINDOW TUMBLING(1h)
             GROUP BY status
+            WINDOW TUMBLING(1h)
             HAVING COUNT(*) > 1
             EMIT CHANGES
         "#;
@@ -67,8 +67,8 @@ mod unified_window_tests {
                 SUM(amount) as total_revenue,
                 AVG(amount) as avg_order_value
             FROM orders
-            WINDOW TUMBLING(1h)
             GROUP BY status
+            WINDOW TUMBLING(1h)
             HAVING COUNT(*) > 1
         "#;
 
@@ -187,8 +187,8 @@ mod unified_window_tests {
                     ELSE 'NORMAL'
                 END as market_status
             FROM ticker_feed 
-            WINDOW SLIDING(15m, 3m)
             GROUP BY symbol
+            WINDOW SLIDING(15m, 3m)
         "#;
 
         let records = vec![
@@ -234,8 +234,8 @@ mod unified_window_tests {
                 AVG(price) as avg_price,
                 COUNT(*) as tick_count
             FROM ticker_feed 
-            WINDOW SLIDING(10m, 2m)
             GROUP BY symbol
+            WINDOW SLIDING(10m, 2m)
             ORDER BY symbol
         "#;
 
@@ -266,8 +266,8 @@ mod unified_window_tests {
                     ELSE 'LOW_VALUE'
                 END as customer_segment
             FROM orders 
-            WINDOW SESSION(10m)
             GROUP BY customer_id
+            WINDOW SESSION(10m)
             HAVING COUNT(*) >= 2
             ORDER BY SUM(amount) DESC
         ";

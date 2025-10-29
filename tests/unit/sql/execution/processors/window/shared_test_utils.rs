@@ -304,26 +304,26 @@ impl SqlQueries {
         format!(
             r#"
             SELECT {}({}) as result
-            FROM orders 
-            WINDOW SESSION({})
+            FROM orders
             GROUP BY {}
+            WINDOW SESSION({})
             "#,
-            agg_func, field, gap, partition_field
+            agg_func, field, partition_field, gap
         )
     }
 
     pub fn moving_average(window_size: &str, advance: &str) -> String {
         format!(
             r#"
-            SELECT 
+            SELECT
                 symbol,
                 AVG(price) as ma,
                 COUNT(*) as tick_count,
                 MIN(price) as low,
                 MAX(price) as high
-            FROM ticker_feed 
-            WINDOW SLIDING({}, {})
+            FROM ticker_feed
             GROUP BY symbol
+            WINDOW SLIDING({}, {})
             "#,
             window_size, advance
         )
@@ -336,9 +336,9 @@ impl SqlQueries {
                 price,
                 AVG(price) as avg_price,
                 ABS(price - AVG(price)) as deviation
-            FROM ticker_feed 
-            WINDOW SLIDING(15m, 1m)
+            FROM ticker_feed
             GROUP BY symbol
+            WINDOW SLIDING(15m, 1m)
             HAVING ABS(price - AVG(price)) > {}
             ",
             threshold
@@ -374,8 +374,14 @@ impl WindowTestAssertions {
 
     pub fn print_results(results: &[StreamRecord], test_name: &str) {
         println!("{} results ({} total):", test_name, results.len());
-        for (i, result) in results.iter().take(3).enumerate() {
-            println!("  [{}]: {:?}", i, result.fields);
+        for (i, record) in results.iter().take(3).enumerate() {
+            // Print StreamRecord fields in a readable format
+            let fields_str: Vec<String> = record
+                .fields
+                .iter()
+                .map(|(k, v)| format!("{}: {:?}", k, v))
+                .collect();
+            println!("  [{}]: {}", i, fields_str.join(", "));
         }
         if results.len() > 3 {
             println!("  ... and {} more", results.len() - 3);

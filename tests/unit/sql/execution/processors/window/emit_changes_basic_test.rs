@@ -113,13 +113,13 @@ async fn test_emit_changes_multiple_aggregations() {
 #[tokio::test]
 async fn test_emit_changes_tumbling_window() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             SUM(amount) as total_amount
-        FROM orders 
-        WINDOW TUMBLING(60s)
+        FROM orders
         GROUP BY status
+        WINDOW TUMBLING(60s)
         EMIT CHANGES
     "#;
 
@@ -144,13 +144,13 @@ async fn test_emit_changes_tumbling_window() {
 #[tokio::test]
 async fn test_emit_changes_sliding_window() {
     let sql = r#"
-        SELECT 
+        SELECT
             customer_id,
             COUNT(*) as order_count,
             SUM(amount) as total_amount
-        FROM orders 
-        WINDOW SLIDING(180s, 60s)
+        FROM orders
         GROUP BY customer_id
+        WINDOW SLIDING(180s, 60s)
         EMIT CHANGES
     "#;
 
@@ -175,13 +175,13 @@ async fn test_emit_changes_sliding_window() {
 #[tokio::test]
 async fn test_emit_changes_late_data() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             SUM(amount) as total_amount
-        FROM orders 
-        WINDOW TUMBLING(60s)
+        FROM orders
         GROUP BY status
+        WINDOW TUMBLING(60s)
         EMIT CHANGES
     "#;
 

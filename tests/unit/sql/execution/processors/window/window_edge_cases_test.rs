@@ -191,8 +191,8 @@ mod window_edge_cases_tests {
                 customer_id,
                 COUNT(*) as session_count
             FROM orders
-            WINDOW SESSION(2m)
             GROUP BY customer_id
+            WINDOW SESSION(2m)
         "#;
 
         let records = vec![
@@ -468,8 +468,8 @@ mod window_edge_cases_tests {
                 customer_id,
                 COUNT(*) as action_count
             FROM orders
-            WINDOW SESSION(1w)
             GROUP BY customer_id
+            WINDOW SESSION(1w)
         "#;
 
         let records = vec![
@@ -750,8 +750,8 @@ mod window_edge_cases_tests {
                 COUNT(*) as session_events,
                 AVG(amount) as avg_amount
             FROM orders 
-            WINDOW SESSION(1m)
             GROUP BY customer_id
+            WINDOW SESSION(1m)
         "#;
 
         let records = vec![
@@ -852,8 +852,8 @@ mod window_edge_cases_tests {
                 MAX(timestamp) as session_end,
                 SUM(amount) as session_value
             FROM orders 
-            WINDOW SESSION(2m)
             GROUP BY customer_id
+            WINDOW SESSION(2m)
         "#;
 
         let records = vec![

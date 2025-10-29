@@ -74,8 +74,8 @@ async fn test_emit_changes_with_tumbling_window() {
             SUM(amount) as total_amount,
             COUNT(*) as order_count
         FROM orders 
-        WINDOW TUMBLING(1m)
         GROUP BY status
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 
@@ -107,8 +107,8 @@ async fn test_emit_changes_with_tumbling_window_same_window() {
             AVG(volume) * 1.1 as volume_threshold,
             COUNT(*) as order_count
         FROM orders
-        WINDOW TUMBLING(1m)
         GROUP BY symbol
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 
@@ -131,8 +131,8 @@ async fn test_emit_changes_with_sliding_window() {
             COUNT(*) as order_count,
             MIN(timestamp) as window_start
         FROM orders
-        WINDOW SLIDING(3m, 1m)
         GROUP BY customer_id
+        WINDOW SLIDING(3m, 1m)
         EMIT CHANGES
     "#;
 
@@ -161,8 +161,8 @@ async fn test_emit_changes_with_session_window() {
             SUM(amount) as session_total,
             MAX(timestamp) as session_end
         FROM orders 
-        WINDOW SESSION(30s)
         GROUP BY customer_id
+        WINDOW SESSION(30s)
         EMIT CHANGES
     "#;
 
@@ -191,8 +191,8 @@ async fn test_emit_changes_with_late_data() {
             COUNT(*) as order_count,
             SUM(amount) as total_amount
         FROM orders 
-        WINDOW TUMBLING(1m)
         GROUP BY status
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 
@@ -406,8 +406,8 @@ async fn test_emit_changes_error_scenarios() {
             MIN(amount) as min_amount,
             MAX(amount) as max_amount
         FROM orders 
-        WINDOW TUMBLING(30s)
         GROUP BY customer_id
+        WINDOW TUMBLING(30s)
         EMIT CHANGES
     "#;
 

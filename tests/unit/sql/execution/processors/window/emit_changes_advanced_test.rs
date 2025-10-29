@@ -25,8 +25,8 @@ async fn test_emit_changes_watermark_retractions() {
             SUM(amount) as total_amount,
             MAX(timestamp) as latest_order_time
         FROM orders 
-        WINDOW TUMBLING(1m)
         GROUP BY customer_id
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 
@@ -112,8 +112,8 @@ async fn test_emit_changes_overlapping_windows() {
             MIN(timestamp) as window_start,
             MAX(timestamp) as window_end
         FROM orders 
-        WINDOW SLIDING(2m, 30s)
         GROUP BY customer_id
+        WINDOW SLIDING(2m, 30s)
         EMIT CHANGES
     "#;
 
@@ -156,8 +156,8 @@ async fn test_emit_changes_session_merging() {
             MAX(timestamp) as session_end,
             (MAX(timestamp) - MIN(timestamp)) as session_duration
         FROM orders 
-        WINDOW SESSION(45s)
         GROUP BY customer_id
+        WINDOW SESSION(45s)
         EMIT CHANGES
     "#;
 

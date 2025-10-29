@@ -221,8 +221,8 @@ async fn test_phase1_detection_integration() {
             SUM(amount) as total_amount,
             COUNT(*) as order_count
         FROM orders
-        WINDOW TUMBLING(1m)
         GROUP BY status
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 

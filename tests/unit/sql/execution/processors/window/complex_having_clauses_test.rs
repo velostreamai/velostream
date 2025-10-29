@@ -33,8 +33,8 @@ fn create_test_record(id: i64, category: String, price: f64, timestamp: i64) -> 
 fn test_having_with_nested_aggregates() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT category, COUNT(*) as cnt FROM products \
-                 WINDOW TUMBLING(10s) \
                  GROUP BY category \
+                 WINDOW TUMBLING(10s)\
                  HAVING COUNT(*) > AVG(price)";
 
     match parser.parse(query) {
@@ -50,8 +50,8 @@ fn test_having_with_nested_aggregates() {
 #[tokio::test]
 async fn test_having_with_nested_aggregates_execution() {
     let query = "SELECT category, COUNT(*) as cnt, AVG(price) as avg_price FROM products \
-                 WINDOW TUMBLING(10s) \
-                 GROUP BY category";
+                 GROUP BY category \
+                 WINDOW TUMBLING(10s)";
 
     let records = vec![
         create_test_record(1, "electronics".to_string(), 100.0, 1000),
@@ -85,8 +85,8 @@ async fn test_having_with_nested_aggregates_execution() {
 fn test_having_with_division() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT product_id, SUM(quantity) as total_qty FROM orders \
-                 WINDOW TUMBLING(5s) \
                  GROUP BY product_id \
+                 WINDOW TUMBLING(5s)\
                  HAVING SUM(quantity) / COUNT(*) > 10";
 
     match parser.parse(query) {
@@ -132,8 +132,8 @@ async fn test_having_with_division_execution() {
 fn test_having_with_arithmetic_expressions() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT store_id, SUM(sales) as total_sales FROM transactions \
-                 WINDOW TUMBLING(60s) \
                  GROUP BY store_id \
+                 WINDOW TUMBLING(60s)\
                  HAVING (SUM(sales) - AVG(sales)) * COUNT(*) > 1000";
 
     match parser.parse(query) {
@@ -149,8 +149,8 @@ fn test_having_with_arithmetic_expressions() {
 #[tokio::test]
 async fn test_having_with_arithmetic_expressions_execution() {
     let query = "SELECT category, COUNT(*) as cnt, SUM(price) as total FROM transactions \
-                 WINDOW TUMBLING(60s) \
-                 GROUP BY category";
+                 GROUP BY category \
+                 WINDOW TUMBLING(60s)";
 
     let records = vec![
         create_test_record(1, "electronics".to_string(), 500.0, 1000),
@@ -184,8 +184,8 @@ async fn test_having_with_arithmetic_expressions_execution() {
 fn test_having_with_window_frame() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT symbol, AVG(price) as avg_price FROM stocks \
-                 WINDOW SLIDING(1h, 15m) \
                  GROUP BY symbol \
+                 WINDOW SLIDING(1h, 15m)\
                  HAVING MAX(price) OVER (ORDER BY timestamp ROWS BETWEEN 5 PRECEDING AND CURRENT ROW) > 100";
 
     match parser.parse(query) {
@@ -201,8 +201,8 @@ fn test_having_with_window_frame() {
 #[tokio::test]
 async fn test_having_with_window_frame_execution() {
     let query = "SELECT category, MIN(price) as min_price, MAX(price) as max_price FROM stocks \
-                 WINDOW SLIDING(1h, 15m) \
-                 GROUP BY category";
+                 GROUP BY category \
+                 WINDOW SLIDING(1h, 15m)";
 
     let records = vec![
         create_test_record(1, "tech".to_string(), 150.0, 1000),
@@ -236,8 +236,8 @@ async fn test_having_with_window_frame_execution() {
 fn test_having_with_complex_boolean() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT user_id, COUNT(*) as activity_count FROM events \
-                 WINDOW TUMBLING(30s) \
                  GROUP BY user_id \
+                 WINDOW TUMBLING(30s)\
                  HAVING (COUNT(*) > 5 AND AVG(value) < 100) OR SUM(value) > 500";
 
     match parser.parse(query) {
@@ -254,8 +254,8 @@ fn test_having_with_complex_boolean() {
 async fn test_having_with_complex_boolean_execution() {
     let query =
         "SELECT category, COUNT(*) as cnt, AVG(price) as avg_val, SUM(price) as total FROM events \
-                 WINDOW TUMBLING(30s) \
-                 GROUP BY category";
+                 GROUP BY category \
+                 WINDOW TUMBLING(30s)";
 
     let records = vec![
         create_test_record(1, "active".to_string(), 50.0, 1000),
@@ -291,8 +291,8 @@ async fn test_having_with_complex_boolean_execution() {
 fn test_having_with_case_expression() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT category FROM orders \
-                 WINDOW TUMBLING(10s) \
                  GROUP BY category \
+                 WINDOW TUMBLING(10s)\
                  HAVING CASE \
                    WHEN COUNT(*) > 100 THEN SUM(amount) \
                    ELSE AVG(amount) \
@@ -311,8 +311,8 @@ fn test_having_with_case_expression() {
 #[tokio::test]
 async fn test_having_with_case_expression_execution() {
     let query = "SELECT category, COUNT(*) as cnt, SUM(price) as total, AVG(price) as avg_price FROM orders \
-                 WINDOW TUMBLING(10s) \
-                 GROUP BY category";
+                 GROUP BY category \
+                 WINDOW TUMBLING(10s)";
 
     let records = vec![
         create_test_record(1, "premium".to_string(), 80.0, 1000),
@@ -350,8 +350,8 @@ async fn test_having_with_case_expression_execution() {
 fn test_having_with_subquery() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT product_id, COUNT(*) as sales_count FROM sales \
-                 WINDOW TUMBLING(15s) \
                  GROUP BY product_id \
+                 WINDOW TUMBLING(15s)\
                  HAVING product_id IN (SELECT id FROM featured_products)";
 
     match parser.parse(query) {
@@ -368,8 +368,8 @@ fn test_having_with_subquery() {
 fn test_having_with_between() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT region FROM sales \
-                 WINDOW TUMBLING(20s) \
                  GROUP BY region \
+                 WINDOW TUMBLING(20s)\
                  HAVING SUM(revenue) BETWEEN 1000 AND 5000";
 
     match parser.parse(query) {
@@ -383,8 +383,8 @@ fn test_having_with_between() {
 fn test_having_with_null_check() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT dept FROM employees \
-                 WINDOW TUMBLING(10s) \
                  GROUP BY dept \
+                 WINDOW TUMBLING(10s)\
                  HAVING SUM(salary) IS NOT NULL AND COUNT(*) > 1";
 
     match parser.parse(query) {
@@ -398,8 +398,8 @@ fn test_having_with_null_check() {
 fn test_having_with_string_aggregates() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT country FROM users \
-                 WINDOW TUMBLING(30s) \
                  GROUP BY country \
+                 WINDOW TUMBLING(30s)\
                  HAVING STRING_AGG(name, ',') IS NOT NULL AND COUNT(*) > 10";
 
     match parser.parse(query) {

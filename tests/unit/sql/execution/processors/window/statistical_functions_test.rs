@@ -127,8 +127,8 @@ async fn test_percentile_disc_execution() {
 fn test_stddev_parsing() {
     let parser = StreamingSqlParser::new();
     let query = "SELECT STDDEV(price) as price_stddev FROM trades \
-                 WINDOW TUMBLING(5s) \
-                 GROUP BY symbol";
+                 GROUP BY symbol \
+                 WINDOW TUMBLING(5s)";
 
     match parser.parse(query) {
         Ok(_) => println!("✓ STDDEV function parses correctly"),
@@ -289,8 +289,8 @@ fn test_percentile_with_group_by() {
                    endpoint, \
                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency \
                  FROM api_calls \
-                 WINDOW TUMBLING(60s) \
-                 GROUP BY endpoint";
+                 GROUP BY endpoint \
+                 WINDOW TUMBLING(60s)";
 
     match parser.parse(query) {
         Ok(_) => println!("✓ PERCENTILE with GROUP BY parses correctly"),
@@ -342,8 +342,8 @@ fn test_percentile_with_having() {
                    service, \
                    PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency) as p99 \
                  FROM metrics \
-                 WINDOW TUMBLING(300s) \
                  GROUP BY service \
+                 WINDOW TUMBLING(300s)\
                  HAVING PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency) > 1000";
 
     match parser.parse(query) {
@@ -466,8 +466,8 @@ fn test_sliding_window_percentile() {
                    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY price) as median_price, \
                    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY price) as q3_price \
                  FROM stock_prices \
-                 WINDOW SLIDING(1h, 15m) \
-                 GROUP BY symbol";
+                 GROUP BY symbol \
+                 WINDOW SLIDING(1h, 15m)";
 
     match parser.parse(query) {
         Ok(_) => println!("✓ Sliding window with percentile parses correctly"),

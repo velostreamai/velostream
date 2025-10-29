@@ -159,8 +159,8 @@ async fn test_emit_changes_session_window_late_data_merging() {
             MIN(timestamp) as session_start,
             MAX(timestamp) as session_end
         FROM orders 
-        WINDOW SESSION(30s)
         GROUP BY customer_id
+        WINDOW SESSION(30s)
         EMIT CHANGES
     "#;
 
@@ -228,8 +228,8 @@ async fn test_emit_changes_watermark_behavior() {
             MIN(timestamp) as window_start,
             MAX(timestamp) as window_end
         FROM orders 
-        WINDOW TUMBLING(1m)
         GROUP BY status
+        WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
 
