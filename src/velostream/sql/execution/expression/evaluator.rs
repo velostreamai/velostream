@@ -1617,15 +1617,20 @@ impl ExpressionEvaluator {
                 args,
                 over_clause,
             } => {
-                // Window functions need window buffer - delegate to original evaluator
-                // since they don't typically contain subqueries in their context
-                let empty_buffer: Vec<crate::velostream::sql::execution::StreamRecord> = Vec::new();
+                // Window functions need window buffer - use the buffer from ProcessorContext
+                // This allows window functions to access related rows and apply frame bounds
+                let empty_buffer = Vec::new();
+                let window_buffer = if let Some(window_ctx) = &context.window_context {
+                    &window_ctx.buffer
+                } else {
+                    &empty_buffer
+                };
                 super::WindowFunctions::evaluate_window_function(
                     function_name,
                     args,
                     over_clause,
                     record,
-                    &empty_buffer,
+                    window_buffer,
                 )
             }
             Expr::List(_) => {
