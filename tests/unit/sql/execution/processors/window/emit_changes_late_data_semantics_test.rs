@@ -71,6 +71,12 @@ async fn test_emit_changes_tumbling_window_late_data_corrections() {
         println!("  [{}]: {}", i, result);
     }
 
+    // Verify results are not empty
+    assert!(
+        !results.is_empty(),
+        "Should produce results for late data in tumbling windows"
+    );
+
     // Analyze the behavior
     if results.len() >= 4 {
         println!("\n✅ EMIT CHANGES appears to handle late data by emitting corrections");
@@ -122,6 +128,12 @@ async fn test_emit_changes_continuous_aggregation_late_data() {
     for (i, result) in results.iter().enumerate() {
         println!("  [{}]: {}", i, result);
     }
+
+    // Verify results are not empty
+    assert!(
+        !results.is_empty(),
+        "Should produce results for continuous aggregation with late data"
+    );
 
     // Analyze late data handling in continuous aggregations
     let pending_results: Vec<_> = results.iter().filter(|r| r.contains("pending")).collect();
@@ -176,6 +188,12 @@ async fn test_emit_changes_session_window_late_data_merging() {
     for (i, result) in results.iter().enumerate() {
         println!("  [{}]: {}", i, result);
     }
+
+    // Verify results are not empty
+    assert!(
+        !results.is_empty(),
+        "Should produce results for session window with late data merging"
+    );
 
     // Analyze session merging behavior
     let customer_100_results: Vec<_> = results
@@ -241,6 +259,12 @@ async fn test_emit_changes_watermark_behavior() {
         println!("  [{}]: {}", i, result);
     }
 
+    // Verify results are not empty
+    assert!(
+        !results.is_empty(),
+        "Should produce results for watermark behavior test"
+    );
+
     // Analyze watermark tolerance
     if results.len() >= 8 {
         println!("\n✅ EMIT CHANGES accepts very late data (no watermark bounds)");
@@ -283,6 +307,12 @@ async fn test_emit_changes_duplicate_timestamps() {
     println!("📊 Duplicate Timestamp Results ({} total):", results.len());
     WindowTestAssertions::print_results(&results, "Duplicate Timestamps");
 
+    // Verify results are not empty
+    assert!(
+        !results.is_empty(),
+        "Should produce results for duplicate timestamps test"
+    );
+
     WindowTestAssertions::assert_has_results(&results, "Duplicate Timestamps");
 }
 
@@ -319,6 +349,12 @@ async fn test_emit_changes_correctness_verification() {
     for (i, result) in results.iter().enumerate() {
         println!("  [{}]: {}", i, result);
     }
+
+    // Verify results are not empty
+    assert!(
+        !results.is_empty(),
+        "Should produce results for correctness verification"
+    );
 
     // Expected final state:
     // pending: count=3, sum=600 (100+200+300)
