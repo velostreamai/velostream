@@ -1147,4 +1147,18 @@ impl StreamRecord {
     pub fn contains_key(&self, name: &str) -> bool {
         self.fields.contains_key(name)
     }
+
+    /// Check if the debug representation of this record contains a substring
+    ///
+    /// This is useful for testing to verify if certain field values are present.
+    /// The check is performed on the debug representation of all fields.
+    pub fn contains(&self, pattern: &str) -> bool {
+        format!("{:?}", self.fields).contains(pattern)
+    }
+}
+
+impl std::fmt::Display for StreamRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.fields)
+    }
 }

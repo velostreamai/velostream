@@ -80,7 +80,7 @@ async fn test_shorthand_tumbling_window_executes() {
     // Results should show windowed aggregation executed successfully with correct counts
     // AAPL should have cnt=3, GOOGL should have cnt=1
     if !results.is_empty() {
-        let results_text = results.join("\n");
+        let results_text = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
         println!(
             "✓ Shorthand TUMBLING window executed with {} results",
             results.len()
@@ -141,7 +141,7 @@ async fn test_shorthand_sliding_window_executes() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
-        let results_text = results.join("\n");
+        let results_text = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
         println!(
             "✓ Shorthand SLIDING window executed with {} results",
             results.len()
@@ -211,7 +211,7 @@ async fn test_or_in_having_filters_correctly() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
-        let results_text = results.join("\n");
+        let results_text = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
         println!(
             "✓ OR in HAVING executed successfully, got {} results",
             results.len()
@@ -270,7 +270,7 @@ async fn test_complex_or_and_logic_in_having() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
-        let results_text = results.join("\n");
+        let results_text = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
         println!(
             "✓ Complex OR/AND in HAVING executed with {} results",
             results.len()
@@ -347,7 +347,7 @@ async fn test_division_in_having_executes() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
-        let results_text = results.join("\n");
+        let results_text = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
         println!(
             "✓ Division in HAVING executed with {} results",
             results.len()
@@ -419,7 +419,7 @@ async fn test_ratio_calculations_in_having() {
     let results = SqlExecutor::execute_query(query, records).await;
 
     if !results.is_empty() {
-        let results_text = results.join("\n");
+        let results_text = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
         println!(
             "✓ Ratio calculations in HAVING executed with {} results",
             results.len()

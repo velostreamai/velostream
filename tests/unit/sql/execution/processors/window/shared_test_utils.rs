@@ -219,8 +219,8 @@ impl TestDataBuilder {
 pub struct SqlExecutor;
 
 impl SqlExecutor {
-    /// Execute SQL query and return results
-    pub async fn execute_query(sql: &str, records: Vec<StreamRecord>) -> Vec<String> {
+    /// Execute SQL query and return results as StreamRecords
+    pub async fn execute_query(sql: &str, records: Vec<StreamRecord>) -> Vec<StreamRecord> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let mut engine = StreamExecutionEngine::new(tx);
 
@@ -265,7 +265,7 @@ impl SqlExecutor {
 
         // Collect all available results
         while let Ok(output) = rx.try_recv() {
-            results.push(format!("{:?}", output));
+            results.push(output);
         }
 
         println!("Collected {} results after flushing", results.len());
@@ -350,7 +350,7 @@ impl SqlQueries {
 pub struct WindowTestAssertions;
 
 impl WindowTestAssertions {
-    pub fn assert_has_results(results: &[String], test_name: &str) {
+    pub fn assert_has_results(results: &[StreamRecord], test_name: &str) {
         // For now, don't assert on empty results as windowed queries might not emit immediately
         if results.is_empty() {
             println!(
@@ -362,7 +362,7 @@ impl WindowTestAssertions {
         }
     }
 
-    pub fn assert_result_count_min(results: &[String], min_count: usize, test_name: &str) {
+    pub fn assert_result_count_min(results: &[StreamRecord], min_count: usize, test_name: &str) {
         assert!(
             results.len() >= min_count,
             "{} should produce at least {} results, got {}",
@@ -372,10 +372,10 @@ impl WindowTestAssertions {
         );
     }
 
-    pub fn print_results(results: &[String], test_name: &str) {
+    pub fn print_results(results: &[StreamRecord], test_name: &str) {
         println!("{} results ({} total):", test_name, results.len());
         for (i, result) in results.iter().take(3).enumerate() {
-            println!("  [{}]: {}", i, result);
+            println!("  [{}]: {:?}", i, result.fields);
         }
         if results.len() > 3 {
             println!("  ... and {} more", results.len() - 3);

@@ -40,29 +40,31 @@ use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
 use super::shared_test_utils::SqlExecutor;
 
-/// Helper function to extract floating-point value from StreamRecord result string
+/// Helper function to extract floating-point value from StreamRecord result
 /// Parses StreamRecord debug output with fields like: Float(10.0), Integer(1), etc.
-fn extract_value_from_result(result: &str, field_name: &str) -> Option<f64> {
+fn extract_value_from_result(result: &StreamRecord, field_name: &str) -> Option<f64> {
+    let result_str = result.to_string();
     // Look for pattern: "field_name": Float(value) or similar in the result string
     let pattern = format!("\"{}\": Float(", field_name);
-    if let Some(start_idx) = result.find(&pattern) {
+    if let Some(start_idx) = result_str.find(&pattern) {
         let float_start = start_idx + pattern.len();
-        if let Some(end_idx) = result[float_start..].find(')') {
-            let value_str = &result[float_start..float_start + end_idx];
+        if let Some(end_idx) = result_str[float_start..].find(')') {
+            let value_str = &result_str[float_start..float_start + end_idx];
             return value_str.parse::<f64>().ok();
         }
     }
     None
 }
 
-/// Helper function to extract integer value from StreamRecord result string
-fn extract_int_from_result(result: &str, field_name: &str) -> Option<i64> {
+/// Helper function to extract integer value from StreamRecord result
+fn extract_int_from_result(result: &StreamRecord, field_name: &str) -> Option<i64> {
+    let result_str = result.to_string();
     // Look for pattern: "field_name": Integer(value) in the result string
     let pattern = format!("\"{}\": Integer(", field_name);
-    if let Some(start_idx) = result.find(&pattern) {
+    if let Some(start_idx) = result_str.find(&pattern) {
         let int_start = start_idx + pattern.len();
-        if let Some(end_idx) = result[int_start..].find(')') {
-            let value_str = &result[int_start..int_start + end_idx];
+        if let Some(end_idx) = result_str[int_start..].find(')') {
+            let value_str = &result_str[int_start..int_start + end_idx];
             return value_str.parse::<i64>().ok();
         }
     }
