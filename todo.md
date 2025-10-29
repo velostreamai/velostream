@@ -1,38 +1,107 @@
-# Velostream Phase 4 Development Plan
+# Velostream Phase 5-6 Development Plan
 
 **Last Updated**: October 29, 2025
-**Status**: Ready for implementation
-**Reference**: Phase 1-3 completed with window frame execution tests and SQL gap analysis
+**Status**: Phase 5 Complete - Phase 6 Ready for Implementation
+**Reference**: FR-078 and FR-079 window frame execution analysis
 
 ---
 
 ## Overview
 
-This document tracks outstanding development work identified during Phase 1-3 testing and gap analysis. Work is organized by priority and implementation complexity.
+This document tracks outstanding development work for window frame execution (FR-078/FR-079) and related SQL features. Work is organized by phase with implementation roadmap.
 
 ### Completed Phases
 - ✅ **Phase 1**: SQL validation of 18 demo/example files (72.2% pass rate)
 - ✅ **Phase 2**: Created 41 new test cases validating advanced SQL features (31 passing, 10 compiled)
 - ✅ **Phase 3**: Comprehensive gap analysis with prioritized recommendations
-- 🔄 **Phase 4**: Implementation of identified gaps and pre-commit verification (IN PROGRESS)
+- ✅ **Phase 4**: Implementation of identified gaps and pre-commit verification
+- ✅ **Phase 5**: Window frame execution root cause analysis (October 29, 2025)
+- 🔄 **Phase 6**: Integration debugging and window_frame propagation fix (SCHEDULED)
 
 ---
 
 ## Work Summary
 
-| Priority | Task | Files | Est. Hours | Status |
-|----------|------|-------|-----------|--------|
-| **1 - Phase 1** | Test Assertions (Tier 1 & 2) | window, aggregation tests | 10-20 | **IN PROGRESS** |
-| 2 | Window Frame Execution | aggregation, window_functions | 8-12 | Pending |
-| 3.1 | CREATE STREAM...WITH | parser.rs | 6-8 | Pending |
-| 3.2 | WITH Clause Properties | parser.rs | 2-3.5 | Pending |
-| 3.3 | Colon Character | parser.rs | 2-3 | Pending |
-| 4 | Pre-Commit & Report | all | 2-4 | Pending |
-| **TOTAL** | | | **30.5-50.5** | |
+| Phase | Task | Documentation | Est. Hours | Status |
+|-------|------|-----------------|-----------|--------|
+| **5** | Window Frame Root Cause Analysis | FR-078, FR-079 | 3-4 | ✅ **COMPLETE** |
+| **6** | Integration Debugging & Fix | FR-078, FR-079 | 4-6 | 🔄 **IN PROGRESS** |
+| 6.1 | Trace OverClause pipeline | select.rs → window_functions.rs | 2-3 | Pending |
+| 6.2 | Identify window_frame loss | execution flow debug | 1-2 | Pending |
+| 6.3 | Implement integration fix | window_functions.rs | 1-2 | Pending |
+| 7 | Test assertions (Tier 1 & 2) | window, aggregation tests | 10-20 | Pending |
+| **TOTAL (Remaining)** | | | **17-28** | |
 
 ---
 
-## Priority 1 - Phase 1: Add Value Assertions to 194 Parsing-Only SQL Tests
+## Phase 5: Window Frame Execution Root Cause Analysis - COMPLETE ✅
+
+**Completed**: October 29, 2025
+**Documentation**: `/docs/feature/fr-078-window-frame-bounds-analysis.md`
+**Commit**: `88486ae` - Consolidated root cause analysis with verified findings
+
+### Summary
+Comprehensive investigation of window frame execution gap identified that the infrastructure is ~95% complete:
+
+**What's Working ✅**:
+- Parser correctly populates `window_frame` in OverClause (`ast.rs:490`)
+- `calculate_frame_bounds()` fully implemented and correct (`window_functions.rs:281-353`)
+- Window functions ready to use frame bounds (AVG, SUM, MIN, MAX at `lines 823-930`)
+
+**Critical Gap ❌**:
+- `window_frame` is `None` during execution - not being propagated from parser to window function evaluation
+
+### Key Files Analyzed
+1. `/src/velostream/sql/ast.rs:490` - OverClause AST structure
+2. `/src/velostream/sql/execution/expression/window_functions.rs:281-353` - Frame calculation
+3. `/src/velostream/sql/execution/expression/window_functions.rs:823-930` - Window functions
+4. `/tests/unit/sql/execution/processors/window/window_frame_execution_test.rs` - Test expectations
+
+### Next Step: Phase 6 Integration Debugging
+
+---
+
+## Phase 6: Integration Debugging and window_frame Propagation - IN PROGRESS 🔄
+
+**Started**: October 29, 2025
+**Documentation**: `/docs/feature/fr-078-window-frame-bounds-analysis.md` (Phase 6 section)
+**Estimated Effort**: 4-6 hours
+
+### Task 6.1: Trace OverClause Pipeline (2-3 hours)
+**Goal**: Verify how OverClause flows from parser through SELECT processor to window functions
+
+**Investigation Steps**:
+1. Trace parser output of OverClause with populated window_frame
+2. Track OverClause through SELECT processor execution path
+3. Verify OverClause reaches window function context creation
+4. Identify where window_frame field becomes None
+
+**Key Code Locations**:
+- `select.rs` - SELECT query processor
+- `window_functions.rs:120-170` - `create_window_context()` function
+- Window function evaluation points
+
+### Task 6.2: Identify window_frame Loss Point (1-2 hours)
+**Goal**: Find where/why window_frame is cleared or replaced in the pipeline
+
+**Debugging Approach**:
+- Add debug logging at OverClause extraction points
+- Log window_frame value at each pipeline stage
+- Identify transformation that clears the field
+- Check for WindowSpec vs OverClause confusion
+
+### Task 6.3: Implement Integration Fix (1-2 hours)
+**Goal**: Ensure parsed window_frame flows through to window function evaluation
+
+**Implementation Steps**:
+1. Fix data flow bottleneck (likely simple fix)
+2. Verify frame_bounds are correctly calculated
+3. Confirm window functions use frame bounds
+4. Run window_frame_execution tests to validate
+
+---
+
+## Priority 1 - Phase 7: Add Value Assertions to 194 Parsing-Only SQL Tests
 
 ### Issue Discovery
 Comprehensive test audit reveals **61% of SQL tests (194/318) only validate SQL parsing, NOT computed values**. This is a systematic test quality issue across the entire codebase.
