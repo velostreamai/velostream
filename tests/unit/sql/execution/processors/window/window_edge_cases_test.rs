@@ -35,7 +35,7 @@ mod window_edge_cases_tests {
     async fn test_zero_timestamp() {
         let sql = r#"
             SELECT COUNT(*) as count_result
-            FROM orders 
+            FROM orders
             WINDOW TUMBLING(1m)
         "#;
 
@@ -44,6 +44,16 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
+        assert!(!results.is_empty(), "Should produce results for zero timestamp");
+
+        if let Some(record) = results.first() {
+            assert_eq!(
+                record.fields.get("count_result"),
+                Some(&FieldValue::Integer(1)),
+                "COUNT should be 1 for single record at timestamp 0"
+            );
+        }
+
         WindowTestAssertions::print_results(&results, "Zero timestamp");
     }
 
@@ -92,7 +102,7 @@ mod window_edge_cases_tests {
     async fn test_same_exact_timestamp() {
         let sql = r#"
             SELECT COUNT(*) as count_result, SUM(amount) as total
-            FROM orders 
+            FROM orders
             WINDOW TUMBLING(1m)
         "#;
 
@@ -103,6 +113,21 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
+        assert!(!results.is_empty(), "Should produce results for identical timestamps");
+
+        if let Some(record) = results.first() {
+            assert_eq!(
+                record.fields.get("count_result"),
+                Some(&FieldValue::Integer(3)),
+                "COUNT should be 3 for three records at same timestamp"
+            );
+            assert_eq!(
+                record.fields.get("total"),
+                Some(&FieldValue::Float(105.0)),
+                "SUM should be 105.0 (25+35+45) for three records at same timestamp"
+            );
+        }
+
         WindowTestAssertions::print_results(&results, "Identical timestamps");
     }
 
@@ -110,12 +135,12 @@ mod window_edge_cases_tests {
     #[tokio::test]
     async fn test_null_aggregation_fields() {
         let sql = r#"
-            SELECT 
+            SELECT
                 COUNT(*) as total_count,
                 COUNT(amount) as non_null_amount_count,
                 SUM(amount) as total_amount,
                 AVG(amount) as avg_amount
-            FROM orders 
+            FROM orders
             WINDOW TUMBLING(2m)
         "#;
 
@@ -127,6 +152,26 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
+        assert!(!results.is_empty(), "Should produce results for null aggregation fields");
+
+        if let Some(record) = results.first() {
+            assert_eq!(
+                record.fields.get("total_count"),
+                Some(&FieldValue::Integer(4)),
+                "COUNT(*) should count all 4 records including nulls"
+            );
+            assert_eq!(
+                record.fields.get("non_null_amount_count"),
+                Some(&FieldValue::Integer(2)),
+                "COUNT(amount) should only count 2 non-null amounts"
+            );
+            assert_eq!(
+                record.fields.get("total_amount"),
+                Some(&FieldValue::Float(60.0)),
+                "SUM should be 60.0 (25+35) excluding nulls"
+            );
+        }
+
         WindowTestAssertions::print_results(&results, "Null aggregation fields");
     }
 
