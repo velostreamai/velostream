@@ -1,198 +1,231 @@
-# Velostream Active Development TODO
+# Velostream Phase 4 Development Plan
 
-**Last Updated**: 2025-10-27
-**Current Status**: ✅ Production Ready
-**Test Status**: 365/365 tests passing
+**Last Updated**: October 29, 2025
+**Status**: Ready for implementation
+**Reference**: Phase 1-3 completed with window frame execution tests and SQL gap analysis
 
 ---
 
-## 📊 Project Status Summary
+## Overview
 
-### ✅ COMPLETED FEATURES
+This document tracks outstanding development work identified during Phase 1-3 testing and gap analysis. Work is organized by priority and implementation complexity.
 
-| Feature | Status | Commits | Test Count |
-|---------|--------|---------|-----------|
-| FR-079: Windowed EMIT CHANGES | ✅ Complete (6 phases) | 04f29be → d8fe6e7 | 12 tests |
-| FR-080: System Columns & Headers | ✅ Complete (4 phases) | 2762fa8 → 5d12a0d | 14 tests |
-| SQL Parser: Window/GROUP BY Ordering | ✅ Fixed | 317c8e1 | 365 total |
-| Core SQL Engine | ✅ Stable | Multiple | 240+ tests |
-| Kafka Integration | ✅ Stable | Multiple | 50+ tests |
-| Serialization (JSON/Avro/Protobuf) | ✅ Stable | Multiple | 40+ tests |
+### Completed Phases
+- ✅ **Phase 1**: SQL validation of 18 demo/example files (72.2% pass rate)
+- ✅ **Phase 2**: Created 41 new test cases validating advanced SQL features (31 passing, 10 compiled)
+- ✅ **Phase 3**: Comprehensive gap analysis with prioritized recommendations
+- 🔄 **Phase 4**: Implementation of identified gaps and pre-commit verification (IN PROGRESS)
 
-### 🎯 Current Test Results
+---
+
+## Priority 1: Critical - Window Frame Execution Implementation
+
+### Issue
+Window frame specifications (ROWS BETWEEN, RANGE BETWEEN) are parsed correctly but **NOT applied during query execution**. Tests in `window_frame_execution_test.rs` are detecting real bugs in aggregation calculations.
+
+### Root Cause Analysis
+**File**: `src/velostream/sql/execution/expression/window_functions.rs` (lines 281-353)
+- `calculate_frame_bounds()` function exists but is **NEVER CALLED**
+- Window frame specification is parsed but discarded during execution
+
+**File**: `src/velostream/sql/execution/aggregation/accumulator.rs`
+- `process_record_into_accumulator()` includes **ALL records** in aggregation
+- No filtering by window frame bounds (start_offset, end_offset)
+- Rebuild aggregations for each row position considering only frame-filtered records
+
+### Test Evidence
+**Test File**: `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs`
+**Test Count**: 9 async functions with value assertions
+
+**Example Failure**:
 ```
-✅ Unit Tests: 365/365 passing
-✅ Code Formatting: Passed
-✅ Compilation: Passed
-✅ Clippy Linting: Passed
+Test: test_rows_between_unbounded_preceding_execution
+Row 2 calculation:
+  Expected: AVG(10.0, 20.0) = 15.0  (rows 1-2 in UNBOUNDED PRECEDING frame)
+  Actual: 20.0 (only current row or miscalculated)
+  Status: FAILS ❌
 ```
 
----
+### Implementation Tasks
 
-## 🔄 ACTIVE DEVELOPMENT PRIORITIES
+#### Task 1.1: Integrate Frame Bounds into Aggregation Pipeline
+- [ ] **File**: `src/velostream/sql/execution/aggregation/accumulator.rs`
+- [ ] **Function**: `process_record_into_accumulator()`
+- [ ] **Change**: Before aggregating a record, calculate frame bounds using `calculate_frame_bounds()`
+- [ ] **Complexity**: Medium
+- [ ] **Estimated Effort**: 4-6 hours
 
-### Phase 1: Performance Profiling & Optimization
-**Status**: Not Started
-**Priority**: Medium (Enhancement)
-**Estimated Effort**: 8-12 hours
+#### Task 1.2: Handle Frame Boundary Edge Cases
+- [ ] **File**: `src/velostream/sql/execution/aggregation/accumulator.rs`
+- [ ] **Cases**:
+  - UNBOUNDED PRECEDING: include all rows from start to current
+  - CURRENT ROW: only current row
+  - UNBOUNDED FOLLOWING: include current row to end
+  - PRECEDING(n): last n rows before current
+  - FOLLOWING(n): next n rows after current
+- [ ] **Complexity**: Medium-High
+- [ ] **Estimated Effort**: 3-4 hours
 
-#### Async Framework Performance Analysis
-- [ ] Add tokio-console instrumentation for task execution visibility
-- [ ] Profile Arc<Mutex<>> lock contention in multi-source scenarios
-- [ ] Measure cost of .await points in processing chain
-- [ ] Analyze channel overhead (mpsc vs broadcast)
-- [ ] Profile task spawning and scheduling overhead
+#### Task 1.3: Verify Against Test Suite
+- [ ] **Test File**: `window_frame_execution_test.rs` (9 tests)
+- [ ] **Success Criteria**: All 9 tests pass with correct value assertions
+- [ ] **Complexity**: Low (tests already exist)
+- [ ] **Estimated Effort**: 1-2 hours (will iterate with implementation)
 
-#### Benchmarking
-- [ ] Real Kafka benchmarks with network I/O
-- [ ] Complex SQL queries (aggregations, joins, windows)
-- [ ] Multi-source/multi-sink scenarios
-- [ ] Memory usage profiling
-- [ ] Latency percentiles (p50, p95, p99)
-
-**Rationale**: Understand performance characteristics and identify optimization opportunities for production deployments.
-
----
-
-### Phase 2: Processor Architecture Refactoring
-**Status**: Not Started
-**Priority**: Low (Code Quality)
-**Estimated Effort**: 4-6 hours
-
-#### Code Cleanup
-- [ ] Remove `_output_receiver` parameter from SimpleProcessor and SelectProcessor
-- [ ] Update all call sites (tests, job server, stream processor)
-- [ ] Add migration note in CHANGELOG
-- [ ] Verify backward compatibility
-
-#### Documentation
-- [ ] Create comprehensive architecture documentation
-- [ ] Diagram execution paths (direct vs interactive)
-- [ ] Document state management patterns
-- [ ] Add performance characteristics guide
-- [ ] Update CLAUDE.md with processor section
-
-**Rationale**: Improve code maintainability and reduce parameter passing complexity.
+**Total Priority 1 Effort**: ~8-12 hours
 
 ---
 
-### Phase 3: Generic Table Loading System
-**Status**: Design Phase
-**Priority**: High (Infrastructure)
-**Estimated Effort**: 15-20 hours
+## Priority 2: High - SQL Parser Gap Fixes
 
-#### Architecture
-- [ ] Define `TableDataSource` trait with bulk/incremental loading methods
-- [ ] Create `SourceOffset` enum for different offset types (Kafka, File position, SQL timestamp)
-- [ ] Implement generic CTAS loading orchestrator
-- [ ] Add offset persistence for resume capability
+### Issue
+5 critical gaps affecting 5 SQL demo/example files. Parser rejects valid SQL syntax.
 
-#### Implementation
-- [ ] **KafkaDataSource**: Bulk (earliest→latest) + Incremental (offset-based)
-- [ ] **FileDataSource**: Bulk (full read) + Incremental (file position tracking)
-- [ ] **SqlDataSource**: Bulk (full query) + Incremental (timestamp-based)
-- [ ] Configurable incremental loading intervals
-- [ ] Error recovery and retry logic
+### Gap 1: CREATE STREAM...WITH Configuration Syntax
 
-**Rationale**: Enable efficient data loading from heterogeneous sources for CTAS operations and streaming joins.
+**Files Affected** (3 files):
+- `examples/ecommerce_analytics.sql`
+- `examples/iot_monitoring.sql`
+- `examples/social_media_analytics.sql`
 
----
+**Error**: `Expected As, found With`
 
-### Phase 4: Event-Time Watermarking Enhancements
-**Status**: Implementation Complete (Under Documentation)
-**Priority**: Medium (Features)
-**Estimated Effort**: 3-4 hours
+#### Tasks:
+- [ ] Task 2.1.1: Extend parser for WITH clause in CREATE STREAM
+  - [ ] Estimated Effort: 3-4 hours
+- [ ] Task 2.1.2: Implement WITH configuration parser (key-value pairs)
+  - [ ] Estimated Effort: 2-3 hours
+- [ ] Task 2.1.3: Validate against 3 affected SQL files
+  - [ ] Estimated Effort: 1 hour
 
-#### Testing & Documentation (Remaining)
-- [ ] Dedicated unit tests in `tests/unit/datasource/event_time_test.rs`
-- [ ] Integration tests for watermark interaction with processors
-- [ ] Performance benchmarks for extraction overhead
-- [ ] Error handling test coverage
-- [ ] Add event-time extraction examples to watermarks guide
-- [ ] Update Kafka configuration documentation
-- [ ] Add troubleshooting guide for common timestamp issues
-
-**Note**: Core implementation is complete and working; this is documentation/testing work only.
+**Subtotal Gap 1**: ~6-8 hours
 
 ---
 
-## 📋 RESOLVED ISSUES (Session Completed)
+### Gap 2: WITH Clause Property Configuration
 
-### ✅ Critical Issues - NOW RESOLVED
+**Files Affected** (1 file):
+- `examples/file_processing_sql_demo.sql`
 
-| Issue | Status | Solution |
-|-------|--------|----------|
-| Window processor per-record emission | ✅ Fixed | Proper GROUP BY detection and EMIT CHANGES routing |
-| System columns test failures | ✅ Fixed | FieldValidator support for system column properties |
-| SQL clause ordering (WINDOW before GROUP BY) | ✅ Fixed | Parser validation and test reordering (commit 317c8e1) |
+**Error**: `Expected String, found Identifier`
 
-### ✅ Previous Session Completions
+#### Tasks:
+- [ ] Task 2.2.1: Enhance parser for contextual property blocks
+  - [ ] Estimated Effort: 2-3 hours
+- [ ] Task 2.2.2: Validate against test file
+  - [ ] Estimated Effort: 0.5 hours
 
-- System columns implementation (Phase 1-4): Full ✅
-- Header functions with field mutation: Full ✅
-- SQLValidator reference output enhancement: Full ✅
-- Dynamic expression evaluation in SET_HEADER: Full ✅
-- Reserved keyword fixes for STATUS, METRICS, PROPERTIES: Full ✅
+**Subtotal Gap 2**: ~2-3.5 hours
 
 ---
 
-## 📚 Documentation Archives
+### Gap 3: Special Character Handling (Colon)
 
-For historical context and completed analyses:
-- **[todo-consolidated.md](todo-consolidated.md)** - Full historical TODO with completed work
-- **[todo-complete.md](todo-complete.md)** - Earlier session completions
-- **[FR-079-IMPLEMENTATION-PLAN.md](docs/feature/FR-079-IMPLEMENTATION-PLAN.md)** - Windowed EMIT CHANGES (all 6 phases complete)
-- **[FR-080-system-cols.md](docs/feature/FR-080-system-cols.md)** - System columns implementation (all 4 phases complete)
+**Files Affected** (1 file):
+- `examples/iot_monitoring_with_metrics.sql`
+
+**Error**: `Unexpected character ':' at position 10247`
+
+#### Tasks:
+- [ ] Task 2.3.1: Debug and locate exact colon usage
+  - [ ] Estimated Effort: 0.5 hours
+- [ ] Task 2.3.2: Implement targeted colon support
+  - [ ] Estimated Effort: 1-2 hours
+- [ ] Task 2.3.3: Validate against test file
+  - [ ] Estimated Effort: 0.5 hours
+
+**Subtotal Gap 3**: ~2-3 hours
 
 ---
 
-## 🚀 Next Actions for New Sessions
+## Priority 3: Phase 4 Pre-Commit Verification & Reporting
 
-1. **Performance Optimization** - Pick from Phase 1 tasks if focusing on speed
-2. **New Features** - Start Phase 3 (Generic Table Loading) for extensibility
-3. **Code Quality** - Complete Phase 2 (Processor Refactoring) for maintainability
-4. **Documentation** - Complete Phase 4 (Event-Time Guide) for user clarity
+### Task 3.1: Complete Pre-Commit Verification Suite
+- [ ] Code formatting check
+- [ ] Compilation check
+- [ ] Clippy linting
+- [ ] Unit tests
+- [ ] Full test suite
+- [ ] Example compilation
+- [ ] Binary compilation
+- [ ] Documentation tests
+- [ ] Estimated Effort**: 1-2 hours
+
+### Task 3.2: Generate Test Coverage Report
+- [ ] Create summary of all test results
+- [ ] Document pass/fail status for each module
+- [ ] Include metrics (total tests, pass rate, coverage)
+- [ ] **Estimated Effort**: 1-2 hours
+
+### Task 3.3: Git Commit Phase 2-3 Work
+- [ ] Stage all changes
+- [ ] Create commit with detailed message
+- [ ] **Estimated Effort**: 0.5 hours
 
 ---
 
-## Testing Commands
+## Work Summary
 
+| Priority | Task | Files | Est. Hours | Status |
+|----------|------|-------|-----------|--------|
+| 1 | Window Frame Execution | aggregation, window_functions | 8-12 | Pending |
+| 2.1 | CREATE STREAM...WITH | parser.rs | 6-8 | Pending |
+| 2.2 | WITH Clause Properties | parser.rs | 2-3.5 | Pending |
+| 2.3 | Colon Character | parser.rs | 2-3 | Pending |
+| 3 | Pre-Commit & Report | all | 2-4 | Pending |
+| **TOTAL** | | | **20.5-30.5** | |
+
+---
+
+## Testing & Validation
+
+### Window Frame Tests
+**File**: `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs`
+- 9 test functions with explicit expected values
+- Value assertions validate actual aggregation calculations
+
+### Parser Validation
+**Files**: 5 demo/example SQL files requiring parser fixes
+
+Run after parser implementation:
 ```bash
-# Run all tests
-cargo test --no-default-features
-
-# Run specific test category
-cargo test system_columns --no-default-features
-cargo test window --no-default-features
-cargo test header_functions --no-default-features
-
-# Run with output
-cargo test --no-default-features -- --nocapture
-
-# Pre-commit validation
-cargo fmt --all -- --check && cargo check && cargo test --lib --no-default-features
+cargo build --examples --no-default-features
+cargo run --bin velo-cli validate examples/ecommerce_analytics.sql
 ```
 
 ---
 
-## Git Workflow
+## References
 
-```bash
-# View recent commits
-git log --oneline -10
+### Documentation
+- `docs/sql-feature-gaps.md` - Comprehensive gap analysis
+- `CLAUDE.md` - Project guidelines and development commands
 
-# Current branch
-git status
+### Test Files
+- `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs`
+- `tests/unit/sql/execution/processors/window/session_window_functions_test.rs`
+- `tests/unit/sql/execution/processors/window/statistical_functions_test.rs`
+- `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs`
+- `tests/unit/sql/execution/processors/window/timebased_joins_test.rs`
 
-# Create feature branch
-git checkout -b feature/FR-XXX-description
+### Implementation Files
+- `src/velostream/sql/execution/expression/window_functions.rs` (lines 281-353)
+- `src/velostream/sql/execution/aggregation/accumulator.rs`
+- `src/velostream/sql/parser.rs`
 
-# Commit with proper format
-git commit -m "feat: Description
+---
 
-Details about changes.
+## Success Criteria
 
-🤖 Generated with Claude Code
+✅ Window Frame Implementation
+- All 9 window_frame_execution_test.rs tests PASS
+- Value assertions match expected calculations
+- No regression in existing tests
 
-Co-Authored-By: Claude <noreply@anthropic.com>"
-```
+✅ Parser Gap Fixes
+- All 5 demo/example files parse without errors
+- No regression in existing parser tests
+
+✅ Pre-Commit Verification
+- All formatting, compilation, and test checks pass
+- Code ready for merge to main branch
