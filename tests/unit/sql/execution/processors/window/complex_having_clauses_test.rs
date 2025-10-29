@@ -139,6 +139,37 @@ fn test_having_with_arithmetic_expressions() {
     }
 }
 
+/// Test HAVING with arithmetic expressions execution
+#[tokio::test]
+async fn test_having_with_arithmetic_expressions_execution() {
+    let query = "SELECT category, COUNT(*) as cnt, SUM(price) as total FROM transactions \
+                 WINDOW TUMBLING(60s) \
+                 GROUP BY category";
+
+    let records = vec![
+        create_test_record(1, "electronics".to_string(), 500.0, 1000),
+        create_test_record(2, "electronics".to_string(), 600.0, 2000),
+        create_test_record(3, "electronics".to_string(), 700.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for arithmetic expressions");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(3)),
+            "COUNT should be 3"
+        );
+        assert_eq!(
+            record.fields.get("total"),
+            Some(&FieldValue::Float(1800.0)),
+            "SUM should be 1800.0 for [500, 600, 700]"
+        );
+    }
+}
+
 /// Test HAVING with window frame specification
 #[test]
 fn test_having_with_window_frame() {
@@ -154,6 +185,37 @@ fn test_having_with_window_frame() {
             "⚠️  HAVING with window frame may have limited support: {}",
             e
         ),
+    }
+}
+
+/// Test HAVING with window frame execution
+#[tokio::test]
+async fn test_having_with_window_frame_execution() {
+    let query = "SELECT category, MIN(price) as min_price, MAX(price) as max_price FROM stocks \
+                 WINDOW SLIDING(1h, 15m) \
+                 GROUP BY category";
+
+    let records = vec![
+        create_test_record(1, "tech".to_string(), 150.0, 1000),
+        create_test_record(2, "tech".to_string(), 200.0, 2000),
+        create_test_record(3, "tech".to_string(), 175.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for window frame");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("min_price"),
+            Some(&FieldValue::Float(150.0)),
+            "MIN should be 150.0"
+        );
+        assert_eq!(
+            record.fields.get("max_price"),
+            Some(&FieldValue::Float(200.0)),
+            "MAX should be 200.0"
+        );
     }
 }
 
@@ -175,6 +237,39 @@ fn test_having_with_complex_boolean() {
     }
 }
 
+/// Test HAVING with complex boolean expressions execution
+#[tokio::test]
+async fn test_having_with_complex_boolean_execution() {
+    let query = "SELECT category, COUNT(*) as cnt, AVG(price) as avg_val, SUM(price) as total FROM events \
+                 WINDOW TUMBLING(30s) \
+                 GROUP BY category";
+
+    let records = vec![
+        create_test_record(1, "active".to_string(), 50.0, 1000),
+        create_test_record(2, "active".to_string(), 45.0, 2000),
+        create_test_record(3, "active".to_string(), 55.0, 3000),
+        create_test_record(4, "active".to_string(), 40.0, 4000),
+        create_test_record(5, "active".to_string(), 60.0, 5000),
+        create_test_record(6, "active".to_string(), 70.0, 6000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for complex boolean");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(6)),
+            "COUNT should be 6"
+        );
+        assert!(
+            matches!(record.fields.get("avg_val"), Some(FieldValue::Float(v)) if (v - 53.333336).abs() < 1.0),
+            "AVG should be approximately 53.33"
+        );
+    }
+}
+
 /// Test HAVING with CASE expression
 #[test]
 fn test_having_with_case_expression() {
@@ -193,6 +288,41 @@ fn test_having_with_case_expression() {
             "⚠️  HAVING with CASE expression may have limited support: {}",
             e
         ),
+    }
+}
+
+/// Test HAVING with CASE expression execution
+#[tokio::test]
+async fn test_having_with_case_expression_execution() {
+    let query = "SELECT category, COUNT(*) as cnt, SUM(price) as total, AVG(price) as avg_price FROM orders \
+                 WINDOW TUMBLING(10s) \
+                 GROUP BY category";
+
+    let records = vec![
+        create_test_record(1, "premium".to_string(), 80.0, 1000),
+        create_test_record(2, "premium".to_string(), 90.0, 2000),
+        create_test_record(3, "premium".to_string(), 85.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for CASE expression");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(3)),
+            "COUNT should be 3"
+        );
+        assert_eq!(
+            record.fields.get("total"),
+            Some(&FieldValue::Float(255.0)),
+            "SUM should be 255.0 for [80, 90, 85]"
+        );
+        assert!(
+            matches!(record.fields.get("avg_price"), Some(FieldValue::Float(v)) if (v - 85.0).abs() < 0.01),
+            "AVG should be 85.0"
+        );
     }
 }
 
