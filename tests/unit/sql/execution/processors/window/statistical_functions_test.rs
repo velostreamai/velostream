@@ -55,7 +55,10 @@ async fn test_percentile_cont_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for percentile aggregation");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for percentile aggregation"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -100,7 +103,10 @@ async fn test_percentile_disc_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for discrete percentile aggregation");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for discrete percentile aggregation"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -133,7 +139,8 @@ fn test_stddev_parsing() {
 /// Test STDDEV execution with value validation
 #[tokio::test]
 async fn test_stddev_execution() {
-    let query = "SELECT COUNT(*) as count_val, MIN(value) as min_val, MAX(value) as max_val FROM trades \
+    let query =
+        "SELECT COUNT(*) as count_val, MIN(value) as min_val, MAX(value) as max_val FROM trades \
                  WINDOW TUMBLING(5s)";
 
     let records = vec![
@@ -146,7 +153,10 @@ async fn test_stddev_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for standard deviation aggregation");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for standard deviation aggregation"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -194,7 +204,10 @@ async fn test_variance_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for variance aggregation");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for variance aggregation"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -230,7 +243,8 @@ fn test_multiple_percentiles() {
 /// Test multiple percentiles execution with aggregation
 #[tokio::test]
 async fn test_multiple_percentiles_execution() {
-    let query = "SELECT COUNT(*) as cnt, AVG(value) as avg, MIN(value) as p_min FROM http_requests \
+    let query =
+        "SELECT COUNT(*) as cnt, AVG(value) as avg, MIN(value) as p_min FROM http_requests \
                  WINDOW TUMBLING(60s)";
 
     let records = vec![
@@ -243,7 +257,10 @@ async fn test_multiple_percentiles_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for multiple percentiles aggregation");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for multiple percentiles aggregation"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -298,7 +315,10 @@ async fn test_percentile_with_group_by_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for percentile with GROUP BY");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for percentile with GROUP BY"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -347,7 +367,10 @@ async fn test_percentile_with_having_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for percentile with HAVING");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for percentile with HAVING"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -406,7 +429,10 @@ async fn test_statistical_aggregations_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for statistical aggregations");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for statistical aggregations"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -468,7 +494,10 @@ async fn test_sliding_window_percentile_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for sliding window percentile");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for sliding window percentile"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(

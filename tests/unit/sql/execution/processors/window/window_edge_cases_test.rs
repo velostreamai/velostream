@@ -44,7 +44,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for zero timestamp");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for zero timestamp"
+        );
 
         if let Some(record) = results.first() {
             assert_eq!(
@@ -113,7 +116,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for identical timestamps");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for identical timestamps"
+        );
 
         if let Some(record) = results.first() {
             assert_eq!(
@@ -152,7 +158,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for null aggregation fields");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for null aggregation fields"
+        );
 
         if let Some(record) = results.first() {
             assert_eq!(
@@ -194,7 +203,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for null partition keys");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for null partition keys"
+        );
 
         // Results should have sessions for customer_id 100 and null records grouped separately
         if results.len() >= 1 {
@@ -232,7 +244,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for extreme large values");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for extreme large values"
+        );
 
         if let Some(record) = results.first() {
             // Should have 3 records in first window and 0 in second
@@ -263,7 +278,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for extreme small values");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for extreme small values"
+        );
 
         if let Some(record) = results.first() {
             assert!(
@@ -313,7 +331,10 @@ mod window_edge_cases_tests {
         records.push(StreamRecord::new(inf_fields));
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for special float values");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for special float values"
+        );
 
         if let Some(record) = results.first() {
             // Should count at least the normal record
@@ -343,7 +364,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for 1-second window size");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for 1-second window size"
+        );
 
         // With 1s windows: record 1 in [0-1), record 2 in [1-2), record 3 in [2-3)
         // So we should have 3 separate windows with 1 record each
@@ -374,7 +398,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for 24-hour window");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for 24-hour window"
+        );
 
         if results.len() >= 1 {
             if let Some(first_window) = results.first() {
@@ -414,7 +441,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for zero-gap session window");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for zero-gap session window"
+        );
 
         // With 0s gap, each record creates a new session, so we should have 3 results
         if results.len() >= 1 {
@@ -450,7 +480,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for 1-week session gap");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for 1-week session gap"
+        );
 
         // First session should have 3 records (within 1 week), second session should have 1 record
         if results.len() >= 1 {
@@ -484,7 +517,10 @@ mod window_edge_cases_tests {
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for sliding window with advance > window");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for sliding window with advance > window"
+        );
 
         // With 1m window and 2m advance, records should be grouped with gaps
         if results.len() >= 1 {
@@ -575,7 +611,10 @@ mod window_edge_cases_tests {
         let records = vec![TestDataBuilder::order_record(1, 100, 42.0, "completed", 30)];
 
         let results = SqlExecutor::execute_query(sql, records).await;
-        assert!(!results.is_empty(), "Should produce results for single record");
+        assert!(
+            !results.is_empty(),
+            "Should produce results for single record"
+        );
 
         if let Some(record) = results.first() {
             assert_eq!(

@@ -61,7 +61,10 @@ async fn test_having_with_nested_aggregates_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for nested aggregates");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for nested aggregates"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -105,7 +108,10 @@ async fn test_having_with_division_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for division aggregation");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for division aggregation"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -154,7 +160,10 @@ async fn test_having_with_arithmetic_expressions_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for arithmetic expressions");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for arithmetic expressions"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -203,7 +212,10 @@ async fn test_having_with_window_frame_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for window frame");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for window frame"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -240,7 +252,8 @@ fn test_having_with_complex_boolean() {
 /// Test HAVING with complex boolean expressions execution
 #[tokio::test]
 async fn test_having_with_complex_boolean_execution() {
-    let query = "SELECT category, COUNT(*) as cnt, AVG(price) as avg_val, SUM(price) as total FROM events \
+    let query =
+        "SELECT category, COUNT(*) as cnt, AVG(price) as avg_val, SUM(price) as total FROM events \
                  WINDOW TUMBLING(30s) \
                  GROUP BY category";
 
@@ -255,7 +268,10 @@ async fn test_having_with_complex_boolean_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for complex boolean");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for complex boolean"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(
@@ -306,7 +322,10 @@ async fn test_having_with_case_expression_execution() {
 
     let results = SqlExecutor::execute_query(query, records).await;
 
-    assert!(!results.is_empty(), "Should produce results for CASE expression");
+    assert!(
+        !results.is_empty(),
+        "Should produce results for CASE expression"
+    );
 
     if let Some(record) = results.first() {
         assert_eq!(

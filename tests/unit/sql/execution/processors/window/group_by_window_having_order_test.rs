@@ -303,7 +303,11 @@ async fn test_group_by_window_having_arithmetic_expressions() {
     if !results.is_empty() {
         // Validate that HAVING filtering worked - we should get results for symbols passing the conditions
         // This test validates that complex AND expressions in HAVING clauses work correctly
-        let results_str = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
+        let results_str = results
+            .iter()
+            .map(|r| r.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(
             results_str.len() > 0,
             "HAVING clause should produce filtered results"
@@ -340,7 +344,11 @@ async fn test_group_by_window_having_arithmetic_with_multipliers() {
     // MSFT should be filtered (avg_volume=150, not > 500)
     if !results.is_empty() {
         // Validate that HAVING with aggregate functions filtered correctly
-        let results_str = results.iter().map(|r| r.to_string()).collect::<Vec<_>>().join("\n");
+        let results_str = results
+            .iter()
+            .map(|r| r.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(
             results_str.len() > 0,
             "HAVING clause with aggregate functions should produce filtered results"
