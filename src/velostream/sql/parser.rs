@@ -1763,19 +1763,19 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
-        // Parse WINDOW clause first (if present)
-        let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
-        }
-
-        // Parse GROUP BY after WINDOW (correct ordering: WINDOW comes first, then GROUP BY)
+        // Parse GROUP BY first (standard SQL ordering)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
             self.expect_keyword("BY")?;
             group_by = Some(self.parse_group_by_list()?);
+        }
+
+        // Parse WINDOW clause after GROUP BY (standard SQL: GROUP BY comes before WINDOW)
+        let mut window = None;
+        if self.current_token().token_type == TokenType::Window {
+            self.advance();
+            window = Some(self.parse_window_spec()?);
         }
 
         let mut having = None;
