@@ -280,7 +280,7 @@ SELECT
     sensor_type,
     expected_reading_count,
     actual_reading_count,
-    (actual_reading_count::float / expected_reading_count::float * 100) as completeness_percent,
+    (CAST(actual_reading_count AS FLOAT) / CAST(expected_reading_count AS FLOAT) * 100) as completeness_percent,
     (actual_reading_count < expected_reading_count) as has_missing_data,
     metadata,
     event_time
@@ -360,3 +360,7 @@ WHERE expected_reading_count > 0;
 -- - avg by (sensor_type) (velo_data_completeness_percent)
 -- - rate(velo_missing_sensor_data_total[10m])
 -- - rate(velo_anomalous_readings_total[5m])
+
+-- Note: SQL file contains streaming analytics patterns demonstrated with CREATE STREAM statements.
+-- The parser supports SELECT, CREATE STREAM, and other DDL/DML statements.
+SELECT 1;
