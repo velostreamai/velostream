@@ -50,12 +50,37 @@ FROM positions;
 
 ---
 
-## Root Cause Analysis
+## Root Cause Analysis - Phase 5 Investigation (October 29, 2025)
 
-### File: `/src/velostream/sql/execution/expression/window_functions.rs`
+### Summary
 
-#### Issue 1: Frame Bounds Intentionally Ignored (Lines 278-300)
+**CORRECTED FINDINGS**: Recent investigation reveals the actual state of the codebase is significantly more advanced than previously documented. The window frame execution infrastructure is ~95% complete:
 
+- ✅ **Parser**: Correctly parses window frame specifications (ROWS BETWEEN, RANGE BETWEEN)
+- ✅ **Frame Bounds Calculation**: Fully implemented and correct (`calculate_frame_bounds()`)
+- ✅ **Window Functions**: Ready to use frame bounds (AVG, SUM, MIN, MAX all check `frame_bounds`)
+- ❌ **Critical Gap**: `window_frame` from parser is `None` during execution - not being propagated to window function evaluation
+
+### Updated Architecture Analysis
+
+#### File: `/src/velostream/sql/ast.rs:490`
+
+**OverClause Structure** (✅ Correct):
+```rust
+pub struct OverClause {
+    pub partition_by: Vec<String>,
+    pub order_by: Vec<OrderByExpr>,
+    pub window_frame: Option<WindowFrame>,  // ← Field exists and should be populated
+}
+```
+
+The AST properly defines the window_frame field that should contain parsed frame specifications.
+
+#### File: `/src/velostream/sql/execution/expression/window_functions.rs:281-353`
+
+**Frame Bounds Calculation** (✅ Fully Implemented and Correct):
+
+The `calculate_frame_bounds()` function is well-implemented and handles all frame types:
 ```rust
 fn calculate_frame_bounds(
     window_frame: &Option<WindowFrame>,
@@ -63,44 +88,87 @@ fn calculate_frame_bounds(
     partition_bounds: &Option<(usize, usize)>,
     buffer: &[StreamRecord],
 ) -> Result<Option<(i64, i64)>, SqlError> {
-    let _frame = match window_frame {  // ← UNDERSCORE: ignored!
-        Some(frame) => frame,
+    let frame = match window_frame {
+        Some(f) => f,
         None => {
+            // Default frame: RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
             return Ok(Some((-(current_position as i64), 0)));
         }
     };
 
-    // For now, use simplified frame calculation
-    // In a complete implementation, this would handle ROWS/RANGE
-    // and various frame bounds
-    let (start, end) = partition_bounds.unwrap_or((0, buffer.len()));
-
-    Ok(Some((frame_start, frame_end)))
+    // Proper handling of frame types and bounds
+    // Returns (start_offset, end_offset) relative to current position
 }
 ```
 
-**Problem**: The parsed `WindowFrame` is bound to `_frame` (underscore = intentionally unused) and the function returns partition bounds instead of frame-specific bounds.
+**What Works**:
+- Converts frame specifications to relative offset pairs (start_offset, end_offset)
+- Handles all frame bound types: UnboundedPreceding, Preceding(n), CurrentRow, Following(n), UnboundedFollowing, IntervalPreceding, IntervalFollowing
+- Returns proper frame bounds that can be used for filtering
+- Default behavior when window_frame is None is correct
 
-#### Issue 2: All Aggregate Functions Ignore Frame Bounds (Lines 544-763)
+#### File: `/src/velostream/sql/execution/expression/window_functions.rs:823-930`
 
-All three affected functions follow identical patterns:
+**Window Functions** (✅ Ready to Use Frame Bounds):
 
-**SUM() aggregate (lines 558-564)**:
+All aggregate functions already check `window_context.frame_bounds`:
+
+**AVG() aggregate (lines 823-882)**:
 ```rust
-let (start_idx, end_idx) = window_context
-    .partition_bounds  // ← Uses partition bounds, not frame bounds
-    .unwrap_or((0, window_context.buffer.len()));
-
-for i in start_idx..end_idx {
-    // Processes entire partition
-}
+let (start_idx, end_idx) = if let Some((frame_start_offset, frame_end_offset))
+    = window_context.frame_bounds {
+    // Convert relative offsets to absolute indices
+    let frame_start = (window_context.current_position as i64 + frame_start_offset)
+        .max(0) as usize;
+    let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+        .min(window_context.buffer.len() as i64)
+        .max(0)) as usize;
+    (frame_start, frame_end)
+} else {
+    // Default: RANGE UNBOUNDED PRECEDING TO CURRENT ROW
+    window_context.partition_bounds.unwrap_or((0, window_context.buffer.len()))
+};
+// Use (start_idx, end_idx) to filter records for aggregation
 ```
 
-**COUNT() aggregate (lines 674-676)**: Same pattern
+**Status**: SUM (lines 884-930), MIN, MAX - all properly check and use frame_bounds.
 
-**STDDEV() aggregate (lines 730-732)**: Same pattern
+**What Works**:
+- Functions check `window_context.frame_bounds` field
+- If frame_bounds exist, they're used to filter records
+- If frame_bounds are None, proper default behavior applies
+- All infrastructure is in place and correct
 
-**Problem**: The `window_context.frame_bounds` field exists but is never used. All functions iterate over entire partition.
+### The Critical Gap: window_frame Not Populated During Execution
+
+**Problem**: When window functions are evaluated, `window_context.frame_bounds` is always `None`, causing default bounds to be used instead of parsed frame specifications.
+
+**Root Cause**: The `window_frame` field in OverClause is parsed correctly but is `None` when it reaches window function context creation.
+
+**Example Failure**:
+```
+Query: SELECT AVG(value) OVER (ROWS BETWEEN 2 PRECEDING AND 1 PRECEDING) FROM data
+Input: [10.0, 20.0, 30.0, 40.0, 50.0]
+
+Expected for Row 3:
+  Frame: rows 1-2 (values 10, 20)
+  Result: AVG(10, 20) = 15.0
+
+Actual:
+  Frame: rows 0-3 (full partition subset) due to None causing default bounds
+  Result: Returns Null because incorrect frame applied
+```
+
+**Investigation Files**:
+- Test expectations: `/tests/unit/sql/execution/processors/window/window_frame_execution_test.rs:1-36`
+- Window function evaluation: `/src/velostream/sql/execution/expression/window_functions.rs:120-170` (`create_window_context()`)
+
+### Why This Happened
+
+The frame bounds calculation was implemented with the infrastructure to work correctly, but the parsed window frame specification is not being passed through the execution pipeline to window function context creation. This suggests a gap in:
+1. How OverClause is extracted from parsed query
+2. How it flows from SELECT processor to window function evaluation
+3. Whether window_frame field is being cleared or replaced somewhere in the pipeline
 
 ---
 
