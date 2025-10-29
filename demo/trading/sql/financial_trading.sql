@@ -176,7 +176,7 @@ FROM market_data_ts
 GROUP BY
     symbol
     -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
-    WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+    WINDOW TUMBLING (1m)
     HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
        AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
        AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
