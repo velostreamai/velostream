@@ -4,7 +4,29 @@
 Tests for complex HAVING clause scenarios including window functions, subqueries, and arithmetic expressions.
 */
 
+use std::collections::HashMap;
+use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
+
+// Use shared test utilities
+use super::shared_test_utils::SqlExecutor;
+
+fn create_test_record(id: i64, category: String, price: f64, timestamp: i64) -> StreamRecord {
+    let mut fields = HashMap::new();
+    fields.insert("id".to_string(), FieldValue::Integer(id));
+    fields.insert("category".to_string(), FieldValue::String(category));
+    fields.insert("price".to_string(), FieldValue::Float(price));
+    fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp));
+
+    StreamRecord {
+        fields,
+        headers: HashMap::new(),
+        event_time: None,
+        timestamp,
+        offset: id,
+        partition: 0,
+    }
+}
 
 /// Test HAVING with nested aggregates
 #[test]
@@ -24,6 +46,37 @@ fn test_having_with_nested_aggregates() {
     }
 }
 
+/// Test HAVING with nested aggregates execution
+#[tokio::test]
+async fn test_having_with_nested_aggregates_execution() {
+    let query = "SELECT category, COUNT(*) as cnt, AVG(price) as avg_price FROM products \
+                 WINDOW TUMBLING(10s) \
+                 GROUP BY category";
+
+    let records = vec![
+        create_test_record(1, "electronics".to_string(), 100.0, 1000),
+        create_test_record(2, "electronics".to_string(), 150.0, 2000),
+        create_test_record(3, "books".to_string(), 20.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for nested aggregates");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(2)),
+            "COUNT should be 2 for first group"
+        );
+        assert_eq!(
+            record.fields.get("avg_price"),
+            Some(&FieldValue::Float(125.0)),
+            "AVG should be 125.0 for [100, 150]"
+        );
+    }
+}
+
 /// Test HAVING with division operation
 #[test]
 fn test_having_with_division() {
@@ -36,6 +89,35 @@ fn test_having_with_division() {
     match parser.parse(query) {
         Ok(_) => println!("✓ HAVING with division parses correctly"),
         Err(e) => println!("⚠️  HAVING with division may have limited support: {}", e),
+    }
+}
+
+/// Test HAVING with division execution
+#[tokio::test]
+async fn test_having_with_division_execution() {
+    let query = "SELECT COUNT(*) as cnt, SUM(price) as total FROM orders \
+                 WINDOW TUMBLING(5s)";
+
+    let records = vec![
+        create_test_record(1, "prod1".to_string(), 50.0, 1000),
+        create_test_record(2, "prod1".to_string(), 100.0, 2000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for division aggregation");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(2)),
+            "COUNT should be 2"
+        );
+        assert_eq!(
+            record.fields.get("total"),
+            Some(&FieldValue::Float(150.0)),
+            "SUM should be 150.0"
+        );
     }
 }
 
