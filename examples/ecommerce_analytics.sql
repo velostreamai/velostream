@@ -5,14 +5,9 @@
 -- Dependencies: Configuration files in configs/ directory using extends pattern
 
 -- High Value Orders Processing
--- Uses extends-based configuration for maintainability
-CREATE STREAM orders WITH (
-    config_file = 'examples/configs/orders_topic.yaml'
-);
-
-CREATE STREAM high_value_orders_stream WITH (
-    config_file = 'examples/configs/high_value_orders_sink.yaml'
-);
+-- Stream definitions with configuration in external YAML files
+-- CREATE STREAM orders; -- Configured via orders_topic.yaml
+-- CREATE STREAM high_value_orders_stream; -- Configured via high_value_orders_sink.yaml
 
 INSERT INTO high_value_orders_stream
 SELECT 
@@ -25,13 +20,8 @@ WHERE amount > 1000;
 
 -- User Activity Analytics
 -- Tracks user interactions and behavior patterns
-CREATE STREAM user_events WITH (
-    config_file = 'examples/configs/user_events_topic.yaml'
-);
-
-CREATE STREAM user_analytics_stream WITH (
-    config_file = 'examples/configs/user_analytics_sink.yaml'
-);
+-- CREATE STREAM user_events; -- Configured via user_events_topic.yaml
+-- CREATE STREAM user_analytics_stream; -- Configured via user_analytics_sink.yaml
 
 INSERT INTO user_analytics_stream
 SELECT 
@@ -44,9 +34,7 @@ WHERE JSON_VALUE(payload, '$.action') IN ('purchase', 'add_to_cart', 'view_produ
 
 -- Fraud Detection System
 -- Critical fraud monitoring with risk categorization
-CREATE STREAM fraud_alerts WITH (
-    config_file = 'examples/configs/fraud_alerts_sink.yaml'
-);
+-- CREATE STREAM fraud_alerts; -- Configured via fraud_alerts_sink.yaml
 
 INSERT INTO fraud_alerts
 SELECT 
@@ -65,9 +53,7 @@ WHERE amount > 500;
 
 -- Customer Segmentation
 -- Windowed aggregation for customer tier analysis
-CREATE STREAM customer_segments WITH (
-    config_file = 'examples/configs/customer_segments_sink.yaml'
-);
+-- CREATE STREAM customer_segments; -- Configured via customer_segments_sink.yaml
 
 INSERT INTO customer_segments
 SELECT 
@@ -86,13 +72,8 @@ WINDOW TUMBLING(1h);
 
 -- Product Performance Analytics
 -- Windowed analytics for product performance metrics
-CREATE STREAM product_events WITH (
-    config_file = 'examples/configs/product_events_topic.yaml'
-);
-
-CREATE STREAM product_analytics_stream WITH (
-    config_file = 'examples/configs/product_analytics_sink.yaml'
-);
+-- CREATE STREAM product_events; -- Configured via product_events_topic.yaml
+-- CREATE STREAM product_analytics_stream; -- Configured via product_analytics_sink.yaml
 
 INSERT INTO product_analytics_stream
 SELECT 

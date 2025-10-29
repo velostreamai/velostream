@@ -7,17 +7,10 @@
 -- Tag: domain:iot
 
 -- Configure IoT data streams using extends-based configuration
-CREATE STREAM sensor_data WITH (
-    config_file = 'examples/configs/sensor_data_topic.yaml'
-);
-
-CREATE STREAM device_status WITH (
-    config_file = 'examples/configs/device_status_topic.yaml'
-);
-
-CREATE STREAM critical_alerts WITH (
-    config_file = 'examples/configs/critical_alerts_sink.yaml'
-);
+-- Stream definitions with configuration in external YAML files
+-- CREATE STREAM sensor_data; -- Configured via sensor_data_topic.yaml
+-- CREATE STREAM device_status; -- Configured via device_status_topic.yaml
+-- CREATE STREAM critical_alerts; -- Configured via critical_alerts_sink.yaml
 
 -- Temperature Alert System
 -- Monitors temperature sensors for high temperature conditions
@@ -34,9 +27,7 @@ WHERE sensor_type = 'temperature' AND temperature > 80;
 
 -- Pressure Monitoring System
 -- Monitors pressure sensors for critical low pressure conditions
-CREATE STREAM pressure_alerts WITH (
-    config_file = 'examples/configs/pressure_alerts_sink.yaml'
-);
+-- CREATE STREAM pressure_alerts; -- Configured via pressure_alerts_sink.yaml
 
 INSERT INTO pressure_alerts
 SELECT 
@@ -55,9 +46,7 @@ WHERE sensor_type = 'pressure' AND pressure < 15;
 
 -- Vibration Analysis System
 -- Windowed analysis of vibration levels for predictive maintenance
-CREATE STREAM vibration_analytics WITH (
-    config_file = 'examples/configs/vibration_analytics_sink.yaml'
-);
+-- CREATE STREAM vibration_analytics; -- Configured via vibration_analytics_sink.yaml
 
 INSERT INTO vibration_analytics
 SELECT 
@@ -78,9 +67,7 @@ WINDOW TUMBLING(10m);
 
 -- Battery Level Monitor
 -- Monitors device battery levels for maintenance alerts
-CREATE STREAM battery_alerts WITH (
-    config_file = 'examples/configs/battery_alerts_sink.yaml'
-);
+-- CREATE STREAM battery_alerts; -- Configured via battery_alerts_sink.yaml
 
 INSERT INTO battery_alerts
 SELECT 
@@ -100,9 +87,7 @@ WHERE battery_level IS NOT NULL;
 
 -- Sensor Health Check System
 -- Windowed health monitoring for sensor availability and performance
-CREATE STREAM sensor_health_reports WITH (
-    config_file = 'examples/configs/sensor_health_reports_sink.yaml'
-);
+-- CREATE STREAM sensor_health_reports; -- Configured via sensor_health_reports_sink.yaml
 
 INSERT INTO sensor_health_reports
 SELECT 

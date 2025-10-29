@@ -7,13 +7,9 @@
 -- Tag: languages:multi
 
 -- Configure social media streams using extends-based configuration
-CREATE STREAM social_posts WITH (
-    config_file = 'examples/configs/social_posts_topic.yaml'
-);
-
-CREATE STREAM trending_hashtags WITH (
-    config_file = 'examples/configs/trending_hashtags_sink.yaml'
-);
+-- Stream definitions with configuration in external YAML files
+-- CREATE STREAM social_posts; -- Configured via social_posts_topic.yaml
+-- CREATE STREAM trending_hashtags; -- Configured via trending_hashtags_sink.yaml
 
 -- Trending Hashtag Monitor
 -- Windowed analysis of popular hashtags
@@ -33,9 +29,7 @@ WINDOW TUMBLING(1h);
 
 -- Viral Content Detector
 -- Identifies high-engagement content for viral analysis
-CREATE STREAM viral_content_alerts WITH (
-    config_file = 'examples/configs/viral_content_alerts_sink.yaml'
-);
+-- CREATE STREAM viral_content_alerts; -- Configured via viral_content_alerts_sink.yaml
 
 INSERT INTO viral_content_alerts
 SELECT 
@@ -55,9 +49,7 @@ WHERE (likes_count + shares_count * 2 + comments_count * 3) > 10000
 
 -- Sentiment Analysis Engine
 -- Basic sentiment classification of social media content
-CREATE STREAM sentiment_analysis WITH (
-    config_file = 'examples/configs/sentiment_analysis_sink.yaml'
-);
+-- CREATE STREAM sentiment_analysis; -- Configured via sentiment_analysis_sink.yaml
 
 INSERT INTO sentiment_analysis
 SELECT 
@@ -81,9 +73,7 @@ WHERE content IS NOT NULL AND LENGTH(content) > 10;
 
 -- Influencer Activity Monitor
 -- Windowed monitoring of high-follower user activity
-CREATE STREAM influencer_activity WITH (
-    config_file = 'examples/configs/influencer_activity_sink.yaml'
-);
+-- CREATE STREAM influencer_activity; -- Configured via influencer_activity_sink.yaml
 
 INSERT INTO influencer_activity
 SELECT 
@@ -104,9 +94,7 @@ WINDOW TUMBLING(1h);
 
 -- Crisis Detection System
 -- Emergency and disaster keyword monitoring
-CREATE STREAM crisis_alerts WITH (
-    config_file = 'examples/configs/crisis_alerts_sink.yaml'
-);
+-- CREATE STREAM crisis_alerts; -- Configured via crisis_alerts_sink.yaml
 
 INSERT INTO crisis_alerts
 SELECT 
