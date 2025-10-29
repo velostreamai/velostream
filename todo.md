@@ -18,7 +18,7 @@ This document tracks outstanding development work identified during Phase 1-3 te
 
 ---
 
-## Priority 1: Critical - Window Frame Execution Implementation
+## Priority 2: Window Frame Execution Implementation
 
 ### Issue
 Window frame specifications (ROWS BETWEEN, RANGE BETWEEN) are parsed correctly but **NOT applied during query execution**. Tests in `window_frame_execution_test.rs` are detecting real bugs in aggregation calculations.
@@ -72,11 +72,11 @@ Row 2 calculation:
 - [ ] **Complexity**: Low (tests already exist)
 - [ ] **Estimated Effort**: 1-2 hours (will iterate with implementation)
 
-**Total Priority 1 Effort**: ~8-12 hours
+**Total Priority 2 Effort**: ~8-12 hours
 
 ---
 
-## Priority 2: High - SQL Parser Gap Fixes
+## Priority 3: SQL Parser Gap Fixes
 
 ### Issue
 5 critical gaps affecting 5 SQL demo/example files. Parser rejects valid SQL syntax.
@@ -138,7 +138,7 @@ Row 2 calculation:
 
 ---
 
-## Priority 3: Phase 4 Pre-Commit Verification & Reporting
+## Priority 4: Pre-Commit Verification & Reporting
 
 ### Task 3.1: Complete Pre-Commit Verification Suite
 - [ ] Code formatting check
@@ -168,16 +168,17 @@ Row 2 calculation:
 
 | Priority | Task | Files | Est. Hours | Status |
 |----------|------|-------|-----------|--------|
-| 1 | Window Frame Execution | aggregation, window_functions | 8-12 | Pending |
-| 2.1 | CREATE STREAM...WITH | parser.rs | 6-8 | Pending |
-| 2.2 | WITH Clause Properties | parser.rs | 2-3.5 | Pending |
-| 2.3 | Colon Character | parser.rs | 2-3 | Pending |
-| 3 | Pre-Commit & Report | all | 2-4 | Pending |
-| **TOTAL** | | | **20.5-30.5** | |
+| **1 - Phase 1** | Test Assertions (Tier 1 & 2) | window, aggregation tests | 10-20 | **IN PROGRESS** |
+| 2 | Window Frame Execution | aggregation, window_functions | 8-12 | Pending |
+| 3.1 | CREATE STREAM...WITH | parser.rs | 6-8 | Pending |
+| 3.2 | WITH Clause Properties | parser.rs | 2-3.5 | Pending |
+| 3.3 | Colon Character | parser.rs | 2-3 | Pending |
+| 4 | Pre-Commit & Report | all | 2-4 | Pending |
+| **TOTAL** | | | **30.5-50.5** | |
 
 ---
 
-## Priority 0: CRITICAL - Add Value Assertions to 194 Parsing-Only Tests
+## Priority 1 - Phase 1: Add Value Assertions to 194 Parsing-Only SQL Tests
 
 ### Issue Discovery
 Comprehensive test audit reveals **61% of SQL tests (194/318) only validate SQL parsing, NOT computed values**. This is a systematic test quality issue across the entire codebase.
