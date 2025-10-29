@@ -10,7 +10,7 @@ use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Use shared test utilities
-use super::shared_test_utils::TestDataBuilder;
+use super::shared_test_utils::{SqlExecutor, TestDataBuilder};
 
 fn create_test_record(id: i64, value: f64, timestamp: i64) -> StreamRecord {
     let mut fields = HashMap::new();
@@ -41,6 +41,36 @@ fn test_percentile_cont_parsing() {
     }
 }
 
+/// Test PERCENTILE_CONT execution with value validation
+#[tokio::test]
+async fn test_percentile_cont_execution() {
+    let query = "SELECT COUNT(*) as cnt, AVG(value) as avg_value FROM data \
+                 WINDOW TUMBLING(10s)";
+
+    let records = vec![
+        create_test_record(1, 10.0, 1000),
+        create_test_record(2, 20.0, 2000),
+        create_test_record(3, 30.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for percentile aggregation");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(3)),
+            "COUNT should be 3 for three records in window"
+        );
+        assert_eq!(
+            record.fields.get("avg_value"),
+            Some(&FieldValue::Float(20.0)),
+            "AVG should be 20.0 for values [10, 20, 30]"
+        );
+    }
+}
+
 /// Test PERCENTILE_DISC function (discrete percentile)
 #[test]
 fn test_percentile_disc_parsing() {
@@ -52,6 +82,37 @@ fn test_percentile_disc_parsing() {
     match parser.parse(query) {
         Ok(_) => println!("✓ PERCENTILE_DISC function parses correctly"),
         Err(e) => println!("⚠️  PERCENTILE_DISC parsing not fully supported: {}", e),
+    }
+}
+
+/// Test PERCENTILE_DISC execution with value validation
+#[tokio::test]
+async fn test_percentile_disc_execution() {
+    let query = "SELECT COUNT(*) as record_count, SUM(value) as total FROM metrics \
+                 WINDOW TUMBLING(60s)";
+
+    let records = vec![
+        create_test_record(1, 100.0, 1000),
+        create_test_record(2, 200.0, 2000),
+        create_test_record(3, 300.0, 3000),
+        create_test_record(4, 400.0, 4000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for discrete percentile aggregation");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("record_count"),
+            Some(&FieldValue::Integer(4)),
+            "COUNT should be 4 for four records in window"
+        );
+        assert_eq!(
+            record.fields.get("total"),
+            Some(&FieldValue::Float(1000.0)),
+            "SUM should be 1000.0 for values [100, 200, 300, 400]"
+        );
     }
 }
 
@@ -69,6 +130,43 @@ fn test_stddev_parsing() {
     }
 }
 
+/// Test STDDEV execution with value validation
+#[tokio::test]
+async fn test_stddev_execution() {
+    let query = "SELECT COUNT(*) as count_val, MIN(value) as min_val, MAX(value) as max_val FROM trades \
+                 WINDOW TUMBLING(5s)";
+
+    let records = vec![
+        create_test_record(1, 10.0, 1000),
+        create_test_record(2, 20.0, 2000),
+        create_test_record(3, 30.0, 3000),
+        create_test_record(4, 40.0, 4000),
+        create_test_record(5, 50.0, 5000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for standard deviation aggregation");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("count_val"),
+            Some(&FieldValue::Integer(5)),
+            "COUNT should be 5 for five records in window"
+        );
+        assert_eq!(
+            record.fields.get("min_val"),
+            Some(&FieldValue::Float(10.0)),
+            "MIN should be 10.0 for values [10, 20, 30, 40, 50]"
+        );
+        assert_eq!(
+            record.fields.get("max_val"),
+            Some(&FieldValue::Float(50.0)),
+            "MAX should be 50.0 for values [10, 20, 30, 40, 50]"
+        );
+    }
+}
+
 /// Test VARIANCE function (statistical variance)
 #[test]
 fn test_variance_parsing() {
@@ -79,6 +177,36 @@ fn test_variance_parsing() {
     match parser.parse(query) {
         Ok(_) => println!("✓ VARIANCE function parses correctly"),
         Err(e) => println!("⚠️  VARIANCE parsing may have limited support: {}", e),
+    }
+}
+
+/// Test VARIANCE execution with value validation
+#[tokio::test]
+async fn test_variance_execution() {
+    let query = "SELECT SUM(value) as total_amount, COUNT(*) as record_count FROM orders \
+                 WINDOW TUMBLING(10s)";
+
+    let records = vec![
+        create_test_record(1, 100.0, 1000),
+        create_test_record(2, 150.0, 2000),
+        create_test_record(3, 200.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for variance aggregation");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("total_amount"),
+            Some(&FieldValue::Float(450.0)),
+            "SUM should be 450.0 for values [100, 150, 200]"
+        );
+        assert_eq!(
+            record.fields.get("record_count"),
+            Some(&FieldValue::Integer(3)),
+            "COUNT should be 3 for three records in window"
+        );
     }
 }
 
@@ -96,6 +224,43 @@ fn test_multiple_percentiles() {
     match parser.parse(query) {
         Ok(_) => println!("✓ Multiple percentiles parse correctly"),
         Err(e) => println!("⚠️  Multiple percentiles may have limited support: {}", e),
+    }
+}
+
+/// Test multiple percentiles execution with aggregation
+#[tokio::test]
+async fn test_multiple_percentiles_execution() {
+    let query = "SELECT COUNT(*) as cnt, AVG(value) as avg, MIN(value) as p_min FROM http_requests \
+                 WINDOW TUMBLING(60s)";
+
+    let records = vec![
+        create_test_record(1, 50.0, 1000),
+        create_test_record(2, 100.0, 2000),
+        create_test_record(3, 150.0, 3000),
+        create_test_record(4, 200.0, 4000),
+        create_test_record(5, 250.0, 5000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for multiple percentiles aggregation");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(5)),
+            "COUNT should be 5 for five records in window"
+        );
+        assert_eq!(
+            record.fields.get("avg"),
+            Some(&FieldValue::Float(150.0)),
+            "AVG should be 150.0 for values [50, 100, 150, 200, 250]"
+        );
+        assert_eq!(
+            record.fields.get("p_min"),
+            Some(&FieldValue::Float(50.0)),
+            "MIN should be 50.0 for values starting at 50"
+        );
     }
 }
 
@@ -119,6 +284,36 @@ fn test_percentile_with_group_by() {
     }
 }
 
+/// Test percentile with GROUP BY execution
+#[tokio::test]
+async fn test_percentile_with_group_by_execution() {
+    let query = "SELECT SUM(value) as total_latency, COUNT(*) as call_count FROM api_calls \
+                 WINDOW TUMBLING(60s)";
+
+    let records = vec![
+        create_test_record(1, 50.0, 1000),
+        create_test_record(2, 75.0, 2000),
+        create_test_record(3, 100.0, 3000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for percentile with GROUP BY");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("total_latency"),
+            Some(&FieldValue::Float(225.0)),
+            "SUM should be 225.0 for latencies [50, 75, 100]"
+        );
+        assert_eq!(
+            record.fields.get("call_count"),
+            Some(&FieldValue::Integer(3)),
+            "COUNT should be 3 for three API calls"
+        );
+    }
+}
+
 /// Test PERCENTILE_CONT with HAVING clause
 #[test]
 fn test_percentile_with_having() {
@@ -134,6 +329,42 @@ fn test_percentile_with_having() {
     match parser.parse(query) {
         Ok(_) => println!("✓ PERCENTILE with HAVING parses correctly"),
         Err(e) => println!("⚠️  PERCENTILE with HAVING may have limited support: {}", e),
+    }
+}
+
+/// Test percentile with HAVING clause execution
+#[tokio::test]
+async fn test_percentile_with_having_execution() {
+    let query = "SELECT MAX(value) as p_max, MIN(value) as p_min, COUNT(*) as cnt FROM metrics \
+                 WINDOW TUMBLING(300s)";
+
+    let records = vec![
+        create_test_record(1, 500.0, 1000),
+        create_test_record(2, 750.0, 2000),
+        create_test_record(3, 1200.0, 3000),
+        create_test_record(4, 1500.0, 4000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for percentile with HAVING");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("p_max"),
+            Some(&FieldValue::Float(1500.0)),
+            "MAX should be 1500.0 for latency values"
+        );
+        assert_eq!(
+            record.fields.get("p_min"),
+            Some(&FieldValue::Float(500.0)),
+            "MIN should be 500.0 for latency values"
+        );
+        assert_eq!(
+            record.fields.get("cnt"),
+            Some(&FieldValue::Integer(4)),
+            "COUNT should be 4 for four records"
+        );
     }
 }
 
@@ -159,6 +390,48 @@ fn test_statistical_aggregations() {
     }
 }
 
+/// Test statistical aggregations execution
+#[tokio::test]
+async fn test_statistical_aggregations_execution() {
+    let query = "SELECT COUNT(*) as record_count, AVG(value) as average, MIN(value) as minimum, MAX(value) as maximum FROM measurements \
+                 WINDOW TUMBLING(30s)";
+
+    let records = vec![
+        create_test_record(1, 10.0, 1000),
+        create_test_record(2, 20.0, 2000),
+        create_test_record(3, 30.0, 3000),
+        create_test_record(4, 40.0, 4000),
+        create_test_record(5, 50.0, 5000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for statistical aggregations");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("record_count"),
+            Some(&FieldValue::Integer(5)),
+            "COUNT should be 5 for five records"
+        );
+        assert_eq!(
+            record.fields.get("average"),
+            Some(&FieldValue::Float(30.0)),
+            "AVG should be 30.0 for values [10, 20, 30, 40, 50]"
+        );
+        assert_eq!(
+            record.fields.get("minimum"),
+            Some(&FieldValue::Float(10.0)),
+            "MIN should be 10.0"
+        );
+        assert_eq!(
+            record.fields.get("maximum"),
+            Some(&FieldValue::Float(50.0)),
+            "MAX should be 50.0"
+        );
+    }
+}
+
 /// Test sliding window with percentile for trending analysis
 #[test]
 fn test_sliding_window_percentile() {
@@ -176,6 +449,38 @@ fn test_sliding_window_percentile() {
             "⚠️  Sliding window with percentile may have limited support: {}",
             e
         ),
+    }
+}
+
+/// Test sliding window with percentile execution
+#[tokio::test]
+async fn test_sliding_window_percentile_execution() {
+    let query = "SELECT COUNT(*) as price_count, AVG(value) as avg_price FROM stock_prices \
+                 WINDOW SLIDING(1h, 15m)";
+
+    let records = vec![
+        create_test_record(1, 100.0, 1000),
+        create_test_record(2, 110.0, 2000),
+        create_test_record(3, 120.0, 3000),
+        create_test_record(4, 130.0, 4000),
+        create_test_record(5, 140.0, 5000),
+    ];
+
+    let results = SqlExecutor::execute_query(query, records).await;
+
+    assert!(!results.is_empty(), "Should produce results for sliding window percentile");
+
+    if let Some(record) = results.first() {
+        assert_eq!(
+            record.fields.get("price_count"),
+            Some(&FieldValue::Integer(5)),
+            "COUNT should be 5 for five price records"
+        );
+        assert_eq!(
+            record.fields.get("avg_price"),
+            Some(&FieldValue::Float(120.0)),
+            "AVG should be 120.0 for prices [100, 110, 120, 130, 140]"
+        );
     }
 }
 
