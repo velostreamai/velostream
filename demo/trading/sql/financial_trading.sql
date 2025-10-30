@@ -141,17 +141,52 @@ SELECT
     event_time,
     
     -- Phase 3: Advanced window functions
-    LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) as prev_price,
-    LEAD(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) as next_price,
-    
+    LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    ) as prev_price,
+    LEAD(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    ) as next_price,
+
     -- Price change calculations with exact precision
-    (price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-     LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) * 100 as price_change_pct,
-    
+    (price - LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    )) /
+     LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    ) * 100 as price_change_pct,
+
     -- Ranking functions for price movements
-    RANK() OVER (PARTITION BY symbol ORDER BY price DESC) as price_rank,
-    DENSE_RANK() OVER (PARTITION BY symbol ORDER BY volume DESC) as volume_rank,
-    PERCENT_RANK() OVER (PARTITION BY symbol ORDER BY price) as price_percentile,
+    RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY symbol
+            ORDER BY price DESC
+    ) as price_rank,
+    DENSE_RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY symbol
+            ORDER BY volume DESC
+    ) as volume_rank,
+    PERCENT_RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY symbol
+            ORDER BY price
+    ) as price_percentile,
     
     -- Statistical measures over sliding window
     STDDEV(price) OVER (
@@ -162,25 +197,36 @@ SELECT
     
     -- Detect significant movements
     CASE
-        WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) /
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 5.0 THEN 'SIGNIFICANT'
-        WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 2.0 THEN 'MODERATE'
+        WHEN ABS((price - LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) /
+                 LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) * 100 > 5.0 THEN 'SIGNIFICANT'
+        WHEN ABS((price - LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) /
+                 LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) * 100 > 2.0 THEN 'MODERATE'
         ELSE 'NORMAL'
     END as movement_severity,
     
     NOW() as detection_time
 FROM market_data_ts
--- Phase 3: Complex HAVING clause with multiple conditions
--- RELAXED for demo: allowing more events to flow through for testing
-GROUP BY
-    symbol
-    -- Phase 1B: Event-time based windowing (1-minute tumbling windows)
-    WINDOW TUMBLING (1m)
-    HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
-       AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
-       AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
-EMIT CHANGES
+
 WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
