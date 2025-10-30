@@ -301,17 +301,55 @@ async fn test_group_by_window_having_arithmetic_expressions() {
     // Results should include AAPL and MSFT (both have 2+ trades and meet other conditions)
     // Should NOT include GOOGL (only 1 trade, fails COUNT(*) > 1)
     if !results.is_empty() {
-        // Validate that HAVING filtering worked - we should get results for symbols passing the conditions
-        // This test validates that complex AND expressions in HAVING clauses work correctly
-        let results_str = results
-            .iter()
-            .map(|r| r.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            results_str.len() > 0,
-            "HAVING clause should produce filtered results"
-        );
+        // Validate comprehensive conditions for each result
+        for (idx, result) in results.iter().enumerate() {
+            // Verify trade_count is > 1 (COUNT(*) > 1)
+            if let Some(FieldValue::Integer(count)) = result.fields.get("trade_count") {
+                assert!(
+                    *count > 1,
+                    "Result {}: trade_count should be > 1, got {}",
+                    idx,
+                    count
+                );
+            }
+
+            // Verify avg_price is > 100.0 (AVG(price) > 100.0)
+            if let Some(avg_price_field) = result.fields.get("avg_price") {
+                let avg_price = match avg_price_field {
+                    FieldValue::Float(v) => Some(*v),
+                    FieldValue::ScaledInteger(v, _) => Some(*v as f64),
+                    _ => None,
+                };
+
+                if let Some(val) = avg_price {
+                    assert!(
+                        val > 100.0,
+                        "Result {}: avg_price should be > 100.0, got {}",
+                        idx,
+                        val
+                    );
+                }
+            }
+
+            // Verify max_volume is > 500.0 (MAX(volume) > 500.0)
+            if let Some(max_volume_field) = result.fields.get("max_volume") {
+                let max_volume = match max_volume_field {
+                    FieldValue::Float(v) => Some(*v),
+                    FieldValue::ScaledInteger(v, _) => Some(*v as f64),
+                    FieldValue::Integer(v) => Some(*v as f64),
+                    _ => None,
+                };
+
+                if let Some(val) = max_volume {
+                    assert!(
+                        val > 500.0,
+                        "Result {}: max_volume should be > 500.0, got {}",
+                        idx,
+                        val
+                    );
+                }
+            }
+        }
         println!(
             "✓ GROUP BY → WINDOW → HAVING with arithmetic expressions successful with {} results",
             results.len()
@@ -343,17 +381,41 @@ async fn test_group_by_window_having_arithmetic_with_multipliers() {
     // Should only have AAPL (avg_volume=700 > 500)
     // MSFT should be filtered (avg_volume=150, not > 500)
     if !results.is_empty() {
-        // Validate that HAVING with aggregate functions filtered correctly
-        let results_str = results
-            .iter()
-            .map(|r| r.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            results_str.len() > 0,
-            "HAVING clause with aggregate functions should produce filtered results"
+        // Validate comprehensive conditions for each result
+        for (idx, result) in results.iter().enumerate() {
+            // Verify cnt >= 2 (COUNT(*) >= 2)
+            if let Some(FieldValue::Integer(count)) = result.fields.get("cnt") {
+                assert!(
+                    *count >= 2,
+                    "Result {}: cnt should be >= 2, got {}",
+                    idx,
+                    count
+                );
+            }
+
+            // Verify avg_vol > 500.0 (AVG(volume) > 500.0)
+            if let Some(avg_vol_field) = result.fields.get("avg_vol") {
+                let avg_vol = match avg_vol_field {
+                    FieldValue::Float(v) => Some(*v),
+                    FieldValue::ScaledInteger(v, _) => Some(*v as f64),
+                    FieldValue::Integer(v) => Some(*v as f64),
+                    _ => None,
+                };
+
+                if let Some(val) = avg_vol {
+                    assert!(
+                        val > 500.0,
+                        "Result {}: avg_vol should be > 500.0, got {}",
+                        idx,
+                        val
+                    );
+                }
+            }
+        }
+        println!(
+            "✓ GROUP BY → WINDOW → HAVING with aggregate arithmetic multipliers successful with {} results",
+            results.len()
         );
-        println!("✓ GROUP BY → WINDOW → HAVING with aggregate arithmetic multipliers successful with {} results", results.len());
     } else {
         // Empty results are acceptable - the window might not have closed yet
         println!("⚠️  No results from windowed HAVING query (window may not have closed)");

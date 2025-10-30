@@ -552,9 +552,9 @@ fn test_window_functions_with_config() {
         SELECT
             symbol,
             price,
-            LAG(price, 1) OVER (PARTITION BY symbol ORDER BY timestamp) as prev_price,
-            LEAD(price, 1) OVER (PARTITION BY symbol ORDER BY timestamp) as next_price,
-            ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp) as row_num
+            LAG(price, 1) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol ORDER BY timestamp) as prev_price,
+            LEAD(price, 1) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol ORDER BY timestamp) as next_price,
+            ROW_NUMBER() OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol ORDER BY timestamp) as row_num
         FROM trades_source
         WITH (
             'trades_source.type' = 'kafka_source',

@@ -4,9 +4,9 @@
 //! Phase 1B enhancement: Added watermark-aware processing for proper event-time semantics.
 
 use super::{ProcessorContext, WindowContext};
-use crate::velostream::sql::ast::{RowsEmitMode, WindowSpec};
+use crate::velostream::sql::ast::WindowSpec;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
-use crate::velostream::sql::execution::internal::{GroupAccumulator, RowsWindowState, WindowState};
+use crate::velostream::sql::execution::internal::{GroupAccumulator, WindowState};
 use crate::velostream::sql::execution::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::execution::watermarks::{LateDataAction, LateDataStrategy};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
@@ -350,11 +350,6 @@ impl WindowProcessor {
                         (first_time, last_time)
                     }
                 }
-                WindowSpec::Rows { buffer_size, .. } => {
-                    // Phase 8.2: ROWS windows - bounds based on buffer count
-                    let current_buffer_len = buffer.len() as i64;
-                    (0, current_buffer_len.min(*buffer_size as i64))
-                }
             };
 
             // Filter buffer for current window
@@ -474,11 +469,6 @@ impl WindowProcessor {
                     );
                     (first_time, last_time)
                 }
-            }
-            WindowSpec::Rows { buffer_size, .. } => {
-                // Phase 8.2: ROWS windows - bounds based on buffer count
-                let current_buffer_len = buffer.len() as i64;
-                (0, current_buffer_len.min(*buffer_size as i64))
             }
         };
 
@@ -623,13 +613,6 @@ impl WindowProcessor {
                 // Session windows use enhanced logic with proper gap detection and overflow safety
                 // For now, emit after we have at least one record to enable basic functionality
                 !window_state.buffer.is_empty()
-            }
-            WindowSpec::Rows { emit_mode, .. } => {
-                // Phase 8.2: ROWS windows - emit based on mode (EveryRecord or BufferFull)
-                match emit_mode {
-                    RowsEmitMode::EveryRecord => !window_state.buffer.is_empty(),
-                    RowsEmitMode::BufferFull => false, // Will be implemented in buffer mgmt
-                }
             }
         }
     }
@@ -1340,10 +1323,6 @@ impl WindowProcessor {
             WindowSpec::Session { .. } => {
                 window_state.last_emit = event_time;
             }
-            WindowSpec::Rows { .. } => {
-                // Phase 8.2: ROWS windows - track last emit time
-                window_state.last_emit = event_time;
-            }
         }
     }
 
@@ -1362,10 +1341,6 @@ impl WindowProcessor {
                 window_context.last_emit = event_time;
             }
             WindowSpec::Session { .. } => {
-                window_context.last_emit = event_time;
-            }
-            WindowSpec::Rows { .. } => {
-                // Phase 8.2: ROWS windows - track last emit time
                 window_context.last_emit = event_time;
             }
         }
@@ -1427,10 +1402,6 @@ impl WindowProcessor {
                     };
                     record_time >= cutoff_time
                 });
-            }
-            WindowSpec::Rows { .. } => {
-                // Phase 8.2: ROWS windows - buffer size is managed by window state
-                // No special cleanup needed
             }
             WindowSpec::Session { gap, .. } => {
                 // For session windows, we would need more complex logic
@@ -1516,10 +1487,6 @@ impl WindowProcessor {
                     };
                     record_time >= cutoff_time
                 });
-            }
-            WindowSpec::Rows { .. } => {
-                // Phase 8.2: ROWS windows - buffer size is managed by window state
-                // No special cleanup needed
             }
             WindowSpec::Session { gap, .. } => {
                 // For session windows, we would need more complex logic
@@ -2429,7 +2396,6 @@ impl WindowProcessor {
                 // Emit when watermark passes the slide boundary
                 global_watermark_millis >= next_slide
             }
-            WindowSpec::Rows { .. } => false,
             WindowSpec::Session { .. } => {
                 // Session windows emit when watermark indicates session timeout
                 // For now, use legacy logic (Phase 3 will enhance session window watermarks)
@@ -2558,192 +2524,10 @@ impl WindowProcessor {
                 let slide_end = window_start_time + slide_ms;
                 global_watermark >= slide_end
             }
-            WindowSpec::Rows { .. } => false,
             WindowSpec::Session { .. } => {
                 // Session windows use different logic
                 true
             }
-        }
-    }
-
-    /// Process a ROWS WINDOW query with bounded buffer and gap detection
-    ///
-    /// Phase 8.2.2: Handles row-count-based windowing with:
-    /// - Fixed-size bounded buffer (VecDeque)
-    /// - Optional partition-by key calculation
-    /// - Time-gap detection for session boundaries
-    /// - Flexible emission strategies (EveryRecord vs BufferFull)
-    pub fn process_rows_window(
-        query_id: &str,
-        query: &StreamingQuery,
-        record: &StreamRecord,
-        context: &mut ProcessorContext,
-        window_spec: &WindowSpec,
-    ) -> Result<Option<StreamRecord>, SqlError> {
-        // Extract ROWS window parameters - match on WindowSpec::Rows to get fields
-        match window_spec {
-            WindowSpec::Rows {
-                buffer_size,
-                partition_by: partition_by_opt,
-                order_by: order_by_opt,
-                window_frame: _,
-                emit_mode,
-                time_gap,
-                expire_after: _,
-            } => {
-                // Calculate partition key for this record
-                // partition_by_opt is &Vec<Expr>, wrap in Some for function signature
-                let partition_key =
-                    Self::calculate_rows_partition_key(record, Some(partition_by_opt))?;
-
-                // Create state key from query ID and partition
-                let state_key = format!("rows_window:{}:{}", query_id, partition_key);
-
-                // Convert Duration to milliseconds for time gap
-                let time_gap_ms = time_gap.map(|d| d.as_millis() as i64);
-
-                // Get or create rows window state for this partition
-                let rows_state = context.get_or_create_rows_window_state(
-                    &state_key,
-                    *buffer_size,
-                    emit_mode.clone(),
-                    time_gap_ms,
-                    partition_key.clone(),
-                );
-
-                // Extract event time from record (prefer timestamp field or use system time)
-                let event_time = Self::extract_event_time_for_rows(record);
-
-                // Add record to buffer and check if it's full
-                let buffer_is_full = rows_state.add_record(record.clone(), event_time);
-
-                // Check if we should emit based on emission strategy
-                let should_emit = match emit_mode {
-                    RowsEmitMode::EveryRecord => true, // Always emit per-record
-                    RowsEmitMode::BufferFull => buffer_is_full, // Only when full
-                };
-
-                if should_emit {
-                    // Update emission tracking
-                    rows_state.update_emission(event_time);
-
-                    // Return the current record (window functions will process it with buffer context)
-                    Ok(Some(record.clone()))
-                } else {
-                    // Buffer record but don't emit yet
-                    Ok(None)
-                }
-            }
-            _ => {
-                return Err(SqlError::ExecutionError {
-                    message: "Expected ROWS window specification".to_string(),
-                    query: None,
-                })
-            }
-        }
-    }
-
-    /// Calculate partition key from PARTITION BY expressions
-    fn calculate_rows_partition_key(
-        record: &StreamRecord,
-        partition_by: Option<&Vec<crate::velostream::sql::ast::Expr>>,
-    ) -> Result<String, SqlError> {
-        match partition_by {
-            Some(exprs) => {
-                let keys: Result<Vec<String>, SqlError> = exprs
-                    .iter()
-                    .map(|expr| {
-                        let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
-                        Ok(format!("{:?}", value))
-                    })
-                    .collect();
-
-                Ok(keys?.join("|"))
-            }
-            None => Ok("__default__".to_string()),
-        }
-    }
-
-    /// Extract event time from record for rows window processing
-    /// Looks for timestamp field, falls back to current system time
-    fn extract_event_time_for_rows(record: &StreamRecord) -> i64 {
-        // Try to get event_time field first
-        if let Some(time_val) = record.get_field("event_time") {
-            if let FieldValue::Timestamp(ts) = time_val {
-                return ts.timestamp_millis();
-            }
-        }
-
-        // Try timestamp field
-        if let Some(time_val) = record.get_field("timestamp") {
-            if let FieldValue::Timestamp(ts) = time_val {
-                return ts.timestamp_millis();
-            }
-        }
-
-        // Fall back to current system time
-        chrono::Utc::now().timestamp_millis()
-    }
-
-    /// Compute RANK for current row within the window
-    /// RANK: 1, 2, 2, 4, 5 (with gaps)
-    fn compute_rank(
-        rows_state: &RowsWindowState,
-        current_row_index: usize,
-    ) -> Result<i64, SqlError> {
-        // Find the rank based on the ranking index
-        // Iterate through ranking_index to find which rank position this row is at
-        let mut rank = 1i64;
-        let mut row_count = 0;
-
-        for (_, indices) in &rows_state.ranking_index {
-            for idx in indices {
-                row_count += 1;
-                if *idx == current_row_index {
-                    return Ok(rank);
-                }
-                // Check if we've processed all rows in this rank level
-            }
-            rank += indices.len() as i64;
-        }
-
-        Ok(rank)
-    }
-
-    /// Compute DENSE_RANK for current row within the window
-    /// DENSE_RANK: 1, 2, 2, 3, 4 (no gaps)
-    fn compute_dense_rank(
-        rows_state: &RowsWindowState,
-        current_row_index: usize,
-    ) -> Result<i64, SqlError> {
-        // Find the dense rank based on the ranking index
-        let mut dense_rank = 1i64;
-
-        for (_, indices) in &rows_state.ranking_index {
-            for idx in indices {
-                if *idx == current_row_index {
-                    return Ok(dense_rank);
-                }
-            }
-            dense_rank += 1;
-        }
-
-        Ok(dense_rank)
-    }
-
-    /// Compute PERCENT_RANK for current row within the window
-    /// PERCENT_RANK: (rank - 1) / (total_rows - 1), returns 0.0 to 1.0
-    fn compute_percent_rank(
-        rows_state: &RowsWindowState,
-        current_row_index: usize,
-    ) -> Result<f64, SqlError> {
-        let rank = Self::compute_rank(rows_state, current_row_index)?;
-        let total_rows = rows_state.row_buffer.len() as i64;
-
-        if total_rows <= 1 {
-            Ok(0.0)
-        } else {
-            Ok((rank as f64 - 1.0) / (total_rows as f64 - 1.0))
         }
     }
 }
@@ -2758,7 +2542,6 @@ impl WindowSpecExt for WindowSpec {
         match self {
             WindowSpec::Tumbling { time_column, .. } => time_column.as_deref(),
             WindowSpec::Sliding { time_column, .. } => time_column.as_deref(),
-            WindowSpec::Rows { .. } => None, // Rows windows don't have explicit time columns
             WindowSpec::Session { .. } => None, // Session windows don't have explicit time columns
         }
     }

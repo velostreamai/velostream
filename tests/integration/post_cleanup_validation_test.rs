@@ -100,7 +100,7 @@ async fn test_window_functions_functionality() {
 
     let parser = StreamingSqlParser::new();
     let query = parser
-        .parse("SELECT amount, ROW_NUMBER() OVER (ORDER BY amount DESC) as rank FROM transactions")
+        .parse("SELECT amount, ROW_NUMBER() OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY amount DESC) as rank FROM transactions")
         .unwrap();
 
     let mut fields = HashMap::new();

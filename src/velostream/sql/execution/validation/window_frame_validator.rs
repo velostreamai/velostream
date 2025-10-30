@@ -294,6 +294,7 @@ mod tests {
     #[test]
     fn test_range_requires_order_by() {
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![], // No ORDER BY
             window_frame: Some(WindowFrame {
@@ -309,6 +310,7 @@ mod tests {
     #[test]
     fn test_rows_without_order_by_ok() {
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![], // No ORDER BY
             window_frame: Some(WindowFrame {

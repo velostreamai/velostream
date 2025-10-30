@@ -19,10 +19,10 @@ use velostream::velostream::sql::execution::types::FieldValue;
 #[tokio::test]
 async fn test_basic_emit_changes_count() {
     let sql = r#"
-        SELECT 
+        SELECT
             customer_id,
             COUNT(*) as order_count
-        FROM orders 
+        FROM orders
         GROUP BY customer_id
         EMIT CHANGES
     "#;
@@ -39,21 +39,28 @@ async fn test_basic_emit_changes_count() {
     WindowTestAssertions::assert_has_results(&results, "Basic EMIT CHANGES COUNT");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES COUNT");
 
-    // Should emit results for each state change
-    println!(
-        "EMIT CHANGES COUNT test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT values in results
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(
+                *count > 0,
+                "COUNT should be positive for EMIT CHANGES, got {}",
+                count
+            );
+        } else {
+            panic!("order_count field missing or not Integer");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with SUM aggregation
 #[tokio::test]
 async fn test_emit_changes_sum() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             SUM(amount) as total_amount
-        FROM orders 
+        FROM orders
         GROUP BY status
         EMIT CHANGES
     "#;
@@ -70,24 +77,28 @@ async fn test_emit_changes_sum() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES SUM");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES SUM");
 
-    println!(
-        "EMIT CHANGES SUM test completed with {} results",
-        results.len()
-    );
+    // Validate SUM values in results
+    for result in &results {
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM amount should be positive, got {}", total);
+        } else {
+            panic!("total_amount field missing or not Float");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with multiple basic aggregations
 #[tokio::test]
 async fn test_emit_changes_multiple_aggregations() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             SUM(amount) as total_amount,
             AVG(amount) as avg_amount,
             MIN(amount) as min_amount,
             MAX(amount) as max_amount
-        FROM orders 
+        FROM orders
         GROUP BY status
         EMIT CHANGES
     "#;
@@ -104,10 +115,38 @@ async fn test_emit_changes_multiple_aggregations() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Multiple Aggregations");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Multiple Aggregations");
 
-    println!(
-        "EMIT CHANGES Multiple Aggregations test completed with {} results",
-        results.len()
-    );
+    // Validate all aggregation values
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM should be positive");
+        } else {
+            panic!("total_amount missing or not Float");
+        }
+
+        if let Some(FieldValue::Float(avg)) = result.fields.get("avg_amount") {
+            assert!(*avg > 0.0, "AVG should be positive");
+        } else {
+            panic!("avg_amount missing or not Float");
+        }
+
+        if let Some(FieldValue::Float(min)) = result.fields.get("min_amount") {
+            assert!(*min > 0.0, "MIN should be positive");
+        } else {
+            panic!("min_amount missing or not Float");
+        }
+
+        if let Some(FieldValue::Float(max)) = result.fields.get("max_amount") {
+            assert!(*max > 0.0, "MAX should be positive");
+        } else {
+            panic!("max_amount missing or not Float");
+        }
+    }
 }
 
 #[tokio::test]
@@ -135,10 +174,20 @@ async fn test_emit_changes_tumbling_window() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Tumbling Window");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
 
-    println!(
-        "EMIT CHANGES Tumbling Window test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT and SUM values
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM should be positive");
+        } else {
+            panic!("total_amount missing or not Float");
+        }
+    }
 }
 
 #[tokio::test]
@@ -166,10 +215,20 @@ async fn test_emit_changes_sliding_window() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Sliding Window");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Sliding Window");
 
-    println!(
-        "EMIT CHANGES Sliding Window test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT and SUM values
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM should be positive");
+        } else {
+            panic!("total_amount missing or not Float");
+        }
+    }
 }
 
 #[tokio::test]
@@ -198,21 +257,31 @@ async fn test_emit_changes_late_data() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Late Data");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Late Data");
 
-    println!(
-        "EMIT CHANGES Late Data test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT and SUM values
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM should be positive");
+        } else {
+            panic!("total_amount missing or not Float");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with rapid state changes
 #[tokio::test]
 async fn test_emit_changes_rapid_updates() {
     let sql = r#"
-        SELECT 
+        SELECT
             customer_id,
             COUNT(*) as order_count,
             MAX(amount) as max_amount
-        FROM orders 
+        FROM orders
         GROUP BY customer_id
         EMIT CHANGES
     "#;
@@ -231,21 +300,31 @@ async fn test_emit_changes_rapid_updates() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Rapid Updates");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Rapid Updates");
 
-    println!(
-        "EMIT CHANGES Rapid Updates test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT and MAX values
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        if let Some(FieldValue::Float(max)) = result.fields.get("max_amount") {
+            assert!(*max > 0.0, "MAX should be positive");
+        } else {
+            panic!("max_amount missing or not Float");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with null values
 #[tokio::test]
 async fn test_emit_changes_null_handling() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             SUM(amount) as total_amount
-        FROM orders 
+        FROM orders
         GROUP BY status
         EMIT CHANGES
     "#;
@@ -281,21 +360,25 @@ async fn test_emit_changes_null_handling() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Null Handling");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Null Handling");
 
-    println!(
-        "EMIT CHANGES Null Handling test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT values exist (SUM may be NULL for null amount records)
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+    }
 }
 
 /// Test EMIT CHANGES without GROUP BY (should work with implicit grouping)
 #[tokio::test]
 async fn test_emit_changes_no_groupby() {
     let sql = r#"
-        SELECT 
+        SELECT
             COUNT(*) as total_orders,
             SUM(amount) as total_amount,
             AVG(amount) as avg_amount
-        FROM orders 
+        FROM orders
         EMIT CHANGES
     "#;
 
@@ -311,23 +394,39 @@ async fn test_emit_changes_no_groupby() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES No GROUP BY");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES No GROUP BY");
 
-    println!(
-        "EMIT CHANGES No GROUP BY test completed with {} results",
-        results.len()
-    );
+    // Validate all aggregation values
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("total_orders") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("total_orders missing or not Integer");
+        }
+
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM should be positive");
+        } else {
+            panic!("total_amount missing or not Float");
+        }
+
+        if let Some(FieldValue::Float(avg)) = result.fields.get("avg_amount") {
+            assert!(*avg > 0.0, "AVG should be positive");
+        } else {
+            panic!("avg_amount missing or not Float");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with extreme values
 #[tokio::test]
 async fn test_emit_changes_extreme_values() {
     let sql = r#"
-        SELECT 
+        SELECT
             customer_id,
             COUNT(*) as order_count,
             SUM(amount) as total_amount,
             MAX(amount) as max_amount,
             MIN(amount) as min_amount
-        FROM orders 
+        FROM orders
         GROUP BY customer_id
         EMIT CHANGES
     "#;
@@ -344,8 +443,12 @@ async fn test_emit_changes_extreme_values() {
     WindowTestAssertions::assert_has_results(&results, "EMIT CHANGES Extreme Values");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Extreme Values");
 
-    println!(
-        "EMIT CHANGES Extreme Values test completed with {} results",
-        results.len()
-    );
+    // Validate COUNT exists and is positive (SUM/MAX/MIN may be negative or zero)
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+    }
 }

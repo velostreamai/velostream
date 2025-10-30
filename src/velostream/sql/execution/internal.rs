@@ -5,10 +5,11 @@
 //! GROUP BY state management, execution messaging, and query lifecycle management.
 
 use super::types::{FieldValue, StreamRecord};
-use crate::velostream::sql::ast::{Expr, SelectField, StreamingQuery, WindowSpec};
+use crate::velostream::sql::ast::{Expr, RowsEmitMode, SelectField, StreamingQuery, WindowSpec};
 use hyperloglogplus::{HyperLogLog, HyperLogLogPlus};
 use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::time::Duration;
 
 /// State for tracking GROUP BY aggregations across streaming records
 ///
@@ -590,5 +591,217 @@ impl WindowState {
     /// Update the last emit timestamp
     pub fn update_last_emit(&mut self, timestamp: i64) {
         self.last_emit = timestamp;
+    }
+}
+
+/// State management for ROWS WINDOW BUFFER processing
+///
+/// This structure maintains efficient state for row-based window operations with:
+/// - VecDeque for fixed-size sliding window buffer
+/// - BTreeMap for ranking/ordering indices (timestamps, sequence numbers)
+/// - Support for time-gap detection for session-aware semantics
+/// - Emission strategy tracking (EveryRecord vs BufferFull)
+///
+/// Phase 8.2: Core state infrastructure for ROWS WINDOW processing
+#[derive(Debug, Clone)]
+pub struct RowsWindowState {
+    /// Unique identifier for this window state (query_id + partition combination)
+    pub state_id: String,
+
+    /// VecDeque buffer storing up to buffer_size records
+    /// Provides O(1) insertion at tail and removal at head for sliding windows
+    pub row_buffer: VecDeque<StreamRecord>,
+
+    /// Maximum number of rows to maintain in the buffer
+    pub buffer_size: u32,
+
+    /// BTreeMap for ranking/ordering index (timestamp -> record index)
+    /// Enables efficient RANK/DENSE_RANK/PERCENT_RANK computation
+    pub ranking_index: BTreeMap<i64, Vec<usize>>,
+
+    /// Emission strategy for this window
+    pub emit_mode: RowsEmitMode,
+
+    /// Last emission timestamp (millis since epoch)
+    pub last_emit_timestamp: i64,
+
+    /// Count of records processed in current window
+    pub record_count: u32,
+
+    /// Record count at last emission (for BufferFull tracking)
+    pub last_emit_count: u32,
+
+    /// Optional time gap threshold (millis) for session-aware gap detection
+    pub time_gap: Option<i64>,
+
+    /// Last observed timestamp (for gap detection)
+    pub last_timestamp: Option<i64>,
+
+    /// Whether a gap was detected (session boundary)
+    pub gap_detected: bool,
+
+    /// Partition key values (empty if no PARTITION BY)
+    pub partition_values: Vec<String>,
+
+    /// Row expiration mode: controls when rows are automatically removed from buffer
+    /// None = Default (1 minute inactivity timeout)
+    /// Some(RowExpirationMode::Never) = Keep rows indefinitely until buffer fills
+    /// Some(RowExpirationMode::InactivityGap(duration)) = Custom timeout duration
+    pub expire_after: Option<Duration>,
+
+    /// Last time a record was added to this window buffer (for inactivity detection)
+    pub last_activity_timestamp: Option<i64>,
+}
+
+impl RowsWindowState {
+    /// Create a new RowsWindowState with the given configuration
+    pub fn new(
+        state_id: String,
+        buffer_size: u32,
+        emit_mode: RowsEmitMode,
+        time_gap: Option<i64>,
+    ) -> Self {
+        Self {
+            state_id,
+            row_buffer: VecDeque::with_capacity(buffer_size as usize),
+            buffer_size,
+            ranking_index: BTreeMap::new(),
+            emit_mode,
+            last_emit_timestamp: 0,
+            record_count: 0,
+            last_emit_count: 0,
+            time_gap,
+            last_timestamp: None,
+            gap_detected: false,
+            partition_values: Vec::new(),
+            expire_after: None,
+            last_activity_timestamp: None,
+        }
+    }
+
+    /// Add a record to the window buffer, maintaining size constraints
+    ///
+    /// Returns true if buffer is full and ready for emission
+    pub fn add_record(&mut self, record: StreamRecord, timestamp: i64) -> bool {
+        // Check for time gap (session boundary)
+        if let Some(gap_threshold) = self.time_gap {
+            if let Some(last_ts) = self.last_timestamp {
+                if timestamp - last_ts > gap_threshold {
+                    self.gap_detected = true;
+                }
+            }
+        }
+        self.last_timestamp = Some(timestamp);
+
+        // Add to buffer, remove oldest if at capacity
+        if self.row_buffer.len() >= self.buffer_size as usize {
+            self.row_buffer.pop_front();
+        }
+        self.row_buffer.push_back(record);
+        self.record_count += 1;
+
+        // Update ranking index
+        let index = (self.row_buffer.len() - 1) as usize;
+        self.ranking_index
+            .entry(timestamp)
+            .or_insert_with(Vec::new)
+            .push(index);
+
+        // Check if buffer is full
+        self.row_buffer.len() >= self.buffer_size as usize
+    }
+
+    /// Check if window should emit based on emission strategy
+    pub fn should_emit(&self) -> bool {
+        match self.emit_mode {
+            RowsEmitMode::EveryRecord => true, // Emit on every record
+            RowsEmitMode::BufferFull => {
+                // Emit only when buffer reaches capacity
+                self.row_buffer.len() >= self.buffer_size as usize
+            }
+        }
+    }
+
+    /// Check if a session gap was detected (for time-based partitioning)
+    pub fn has_time_gap(&self) -> bool {
+        self.gap_detected
+    }
+
+    /// Clear the gap detection flag after emission
+    pub fn clear_gap_flag(&mut self) {
+        self.gap_detected = false;
+    }
+
+    /// Get current buffer size
+    pub fn buffer_len(&self) -> usize {
+        self.row_buffer.len()
+    }
+
+    /// Clear the buffer and reset state for next window
+    pub fn clear(&mut self) {
+        self.row_buffer.clear();
+        self.ranking_index.clear();
+        self.record_count = 0;
+        self.gap_detected = false;
+    }
+
+    /// Update last emission tracking
+    pub fn update_emission(&mut self, timestamp: i64) {
+        self.last_emit_timestamp = timestamp;
+        self.last_emit_count = self.record_count;
+    }
+
+    /// Get reference to the row buffer
+    pub fn rows(&self) -> &VecDeque<StreamRecord> {
+        &self.row_buffer
+    }
+
+    /// Get mutable reference to the row buffer
+    pub fn rows_mut(&mut self) -> &mut VecDeque<StreamRecord> {
+        &mut self.row_buffer
+    }
+
+    /// Get reference to the ranking index
+    pub fn index(&self) -> &BTreeMap<i64, Vec<usize>> {
+        &self.ranking_index
+    }
+
+    /// Check and apply row expiration based on inactivity gap
+    ///
+    /// Returns true if rows were expired (buffer was cleared)
+    pub fn check_and_apply_expiration(&mut self, current_timestamp: i64) -> bool {
+        // If expiration is set to Never, don't expire any rows
+        if self.expire_after == Some(Duration::from_secs(0)) {
+            // Note: Never is represented as a zero duration sentinel value
+            self.last_activity_timestamp = Some(current_timestamp);
+            return false;
+        }
+
+        // Calculate the inactivity threshold in milliseconds
+        let timeout_ms = match self.expire_after {
+            Some(duration) => duration.as_millis() as i64,
+            None => 60_000, // Default: 1 minute (60,000 ms)
+        };
+
+        // Check if we have a last activity timestamp
+        if let Some(last_ts) = self.last_activity_timestamp {
+            let gap = current_timestamp - last_ts;
+
+            // If gap exceeds threshold, expire all rows
+            if gap > timeout_ms {
+                self.clear();
+                self.last_activity_timestamp = Some(current_timestamp);
+                return true;
+            }
+        }
+
+        // Update the last activity timestamp for future checks
+        self.last_activity_timestamp = Some(current_timestamp);
+        false
+    }
+
+    /// Set the expiration timeout for this window
+    pub fn set_expire_after(&mut self, duration: Option<Duration>) {
+        self.expire_after = duration;
     }
 }

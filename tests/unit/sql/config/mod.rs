@@ -1,6 +1,8 @@
 pub mod batch_with_clause_test;
 pub mod builder_test;
+pub mod config_file_comprehensive_test;
 pub mod config_file_debug_phases_test;
+pub mod config_file_test;
 pub mod connection_string_test;
 pub mod data_source_config_test;
 pub mod environment_test;

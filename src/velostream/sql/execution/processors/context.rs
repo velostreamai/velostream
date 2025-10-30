@@ -2,7 +2,8 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use crate::velostream::schema::{Schema, StreamHandle};
-use crate::velostream::sql::execution::internal::WindowState;
+use crate::velostream::sql::ast::RowsEmitMode;
+use crate::velostream::sql::execution::internal::{RowsWindowState, WindowState};
 use crate::velostream::sql::execution::performance::PerformanceMonitor;
 use crate::velostream::sql::execution::watermarks::WatermarkManager;
 use crate::velostream::sql::execution::StreamRecord;
@@ -94,6 +95,12 @@ pub struct ProcessorContext {
     /// This avoids expensive per-record validation across all datasources
     /// Maps query_id to true after first validation
     pub validated_select_queries: std::collections::HashSet<String>,
+
+    // === PHASE 8.2: ROWS WINDOW STATE MANAGEMENT ===
+    /// ROWS WINDOW states for bounded buffer windowing
+    /// Maps state_key (format: "rows_window:query_id:partition_key") to RowsWindowState
+    /// Used for maintaining per-partition row buffers with configurable emission strategies
+    pub rows_window_states: HashMap<String, RowsWindowState>,
 }
 
 /// Table reference with optional alias for SQL parsing and correlation
@@ -156,6 +163,7 @@ impl ProcessorContext {
             correlation_context: None,
             pending_results: HashMap::new(), // FR-079 Phase 4: Initialize result queue
             validated_select_queries: std::collections::HashSet::new(), // FR-078: Track validated SELECT queries
+            rows_window_states: HashMap::new(), // Phase 8.2: Initialize ROWS window state map
         }
     }
 
@@ -262,6 +270,46 @@ impl ProcessorContext {
     /// Clear dirty flags (called after persistence)
     pub fn clear_dirty_flags(&mut self) {
         self.dirty_window_states = 0;
+    }
+
+    // === PHASE 8.2: ROWS WINDOW STATE METHODS ===
+
+    /// Get or create a ROWS WINDOW state for a given state key
+    ///
+    /// Phase 8.3: Provides efficient per-partition ROWS window state management
+    /// - state_key: Unique identifier (format: "rows_window:query_id:partition_key")
+    /// - buffer_size: Maximum rows to keep in buffer
+    /// - emit_mode: Emission strategy (EveryRecord or BufferFull)
+    /// - time_gap: Optional gap threshold for time-gap detection
+    /// - partition_key: Partition key for this window state
+    pub fn get_or_create_rows_window_state(
+        &mut self,
+        state_key: &str,
+        buffer_size: u32,
+        emit_mode: RowsEmitMode,
+        time_gap: Option<i64>,
+        partition_key: String,
+    ) -> &mut RowsWindowState {
+        // Use entry API for efficient get-or-insert
+        self.rows_window_states
+            .entry(state_key.to_string())
+            .or_insert_with(|| {
+                let mut state =
+                    RowsWindowState::new(state_key.to_string(), buffer_size, emit_mode, time_gap);
+                // Set partition values after creation
+                state.partition_values = vec![partition_key];
+                state
+            })
+    }
+
+    /// Get ROWS WINDOW state if it exists (read-only)
+    pub fn get_rows_window_state(&self, state_key: &str) -> Option<&RowsWindowState> {
+        self.rows_window_states.get(state_key)
+    }
+
+    /// Clear all ROWS WINDOW states (for context reset)
+    pub fn clear_rows_window_states(&mut self) {
+        self.rows_window_states.clear();
     }
 
     // === HETEROGENEOUS DATA SOURCE METHODS ===

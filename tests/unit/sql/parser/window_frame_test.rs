@@ -495,13 +495,13 @@ fn test_common_window_functions() {
     let parser = StreamingSqlParser::new();
 
     let test_queries = vec![
-        "SELECT ROW_NUMBER() OVER (ORDER BY order_date) as row_num FROM orders",
-        "SELECT RANK() OVER (ORDER BY amount DESC) as rank FROM orders",
-        "SELECT DENSE_RANK() OVER (ORDER BY amount DESC) as dense_rank FROM orders",
-        "SELECT LAG(amount) OVER (ORDER BY order_date) as prev_amount FROM orders",
-        "SELECT LEAD(amount, 2) OVER (ORDER BY order_date) as next_amount FROM orders",
-        "SELECT FIRST_VALUE(amount) OVER (ORDER BY order_date) as first_amount FROM orders",
-        "SELECT LAST_VALUE(amount) OVER (ORDER BY order_date) as last_amount FROM orders",
+        "SELECT ROW_NUMBER() OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY order_date) as row_num FROM orders",
+        "SELECT RANK() OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY amount DESC) as rank FROM orders",
+        "SELECT DENSE_RANK() OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY amount DESC) as dense_rank FROM orders",
+        "SELECT LAG(amount) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY order_date) as prev_amount FROM orders",
+        "SELECT LEAD(amount, 2) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY order_date) as next_amount FROM orders",
+        "SELECT FIRST_VALUE(amount) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY order_date) as first_amount FROM orders",
+        "SELECT LAST_VALUE(amount) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY order_date) as last_amount FROM orders",
     ];
 
     for query in test_queries {

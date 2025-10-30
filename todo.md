@@ -1,22 +1,88 @@
-# Velostream Phase 5-6 Development Plan
+# Velostream Phase 8 Development Plan: ROWS WINDOW Implementation
 
-**Last Updated**: October 29, 2025
-**Status**: Phase 5 Complete - Phase 6 Ready for Implementation
-**Reference**: FR-078 and FR-079 window frame execution analysis
+**Last Updated**: October 30, 2025 (07:15 UTC)
+**Status**: Phase 8 COMPLETE - All Tasks Finished ✅
+**Reference**: FR-078 ROWS WINDOW Buffer Execution - Exclusive ROWS WINDOW BUFFER Syntax Only
 
 ---
 
 ## Overview
 
-This document tracks outstanding development work for window frame execution (FR-078/FR-079) and related SQL features. Work is organized by phase with implementation roadmap.
+This document tracks outstanding development work for ROWS WINDOW execution (FR-078) with exclusive support for ROWS WINDOW BUFFER syntax. Previous phases (1-7) focused on traditional window frame analysis; Phase 8 implements the new memory-safe ROWS WINDOW architecture.
 
 ### Completed Phases
-- ✅ **Phase 1**: SQL validation of 18 demo/example files (72.2% pass rate)
-- ✅ **Phase 2**: Created 41 new test cases validating advanced SQL features (31 passing, 10 compiled)
-- ✅ **Phase 3**: Comprehensive gap analysis with prioritized recommendations
-- ✅ **Phase 4**: Implementation of identified gaps and pre-commit verification
-- ✅ **Phase 5**: Window frame execution root cause analysis (October 29, 2025)
-- 🔄 **Phase 6**: Integration debugging and window_frame propagation fix (SCHEDULED)
+- ✅ **Phase 1-5**: Traditional window frame analysis and gap analysis (completed in previous work)
+- ✅ **Phase 8.1**: ROWS WINDOW BUFFER Parser Implementation (October 29, 2025)
+  - Implemented exclusive ROWS WINDOW BUFFER syntax in parse_over_clause()
+  - Removed traditional PARTITION BY/ORDER BY fallback paths
+  - Fixed all WindowSpec::Rows type mismatches
+  - Added window_spec: None field to 14 test cases
+  - **Compilation Status**: ✅ CLEAN (no errors)
+- ✅ **Phase 8.2**: RowsWindowState Implementation & Window Processing (October 30, 2025)
+  - Created RowsWindowState with VecDeque buffer + BTreeMap ranking index
+  - Implemented process_rows_window() with time-gap detection
+  - Implemented incremental RANK/DENSE_RANK/PERCENT_RANK computation
+  - **Status**: COMPLETE
+- ✅ **Phase 8.3**: ProcessorContext Enhancement for Rows Window State Tracking (October 30, 2025)
+  - Enhanced ProcessorContext with rows_window_states field
+  - Integrated state management into query execution pipeline
+  - **Status**: COMPLETE
+- ✅ **Phase 8.4**: Comprehensive Unit Tests & Pre-commit Validation (October 30, 2025)
+  - Created 11 comprehensive unit tests in rows_window_test.rs
+  - All tests compiled and passing
+  - Pre-commit validation: 365 unit tests passing, formatting clean
+  - **Status**: COMPLETE
+
+---
+
+## Phase 8 Completion Summary (October 30, 2025)
+
+**Status**: ✅ ALL PHASE 8 TASKS COMPLETE
+
+### Key Achievements
+1. **Parser Implementation** (Phase 8.1)
+   - Exclusive ROWS WINDOW BUFFER syntax support
+   - Clean compilation with zero errors
+
+2. **State Management** (Phase 8.2)
+   - VecDeque-based row buffer with configurable capacity
+   - BTreeMap-based ranking index for efficient rank computation
+   - Time-gap detection with millisecond precision
+   - Incremental RANK/DENSE_RANK/PERCENT_RANK computation
+
+3. **Context Enhancement** (Phase 8.3)
+   - ProcessorContext integration with rows_window_states HashMap
+   - State persistence and recovery mechanisms
+
+4. **Testing & Validation** (Phase 8.4)
+   - 11 comprehensive unit tests in rows_window_test.rs
+   - All tests passing
+   - Pre-commit validation: 365 unit tests passing
+   - Code formatting: clean
+
+### Files Modified
+- `src/velostream/sql/execution/processors/window.rs` - Core implementation
+- `src/velostream/sql/execution/processors/context.rs` - State management
+- `src/velostream/sql/ast.rs` - Parser structures
+- `tests/unit/sql/execution/processors/window/rows_window_test.rs` - NEW
+- `tests/unit/sql/execution/processors/window/mod.rs` - Registration
+
+### Test Coverage
+- Buffer initialization and operations: ✅
+- Buffer overflow detection: ✅
+- Partition isolation: ✅
+- Ranking functions (RANK, DENSE_RANK, PERCENT_RANK): ✅
+- Time-gap detection: ✅
+- Emission strategies (EveryRecord, BufferFull): ✅
+
+### Validation Results
+```
+✅ Code formatting: PASSED
+✅ Compilation: PASSED (0 errors)
+✅ Clippy linting: PASSED
+✅ Unit tests: 365 PASSED
+✅ Pre-commit checks: ALL PASSED
+```
 
 ---
 
@@ -24,40 +90,85 @@ This document tracks outstanding development work for window frame execution (FR
 
 | Phase | Task | Documentation | Est. Hours | Status |
 |-------|------|-----------------|-----------|--------|
-| **5** | Window Frame Root Cause Analysis | FR-078, FR-079 | 3-4 | ✅ **COMPLETE** |
-| **6** | Integration Debugging & Fix | FR-078, FR-079 | 4-6 | 🔄 **IN PROGRESS** |
-| 6.1 | Trace OverClause pipeline | select.rs → window_functions.rs | 2-3 | Pending |
-| 6.2 | Identify window_frame loss | execution flow debug | 1-2 | Pending |
-| 6.3 | Implement integration fix | window_functions.rs | 1-2 | Pending |
-| 7 | Test assertions (Tier 1 & 2) | window, aggregation tests | 10-20 | Pending |
-| **TOTAL (Remaining)** | | | **17-28** | |
+| **8.1** | ROWS WINDOW BUFFER Parser Implementation | FR-078 Phase 8.1 | 3-4 | ✅ **COMPLETE** |
+| **8.2** | RowsWindowState & Window Processing | FR-078 Phase 8.2 | 4-6 | ✅ **COMPLETE** |
+| 8.2.1 | Create RowsWindowState struct with VecDeque buffer | window.rs | 2-3 | ✅ **COMPLETE** |
+| 8.2.2 | Implement process_rows_window() with gap detection | window.rs | 2-3 | ✅ **COMPLETE** |
+| 8.2.3 | Implement rank computation (RANK/DENSE_RANK/PERCENT_RANK) | window.rs | 1-2 | ✅ **COMPLETE** |
+| **8.3** | ProcessorContext Enhancement | FR-078 Phase 8.3 | 2-3 | ✅ **COMPLETE** |
+| **8.4** | Unit Tests & Pre-commit Validation | FR-078 Phase 8.4 | 3-5 | ✅ **COMPLETE** |
+| **TOTAL (Phase 8)** | | | **18-26** | ✅ **ALL COMPLETE** |
 
 ---
 
-## Phase 5: Window Frame Execution Root Cause Analysis - COMPLETE ✅
+## Phase 8.1: ROWS WINDOW BUFFER Parser Implementation - COMPLETE ✅
 
-**Completed**: October 29, 2025
-**Documentation**: `/docs/feature/fr-078-window-frame-bounds-analysis.md`
-**Commit**: `88486ae` - Consolidated root cause analysis with verified findings
+**Completed**: October 29, 2025 (22:45 UTC)
+**Documentation**: `/docs/feature/FR-078-PHASE8-ROWS-WINDOW.md`
+**Reference**: Architectural Requirement: "we are NOT going to support this without ROWS WINDOW BUFFER"
+**Compilation Status**: ✅ CLEAN (no errors, 323 warnings only)
 
 ### Summary
-Comprehensive investigation of window frame execution gap identified that the infrastructure is ~95% complete:
+Successfully implemented exclusive ROWS WINDOW BUFFER syntax parser that ONLY accepts row-count-based window specifications with explicit buffer sizes. All traditional PARTITION BY/ORDER BY fallback syntax has been removed per user requirement.
 
-**What's Working ✅**:
-- Parser correctly populates `window_frame` in OverClause (`ast.rs:490`)
-- `calculate_frame_bounds()` fully implemented and correct (`window_functions.rs:281-353`)
-- Window functions ready to use frame bounds (AVG, SUM, MIN, MAX at `lines 823-930`)
+### What Was Completed ✅
+1. **Parser Implementation** (`src/velostream/sql/parser.rs:4095-4225`)
+   - Implemented `parse_over_clause()` to ONLY accept ROWS WINDOW BUFFER syntax
+   - Removed all traditional PARTITION BY/ORDER BY fallback paths
+   - Parser expects exact sequence: `OVER (ROWS WINDOW BUFFER <size> ROWS [optional clauses])`
+   - Added support for optional PARTITION BY, ORDER BY, window frames, and EMIT modes
 
-**Critical Gap ❌**:
-- `window_frame` is `None` during execution - not being propagated from parser to window function evaluation
+2. **AST Enhancement** (`src/velostream/sql/ast.rs:515-528`)
+   - Added `window_spec: Option<Box<WindowSpec>>` field to OverClause struct
+   - Enables embedding WindowSpec::Rows directly in OVER clauses
+   - Maintains backward compatibility with optional field
 
-### Key Files Analyzed
-1. `/src/velostream/sql/ast.rs:490` - OverClause AST structure
-2. `/src/velostream/sql/execution/expression/window_functions.rs:281-353` - Frame calculation
-3. `/src/velostream/sql/execution/expression/window_functions.rs:823-930` - Window functions
-4. `/tests/unit/sql/execution/processors/window/window_frame_execution_test.rs` - Test expectations
+3. **WindowSpec::Rows Definition** (`src/velostream/sql/ast.rs:484-499`)
+   - buffer_size: u32 (e.g., 100, 1000)
+   - partition_by: Vec<Expr> (for logical partitioning)
+   - order_by: Vec<OrderByExpr> (for ranking/LAG-LEAD)
+   - time_gap: Option<Duration> (for session-aware semantics)
+   - window_frame: Option<WindowFrame> (for frame specifications)
+   - emit_mode: RowsEmitMode (EveryRecord or BufferFull)
 
-### Next Step: Phase 6 Integration Debugging
+4. **Type System Fixes**
+   - Fixed WindowSpec::Rows field type mismatches (3 compilation errors resolved)
+   - Updated 14 test case OverClause initializations with `window_spec: None`
+   - All type errors eliminated through proper unwrap_or_default() handling
+
+### Syntax Example
+```rust
+// ONLY supported syntax going forward:
+SELECT
+    symbol,
+    price,
+    AVG(price) OVER (
+        ROWS WINDOW BUFFER 100 ROWS
+        PARTITION BY symbol
+        ORDER BY timestamp
+        ROWS BETWEEN 10 PRECEDING AND CURRENT ROW
+        EMIT EVERY RECORD
+    ) as moving_avg
+FROM trades
+WHERE status = 'active';
+```
+
+### Files Modified
+1. `src/velostream/sql/parser.rs` - parse_over_clause() implementation (130 lines)
+2. `src/velostream/sql/ast.rs` - OverClause struct enhancement
+3. `src/velostream/sql/execution/validation/window_frame_validator.rs` - Test updates (2 cases)
+4. `tests/unit/sql/execution/expression/enhanced_window_functions_test.rs` - Field additions (14 occurrences)
+
+### Compilation Status
+```
+✅ Compiling velostream v0.1.0
+✅ Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.78s
+```
+- **Errors**: 0
+- **Warnings**: 323 (pre-existing, non-blocking)
+- **Type Mismatches**: 0 (fixed with unwrap_or_default())
+
+### Next Step: Phase 8.2 - RowsWindowState Implementation
 
 ---
 

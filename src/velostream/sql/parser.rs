@@ -2985,7 +2985,8 @@ impl<'a> TokenParser<'a> {
             }
             _ => {
                 return Err(SqlError::ParseError {
-                    message: "Expected window type (TUMBLING, SLIDING, or SESSION)".to_string(),
+                    message: "Expected window type (TUMBLING, SLIDING, SESSION, or HOPPING)"
+                        .to_string(),
                     position: None,
                 });
             }
@@ -4091,22 +4092,39 @@ impl<'a> TokenParser<'a> {
         }
     }
 
-    /// Parse OVER clause for window functions
-    /// Syntax: OVER (PARTITION BY col1, col2 ORDER BY col3 ROWS BETWEEN ... AND ...)
+    /// Parse OVER clause for window functions (Phase 8 - ROWS WINDOW BUFFER only)
+    /// Syntax: OVER (ROWS WINDOW BUFFER 100 ROWS [PARTITION BY ...] [ORDER BY ...] [ROWS BETWEEN ...] [EMIT ...])
+    /// NOTE: All window functions must use ROWS WINDOW syntax with explicit BUFFER size
     fn parse_over_clause(&mut self) -> Result<OverClause, SqlError> {
         self.expect(TokenType::LeftParen)?;
 
-        let mut partition_by = Vec::new();
-        let mut order_by = Vec::new();
-        let mut window_frame = None;
+        // Phase 8: ROWS WINDOW BUFFER is the ONLY supported OVER clause syntax
+        self.expect_keyword("ROWS")?;
+        self.expect_keyword("WINDOW")?;
+        self.expect_keyword("BUFFER")?;
 
-        // Parse PARTITION BY clause (optional)
+        // Parse buffer size
+        let buffer_size_token = self.expect(TokenType::Number)?;
+        let buffer_size: u32 =
+            buffer_size_token
+                .value
+                .parse()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid buffer size: {}", buffer_size_token.value),
+                    position: None,
+                })?;
+
+        // Expect ROWS keyword after buffer size
+        self.expect_keyword("ROWS")?;
+
+        // Parse optional PARTITION BY
+        let mut partition_by = None;
         if self.current_token().value.to_uppercase() == "PARTITION" {
             self.advance(); // consume PARTITION
             self.expect_keyword("BY")?;
 
+            let mut exprs = Vec::new();
             loop {
-                // Parse column name, which could be "column" or "table.column"
                 let column_name = self.expect(TokenType::Identifier)?.value;
                 let column = if self.current_token().token_type == TokenType::Dot {
                     self.advance(); // consume dot
@@ -4115,7 +4133,7 @@ impl<'a> TokenParser<'a> {
                 } else {
                     column_name
                 };
-                partition_by.push(column);
+                exprs.push(Expr::Column(column));
 
                 if self.current_token().token_type == TokenType::Comma {
                     self.advance();
@@ -4123,15 +4141,17 @@ impl<'a> TokenParser<'a> {
                     break;
                 }
             }
+            partition_by = Some(exprs);
         }
 
-        // Parse ORDER BY clause (optional)
+        // Parse optional ORDER BY
+        let mut order_by = None;
         if self.current_token().token_type == TokenType::OrderBy {
             self.advance(); // consume ORDER
             self.expect_keyword("BY")?;
 
+            let mut order_specs = Vec::new();
             loop {
-                // Parse column name, which could be "column" or "table.column"
                 let column_name = self.expect(TokenType::Identifier)?.value;
                 let full_column_name = if self.current_token().token_type == TokenType::Dot {
                     self.advance(); // consume dot
@@ -4151,7 +4171,7 @@ impl<'a> TokenParser<'a> {
                     OrderDirection::Asc // Default
                 };
 
-                order_by.push(OrderByExpr { expr, direction });
+                order_specs.push(OrderByExpr { expr, direction });
 
                 if self.current_token().token_type == TokenType::Comma {
                     self.advance();
@@ -4159,21 +4179,115 @@ impl<'a> TokenParser<'a> {
                     break;
                 }
             }
+            order_by = Some(order_specs);
         }
 
-        // Parse window frame clause (optional)
-        if self.current_token().token_type == TokenType::Rows
+        // Parse optional window frame (ROWS BETWEEN)
+        let window_frame = if self.current_token().token_type == TokenType::Rows
             || self.current_token().token_type == TokenType::Range
         {
-            window_frame = Some(self.parse_window_frame()?);
-        }
+            Some(self.parse_window_frame()?)
+        } else {
+            None
+        };
+
+        // Parse optional EMIT mode
+        let emit_mode = if self.current_token().value.to_uppercase() == "EMIT" {
+            self.advance(); // consume EMIT
+            if self.current_token().value.to_uppercase() == "EVERY" {
+                self.advance(); // consume EVERY
+                self.expect_keyword("RECORD")?;
+                RowsEmitMode::EveryRecord
+            } else if self.current_token().value.to_uppercase() == "ON" {
+                self.advance(); // consume ON
+                self.expect_keyword("BUFFER")?;
+                self.expect_keyword("FULL")?;
+                RowsEmitMode::BufferFull
+            } else {
+                RowsEmitMode::EveryRecord
+            }
+        } else {
+            RowsEmitMode::EveryRecord // Default
+        };
+
+        // Parse optional EXPIRE AFTER clause
+        let expire_after = if self.current_token().value.to_uppercase() == "EXPIRE" {
+            self.advance(); // consume EXPIRE
+            self.expect_keyword("AFTER")?;
+
+            if self.current_token().value.to_uppercase() == "NEVER" {
+                self.advance(); // consume NEVER
+                RowExpirationMode::Never
+            } else if self.current_token().value.to_uppercase() == "INTERVAL" {
+                self.advance(); // consume INTERVAL
+                let interval_str = self.expect(TokenType::String)?.value;
+                // Remove quotes from the string
+                let interval_value: u64 =
+                    interval_str
+                        .trim_matches('\'')
+                        .parse()
+                        .map_err(|_| SqlError::ParseError {
+                            message: format!("Invalid INTERVAL value: {}", interval_str),
+                            position: Some(self.current_token().position),
+                        })?;
+
+                // Parse the time unit (MINUTE, SECOND, HOUR)
+                let time_unit = self.current_token().value.to_uppercase();
+                let duration = match time_unit.as_str() {
+                    "SECOND" | "SECONDS" => {
+                        self.advance();
+                        Duration::from_secs(interval_value)
+                    }
+                    "MINUTE" | "MINUTES" => {
+                        self.advance();
+                        Duration::from_secs(interval_value * 60)
+                    }
+                    "HOUR" | "HOURS" => {
+                        self.advance();
+                        Duration::from_secs(interval_value * 3600)
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!(
+                                "Expected SECOND, MINUTE, or HOUR in EXPIRE AFTER INTERVAL, got: {}",
+                                time_unit
+                            ),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                };
+
+                // Expect INACTIVITY keyword
+                self.expect_keyword("INACTIVITY")?;
+                RowExpirationMode::InactivityGap(duration)
+            } else {
+                return Err(SqlError::ParseError {
+                    message: "Expected INTERVAL or NEVER in EXPIRE AFTER clause".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        } else {
+            RowExpirationMode::Default
+        };
 
         self.expect(TokenType::RightParen)?;
 
-        Ok(OverClause {
-            partition_by,
-            order_by,
+        // Create WindowSpec::Rows and return OverClause with it
+        let window_spec = WindowSpec::Rows {
+            buffer_size,
+            partition_by: partition_by.unwrap_or_default(),
+            order_by: order_by.unwrap_or_default(),
+            time_gap: None,
             window_frame,
+            emit_mode,
+            expire_after,
+        };
+
+        Ok(OverClause {
+            window_spec: Some(Box::new(window_spec)),
+            partition_by: Vec::new(),
+            order_by: Vec::new(),
+            window_frame: None,
         })
     }
 

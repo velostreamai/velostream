@@ -268,16 +268,29 @@ async fn test_sliding_window() {
     // Sliding windows should emit more frequently than tumbling
     assert!(
         results.len() >= 2,
-        "Should emit multiple sliding window results"
+        "Should emit at least 2 sliding window results (got {})",
+        results.len()
     );
 
-    // Each result should contain a count
+    // Each result should contain a valid count
+    let mut counts_found = 0;
     for result in &results {
-        assert!(result.fields.contains_key("order_count"));
+        assert!(
+            result.fields.contains_key("order_count"),
+            "Result should have order_count field"
+        );
         if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
-            assert!(*count > 0, "Count should be positive");
+            assert!(*count > 0, "Count should be positive, got {}", count);
+            counts_found += 1;
+        } else {
+            panic!("order_count should be Integer type");
         }
     }
+
+    assert!(
+        counts_found >= 2,
+        "Should have at least 2 results with valid counts"
+    );
 }
 
 #[tokio::test]
@@ -295,15 +308,46 @@ async fn test_session_window() {
 
     let results = execute_windowed_test(query, records).await.unwrap();
 
-    // Should emit when gaps are exceeded
-    assert!(results.len() >= 2, "Should emit session window results");
+    // Should emit when gaps are exceeded - expect at least 2 sessions
+    assert!(
+        results.len() >= 2,
+        "Should emit at least 2 session results (got {})",
+        results.len()
+    );
 
-    for result in &results {
-        assert!(result.fields.contains_key("order_count"));
+    // Validate each session has proper counts
+    let mut sessions_with_valid_counts = 0;
+    for (idx, result) in results.iter().enumerate() {
+        assert!(
+            result.fields.contains_key("order_count"),
+            "Result {} should have order_count field",
+            idx
+        );
+
         if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
-            assert!(*count > 0, "Session count should be positive");
+            assert!(
+                *count > 0,
+                "Session {} count should be positive, got {}",
+                idx,
+                count
+            );
+            // Verify counts make sense (we have 5 records total)
+            assert!(
+                *count <= 3,
+                "Session {} count should not exceed 3 (we have 5 records total), got {}",
+                idx,
+                count
+            );
+            sessions_with_valid_counts += 1;
+        } else {
+            panic!("Result {}: order_count should be Integer type", idx);
         }
     }
+
+    assert!(
+        sessions_with_valid_counts >= 2,
+        "Should have at least 2 sessions with valid counts"
+    );
 }
 
 #[tokio::test]

@@ -34,11 +34,11 @@ use velostream::velostream::sql::execution::types::FieldValue;
 #[tokio::test]
 async fn test_basic_emit_changes() {
     let sql = r#"
-        SELECT 
+        SELECT
             customer_id,
             status,
             COUNT(*) as order_count
-        FROM orders 
+        FROM orders
         GROUP BY customer_id, status
         EMIT CHANGES
     "#;
@@ -63,17 +63,33 @@ async fn test_basic_emit_changes() {
         3,
         "Basic EMIT CHANGES - multiple state changes",
     );
+
+    // Validate actual COUNT values in results
+    for result in &results {
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(
+                *count > 0,
+                "COUNT should be positive for EMIT CHANGES result, got {}",
+                count
+            );
+        } else {
+            panic!(
+                "order_count field missing or not Integer in result: {:?}",
+                result.fields
+            );
+        }
+    }
 }
 
 /// Test EMIT CHANGES with tumbling windows
 #[tokio::test]
 async fn test_emit_changes_with_tumbling_window() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             SUM(amount) as total_amount,
             COUNT(*) as order_count
-        FROM orders 
+        FROM orders
         GROUP BY status
         WINDOW TUMBLING(1m)
         EMIT CHANGES
@@ -91,6 +107,23 @@ async fn test_emit_changes_with_tumbling_window() {
 
     WindowTestAssertions::assert_result_count_min(&results, 2, "EMIT CHANGES with Tumbling Window");
     WindowTestAssertions::print_results(&results, "EMIT CHANGES Tumbling Window");
+
+    // Validate COUNT and SUM values in results
+    for result in &results {
+        // Verify order_count is a positive integer
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "COUNT should be positive, got {}", count);
+        } else {
+            panic!("order_count field missing or not Integer");
+        }
+
+        // Verify total_amount is a positive float
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "SUM amount should be positive, got {}", total);
+        } else {
+            panic!("total_amount field missing or not Float");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with tumbling windows

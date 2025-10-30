@@ -162,9 +162,43 @@ async fn test_windowed_execution_tumbling() {
         }
     }
 
-    // If we got immediate output, verify it
+    // If we got immediate output, verify it with strong assertions
     if let Ok(output_record) = output {
-        assert!(output_record.fields.contains_key("total_amount"));
+        assert!(
+            output_record.fields.contains_key("total_amount"),
+            "Output should have total_amount field"
+        );
+
+        // Validate the SUM aggregation value
+        match output_record.fields.get("total_amount") {
+            Some(FieldValue::Float(total)) => {
+                assert!(
+                    *total > 0.0,
+                    "SUM of amounts should be positive, got {}",
+                    total
+                );
+                // Verify the sum is at least 299.99 from the first record
+                assert!(
+                    *total >= 299.99,
+                    "SUM should be at least 299.99 (first record amount), got {}",
+                    total
+                );
+            }
+            Some(FieldValue::ScaledInteger(val, scale)) => {
+                assert!(
+                    *val > 0,
+                    "ScaledInteger SUM should be positive, got {}",
+                    val
+                );
+            }
+            Some(other) => {
+                panic!(
+                    "total_amount should be Float or ScaledInteger, got {:?}",
+                    other
+                );
+            }
+            None => panic!("total_amount field is missing"),
+        }
     } else {
         println!("Window aggregation may be working but not emitting as expected");
         // For now, just verify the execution worked without panicking
@@ -219,15 +253,54 @@ async fn test_sliding_window_execution() {
     let result3 = engine.execute_with_record(&query, record3).await;
     assert!(result3.is_ok());
 
-    // Check that we get at least one output
-    let mut got_output = false;
+    // Check that we get at least one output with value assertions
+    let mut output_count = 0;
+    let mut avg_values = Vec::new();
+
     while let Ok(output) = rx.try_recv() {
-        got_output = true;
+        output_count += 1;
         println!("Sliding window output: {:?}", output);
+
+        // Validate avg_amount field exists and has correct type
+        assert!(
+            output.fields.contains_key("avg_amount"),
+            "Output should have avg_amount field"
+        );
+
+        match output.fields.get("avg_amount") {
+            Some(FieldValue::Float(avg)) => {
+                assert!(*avg > 0.0, "Average should be positive, got {}", avg);
+                // Average of 100, 200, 300 should be in range 100-300
+                assert!(
+                    *avg >= 100.0 && *avg <= 300.0,
+                    "Average should be within input range [100-300], got {}",
+                    avg
+                );
+                avg_values.push(*avg);
+            }
+            Some(FieldValue::ScaledInteger(val, _scale)) => {
+                assert!(
+                    *val > 0,
+                    "ScaledInteger AVG should be positive, got {}",
+                    val
+                );
+            }
+            Some(other) => {
+                panic!(
+                    "avg_amount should be Float or ScaledInteger, got {:?}",
+                    other
+                );
+            }
+            None => panic!("avg_amount field is missing from output"),
+        }
     }
 
-    // For now, just verify the execution worked without panicking
-    // Sliding windows may not emit immediately with small test data
+    println!(
+        "Sliding window test completed with {} outputs and {} average values",
+        output_count,
+        avg_values.len()
+    );
+    // Sliding windows may not emit immediately with small test data, but verify execution worked
 }
 
 #[tokio::test]
@@ -283,18 +356,58 @@ async fn test_session_window_execution() {
     let result4 = engine.execute_with_record(&query, record4).await;
     assert!(result4.is_ok());
 
-    // Check for any emitted results
+    // Check for any emitted results with comprehensive value assertions
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
         results.push(result);
     }
 
-    // For now, just verify execution works without overflow
-    // Session window implementation will be completed in Phase 3
     println!(
         "Session window test executed successfully with {} results",
         results.len()
     );
+
+    // If we have results, validate their values
+    for (idx, result) in results.iter().enumerate() {
+        assert!(
+            result.fields.contains_key("session_count"),
+            "Result {} should have session_count field",
+            idx
+        );
+
+        match result.fields.get("session_count") {
+            Some(FieldValue::Integer(count)) => {
+                assert!(
+                    *count > 0,
+                    "Session {} count should be positive, got {}",
+                    idx,
+                    count
+                );
+                // Session count should not exceed 4 (we had 4 records total)
+                assert!(
+                    *count <= 4,
+                    "Session {} count should not exceed 4, got {}",
+                    idx,
+                    count
+                );
+            }
+            Some(FieldValue::ScaledInteger(val, _scale)) => {
+                assert!(
+                    *val > 0,
+                    "Session {} ScaledInteger count should be positive, got {}",
+                    idx,
+                    val
+                );
+            }
+            Some(other) => {
+                panic!(
+                    "Result {}: session_count should be Integer or ScaledInteger, got {:?}",
+                    idx, other
+                );
+            }
+            None => panic!("Result {}: session_count field is missing", idx),
+        }
+    }
 }
 
 #[tokio::test]
@@ -389,9 +502,68 @@ async fn test_aggregation_functions() {
     // If we still don't have output, the window aggregation is working but not emitting
     // This is actually valid behavior for streaming windows that may buffer data
     if let Some(output_record) = output {
-        assert!(output_record.fields.contains_key("count"));
-        assert!(output_record.fields.contains_key("max_amount"));
-        assert!(output_record.fields.contains_key("min_amount"));
+        // Validate all three aggregation fields exist and have proper values
+        assert!(
+            output_record.fields.contains_key("count"),
+            "Output should have count field"
+        );
+        assert!(
+            output_record.fields.contains_key("max_amount"),
+            "Output should have max_amount field"
+        );
+        assert!(
+            output_record.fields.contains_key("min_amount"),
+            "Output should have min_amount field"
+        );
+
+        // Validate COUNT value
+        match output_record.fields.get("count") {
+            Some(FieldValue::Integer(cnt)) => {
+                assert!(*cnt > 0, "COUNT should be positive, got {}", cnt);
+                // We have at least 1 record in the first window
+                assert!(*cnt >= 1, "COUNT should be at least 1, got {}", cnt);
+            }
+            Some(other) => panic!("count should be Integer, got {:?}", other),
+            None => panic!("count field is missing"),
+        }
+
+        // Validate MAX and MIN values and their relationship
+        let max_val = match output_record.fields.get("max_amount") {
+            Some(FieldValue::Float(v)) => Some(*v),
+            Some(FieldValue::ScaledInteger(v, _scale)) => Some(*v as f64),
+            Some(other) => panic!(
+                "max_amount should be Float or ScaledInteger, got {:?}",
+                other
+            ),
+            None => panic!("max_amount field is missing"),
+        };
+
+        let min_val = match output_record.fields.get("min_amount") {
+            Some(FieldValue::Float(v)) => Some(*v),
+            Some(FieldValue::ScaledInteger(v, _scale)) => Some(*v as f64),
+            Some(other) => panic!(
+                "min_amount should be Float or ScaledInteger, got {:?}",
+                other
+            ),
+            None => panic!("min_amount field is missing"),
+        };
+
+        if let (Some(max), Some(min)) = (max_val, min_val) {
+            assert!(
+                max >= min,
+                "max_amount should be >= min_amount: max={}, min={}",
+                max,
+                min
+            );
+            // MAX of 299.99 should be at least 299.99
+            assert!(
+                max >= 299.99,
+                "max_amount should be at least 299.99 (first record), got {}",
+                max
+            );
+            // MIN should be positive
+            assert!(min >= 0.0, "min_amount should be non-negative, got {}", min);
+        }
     } else {
         // For now, just verify execution completed without errors
         // Window emission timing can be complex and may require more events

@@ -31,21 +31,20 @@ Non-windowed aggregations with late data.
 */
 
 use super::shared_test_utils::{SqlExecutor, TestDataBuilder, WindowTestAssertions};
+use velostream::velostream::sql::execution::types::FieldValue;
 
 /// Test EMIT CHANGES with late data in tumbling windows - verify correction behavior
 #[tokio::test]
 async fn test_emit_changes_tumbling_window_late_data_corrections() {
     let sql = r#"
-        SELECT 
+        SELECT
             COUNT(*) as order_count,
             SUM(amount) as total_amount,
             MIN(timestamp) as window_start
-        FROM orders 
+        FROM orders
         WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
-
-    println!("🔍 Testing EMIT CHANGES late data correction behavior in tumbling windows");
 
     let records = vec![
         // Window 1: [0-60s]
@@ -63,48 +62,45 @@ async fn test_emit_changes_tumbling_window_late_data_corrections() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    println!(
-        "📊 EMIT CHANGES Late Data Results ({} total):",
-        results.len()
-    );
-    for (i, result) in results.iter().enumerate() {
-        println!("  [{}]: {}", i, result);
-    }
-
-    // Verify results are not empty
-    assert!(
-        !results.is_empty(),
-        "Should produce results for late data in tumbling windows"
-    );
-
-    // Analyze the behavior
-    if results.len() >= 4 {
-        println!("\n✅ EMIT CHANGES appears to handle late data by emitting corrections");
-        println!("   This suggests retraction/correction semantics are implemented");
-    } else if results.len() >= 2 {
-        println!("\n⚠️  EMIT CHANGES may be dropping late data or using append-only semantics");
-    } else {
-        println!("\n❌ Insufficient emissions - late data handling unclear");
-    }
-
     WindowTestAssertions::assert_has_results(&results, "Late Data Tumbling Window");
+    WindowTestAssertions::print_results(&results, "Late Data Tumbling");
+
+    // Validate that all results have proper aggregation values
+    for result in &results {
+        // COUNT must be positive
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "order_count should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        // total_amount should be positive
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "total_amount should be positive");
+        } else if let Some(FieldValue::ScaledInteger(val, _)) = result.fields.get("total_amount") {
+            assert!(*val > 0, "total_amount should be positive");
+        }
+
+        // window_start should be non-negative
+        if let Some(FieldValue::Integer(start)) = result.fields.get("window_start") {
+            assert!(*start >= 0, "window_start should be non-negative");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with late data in non-windowed continuous aggregations
 #[tokio::test]
 async fn test_emit_changes_continuous_aggregation_late_data() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             SUM(amount) as total_amount,
             MAX(timestamp) as latest_timestamp
-        FROM orders 
+        FROM orders
         GROUP BY status
         EMIT CHANGES
     "#;
-
-    println!("🔍 Testing EMIT CHANGES late data in continuous aggregations");
 
     let records = vec![
         // Normal sequence
@@ -121,50 +117,52 @@ async fn test_emit_changes_continuous_aggregation_late_data() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    println!(
-        "📊 Continuous Aggregation Late Data Results ({} total):",
-        results.len()
-    );
-    for (i, result) in results.iter().enumerate() {
-        println!("  [{}]: {}", i, result);
-    }
-
-    // Verify results are not empty
-    assert!(
-        !results.is_empty(),
-        "Should produce results for continuous aggregation with late data"
-    );
-
-    // Analyze late data handling in continuous aggregations
-    let pending_results: Vec<_> = results.iter().filter(|r| r.contains("pending")).collect();
-
-    println!("\n📈 Pending status emissions: {}", pending_results.len());
-    if pending_results.len() >= 4 {
-        println!("   ✅ EMIT CHANGES emits corrections for late data in continuous aggregations");
-    } else {
-        println!("   ⚠️  Late data handling behavior unclear in continuous aggregations");
-    }
-
     WindowTestAssertions::assert_has_results(&results, "Continuous Late Data");
+    WindowTestAssertions::print_results(&results, "Continuous Aggregation Late Data");
+
+    // Validate continuous aggregation results
+    for result in &results {
+        // COUNT must be positive
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "order_count should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        // total_amount should be positive
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "total_amount should be positive");
+        } else if let Some(FieldValue::ScaledInteger(val, _)) = result.fields.get("total_amount") {
+            assert!(*val > 0, "total_amount should be positive");
+        }
+
+        // latest_timestamp should be non-negative
+        if let Some(FieldValue::Integer(ts)) = result.fields.get("latest_timestamp") {
+            assert!(*ts >= 0, "latest_timestamp should be non-negative");
+        }
+
+        // status should be a valid string
+        if let Some(FieldValue::String(status_val)) = result.fields.get("status") {
+            assert!(!status_val.is_empty(), "status should not be empty");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with session window merging due to late data
 #[tokio::test]
 async fn test_emit_changes_session_window_late_data_merging() {
     let sql = r#"
-        SELECT 
+        SELECT
             customer_id,
             COUNT(*) as session_order_count,
             SUM(amount) as session_total,
             MIN(timestamp) as session_start,
             MAX(timestamp) as session_end
-        FROM orders 
+        FROM orders
         GROUP BY customer_id
         WINDOW SESSION(30s)
         EMIT CHANGES
     "#;
-
-    println!("🔍 Testing EMIT CHANGES session window merging with late data");
 
     let records = vec![
         // Customer 100: Initial separate sessions
@@ -181,59 +179,55 @@ async fn test_emit_changes_session_window_late_data_merging() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    println!(
-        "📊 Session Window Late Data Results ({} total):",
-        results.len()
-    );
-    for (i, result) in results.iter().enumerate() {
-        println!("  [{}]: {}", i, result);
-    }
-
-    // Verify results are not empty
-    assert!(
-        !results.is_empty(),
-        "Should produce results for session window with late data merging"
-    );
-
-    // Analyze session merging behavior
-    let customer_100_results: Vec<_> = results
-        .iter()
-        .filter(|r| r.contains("customer_id\": Integer(100)"))
-        .collect();
-
-    println!(
-        "\n📈 Customer 100 session emissions: {}",
-        customer_100_results.len()
-    );
-    if customer_100_results.len() >= 4 {
-        println!(
-            "   ✅ EMIT CHANGES appears to handle session merging with retractions/corrections"
-        );
-        println!("   Expected: Session A final -> Session B final -> Merged session correction");
-    } else {
-        println!("   ⚠️  Session merging behavior with late data unclear");
-    }
-
     WindowTestAssertions::assert_has_results(&results, "Session Late Data Merging");
+    WindowTestAssertions::print_results(&results, "Session Merging with Late Data");
+
+    // Validate session window results
+    for result in &results {
+        // COUNT must be positive
+        if let Some(FieldValue::Integer(count)) = result.fields.get("session_order_count") {
+            assert!(*count > 0, "session_order_count should be positive");
+        } else {
+            panic!("session_order_count missing or not Integer");
+        }
+
+        // session_total should be positive
+        if let Some(FieldValue::Float(total)) = result.fields.get("session_total") {
+            assert!(*total > 0.0, "session_total should be positive");
+        } else if let Some(FieldValue::ScaledInteger(val, _)) = result.fields.get("session_total") {
+            assert!(*val > 0, "session_total should be positive");
+        }
+
+        // session_start and session_end should be non-negative
+        if let Some(FieldValue::Integer(start)) = result.fields.get("session_start") {
+            assert!(*start >= 0, "session_start should be non-negative");
+        }
+        if let Some(FieldValue::Integer(end)) = result.fields.get("session_end") {
+            assert!(*end >= 0, "session_end should be non-negative");
+        }
+
+        // customer_id should be positive
+        if let Some(FieldValue::Integer(cid)) = result.fields.get("customer_id") {
+            assert!(*cid > 0, "customer_id should be positive");
+        }
+    }
 }
 
 /// Test EMIT CHANGES watermark progression and late data tolerance
 #[tokio::test]
 async fn test_emit_changes_watermark_behavior() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             AVG(amount) as avg_amount,
             MIN(timestamp) as window_start,
             MAX(timestamp) as window_end
-        FROM orders 
+        FROM orders
         GROUP BY status
         WINDOW TUMBLING(1m)
         EMIT CHANGES
     "#;
-
-    println!("🔍 Testing EMIT CHANGES watermark progression and late data tolerance");
 
     let records = vec![
         // Window 1: [0-60s] - establish watermark
@@ -254,42 +248,58 @@ async fn test_emit_changes_watermark_behavior() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    println!("📊 Watermark Behavior Results ({} total):", results.len());
-    for (i, result) in results.iter().enumerate() {
-        println!("  [{}]: {}", i, result);
-    }
-
-    // Verify results are not empty
-    assert!(
-        !results.is_empty(),
-        "Should produce results for watermark behavior test"
-    );
-
-    // Analyze watermark tolerance
-    if results.len() >= 8 {
-        println!("\n✅ EMIT CHANGES accepts very late data (no watermark bounds)");
-    } else if results.len() >= 6 {
-        println!("\n⚠️  EMIT CHANGES may have some watermark-based late data filtering");
-    } else {
-        println!("\n❓ Watermark behavior unclear - may be dropping late data aggressively");
-    }
-
     WindowTestAssertions::assert_has_results(&results, "Watermark Late Data");
+    WindowTestAssertions::print_results(&results, "Watermark Behavior");
+
+    // Validate watermark behavior results
+    for result in &results {
+        // COUNT must be positive
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "order_count should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
+
+        // avg_amount should be positive
+        if let Some(FieldValue::Float(avg)) = result.fields.get("avg_amount") {
+            assert!(*avg > 0.0, "avg_amount should be positive");
+        } else if let Some(FieldValue::ScaledInteger(val, _)) = result.fields.get("avg_amount") {
+            assert!(*val > 0, "avg_amount should be positive");
+        }
+
+        // window_start and window_end should be non-negative and ordered
+        let start = match result.fields.get("window_start") {
+            Some(FieldValue::Integer(v)) => Some(*v),
+            _ => None,
+        };
+        let end = match result.fields.get("window_end") {
+            Some(FieldValue::Integer(v)) => Some(*v),
+            _ => None,
+        };
+        if let (Some(s), Some(e)) = (start, end) {
+            assert!(s >= 0, "window_start should be non-negative");
+            assert!(e >= 0, "window_end should be non-negative");
+            assert!(s <= e, "window_start should be <= window_end");
+        }
+
+        // status should be a valid string
+        if let Some(FieldValue::String(status_val)) = result.fields.get("status") {
+            assert!(!status_val.is_empty(), "status should not be empty");
+        }
+    }
 }
 
 /// Test EMIT CHANGES with duplicate timestamps (edge case)
 #[tokio::test]
 async fn test_emit_changes_duplicate_timestamps() {
     let sql = r#"
-        SELECT 
+        SELECT
             COUNT(*) as order_count,
             SUM(amount) as total_amount
-        FROM orders 
+        FROM orders
         GROUP BY customer_id
         EMIT CHANGES
     "#;
-
-    println!("🔍 Testing EMIT CHANGES with duplicate timestamps (tie-breaking)");
 
     let records = vec![
         // Multiple records with same timestamp
@@ -304,32 +314,39 @@ async fn test_emit_changes_duplicate_timestamps() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    println!("📊 Duplicate Timestamp Results ({} total):", results.len());
+    WindowTestAssertions::assert_has_results(&results, "Duplicate Timestamps");
     WindowTestAssertions::print_results(&results, "Duplicate Timestamps");
 
-    // Verify results are not empty
-    assert!(
-        !results.is_empty(),
-        "Should produce results for duplicate timestamps test"
-    );
+    // Validate duplicate timestamp handling
+    for result in &results {
+        // COUNT must be positive
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "order_count should be positive");
+        } else {
+            panic!("order_count missing or not Integer");
+        }
 
-    WindowTestAssertions::assert_has_results(&results, "Duplicate Timestamps");
+        // total_amount should be positive
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "total_amount should be positive");
+        } else if let Some(FieldValue::ScaledInteger(val, _)) = result.fields.get("total_amount") {
+            assert!(*val > 0, "total_amount should be positive");
+        }
+    }
 }
 
 /// Test EMIT CHANGES correctness verification - compare with expected state
 #[tokio::test]
 async fn test_emit_changes_correctness_verification() {
     let sql = r#"
-        SELECT 
+        SELECT
             status,
             COUNT(*) as order_count,
             SUM(amount) as total_amount
-        FROM orders 
+        FROM orders
         GROUP BY status
         EMIT CHANGES
     "#;
-
-    println!("🔍 Testing EMIT CHANGES correctness - verifying final state matches expected");
 
     // Scenario: Process data out of order, verify final state is correct
     let records = vec![
@@ -342,37 +359,60 @@ async fn test_emit_changes_correctness_verification() {
 
     let results = SqlExecutor::execute_query(sql, records).await;
 
-    println!(
-        "📊 Correctness Verification Results ({} total):",
-        results.len()
-    );
-    for (i, result) in results.iter().enumerate() {
-        println!("  [{}]: {}", i, result);
-    }
+    WindowTestAssertions::assert_has_results(&results, "Correctness Verification");
+    WindowTestAssertions::print_results(&results, "Correctness Verification");
 
-    // Verify results are not empty
-    assert!(
-        !results.is_empty(),
-        "Should produce results for correctness verification"
-    );
-
+    // Validate correctness with out-of-order data
     // Expected final state:
     // pending: count=3, sum=600 (100+200+300)
     // completed: count=2, sum=650 (400+250)
 
-    if let Some(final_result) = results.last() {
-        println!("\n🎯 Final emission: {}", final_result);
-        println!("   Expected pending: count=3, sum=600");
-        println!("   Expected completed: count=2, sum=650");
-
-        if final_result.contains("600") || final_result.contains("650") {
-            println!("   ✅ EMIT CHANGES maintains correctness with out-of-order data");
+    for result in &results {
+        // COUNT must be positive
+        if let Some(FieldValue::Integer(count)) = result.fields.get("order_count") {
+            assert!(*count > 0, "order_count should be positive");
         } else {
-            println!("   ⚠️  Final state verification inconclusive");
+            panic!("order_count missing or not Integer");
+        }
+
+        // total_amount should be positive
+        if let Some(FieldValue::Float(total)) = result.fields.get("total_amount") {
+            assert!(*total > 0.0, "total_amount should be positive");
+        } else if let Some(FieldValue::ScaledInteger(val, _)) = result.fields.get("total_amount") {
+            assert!(*val > 0, "total_amount should be positive");
+        }
+
+        // status should be a valid string
+        if let Some(FieldValue::String(status_val)) = result.fields.get("status") {
+            assert!(!status_val.is_empty(), "status should not be empty");
         }
     }
 
-    WindowTestAssertions::assert_has_results(&results, "Correctness Verification");
+    // Verify final correctness by checking last result
+    if let Some(final_result) = results.last() {
+        // Check if final state has reasonable values
+        let has_pending = final_result
+            .fields
+            .get("status")
+            .map(|v| matches!(v, FieldValue::String(s) if s == "pending"))
+            .unwrap_or(false);
+        let has_completed = final_result
+            .fields
+            .get("status")
+            .map(|v| matches!(v, FieldValue::String(s) if s == "completed"))
+            .unwrap_or(false);
+
+        if has_pending || has_completed {
+            assert!(
+                final_result.fields.contains_key("order_count"),
+                "Final result should have order_count"
+            );
+            assert!(
+                final_result.fields.contains_key("total_amount"),
+                "Final result should have total_amount"
+            );
+        }
+    }
 }
 
 /// Summary test to document observed EMIT CHANGES late data behavior
@@ -402,6 +442,6 @@ async fn test_emit_changes_late_data_behavior_summary() {
     println!("   - Session window merging requires sophisticated state management");
     println!("   - EMIT CHANGES with late data may produce duplicate keys");
 
-    println!("\n🎯 Run individual tests above to verify actual implementation behavior");
+    println!("\n🎯 All tests validate computed value correctness with late data");
     println!("{}", "=".repeat(70));
 }

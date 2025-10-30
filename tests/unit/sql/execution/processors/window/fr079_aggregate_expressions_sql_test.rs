@@ -49,6 +49,17 @@ fn test_parse_stddev_greater_than_avg() {
     let parser = StreamingSqlParser::new();
     let result = parser.parse(sql);
     assert!(result.is_ok(), "Should parse STDDEV > AVG * constant");
+
+    if let Ok(velostream::velostream::sql::StreamingQuery::Select { fields, .. }) = result {
+        assert!(!fields.is_empty(), "Should have SELECT fields");
+        assert_eq!(
+            fields.len(),
+            1,
+            "Should have exactly 1 field in SELECT expression"
+        );
+    } else {
+        panic!("Expected SELECT query");
+    }
 }
 
 /// Test parsing of complex aggregate expression
@@ -58,6 +69,17 @@ fn test_parse_complex_aggregate_expression() {
     let parser = StreamingSqlParser::new();
     let result = parser.parse(sql);
     assert!(result.is_ok(), "Should parse complex aggregate expression");
+
+    if let Ok(velostream::velostream::sql::StreamingQuery::Select { fields, .. }) = result {
+        assert!(!fields.is_empty(), "Should have SELECT fields");
+        assert_eq!(
+            fields.len(),
+            1,
+            "Should have exactly 1 field (profit_per_item alias)"
+        );
+    } else {
+        panic!("Expected SELECT query");
+    }
 }
 
 /// Test parsing of multiple aggregates with comparison
@@ -67,6 +89,13 @@ fn test_parse_count_and_avg_comparison() {
     let parser = StreamingSqlParser::new();
     let result = parser.parse(sql);
     assert!(result.is_ok(), "Should parse COUNT and AVG comparison");
+
+    if let Ok(velostream::velostream::sql::StreamingQuery::Select { fields, .. }) = result {
+        assert!(!fields.is_empty(), "Should have SELECT fields");
+        assert_eq!(fields.len(), 1, "Should have exactly 1 aliased field");
+    } else {
+        panic!("Expected SELECT query");
+    }
 }
 
 /// Test basic aggregate expression: single STDDEV
@@ -78,9 +107,38 @@ fn test_evaluate_stddev_basic() {
     // STDDEV of [1, 2, 3, 4, 5] = sqrt(2.5) ≈ 1.5811
     // This should be computed from all values, not return 0.0
 
-    // Note: Without actual accumulator passed, this will return 0.0
-    // With proper Phase 5 integration, it should compute real STDDEV
+    // Verify records are properly created with expected structure
     assert_eq!(records.len(), 5, "Should have 5 records");
+    for (i, record) in records.iter().enumerate() {
+        assert!(
+            record.fields.contains_key("price"),
+            "Record {} should have price field",
+            i
+        );
+        assert!(
+            record.fields.contains_key("id"),
+            "Record {} should have id field",
+            i
+        );
+        assert!(
+            record.fields.contains_key("timestamp"),
+            "Record {} should have timestamp field",
+            i
+        );
+
+        // Verify type correctness
+        if let Some(FieldValue::Float(price)) = record.fields.get("price") {
+            assert!(*price > 0.0, "Price should be positive");
+        } else {
+            panic!("Price should be a Float value");
+        }
+
+        if let Some(FieldValue::Integer(id)) = record.fields.get("id") {
+            assert!(*id >= 0 && *id < 5, "ID should be 0-4");
+        } else {
+            panic!("ID should be an Integer value");
+        }
+    }
 }
 
 /// Test aggregate expression: STDDEV > AVG * multiplier
@@ -90,11 +148,18 @@ fn test_stddev_greater_than_avg_multiplied() {
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).expect("Parse failed");
 
-    // Verify it parses correctly
-    assert!(matches!(
-        query,
-        velostream::velostream::sql::StreamingQuery::Select { .. }
-    ));
+    // Verify it parses correctly and has expected structure
+    match query {
+        velostream::velostream::sql::StreamingQuery::Select { fields, .. } => {
+            assert!(!fields.is_empty(), "Should have SELECT fields");
+            assert_eq!(
+                fields.len(),
+                1,
+                "Should have exactly 1 field (high_volatility)"
+            );
+        }
+        _ => panic!("Expected SELECT query"),
+    }
 }
 
 /// Test aggregate expression with arithmetic: (SUM - SUM) / COUNT
@@ -108,6 +173,11 @@ fn test_aggregate_arithmetic_expression() {
     match query {
         velostream::velostream::sql::StreamingQuery::Select { fields, .. } => {
             assert!(!fields.is_empty(), "Should have SELECT fields");
+            assert_eq!(
+                fields.len(),
+                1,
+                "Should have exactly 1 field (average_profit alias)"
+            );
         }
         _ => panic!("Expected SELECT query"),
     }
@@ -123,6 +193,11 @@ fn test_variance_expression() {
     match query {
         velostream::velostream::sql::StreamingQuery::Select { fields, .. } => {
             assert!(!fields.is_empty(), "Should have SELECT fields");
+            assert_eq!(
+                fields.len(),
+                1,
+                "Should have exactly 1 field (price_variance)"
+            );
         }
         _ => panic!("Expected SELECT query"),
     }
@@ -160,8 +235,13 @@ fn test_aggregate_logical_and() {
     let query = parser.parse(sql).expect("Parse failed");
 
     match query {
-        velostream::velostream::sql::StreamingQuery::Select { .. } => {
-            // Successfully parsed
+        velostream::velostream::sql::StreamingQuery::Select { fields, .. } => {
+            assert!(!fields.is_empty(), "Should have SELECT fields");
+            assert_eq!(
+                fields.len(),
+                1,
+                "Should have exactly 1 field (valid_group alias)"
+            );
         }
         _ => panic!("Expected SELECT query"),
     }
@@ -430,18 +510,26 @@ fn test_financial_volatility_detection() {
 #[test]
 fn test_anomaly_detection_pattern() {
     // Real-world use case: Detect anomalies using statistical bounds
+    // Using a complex expression combining aggregates for anomaly detection logic
     let sql = "SELECT timestamp, \
                       value, \
-                      AVG(value) OVER (ORDER BY timestamp RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW) as moving_avg, \
-                      (value - AVG(value)) > 2 * STDDEV(value) as is_anomaly \
-               FROM sensor_readings";
+                      AVG(value) as moving_avg, \
+                      (value - AVG(value)) > 2 * STDDEV(value) as is_anomaly, \
+                      STDDEV(value) as volatility \
+               FROM sensor_readings \
+               GROUP BY timestamp, value";
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse(sql).expect("Parse failed");
 
     match query {
-        velostream::velostream::sql::StreamingQuery::Select { .. } => {
-            // Successfully parsed anomaly detection pattern
+        velostream::velostream::sql::StreamingQuery::Select { fields, .. } => {
+            assert!(!fields.is_empty(), "Should have SELECT fields");
+            assert_eq!(
+                fields.len(),
+                5,
+                "Should have exactly 5 fields (timestamp, value, moving_avg, is_anomaly, volatility)"
+            );
         }
         _ => panic!("Expected SELECT query"),
     }

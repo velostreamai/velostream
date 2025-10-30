@@ -13,3 +13,4 @@ pub mod query_validator_test;
 pub mod report_generator_test;
 pub mod result_types_test;
 pub mod sql_files_validation_test;
+pub mod sql_validator_subquery_test;
