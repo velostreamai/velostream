@@ -101,7 +101,7 @@ impl ErrorEntry {
     pub fn with_deployment_context(message: String, deployment_context: DeploymentContext) -> Self {
         let mut entry = Self::new(message);
         // Set node_id for backward compatibility if available
-        if let Some(ref node_id) = deployment_context.node_id {
+        if let Some(node_id) = &deployment_context.node_id {
             entry.node_id = Some(node_id.clone());
         }
         entry.deployment_context = Some(deployment_context);
@@ -110,7 +110,7 @@ impl ErrorEntry {
 
     /// Update the deployment context for this entry
     pub fn set_deployment_context(&mut self, context: DeploymentContext) {
-        if let Some(ref node_id) = context.node_id {
+        if let Some(node_id) = &context.node_id {
             self.node_id = Some(node_id.clone());
         }
         self.deployment_context = Some(context);
@@ -122,20 +122,20 @@ impl fmt::Display for ErrorEntry {
         let mut context_parts = Vec::new();
 
         // Build context string from deployment context if available
-        if let Some(ref ctx) = self.deployment_context {
-            if let Some(ref node_id) = ctx.node_id {
+        if let Some(ctx) = &self.deployment_context {
+            if let Some(node_id) = &ctx.node_id {
                 context_parts.push(format!("node_id={}", node_id));
             }
-            if let Some(ref node_name) = ctx.node_name {
+            if let Some(node_name) = &ctx.node_name {
                 context_parts.push(format!("node_name={}", node_name));
             }
-            if let Some(ref region) = ctx.region {
+            if let Some(region) = &ctx.region {
                 context_parts.push(format!("region={}", region));
             }
-            if let Some(ref version) = ctx.version {
+            if let Some(version) = &ctx.version {
                 context_parts.push(format!("version={}", version));
             }
-        } else if let Some(ref node_id) = self.node_id {
+        } else if let Some(node_id) = &self.node_id {
             // Fallback to node_id for backward compatibility
             context_parts.push(format!("node={}", node_id));
         }
@@ -211,7 +211,7 @@ impl ErrorMessageBuffer {
     pub fn set_node_id(&mut self, node_id: Option<String>) {
         self.node_id = node_id.clone();
         // Also update deployment context if present
-        if let Some(ref mut ctx) = self.deployment_context {
+        if let Some(ctx) = self.deployment_context.as_mut() {
             ctx.node_id = node_id;
         }
     }
@@ -221,7 +221,7 @@ impl ErrorMessageBuffer {
     /// This context (node_id, node_name, region, version) will be attached to all error
     /// entries for comprehensive deployment tracking.
     pub fn set_deployment_context(&mut self, context: DeploymentContext) {
-        if let Some(ref node_id) = context.node_id {
+        if let Some(node_id) = &context.node_id {
             self.node_id = Some(node_id.clone());
         }
         self.deployment_context = Some(context);
@@ -254,12 +254,12 @@ impl ErrorMessageBuffer {
         let mut entry = ErrorEntry::new(message);
 
         // Attach node_id for backward compatibility
-        if let Some(ref node_id) = self.node_id {
+        if let Some(node_id) = &self.node_id {
             entry.node_id = Some(node_id.clone());
         }
 
         // Attach full deployment context
-        if let Some(ref ctx) = self.deployment_context {
+        if let Some(ctx) = &self.deployment_context {
             entry.set_deployment_context(ctx.clone());
         }
 
@@ -331,18 +331,18 @@ impl ErrorMessageBuffer {
         let mut report = String::new();
 
         // Build deployment context header
-        let header = if let Some(ref ctx) = self.deployment_context {
+        let header = if let Some(ctx) = &self.deployment_context {
             let mut parts = Vec::new();
-            if let Some(ref node_id) = ctx.node_id {
+            if let Some(node_id) = &ctx.node_id {
                 parts.push(format!("node_id={}", node_id));
             }
-            if let Some(ref node_name) = ctx.node_name {
+            if let Some(node_name) = &ctx.node_name {
                 parts.push(format!("node_name={}", node_name));
             }
-            if let Some(ref region) = ctx.region {
+            if let Some(region) = &ctx.region {
                 parts.push(format!("region={}", region));
             }
-            if let Some(ref version) = ctx.version {
+            if let Some(version) = &ctx.version {
                 parts.push(format!("version={}", version));
             }
             if !parts.is_empty() {
@@ -350,7 +350,7 @@ impl ErrorMessageBuffer {
             } else {
                 "=== Error Report ===\n".to_string()
             }
-        } else if let Some(ref node_id) = self.node_id {
+        } else if let Some(node_id) = &self.node_id {
             format!("=== Error Report [Node: {}] ===\n", node_id)
         } else {
             "=== Error Report ===\n".to_string()

@@ -312,7 +312,7 @@ impl FileReader {
         &self,
         fields: &HashMap<String, FieldValue>,
     ) -> Option<chrono::DateTime<chrono::Utc>> {
-        if let Some(ref config) = self.event_time_config {
+        if let Some(config) = &self.event_time_config {
             use crate::velostream::datasource::extract_event_time;
             match extract_event_time(fields, config) {
                 Ok(dt) => Some(dt),
@@ -334,7 +334,7 @@ impl FileReader {
 
         // Use header names if available, otherwise fall back to column indices
         for (i, field_value) in parsed_fields.iter().enumerate() {
-            let field_name = if let Some(ref headers) = self.csv_headers {
+            let field_name = if let Some(headers) = &self.csv_headers {
                 headers
                     .get(i)
                     .cloned()

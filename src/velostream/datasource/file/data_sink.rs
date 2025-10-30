@@ -678,7 +678,7 @@ impl FileWriter {
             return Ok(());
         }
 
-        if let Some(ref mut file) = self.current_file {
+        if let Some(file) = self.current_file.as_mut() {
             file.write_all(&self.write_buffer).await.map_err(|e| {
                 Box::new(FileDataSourceError::IoError(e.to_string()))
                     as Box<dyn Error + Send + Sync>
@@ -809,7 +809,7 @@ impl DataWriter for FileWriter {
     async fn flush(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.flush_buffer().await?;
 
-        if let Some(ref mut file) = self.current_file {
+        if let Some(file) = self.current_file.as_mut() {
             file.sync_all().await.map_err(|e| {
                 Box::new(FileDataSourceError::IoError(e.to_string()))
                     as Box<dyn Error + Send + Sync>

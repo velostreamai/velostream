@@ -174,7 +174,7 @@ impl MetricsProvider {
 
     /// Set the node ID for this metrics provider (used in observability context)
     pub fn set_node_id(&mut self, node_id: Option<String>) -> Result<(), SqlError> {
-        if let Some(ref id) = node_id {
+        if let Some(id) = node_id {
             log::info!("📊 Metrics node context set: {}", id);
             // Update error tracker with node ID for all future error messages
             if let Ok(mut tracker) = self.error_tracker.lock() {

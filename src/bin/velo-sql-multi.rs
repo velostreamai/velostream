@@ -188,7 +188,7 @@ async fn start_metrics_server_multi(
                                 }
                                 return;
                             }
-                            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                                 tokio::task::yield_now().await;
                                 continue;
                             }
@@ -420,19 +420,19 @@ async fn deploy_sql_application_from_file(
         || sql_deployment_ctx.region.is_some()
     {
         println!("✅ Deployment context extracted from annotations:");
-        if let Some(ref node_id) = sql_deployment_ctx.node_id {
+        if let Some(node_id) = sql_deployment_ctx.node_id {
             println!("   • Node ID: {}", node_id);
             unsafe {
                 std::env::set_var("NODE_ID", node_id);
             }
         }
-        if let Some(ref node_name) = sql_deployment_ctx.node_name {
+        if let Some(node_name) = sql_deployment_ctx.node_name {
             println!("   • Node Name: {}", node_name);
             unsafe {
                 std::env::set_var("NODE_NAME", node_name);
             }
         }
-        if let Some(ref region) = sql_deployment_ctx.region {
+        if let Some(region) = sql_deployment_ctx.region {
             println!("   • Region: {}", region);
             unsafe {
                 std::env::set_var("REGION", region);

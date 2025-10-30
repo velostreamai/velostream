@@ -13,27 +13,37 @@ fn test_deployment_config_static_pattern() {
 /// Test single environment variable substitution
 #[test]
 fn test_deployment_config_single_env_var() {
-    env::set_var("TEST_HOSTNAME", "server-1");
+    unsafe {
+        env::set_var("TEST_HOSTNAME", "server-1");
+    }
     let pattern = "prod-${TEST_HOSTNAME}";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "prod-server-1");
-    env::remove_var("TEST_HOSTNAME");
+    unsafe {
+        env::remove_var("TEST_HOSTNAME");
+    }
 }
 
 /// Test environment variable with prefix and suffix
 #[test]
 fn test_deployment_config_env_var_with_prefix_suffix() {
-    env::set_var("TEST_NODE", "node-42");
+    unsafe {
+        env::set_var("TEST_NODE", "node-42");
+    }
     let pattern = "prod-${TEST_NODE}-us-east-1";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "prod-node-42-us-east-1");
-    env::remove_var("TEST_NODE");
+    unsafe {
+        env::remove_var("TEST_NODE");
+    }
 }
 
 /// Test default value when environment variable is not set
 #[test]
 fn test_deployment_config_default_value() {
-    env::remove_var("UNDEFINED_VAR");
+    unsafe {
+        env::remove_var("UNDEFINED_VAR");
+    }
     let pattern = "${UNDEFINED_VAR:default-node}";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "default-node");
@@ -42,36 +52,46 @@ fn test_deployment_config_default_value() {
 /// Test multiple environment variables in single pattern
 #[test]
 fn test_deployment_config_multiple_env_vars() {
-    env::set_var("TEST_ENV", "prod");
-    env::set_var("TEST_REGION", "us-east-1");
+    unsafe {
+        env::set_var("TEST_ENV", "prod");
+        env::set_var("TEST_REGION", "us-east-1");
+    }
     let pattern = "${TEST_ENV}-${TEST_REGION}-server";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "prod-us-east-1-server");
-    env::remove_var("TEST_ENV");
-    env::remove_var("TEST_REGION");
+    unsafe {
+        env::remove_var("TEST_ENV");
+        env::remove_var("TEST_REGION");
+    }
 }
 
 /// Test fallback chain with multiple variables
 #[test]
 fn test_deployment_config_fallback_chain() {
     // Set only VAR2
-    env::remove_var("TEST_VAR1");
-    env::set_var("TEST_VAR2", "value2");
-    env::remove_var("TEST_VAR3");
+    unsafe {
+        env::remove_var("TEST_VAR1");
+        env::set_var("TEST_VAR2", "value2");
+        env::remove_var("TEST_VAR3");
+    }
 
     let pattern = "${TEST_VAR1|TEST_VAR2|TEST_VAR3:default}";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "value2");
 
-    env::remove_var("TEST_VAR2");
+    unsafe {
+        env::remove_var("TEST_VAR2");
+    }
 }
 
 /// Test fallback chain with default when all vars are missing
 #[test]
 fn test_deployment_config_fallback_default() {
-    env::remove_var("TEST_VAR1");
-    env::remove_var("TEST_VAR2");
-    env::remove_var("TEST_VAR3");
+    unsafe {
+        env::remove_var("TEST_VAR1");
+        env::remove_var("TEST_VAR2");
+        env::remove_var("TEST_VAR3");
+    }
 
     let pattern = "${TEST_VAR1|TEST_VAR2|TEST_VAR3:fallback}";
     let result = DeploymentConfig::resolve_pattern(pattern);
@@ -81,16 +101,20 @@ fn test_deployment_config_fallback_default() {
 /// Test complex pattern with prefix, multiple vars, and defaults
 #[test]
 fn test_deployment_config_complex_pattern() {
-    env::set_var("TEST_CLUSTER", "cluster1");
-    env::remove_var("TEST_REGION");
-    env::set_var("TEST_INSTANCE", "i-12345");
+    unsafe {
+        env::set_var("TEST_CLUSTER", "cluster1");
+        env::remove_var("TEST_REGION");
+        env::set_var("TEST_INSTANCE", "i-12345");
+    }
 
     let pattern = "aws-${TEST_CLUSTER}-${TEST_REGION:us-east-1}-${TEST_INSTANCE}-prod";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "aws-cluster1-us-east-1-i-12345-prod");
 
-    env::remove_var("TEST_CLUSTER");
-    env::remove_var("TEST_INSTANCE");
+    unsafe {
+        env::remove_var("TEST_CLUSTER");
+        env::remove_var("TEST_INSTANCE");
+    }
 }
 
 /// Test SQL application with @deployment.node_id annotation
@@ -129,8 +153,10 @@ SELECT * FROM kafka_topic;
 /// Test SQL application with environment variable substitution in annotations
 #[test]
 fn test_app_parser_deployment_env_vars() {
-    env::set_var("TEST_APP_NODE", "node-42");
-    env::set_var("TEST_APP_REGION", "eu-west-1");
+    unsafe {
+        env::set_var("TEST_APP_NODE", "node-42");
+        env::set_var("TEST_APP_REGION", "eu-west-1");
+    }
 
     let sql = r#"
 -- SQL Application: Multi-Region App
@@ -156,14 +182,18 @@ SELECT * FROM kafka_input;
         Some("eu-west-1".to_string())
     );
 
-    env::remove_var("TEST_APP_NODE");
-    env::remove_var("TEST_APP_REGION");
+    unsafe {
+        env::remove_var("TEST_APP_NODE");
+        env::remove_var("TEST_APP_REGION");
+    }
 }
 
 /// Test SQL application with default values in deployment annotations
 #[test]
 fn test_app_parser_deployment_defaults() {
-    env::remove_var("UNDEFINED_NODE");
+    unsafe {
+        env::remove_var("UNDEFINED_NODE");
+    }
 
     let sql = r#"
 -- SQL Application: Safe App
@@ -194,13 +224,15 @@ SELECT * FROM kafka_safe;
 #[test]
 fn test_app_parser_deployment_complex_pattern() {
     // Clean up any existing vars
-    env::remove_var("TEST_COMPLEX_ENV");
-    env::remove_var("TEST_COMPLEX_DC");
-    env::remove_var("TEST_COMPLEX_SERVER");
+    unsafe {
+        env::remove_var("TEST_COMPLEX_ENV");
+        env::remove_var("TEST_COMPLEX_DC");
+        env::remove_var("TEST_COMPLEX_SERVER");
 
-    env::set_var("TEST_COMPLEX_ENV", "prod");
-    env::set_var("TEST_COMPLEX_DC", "dc1");
-    env::set_var("TEST_COMPLEX_SERVER", "server-5");
+        env::set_var("TEST_COMPLEX_ENV", "prod");
+        env::set_var("TEST_COMPLEX_DC", "dc1");
+        env::set_var("TEST_COMPLEX_SERVER", "server-5");
+    }
 
     let sql = r#"
 -- SQL Application: Complex App
@@ -226,9 +258,11 @@ SELECT * FROM kafka_complex;
         Some("Production DataCenter 1 Server 5".to_string())
     );
 
-    env::remove_var("TEST_COMPLEX_ENV");
-    env::remove_var("TEST_COMPLEX_DC");
-    env::remove_var("TEST_COMPLEX_SERVER");
+    unsafe {
+        env::remove_var("TEST_COMPLEX_ENV");
+        env::remove_var("TEST_COMPLEX_DC");
+        env::remove_var("TEST_COMPLEX_SERVER");
+    }
 }
 
 /// Test SQL application without deployment annotations (backward compatibility)
@@ -255,36 +289,46 @@ SELECT * FROM kafka_legacy;
 /// Test pattern resolution with fallback chain and prefixes
 #[test]
 fn test_deployment_config_fallback_chain_with_prefix() {
-    env::remove_var("TEST_PRIMARY");
-    env::remove_var("TEST_SECONDARY");
-    env::set_var("TEST_TERTIARY", "fallback-value");
+    unsafe {
+        env::remove_var("TEST_PRIMARY");
+        env::remove_var("TEST_SECONDARY");
+        env::set_var("TEST_TERTIARY", "fallback-value");
+    }
 
     let pattern = "prefix-${TEST_PRIMARY|TEST_SECONDARY|TEST_TERTIARY:ultimate-default}";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "prefix-fallback-value");
 
-    env::remove_var("TEST_TERTIARY");
+    unsafe {
+        env::remove_var("TEST_TERTIARY");
+    }
 }
 
 /// Test multi-part deployment pattern with multiple fallbacks
 #[test]
 fn test_deployment_config_multipart_fallbacks() {
-    env::set_var("TEST_CLUSTER", "prod-cluster");
-    env::remove_var("TEST_ZONE");
-    env::set_var("TEST_INSTANCE", "i-prod-001");
+    unsafe {
+        env::set_var("TEST_CLUSTER", "prod-cluster");
+        env::remove_var("TEST_ZONE");
+        env::set_var("TEST_INSTANCE", "i-prod-001");
+    }
 
     let pattern = "${TEST_CLUSTER}-${TEST_ZONE:zone-a}-${TEST_INSTANCE}";
     let result = DeploymentConfig::resolve_pattern(pattern);
     assert_eq!(result, "prod-cluster-zone-a-i-prod-001");
 
-    env::remove_var("TEST_CLUSTER");
-    env::remove_var("TEST_INSTANCE");
+    unsafe {
+        env::remove_var("TEST_CLUSTER");
+        env::remove_var("TEST_INSTANCE");
+    }
 }
 
 /// Test that missing environment variables are handled gracefully
 #[test]
 fn test_deployment_config_missing_var_no_default() {
-    env::remove_var("MISSING_VAR");
+    unsafe {
+        env::remove_var("MISSING_VAR");
+    }
 
     // When a variable is not found and no default is specified, it returns the variable name as-is
     let pattern = "${MISSING_VAR}";

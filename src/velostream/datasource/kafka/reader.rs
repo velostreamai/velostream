@@ -1130,7 +1130,7 @@ impl KafkaDataReader {
         }
 
         // Extract event_time if configured
-        let event_time = if let Some(ref config) = self.event_time_config {
+        let event_time = if let Some(config) = &self.event_time_config {
             use crate::velostream::datasource::extract_event_time;
             match extract_event_time(&fields, config) {
                 Ok(dt) => Some(dt),

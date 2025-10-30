@@ -124,7 +124,7 @@ fn test_topic_generation_logic() {
     let no_default: Option<String> = None;
     let auto_generated_topic = if !empty_deps.is_empty() {
         empty_deps[0].clone()
-    } else if let Some(ref default) = no_default {
+    } else if let Some(default) = no_default {
         default.clone()
     } else {
         format!("processed_data_{}", job_name)

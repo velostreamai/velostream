@@ -380,10 +380,10 @@ async fn test_incremental_load_with_mock_data_source() {
         .into_iter()
         .map(|mut r| {
             // Modify to simulate new data
-            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
+            if let Some(FieldValue::Integer(id)) = r.fields.get_mut("id") {
                 *id += 1000;
             }
-            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
+            if let Some(FieldValue::Integer(id)) = r.fields.get_mut("id") {
                 *id += 1000;
             }
             r
@@ -448,7 +448,7 @@ async fn test_unified_load_table_incremental_path() {
     let incremental_records = create_test_records(15)
         .into_iter()
         .map(|mut r| {
-            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
+            if let Some(FieldValue::Integer(id)) = r.fields.get_mut("id") {
                 *id += 500;
             }
             r
@@ -523,10 +523,10 @@ async fn test_optimized_table_impl_incremental_load_integration() {
     let incremental_records = create_test_records(10)
         .into_iter()
         .map(|mut r| {
-            if let Some(FieldValue::Integer(ref mut id)) = r.fields.get_mut("id") {
+            if let Some(FieldValue::Integer(id)) = r.fields.get_mut("id") {
                 *id += 100;
             }
-            if let Some(FieldValue::String(ref mut name)) = r.fields.get_mut("name") {
+            if let Some(FieldValue::String(name)) = r.fields.get_mut("name") {
                 *name = format!("incremental_{}", *name);
             }
             r

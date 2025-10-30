@@ -641,7 +641,7 @@ SELECT
         ORDER BY total_value DESC
     ) as trader_rank
 FROM trader_stats
-WHERE RANK() <= 10;
+WHERE total_value > 10;
 ```
 
 **Characteristics**:
@@ -684,16 +684,6 @@ SELECT
     ) as percentile
 FROM trades;
 
--- Filter to top 20% by percentile
-SELECT
-    trader_id,
-    price
-FROM trades
-WHERE PERCENT_RANK() OVER (
-    ROWS WINDOW BUFFER 100 ROWS
-    PARTITION BY trader_id
-    ORDER BY price DESC
-) <= 0.2;
 ```
 
 **Characteristics**:
@@ -726,7 +716,6 @@ SELECT
         ORDER BY timestamp DESC
     ) as row_num
 FROM trades
-WHERE ROW_NUMBER() <= 3;
 ```
 
 **Characteristics**:

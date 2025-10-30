@@ -1181,7 +1181,7 @@ impl SimpleJobProcessor {
             );
 
             // Complete batch span with success
-            if let Some(ref mut batch_span) = parent_batch_span_guard {
+            if let Some(mut batch_span) = parent_batch_span_guard {
                 let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);
@@ -1205,7 +1205,7 @@ impl SimpleJobProcessor {
             );
 
             // Complete batch span with error
-            if let Some(ref mut batch_span) = parent_batch_span_guard {
+            if let Some(mut batch_span) = parent_batch_span_guard {
                 let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);

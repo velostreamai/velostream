@@ -133,7 +133,7 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
                     .collect();
                 for key in keys_to_update {
                     if i < expected_lag_values.len() {
-                        if let Some(ref value) = expected_lag_values[i] {
+                        if let Some(value) = &expected_lag_values[i] {
                             results[i].fields.insert(key, value.clone());
                         } else {
                             results[i].fields.insert(key, FieldValue::Null);

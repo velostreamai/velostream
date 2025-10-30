@@ -161,7 +161,7 @@ where
             );
 
         // Configure transactional settings if enabled
-        if let Some(ref transaction_id) = config.transactional_id {
+        if let Some(transaction_id) = config.transactional_id {
             client_config.set("transactional.id", transaction_id).set(
                 "transaction.timeout.ms",
                 config.transaction_timeout.as_millis().to_string(),
@@ -297,7 +297,7 @@ where
             None
         };
 
-        if let Some(ref kb) = key_bytes {
+        if let Some(kb) = &key_bytes {
             record = record.key(kb);
         }
 

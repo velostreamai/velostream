@@ -316,7 +316,7 @@ impl ProgressStream {
                 match self.event_receiver.recv().await {
                     Ok(event) => {
                         // Apply table filter if set
-                        if let Some(ref filter) = self.table_filter {
+                        if let Some(filter) = self.table_filter.as_ref() {
                             match &event {
                                 ProgressEvent::TableUpdate { table_name, .. } |
                                 ProgressEvent::TableCompleted { table_name, .. } |
