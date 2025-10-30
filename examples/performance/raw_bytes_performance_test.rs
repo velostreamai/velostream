@@ -32,8 +32,8 @@ use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerial
 use velostream::{Headers, KafkaConsumer, ProducerBuilder};
 
 use futures::StreamExt;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use tokio::time::sleep;

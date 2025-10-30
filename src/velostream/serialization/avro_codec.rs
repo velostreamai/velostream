@@ -4,7 +4,7 @@ use crate::velostream::kafka::serialization::Serde;
 use crate::velostream::serialization;
 use crate::velostream::serialization::SerializationError;
 use crate::velostream::sql::execution::types::FieldValue;
-use apache_avro::{types::Value as AvroValue, Reader, Schema as AvroSchema, Writer};
+use apache_avro::{Reader, Schema as AvroSchema, Writer, types::Value as AvroValue};
 use std::collections::HashMap;
 
 /// Avro codec for serializing/deserializing HashMap<String, FieldValue> using a schema

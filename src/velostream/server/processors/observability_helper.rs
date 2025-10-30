@@ -3,9 +3,9 @@
 //! This module centralizes telemetry (tracing) and metrics recording logic
 //! to eliminate duplication across SimpleJobProcessor and TransactionalJobProcessor.
 
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::observability::telemetry::BatchSpan;
 use crate::velostream::observability::trace_propagation;
-use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
 use crate::velostream::server::processors::observability_utils::{
     calculate_throughput, with_observability_try_lock,

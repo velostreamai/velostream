@@ -6,8 +6,8 @@
 //! This is the generic registry that works with any data processing system.
 
 use crate::velostream::datasource::{
-    config::{ConnectionString, SinkConfig, SourceConfig},
     DataSink, DataSource, DataSourceError,
+    config::{ConnectionString, SinkConfig, SourceConfig},
 };
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};

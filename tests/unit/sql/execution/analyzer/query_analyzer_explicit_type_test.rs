@@ -8,10 +8,10 @@
 
 use std::collections::HashMap;
 use velostream::velostream::sql::{
+    SqlError,
     ast::{IntoClause, SelectField, StreamSource, StreamingQuery},
     parser::StreamingSqlParser,
     query_analyzer::{DataSinkType, DataSourceType, QueryAnalyzer},
-    SqlError,
 };
 
 /// Test that compound source type declaration works (kafka_source)
@@ -407,9 +407,11 @@ fn test_properties_extraction_with_compound_types() {
     );
 
     // Check that original keys are preserved for compatibility
-    assert!(source
-        .properties
-        .contains_key("kafka_source.bootstrap.servers"));
+    assert!(
+        source
+            .properties
+            .contains_key("kafka_source.bootstrap.servers")
+    );
     assert!(source.properties.contains_key("kafka_source.topic"));
 }
 

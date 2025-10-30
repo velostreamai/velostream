@@ -322,9 +322,11 @@ fn test_resource_convenience_methods() {
     assert!(manager.update_window_count("user_123", 5).is_ok());
 
     // Test processing time recording
-    assert!(manager
-        .record_processing_time("select_operation", Duration::from_millis(100))
-        .is_ok());
+    assert!(
+        manager
+            .record_processing_time("select_operation", Duration::from_millis(100))
+            .is_ok()
+    );
 }
 
 // ===== CIRCUIT BREAKER TESTS =====
@@ -653,9 +655,11 @@ fn test_backward_compatibility_preservation() {
         ..Default::default()
     };
     let resource_manager = ResourceManager::new(limits);
-    assert!(resource_manager
-        .update_resource_usage("total_memory", 1000000)
-        .is_ok());
+    assert!(
+        resource_manager
+            .update_resource_usage("total_memory", 1000000)
+            .is_ok()
+    );
 
     // Circuit breaker should allow all operations when disabled
     let circuit_breaker = CircuitBreaker::with_default_config("test".to_string());

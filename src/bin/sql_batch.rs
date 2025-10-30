@@ -16,12 +16,12 @@ use velostream::velostream::{
     error::VeloResult,
     serialization::JsonFormat,
     sql::{
+        StreamingSqlParser,
         ast::StreamingQuery,
         execution::{
-            types::{FieldValue, StreamRecord},
             StreamExecutionEngine,
+            types::{FieldValue, StreamRecord},
         },
-        StreamingSqlParser,
     },
 };
 

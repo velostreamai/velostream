@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{interval, Instant};
+use tokio::time::{Instant, interval};
 
 /// Progress streaming configuration
 #[derive(Debug, Clone)]
@@ -407,7 +407,7 @@ pub enum ProgressStreamingError {
 mod tests {
     use super::*;
     use crate::velostream::server::table_registry::TableRegistry;
-    use tokio::time::{sleep, Duration as TokioDuration};
+    use tokio::time::{Duration as TokioDuration, sleep};
 
     #[tokio::test]
     async fn test_progress_streaming_server() {

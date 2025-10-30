@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::{
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery},
-    execution::{expression::evaluator::ExpressionEvaluator, types::FieldValue, StreamRecord},
+    execution::{StreamRecord, expression::evaluator::ExpressionEvaluator, types::FieldValue},
     parser::StreamingSqlParser,
 };
 

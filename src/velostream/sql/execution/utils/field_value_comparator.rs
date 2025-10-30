@@ -1,12 +1,12 @@
+use crate::velostream::sql::SqlError;
 /// Field Value Comparison Utilities
 ///
 /// Handles comparison operations between FieldValue instances.
 /// These are pure comparison functions with no engine state dependency.
 use crate::velostream::sql::ast::BinaryOperator;
 use crate::velostream::sql::execution::FieldValue;
-use crate::velostream::sql::SqlError;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 /// Utility class for comparing FieldValue instances
 pub struct FieldValueComparator;

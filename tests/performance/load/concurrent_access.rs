@@ -4,13 +4,13 @@
 //! multi-threading scenarios, and parallel processing workloads.
 
 use super::super::common::{
-    generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
+    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
-use velostream::velostream::sql::execution::{types::FieldValue, StreamRecord};
+use tokio::sync::{Mutex, mpsc};
+use velostream::velostream::sql::execution::{StreamRecord, types::FieldValue};
 
 /// Test concurrent processing with multiple producer/consumer pairs
 #[tokio::test]

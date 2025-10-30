@@ -252,8 +252,7 @@ fn test_having_with_complex_boolean() {
 /// Test HAVING with complex boolean expressions execution
 #[tokio::test]
 async fn test_having_with_complex_boolean_execution() {
-    let query =
-        "SELECT category, COUNT(*) as cnt, AVG(price) as avg_val, SUM(price) as total FROM events \
+    let query = "SELECT category, COUNT(*) as cnt, AVG(price) as avg_val, SUM(price) as total FROM events \
                  GROUP BY category \
                  WINDOW TUMBLING(30s)";
 

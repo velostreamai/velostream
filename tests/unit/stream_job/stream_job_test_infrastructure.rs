@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use velostream::velostream::server::processors::common::{
     FailureStrategy, JobExecutionStats, JobProcessingConfig,

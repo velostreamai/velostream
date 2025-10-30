@@ -2327,7 +2327,9 @@ impl WindowProcessor {
                     }
                     _ => {
                         // For other operators, try regular evaluation
-                        debug!("AGG: Unsupported binary operator in aggregate expression, falling back to regular evaluation");
+                        debug!(
+                            "AGG: Unsupported binary operator in aggregate expression, falling back to regular evaluation"
+                        );
                         if let Some(first_record) = records.first() {
                             ExpressionEvaluator::evaluate_expression_value(expr, first_record)
                         } else {
@@ -2638,7 +2640,7 @@ impl WindowProcessor {
                 return Err(SqlError::ExecutionError {
                     message: "Expected ROWS window specification".to_string(),
                     query: None,
-                })
+                });
             }
         }
     }

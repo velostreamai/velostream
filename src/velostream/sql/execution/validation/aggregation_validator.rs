@@ -6,8 +6,8 @@
 //! - No mixed aggregates and non-aggregates in the same context
 //! This is Phase 7 of the correctness work.
 
-use crate::velostream::sql::ast::{BinaryOperator, Expr};
 use crate::velostream::sql::SqlError;
+use crate::velostream::sql::ast::{BinaryOperator, Expr};
 use std::collections::HashSet;
 
 /// Information about whether expression contains aggregates

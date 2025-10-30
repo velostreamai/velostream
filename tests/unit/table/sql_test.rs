@@ -295,12 +295,16 @@ fn test_sql_queryable_exists() {
     assert!(!datasource.sql_exists("age = 100").unwrap());
 
     // Test complex EXISTS
-    assert!(datasource
-        .sql_exists("tier = 'premium' AND score > 80")
-        .unwrap());
-    assert!(!datasource
-        .sql_exists("tier = 'premium' AND age > 100")
-        .unwrap());
+    assert!(
+        datasource
+            .sql_exists("tier = 'premium' AND score > 80")
+            .unwrap()
+    );
+    assert!(
+        !datasource
+            .sql_exists("tier = 'premium' AND age > 100")
+            .unwrap()
+    );
 }
 
 #[test]

@@ -4396,10 +4396,15 @@ impl<'a> TokenParser<'a> {
                     "MINUTE" | "MINUTES" => TimeUnit::Minute,
                     "HOUR" | "HOURS" => TimeUnit::Hour,
                     "DAY" | "DAYS" => TimeUnit::Day,
-                    _ => return Err(SqlError::ParseError {
-                        message: format!("Unsupported time unit '{}'. Supported units: MILLISECOND, SECOND, MINUTE, HOUR, DAY", unit_str),
-                        position: Some(self.current_token().position),
-                    }),
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!(
+                                "Unsupported time unit '{}'. Supported units: MILLISECOND, SECOND, MINUTE, HOUR, DAY",
+                                unit_str
+                            ),
+                            position: Some(self.current_token().position),
+                        });
+                    }
                 };
 
                 // Parse PRECEDING or FOLLOWING

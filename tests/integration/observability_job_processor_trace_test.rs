@@ -15,7 +15,7 @@ use super::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
 use velostream::velostream::datasource::{DataReader, DataSink, DataSource};
 use velostream::velostream::observability::telemetry::TelemetryProvider;

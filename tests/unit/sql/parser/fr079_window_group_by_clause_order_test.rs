@@ -32,7 +32,10 @@ fn test_parse_group_by_then_window() {
             println!("✓ Correctly parsed valid ordering (GROUP BY before WINDOW)");
         }
         Err(e) => {
-            panic!("Parser should accept GROUP BY before WINDOW clause (valid SQL standard). Got error: {:?}", e);
+            panic!(
+                "Parser should accept GROUP BY before WINDOW clause (valid SQL standard). Got error: {:?}",
+                e
+            );
         }
     }
 }

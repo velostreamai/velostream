@@ -10,8 +10,8 @@ use velostream::velostream::sql::SqlValidator;
 use velostream::velostream::{
     serialization::{JsonFormat, SerializationFormat},
     sql::{
-        execution::types::StreamRecord, execution::StreamExecutionEngine,
-        parser::StreamingSqlParser, FieldValue,
+        FieldValue, execution::StreamExecutionEngine, execution::types::StreamRecord,
+        parser::StreamingSqlParser,
     },
 };
 

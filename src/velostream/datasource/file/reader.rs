@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Instant;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use super::config::{FileFormat, FileSourceConfig};
 use super::error::FileDataSourceError;
@@ -651,7 +651,7 @@ impl DataReader for FileReader {
             _ => {
                 return Err(Box::new(FileDataSourceError::InvalidPath(
                     "Invalid offset type for file source".to_string(),
-                )))
+                )));
             }
         };
 

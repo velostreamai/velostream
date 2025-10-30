@@ -4,13 +4,13 @@
 //! This processor is used in windowed queries to enforce proper ordering
 //! within window partitions before computing window functions.
 
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::OrderByExpr;
 use crate::velostream::sql::ast::OrderDirection;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::processors::context::ProcessorContext;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::execution::utils::FieldValueComparator;
-use crate::velostream::sql::SqlError;
 use std::cmp::Ordering;
 
 /// Processor for ORDER BY sorting operations

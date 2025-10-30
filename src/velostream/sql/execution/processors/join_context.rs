@@ -5,9 +5,9 @@ JOIN processing context and utilities for managing join operations.
 */
 
 use super::join::JoinProcessor;
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::StreamSource;
 use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::SqlError;
 
 /// JOIN processing context and utilities
 pub struct JoinContext;

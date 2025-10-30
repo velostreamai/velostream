@@ -1,8 +1,8 @@
 //! Test for parameterized query implementation
 
 use velostream::velostream::sql::execution::{
-    processors::{SelectProcessor, SqlParameter},
     FieldValue,
+    processors::{SelectProcessor, SqlParameter},
 };
 
 #[test]

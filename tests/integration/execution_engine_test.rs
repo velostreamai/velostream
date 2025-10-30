@@ -6,8 +6,8 @@ use velostream::velostream::{
     serialization::JsonFormat,
     sql::{
         execution::{
-            types::{FieldValue, StreamRecord},
             StreamExecutionEngine,
+            types::{FieldValue, StreamRecord},
         },
         parser::StreamingSqlParser,
     },

@@ -21,7 +21,7 @@
 //! - CTAS/CSAS: >500K records/sec
 
 use super::super::common::{
-    generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
+    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use serial_test::serial;
 use std::{
@@ -31,11 +31,11 @@ use std::{
 use tokio::sync::mpsc;
 use velostream::velostream::{
     sql::{
+        StreamExecutionEngine,
         execution::types::{FieldValue, StreamRecord},
         parser::StreamingSqlParser,
-        StreamExecutionEngine,
     },
-    table::unified_table::{parse_where_clause_cached, CachedPredicate},
+    table::unified_table::{CachedPredicate, parse_where_clause_cached},
 };
 
 // ============================================================================

@@ -10,24 +10,24 @@
 //! - `label_extract_times`: Time spent extracting labels per record
 //! - `emission_overhead`: Total overhead for metric emission per record
 
-use crate::velostream::observability::label_extraction::{
-    extract_label_values, LabelExtractionConfig,
-};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::observability::label_extraction::{
+    LabelExtractionConfig, extract_label_values,
+};
 use crate::velostream::server::processors::observability_utils::{
     extract_and_validate_labels, with_observability_lock,
 };
+use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::Expr;
-use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::FieldValue;
 use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
+use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::parser::StreamingSqlParser;
-use crate::velostream::sql::StreamingQuery;
+use crate::velostream::sql::parser::annotations::{MetricAnnotation, MetricType};
 use log::{debug, info, warn};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tokio::sync::RwLock;
 

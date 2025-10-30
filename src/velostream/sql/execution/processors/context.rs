@@ -2,12 +2,12 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use crate::velostream::schema::{Schema, StreamHandle};
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::RowsEmitMode;
+use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::internal::{RowsWindowState, WindowState};
 use crate::velostream::sql::execution::performance::PerformanceMonitor;
 use crate::velostream::sql::execution::watermarks::WatermarkManager;
-use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::SqlError;
 use crate::velostream::table::unified_table::UnifiedTable;
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -78,8 +78,7 @@ async fn test_percentile_cont_execution() {
 #[test]
 fn test_percentile_disc_parsing() {
     let parser = StreamingSqlParser::new();
-    let query =
-        "SELECT PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency FROM metrics \
+    let query = "SELECT PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency FROM metrics \
                  WINDOW TUMBLING(60s)";
 
     match parser.parse(query) {
@@ -139,8 +138,7 @@ fn test_stddev_parsing() {
 /// Test STDDEV execution with value validation
 #[tokio::test]
 async fn test_stddev_execution() {
-    let query =
-        "SELECT COUNT(*) as count_val, MIN(value) as min_val, MAX(value) as max_val FROM trades \
+    let query = "SELECT COUNT(*) as count_val, MIN(value) as min_val, MAX(value) as max_val FROM trades \
                  WINDOW TUMBLING(5s)";
 
     let records = vec![
@@ -255,8 +253,7 @@ fn test_multiple_percentiles() {
 /// Test multiple percentiles execution with aggregation
 #[tokio::test]
 async fn test_multiple_percentiles_execution() {
-    let query =
-        "SELECT COUNT(*) as cnt, AVG(value) as avg, MIN(value) as p_min FROM http_requests \
+    let query = "SELECT COUNT(*) as cnt, AVG(value) as avg, MIN(value) as p_min FROM http_requests \
                  WINDOW TUMBLING(60s)";
 
     let records = vec![

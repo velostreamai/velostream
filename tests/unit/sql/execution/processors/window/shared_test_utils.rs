@@ -1,5 +1,5 @@
-use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
 use std::collections::HashMap;
 use std::str::FromStr;
 /// Shared utilities for window testing
@@ -7,8 +7,8 @@ use tokio::sync::mpsc;
 use velostream::velostream::sql::{
     ast::StreamingQuery,
     execution::{
-        types::{FieldValue, StreamRecord},
         StreamExecutionEngine,
+        types::{FieldValue, StreamRecord},
     },
     parser::StreamingSqlParser,
 };

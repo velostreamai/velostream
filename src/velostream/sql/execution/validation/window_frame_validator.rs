@@ -7,8 +7,8 @@
 //! - Temporal window validation for INTERVAL clauses
 //! This is Phase 8 of the correctness work.
 
-use crate::velostream::sql::ast::{FrameBound, FrameType, OverClause, TimeUnit, WindowFrame};
 use crate::velostream::sql::SqlError;
+use crate::velostream::sql::ast::{FrameBound, FrameType, OverClause, TimeUnit, WindowFrame};
 
 /// Validator for SQL window frame specifications
 pub struct WindowFrameValidator;

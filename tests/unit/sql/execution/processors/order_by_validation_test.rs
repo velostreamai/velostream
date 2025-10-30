@@ -8,13 +8,13 @@
 
 use std::collections::HashMap;
 use velostream::velostream::sql::{
+    SqlError, StreamingQuery,
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource},
     execution::{
-        processors::{ProcessorContext, SelectProcessor},
         FieldValue, StreamRecord,
+        processors::{ProcessorContext, SelectProcessor},
     },
     parser::StreamingSqlParser,
-    SqlError, StreamingQuery,
 };
 
 fn create_test_record() -> StreamRecord {
@@ -269,8 +269,7 @@ fn test_order_by_all_validations_together() {
     // Test: Complex query with all validation gates (WHERE, ORDER BY)
     let record = create_test_record();
     let parser = StreamingSqlParser::new();
-    let query_str =
-        "SELECT id, name, price as item_price FROM test_stream WHERE quantity > 5 ORDER BY price DESC";
+    let query_str = "SELECT id, name, price as item_price FROM test_stream WHERE quantity > 5 ORDER BY price DESC";
 
     let query = parser.parse(query_str).expect("Should parse");
     let mut context = ProcessorContext::new("test");

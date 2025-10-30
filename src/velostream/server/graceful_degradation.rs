@@ -4,9 +4,9 @@
 //! during stream-table join operations. Provides configurable strategies for handling
 //! these situations gracefully instead of failing hard.
 
-use crate::velostream::sql::execution::types::FieldValue;
-use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::SqlError;
+use crate::velostream::sql::execution::StreamRecord;
+use crate::velostream::sql::execution::types::FieldValue;
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::time::Duration;

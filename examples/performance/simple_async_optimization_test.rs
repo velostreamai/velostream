@@ -7,8 +7,8 @@
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Semaphore;
 use velostream::velostream::kafka::admin_client::KafkaAdminClient;

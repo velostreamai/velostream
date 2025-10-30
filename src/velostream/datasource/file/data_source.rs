@@ -555,7 +555,7 @@ impl ConfigSchemaProvider for FileDataSource {
                 // Basic path validation - check for dangerous patterns
                 if value.contains("..") && !value.contains("*") {
                     return Err(vec![
-                        "path contains '..' which could be a security risk".to_string()
+                        "path contains '..' which could be a security risk".to_string(),
                     ]);
                 }
 
@@ -631,7 +631,7 @@ impl ConfigSchemaProvider for FileDataSource {
                     }
                 } else {
                     return Err(vec![
-                        "buffer_size must be a valid number in bytes".to_string()
+                        "buffer_size must be a valid number in bytes".to_string(),
                     ]);
                 }
             }
@@ -642,14 +642,14 @@ impl ConfigSchemaProvider for FileDataSource {
                     }
                 } else {
                     return Err(vec![
-                        "max_records must be a valid positive number".to_string()
+                        "max_records must be a valid positive number".to_string(),
                     ]);
                 }
             }
             "skip_lines" => {
                 if value.parse::<usize>().is_err() {
                     return Err(vec![
-                        "skip_lines must be a valid non-negative number".to_string()
+                        "skip_lines must be a valid non-negative number".to_string(),
                     ]);
                 }
             }

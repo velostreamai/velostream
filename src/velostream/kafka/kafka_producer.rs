@@ -9,10 +9,10 @@ use crate::velostream::kafka::{
     serialization::Serde,
 };
 use rdkafka::{
+    TopicPartitionList,
     error::KafkaError,
     producer::{FutureProducer, FutureRecord, Producer, ProducerContext},
     util::Timeout,
-    TopicPartitionList,
 };
 use std::{marker::PhantomData, time::Duration};
 

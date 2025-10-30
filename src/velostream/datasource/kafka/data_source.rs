@@ -368,7 +368,7 @@ impl KafkaDataSource {
                 );
                 kafka_config.insert("fetch.min.bytes".to_string(), "1".to_string()); // Don't wait for data accumulation
                 kafka_config.insert("max.partition.fetch.bytes".to_string(), "65536".to_string()); // 64KB limit
-                                                                                                   // Enable auto-commit for low latency (less overhead than manual commits)
+                // Enable auto-commit for low latency (less overhead than manual commits)
                 kafka_config.insert("enable.auto.commit".to_string(), "true".to_string());
                 kafka_config.insert("auto.commit.interval.ms".to_string(), "50".to_string());
                 // Frequent commits
@@ -919,7 +919,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
                     if let Some(port_str) = server.split(':').nth(1) {
                         if port_str.parse::<u16>().is_err() {
                             return Err(vec![format!(
-                                "Invalid port '{}' in server '{}'. Port must be a number between 1-65535", 
+                                "Invalid port '{}' in server '{}'. Port must be a number between 1-65535",
                                 port_str, server
                             )]);
                         }
@@ -1017,7 +1017,7 @@ impl ConfigSchemaProvider for KafkaDataSource {
             "enable.auto.commit" => {
                 if !["true", "false"].contains(&value) {
                     return Err(vec![
-                        "enable.auto.commit must be 'true' or 'false'".to_string()
+                        "enable.auto.commit must be 'true' or 'false'".to_string(),
                     ]);
                 }
             }

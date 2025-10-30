@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use prost::Message;
 
 use apache_avro::{
-    from_avro_datum, to_avro_datum, types::Value as AvroValue, Schema as AvroSchema,
+    Schema as AvroSchema, from_avro_datum, to_avro_datum, types::Value as AvroValue,
 };
 
 use std::io::Cursor;

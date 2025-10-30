@@ -1,7 +1,7 @@
 use super::*; // Use the re-exported items from integration::mod
 use futures::StreamExt;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use velostream::velostream::kafka::consumer_config::IsolationLevel;
 
 /// Test transactional producer with commit

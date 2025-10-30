@@ -12,8 +12,8 @@ Tests covered:
 - Complex multi-join queries with grouping and windowing
 */
 
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::SqlValidator;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[test]
 fn test_complete_financial_trading_sql_parsing() {
@@ -225,13 +225,34 @@ fn test_various_interval_units_comprehensive() {
     let parser = StreamingSqlParser::new();
 
     let interval_cases = vec![
-        ("SECOND", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '30' SECOND PRECEDING AND CURRENT ROW) FROM events"),
-        ("MINUTE", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW) FROM events"),
-        ("HOUR", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '2' HOUR PRECEDING AND CURRENT ROW) FROM events"),
-        ("DAY", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW) FROM events"),
-        ("MINUTES", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '15' MINUTES PRECEDING AND CURRENT ROW) FROM events"),
-        ("HOURS", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '6' HOURS PRECEDING AND CURRENT ROW) FROM events"),
-        ("DAYS", "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '7' DAYS PRECEDING AND CURRENT ROW) FROM events"),
+        (
+            "SECOND",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '30' SECOND PRECEDING AND CURRENT ROW) FROM events",
+        ),
+        (
+            "MINUTE",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW) FROM events",
+        ),
+        (
+            "HOUR",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '2' HOUR PRECEDING AND CURRENT ROW) FROM events",
+        ),
+        (
+            "DAY",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW) FROM events",
+        ),
+        (
+            "MINUTES",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '15' MINUTES PRECEDING AND CURRENT ROW) FROM events",
+        ),
+        (
+            "HOURS",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '6' HOURS PRECEDING AND CURRENT ROW) FROM events",
+        ),
+        (
+            "DAYS",
+            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '7' DAYS PRECEDING AND CURRENT ROW) FROM events",
+        ),
     ];
 
     for (unit, sql) in interval_cases {

@@ -58,8 +58,8 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use std::collections::HashMap;
 
-use crate::velostream::sql::execution::types::FieldValue;
 use crate::velostream::sql::SqlError;
+use crate::velostream::sql::execution::types::FieldValue;
 use crate::velostream::table::streaming::{RecordBatch, RecordStream};
 use crate::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
 

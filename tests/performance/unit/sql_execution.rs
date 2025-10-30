@@ -7,7 +7,7 @@
 //! Provides comprehensive SQL performance testing with unified measurement framework.
 
 use super::super::common::{
-    generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
+    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use serial_test::serial;
 use std::{
@@ -15,13 +15,13 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::{
     datasource::{DataReader, DataWriter},
     server::processors::{common::*, simple::*},
     sql::{
-        execution::types::{FieldValue, StreamRecord},
         StreamExecutionEngine,
+        execution::types::{FieldValue, StreamRecord},
     },
 };
 

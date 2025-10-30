@@ -308,7 +308,7 @@ mod properties_prefix_tests {
         assert!(kafka_source.config().contains_key("brokers"));
         assert!(kafka_source.config().contains_key("group_id"));
         assert!(!kafka_source.config().contains_key("sink.brokers")); // Sink properties excluded
-                                                                      // Note: Current implementation includes unprefixed job properties - this could be improved
+        // Note: Current implementation includes unprefixed job properties - this could be improved
         assert!(kafka_source.config().contains_key("failure_strategy")); // Job properties currently included
         assert!(kafka_source.config().contains_key("batch_size")); // Job properties currently included
 
@@ -316,7 +316,7 @@ mod properties_prefix_tests {
         assert!(kafka_sink.config().contains_key("brokers"));
         assert!(kafka_sink.config().contains_key("topic"));
         assert!(!kafka_sink.config().contains_key("source.group_id")); // Source properties excluded
-                                                                       // Note: Current implementation includes unprefixed job properties - this could be improved
+        // Note: Current implementation includes unprefixed job properties - this could be improved
         assert!(kafka_sink.config().contains_key("failure_strategy")); // Job properties currently included
         assert!(kafka_sink.config().contains_key("batch_size")); // Job properties currently included
     }

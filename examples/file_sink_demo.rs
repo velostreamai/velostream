@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 use velostream::velostream::datasource::file::{
-    config::{CompressionType, FileFormat, FileSinkConfig},
     FileDataSink,
+    config::{CompressionType, FileFormat, FileSinkConfig},
 };
 use velostream::velostream::datasource::traits::DataSink;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};

@@ -61,9 +61,11 @@ fn test_validate_configurations_missing_config() {
 
     // Missing configuration should be tracked in missing_source_configs
     assert_eq!(query_results[0].missing_source_configs.len(), 1);
-    assert!(query_results[0]
-        .missing_source_configs
-        .contains(&"missing_stream".to_string()));
+    assert!(
+        query_results[0]
+            .missing_source_configs
+            .contains(&"missing_stream".to_string())
+    );
 }
 
 #[test]
@@ -114,9 +116,11 @@ fn test_validate_configurations_missing_sink_config() {
 
     // Missing configuration should be tracked in missing_sink_configs
     assert_eq!(query_results[0].missing_sink_configs.len(), 1);
-    assert!(query_results[0]
-        .missing_sink_configs
-        .contains(&"missing_sink".to_string()));
+    assert!(
+        query_results[0]
+            .missing_sink_configs
+            .contains(&"missing_sink".to_string())
+    );
 }
 
 #[test]
@@ -197,17 +201,25 @@ fn test_config_validator_independence() {
     validator.validate_configurations(&mut query_results2);
 
     // Results should be independent
-    assert!(query_results1[0]
-        .missing_source_configs
-        .contains(&"stream1".to_string()));
-    assert!(query_results2[0]
-        .missing_source_configs
-        .contains(&"stream2".to_string()));
+    assert!(
+        query_results1[0]
+            .missing_source_configs
+            .contains(&"stream1".to_string())
+    );
+    assert!(
+        query_results2[0]
+            .missing_source_configs
+            .contains(&"stream2".to_string())
+    );
     // Each should only contain its own missing stream
-    assert!(!query_results1[0]
-        .missing_source_configs
-        .contains(&"stream2".to_string()));
-    assert!(!query_results2[0]
-        .missing_source_configs
-        .contains(&"stream1".to_string()));
+    assert!(
+        !query_results1[0]
+            .missing_source_configs
+            .contains(&"stream2".to_string())
+    );
+    assert!(
+        !query_results2[0]
+            .missing_source_configs
+            .contains(&"stream1".to_string())
+    );
 }

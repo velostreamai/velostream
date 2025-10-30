@@ -41,11 +41,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 */
 
+use crate::velostream::datasource::BatchConfig;
 use crate::velostream::datasource::config::SourceConfig;
 use crate::velostream::datasource::file::FileDataSource;
 use crate::velostream::datasource::kafka::KafkaDataSource;
 use crate::velostream::datasource::traits::DataSource;
-use crate::velostream::datasource::BatchConfig;
 use crate::velostream::kafka::consumer_config::ConsumerConfig;
 use crate::velostream::kafka::serialization::StringSerializer;
 use crate::velostream::serialization::JsonFormat;
@@ -53,7 +53,7 @@ use crate::velostream::sql::ast::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use crate::velostream::table::error::{CtasError, CtasResult as CtasErrorResult};
-use crate::velostream::table::loading_helpers::{unified_load_table, LoadingConfig, LoadingStats};
+use crate::velostream::table::loading_helpers::{LoadingConfig, LoadingStats, unified_load_table};
 use crate::velostream::table::{
     CompactTable, OptimizedTableImpl, Table, TableDataSource, UnifiedTable,
 };
@@ -531,7 +531,10 @@ impl CtasExecutor {
                         && !value.contains("minute")
                     {
                         return Err(SqlError::ExecutionError {
-                            message: format!("retention format '{}' is invalid. Expected format like '7 days', '1 hour', '30 minutes'", value),
+                            message: format!(
+                                "retention format '{}' is invalid. Expected format like '7 days', '1 hour', '30 minutes'",
+                                value
+                            ),
                             query: None,
                         });
                     }
@@ -610,7 +613,10 @@ impl CtasExecutor {
                     return false;
                 }
                 _ => {
-                    log::warn!("Unknown table_model '{}', defaulting to standard Table. Valid options: 'compact', 'normal'", table_model);
+                    log::warn!(
+                        "Unknown table_model '{}', defaulting to standard Table. Valid options: 'compact', 'normal'",
+                        table_model
+                    );
                     return false;
                 }
             }
@@ -734,7 +740,7 @@ impl CtasExecutor {
                                 format_str, config_file
                             ),
                             query: None,
-                        })
+                        });
                     }
                 };
 
@@ -767,7 +773,7 @@ impl CtasExecutor {
                         source_type_str, config_file
                     ),
                     query: None,
-                })
+                });
             }
         };
 
@@ -1155,8 +1161,8 @@ impl CtasExecutor {
         let mut file_source = FileDataSource::from_properties(&file_props);
         use crate::velostream::datasource::BatchConfig;
         use crate::velostream::datasource::{
-            config::{FileFormat as ConfigFileFormat, SourceConfig},
             DataSource,
+            config::{FileFormat as ConfigFileFormat, SourceConfig},
         };
 
         // Convert our FileFormat to config FileFormat

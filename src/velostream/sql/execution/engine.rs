@@ -133,7 +133,7 @@ use super::internal::{
 };
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
-use crate::velostream::datasource::{create_sink, create_source, DataReader, DataWriter};
+use crate::velostream::datasource::{DataReader, DataWriter, create_sink, create_source};
 use crate::velostream::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
 use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;

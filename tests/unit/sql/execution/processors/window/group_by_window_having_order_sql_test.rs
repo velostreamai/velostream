@@ -265,7 +265,10 @@ async fn test_group_by_window_having_complex_condition() {
                         "HAVING clause failed: COUNT(*) > 1 AND SUM(amount) > 150.0 not satisfied"
                     );
                 }
-                println!("✓ GROUP BY → WINDOW → HAVING with complex condition successful with {} results", results.len());
+                println!(
+                    "✓ GROUP BY → WINDOW → HAVING with complex condition successful with {} results",
+                    results.len()
+                );
             }
         }
         Err(e) => {

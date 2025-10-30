@@ -8,8 +8,8 @@ use crate::velostream::serialization::helpers::{
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use rdkafka::{
-    producer::{FutureProducer, FutureRecord, Producer},
     ClientConfig,
+    producer::{FutureProducer, FutureRecord, Producer},
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -727,8 +727,13 @@ impl DataWriter for KafkaDataWriter {
         }
 
         // Send to Kafka with comprehensive debug logging
-        log::debug!("KafkaDataWriter: Sending record to topic '{}' with key {:?}, payload_size={} bytes, format={:?}", 
-                   self.topic, key, payload.len(), self.format);
+        log::debug!(
+            "KafkaDataWriter: Sending record to topic '{}' with key {:?}, payload_size={} bytes, format={:?}",
+            self.topic,
+            key,
+            payload.len(),
+            self.format
+        );
 
         match self
             .producer
@@ -736,8 +741,12 @@ impl DataWriter for KafkaDataWriter {
             .await
         {
             Ok(delivery) => {
-                log::debug!("KafkaDataWriter: Successfully sent record to topic '{}', partition={}, offset={}", 
-                           self.topic, delivery.partition, delivery.offset);
+                log::debug!(
+                    "KafkaDataWriter: Successfully sent record to topic '{}', partition={}, offset={}",
+                    self.topic,
+                    delivery.partition,
+                    delivery.offset
+                );
                 Ok(())
             }
             Err((kafka_error, _)) => {
@@ -746,8 +755,12 @@ impl DataWriter for KafkaDataWriter {
                     self.topic,
                     kafka_error
                 );
-                log::error!("KafkaDataWriter: Failed record details - key: {:?}, payload_size: {} bytes, format: {:?}", 
-                           key, payload.len(), self.format);
+                log::error!(
+                    "KafkaDataWriter: Failed record details - key: {:?}, payload_size: {} bytes, format: {:?}",
+                    key,
+                    payload.len(),
+                    self.format
+                );
                 Err(Box::new(kafka_error))
             }
         }
@@ -788,8 +801,12 @@ impl DataWriter for KafkaDataWriter {
                         self.topic,
                         e
                     );
-                    log::error!("KafkaDataWriter: Batch statistics - {}/{} records successfully written to topic '{}' before failure",
-                               successful_writes, batch_size, self.topic);
+                    log::error!(
+                        "KafkaDataWriter: Batch statistics - {}/{} records successfully written to topic '{}' before failure",
+                        successful_writes,
+                        batch_size,
+                        self.topic
+                    );
                     return Err(e);
                 }
             }
@@ -829,8 +846,13 @@ impl DataWriter for KafkaDataWriter {
             .await
         {
             Ok(delivery) => {
-                log::debug!("KafkaDataWriter: Successfully sent tombstone for key '{}' to topic '{}', partition={}, offset={}", 
-                           key, self.topic, delivery.partition, delivery.offset);
+                log::debug!(
+                    "KafkaDataWriter: Successfully sent tombstone for key '{}' to topic '{}', partition={}, offset={}",
+                    key,
+                    self.topic,
+                    delivery.partition,
+                    delivery.offset
+                );
                 Ok(())
             }
             Err((kafka_error, _)) => {

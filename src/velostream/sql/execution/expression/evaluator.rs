@@ -4,9 +4,9 @@
 //! SQL expressions against streaming data records.
 
 use super::super::processors::ProcessorContext;
-use super::super::types::{system_columns, FieldValue, StreamRecord};
+use super::super::types::{FieldValue, StreamRecord, system_columns};
 use super::functions::BuiltinFunctions;
-use super::subquery_executor::{evaluate_subquery_with_executor, SubqueryExecutor};
+use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
 use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
 use rust_decimal::Decimal;

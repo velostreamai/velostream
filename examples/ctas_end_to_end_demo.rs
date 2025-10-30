@@ -17,7 +17,7 @@ cargo run --example ctas_end_to_end_demo --no-default-features
 This demo shows the full Phase 3 CTAS implementation in action.
 */
 
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::main]

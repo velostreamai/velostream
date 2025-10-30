@@ -8,13 +8,13 @@
 
 use std::collections::HashMap;
 use velostream::velostream::sql::{
+    SqlError, StreamingQuery,
     ast::{BinaryOperator, Expr, LiteralValue, SelectField, StreamSource},
     execution::{
-        processors::{ProcessorContext, SelectProcessor},
         FieldValue, StreamRecord,
+        processors::{ProcessorContext, SelectProcessor},
     },
     parser::StreamingSqlParser,
-    SqlError, StreamingQuery,
 };
 
 fn create_test_record() -> StreamRecord {

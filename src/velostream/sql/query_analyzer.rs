@@ -3,16 +3,16 @@
 //! This module analyzes parsed SQL queries to determine what Kafka consumers, producers,
 //! and serializers need to be created dynamically based on the query requirements.
 
-use crate::velostream::config::schema_registry::validate_configuration;
 use crate::velostream::config::HierarchicalSchemaRegistry;
+use crate::velostream::config::schema_registry::validate_configuration;
 use crate::velostream::datasource::file::{FileDataSink, FileDataSource};
 use crate::velostream::datasource::kafka::data_sink::KafkaDataSink;
 use crate::velostream::datasource::kafka::data_source::KafkaDataSource;
 use crate::velostream::kafka::serialization_format::SerializationConfig;
 use crate::velostream::sql::{
+    SqlError,
     ast::{InsertSource, IntoClause, StreamSource, StreamingQuery},
     config::load_yaml_config,
-    SqlError,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -429,12 +429,14 @@ impl QueryAnalyzer {
             "file_source" => DataSourceType::File,
             "s3_source" => DataSourceType::S3,
             "database_source" => DataSourceType::Database,
-            other => return Err(SqlError::ConfigurationError {
-                message: format!(
-                    "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
-                    other, table_name
-                ),
-            }),
+            other => {
+                return Err(SqlError::ConfigurationError {
+                    message: format!(
+                        "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
+                        other, table_name
+                    ),
+                });
+            }
         };
 
         // Check if config file failed to load (even though source type was provided)
@@ -610,12 +612,14 @@ impl QueryAnalyzer {
             "s3_sink" => DataSinkType::S3,
             "database_sink" => DataSinkType::Database,
             "iceberg_sink" => DataSinkType::Iceberg,
-            other => return Err(SqlError::ConfigurationError {
-                message: format!(
-                    "Invalid sink type '{}' for '{}'. Supported values: 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
-                    other, table_name
-                ),
-            }),
+            other => {
+                return Err(SqlError::ConfigurationError {
+                    message: format!(
+                        "Invalid sink type '{}' for '{}'. Supported values: 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
+                        other, table_name
+                    ),
+                });
+            }
         };
 
         // Check if config file failed to load (even though sink type was provided)

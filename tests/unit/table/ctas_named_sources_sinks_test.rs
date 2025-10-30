@@ -301,8 +301,7 @@ fn test_multiple_named_sink_config_pattern() {
         if let Ok(StreamingQuery::CreateTable { as_select, .. }) = result {
             if let StreamingQuery::Select { emit_mode, .. } = *as_select {
                 assert_eq!(
-                    emit_mode,
-                    None,
+                    emit_mode, None,
                     "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level) for sink '{}'",
                     sink_name
                 );

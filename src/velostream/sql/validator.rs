@@ -7,7 +7,7 @@ use crate::velostream::sql::{
     ast::{Expr, SelectField, StreamingQuery, SubqueryType},
     config::with_clause_parser::WithClauseParser,
     parser::{
-        annotations::parse_metric_annotations, validator::AggregateValidator, StreamingSqlParser,
+        StreamingSqlParser, annotations::parse_metric_annotations, validator::AggregateValidator,
     },
     query_analyzer::{
         DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType, QueryAnalyzer,

@@ -113,7 +113,7 @@ fn test_result_structure() {
     // Verify all expected fields are initialized
     assert!(!result.query_text.is_empty());
     assert!(result.parsing_errors.is_empty() || !result.parsing_errors.is_empty()); // Either way is valid
-                                                                                    // Note: configuration_errors might not be empty if query analysis fails for simple queries
+    // Note: configuration_errors might not be empty if query analysis fails for simple queries
     assert!(result.warnings.is_empty()); // Should start empty
     assert!(result.sources_found.is_empty()); // No sources in this simple query
     assert!(result.sinks_found.is_empty()); // No sinks in this simple query

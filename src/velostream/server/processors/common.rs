@@ -4,24 +4,24 @@
 //! and non-transactional multi-job processors.
 
 use crate::velostream::datasource::{
+    DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
     file::{FileDataSink, FileDataSource},
     kafka::{KafkaDataSink, KafkaDataSource},
-    DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
 };
 use crate::velostream::sql::{
+    StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
     execution::{
-        processors::{context::ProcessorContext, QueryProcessor},
+        processors::{QueryProcessor, context::ProcessorContext},
         types::StreamRecord,
     },
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
-    StreamExecutionEngine, StreamingQuery,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 /// Result of batch processing
 #[derive(Debug, Clone)]

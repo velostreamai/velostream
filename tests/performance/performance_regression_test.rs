@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use velostream::velostream::sql::{
+    SqlError, StreamingQuery,
     execution::{
-        processors::{ProcessorContext, SelectProcessor, TableReference},
         FieldValue, StreamRecord,
+        processors::{ProcessorContext, SelectProcessor, TableReference},
     },
     parser::StreamingSqlParser,
-    SqlError, StreamingQuery,
 };
 
 #[test]

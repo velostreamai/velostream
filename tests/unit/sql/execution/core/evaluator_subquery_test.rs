@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::SqlError;
 use velostream::velostream::sql::ast::{
     BinaryOperator, BinaryOperator as ComparisonOp, Expr, LiteralValue, SelectField, StreamSource,
     StreamingQuery, SubqueryType, UnaryOperator,
@@ -21,7 +22,6 @@ use velostream::velostream::sql::execution::expression::evaluator::ExpressionEva
 use velostream::velostream::sql::execution::expression::subquery_executor::SubqueryExecutor;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
-use velostream::velostream::sql::SqlError;
 use velostream::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
@@ -58,11 +58,7 @@ impl UnifiedTable for MockSubqueryTable {
     }
 
     fn record_count(&self) -> usize {
-        if self.exists_result {
-            1
-        } else {
-            0
-        }
+        if self.exists_result { 1 } else { 0 }
     }
 
     fn is_empty(&self) -> bool {

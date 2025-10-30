@@ -3,15 +3,13 @@
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
 use opentelemetry::{
-    global,
+    KeyValue, global,
     trace::{Span, SpanKind, Status, Tracer, TracerProvider as _},
-    KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    runtime,
+    Resource, runtime,
     trace::{RandomIdGenerator, Sampler, TracerProvider},
-    Resource,
 };
 use std::time::Instant;
 

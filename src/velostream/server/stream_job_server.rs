@@ -6,27 +6,27 @@
 
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{
-    error_tracker::DeploymentContext, ObservabilityManager, SharedObservabilityManager,
+    ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
 };
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
-    create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
-    SimpleJobProcessor, TransactionalJobProcessor,
+    FailureStrategy, JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor,
+    create_multi_sink_writers, create_multi_source_readers,
 };
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
 use crate::velostream::sql::{
+    SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::config::StreamingConfig, execution::performance::PerformanceMonitor,
-    query_analyzer::QueryAnalyzer, SqlApplication, SqlError, SqlValidator, StreamExecutionEngine,
-    StreamingSqlParser,
+    query_analyzer::QueryAnalyzer,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
@@ -145,7 +145,10 @@ impl StreamJobServer {
                     Some(Arc::new(RwLock::new(obs_manager)))
                 }
                 Err(e) => {
-                    warn!("⚠️ Failed to initialize server-level observability: {}. Metrics will be unavailable.", e);
+                    warn!(
+                        "⚠️ Failed to initialize server-level observability: {}. Metrics will be unavailable.",
+                        e
+                    );
                     None
                 }
             }
@@ -211,7 +214,10 @@ impl StreamJobServer {
                     Some(Arc::new(RwLock::new(obs_manager)))
                 }
                 Err(e) => {
-                    warn!("⚠️ Failed to initialize observability: {}. Continuing without observability.", e);
+                    warn!(
+                        "⚠️ Failed to initialize observability: {}. Continuing without observability.",
+                        e
+                    );
                     None
                 }
             }
@@ -245,9 +251,7 @@ impl StreamJobServer {
                     Ok(()) => {
                         info!(
                             "✅ Server-level deployment context initialized: node_id={:?}, node_name={:?}, region={:?}",
-                            deployment_ctx.node_id,
-                            deployment_ctx.node_name,
-                            deployment_ctx.region
+                            deployment_ctx.node_id, deployment_ctx.node_name, deployment_ctx.region
                         );
                     }
                     Err(e) => {
@@ -803,7 +807,10 @@ impl StreamJobServer {
                             );
 
                             if use_transactions {
-                                info!("Job '{}' using transactional processor for multi-source processing", job_name);
+                                info!(
+                                    "Job '{}' using transactional processor for multi-source processing",
+                                    job_name
+                                );
                                 let processor = TransactionalJobProcessor::with_observability(
                                     config,
                                     observability_for_spawn.clone(),
@@ -1185,7 +1192,7 @@ impl StreamJobServer {
                     validation_result.total_queries - validation_result.valid_queries,
                     validation_result.total_queries
                 ),
-                None
+                None,
             ));
         }
 
@@ -1331,7 +1338,10 @@ impl StreamJobServer {
 
                             // CLEANUP: Stop any jobs that were already deployed to prevent partial state
                             if !deployed_jobs.is_empty() {
-                                error!("Cleaning up {} already-deployed jobs to prevent partial deployment state", deployed_jobs.len());
+                                error!(
+                                    "Cleaning up {} already-deployed jobs to prevent partial deployment state",
+                                    deployed_jobs.len()
+                                );
                                 for cleanup_job in &deployed_jobs {
                                     if let Err(cleanup_err) = self.stop_job(cleanup_job).await {
                                         warn!(
@@ -1351,9 +1361,12 @@ impl StreamJobServer {
                             return Err(SqlError::execution_error(
                                 format!(
                                     "Deployment of application '{}' aborted: Job '{}' failed to deploy: {}. {} previously deployed jobs were stopped to prevent partial deployment state.",
-                                    app.metadata.name, job_name, e, deployed_jobs.len()
+                                    app.metadata.name,
+                                    job_name,
+                                    e,
+                                    deployed_jobs.len()
                                 ),
-                                Some(stmt.sql.clone())
+                                Some(stmt.sql.clone()),
                             ));
                         }
                     }

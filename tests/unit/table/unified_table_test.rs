@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::table::unified_table::{parse_key_lookup, TableResult, UnifiedTable};
+use velostream::velostream::table::unified_table::{TableResult, UnifiedTable, parse_key_lookup};
 
 #[test]
 fn test_key_lookup_parsing() {

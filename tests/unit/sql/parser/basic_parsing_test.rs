@@ -1,6 +1,6 @@
 use velostream::velostream::sql::ast::*;
-use velostream::velostream::sql::parser::annotations::MetricType;
 use velostream::velostream::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::parser::annotations::MetricType;
 
 #[test]
 fn test_simple_select_all() {

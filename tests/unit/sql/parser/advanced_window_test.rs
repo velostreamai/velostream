@@ -33,9 +33,11 @@ fn test_table_alias_in_partition_by() {
                 SelectField::Expression { expr, .. } => {
                     match expr {
                         Expr::WindowFunction { over_clause, .. } => {
-                            assert!(over_clause
-                                .partition_by
-                                .contains(&"p.trader_id".to_string()));
+                            assert!(
+                                over_clause
+                                    .partition_by
+                                    .contains(&"p.trader_id".to_string())
+                            );
                             // Verify ORDER BY also has table alias
                             assert_eq!(over_clause.order_by.len(), 1);
                         }
@@ -68,9 +70,11 @@ fn test_multiple_table_aliases_in_window() {
             SelectField::Expression { expr, .. } => match expr {
                 Expr::WindowFunction { over_clause, .. } => {
                     assert_eq!(over_clause.partition_by.len(), 2);
-                    assert!(over_clause
-                        .partition_by
-                        .contains(&"p.trader_id".to_string()));
+                    assert!(
+                        over_clause
+                            .partition_by
+                            .contains(&"p.trader_id".to_string())
+                    );
                     assert!(over_clause.partition_by.contains(&"m.symbol".to_string()));
                 }
                 _ => panic!("Expected WindowFunction expression"),
@@ -378,9 +382,11 @@ fn test_combined_new_features() {
                     match expr {
                         Expr::WindowFunction { over_clause, .. } => {
                             // Has table alias in PARTITION BY
-                            assert!(over_clause
-                                .partition_by
-                                .contains(&"p.trader_id".to_string()));
+                            assert!(
+                                over_clause
+                                    .partition_by
+                                    .contains(&"p.trader_id".to_string())
+                            );
                             // Has window frame with INTERVAL
                             assert!(over_clause.window_frame.is_some());
                         }

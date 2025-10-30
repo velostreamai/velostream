@@ -5,7 +5,7 @@
 
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::{system_columns, FieldValue, StreamRecord};
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord, system_columns};
 use std::collections::HashSet;
 
 /// Error type for field validation failures

@@ -38,7 +38,7 @@ three-component architecture: Table/CompactTable (ingestion) + OptimizedTableImp
 */
 
 use std::error::Error;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use velostream::velostream::table::ctas::CtasExecutor;
 
 #[tokio::main]

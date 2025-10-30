@@ -4,17 +4,17 @@
 //! HAVING clause processing, and header mutations.
 
 use super::{
-    query_parsing, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
-    ProcessorContext, ProcessorResult, TableReference,
+    HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor, ProcessorContext,
+    ProcessorResult, TableReference, query_parsing,
 };
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::execution::{
-    aggregation::{state::GroupByStateManager, AccumulatorManager},
+    FieldValue, StreamRecord,
+    aggregation::{AccumulatorManager, state::GroupByStateManager},
     expression::{ExpressionEvaluator, SelectAliasContext, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
     types::system_columns,
     validation::{AliasContext, FieldValidator, ValidationContext},
-    FieldValue, StreamRecord,
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
