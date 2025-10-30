@@ -28,6 +28,8 @@ fn test_rows_window_buffer_initialization() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     assert_eq!(state.buffer_size, 10, "Buffer size should be 10");
@@ -51,6 +53,8 @@ fn test_rows_window_buffer_operations() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Verify record count tracking
@@ -84,6 +88,8 @@ fn test_rows_window_buffer_overflow_detection() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Check buffer is full
@@ -117,6 +123,8 @@ fn test_rows_window_partition_isolation() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: partition_a,
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     let mut state_b = RowsWindowState {
@@ -132,6 +140,8 @@ fn test_rows_window_partition_isolation() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: partition_b,
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Verify partition isolation
@@ -160,6 +170,8 @@ fn test_rows_window_rank_function() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Build ranking index: 5 rows
@@ -194,6 +206,8 @@ fn test_rows_window_dense_rank_function() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // For DENSE_RANK, we iterate through ranking_index
@@ -225,6 +239,8 @@ fn test_rows_window_percent_rank_computation() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // For PERCENT_RANK:
@@ -267,6 +283,8 @@ fn test_rows_window_time_gap_detection() {
         last_timestamp: Some(1000),
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Simulate a new record arriving with timestamp 2000ms
@@ -321,6 +339,8 @@ fn test_rows_window_emission_strategy_every_record() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // With EveryRecord mode, each record triggers emission
@@ -344,6 +364,8 @@ fn test_rows_window_emission_strategy_buffer_full() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec![],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Check buffer is not yet full
@@ -386,6 +408,8 @@ fn test_rows_window_multiple_partitions_isolation() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec!["customer_a".to_string()],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     // Customer B state
@@ -402,6 +426,8 @@ fn test_rows_window_multiple_partitions_isolation() {
         last_timestamp: None,
         gap_detected: false,
         partition_values: vec!["customer_b".to_string()],
+        expire_after: None,
+        last_activity_timestamp: None,
     };
 
     states.insert("customer_a", state_a);

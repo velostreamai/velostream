@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::time::Duration;
-use velostream::velostream::common::StreamRecord;
-use velostream::velostream::sql::execution::internal::{RowsEmitMode, RowsWindowState};
+use velostream::velostream::sql::ast::RowsEmitMode;
+use velostream::velostream::sql::execution::internal::RowsWindowState;
+use velostream::velostream::sql::execution::types::StreamRecord;
 
 /// Test default 1-minute expiration timeout
 #[test]
@@ -8,12 +10,12 @@ fn test_row_expiration_default_timeout() {
     let mut window = RowsWindowState::new("test".to_string(), 100, RowsEmitMode::EveryRecord, None);
 
     // Add first record at timestamp 0
-    let record1 = StreamRecord::new();
+    let record1 = StreamRecord::new(HashMap::new());
     window.add_record(record1, 0);
     assert_eq!(window.buffer_len(), 1);
 
     // Add second record within 1 minute (59 seconds = 59000 ms)
-    let record2 = StreamRecord::new();
+    let record2 = StreamRecord::new(HashMap::new());
     window.add_record(record2, 59_000);
     assert_eq!(
         window.buffer_len(),
@@ -27,7 +29,7 @@ fn test_row_expiration_default_timeout() {
     assert_eq!(window.buffer_len(), 2, "Buffer should remain intact");
 
     // Add third record at 60001 ms (just over 1 minute) - should trigger expiration
-    let record3 = StreamRecord::new();
+    let record3 = StreamRecord::new(HashMap::new());
     window.add_record(record3, 60_001);
     let expired = window.check_and_apply_expiration(60_001);
     assert!(expired, "Should expire after 1 minute gap");
@@ -47,20 +49,20 @@ fn test_row_expiration_custom_duration() {
     window.set_expire_after(Some(Duration::from_secs(30)));
 
     // Add first record at timestamp 0
-    let record1 = StreamRecord::new();
+    let record1 = StreamRecord::new(HashMap::new());
     window.add_record(record1, 0);
     window.check_and_apply_expiration(0);
     assert_eq!(window.buffer_len(), 1);
 
     // Add second record at 25 seconds (within threshold)
-    let record2 = StreamRecord::new();
+    let record2 = StreamRecord::new(HashMap::new());
     window.add_record(record2, 25_000);
     let expired = window.check_and_apply_expiration(25_000);
     assert!(!expired, "Should not expire within 30 seconds");
     assert_eq!(window.buffer_len(), 2);
 
     // Add third record at 35 seconds (exceeds 30-second threshold)
-    let record3 = StreamRecord::new();
+    let record3 = StreamRecord::new(HashMap::new());
     window.add_record(record3, 35_000);
     let expired = window.check_and_apply_expiration(35_000);
     assert!(expired, "Should expire after 30-second gap");
@@ -76,11 +78,11 @@ fn test_row_expiration_short_timeout() {
     window.set_expire_after(Some(Duration::from_secs(5)));
 
     // Add records at different times
-    let record1 = StreamRecord::new();
+    let record1 = StreamRecord::new(HashMap::new());
     window.add_record(record1, 0);
     window.check_and_apply_expiration(0);
 
-    let record2 = StreamRecord::new();
+    let record2 = StreamRecord::new(HashMap::new());
     window.add_record(record2, 3_000); // 3 seconds later
     window.check_and_apply_expiration(3_000);
     assert_eq!(window.buffer_len(), 2, "Should not expire within 5 seconds");
@@ -104,11 +106,11 @@ fn test_row_expiration_multiple_cycles() {
     window.set_expire_after(Some(Duration::from_secs(10)));
 
     // Cycle 1: Add records 0-15 seconds
-    let r1 = StreamRecord::new();
+    let r1 = StreamRecord::new(HashMap::new());
     window.add_record(r1, 0);
     window.check_and_apply_expiration(0);
 
-    let r2 = StreamRecord::new();
+    let r2 = StreamRecord::new(HashMap::new());
     window.add_record(r2, 5_000);
     window.check_and_apply_expiration(5_000);
     assert_eq!(window.buffer_len(), 2);
@@ -119,12 +121,12 @@ fn test_row_expiration_multiple_cycles() {
     assert_eq!(window.buffer_len(), 0);
 
     // Cycle 2: Start fresh
-    let r3 = StreamRecord::new();
+    let r3 = StreamRecord::new(HashMap::new());
     window.add_record(r3, 20_000);
     window.check_and_apply_expiration(20_000);
     assert_eq!(window.buffer_len(), 1);
 
-    let r4 = StreamRecord::new();
+    let r4 = StreamRecord::new(HashMap::new());
     window.add_record(r4, 25_000);
     window.check_and_apply_expiration(25_000);
     assert_eq!(window.buffer_len(), 2);
@@ -147,7 +149,7 @@ fn test_row_expiration_boundary_cases() {
     // Set 1000ms timeout
     window.set_expire_after(Some(Duration::from_millis(1000)));
 
-    let r1 = StreamRecord::new();
+    let r1 = StreamRecord::new(HashMap::new());
     window.add_record(r1, 0);
     window.check_and_apply_expiration(0);
 
@@ -170,14 +172,14 @@ fn test_row_expiration_with_buffer_accumulation() {
 
     // Add 5 records (fill buffer)
     for i in 0..5 {
-        let record = StreamRecord::new();
+        let record = StreamRecord::new(HashMap::new());
         window.add_record(record, i * 1_000);
         window.check_and_apply_expiration(i * 1_000);
     }
     assert_eq!(window.buffer_len(), 5, "Buffer should be full");
 
     // Add 6th record (triggers buffer overflow, removes oldest)
-    let record = StreamRecord::new();
+    let record = StreamRecord::new(HashMap::new());
     window.add_record(record, 5_000);
     assert_eq!(window.buffer_len(), 5, "Buffer should stay at max size");
 
@@ -203,7 +205,7 @@ fn test_row_expiration_timestamp_tracking() {
     window.check_and_apply_expiration(100);
 
     // Add record and check again at 200ms
-    let r1 = StreamRecord::new();
+    let r1 = StreamRecord::new(HashMap::new());
     window.add_record(r1, 200);
     window.check_and_apply_expiration(200);
     assert_eq!(window.buffer_len(), 1);
@@ -217,7 +219,7 @@ fn test_row_expiration_timestamp_tracking() {
     assert!(expired, "Should expire at 5.1 seconds");
 
     // Add new record after expiration
-    let r2 = StreamRecord::new();
+    let r2 = StreamRecord::new(HashMap::new());
     window.add_record(r2, 5_200);
     window.check_and_apply_expiration(5_200);
     assert_eq!(
