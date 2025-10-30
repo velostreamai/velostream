@@ -198,7 +198,7 @@ impl WindowProcessor {
         let is_emit_changes = Self::is_emit_changes(query);
 
         // Phase 3: ENGINE INTEGRATION - Activate GROUP BY routing
-        if let (Some(ref cols), true) = (&group_by_cols, is_emit_changes) {
+        if let (Some(cols), true) = (&group_by_cols, is_emit_changes) {
             debug!(
                 "FR-079 Phase 3: Activating GROUP BY + EMIT CHANGES windowed query routing for query: {}",
                 query_id

@@ -355,7 +355,7 @@ impl ObservabilityHelper {
         batch_start: &Instant,
         records_processed: u64,
     ) {
-        if let Some(ref mut span) = batch_span {
+        if let Some(span) = batch_span {
             let batch_duration = batch_start.elapsed().as_millis() as u64;
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);
@@ -402,7 +402,7 @@ impl ObservabilityHelper {
         records_processed: u64,
         records_failed: usize,
     ) {
-        if let Some(ref mut span) = batch_span {
+        if let Some(span) = batch_span {
             let batch_duration = batch_start.elapsed().as_millis() as u64;
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);
