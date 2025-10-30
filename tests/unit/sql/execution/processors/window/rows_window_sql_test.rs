@@ -1416,7 +1416,7 @@ mod rows_window_sql_tests {
                         BUFFER 3 ROWS
                         PARTITION BY symbol
                         ORDER BY timestamp
-                        EMIT ON BUFFER_FULL
+                        EMIT ON BUFFER FULL
                 ) as moving_avg
             FROM market_data
         "#;
@@ -1513,7 +1513,7 @@ mod rows_window_sql_tests {
                         BUFFER 5 ROWS
                         PARTITION BY symbol
                         ORDER BY timestamp
-                        EMIT ON BUFFER_FULL
+                        EMIT ON BUFFER FULL
                 ) as count_full
             FROM market_data
         "#;
