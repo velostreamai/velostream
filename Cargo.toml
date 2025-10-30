@@ -1,8 +1,8 @@
 [package]
 name = "velostream"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.80.0"
+edition = "2024"
+rust-version = "1.91.0"
 license = "Apache-2.0"
 authors = ["Velostream Contributors"]
 description = "High-performance stream processing engine with SQL support"
