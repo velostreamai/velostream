@@ -1857,13 +1857,13 @@ fn collect_wildcard_recursive(
         }
         (PathPart::Wildcard, FieldValue::Struct(fields)) => {
             // Single-level wildcard - match all fields at this level
-            for (_, value) in fields {
+            for value in fields.values() {
                 collect_wildcard_recursive(value, parts, index + 1, condition, results);
             }
         }
         (PathPart::DeepWildcard, FieldValue::Struct(fields)) => {
             // Deep recursive wildcard - search at any depth
-            for (_, value) in fields {
+            for value in fields.values() {
                 // Try continuing from next part
                 if index + 1 < parts.len() {
                     collect_wildcard_recursive(value, parts, index + 1, condition, results);
