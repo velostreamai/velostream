@@ -154,25 +154,26 @@ fn test_individual_new_parser_features() {
 
     // Test 1: Table aliases in window functions
     println!("Testing table aliases in window functions...");
-    let table_alias_sql = "SELECT LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) FROM market_data m JOIN positions p ON m.symbol = p.symbol";
+    let table_alias_sql = "SELECT LAG(m.price, 1) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY p.trader_id ORDER BY m.event_time) FROM market_data m JOIN positions p ON m.symbol = p.symbol";
     let result = parser.parse(table_alias_sql);
     assert!(
         result.is_ok(),
-        "Table aliases in PARTITION BY should work: {:?}",
+        "Table aliases in ROWS WINDOW should work: {:?}",
         result.err()
     );
     println!("✅ Table aliases in window functions - PASSED");
 
-    // Test 2: INTERVAL syntax in window frames
-    println!("Testing INTERVAL syntax in window frames...");
-    let interval_sql = "SELECT AVG(price) OVER (ORDER BY event_time RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW) FROM trades";
+    // Test 2: ROWS WINDOW with ORDER BY
+    println!("Testing ROWS WINDOW with ORDER BY...");
+    let interval_sql =
+        "SELECT AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY event_time) FROM trades";
     let result = parser.parse(interval_sql);
     assert!(
         result.is_ok(),
-        "INTERVAL in window frames should work: {:?}",
+        "ROWS WINDOW with ORDER BY should work: {:?}",
         result.err()
     );
-    println!("✅ INTERVAL syntax in window frames - PASSED");
+    println!("✅ ROWS WINDOW with ORDER BY - PASSED");
 
     // Test 3: EXTRACT function SQL standard syntax
     println!("Testing EXTRACT function SQL standard syntax...");
@@ -202,9 +203,10 @@ fn test_individual_new_parser_features() {
         SELECT
             p.trader_id,
             AVG(m.price) OVER (
-                PARTITION BY p.trader_id
-                ORDER BY m.event_time
-                RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY p.trader_id
+                    ORDER BY m.event_time
             ) as hourly_avg,
             EXTRACT(HOUR FROM m.event_time) as hour_of_day
         FROM market_data m
@@ -227,31 +229,31 @@ fn test_various_interval_units_comprehensive() {
     let interval_cases = vec![
         (
             "SECOND",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '30' SECOND PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
         (
             "MINUTE",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
         (
             "HOUR",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '2' HOUR PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
         (
             "DAY",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
         (
             "MINUTES",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '15' MINUTES PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
         (
             "HOURS",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '6' HOURS PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
         (
             "DAYS",
-            "SELECT COUNT(*) OVER (ORDER BY ts RANGE BETWEEN INTERVAL '7' DAYS PRECEDING AND CURRENT ROW) FROM events",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY ts) FROM events",
         ),
     ];
 
@@ -315,7 +317,7 @@ fn test_performance_with_complex_sql() {
     let parser = StreamingSqlParser::new();
 
     // Test parsing performance with complex financial SQL
-    // Uses only window functions (no GROUP BY) for valid streaming SQL
+    // Uses ROWS WINDOW functions for valid streaming SQL
     let financial_sql = r#"
         SELECT
             p.trader_id,
@@ -325,29 +327,33 @@ fn test_performance_with_complex_sql() {
             m.volume,
             m.side,
             m.event_time,
-            LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price,
-            LEAD(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as next_price,
-            RANK() OVER (PARTITION BY m.symbol ORDER BY m.volume DESC) as volume_rank,
+            LAG(m.price, 1) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price,
+            LEAD(m.price, 1) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY p.trader_id ORDER BY m.event_time) as next_price,
+            RANK() OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY m.symbol ORDER BY m.volume DESC) as volume_rank,
             EXTRACT(EPOCH FROM (m.event_time - p.event_time)) as time_diff_seconds,
             AVG(m.price) OVER (
-                PARTITION BY p.trader_id
-                ORDER BY m.event_time
-                RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY p.trader_id
+                    ORDER BY m.event_time
             ) as hourly_moving_avg,
             COUNT(*) OVER (
-                PARTITION BY m.symbol
-                ORDER BY m.event_time
-                RANGE BETWEEN INTERVAL '15' MINUTE PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY m.symbol
+                    ORDER BY m.event_time
             ) as trades_last_15min,
             SUM(CASE WHEN m.side = 'BUY' THEN m.quantity ELSE 0.0 END) OVER (
-                PARTITION BY p.trader_id
-                ORDER BY m.event_time
-                RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY p.trader_id
+                    ORDER BY m.event_time
             ) as hourly_buys,
             SUM(CASE WHEN m.side = 'SELL' THEN m.quantity ELSE 0.0 END) OVER (
-                PARTITION BY p.trader_id
-                ORDER BY m.event_time
-                RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY p.trader_id
+                    ORDER BY m.event_time
             ) as hourly_sells
         FROM market_data m
         JOIN positions p ON m.symbol = p.symbol

@@ -33,7 +33,7 @@ mod unified_window_tests {
             match agg_func {
                 "COUNT" => {
                     for (idx, result) in results.iter().enumerate() {
-                        if let Some(count_field) = result.fields.values().next() {
+                        if let Some(count_field) = result.fields.get("result") {
                             match count_field {
                                 velostream::velostream::sql::execution::FieldValue::Integer(
                                     count,
@@ -52,7 +52,7 @@ mod unified_window_tests {
                 }
                 "SUM" | "AVG" => {
                     for (idx, result) in results.iter().enumerate() {
-                        if let Some(agg_field) = result.fields.values().next() {
+                        if let Some(agg_field) = result.fields.get("result") {
                             match agg_field {
                                 velostream::velostream::sql::execution::FieldValue::Float(val) => {
                                     assert!(
@@ -70,7 +70,7 @@ mod unified_window_tests {
                 }
                 "MIN" | "MAX" => {
                     for result in results.iter() {
-                        if let Some(agg_field) = result.fields.values().next() {
+                        if let Some(agg_field) = result.fields.get("result") {
                             match agg_field {
                                 velostream::velostream::sql::execution::FieldValue::Float(val) => {
                                     assert!(
