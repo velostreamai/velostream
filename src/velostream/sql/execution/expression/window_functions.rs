@@ -909,30 +909,14 @@ impl WindowFunctions {
             let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
                 .min(window_context.buffer.len() as i64)
                 .max(0)) as usize;
-            eprintln!(
-                "[DEBUG SUM] Using frame bounds: start_offset={}, end_offset={} -> indices ({}, {})",
-                frame_start_offset, frame_end_offset, frame_start, frame_end
-            );
             (frame_start, frame_end)
         } else {
             // Fallback to partition bounds if no frame specified
             let bounds = window_context
                 .partition_bounds
                 .unwrap_or((0, window_context.buffer.len()));
-            eprintln!(
-                "[DEBUG SUM] No frame bounds, using partition bounds: {:?}",
-                bounds
-            );
             bounds
         };
-
-        eprintln!(
-            "[DEBUG SUM] current_position={}, buffer.len()={}, aggregating indices ({}, {})",
-            window_context.current_position,
-            window_context.buffer.len(),
-            start_idx,
-            end_idx
-        );
 
         let mut sum = 0.0;
 
@@ -948,7 +932,6 @@ impl WindowFunctions {
             }
         }
 
-        eprintln!("[DEBUG SUM] Result: {}", sum);
         Ok(FieldValue::Float(sum))
     }
 

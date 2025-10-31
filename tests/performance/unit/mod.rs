@@ -6,6 +6,9 @@
 // Comprehensive SQL benchmarks (consolidates all SQL features)
 pub mod comprehensive_sql_benchmarks;
 
+// ROWS WINDOW and EMIT CHANGES SQL-driven performance benchmarks
+pub mod rows_window_emit_changes_sql_benchmarks;
+
 // Specialized benchmarks
 pub mod financial_precision;
 pub mod kafka_configurations;

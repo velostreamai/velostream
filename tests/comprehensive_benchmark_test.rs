@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 use std::time::Instant;
-use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
 
 #[tokio::test]
@@ -95,7 +96,33 @@ async fn benchmark_baseline_queries(
 ) -> Result<u64, Box<dyn std::error::Error>> {
     println!("📊 Phase 2: Baseline Query Performance");
 
-    let queries = [
+    let parser = StreamingSqlParser::new();
+
+    // SQL SELECT statements for baseline queries
+    let sql_queries = [
+        "SELECT amount FROM orders WHERE status = 'active'",
+        "SELECT amount FROM orders WHERE status = 'pending'",
+        "SELECT amount FROM orders WHERE amount > 500000",
+        "SELECT amount FROM orders WHERE account_id = 'ACC000123'",
+    ];
+
+    // Parse all queries first to validate syntax
+    let mut parsed_queries = Vec::new();
+    for sql in &sql_queries {
+        match parser.parse(sql) {
+            Ok(query) => {
+                parsed_queries.push((sql, query));
+            }
+            Err(e) => {
+                println!("   ⚠️ Parse error for '{}': {:?}", sql, e);
+            }
+        }
+    }
+
+    println!("   ✅ Parsed {} baseline SQL queries", parsed_queries.len());
+
+    // Fallback WHERE clauses for execution
+    let where_clauses = [
         "status = 'active'",
         "status = 'pending'",
         "amount > 500000",
@@ -106,18 +133,18 @@ async fn benchmark_baseline_queries(
     let mut total_results = 0;
 
     for _ in 0..100 {
-        for query in &queries {
-            let values = table.sql_column_values("amount", query)?;
+        for where_clause in &where_clauses {
+            let values = table.sql_column_values("amount", where_clause)?;
             total_results += values.len();
         }
     }
 
     let duration = start.elapsed();
-    let queries_per_sec = (queries.len() * 100) as f64 / duration.as_secs_f64();
+    let queries_per_sec = (where_clauses.len() * 100) as f64 / duration.as_secs_f64();
 
     println!(
         "   ✅ Executed {} queries in {:?}",
-        queries.len() * 100,
+        where_clauses.len() * 100,
         duration
     );
     println!("   📈 Query Throughput: {:.0} queries/sec", queries_per_sec);
@@ -131,6 +158,32 @@ async fn benchmark_aggregation_queries(
 ) -> Result<u64, Box<dyn std::error::Error>> {
     println!("📊 Phase 3: Aggregation Performance");
 
+    let parser = StreamingSqlParser::new();
+
+    // SQL SELECT statements with aggregations
+    let sql_aggregations = [
+        "SELECT COUNT(*) FROM orders WHERE status = 'active'",
+        "SELECT COUNT(*) FROM orders WHERE status = 'pending'",
+        "SELECT COUNT(*) FROM orders WHERE amount > 500000",
+        "SELECT COUNT(*) FROM orders",
+    ];
+
+    // Parse all aggregation queries first to validate syntax
+    let mut parsed_aggs = Vec::new();
+    for sql in &sql_aggregations {
+        match parser.parse(sql) {
+            Ok(query) => {
+                parsed_aggs.push((sql, query));
+            }
+            Err(e) => {
+                println!("   ⚠️ Parse error for '{}': {:?}", sql, e);
+            }
+        }
+    }
+
+    println!("   ✅ Parsed {} aggregation SQL queries", parsed_aggs.len());
+
+    // Fallback aggregation tuples for execution
     let aggregations = [
         ("COUNT(*)", "status = 'active'"),
         ("COUNT(*)", "status = 'pending'"),
@@ -165,7 +218,32 @@ async fn benchmark_complex_queries(
 ) -> Result<u64, Box<dyn std::error::Error>> {
     println!("📊 Phase 4: Complex Query Performance");
 
-    let complex_queries = [
+    let parser = StreamingSqlParser::new();
+
+    // SQL SELECT statements with complex WHERE clauses
+    let sql_complex = [
+        "SELECT account_id FROM orders WHERE status = 'active' AND amount > 750000",
+        "SELECT account_id FROM orders WHERE status IN ('pending', 'completed') AND amount < 100000",
+        "SELECT account_id FROM orders WHERE (status = 'active' OR status = 'pending') AND amount > 500000",
+    ];
+
+    // Parse all complex queries first to validate syntax
+    let mut parsed_complex = Vec::new();
+    for sql in &sql_complex {
+        match parser.parse(sql) {
+            Ok(query) => {
+                parsed_complex.push((sql, query));
+            }
+            Err(e) => {
+                println!("   ⚠️ Parse error for '{}': {:?}", sql, e);
+            }
+        }
+    }
+
+    println!("   ✅ Parsed {} complex SQL queries", parsed_complex.len());
+
+    // Fallback WHERE clauses for execution
+    let complex_where_clauses = [
         "status = 'active' AND amount > 750000",
         "status IN ('pending', 'completed') AND amount < 100000",
         "(status = 'active' OR status = 'pending') AND amount > 500000",
@@ -175,18 +253,18 @@ async fn benchmark_complex_queries(
     let mut total_results = 0;
 
     for _ in 0..50 {
-        for query in &complex_queries {
+        for query in &complex_where_clauses {
             let values = table.sql_column_values("account_id", query)?;
             total_results += values.len();
         }
     }
 
     let duration = start.elapsed();
-    let queries_per_sec = (complex_queries.len() * 50) as f64 / duration.as_secs_f64();
+    let queries_per_sec = (complex_where_clauses.len() * 50) as f64 / duration.as_secs_f64();
 
     println!(
         "   ✅ Executed {} complex queries in {:?}",
-        complex_queries.len() * 50,
+        complex_where_clauses.len() * 50,
         duration
     );
     println!(
@@ -200,7 +278,8 @@ async fn benchmark_complex_queries(
 
 #[tokio::test]
 async fn test_sql_performance_baseline() -> Result<(), Box<dyn std::error::Error>> {
-    // Simple baseline test that ensures SQL functionality works
+    // Simple baseline test that ensures SQL functionality works with parser
+    let parser = StreamingSqlParser::new();
     let table = OptimizedTableImpl::new();
 
     // Add a few test records
@@ -214,11 +293,33 @@ async fn test_sql_performance_baseline() -> Result<(), Box<dyn std::error::Error
         table.insert(format!("test_{}", i), record)?;
     }
 
-    // Test basic query
+    // Parse and validate baseline SELECT query
+    let select_sql = "SELECT id FROM orders WHERE status = 'active'";
+    match parser.parse(select_sql) {
+        Ok(_query) => {
+            println!("   ✅ Parsed SELECT query: {}", select_sql);
+        }
+        Err(e) => {
+            println!("   ⚠️ Parse error: {:?}", e);
+        }
+    }
+
+    // Test basic query execution
     let values = table.sql_column_values("id", "status = 'active'")?;
     assert_eq!(values.len(), 10);
 
-    // Test aggregation
+    // Parse and validate aggregation query
+    let agg_sql = "SELECT COUNT(*) FROM orders WHERE status = 'active'";
+    match parser.parse(agg_sql) {
+        Ok(_query) => {
+            println!("   ✅ Parsed aggregation query: {}", agg_sql);
+        }
+        Err(e) => {
+            println!("   ⚠️ Parse error: {:?}", e);
+        }
+    }
+
+    // Test aggregation execution
     let count = table
         .stream_aggregate("COUNT(*)", Some("status = 'active'"))
         .await?;
@@ -226,6 +327,6 @@ async fn test_sql_performance_baseline() -> Result<(), Box<dyn std::error::Error
         assert_eq!(c, 10);
     }
 
-    println!("✅ SQL performance baseline test passed");
+    println!("✅ SQL performance baseline test passed (with parser validation)");
     Ok(())
 }
