@@ -901,22 +901,21 @@ impl WindowFunctions {
         }
 
         // Calculate actual frame indices using frame bounds
-        let (start_idx, end_idx) = if let Some((frame_start_offset, frame_end_offset)) =
-            window_context.frame_bounds
-        {
-            let frame_start =
-                (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
-            let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
-                .min(window_context.buffer.len() as i64)
-                .max(0)) as usize;
-            (frame_start, frame_end)
-        } else {
-            // Fallback to partition bounds if no frame specified
-            let bounds = window_context
-                .partition_bounds
-                .unwrap_or((0, window_context.buffer.len()));
-            bounds
-        };
+        let (start_idx, end_idx) =
+            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
+                let frame_start =
+                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                    .min(window_context.buffer.len() as i64)
+                    .max(0)) as usize;
+                (frame_start, frame_end)
+            } else {
+                // Fallback to partition bounds if no frame specified
+                let bounds = window_context
+                    .partition_bounds
+                    .unwrap_or((0, window_context.buffer.len()));
+                bounds
+            };
 
         let mut sum = 0.0;
 

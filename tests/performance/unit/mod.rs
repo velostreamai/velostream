@@ -9,6 +9,9 @@ pub mod comprehensive_sql_benchmarks;
 // ROWS WINDOW and EMIT CHANGES SQL-driven performance benchmarks
 pub mod rows_window_emit_changes_sql_benchmarks;
 
+// Time-based window SQL-driven performance benchmarks (TUMBLING, SLIDING, SESSION)
+pub mod time_window_sql_benchmarks;
+
 // Specialized benchmarks
 pub mod financial_precision;
 pub mod kafka_configurations;
