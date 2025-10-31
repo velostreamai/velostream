@@ -129,7 +129,7 @@ jobs:
     - name: Setup Rust Environment
       uses: ./.github/actions/setup-rust
       with:
-        rust-version: 1.85.0  # Minimum Supported Rust Version
+        rust-version: 1.91.0
         cache-suffix: msrv
 
     - name: Check MSRV compatibility
