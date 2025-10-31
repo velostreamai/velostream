@@ -43,7 +43,7 @@ pub use compact_table::{CompactTable, MemoryStats};
 pub use ctas::{CtasExecutor, CtasResult};
 pub use error::{CtasError, CtasResult as CtasErrorResult, TableError, TableResult};
 pub use loading_helpers::{
-    bulk_load_table, incremental_load_table, unified_load_table, LoadingConfig, LoadingStats,
+    LoadingConfig, LoadingStats, bulk_load_table, incremental_load_table, unified_load_table,
 };
 pub use sql::{SqlTable, TableDataSource};
 pub use table::{ChangeEvent, Table, TableStats};

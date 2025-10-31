@@ -14,7 +14,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 /// Simple (non-transactional) job processor
 pub struct SimpleJobProcessor {
@@ -645,11 +645,15 @@ impl SimpleJobProcessor {
                             return Err(format!("Sink write failed, will retry: {}", e).into());
                         } else if matches!(self.config.failure_strategy, FailureStrategy::FailBatch)
                         {
-                            warn!("Job '{}': Sink write failed with FailBatch strategy - batch will fail",
-                                  job_name);
+                            warn!(
+                                "Job '{}': Sink write failed with FailBatch strategy - batch will fail",
+                                job_name
+                            );
                         } else {
-                            warn!("Job '{}': Sink write failed but continuing (failure strategy: {:?})",
-                                  job_name, self.config.failure_strategy);
+                            warn!(
+                                "Job '{}': Sink write failed but continuing (failure strategy: {:?})",
+                                job_name, self.config.failure_strategy
+                            );
                         }
                     }
                 }
@@ -1177,11 +1181,14 @@ impl SimpleJobProcessor {
 
             debug!(
                 "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed, {} written to sinks",
-                job_name, total_records_processed, total_records_failed, all_output_records.len()
+                job_name,
+                total_records_processed,
+                total_records_failed,
+                all_output_records.len()
             );
 
             // Complete batch span with success
-            if let Some(ref mut batch_span) = parent_batch_span_guard {
+            if let Some(mut batch_span) = parent_batch_span_guard {
                 let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);
@@ -1205,7 +1212,7 @@ impl SimpleJobProcessor {
             );
 
             // Complete batch span with error
-            if let Some(ref mut batch_span) = parent_batch_span_guard {
+            if let Some(mut batch_span) = parent_batch_span_guard {
                 let batch_duration = batch_start.elapsed().as_millis() as u64;
                 batch_span.set_total_records(total_records_processed as u64);
                 batch_span.set_batch_duration(batch_duration);

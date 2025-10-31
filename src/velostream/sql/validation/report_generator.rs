@@ -2,8 +2,8 @@
 //!
 //! Handles generation of validation reports and summaries.
 
-use super::result_types::{ApplicationValidationResult, QueryValidationResult};
 use super::ApplicationMetadata;
+use super::result_types::{ApplicationValidationResult, QueryValidationResult};
 use std::path::Path;
 
 /// Generates validation reports and summaries

@@ -206,7 +206,7 @@ fn extract_epoch_millis(
                 field: field_name.to_string(),
                 expected: "Integer (epoch millis)".to_string(),
                 actual: field_value.type_name(),
-            })
+            });
         }
     };
 
@@ -228,7 +228,7 @@ fn extract_epoch_seconds(
                 field: field_name.to_string(),
                 expected: "Integer (epoch seconds)".to_string(),
                 actual: field_value.type_name(),
-            })
+            });
         }
     };
 
@@ -250,7 +250,7 @@ fn extract_iso8601(
                 field: field_name.to_string(),
                 expected: "String (ISO 8601)".to_string(),
                 actual: field_value.type_name(),
-            })
+            });
         }
     };
 
@@ -276,7 +276,7 @@ fn extract_custom_format(
                 field: field_name.to_string(),
                 expected: format!("String ({})", format),
                 actual: field_value.type_name(),
-            })
+            });
         }
     };
 

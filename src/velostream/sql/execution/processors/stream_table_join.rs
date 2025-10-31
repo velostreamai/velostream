@@ -7,12 +7,12 @@ use super::{ProcessorContext, SelectProcessor};
 use crate::velostream::server::graceful_degradation::{
     GracefulDegradationConfig, GracefulDegradationHandler, TableMissingDataStrategy,
 };
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{
     BinaryOperator, Expr, JoinClause, JoinType, LiteralValue, StreamSource,
 };
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
-use crate::velostream::sql::SqlError;
 use crate::velostream::table::{OptimizedTableImpl, UnifiedTable};
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -95,7 +95,7 @@ impl StreamTableJoinProcessor {
                 return Err(SqlError::ExecutionError {
                     message: "Stream-Table join requires a table on the right side".to_string(),
                     query: None,
-                })
+                });
             }
         };
 
@@ -141,7 +141,7 @@ impl StreamTableJoinProcessor {
                 return Err(SqlError::ExecutionError {
                     message: "Stream-Table join requires a table on the right side".to_string(),
                     query: None,
-                })
+                });
             }
         };
 
@@ -169,7 +169,9 @@ impl StreamTableJoinProcessor {
         }
 
         // Fallback to individual lookups for non-OptimizedTableImpl tables
-        eprintln!("Performance Warning: Using individual lookups in batch processing - consider OptimizedTableImpl for 5-10x batch efficiency");
+        eprintln!(
+            "Performance Warning: Using individual lookups in batch processing - consider OptimizedTableImpl for 5-10x batch efficiency"
+        );
         self.process_batch_with_individual_lookups(
             stream_records,
             all_join_keys,
@@ -193,7 +195,7 @@ impl StreamTableJoinProcessor {
                 return Err(SqlError::ExecutionError {
                     message: "Stream-Table join requires a table on the right side".to_string(),
                     query: None,
-                })
+                });
             }
         };
 
@@ -271,7 +273,7 @@ impl StreamTableJoinProcessor {
                 return Err(SqlError::ExecutionError {
                     message: "Stream-Table join requires a table on the right side".to_string(),
                     query: None,
-                })
+                });
             }
         };
 
@@ -460,7 +462,9 @@ impl StreamTableJoinProcessor {
                         return Err(SqlError::ExecutionError {
                             message: format!(
                                 "JOIN condition references fields '{}' and '{}' but neither is present in the stream record. Available fields: {:?}",
-                                left_field, right_field, stream_record.fields.keys().collect::<Vec<_>>()
+                                left_field,
+                                right_field,
+                                stream_record.fields.keys().collect::<Vec<_>>()
                             ),
                             query: None,
                         });
@@ -549,7 +553,9 @@ impl StreamTableJoinProcessor {
 
         // Fallback to O(n) linear search for non-OptimizedTableImpl tables
         // This preserves backward compatibility but with performance warning
-        eprintln!("Performance Warning: Using O(n) linear search for table lookup - consider using OptimizedTableImpl for 85x faster performance");
+        eprintln!(
+            "Performance Warning: Using O(n) linear search for table lookup - consider using OptimizedTableImpl for 85x faster performance"
+        );
 
         let mut matching_records = Vec::new();
         for (_key, record) in table.iter_records() {

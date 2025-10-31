@@ -132,10 +132,12 @@ mod tests {
         // Finish processor
         tracker.finish_current_processor();
         assert!(!tracker.is_tracking_processor());
-        assert!(tracker
-            .performance
-            .processor_times
-            .contains_key("SelectProcessor"));
+        assert!(
+            tracker
+                .performance
+                .processor_times
+                .contains_key("SelectProcessor")
+        );
     }
 
     #[test]
@@ -153,14 +155,18 @@ mod tests {
         tracker.finish_current_processor();
 
         // Should have both processors tracked
-        assert!(tracker
-            .performance
-            .processor_times
-            .contains_key("SelectProcessor"));
-        assert!(tracker
-            .performance
-            .processor_times
-            .contains_key("FilterProcessor"));
+        assert!(
+            tracker
+                .performance
+                .processor_times
+                .contains_key("SelectProcessor")
+        );
+        assert!(
+            tracker
+                .performance
+                .processor_times
+                .contains_key("FilterProcessor")
+        );
     }
 
     #[test]

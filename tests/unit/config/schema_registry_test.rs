@@ -2,15 +2,15 @@
 
 use std::collections::HashMap;
 use velostream::velostream::config::schema_registry::{
-    is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
     ConfigFileInheritance, ConfigValidationError, EnvironmentVariablePattern,
+    is_schema_version_compatible, validate_config_file_inheritance, validate_environment_variables,
 };
 use velostream::velostream::config::{
     ConfigSchemaProvider, GlobalSchemaContext, HierarchicalSchemaRegistry, PropertyDefault,
 };
+use velostream::velostream::datasource::BatchConfig;
 use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};
 use velostream::velostream::datasource::kafka::{KafkaDataSink, KafkaDataSource};
-use velostream::velostream::datasource::BatchConfig;
 
 #[test]
 fn test_batch_config_schema_provider_basic() {
@@ -45,57 +45,83 @@ fn test_batch_config_property_validation() {
 
     // Invalid batch.size
     assert!(batch_config.validate_property("batch.size", "0").is_err());
-    assert!(batch_config
-        .validate_property("batch.size", "200000")
-        .is_err()); // Too large
-    assert!(batch_config
-        .validate_property("batch.size", "invalid")
-        .is_err());
+    assert!(
+        batch_config
+            .validate_property("batch.size", "200000")
+            .is_err()
+    ); // Too large
+    assert!(
+        batch_config
+            .validate_property("batch.size", "invalid")
+            .is_err()
+    );
 
     // Valid batch.timeout
-    assert!(batch_config
-        .validate_property("batch.timeout", "1000")
-        .is_ok());
-    assert!(batch_config
-        .validate_property("batch.timeout", "5000")
-        .is_ok());
+    assert!(
+        batch_config
+            .validate_property("batch.timeout", "1000")
+            .is_ok()
+    );
+    assert!(
+        batch_config
+            .validate_property("batch.timeout", "5000")
+            .is_ok()
+    );
 
     // Invalid batch.timeout
-    assert!(batch_config
-        .validate_property("batch.timeout", "0")
-        .is_err());
-    assert!(batch_config
-        .validate_property("batch.timeout", "400000")
-        .is_err()); // Too large
+    assert!(
+        batch_config
+            .validate_property("batch.timeout", "0")
+            .is_err()
+    );
+    assert!(
+        batch_config
+            .validate_property("batch.timeout", "400000")
+            .is_err()
+    ); // Too large
 
     // Valid batch.strategy
-    assert!(batch_config
-        .validate_property("batch.strategy", "FixedSize")
-        .is_ok());
-    assert!(batch_config
-        .validate_property("batch.strategy", "TimeWindow")
-        .is_ok());
-    assert!(batch_config
-        .validate_property("batch.strategy", "AdaptiveSize")
-        .is_ok());
+    assert!(
+        batch_config
+            .validate_property("batch.strategy", "FixedSize")
+            .is_ok()
+    );
+    assert!(
+        batch_config
+            .validate_property("batch.strategy", "TimeWindow")
+            .is_ok()
+    );
+    assert!(
+        batch_config
+            .validate_property("batch.strategy", "AdaptiveSize")
+            .is_ok()
+    );
 
     // Invalid batch.strategy
-    assert!(batch_config
-        .validate_property("batch.strategy", "InvalidStrategy")
-        .is_err());
+    assert!(
+        batch_config
+            .validate_property("batch.strategy", "InvalidStrategy")
+            .is_err()
+    );
 
     // Valid batch.enable
-    assert!(batch_config
-        .validate_property("batch.enable", "true")
-        .is_ok());
-    assert!(batch_config
-        .validate_property("batch.enable", "false")
-        .is_ok());
+    assert!(
+        batch_config
+            .validate_property("batch.enable", "true")
+            .is_ok()
+    );
+    assert!(
+        batch_config
+            .validate_property("batch.enable", "false")
+            .is_ok()
+    );
 
     // Invalid batch.enable
-    assert!(batch_config
-        .validate_property("batch.enable", "yes")
-        .is_err());
+    assert!(
+        batch_config
+            .validate_property("batch.enable", "yes")
+            .is_err()
+    );
     assert!(batch_config.validate_property("batch.enable", "1").is_err());
 }
 
@@ -133,73 +159,107 @@ fn test_kafka_data_source_property_validation() {
     let kafka_source = KafkaDataSource::new("localhost:9092".to_string(), "test-topic".to_string());
 
     // Valid bootstrap.servers
-    assert!(kafka_source
-        .validate_property("bootstrap.servers", "localhost:9092")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("bootstrap.servers", "broker1:9092,broker2:9092")
-        .is_ok());
+    assert!(
+        kafka_source
+            .validate_property("bootstrap.servers", "localhost:9092")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("bootstrap.servers", "broker1:9092,broker2:9092")
+            .is_ok()
+    );
 
     // Invalid bootstrap.servers
-    assert!(kafka_source
-        .validate_property("bootstrap.servers", "")
-        .is_err());
-    assert!(kafka_source
-        .validate_property("bootstrap.servers", "localhost")
-        .is_err()); // Missing port
-    assert!(kafka_source
-        .validate_property("bootstrap.servers", "localhost:invalid")
-        .is_err()); // Invalid port
+    assert!(
+        kafka_source
+            .validate_property("bootstrap.servers", "")
+            .is_err()
+    );
+    assert!(
+        kafka_source
+            .validate_property("bootstrap.servers", "localhost")
+            .is_err()
+    ); // Missing port
+    assert!(
+        kafka_source
+            .validate_property("bootstrap.servers", "localhost:invalid")
+            .is_err()
+    ); // Invalid port
 
     // Valid topic
-    assert!(kafka_source
-        .validate_property("topic", "test-topic")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("topic", "user.events")
-        .is_ok());
+    assert!(
+        kafka_source
+            .validate_property("topic", "test-topic")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("topic", "user.events")
+            .is_ok()
+    );
     assert!(kafka_source.validate_property("topic", "orders_v2").is_ok());
 
     // Invalid topic
     assert!(kafka_source.validate_property("topic", "").is_err());
-    assert!(kafka_source
-        .validate_property("topic", "topic with spaces")
-        .is_err());
-    assert!(kafka_source
-        .validate_property("topic", "topic@invalid")
-        .is_err());
+    assert!(
+        kafka_source
+            .validate_property("topic", "topic with spaces")
+            .is_err()
+    );
+    assert!(
+        kafka_source
+            .validate_property("topic", "topic@invalid")
+            .is_err()
+    );
 
     // Valid security.protocol
-    assert!(kafka_source
-        .validate_property("security.protocol", "PLAINTEXT")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("security.protocol", "SSL")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("security.protocol", "SASL_SSL")
-        .is_ok());
+    assert!(
+        kafka_source
+            .validate_property("security.protocol", "PLAINTEXT")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("security.protocol", "SSL")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("security.protocol", "SASL_SSL")
+            .is_ok()
+    );
 
     // Invalid security.protocol
-    assert!(kafka_source
-        .validate_property("security.protocol", "INVALID")
-        .is_err());
+    assert!(
+        kafka_source
+            .validate_property("security.protocol", "INVALID")
+            .is_err()
+    );
 
     // Valid auto.offset.reset
-    assert!(kafka_source
-        .validate_property("auto.offset.reset", "earliest")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("auto.offset.reset", "latest")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("auto.offset.reset", "none")
-        .is_ok());
+    assert!(
+        kafka_source
+            .validate_property("auto.offset.reset", "earliest")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("auto.offset.reset", "latest")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("auto.offset.reset", "none")
+            .is_ok()
+    );
 
     // Invalid auto.offset.reset
-    assert!(kafka_source
-        .validate_property("auto.offset.reset", "invalid")
-        .is_err());
+    assert!(
+        kafka_source
+            .validate_property("auto.offset.reset", "invalid")
+            .is_err()
+    );
 }
 
 #[test]
@@ -238,35 +298,49 @@ fn test_kafka_data_sink_property_validation() {
     assert!(kafka_sink.validate_property("acks", "invalid").is_err());
 
     // Valid compression.type
-    assert!(kafka_sink
-        .validate_property("compression.type", "none")
-        .is_ok());
-    assert!(kafka_sink
-        .validate_property("compression.type", "gzip")
-        .is_ok());
-    assert!(kafka_sink
-        .validate_property("compression.type", "snappy")
-        .is_ok());
-    assert!(kafka_sink
-        .validate_property("compression.type", "lz4")
-        .is_ok());
-    assert!(kafka_sink
-        .validate_property("compression.type", "zstd")
-        .is_ok());
+    assert!(
+        kafka_sink
+            .validate_property("compression.type", "none")
+            .is_ok()
+    );
+    assert!(
+        kafka_sink
+            .validate_property("compression.type", "gzip")
+            .is_ok()
+    );
+    assert!(
+        kafka_sink
+            .validate_property("compression.type", "snappy")
+            .is_ok()
+    );
+    assert!(
+        kafka_sink
+            .validate_property("compression.type", "lz4")
+            .is_ok()
+    );
+    assert!(
+        kafka_sink
+            .validate_property("compression.type", "zstd")
+            .is_ok()
+    );
 
     // Invalid compression.type
-    assert!(kafka_sink
-        .validate_property("compression.type", "invalid")
-        .is_err());
+    assert!(
+        kafka_sink
+            .validate_property("compression.type", "invalid")
+            .is_err()
+    );
 
     // Valid batch.size
     assert!(kafka_sink.validate_property("batch.size", "16384").is_ok());
     assert!(kafka_sink.validate_property("batch.size", "65536").is_ok());
 
     // Invalid batch.size (too large)
-    assert!(kafka_sink
-        .validate_property("batch.size", "2000000")
-        .is_err()); // > 1MB
+    assert!(
+        kafka_sink
+            .validate_property("batch.size", "2000000")
+            .is_err()
+    ); // > 1MB
 
     // Valid linger.ms
     assert!(kafka_sink.validate_property("linger.ms", "5").is_ok());
@@ -551,29 +625,43 @@ fn test_timeout_and_interval_validation_patterns() {
     let kafka_source = KafkaDataSource::new("localhost:9092".to_string(), "test".to_string());
 
     // Test timeout validation pattern
-    assert!(kafka_source
-        .validate_property("session.timeout.ms", "30000")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("request.timeout.ms", "10000")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("session.timeout.ms", "0")
-        .is_err()); // Must be > 0
-    assert!(kafka_source
-        .validate_property("session.timeout.ms", "4000000")
-        .is_err()); // Too large
+    assert!(
+        kafka_source
+            .validate_property("session.timeout.ms", "30000")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("request.timeout.ms", "10000")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("session.timeout.ms", "0")
+            .is_err()
+    ); // Must be > 0
+    assert!(
+        kafka_source
+            .validate_property("session.timeout.ms", "4000000")
+            .is_err()
+    ); // Too large
 
     // Test interval validation pattern
-    assert!(kafka_source
-        .validate_property("heartbeat.interval.ms", "3000")
-        .is_ok());
-    assert!(kafka_source
-        .validate_property("heartbeat.interval.ms", "0")
-        .is_err()); // Must be > 0
-    assert!(kafka_source
-        .validate_property("heartbeat.interval.ms", "invalid")
-        .is_err());
+    assert!(
+        kafka_source
+            .validate_property("heartbeat.interval.ms", "3000")
+            .is_ok()
+    );
+    assert!(
+        kafka_source
+            .validate_property("heartbeat.interval.ms", "0")
+            .is_err()
+    ); // Must be > 0
+    assert!(
+        kafka_source
+            .validate_property("heartbeat.interval.ms", "invalid")
+            .is_err()
+    );
 }
 
 #[test]
@@ -620,24 +708,34 @@ fn test_file_data_source_path_validation() {
     let file_source = FileDataSource::default();
 
     // Valid paths
-    assert!(file_source
-        .validate_property("path", "./data/sample.csv")
-        .is_ok());
-    assert!(file_source
-        .validate_property("path", "/logs/*.json")
-        .is_ok());
-    assert!(file_source
-        .validate_property("path", "./data/**/*.csv")
-        .is_ok());
-    assert!(file_source
-        .validate_property("path", "relative/path.json")
-        .is_ok());
+    assert!(
+        file_source
+            .validate_property("path", "./data/sample.csv")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("path", "/logs/*.json")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("path", "./data/**/*.csv")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("path", "relative/path.json")
+            .is_ok()
+    );
 
     // Invalid paths
     assert!(file_source.validate_property("path", "").is_err()); // Empty path
-    assert!(file_source
-        .validate_property("path", "../../../etc/passwd")
-        .is_err()); // Dangerous traversal
+    assert!(
+        file_source
+            .validate_property("path", "../../../etc/passwd")
+            .is_err()
+    ); // Dangerous traversal
     assert!(file_source.validate_property("path", "/data/*/").is_err()); // Glob ending with /
 }
 
@@ -647,9 +745,11 @@ fn test_file_data_source_format_validation() {
 
     // Valid formats
     assert!(file_source.validate_property("format", "csv").is_ok());
-    assert!(file_source
-        .validate_property("format", "csv_no_header")
-        .is_ok());
+    assert!(
+        file_source
+            .validate_property("format", "csv_no_header")
+            .is_ok()
+    );
     assert!(file_source.validate_property("format", "json").is_ok());
     assert!(file_source.validate_property("format", "jsonlines").is_ok());
     assert!(file_source.validate_property("format", "jsonl").is_ok());
@@ -684,9 +784,11 @@ fn test_file_data_source_boolean_validation() {
 
     // Valid boolean values
     assert!(file_source.validate_property("has_headers", "true").is_ok());
-    assert!(file_source
-        .validate_property("has_headers", "false")
-        .is_ok());
+    assert!(
+        file_source
+            .validate_property("has_headers", "false")
+            .is_ok()
+    );
     assert!(file_source.validate_property("watching", "true").is_ok());
     assert!(file_source.validate_property("watching", "false").is_ok());
     assert!(file_source.validate_property("recursive", "true").is_ok());
@@ -696,9 +798,11 @@ fn test_file_data_source_boolean_validation() {
     assert!(file_source.validate_property("has_headers", "yes").is_err());
     assert!(file_source.validate_property("watching", "1").is_err());
     assert!(file_source.validate_property("recursive", "").is_err());
-    assert!(file_source
-        .validate_property("has_headers", "TRUE")
-        .is_err()); // Case sensitive
+    assert!(
+        file_source
+            .validate_property("has_headers", "TRUE")
+            .is_err()
+    ); // Case sensitive
 }
 
 #[test]
@@ -706,44 +810,64 @@ fn test_file_data_source_numeric_validation() {
     let file_source = FileDataSource::default();
 
     // Valid polling intervals
-    assert!(file_source
-        .validate_property("polling_interval", "1000")
-        .is_ok());
-    assert!(file_source
-        .validate_property("polling_interval", "5000")
-        .is_ok());
-    assert!(file_source
-        .validate_property("polling_interval", "3600000")
-        .is_ok()); // 1 hour max
+    assert!(
+        file_source
+            .validate_property("polling_interval", "1000")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("polling_interval", "5000")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("polling_interval", "3600000")
+            .is_ok()
+    ); // 1 hour max
 
     // Invalid polling intervals
-    assert!(file_source
-        .validate_property("polling_interval", "0")
-        .is_err()); // Must be > 0
-    assert!(file_source
-        .validate_property("polling_interval", "3600001")
-        .is_err()); // Over 1 hour
-    assert!(file_source
-        .validate_property("polling_interval", "invalid")
-        .is_err());
+    assert!(
+        file_source
+            .validate_property("polling_interval", "0")
+            .is_err()
+    ); // Must be > 0
+    assert!(
+        file_source
+            .validate_property("polling_interval", "3600001")
+            .is_err()
+    ); // Over 1 hour
+    assert!(
+        file_source
+            .validate_property("polling_interval", "invalid")
+            .is_err()
+    );
 
     // Valid buffer sizes
     assert!(file_source.validate_property("buffer_size", "1024").is_ok()); // Minimum
     assert!(file_source.validate_property("buffer_size", "8192").is_ok());
-    assert!(file_source
-        .validate_property("buffer_size", "104857600")
-        .is_ok()); // 100MB max
+    assert!(
+        file_source
+            .validate_property("buffer_size", "104857600")
+            .is_ok()
+    ); // 100MB max
 
     // Invalid buffer sizes
-    assert!(file_source
-        .validate_property("buffer_size", "1023")
-        .is_err()); // Below minimum
-    assert!(file_source
-        .validate_property("buffer_size", "104857601")
-        .is_err()); // Over 100MB
-    assert!(file_source
-        .validate_property("buffer_size", "invalid")
-        .is_err());
+    assert!(
+        file_source
+            .validate_property("buffer_size", "1023")
+            .is_err()
+    ); // Below minimum
+    assert!(
+        file_source
+            .validate_property("buffer_size", "104857601")
+            .is_err()
+    ); // Over 100MB
+    assert!(
+        file_source
+            .validate_property("buffer_size", "invalid")
+            .is_err()
+    );
 
     // Valid max records
     assert!(file_source.validate_property("max_records", "1000").is_ok());
@@ -751,18 +875,22 @@ fn test_file_data_source_numeric_validation() {
 
     // Invalid max records
     assert!(file_source.validate_property("max_records", "0").is_err()); // Must be > 0
-    assert!(file_source
-        .validate_property("max_records", "invalid")
-        .is_err());
+    assert!(
+        file_source
+            .validate_property("max_records", "invalid")
+            .is_err()
+    );
 
     // Valid skip lines
     assert!(file_source.validate_property("skip_lines", "0").is_ok());
     assert!(file_source.validate_property("skip_lines", "5").is_ok());
 
     // Invalid skip lines
-    assert!(file_source
-        .validate_property("skip_lines", "invalid")
-        .is_err());
+    assert!(
+        file_source
+            .validate_property("skip_lines", "invalid")
+            .is_err()
+    );
 }
 
 #[test]
@@ -770,29 +898,43 @@ fn test_file_data_source_extension_filter_validation() {
     let file_source = FileDataSource::default();
 
     // Valid extension filters
-    assert!(file_source
-        .validate_property("extension_filter", "csv")
-        .is_ok());
-    assert!(file_source
-        .validate_property("extension_filter", "json")
-        .is_ok());
-    assert!(file_source
-        .validate_property("extension_filter", "txt")
-        .is_ok());
-    assert!(file_source
-        .validate_property("extension_filter", "log.gz")
-        .is_ok()); // Multiple dots allowed
+    assert!(
+        file_source
+            .validate_property("extension_filter", "csv")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("extension_filter", "json")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("extension_filter", "txt")
+            .is_ok()
+    );
+    assert!(
+        file_source
+            .validate_property("extension_filter", "log.gz")
+            .is_ok()
+    ); // Multiple dots allowed
 
     // Invalid extension filters
-    assert!(file_source
-        .validate_property("extension_filter", "")
-        .is_err()); // Empty
-    assert!(file_source
-        .validate_property("extension_filter", "csv!")
-        .is_err()); // Special characters
-    assert!(file_source
-        .validate_property("extension_filter", "csv spaces")
-        .is_err()); // Spaces not allowed
+    assert!(
+        file_source
+            .validate_property("extension_filter", "")
+            .is_err()
+    ); // Empty
+    assert!(
+        file_source
+            .validate_property("extension_filter", "csv!")
+            .is_err()
+    ); // Special characters
+    assert!(
+        file_source
+            .validate_property("extension_filter", "csv spaces")
+            .is_err()
+    ); // Spaces not allowed
 }
 
 #[test]
@@ -916,11 +1058,13 @@ fn test_file_data_source_property_validations() {
         .expect("Should have format validation");
     assert!(!format_validation.required);
     assert!(format_validation.default.is_some());
-    assert!(format_validation
-        .validation_pattern
-        .as_ref()
-        .unwrap()
-        .contains("csv"));
+    assert!(
+        format_validation
+            .validation_pattern
+            .as_ref()
+            .unwrap()
+            .contains("csv")
+    );
 
     // Find buffer_size validation
     let buffer_validation = validations
@@ -1014,26 +1158,36 @@ fn test_file_sink_path_validation() {
 
     // Valid paths
     assert!(file_sink.validate_property("path", "./output.json").is_ok());
-    assert!(file_sink
-        .validate_property("path", "/data/output-%Y-%m-%d.csv")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("path", "./logs/app-%H%M.jsonl")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("path", "relative/path.log")
-        .is_ok());
+    assert!(
+        file_sink
+            .validate_property("path", "/data/output-%Y-%m-%d.csv")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("path", "./logs/app-%H%M.jsonl")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("path", "relative/path.log")
+            .is_ok()
+    );
 
     // Valid paths with strftime patterns containing ".."
-    assert!(file_sink
-        .validate_property("path", "/data/%Y-%m-%d/../archive/log.json")
-        .is_ok()); // ".." allowed in strftime patterns
+    assert!(
+        file_sink
+            .validate_property("path", "/data/%Y-%m-%d/../archive/log.json")
+            .is_ok()
+    ); // ".." allowed in strftime patterns
 
     // Invalid paths
     assert!(file_sink.validate_property("path", "").is_err()); // Empty path
-    assert!(file_sink
-        .validate_property("path", "../../../etc/passwd")
-        .is_err()); // Dangerous traversal without strftime
+    assert!(
+        file_sink
+            .validate_property("path", "../../../etc/passwd")
+            .is_err()
+    ); // Dangerous traversal without strftime
     assert!(file_sink.validate_property("path", "/data/").is_err()); // Directory without filename
     assert!(file_sink.validate_property("path", "output\\").is_err()); // Windows path ending in separator
 }
@@ -1046,9 +1200,11 @@ fn test_file_sink_format_validation() {
     assert!(file_sink.validate_property("format", "json").is_ok());
     assert!(file_sink.validate_property("format", "jsonlines").is_ok());
     assert!(file_sink.validate_property("format", "csv").is_ok());
-    assert!(file_sink
-        .validate_property("format", "csv_no_header")
-        .is_ok());
+    assert!(
+        file_sink
+            .validate_property("format", "csv_no_header")
+            .is_ok()
+    );
 
     // Invalid formats
     assert!(file_sink.validate_property("format", "xml").is_err());
@@ -1062,28 +1218,40 @@ fn test_file_sink_boolean_validation() {
     let file_sink = FileDataSink::default();
 
     // Valid boolean values
-    assert!(file_sink
-        .validate_property("append_if_exists", "true")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("append_if_exists", "false")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("csv_has_header", "true")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("csv_has_header", "false")
-        .is_ok());
+    assert!(
+        file_sink
+            .validate_property("append_if_exists", "true")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("append_if_exists", "false")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("csv_has_header", "true")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("csv_has_header", "false")
+            .is_ok()
+    );
 
     // Invalid boolean values
-    assert!(file_sink
-        .validate_property("append_if_exists", "yes")
-        .is_err());
+    assert!(
+        file_sink
+            .validate_property("append_if_exists", "yes")
+            .is_err()
+    );
     assert!(file_sink.validate_property("csv_has_header", "1").is_err());
     assert!(file_sink.validate_property("append_if_exists", "").is_err());
-    assert!(file_sink
-        .validate_property("csv_has_header", "TRUE")
-        .is_err()); // Case sensitive
+    assert!(
+        file_sink
+            .validate_property("csv_has_header", "TRUE")
+            .is_err()
+    ); // Case sensitive
 }
 
 #[test]
@@ -1091,77 +1259,115 @@ fn test_file_sink_numeric_validation() {
     let file_sink = FileDataSink::default();
 
     // Valid buffer sizes
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "1024")
-        .is_ok()); // Minimum
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "65536")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "1073741824")
-        .is_ok()); // 1GB max
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "1024")
+            .is_ok()
+    ); // Minimum
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "65536")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "1073741824")
+            .is_ok()
+    ); // 1GB max
 
     // Invalid buffer sizes
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "1023")
-        .is_err()); // Below minimum
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "1073741825")
-        .is_err()); // Over 1GB
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "invalid")
-        .is_err());
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "1023")
+            .is_err()
+    ); // Below minimum
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "1073741825")
+            .is_err()
+    ); // Over 1GB
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "invalid")
+            .is_err()
+    );
 
     // Valid max file sizes
-    assert!(file_sink
-        .validate_property("max_file_size_bytes", "1024")
-        .is_ok()); // Minimum
-    assert!(file_sink
-        .validate_property("max_file_size_bytes", "1073741824")
-        .is_ok()); // 1GB
+    assert!(
+        file_sink
+            .validate_property("max_file_size_bytes", "1024")
+            .is_ok()
+    ); // Minimum
+    assert!(
+        file_sink
+            .validate_property("max_file_size_bytes", "1073741824")
+            .is_ok()
+    ); // 1GB
 
     // Invalid max file sizes
-    assert!(file_sink
-        .validate_property("max_file_size_bytes", "1023")
-        .is_err()); // Below minimum
-    assert!(file_sink
-        .validate_property("max_file_size_bytes", "invalid")
-        .is_err());
+    assert!(
+        file_sink
+            .validate_property("max_file_size_bytes", "1023")
+            .is_err()
+    ); // Below minimum
+    assert!(
+        file_sink
+            .validate_property("max_file_size_bytes", "invalid")
+            .is_err()
+    );
 
     // Valid rotation intervals
-    assert!(file_sink
-        .validate_property("rotation_interval_ms", "1000")
-        .is_ok()); // Minimum
-    assert!(file_sink
-        .validate_property("rotation_interval_ms", "86400000")
-        .is_ok()); // 24 hours max
+    assert!(
+        file_sink
+            .validate_property("rotation_interval_ms", "1000")
+            .is_ok()
+    ); // Minimum
+    assert!(
+        file_sink
+            .validate_property("rotation_interval_ms", "86400000")
+            .is_ok()
+    ); // 24 hours max
 
     // Invalid rotation intervals
-    assert!(file_sink
-        .validate_property("rotation_interval_ms", "999")
-        .is_err()); // Below minimum
-    assert!(file_sink
-        .validate_property("rotation_interval_ms", "86400001")
-        .is_err()); // Over 24 hours
-    assert!(file_sink
-        .validate_property("rotation_interval_ms", "invalid")
-        .is_err());
+    assert!(
+        file_sink
+            .validate_property("rotation_interval_ms", "999")
+            .is_err()
+    ); // Below minimum
+    assert!(
+        file_sink
+            .validate_property("rotation_interval_ms", "86400001")
+            .is_err()
+    ); // Over 24 hours
+    assert!(
+        file_sink
+            .validate_property("rotation_interval_ms", "invalid")
+            .is_err()
+    );
 
     // Valid max records per file
-    assert!(file_sink
-        .validate_property("max_records_per_file", "1")
-        .is_ok());
-    assert!(file_sink
-        .validate_property("max_records_per_file", "1000000")
-        .is_ok());
+    assert!(
+        file_sink
+            .validate_property("max_records_per_file", "1")
+            .is_ok()
+    );
+    assert!(
+        file_sink
+            .validate_property("max_records_per_file", "1000000")
+            .is_ok()
+    );
 
     // Invalid max records per file
-    assert!(file_sink
-        .validate_property("max_records_per_file", "0")
-        .is_err()); // Must be > 0
-    assert!(file_sink
-        .validate_property("max_records_per_file", "invalid")
-        .is_err());
+    assert!(
+        file_sink
+            .validate_property("max_records_per_file", "0")
+            .is_err()
+    ); // Must be > 0
+    assert!(
+        file_sink
+            .validate_property("max_records_per_file", "invalid")
+            .is_err()
+    );
 
     // Valid writer threads
     assert!(file_sink.validate_property("writer_threads", "1").is_ok());
@@ -1171,9 +1377,11 @@ fn test_file_sink_numeric_validation() {
     // Invalid writer threads
     assert!(file_sink.validate_property("writer_threads", "0").is_err()); // Must be > 0
     assert!(file_sink.validate_property("writer_threads", "65").is_err()); // Over maximum
-    assert!(file_sink
-        .validate_property("writer_threads", "invalid")
-        .is_err());
+    assert!(
+        file_sink
+            .validate_property("writer_threads", "invalid")
+            .is_err()
+    );
 }
 
 #[test]
@@ -1369,11 +1577,13 @@ fn test_file_sink_property_validations() {
         .expect("Should have format validation");
     assert!(!format_validation.required);
     assert!(format_validation.default.is_some());
-    assert!(format_validation
-        .validation_pattern
-        .as_ref()
-        .unwrap()
-        .contains("json"));
+    assert!(
+        format_validation
+            .validation_pattern
+            .as_ref()
+            .unwrap()
+            .contains("json")
+    );
 
     // Find buffer_size_bytes validation
     let buffer_validation = validations
@@ -1390,11 +1600,13 @@ fn test_file_sink_property_validations() {
         .expect("Should have compression validation");
     assert!(!compression_validation.required);
     assert!(compression_validation.default.is_some());
-    assert!(compression_validation
-        .validation_pattern
-        .as_ref()
-        .unwrap()
-        .contains("gzip"));
+    assert!(
+        compression_validation
+            .validation_pattern
+            .as_ref()
+            .unwrap()
+            .contains("gzip")
+    );
 }
 
 #[test]
@@ -1409,13 +1621,17 @@ fn test_file_sink_registry_integration() {
     let file_sink = FileDataSink::default();
 
     // Test individual property validations work correctly
-    assert!(file_sink
-        .validate_property("path", "./data/output.json")
-        .is_ok());
+    assert!(
+        file_sink
+            .validate_property("path", "./data/output.json")
+            .is_ok()
+    );
     assert!(file_sink.validate_property("format", "jsonlines").is_ok());
-    assert!(file_sink
-        .validate_property("buffer_size_bytes", "131072")
-        .is_ok());
+    assert!(
+        file_sink
+            .validate_property("buffer_size_bytes", "131072")
+            .is_ok()
+    );
     assert!(file_sink.validate_property("compression", "gzip").is_ok());
 
     // Test validation failures

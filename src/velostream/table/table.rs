@@ -4,9 +4,9 @@ use crate::velostream::kafka::serialization::Serde;
 use crate::velostream::kafka::{KafkaConsumer, Message};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
 use crate::velostream::table::retry_utils::{
-    calculate_retry_delay, categorize_kafka_error, format_categorized_error,
-    is_topic_missing_error, parse_duration, parse_retry_strategy, should_retry_for_category,
-    RetryMetrics, RetryStrategy,
+    RetryMetrics, RetryStrategy, calculate_retry_delay, categorize_kafka_error,
+    format_categorized_error, is_topic_missing_error, parse_duration, parse_retry_strategy,
+    should_retry_for_category,
 };
 use crate::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord, StreamResult,

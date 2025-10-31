@@ -86,7 +86,10 @@ impl ObservabilityConfigExtractor {
                     .to_lowercase();
                 if value != "off" {
                     config.enable_performance_profiling = true;
-                    debug!("Extracted from SQL annotation: observability.profiling.enabled = {} (mode)", value);
+                    debug!(
+                        "Extracted from SQL annotation: observability.profiling.enabled = {} (mode)",
+                        value
+                    );
 
                     if config.profiling_config.is_none() {
                         config.profiling_config = Some(ProfilingConfig::development());

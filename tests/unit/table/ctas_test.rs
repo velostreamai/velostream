@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use velostream::velostream::sql::SqlError;
 use velostream::velostream::sql::ast::StreamingQuery;
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::sql::SqlError;
 use velostream::velostream::table::ctas::{CtasExecutor, SourceInfo};
 
 #[tokio::test]
@@ -181,15 +181,30 @@ async fn test_with_clause_edge_cases() {
     // Test WITH clause with various edge cases
     let edge_case_queries = vec![
         // Empty config file should fail validation
-        ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"\")", false),
+        (
+            "CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"\")",
+            false,
+        ),
         // Empty retention should fail validation
-        ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"retention\" = \"\")", false),
+        (
+            "CREATE TABLE test AS SELECT * FROM source_stream WITH (\"retention\" = \"\")",
+            false,
+        ),
         // Invalid batch size should fail validation
-        ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"kafka.batch.size\" = \"not_a_number\")", false),
+        (
+            "CREATE TABLE test AS SELECT * FROM source_stream WITH (\"kafka.batch.size\" = \"not_a_number\")",
+            false,
+        ),
         // Valid properties should pass validation
-        ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"valid.yaml\")", true),
+        (
+            "CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"valid.yaml\")",
+            true,
+        ),
         // Multiple valid properties
-        ("CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"test.yaml\", \"retention\" = \"7 days\")", true),
+        (
+            "CREATE TABLE test AS SELECT * FROM source_stream WITH (\"config_file\" = \"test.yaml\", \"retention\" = \"7 days\")",
+            true,
+        ),
     ];
 
     for (query, should_pass_validation) in edge_case_queries {

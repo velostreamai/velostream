@@ -3,15 +3,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::server::processors::common::{
-    create_datasource_reader, process_datasource_records, DataSourceConfig, JobExecutionStats,
-    JobProcessingConfig,
+    DataSourceConfig, JobExecutionStats, JobProcessingConfig, create_datasource_reader,
+    process_datasource_records,
 };
 use velostream::velostream::sql::{
+    StreamingSqlParser,
     execution::StreamExecutionEngine,
     query_analyzer::{DataSourceRequirement, DataSourceType},
-    StreamingSqlParser,
 };
 
 /// Create a test datasource requirement for Kafka

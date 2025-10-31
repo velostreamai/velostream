@@ -68,7 +68,7 @@ Velostream now includes a comprehensive SQL interface for stream processing:
 DEPLOY JOB user_analytics VERSION '1.0.0' AS
 SELECT 
     JSON_VALUE(payload, '$.user.id') as user_id,
-    CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT') as amount,
+    CAST(JSON_VALUE(payload, '$.amount') AS FLOAT) as amount,
     SUBSTRING(JSON_VALUE(payload, '$.description'), 1, 50) as short_desc
 FROM kafka_events 
 WHERE JSON_VALUE(payload, '$.type') = 'purchase'

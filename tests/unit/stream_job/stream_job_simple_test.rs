@@ -1,23 +1,23 @@
 //! Tests for stream_job simple module using shared test infrastructure
 
 use super::stream_job_test_infrastructure::{
-    create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
+    AdvancedMockDataReader, AdvancedMockDataWriter, StreamJobProcessor, create_test_engine,
+    create_test_query, create_test_record, run_comprehensive_failure_tests,
     test_disk_full_scenario, test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_sink_write_failure_scenario, test_source_read_failure_scenario, AdvancedMockDataReader,
-    AdvancedMockDataWriter, StreamJobProcessor,
+    test_sink_write_failure_scenario, test_source_read_failure_scenario,
 };
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use velostream::velostream::server::processors::{
     common::{
-        process_batch_with_output, DataSourceResult, FailureStrategy, JobExecutionStats,
-        JobProcessingConfig,
+        DataSourceResult, FailureStrategy, JobExecutionStats, JobProcessingConfig,
+        process_batch_with_output,
     },
     simple::SimpleJobProcessor,
 };
@@ -390,7 +390,9 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
     }
 
     // Note: Skip disk_full and sink_write_failure for RetryWithBackoff as they may timeout
-    println!("⚠️  Skipping disk_full and sink_write_failure tests for RetryWithBackoff (expected to timeout)");
+    println!(
+        "⚠️  Skipping disk_full and sink_write_failure tests for RetryWithBackoff (expected to timeout)"
+    );
 
     // Test with FailBatch strategy
     let fail_batch_config = JobProcessingConfig {
@@ -591,15 +593,21 @@ async fn test_sink_failure_with_log_and_continue_strategy() {
     );
 
     let stats = result.unwrap();
-    println!("Final stats: records_processed={}, records_failed={}, batches_processed={}, batches_failed={}", 
-             stats.records_processed, stats.records_failed, stats.batches_processed, stats.batches_failed);
+    println!(
+        "Final stats: records_processed={}, records_failed={}, batches_processed={}, batches_failed={}",
+        stats.records_processed,
+        stats.records_failed,
+        stats.batches_processed,
+        stats.batches_failed
+    );
 
     // With LogAndContinue strategy, the processor should continue despite sink failures
     // At minimum, records should have been attempted for processing
     assert!(
         stats.records_processed > 0 || stats.records_failed > 0,
         "Should have attempted to process records despite sink failures. Stats: processed={}, failed={}",
-        stats.records_processed, stats.records_failed
+        stats.records_processed,
+        stats.records_failed
     );
     // The key test is that LogAndContinue strategy allows the job to complete
     // despite sink failures, rather than failing fast
@@ -652,8 +660,13 @@ async fn test_sink_failure_with_retry_with_backoff_strategy() {
         Ok(job_result) => {
             println!("Job completed: {:?}", job_result);
             if let Ok(stats) = job_result {
-                println!("Final stats: records_processed={}, records_failed={}, batches_processed={}, batches_failed={}", 
-                         stats.records_processed, stats.records_failed, stats.batches_processed, stats.batches_failed);
+                println!(
+                    "Final stats: records_processed={}, records_failed={}, batches_processed={}, batches_failed={}",
+                    stats.records_processed,
+                    stats.records_failed,
+                    stats.batches_processed,
+                    stats.batches_failed
+                );
             }
         }
         Err(_) => {
@@ -709,8 +722,13 @@ async fn test_sink_failure_with_fail_batch_strategy() {
     );
 
     let stats = result.unwrap();
-    println!("Final stats: records_processed={}, records_failed={}, batches_processed={}, batches_failed={}", 
-             stats.records_processed, stats.records_failed, stats.batches_processed, stats.batches_failed);
+    println!(
+        "Final stats: records_processed={}, records_failed={}, batches_processed={}, batches_failed={}",
+        stats.records_processed,
+        stats.records_failed,
+        stats.batches_processed,
+        stats.batches_failed
+    );
 
     assert!(
         stats.batches_failed > 0,

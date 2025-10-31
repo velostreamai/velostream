@@ -443,6 +443,37 @@ pub struct JoinWindow {
     pub grace_period: Option<Duration>,
 }
 
+/// Emission mode for ROWS windows
+///
+/// Controls how records are emitted from ROWS window aggregations.
+/// - EveryRecord: Emit result for every incoming record (default, real-time)
+/// - BufferFull: Emit results only when buffer reaches capacity (batch-like)
+#[derive(Debug, Clone, PartialEq, Default)]
+pub enum RowsEmitMode {
+    /// Emit aggregation for every record (default, real-time analytics)
+    #[default]
+    EveryRecord,
+    /// Emit aggregation only when buffer reaches capacity (batch processing)
+    BufferFull,
+}
+
+/// Row expiration mode for handling inactivity gaps in ROWS WINDOW
+///
+/// Controls when rows are automatically expired from the buffer based on timestamp gaps.
+/// This prevents stale data from skewing long-term aggregations.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RowExpirationMode {
+    /// Default: 1 minute inactivity timeout (60,000 milliseconds)
+    /// Used when no EXPIRE AFTER clause is specified
+    Default,
+    /// Custom inactivity gap: expire rows if gap exceeds this duration
+    /// Corresponds to: EXPIRE AFTER INTERVAL '...' MINUTE/SECOND/HOUR INACTIVITY
+    InactivityGap(Duration),
+    /// Never expire: rows are kept indefinitely until buffer reaches capacity
+    /// Corresponds to: EXPIRE AFTER NEVER
+    Never,
+}
+
 /// Window specifications for streaming
 #[derive(Debug, Clone, PartialEq)]
 pub enum WindowSpec {
@@ -463,6 +494,33 @@ pub enum WindowSpec {
         time_column: Option<String>,
         partition_by: Vec<String>,
     },
+    /// Row-count-based analytic window with bounded buffer
+    ///
+    /// Maintains last N rows and emits aggregations per record.
+    /// Perfect for moving averages, LAG/LEAD, and ranking functions.
+    /// Supports optional time gap for session-aware semantics.
+    Rows {
+        /// Maximum number of rows to keep in buffer (e.g., 100, 1000)
+        buffer_size: u32,
+        /// PARTITION BY expressions (e.g., per symbol, per user)
+        partition_by: Vec<Expr>,
+        /// ORDER BY specification for ranking and LAG/LEAD
+        order_by: Vec<OrderByExpr>,
+        /// Optional time gap: reset buffer if this duration passes without new records
+        /// Used for session-aware window semantics (e.g., 30 SECONDS)
+        time_gap: Option<Duration>,
+        /// Optional window frame (ROWS BETWEEN, RANGE BETWEEN)
+        /// Allows aggregations over subset of buffer (e.g., last 50 rows only)
+        window_frame: Option<WindowFrame>,
+        /// When to emit results from the window
+        emit_mode: RowsEmitMode,
+        /// Row expiration mode: controls when rows are automatically removed from buffer
+        /// Prevents stale data from skewing long-term aggregations
+        /// - Default: 1 minute inactivity timeout
+        /// - InactivityGap(duration): custom timeout duration
+        /// - Never: rows kept indefinitely until buffer fills
+        expire_after: RowExpirationMode,
+    },
 }
 
 /// ORDER BY expression with direction
@@ -482,11 +540,14 @@ pub enum OrderDirection {
 /// OVER clause for window functions
 #[derive(Debug, Clone, PartialEq)]
 pub struct OverClause {
-    /// PARTITION BY columns
+    /// Optional ROWS WINDOW specification (Phase 8)
+    /// When present, contains BUFFER size, PARTITION BY, ORDER BY, and window frame
+    pub window_spec: Option<Box<WindowSpec>>,
+    /// PARTITION BY columns (used when window_spec is None)
     pub partition_by: Vec<String>,
-    /// ORDER BY specification
+    /// ORDER BY specification (used when window_spec is None)
     pub order_by: Vec<OrderByExpr>,
-    /// Window frame (ROWS/RANGE BETWEEN ... AND ...)
+    /// Window frame (ROWS/RANGE BETWEEN ... AND ...) (used when window_spec is None)
     pub window_frame: Option<WindowFrame>,
 }
 
@@ -990,6 +1051,9 @@ impl WindowSpec {
             WindowSpec::Tumbling { time_column, .. } => time_column.as_deref(),
             WindowSpec::Sliding { time_column, .. } => time_column.as_deref(),
             WindowSpec::Session { time_column, .. } => time_column.as_deref(),
+            // ROWS windows don't have an explicit time_column field
+            // Time information comes from ORDER BY specification
+            WindowSpec::Rows { .. } => None,
         }
     }
 

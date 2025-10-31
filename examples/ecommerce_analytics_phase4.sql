@@ -229,8 +229,16 @@ SELECT
     
     -- Geographic consistency
     COUNT(DISTINCT customer_location) as location_changes,
-    FIRST_VALUE(customer_location) OVER (ORDER BY event_time) as session_start_location,
-    LAST_VALUE(customer_location) OVER (ORDER BY event_time) as session_end_location,
+    FIRST_VALUE(customer_location) OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            ORDER BY event_time
+    ) as session_start_location,
+    LAST_VALUE(customer_location) OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            ORDER BY event_time
+    ) as session_end_location,
     
     -- Advanced customer tier classification with ML-like logic
     CASE

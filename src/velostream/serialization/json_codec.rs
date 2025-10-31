@@ -1,8 +1,8 @@
 //! JSON codec for HashMap<String, FieldValue> serialization/deserialization
 
 use crate::velostream::kafka::serialization::Serde;
-use crate::velostream::serialization::helpers::json_to_field_value;
 use crate::velostream::serialization::SerializationError;
+use crate::velostream::serialization::helpers::json_to_field_value;
 use crate::velostream::sql::execution::types::FieldValue;
 use serde_json::Value;
 use std::collections::HashMap;

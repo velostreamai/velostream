@@ -257,7 +257,7 @@ impl DataSourceConfigBuilder {
                 self.validator = Some(ConfigValidatorRegistry::new());
             }
 
-            if let Some(ref mut validator) = self.validator {
+            if let Some(mut validator) = self.validator {
                 validator
                     .validate(&self.config)
                     .map_err(ConfigurationError::ValidationFailed)?;
@@ -288,7 +288,7 @@ impl DataSourceConfigBuilder {
             self.validator = Some(ConfigValidatorRegistry::new());
         }
 
-        let warnings = if let Some(ref mut validator) = self.validator {
+        let warnings = if let Some(mut validator) = self.validator {
             match validator.validate(&self.config) {
                 Ok(warnings) => warnings,
                 Err(err) => return Err(ConfigurationError::ValidationFailed(err)),

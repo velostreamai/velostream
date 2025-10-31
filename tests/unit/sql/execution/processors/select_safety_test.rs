@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::task;
 use velostream::velostream::sql::{
+    SqlError, StreamingQuery,
     ast::{Expr, LiteralValue, SelectField, StreamSource},
     execution::{
-        processors::{ProcessorContext, ProcessorResult, SelectProcessor, TableReference},
         FieldValue, StreamRecord,
+        processors::{ProcessorContext, ProcessorResult, SelectProcessor, TableReference},
     },
     parser::StreamingSqlParser,
-    SqlError, StreamingQuery,
 };
 
 /// Test concurrent subquery execution for thread safety

@@ -1339,7 +1339,9 @@ mod tests {
 
     #[test]
     fn test_environment_variable_resolution() {
-        std::env::set_var("TEST_REGISTRY_URL", "http://test-registry:8081");
+        unsafe {
+            std::env::set_var("TEST_REGISTRY_URL", "http://test-registry:8081");
+        }
 
         let parser = WithClauseParser::new();
         let with_clause = r#"'schema.registry.url' = '${TEST_REGISTRY_URL}'"#;

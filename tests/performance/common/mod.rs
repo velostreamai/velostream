@@ -10,4 +10,4 @@ pub mod test_data;
 // Re-export commonly used types
 pub use config::{BenchmarkConfig, BenchmarkMode};
 pub use metrics::{MetricsCollector, PerformanceReport};
-pub use test_data::{generate_test_records, TestRecordConfig};
+pub use test_data::{TestRecordConfig, generate_test_records};

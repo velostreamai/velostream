@@ -71,6 +71,7 @@ mod enhanced_window_function_tests {
             Expr::Literal(LiteralValue::Integer(1)),
         ];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),
@@ -107,6 +108,7 @@ mod enhanced_window_function_tests {
             Expr::Literal(LiteralValue::Integer(1)),
         ];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),
@@ -142,6 +144,7 @@ mod enhanced_window_function_tests {
         // ROW_NUMBER() OVER (PARTITION BY category ORDER BY timestamp)
         let args = vec![];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),
@@ -174,6 +177,7 @@ mod enhanced_window_function_tests {
         // RANK() OVER (ORDER BY value DESC)
         let args = vec![];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("value".to_string()),
@@ -206,6 +210,7 @@ mod enhanced_window_function_tests {
         // DENSE_RANK() OVER (ORDER BY value ASC)
         let args = vec![];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("value".to_string()),
@@ -238,6 +243,7 @@ mod enhanced_window_function_tests {
         // FIRST_VALUE(value) OVER (PARTITION BY category ORDER BY timestamp)
         let args = vec![Expr::Column("value".to_string())];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),
@@ -271,6 +277,7 @@ mod enhanced_window_function_tests {
         // LAST_VALUE(value) OVER (PARTITION BY category ORDER BY timestamp)
         let args = vec![Expr::Column("value".to_string())];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),
@@ -306,6 +313,7 @@ mod enhanced_window_function_tests {
             Expr::Literal(LiteralValue::Integer(2)),
         ];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),
@@ -340,6 +348,7 @@ mod enhanced_window_function_tests {
         // PERCENT_RANK() OVER (ORDER BY value)
         let args = vec![];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("value".to_string()),
@@ -374,6 +383,7 @@ mod enhanced_window_function_tests {
         // CUME_DIST() OVER (ORDER BY value)
         let args = vec![];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("value".to_string()),
@@ -408,6 +418,7 @@ mod enhanced_window_function_tests {
         // NTILE(3) OVER (ORDER BY value)
         let args = vec![Expr::Literal(LiteralValue::Integer(3))];
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("value".to_string()),
@@ -439,6 +450,7 @@ mod enhanced_window_function_tests {
         let window_buffer = create_test_window_buffer();
         let current_record = create_test_record(1, "A", 100.0, 1000);
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![],
             window_frame: None,
@@ -484,6 +496,7 @@ mod enhanced_window_function_tests {
         let window_buffer = create_test_window_buffer();
         let current_record = create_test_record(1, "A", 100.0, 1000);
         let empty_over_clause = OverClause {
+            window_spec: None,
             partition_by: vec![],
             order_by: vec![],
             window_frame: None,
@@ -528,6 +541,7 @@ mod enhanced_window_function_tests {
 
         // ROW_NUMBER() OVER (PARTITION BY category ORDER BY timestamp)
         let over_clause = OverClause {
+            window_spec: None,
             partition_by: vec!["category".to_string()],
             order_by: vec![OrderByExpr {
                 expr: Expr::Column("timestamp".to_string()),

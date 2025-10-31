@@ -53,9 +53,11 @@ mod enhanced_error_tests {
 
         // Verify we can downcast to the original UTF-8 error
         let source_error = enhanced_error.source().unwrap();
-        assert!(source_error
-            .downcast_ref::<std::string::FromUtf8Error>()
-            .is_some());
+        assert!(
+            source_error
+                .downcast_ref::<std::string::FromUtf8Error>()
+                .is_some()
+        );
     }
 
     #[test]
@@ -118,9 +120,11 @@ mod enhanced_error_tests {
 
         // Verify we can downcast to the original parse error
         let source_error = enhanced_error.source().unwrap();
-        assert!(source_error
-            .downcast_ref::<std::num::ParseFloatError>()
-            .is_some());
+        assert!(
+            source_error
+                .downcast_ref::<std::num::ParseFloatError>()
+                .is_some()
+        );
     }
 
     #[test]

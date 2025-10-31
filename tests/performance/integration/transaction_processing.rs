@@ -9,14 +9,14 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::{
     datasource::{DataReader, DataWriter},
     server::processors::{common::*, simple::*, transactional::*},
     sql::{
+        StreamExecutionEngine, StreamingQuery,
         ast::{EmitMode, SelectField, StreamSource},
         execution::types::{FieldValue, StreamRecord},
-        StreamExecutionEngine, StreamingQuery,
     },
 };
 

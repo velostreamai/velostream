@@ -32,8 +32,8 @@ use velostream::velostream::schema::{FieldDefinition, Schema, StreamHandle};
 use velostream::velostream::sql::ast::DataType;
 use velostream::velostream::sql::context::StreamingSqlContext;
 use velostream::velostream::sql::execution::{
-    types::{FieldValue, StreamRecord},
     StreamExecutionEngine,
+    types::{FieldValue, StreamRecord},
 };
 use velostream::velostream::sql::parser::StreamingSqlParser;
 

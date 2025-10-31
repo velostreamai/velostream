@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use velostream::velostream::sql::SqlError;
 use velostream::velostream::sql::ast::StreamingQuery;
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::sql::SqlError;
 use velostream::velostream::table::ctas::CtasExecutor;
 
 #[test]

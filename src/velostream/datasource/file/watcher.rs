@@ -3,7 +3,7 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
-use tokio::time::{sleep, Instant};
+use tokio::time::{Instant, sleep};
 
 use super::error::FileDataSourceError;
 

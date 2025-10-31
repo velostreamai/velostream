@@ -4,7 +4,7 @@
 //! Generates comprehensive JSON Schema files for IDE integration and validation.
 //! This tool exports schemas from all registered ConfigSchemaProvider implementations.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::fs;
 use velostream::velostream::config::{ConfigSchemaProvider, HierarchicalSchemaRegistry};
 use velostream::velostream::datasource::file::{FileDataSink, FileDataSource};

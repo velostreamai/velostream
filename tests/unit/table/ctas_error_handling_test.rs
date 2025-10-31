@@ -39,8 +39,8 @@ use velostream::velostream::datasource::traits::{DataReader, DataSource};
 use velostream::velostream::datasource::types::{SourceMetadata, SourceOffset};
 
 // SQL types and errors
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::SqlError;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 // Schema types
 use velostream::velostream::schema::{FieldDefinition, Schema, SchemaMetadata};
@@ -310,10 +310,12 @@ async fn test_connection_failure() {
     let result = source_clone.initialize(config).await;
 
     assert!(result.is_err(), "Should fail during initialization");
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("initialization failure"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("initialization failure")
+    );
 }
 
 #[tokio::test]
@@ -326,10 +328,12 @@ async fn test_schema_fetch_failure() {
     let result = error_source.fetch_schema().await;
 
     assert!(result.is_err(), "Should fail during schema fetch");
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("schema fetch failure"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("schema fetch failure")
+    );
 }
 
 #[tokio::test]
@@ -489,10 +493,12 @@ async fn test_retry_exhaustion() {
 
     assert_eq!(attempts, max_attempts, "Should exhaust all retry attempts");
     assert!(last_error.is_some(), "Should have final error");
-    assert!(last_error
-        .unwrap()
-        .to_string()
-        .contains("initialization failure"));
+    assert!(
+        last_error
+            .unwrap()
+            .to_string()
+            .contains("initialization failure")
+    );
 }
 
 // ============================================================================

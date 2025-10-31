@@ -117,11 +117,7 @@ fn sanitize_label_value(value: &str, config: &LabelExtractionConfig) -> String {
         .chars()
         .map(|c| {
             // Replace control characters with space
-            if c.is_control() {
-                ' '
-            } else {
-                c
-            }
+            if c.is_control() { ' ' } else { c }
         })
         .collect::<String>();
 

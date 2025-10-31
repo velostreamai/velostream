@@ -7,8 +7,8 @@ Tests for ScaledInteger and all other FieldValue comparison operations.
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::BinaryOperator;
-use velostream::velostream::sql::execution::utils::field_value_comparator::FieldValueComparator;
 use velostream::velostream::sql::execution::FieldValue;
+use velostream::velostream::sql::execution::utils::field_value_comparator::FieldValueComparator;
 
 /// Test ScaledInteger equality comparisons
 #[test]

@@ -14,13 +14,13 @@ use std::error::Error;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use velostream::velostream::datasource::file::config::FileFormat;
 use velostream::velostream::datasource::file::{
-    config::{CompressionType, FileSinkConfig, FileSourceConfig},
     FileDataSink, FileDataSource,
+    config::{CompressionType, FileSinkConfig, FileSourceConfig},
 };
 use velostream::velostream::datasource::traits::{DataSink, DataSource};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};

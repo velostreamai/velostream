@@ -2,6 +2,9 @@
 //!
 //! Tests for SQL query execution functionality organized by component.
 
+// Query analyzer tests
+pub mod analyzer;
+
 // Core execution functionality tests
 pub mod core;
 

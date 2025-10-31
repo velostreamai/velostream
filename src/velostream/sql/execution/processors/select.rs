@@ -4,15 +4,17 @@
 //! HAVING clause processing, and header mutations.
 
 use super::{
-    query_parsing, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
-    ProcessorContext, ProcessorResult, TableReference,
+    HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor, ProcessorContext,
+    ProcessorResult, TableReference, query_parsing,
 };
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::execution::{
-    aggregation::{state::GroupByStateManager, AccumulatorManager},
+    FieldValue, StreamRecord,
+    aggregation::{AccumulatorManager, state::GroupByStateManager},
     expression::{ExpressionEvaluator, SelectAliasContext, SubqueryExecutor},
     internal::{GroupAccumulator, GroupByState},
-    FieldValue, StreamRecord,
+    types::system_columns,
+    validation::{AliasContext, FieldValidator, ValidationContext},
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
@@ -327,9 +329,12 @@ impl SelectProcessor {
             group_by,
             window,
             emit_mode,
+            order_by,
             ..
         } = query
         {
+            // Build alias context for validation (FROM/JOIN table aliases)
+            let from_join_aliases = AliasContext::from_streaming_query(query);
             // Route windowed queries to WindowProcessor first
             if let Some(_window_spec) = window {
                 // Generate query ID based on stream name for consistent window state management
@@ -391,6 +396,15 @@ impl SelectProcessor {
 
             // Apply WHERE clause
             let where_passed = if let Some(where_expr) = where_clause {
+                // Phase 3: Validate WHERE clause fields exist in the joined record
+                FieldValidator::validate_expressions_with_aliases(
+                    &joined_record,
+                    &[where_expr.clone()],
+                    ValidationContext::WhereClause,
+                    &from_join_aliases,
+                )
+                .map_err(|e| e.to_sql_error())?;
+
                 // Create a SelectProcessor instance for subquery evaluation
                 let subquery_executor = SelectProcessor;
                 let where_result = ExpressionEvaluator::evaluate_expression_with_subqueries(
@@ -420,6 +434,15 @@ impl SelectProcessor {
 
             // Handle GROUP BY if present
             if let Some(group_exprs) = group_by {
+                // Phase 3: Validate GROUP BY clause fields exist in the joined record
+                FieldValidator::validate_expressions_with_aliases(
+                    &joined_record,
+                    group_exprs,
+                    ValidationContext::GroupBy,
+                    &from_join_aliases,
+                )
+                .map_err(|e| e.to_sql_error())?;
+
                 // Validate EMIT clause usage
                 if let Some(emit) = emit_mode {
                     match emit {
@@ -465,6 +488,17 @@ impl SelectProcessor {
             }
 
             // Apply SELECT fields
+            // Phase 3: Validate SELECT clause expressions exist in the joined record
+            let select_expressions: Vec<&Expr> = fields
+                .iter()
+                .filter_map(|f| {
+                    if let SelectField::Expression { expr, .. } = f {
+                        Some(expr)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
             let mut result_fields = HashMap::new();
             let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
@@ -477,12 +511,27 @@ impl SelectProcessor {
                     SelectField::Column(name) => {
                         // Check for system columns first (case insensitive)
                         let field_value = match name.to_uppercase().as_str() {
-                            "_TIMESTAMP" => Some(FieldValue::Integer(joined_record.timestamp)),
-                            "_OFFSET" => Some(FieldValue::Integer(joined_record.offset)),
-                            "_PARTITION" => {
+                            system_columns::TIMESTAMP => {
+                                Some(FieldValue::Integer(joined_record.timestamp))
+                            }
+                            system_columns::OFFSET => {
+                                Some(FieldValue::Integer(joined_record.offset))
+                            }
+                            system_columns::PARTITION => {
                                 Some(FieldValue::Integer(joined_record.partition as i64))
                             }
-                            _ => joined_record.fields.get(name).cloned(),
+                            _ => {
+                                // Support qualified names like "c.id" by stripping the alias prefix
+                                if let Some(value) = joined_record.fields.get(name).cloned() {
+                                    Some(value)
+                                } else if let Some(pos) = name.rfind('.') {
+                                    // Try with just the base column name (after the dot)
+                                    let base_name = &name[pos + 1..];
+                                    joined_record.fields.get(base_name).cloned()
+                                } else {
+                                    None
+                                }
+                            }
                         };
 
                         if let Some(value) = field_value {
@@ -492,12 +541,27 @@ impl SelectProcessor {
                     SelectField::AliasedColumn { column, alias } => {
                         // Check for system columns first (case insensitive)
                         let field_value = match column.to_uppercase().as_str() {
-                            "_TIMESTAMP" => Some(FieldValue::Integer(joined_record.timestamp)),
-                            "_OFFSET" => Some(FieldValue::Integer(joined_record.offset)),
-                            "_PARTITION" => {
+                            system_columns::TIMESTAMP => {
+                                Some(FieldValue::Integer(joined_record.timestamp))
+                            }
+                            system_columns::OFFSET => {
+                                Some(FieldValue::Integer(joined_record.offset))
+                            }
+                            system_columns::PARTITION => {
                                 Some(FieldValue::Integer(joined_record.partition as i64))
                             }
-                            _ => joined_record.fields.get(column).cloned(),
+                            _ => {
+                                // Support qualified names like "c.id" by stripping the alias prefix
+                                if let Some(value) = joined_record.fields.get(column).cloned() {
+                                    Some(value)
+                                } else if let Some(pos) = column.rfind('.') {
+                                    // Try with just the base column name (after the dot)
+                                    let base_name = &column[pos + 1..];
+                                    joined_record.fields.get(base_name).cloned()
+                                } else {
+                                    None
+                                }
+                            }
                         };
 
                         if let Some(value) = field_value {
@@ -530,6 +594,74 @@ impl SelectProcessor {
                 }
             }
 
+            // FR-081: Detect if any field was aliased as _EVENT_TIME for SQL-based event-time assignment
+            // This allows queries like: SELECT timestamp as _event_time FROM stream
+            let mut event_time_value: Option<FieldValue> = None;
+            for field in fields {
+                match field {
+                    SelectField::AliasedColumn { alias, .. }
+                    | SelectField::Expression {
+                        alias: Some(alias), ..
+                    } => {
+                        if system_columns::normalize_if_system_column(alias)
+                            == Some(system_columns::EVENT_TIME)
+                        {
+                            // Found _event_time assignment, get the corresponding value
+                            if let Some(value) = result_fields.get(alias) {
+                                event_time_value = Some(value.clone());
+                            }
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            // Validate SELECT expressions with alias_context only once per query for performance
+            // This allows FR-078 (alias reuse) to work while avoiding per-record validation overhead
+            // Uses context.validated_select_queries flag to track which queries have been validated
+            // Works reliably across all datasources (not dependent on offset or record ordering)
+            let query_id = match from {
+                StreamSource::Stream(name) | StreamSource::Table(name) => {
+                    format!("select_{}", name)
+                }
+                StreamSource::Uri(uri) => {
+                    format!("select_{}", uri.replace("://", "_").replace("/", "_"))
+                }
+                StreamSource::Subquery(_) => "select_subquery".to_string(),
+            };
+
+            if !select_expressions.is_empty()
+                && !context.validated_select_queries.contains(&query_id)
+            {
+                // Create a temporary record that combines original fields + computed aliases
+                // This allows validation to see both record fields and alias fields
+                let mut validation_fields = joined_record.fields.clone();
+                for (alias_name, alias_value) in alias_context.aliases.iter() {
+                    validation_fields.insert(alias_name.clone(), alias_value.clone());
+                }
+
+                let validation_record = StreamRecord {
+                    fields: validation_fields,
+                    timestamp: joined_record.timestamp,
+                    offset: joined_record.offset,
+                    partition: joined_record.partition,
+                    headers: joined_record.headers.clone(),
+                    event_time: joined_record.event_time,
+                };
+
+                FieldValidator::validate_expressions_with_aliases(
+                    &validation_record,
+                    &select_expressions.into_iter().cloned().collect::<Vec<_>>(),
+                    ValidationContext::SelectClause,
+                    &from_join_aliases,
+                )
+                .map_err(|e| e.to_sql_error())?;
+
+                // Mark this query as validated to skip validation on future records
+                context.validated_select_queries.insert(query_id);
+            }
+
             // Apply HAVING clause on the result fields
             if let Some(having_expr) = having {
                 // Create a temporary record with BOTH original fields and result fields
@@ -545,6 +677,15 @@ impl SelectProcessor {
                     headers: joined_record.headers.clone(),
                     event_time: None,
                 };
+
+                // Phase 3: Validate HAVING clause fields exist in combined scope
+                FieldValidator::validate_expressions_with_aliases(
+                    &result_record,
+                    &[having_expr.clone()],
+                    ValidationContext::HavingClause,
+                    &from_join_aliases,
+                )
+                .map_err(|e| e.to_sql_error())?;
 
                 // Use subquery-aware evaluator for HAVING clauses (supports EXISTS, etc.)
                 let subquery_executor = SelectProcessor;
@@ -562,6 +703,46 @@ impl SelectProcessor {
                 }
             }
 
+            // Phase 4: Validate ORDER BY clause fields exist in result or original scope
+            if let Some(order_exprs) = order_by {
+                if !order_exprs.is_empty() {
+                    // ORDER BY can reference both result fields (aliases) and original fields
+                    // Merge result_fields with original joined_record fields
+                    let mut combined_fields = result_fields.clone();
+                    for (field_name, field_value) in &joined_record.fields {
+                        // Don't override result fields with original fields
+                        // This ensures aliases take precedence, but original fields are available
+                        if !combined_fields.contains_key(field_name) {
+                            combined_fields.insert(field_name.clone(), field_value.clone());
+                        }
+                    }
+
+                    let order_by_record = StreamRecord {
+                        fields: combined_fields,
+                        timestamp: joined_record.timestamp,
+                        offset: joined_record.offset,
+                        partition: joined_record.partition,
+                        headers: joined_record.headers.clone(),
+                        event_time: None,
+                    };
+
+                    // Extract expressions from ORDER BY entries
+                    let order_by_expressions: Vec<&Expr> =
+                        order_exprs.iter().map(|ob| &ob.expr).collect();
+
+                    FieldValidator::validate_expressions_with_aliases(
+                        &order_by_record,
+                        &order_by_expressions
+                            .into_iter()
+                            .cloned()
+                            .collect::<Vec<_>>(),
+                        ValidationContext::OrderByClause,
+                        &from_join_aliases,
+                    )
+                    .map_err(|e| e.to_sql_error())?;
+                }
+            }
+
             // Collect header mutations from fields
             Self::collect_header_mutations_from_fields(
                 fields,
@@ -569,13 +750,45 @@ impl SelectProcessor {
                 &mut header_mutations,
             )?;
 
+            // FR-081: Convert event_time_value to DateTime if _event_time was assigned
+            // Default to NOW() if not assigned or conversion fails
+            let computed_event_time = match event_time_value {
+                Some(val) => {
+                    match val {
+                        FieldValue::Integer(millis) => {
+                            // Convert milliseconds since epoch to DateTime
+                            chrono::DateTime::from_timestamp(
+                                millis / 1000,
+                                ((millis % 1000) * 1_000_000) as u32,
+                            )
+                            .or_else(|| Some(chrono::Utc::now()))
+                        }
+                        FieldValue::Timestamp(naive_dt) => {
+                            // Convert NaiveDateTime to DateTime<Utc>
+                            Some(chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                                naive_dt,
+                                chrono::Utc,
+                            ))
+                        }
+                        _ => {
+                            // Other types: String, Float, Boolean, ScaledInteger default to NOW()
+                            Some(chrono::Utc::now())
+                        }
+                    }
+                }
+                None => {
+                    // No _event_time assigned: default to NOW()
+                    Some(chrono::Utc::now())
+                }
+            };
+
             let final_record = StreamRecord {
                 fields: result_fields,
                 timestamp: joined_record.timestamp,
                 offset: joined_record.offset,
                 partition: joined_record.partition,
                 headers: joined_record.headers,
-                event_time: None,
+                event_time: computed_event_time,
             };
 
             Ok(ProcessorResult {
@@ -588,6 +801,367 @@ impl SelectProcessor {
                 message: "Invalid query type for SelectProcessor".to_string(),
                 query: None,
             })
+        }
+    }
+
+    /// FR-079 Phase 7: Evaluate GROUP BY expressions with accumulator support
+    ///
+    /// This helper method handles non-function expressions in GROUP BY contexts where
+    /// the accumulator contains group-level state (counts, sums, etc.). It recursively
+    /// evaluates expressions that may contain aggregate functions.
+    ///
+    /// For example: `STDDEV(price) > AVG(price) * 0.5` will properly compute STDDEV
+    /// and AVG from the accumulator's numeric_values instead of returning 0.0.
+    fn evaluate_group_expression_with_accumulator(
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+        record: &StreamRecord,
+    ) -> Result<FieldValue, SqlError> {
+        match expr {
+            // Handle function calls - check if they're aggregates
+            Expr::Function { name, args } => {
+                let name_upper = name.to_uppercase();
+                match name_upper.as_str() {
+                    "COUNT" => {
+                        if args.is_empty() {
+                            Ok(FieldValue::Integer(accumulator.count as i64))
+                        } else {
+                            let non_null_count = accumulator
+                                .non_null_counts
+                                .get(&name_upper)
+                                .copied()
+                                .unwrap_or(0);
+                            Ok(FieldValue::Integer(non_null_count as i64))
+                        }
+                    }
+                    "SUM" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            let sum_value = accumulator.sums.get(col_name).copied().unwrap_or(0.0);
+                            Ok(FieldValue::Float(sum_value))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "AVG" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if !values.is_empty() {
+                                    let avg = values.iter().sum::<f64>() / values.len() as f64;
+                                    Ok(FieldValue::Float(avg))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MIN" => {
+                        if let Some(Expr::Column(_col_name)) = args.first() {
+                            let min_value = accumulator
+                                .mins
+                                .values()
+                                .next()
+                                .cloned()
+                                .unwrap_or(FieldValue::Null);
+                            Ok(min_value)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MAX" => {
+                        if let Some(Expr::Column(_col_name)) = args.first() {
+                            let max_value = accumulator
+                                .maxs
+                                .values()
+                                .next()
+                                .cloned()
+                                .unwrap_or(FieldValue::Null);
+                            Ok(max_value)
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "STDDEV" | "STDDEV_SAMP" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if values.len() > 1 {
+                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                    let variance =
+                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                            / (values.len() - 1) as f64;
+                                    let stddev = variance.sqrt();
+                                    Ok(FieldValue::Float(stddev))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "VARIANCE" | "VAR_SAMP" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if values.len() > 1 {
+                                    let variance = Self::calculate_variance(values);
+                                    Ok(FieldValue::Float(variance))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "STDDEV_POP" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if values.len() > 1 {
+                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                    let variance =
+                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                            / values.len() as f64;
+                                    let stddev = variance.sqrt();
+                                    Ok(FieldValue::Float(stddev))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "VAR_POP" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if values.len() > 1 {
+                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                    let variance =
+                                        values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                                            / values.len() as f64;
+                                    Ok(FieldValue::Float(variance))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    _ => {
+                        // For unknown aggregate functions, fall back to single-record evaluation
+                        ExpressionEvaluator::evaluate_expression_value(expr, record)
+                    }
+                }
+            }
+            // Handle binary operations - recursively evaluate both sides with accumulator
+            Expr::BinaryOp { left, right, op } => {
+                let left_value =
+                    Self::evaluate_group_expression_with_accumulator(left, accumulator, record)?;
+                let right_value =
+                    Self::evaluate_group_expression_with_accumulator(right, accumulator, record)?;
+
+                // Apply the binary operator
+                match op {
+                    crate::velostream::sql::ast::BinaryOperator::Add => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l + r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 + r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l + *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l + r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Subtract => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l - r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 - r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l - *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l - r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Multiply => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Integer(l * r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(*l as f64 * r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Float(l * *r as f64))
+                            }
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Float(l * r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Divide => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) if *r != 0.0 => {
+                                Ok(FieldValue::Float(l / r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) if *r != 0 => {
+                                Ok(FieldValue::Float(*l as f64 / *r as f64))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) if *r != 0.0 => {
+                                Ok(FieldValue::Float(*l as f64 / r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) if *r != 0 => {
+                                Ok(FieldValue::Float(l / *r as f64))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::GreaterThan => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(l > r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l > r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(&(*l as f64) > r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l > &(*r as f64)))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::GreaterThanOrEqual => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(l >= r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l >= r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(&(*l as f64) >= r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l >= &(*r as f64)))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::LessThan => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(l < r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l < r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(&(*l as f64) < r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l < &(*r as f64)))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::LessThanOrEqual => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Float(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(l <= r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l <= r))
+                            }
+                            (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                                Ok(FieldValue::Boolean(&(*l as f64) <= r))
+                            }
+                            (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                                Ok(FieldValue::Boolean(l <= &(*r as f64)))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Equal => {
+                        Ok(FieldValue::Boolean(left_value == right_value))
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::NotEqual => {
+                        Ok(FieldValue::Boolean(left_value != right_value))
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::And => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => {
+                                Ok(FieldValue::Boolean(*l && *r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    crate::velostream::sql::ast::BinaryOperator::Or => {
+                        match (&left_value, &right_value) {
+                            (FieldValue::Boolean(l), FieldValue::Boolean(r)) => {
+                                Ok(FieldValue::Boolean(*l || *r))
+                            }
+                            _ => Ok(FieldValue::Null),
+                        }
+                    }
+                    _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
+                }
+            }
+            // For all other expression types, fall back to single-record evaluation
+            _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
+        }
+    }
+
+    /// Extract all column names from an expression (including nested ones)
+    /// This is used to ensure accumulator has numeric values for all columns
+    /// that might be used in aggregate functions within expressions
+    fn extract_columns_from_expression(
+        expr: &Expr,
+        columns: &mut std::collections::HashSet<String>,
+    ) {
+        match expr {
+            Expr::Column(col_name) => {
+                columns.insert(col_name.clone());
+            }
+            Expr::Function { args, .. } => {
+                for arg in args {
+                    Self::extract_columns_from_expression(arg, columns);
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::extract_columns_from_expression(left, columns);
+                Self::extract_columns_from_expression(right, columns);
+            }
+            // For other expression types, we don't need to extract columns
+            _ => {}
         }
     }
 
@@ -646,8 +1220,8 @@ impl SelectProcessor {
                 sample_record: Some(record.clone()),
             });
 
-        // Update accumulator with this record
-        accumulator.count += 1;
+        // Note: accumulator.count will be incremented in AccumulatorManager::process_record_into_accumulator
+        // Do NOT increment it here to avoid double-counting
         if accumulator.sample_record.is_none() {
             accumulator.sample_record = Some(record.clone());
         }
@@ -656,10 +1230,20 @@ impl SelectProcessor {
         for group_expr in group_exprs.iter() {
             if let Expr::Column(col_name) = group_expr {
                 if !accumulator.first_values.contains_key(col_name) {
+                    // Validate that the GROUP BY column exists in the record
                     if let Some(value) = record.fields.get(col_name) {
                         accumulator
                             .first_values
                             .insert(col_name.clone(), value.clone());
+                    } else {
+                        // GROUP BY column not found in record - this is an error
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "GROUP BY column '{}' not found in record fields",
+                                col_name
+                            ),
+                            query: None,
+                        });
                     }
                 }
             }
@@ -687,6 +1271,58 @@ impl SelectProcessor {
             &aggregate_expressions,
         )?;
 
+        // FR-079 Phase 7: Ensure numeric_values are populated for all columns used in non-function expressions
+        // This handles cases like STDDEV(price) > AVG(price) * 0.5 where aggregates are nested in binary ops
+        let mut columns_in_expressions = std::collections::HashSet::new();
+        for field in fields {
+            if let SelectField::Expression { expr, .. } = field {
+                // Only process non-function expressions that might contain aggregates
+                if !matches!(expr, Expr::Function { .. }) {
+                    Self::extract_columns_from_expression(expr, &mut columns_in_expressions);
+                }
+            }
+        }
+
+        // Add numeric values for all extracted columns (for STDDEV, AVG, etc.)
+        for col_name in columns_in_expressions {
+            if let Some(value) = record.fields.get(&col_name) {
+                match value {
+                    FieldValue::Float(f) => {
+                        accumulator
+                            .numeric_values
+                            .entry(col_name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(*f);
+                    }
+                    FieldValue::Integer(i) => {
+                        accumulator
+                            .numeric_values
+                            .entry(col_name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(*i as f64);
+                    }
+                    FieldValue::ScaledInteger(scaled, scale) => {
+                        let f = *scaled as f64 / (10_i64.pow(*scale as u32)) as f64;
+                        accumulator
+                            .numeric_values
+                            .entry(col_name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(f);
+                    }
+                    FieldValue::Decimal(d) => {
+                        // Convert Decimal to f64 for numeric aggregation
+                        let f_val = (*d).normalize().to_string().parse::<f64>().unwrap_or(0.0);
+                        accumulator
+                            .numeric_values
+                            .entry(col_name.clone())
+                            .or_insert_with(Vec::new)
+                            .push(f_val);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // For streaming GROUP BY, emit current aggregated result for this group
         // This follows the Flink-style streaming approach where results are updated incrementally
         let mut result_fields = HashMap::new();
@@ -710,212 +1346,22 @@ impl SelectProcessor {
                         } else {
                             name.to_lowercase()
                         };
-                        match name.to_uppercase().as_str() {
-                            "COUNT" => {
-                                if args.is_empty() {
-                                    // COUNT(*) - use total count
-                                    result_fields.insert(
-                                        field_name,
-                                        FieldValue::Integer(accumulator.count as i64),
-                                    );
-                                } else {
-                                    // COUNT(column) - use non-NULL count for this field
-                                    let non_null_count = accumulator
-                                        .non_null_counts
-                                        .get(&field_name)
-                                        .copied()
-                                        .unwrap_or(0);
-                                    result_fields.insert(
-                                        field_name,
-                                        FieldValue::Integer(non_null_count as i64),
-                                    );
-                                }
-                            }
-                            "SUM" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("sum_{}", col_name)
-                                    };
-                                    let sum_value =
-                                        accumulator.sums.get(&key).copied().unwrap_or(0.0);
-                                    result_fields.insert(field_name, FieldValue::Float(sum_value));
-                                }
-                            }
-                            "AVG" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("avg_{}", col_name)
-                                    };
-                                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                                        if !values.is_empty() {
-                                            let avg =
-                                                values.iter().sum::<f64>() / values.len() as f64;
-                                            result_fields
-                                                .insert(field_name, FieldValue::Float(avg));
-                                        } else {
-                                            result_fields.insert(field_name, FieldValue::Null);
-                                        }
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "MIN" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("min_{}", col_name)
-                                    };
-                                    let min_value = accumulator
-                                        .mins
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, min_value);
-                                }
-                            }
-                            "MAX" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("max_{}", col_name)
-                                    };
-                                    let max_value = accumulator
-                                        .maxs
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, max_value);
-                                }
-                            }
-                            "STRING_AGG" | "GROUP_CONCAT" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("string_agg_{}", col_name)
-                                    };
-                                    if let Some(string_values) = accumulator.string_values.get(&key)
-                                    {
-                                        // Extract separator from second argument or use default
-                                        let separator = if args.len() > 1 {
-                                            if let Expr::Literal(LiteralValue::String(sep)) =
-                                                &args[1]
-                                            {
-                                                sep.as_str()
-                                            } else {
-                                                ","
-                                            }
-                                        } else {
-                                            ","
-                                        };
-                                        let concatenated = string_values.join(separator);
-                                        result_fields
-                                            .insert(field_name, FieldValue::String(concatenated));
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "VARIANCE" | "VAR" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("variance_{}", col_name)
-                                    };
-                                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                                        if values.len() > 1 {
-                                            let variance = Self::calculate_variance(values);
-                                            result_fields
-                                                .insert(field_name, FieldValue::Float(variance));
-                                        } else {
-                                            result_fields.insert(field_name, FieldValue::Null);
-                                        }
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "STDDEV" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("variance_{}", col_name)
-                                    };
-                                    if let Some(values) = accumulator.numeric_values.get(&key) {
-                                        if values.len() > 1 {
-                                            let variance = Self::calculate_variance(values);
-                                            let stddev = variance.sqrt();
-                                            result_fields
-                                                .insert(field_name, FieldValue::Float(stddev));
-                                        } else {
-                                            result_fields.insert(field_name, FieldValue::Null);
-                                        }
-                                    } else {
-                                        result_fields.insert(field_name, FieldValue::Null);
-                                    }
-                                }
-                            }
-                            "FIRST" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("first_{}", col_name)
-                                    };
-                                    let first_value = accumulator
-                                        .first_values
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, first_value);
-                                }
-                            }
-                            "LAST" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("last_{}", col_name)
-                                    };
-                                    let last_value = accumulator
-                                        .last_values
-                                        .get(&key)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null);
-                                    result_fields.insert(field_name, last_value);
-                                }
-                            }
-                            "COUNT_DISTINCT" => {
-                                if let Some(Expr::Column(col_name)) = args.first() {
-                                    let key = if let Some(alias_name) = alias {
-                                        alias_name.clone()
-                                    } else {
-                                        format!("count_distinct_{}", col_name)
-                                    };
-                                    let distinct_count = accumulator
-                                        .distinct_values
-                                        .get(&key)
-                                        .map(|set| set.len() as i64)
-                                        .unwrap_or(0);
-                                    result_fields
-                                        .insert(field_name, FieldValue::Integer(distinct_count));
-                                }
-                            }
-                            _ => {
-                                // For unknown functions, use first value
-                                if let Some(sample) = &accumulator.sample_record {
-                                    if let Some(value) = sample.fields.values().next() {
-                                        result_fields.insert(field_name.clone(), value.clone());
-                                    }
+
+                        // Compute aggregate value using centralized dispatcher
+                        let aggregate_value = Self::compute_aggregate_from_accumulator(
+                            name,
+                            args,
+                            alias,
+                            accumulator,
+                        )?;
+
+                        if let Some(value) = aggregate_value {
+                            result_fields.insert(field_name, value);
+                        } else {
+                            // Fallback for unknown functions - use first value from sample record
+                            if let Some(sample) = &accumulator.sample_record {
+                                if let Some(value) = sample.fields.values().next() {
+                                    result_fields.insert(field_name.clone(), value.clone());
                                 }
                             }
                         }
@@ -927,8 +1373,13 @@ impl SelectProcessor {
                             Self::get_expression_name(expr)
                         };
 
-                        // Evaluate the expression using the original record
-                        let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
+                        // FR-079 Phase 7: Use accumulator-aware evaluation for GROUP BY context
+                        // This enables expressions like STDDEV(price) > AVG(price) * 0.5 to use real accumulator values
+                        let value = Self::evaluate_group_expression_with_accumulator(
+                            expr,
+                            accumulator,
+                            record,
+                        )?;
                         result_fields.insert(field_name, value);
                     }
                 }
@@ -1065,6 +1516,206 @@ impl SelectProcessor {
         }
     }
 
+    /// Compute aggregate value from accumulator for a given aggregate function
+    /// This is the centralized dispatcher that replaces duplicated code patterns
+    /// across COUNT, SUM, AVG, MIN, MAX, VARIANCE, STDDEV, FIRST, LAST, STRING_AGG, COUNT_DISTINCT
+    fn compute_aggregate_from_accumulator(
+        name: &str,
+        args: &[Expr],
+        alias: &Option<String>,
+        accumulator: &GroupAccumulator,
+    ) -> Result<Option<FieldValue>, SqlError> {
+        match name.to_uppercase().as_str() {
+            "COUNT" => {
+                if args.is_empty() {
+                    // COUNT(*) - use total count
+                    Ok(Some(FieldValue::Integer(accumulator.count as i64)))
+                } else if let Some(Expr::Column(_col_name)) = args.first() {
+                    // COUNT(column) - use non-NULL count for this field
+                    // The field_name used as key depends on alias, but COUNT uses it differently
+                    // If there's an alias, use it; otherwise field_name is determined elsewhere
+                    if let Some(alias_name) = alias {
+                        let non_null_count = accumulator
+                            .non_null_counts
+                            .get(alias_name)
+                            .copied()
+                            .unwrap_or(0);
+                        Ok(Some(FieldValue::Integer(non_null_count as i64)))
+                    } else {
+                        // For COUNT without alias, return total count
+                        Ok(Some(FieldValue::Integer(accumulator.count as i64)))
+                    }
+                } else {
+                    Ok(Some(FieldValue::Integer(accumulator.count as i64)))
+                }
+            }
+            "SUM" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "sum");
+                    let sum_value = accumulator.sums.get(&key).copied().unwrap_or(0.0);
+                    Ok(Some(FieldValue::Float(sum_value)))
+                } else {
+                    Ok(None)
+                }
+            }
+            "AVG" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "avg");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        if !values.is_empty() {
+                            let avg = values.iter().sum::<f64>() / values.len() as f64;
+                            Ok(Some(FieldValue::Float(avg)))
+                        } else {
+                            Ok(Some(FieldValue::Null))
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "MIN" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "min");
+                    let min_value = accumulator
+                        .mins
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(min_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "MAX" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "max");
+                    let max_value = accumulator
+                        .maxs
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(max_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "STRING_AGG" | "GROUP_CONCAT" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "string_agg");
+                    if let Some(string_values) = accumulator.string_values.get(&key) {
+                        // Extract separator from second argument or use default
+                        let separator = if args.len() > 1 {
+                            if let Expr::Literal(LiteralValue::String(sep)) = &args[1] {
+                                sep.as_str()
+                            } else {
+                                ","
+                            }
+                        } else {
+                            ","
+                        };
+                        let concatenated = string_values.join(separator);
+                        Ok(Some(FieldValue::String(concatenated)))
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "VARIANCE" | "VAR" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "variance");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        if values.len() > 1 {
+                            let variance = Self::calculate_variance(values);
+                            Ok(Some(FieldValue::Float(variance)))
+                        } else {
+                            Ok(Some(FieldValue::Null))
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "STDDEV" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "stddev");
+                    if let Some(values) = accumulator.numeric_values.get(&key) {
+                        if values.len() > 1 {
+                            let variance = Self::calculate_variance(values);
+                            let stddev = variance.sqrt();
+                            Ok(Some(FieldValue::Float(stddev)))
+                        } else {
+                            Ok(Some(FieldValue::Null))
+                        }
+                    } else {
+                        Ok(Some(FieldValue::Null))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+            "FIRST" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "first");
+                    let first_value = accumulator
+                        .first_values
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(first_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "LAST" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "last");
+                    let last_value = accumulator
+                        .last_values
+                        .get(&key)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    Ok(Some(last_value))
+                } else {
+                    Ok(None)
+                }
+            }
+            "COUNT_DISTINCT" => {
+                if let Some(Expr::Column(col_name)) = args.first() {
+                    let key = Self::resolve_aggregate_key(alias, col_name, "count_distinct");
+                    let distinct_count = accumulator
+                        .distinct_values
+                        .get(&key)
+                        .map(|set| set.len() as i64)
+                        .unwrap_or(0);
+                    Ok(Some(FieldValue::Integer(distinct_count)))
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => {
+                // For unknown functions, return None to trigger fallback behavior
+                Ok(None)
+            }
+        }
+    }
+
+    /// Resolve the aggregate key based on alias and column name
+    /// Key resolution rule: use alias if provided, otherwise use "prefix_columnname"
+    #[inline]
+    fn resolve_aggregate_key(alias: &Option<String>, col_name: &str, prefix: &str) -> String {
+        if let Some(alias_name) = alias {
+            alias_name.clone()
+        } else {
+            format!("{}_{}", prefix, col_name)
+        }
+    }
+
     /// Calculate variance for a set of numeric values (sample variance)
     fn calculate_variance(values: &[f64]) -> f64 {
         if values.len() <= 1 {
@@ -1153,27 +1804,43 @@ impl SelectProcessor {
                 match name.to_uppercase().as_str() {
                     "SET_HEADER" => {
                         if args.len() == 2 {
-                            if let (
-                                Expr::Literal(LiteralValue::String(key)),
-                                Expr::Literal(LiteralValue::String(value)),
-                            ) = (&args[0], &args[1])
-                            {
-                                mutations.push(HeaderMutation {
-                                    key: key.clone(),
-                                    operation: HeaderOperation::Set,
-                                    value: Some(value.clone()),
-                                });
+                            // Evaluate key expression
+                            match Self::evaluate_to_string(&args[0], record) {
+                                Ok(key_str) => {
+                                    // Evaluate value expression
+                                    match Self::evaluate_to_string(&args[1], record) {
+                                        Ok(value_str) => {
+                                            mutations.push(HeaderMutation {
+                                                key: key_str,
+                                                operation: HeaderOperation::Set,
+                                                value: Some(value_str),
+                                            });
+                                        }
+                                        Err(_) => {
+                                            // Value evaluation failed, skip mutation
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    // Key evaluation failed, skip mutation
+                                }
                             }
                         }
                     }
                     "REMOVE_HEADER" => {
                         if args.len() == 1 {
-                            if let Expr::Literal(LiteralValue::String(key)) = &args[0] {
-                                mutations.push(HeaderMutation {
-                                    key: key.clone(),
-                                    operation: HeaderOperation::Remove,
-                                    value: None,
-                                });
+                            // Evaluate key expression
+                            match Self::evaluate_to_string(&args[0], record) {
+                                Ok(key_str) => {
+                                    mutations.push(HeaderMutation {
+                                        key: key_str,
+                                        operation: HeaderOperation::Remove,
+                                        value: None,
+                                    });
+                                }
+                                Err(_) => {
+                                    // Key evaluation failed, skip mutation
+                                }
                             }
                         }
                     }
@@ -1225,6 +1892,73 @@ impl SelectProcessor {
             Expr::Column(_) | Expr::Literal(_) | Expr::Subquery { .. } => {}
         }
         Ok(())
+    }
+
+    /// Evaluate an expression and convert the result to a string
+    fn evaluate_to_string(expr: &Expr, record: &StreamRecord) -> Result<String, SqlError> {
+        match expr {
+            Expr::Literal(lit) => Ok(match lit {
+                LiteralValue::String(s) => s.clone(),
+                LiteralValue::Integer(i) => i.to_string(),
+                LiteralValue::Float(f) => f.to_string(),
+                LiteralValue::Boolean(b) => b.to_string(),
+                LiteralValue::Null => "null".to_string(),
+                LiteralValue::Decimal(d) => d.clone(),
+                LiteralValue::Interval { .. } => "[interval]".to_string(),
+            }),
+            Expr::Column(col_name) => {
+                // Get the field value from the record
+                record
+                    .fields
+                    .get(col_name)
+                    .map(|val| Self::field_value_to_string(val))
+                    .ok_or_else(|| SqlError::ExecutionError {
+                        message: format!("Column not found: {}", col_name),
+                        query: None,
+                    })
+            }
+            _ => {
+                // For complex expressions, try to evaluate them
+                // This is a simplified approach - we just return an error for now
+                Err(SqlError::ExecutionError {
+                    message: "Complex expressions in header mutations not supported".to_string(),
+                    query: None,
+                })
+            }
+        }
+    }
+
+    /// Convert a FieldValue to string
+    fn field_value_to_string(val: &FieldValue) -> String {
+        match val {
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => "null".to_string(),
+            FieldValue::Date(d) => format!("{}", d),
+            FieldValue::Timestamp(ts) => format!("{}", ts),
+            FieldValue::Decimal(d) => d.to_string(),
+            FieldValue::ScaledInteger(val, scale) => {
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = val / divisor;
+                let decimal_part = (val % divisor).abs();
+                if decimal_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    format!(
+                        "{}.{:0width$}",
+                        integer_part,
+                        decimal_part,
+                        width = *scale as usize
+                    )
+                }
+            }
+            FieldValue::Array(_) => "[array]".to_string(),
+            FieldValue::Map(_) => "[map]".to_string(),
+            FieldValue::Struct(_) => "[struct]".to_string(),
+            FieldValue::Interval { .. } => "[interval]".to_string(),
+        }
     }
 
     /// Evaluate HAVING clause expression with aggregate function support

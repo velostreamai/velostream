@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
-use tokio::time::{interval, Instant};
+use tokio::time::{Instant, interval};
 
 /// Progress streaming configuration
 #[derive(Debug, Clone)]
@@ -316,7 +316,7 @@ impl ProgressStream {
                 match self.event_receiver.recv().await {
                     Ok(event) => {
                         // Apply table filter if set
-                        if let Some(ref filter) = self.table_filter {
+                        if let Some(filter) = self.table_filter.as_ref() {
                             match &event {
                                 ProgressEvent::TableUpdate { table_name, .. } |
                                 ProgressEvent::TableCompleted { table_name, .. } |
@@ -407,7 +407,7 @@ pub enum ProgressStreamingError {
 mod tests {
     use super::*;
     use crate::velostream::server::table_registry::TableRegistry;
-    use tokio::time::{sleep, Duration as TokioDuration};
+    use tokio::time::{Duration as TokioDuration, sleep};
 
     #[tokio::test]
     async fn test_progress_streaming_server() {

@@ -360,10 +360,16 @@ impl KafkaDataSink {
             format!("Kafka sink '{}' missing recommended config: {}", name, key)
         }
         fn batch_perf_recommendation(name: &str) -> String {
-            format!("Kafka sink '{}' could benefit from batch configuration (batch.size, linger.ms) for better throughput", name)
+            format!(
+                "Kafka sink '{}' could benefit from batch configuration (batch.size, linger.ms) for better throughput",
+                name
+            )
         }
         fn acks_zero_warning(name: &str) -> String {
-            format!("Kafka sink '{}' has acks=0 which may lead to data loss. Consider acks=1 or acks=all", name)
+            format!(
+                "Kafka sink '{}' has acks=0 which may lead to data loss. Consider acks=1 or acks=all",
+                name
+            )
         }
 
         let mut errors = Vec::new();
@@ -586,7 +592,7 @@ impl ConfigSchemaProvider for KafkaDataSink {
                     if let Some(port_str) = server.split(':').nth(1) {
                         if port_str.parse::<u16>().is_err() {
                             return Err(vec![format!(
-                                "Invalid port '{}' in server '{}'. Port must be a number between 1-65535", 
+                                "Invalid port '{}' in server '{}'. Port must be a number between 1-65535",
                                 port_str, server
                             )]);
                         }
@@ -674,7 +680,7 @@ impl ConfigSchemaProvider for KafkaDataSink {
             "enable.idempotence" => {
                 if !["true", "false"].contains(&value) {
                     return Err(vec![
-                        "enable.idempotence must be 'true' or 'false'".to_string()
+                        "enable.idempotence must be 'true' or 'false'".to_string(),
                     ]);
                 }
             }
@@ -683,7 +689,7 @@ impl ConfigSchemaProvider for KafkaDataSink {
                     if size > 1_048_576 {
                         // 1MB max
                         return Err(vec![
-                            "batch.size must not exceed 1,048,576 bytes (1MB)".to_string()
+                            "batch.size must not exceed 1,048,576 bytes (1MB)".to_string(),
                         ]);
                     }
                 } else {
@@ -695,19 +701,21 @@ impl ConfigSchemaProvider for KafkaDataSink {
                     if linger > 30_000 {
                         // 30 seconds max
                         return Err(vec![
-                            "linger.ms must not exceed 30,000ms (30 seconds)".to_string()
+                            "linger.ms must not exceed 30,000ms (30 seconds)".to_string(),
                         ]);
                     }
                 } else {
                     return Err(vec![
-                        "linger.ms must be a valid time in milliseconds".to_string()
+                        "linger.ms must be a valid time in milliseconds".to_string(),
                     ]);
                 }
             }
             "buffer.memory" => {
                 if let Ok(memory) = value.parse::<u64>() {
                     if memory < 1024 {
-                        return Err(vec!["buffer.memory must be at least 1024 bytes".to_string()]);
+                        return Err(vec![
+                            "buffer.memory must be at least 1024 bytes".to_string(),
+                        ]);
                     }
                     if memory > 1_073_741_824 {
                         // 1GB max
@@ -717,7 +725,7 @@ impl ConfigSchemaProvider for KafkaDataSink {
                     }
                 } else {
                     return Err(vec![
-                        "buffer.memory must be a valid size in bytes".to_string()
+                        "buffer.memory must be a valid size in bytes".to_string(),
                     ]);
                 }
             }

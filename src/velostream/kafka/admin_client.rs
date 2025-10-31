@@ -41,9 +41,9 @@ impl KafkaAdminClient {
         let mut new_topic = NewTopic::new(topic_name, partitions, replication);
 
         // Add topic-level configurations if provided
-        if let Some(ref topic_config) = config {
+        if let Some(topic_config) = &config {
             for (key, value) in topic_config {
-                new_topic = new_topic.set(key, value);
+                new_topic = new_topic.set(key.as_str(), value.as_str());
             }
         }
 

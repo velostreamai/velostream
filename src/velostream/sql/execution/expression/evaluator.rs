@@ -4,9 +4,9 @@
 //! SQL expressions against streaming data records.
 
 use super::super::processors::ProcessorContext;
-use super::super::types::{FieldValue, StreamRecord};
+use super::super::types::{FieldValue, StreamRecord, system_columns};
 use super::functions::BuiltinFunctions;
-use super::subquery_executor::{evaluate_subquery_with_executor, SubqueryExecutor};
+use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
 use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
 use rust_decimal::Decimal;
@@ -124,37 +124,58 @@ impl ExpressionEvaluator {
     pub fn evaluate_expression(expr: &Expr, record: &StreamRecord) -> Result<bool, SqlError> {
         match expr {
             Expr::Column(name) => {
-                // Check for system columns first (case insensitive)
-                let field_value = match name.to_uppercase().as_str() {
-                    "_TIMESTAMP" => FieldValue::Integer(record.timestamp),
-                    "_OFFSET" => FieldValue::Integer(record.offset),
-                    "_PARTITION" => FieldValue::Integer(record.partition as i64),
-                    _ => {
-                        // Handle qualified column names (table.column)
-                        if name.contains('.') {
-                            // Try to find the field with the qualified name first (for JOIN aliases)
-                            if let Some(value) = record.fields.get(name) {
+                // Check for system columns first (normalized to UPPERCASE)
+                let field_value = if let Some(sys_col) =
+                    system_columns::normalize_if_system_column(name)
+                {
+                    match sys_col {
+                        system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
+                        system_columns::OFFSET => FieldValue::Integer(record.offset),
+                        system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
+                        system_columns::EVENT_TIME => {
+                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
+                            if let Some(event_time) = record.event_time {
+                                FieldValue::Integer(event_time.timestamp_millis())
+                            } else {
+                                FieldValue::Null
+                            }
+                        }
+                        system_columns::WINDOW_START | system_columns::WINDOW_END => {
+                            // Window columns are injected into fields HashMap by WindowProcessor
+                            // Look them up as regular fields
+                            record
+                                .fields
+                                .get(sys_col)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null)
+                        }
+                        _ => unreachable!(),
+                    }
+                } else {
+                    // Handle qualified column names (table.column)
+                    if name.contains('.') {
+                        // Try to find the field with the qualified name first (for JOIN aliases)
+                        if let Some(value) = record.fields.get(name) {
+                            value.clone()
+                        } else {
+                            let column_name = name.split('.').next_back().unwrap_or(name);
+                            // Try to find with the "right_" prefix (for non-aliased JOINs)
+                            let prefixed_name = format!("right_{}", column_name);
+                            if let Some(value) = record.fields.get(&prefixed_name) {
                                 value.clone()
                             } else {
-                                let column_name = name.split('.').next_back().unwrap_or(name);
-                                // Try to find with the "right_" prefix (for non-aliased JOINs)
-                                let prefixed_name = format!("right_{}", column_name);
-                                if let Some(value) = record.fields.get(&prefixed_name) {
-                                    value.clone()
-                                } else {
-                                    // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                    // Return NULL if not found instead of error
-                                    record
-                                        .fields
-                                        .get(column_name)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null)
-                                }
+                                // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                // Return NULL if not found instead of error
+                                record
+                                    .fields
+                                    .get(column_name)
+                                    .cloned()
+                                    .unwrap_or(FieldValue::Null)
                             }
-                        } else {
-                            // Regular field lookup - return NULL if not found instead of error
-                            record.fields.get(name).cloned().unwrap_or(FieldValue::Null)
                         }
+                    } else {
+                        // Regular field lookup - return NULL if not found instead of error
+                        record.fields.get(name).cloned().unwrap_or(FieldValue::Null)
                     }
                 };
 
@@ -375,37 +396,56 @@ impl ExpressionEvaluator {
     ) -> Result<FieldValue, SqlError> {
         match expr {
             Expr::Column(name) => {
-                // Check for system columns first (case insensitive)
-                match name.to_uppercase().as_str() {
-                    "_TIMESTAMP" => Ok(FieldValue::Integer(record.timestamp)),
-                    "_OFFSET" => Ok(FieldValue::Integer(record.offset)),
-                    "_PARTITION" => Ok(FieldValue::Integer(record.partition as i64)),
-                    _ => {
-                        // Handle qualified column names (table.column)
-                        if name.contains('.') {
-                            // Try to find the field with the qualified name first (for JOIN aliases)
-                            if let Some(value) = record.fields.get(name) {
+                // Check for system columns first (normalized to UPPERCASE)
+                if let Some(sys_col) = system_columns::normalize_if_system_column(name) {
+                    Ok(match sys_col {
+                        system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
+                        system_columns::OFFSET => FieldValue::Integer(record.offset),
+                        system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
+                        system_columns::EVENT_TIME => {
+                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
+                            if let Some(event_time) = record.event_time {
+                                FieldValue::Integer(event_time.timestamp_millis())
+                            } else {
+                                FieldValue::Null
+                            }
+                        }
+                        system_columns::WINDOW_START | system_columns::WINDOW_END => {
+                            // Window columns are injected into fields HashMap by WindowProcessor
+                            // Look them up as regular fields
+                            record
+                                .fields
+                                .get(sys_col)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null)
+                        }
+                        _ => unreachable!(),
+                    })
+                } else {
+                    // Handle qualified column names (table.column)
+                    if name.contains('.') {
+                        // Try to find the field with the qualified name first (for JOIN aliases)
+                        if let Some(value) = record.fields.get(name) {
+                            Ok(value.clone())
+                        } else {
+                            let column_name = name.split('.').next_back().unwrap_or(name);
+                            // Try to find with the "right_" prefix (for non-aliased JOINs)
+                            let prefixed_name = format!("right_{}", column_name);
+                            if let Some(value) = record.fields.get(&prefixed_name) {
                                 Ok(value.clone())
                             } else {
-                                let column_name = name.split('.').next_back().unwrap_or(name);
-                                // Try to find with the "right_" prefix (for non-aliased JOINs)
-                                let prefixed_name = format!("right_{}", column_name);
-                                if let Some(value) = record.fields.get(&prefixed_name) {
-                                    Ok(value.clone())
-                                } else {
-                                    // Fall back to just the column name (for FROM clause aliases like l.name -> name)
-                                    // Return NULL if not found instead of error
-                                    Ok(record
-                                        .fields
-                                        .get(column_name)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null))
-                                }
+                                // Fall back to just the column name (for FROM clause aliases like l.name -> name)
+                                // Return NULL if not found instead of error
+                                Ok(record
+                                    .fields
+                                    .get(column_name)
+                                    .cloned()
+                                    .unwrap_or(FieldValue::Null))
                             }
-                        } else {
-                            // Regular field lookup - return NULL if not found instead of error
-                            Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
                         }
+                    } else {
+                        // Regular field lookup - return NULL if not found instead of error
+                        Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
                     }
                 }
             }
@@ -1328,36 +1368,55 @@ impl ExpressionEvaluator {
                 }
             }
             Expr::Column(name) => {
-                // Handle column references - no subquery support needed
-                match name.to_uppercase().as_str() {
-                    "_TIMESTAMP" => Ok(FieldValue::Integer(record.timestamp)),
-                    "_OFFSET" => Ok(FieldValue::Integer(record.offset)),
-                    "_PARTITION" => Ok(FieldValue::Integer(record.partition as i64)),
-                    _ => {
-                        // Handle qualified column names (table.column)
-                        if name.contains('.') {
-                            // Try to find the field with the qualified name first (for JOIN aliases)
-                            if let Some(value) = record.fields.get(name) {
+                // Handle column references - normalized to UPPERCASE
+                if let Some(sys_col) = system_columns::normalize_if_system_column(name) {
+                    Ok(match sys_col {
+                        system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
+                        system_columns::OFFSET => FieldValue::Integer(record.offset),
+                        system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
+                        system_columns::EVENT_TIME => {
+                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
+                            if let Some(event_time) = record.event_time {
+                                FieldValue::Integer(event_time.timestamp_millis())
+                            } else {
+                                FieldValue::Null
+                            }
+                        }
+                        system_columns::WINDOW_START | system_columns::WINDOW_END => {
+                            // Window columns are injected into fields HashMap by WindowProcessor
+                            // Look them up as regular fields
+                            record
+                                .fields
+                                .get(sys_col)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null)
+                        }
+                        _ => unreachable!(),
+                    })
+                } else {
+                    // Handle qualified column names (table.column)
+                    if name.contains('.') {
+                        // Try to find the field with the qualified name first (for JOIN aliases)
+                        if let Some(value) = record.fields.get(name) {
+                            Ok(value.clone())
+                        } else {
+                            let column_name = name.split('.').next_back().unwrap_or(name);
+                            // Try to find with the "right_" prefix (for non-aliased JOINs)
+                            let prefixed_name = format!("right_{}", column_name);
+                            if let Some(value) = record.fields.get(&prefixed_name) {
                                 Ok(value.clone())
                             } else {
-                                let column_name = name.split('.').next_back().unwrap_or(name);
-                                // Try to find with the "right_" prefix (for non-aliased JOINs)
-                                let prefixed_name = format!("right_{}", column_name);
-                                if let Some(value) = record.fields.get(&prefixed_name) {
-                                    Ok(value.clone())
-                                } else {
-                                    // Fall back to just the column name
-                                    Ok(record
-                                        .fields
-                                        .get(column_name)
-                                        .cloned()
-                                        .unwrap_or(FieldValue::Null))
-                                }
+                                // Fall back to just the column name
+                                Ok(record
+                                    .fields
+                                    .get(column_name)
+                                    .cloned()
+                                    .unwrap_or(FieldValue::Null))
                             }
-                        } else {
-                            // Regular field lookup - return NULL if not found
-                            Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
                         }
+                    } else {
+                        // Regular field lookup - return NULL if not found
+                        Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
                     }
                 }
             }
@@ -1558,15 +1617,20 @@ impl ExpressionEvaluator {
                 args,
                 over_clause,
             } => {
-                // Window functions need window buffer - delegate to original evaluator
-                // since they don't typically contain subqueries in their context
-                let empty_buffer: Vec<crate::velostream::sql::execution::StreamRecord> = Vec::new();
+                // Window functions need window buffer - use the buffer from ProcessorContext
+                // This allows window functions to access related rows and apply frame bounds
+                let empty_buffer = Vec::new();
+                let window_buffer = if let Some(window_ctx) = &context.window_context {
+                    &window_ctx.buffer
+                } else {
+                    &empty_buffer
+                };
                 super::WindowFunctions::evaluate_window_function(
                     function_name,
                     args,
                     over_clause,
                     record,
-                    &empty_buffer,
+                    window_buffer,
                 )
             }
             Expr::List(_) => {

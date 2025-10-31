@@ -104,6 +104,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub mod annotations;
+pub mod validator;
+
+use self::validator::AggregateValidator;
 
 /// Main parser for streaming SQL queries.
 ///
@@ -451,7 +454,37 @@ impl StreamingSqlParser {
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         // Use tokenize_with_comments to extract annotations
         let (tokens, comments) = self.tokenize_with_comments(sql)?;
-        self.parse_tokens_with_context(tokens, sql, comments)
+        let query = self.parse_tokens_with_context(tokens, sql, comments)?;
+
+        // IMPORTANT: Aggregate function validation is NOT done here at parse time.
+        //
+        // RATIONALE:
+        // The parser should only validate syntax. Semantic validation of aggregates
+        // is handled in dedicated layers that understand context:
+        //
+        // 1. SqlValidator.validate_aggregation_rules()
+        //    - Issues WARNINGS for aggregates without GROUP BY (global aggregation)
+        //    - Called during SQL validation phase (not parsing)
+        //    - Allows valid patterns: SELECT COUNT(*) FROM orders
+        //
+        // 2. Phase 7 AggregationValidator (execution layer)
+        //    - Validates GROUP BY completeness (all non-agg columns in GROUP BY)
+        //    - Validates aggregate placement (no aggregates in WHERE/ORDER BY)
+        //    - Validates HAVING clause field references
+        //    - Runtime validation for proper execution semantics
+        //
+        // VALID PATTERNS (all must parse successfully):
+        // - SELECT COUNT(*) FROM orders
+        //   (Global aggregation - warning only, valid SQL)
+        // - SELECT status, COUNT(*) FROM orders GROUP BY status
+        //   (With GROUP BY - valid)
+        // - SELECT symbol, AVG(price) FROM orders WINDOW TUMBLING(1m)
+        //   (With WINDOW - valid)
+        //
+        // The commented-out call was rejecting valid queries at parse time:
+        // AggregateValidator::validate(&query)?;
+
+        Ok(query)
     }
 
     // Keep the old method for backward compatibility
@@ -1163,6 +1196,7 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse GROUP BY first (correct ordering: GROUP BY comes first, then WINDOW)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1170,16 +1204,25 @@ impl<'a> TokenParser<'a> {
             group_by = Some(self.parse_group_by_list()?);
         }
 
-        let mut having = None;
-        if self.current_token().token_type == TokenType::Having {
-            self.advance();
-            having = Some(self.parse_expression()?);
-        }
-
+        // Parse WINDOW clause after GROUP BY
         let mut window = None;
         if self.current_token().token_type == TokenType::Window {
             self.advance();
             window = Some(self.parse_window_spec()?);
+        }
+
+        // STRICT ORDERING VALIDATION: If WINDOW was parsed, ensure GROUP BY doesn't appear after it
+        if window.is_some() && self.current_token().token_type == TokenType::GroupBy {
+            return Err(SqlError::ParseError {
+                message: "GROUP BY clause must come before WINDOW clause. Correct syntax: SELECT ... GROUP BY ... WINDOW ... HAVING ...".to_string(),
+                position: Some(self.current_token().position),
+            });
+        }
+
+        let mut having = None;
+        if self.current_token().token_type == TokenType::Having {
+            self.advance();
+            having = Some(self.parse_expression()?);
         }
 
         let mut order_by = None;
@@ -1518,44 +1561,41 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
-        let mut group_by = None;
-        if self.current_token().token_type == TokenType::GroupBy {
-            self.advance();
-            self.expect_keyword("BY")?;
-            group_by = Some(self.parse_group_by_list()?);
-        }
-
-        let mut having = None;
-        if self.current_token().token_type == TokenType::Having {
-            self.advance();
-            having = Some(self.parse_expression()?);
-        }
-
+        // Parse WINDOW, GROUP BY, HAVING, ORDER BY, LIMIT in any order
+        // This allows flexible clause ordering (though some orderings are non-standard)
         let mut window = None;
-        if self.current_token().token_type == TokenType::Window {
-            self.advance();
-            window = Some(self.parse_window_spec()?);
-
-            // Check for incorrect clause order: WINDOW before GROUP BY
-            if self.current_token().token_type == TokenType::GroupBy {
-                return Err(SqlError::ParseError {
-                    message: "Syntax error: WINDOW clause must come AFTER GROUP BY clause. Correct order: SELECT ... FROM ... GROUP BY ... WINDOW ...".to_string(),
-                    position: Some(self.current_token().position),
-                });
-            }
-        }
-
+        let mut group_by = None;
+        let mut having = None;
         let mut order_by = None;
-        if self.current_token().token_type == TokenType::OrderBy {
-            self.advance();
-            self.expect_keyword("BY")?;
-            order_by = Some(self.parse_order_by_list()?);
-        }
-
         let mut limit = None;
-        if self.current_token().token_type == TokenType::Limit {
-            self.advance();
-            limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
+
+        // Loop to parse clauses in any order - continues until no more recognized clauses
+        loop {
+            match self.current_token().token_type {
+                TokenType::Window if window.is_none() => {
+                    self.advance();
+                    window = Some(self.parse_window_spec()?);
+                }
+                TokenType::GroupBy if group_by.is_none() => {
+                    self.advance();
+                    self.expect_keyword("BY")?;
+                    group_by = Some(self.parse_group_by_list()?);
+                }
+                TokenType::Having if having.is_none() => {
+                    self.advance();
+                    having = Some(self.parse_expression()?);
+                }
+                TokenType::OrderBy if order_by.is_none() => {
+                    self.advance();
+                    self.expect_keyword("BY")?;
+                    order_by = Some(self.parse_order_by_list()?);
+                }
+                TokenType::Limit if limit.is_none() => {
+                    self.advance();
+                    limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
+                }
+                _ => break, // No more recognized clauses, exit loop
+            }
         }
 
         // Determine if from_stream is a URI or named stream
@@ -1723,6 +1763,7 @@ impl<'a> TokenParser<'a> {
             where_clause = Some(self.parse_expression()?);
         }
 
+        // Parse GROUP BY first (standard SQL ordering)
         let mut group_by = None;
         if self.current_token().token_type == TokenType::GroupBy {
             self.advance();
@@ -1730,16 +1771,17 @@ impl<'a> TokenParser<'a> {
             group_by = Some(self.parse_group_by_list()?);
         }
 
-        let mut having = None;
-        if self.current_token().token_type == TokenType::Having {
-            self.advance();
-            having = Some(self.parse_expression()?);
-        }
-
+        // Parse WINDOW clause after GROUP BY (standard SQL: GROUP BY comes before WINDOW)
         let mut window = None;
         if self.current_token().token_type == TokenType::Window {
             self.advance();
             window = Some(self.parse_window_spec()?);
+        }
+
+        let mut having = None;
+        if self.current_token().token_type == TokenType::Having {
+            self.advance();
+            having = Some(self.parse_expression()?);
         }
 
         let mut order_by = None;
@@ -2389,6 +2431,49 @@ impl<'a> TokenParser<'a> {
                     }
                 }
 
+                // Special handling for CAST function with SQL standard syntax support
+                if token.value.to_uppercase() == "CAST" {
+                    self.advance(); // consume CAST
+                    self.expect(TokenType::LeftParen)?; // consume '('
+
+                    // SQL Standard syntax only: CAST(expr AS type)
+
+                    let expr = self.parse_expression()?;
+
+                    // Expect AS keyword (SQL Standard syntax)
+                    if self.current_token().token_type == TokenType::As {
+                        // SQL standard syntax: CAST(expr AS type)
+                        self.advance(); // consume AS
+
+                        // Parse the type name as an identifier (not a string)
+                        let type_name = match self.current_token().token_type {
+                            TokenType::Identifier => {
+                                let name = self.current_token().value.clone();
+                                self.advance();
+                                name
+                            }
+                            _ => {
+                                return Err(SqlError::ParseError {
+                                    message: "Expected type name after AS in CAST".to_string(),
+                                    position: Some(self.current_token().position),
+                                });
+                            }
+                        };
+
+                        self.expect(TokenType::RightParen)?; // consume ')'
+
+                        return Ok(Expr::Function {
+                            name: "CAST".to_string(),
+                            args: vec![expr, Expr::Literal(LiteralValue::String(type_name))],
+                        });
+                    } else {
+                        return Err(SqlError::ParseError {
+                            message: "Expected AS keyword in CAST(expr AS type) - SQL Standard syntax required".to_string(),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                }
+
                 self.advance();
                 if self.current_token().token_type == TokenType::LeftParen {
                     // Function call
@@ -2900,7 +2985,8 @@ impl<'a> TokenParser<'a> {
             }
             _ => {
                 return Err(SqlError::ParseError {
-                    message: "Expected window type (TUMBLING, SLIDING, or SESSION)".to_string(),
+                    message: "Expected window type (TUMBLING, SLIDING, SESSION, or HOPPING)"
+                        .to_string(),
                     position: None,
                 });
             }
@@ -4006,22 +4092,39 @@ impl<'a> TokenParser<'a> {
         }
     }
 
-    /// Parse OVER clause for window functions
-    /// Syntax: OVER (PARTITION BY col1, col2 ORDER BY col3 ROWS BETWEEN ... AND ...)
+    /// Parse OVER clause for window functions (Phase 8 - ROWS WINDOW BUFFER only)
+    /// Syntax: OVER (ROWS WINDOW BUFFER 100 ROWS [PARTITION BY ...] [ORDER BY ...] [ROWS BETWEEN ...] [EMIT ...])
+    /// NOTE: All window functions must use ROWS WINDOW syntax with explicit BUFFER size
     fn parse_over_clause(&mut self) -> Result<OverClause, SqlError> {
         self.expect(TokenType::LeftParen)?;
 
-        let mut partition_by = Vec::new();
-        let mut order_by = Vec::new();
-        let mut window_frame = None;
+        // Phase 8: ROWS WINDOW BUFFER is the ONLY supported OVER clause syntax
+        self.expect_keyword("ROWS")?;
+        self.expect_keyword("WINDOW")?;
+        self.expect_keyword("BUFFER")?;
 
-        // Parse PARTITION BY clause (optional)
+        // Parse buffer size
+        let buffer_size_token = self.expect(TokenType::Number)?;
+        let buffer_size: u32 =
+            buffer_size_token
+                .value
+                .parse()
+                .map_err(|_| SqlError::ParseError {
+                    message: format!("Invalid buffer size: {}", buffer_size_token.value),
+                    position: None,
+                })?;
+
+        // Expect ROWS keyword after buffer size
+        self.expect_keyword("ROWS")?;
+
+        // Parse optional PARTITION BY
+        let mut partition_by = None;
         if self.current_token().value.to_uppercase() == "PARTITION" {
             self.advance(); // consume PARTITION
             self.expect_keyword("BY")?;
 
+            let mut exprs = Vec::new();
             loop {
-                // Parse column name, which could be "column" or "table.column"
                 let column_name = self.expect(TokenType::Identifier)?.value;
                 let column = if self.current_token().token_type == TokenType::Dot {
                     self.advance(); // consume dot
@@ -4030,7 +4133,7 @@ impl<'a> TokenParser<'a> {
                 } else {
                     column_name
                 };
-                partition_by.push(column);
+                exprs.push(Expr::Column(column));
 
                 if self.current_token().token_type == TokenType::Comma {
                     self.advance();
@@ -4038,15 +4141,17 @@ impl<'a> TokenParser<'a> {
                     break;
                 }
             }
+            partition_by = Some(exprs);
         }
 
-        // Parse ORDER BY clause (optional)
+        // Parse optional ORDER BY
+        let mut order_by = None;
         if self.current_token().token_type == TokenType::OrderBy {
             self.advance(); // consume ORDER
             self.expect_keyword("BY")?;
 
+            let mut order_specs = Vec::new();
             loop {
-                // Parse column name, which could be "column" or "table.column"
                 let column_name = self.expect(TokenType::Identifier)?.value;
                 let full_column_name = if self.current_token().token_type == TokenType::Dot {
                     self.advance(); // consume dot
@@ -4066,7 +4171,7 @@ impl<'a> TokenParser<'a> {
                     OrderDirection::Asc // Default
                 };
 
-                order_by.push(OrderByExpr { expr, direction });
+                order_specs.push(OrderByExpr { expr, direction });
 
                 if self.current_token().token_type == TokenType::Comma {
                     self.advance();
@@ -4074,21 +4179,115 @@ impl<'a> TokenParser<'a> {
                     break;
                 }
             }
+            order_by = Some(order_specs);
         }
 
-        // Parse window frame clause (optional)
-        if self.current_token().token_type == TokenType::Rows
+        // Parse optional window frame (ROWS BETWEEN)
+        let window_frame = if self.current_token().token_type == TokenType::Rows
             || self.current_token().token_type == TokenType::Range
         {
-            window_frame = Some(self.parse_window_frame()?);
-        }
+            Some(self.parse_window_frame()?)
+        } else {
+            None
+        };
+
+        // Parse optional EMIT mode
+        let emit_mode = if self.current_token().value.to_uppercase() == "EMIT" {
+            self.advance(); // consume EMIT
+            if self.current_token().value.to_uppercase() == "EVERY" {
+                self.advance(); // consume EVERY
+                self.expect_keyword("RECORD")?;
+                RowsEmitMode::EveryRecord
+            } else if self.current_token().value.to_uppercase() == "ON" {
+                self.advance(); // consume ON
+                self.expect_keyword("BUFFER")?;
+                self.expect_keyword("FULL")?;
+                RowsEmitMode::BufferFull
+            } else {
+                RowsEmitMode::EveryRecord
+            }
+        } else {
+            RowsEmitMode::EveryRecord // Default
+        };
+
+        // Parse optional EXPIRE AFTER clause
+        let expire_after = if self.current_token().value.to_uppercase() == "EXPIRE" {
+            self.advance(); // consume EXPIRE
+            self.expect_keyword("AFTER")?;
+
+            if self.current_token().value.to_uppercase() == "NEVER" {
+                self.advance(); // consume NEVER
+                RowExpirationMode::Never
+            } else if self.current_token().value.to_uppercase() == "INTERVAL" {
+                self.advance(); // consume INTERVAL
+                let interval_str = self.expect(TokenType::String)?.value;
+                // Remove quotes from the string
+                let interval_value: u64 =
+                    interval_str
+                        .trim_matches('\'')
+                        .parse()
+                        .map_err(|_| SqlError::ParseError {
+                            message: format!("Invalid INTERVAL value: {}", interval_str),
+                            position: Some(self.current_token().position),
+                        })?;
+
+                // Parse the time unit (MINUTE, SECOND, HOUR)
+                let time_unit = self.current_token().value.to_uppercase();
+                let duration = match time_unit.as_str() {
+                    "SECOND" | "SECONDS" => {
+                        self.advance();
+                        Duration::from_secs(interval_value)
+                    }
+                    "MINUTE" | "MINUTES" => {
+                        self.advance();
+                        Duration::from_secs(interval_value * 60)
+                    }
+                    "HOUR" | "HOURS" => {
+                        self.advance();
+                        Duration::from_secs(interval_value * 3600)
+                    }
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!(
+                                "Expected SECOND, MINUTE, or HOUR in EXPIRE AFTER INTERVAL, got: {}",
+                                time_unit
+                            ),
+                            position: Some(self.current_token().position),
+                        });
+                    }
+                };
+
+                // Expect INACTIVITY keyword
+                self.expect_keyword("INACTIVITY")?;
+                RowExpirationMode::InactivityGap(duration)
+            } else {
+                return Err(SqlError::ParseError {
+                    message: "Expected INTERVAL or NEVER in EXPIRE AFTER clause".to_string(),
+                    position: Some(self.current_token().position),
+                });
+            }
+        } else {
+            RowExpirationMode::Default
+        };
 
         self.expect(TokenType::RightParen)?;
 
-        Ok(OverClause {
-            partition_by,
-            order_by,
+        // Create WindowSpec::Rows and return OverClause with it
+        let window_spec = WindowSpec::Rows {
+            buffer_size,
+            partition_by: partition_by.unwrap_or_default(),
+            order_by: order_by.unwrap_or_default(),
+            time_gap: None,
             window_frame,
+            emit_mode,
+            expire_after,
+        };
+
+        Ok(OverClause {
+            window_spec: Some(Box::new(window_spec)),
+            partition_by: Vec::new(),
+            order_by: Vec::new(),
+            window_frame: None,
         })
     }
 
@@ -4197,10 +4396,15 @@ impl<'a> TokenParser<'a> {
                     "MINUTE" | "MINUTES" => TimeUnit::Minute,
                     "HOUR" | "HOURS" => TimeUnit::Hour,
                     "DAY" | "DAYS" => TimeUnit::Day,
-                    _ => return Err(SqlError::ParseError {
-                        message: format!("Unsupported time unit '{}'. Supported units: MILLISECOND, SECOND, MINUTE, HOUR, DAY", unit_str),
-                        position: Some(self.current_token().position),
-                    }),
+                    _ => {
+                        return Err(SqlError::ParseError {
+                            message: format!(
+                                "Unsupported time unit '{}'. Supported units: MILLISECOND, SECOND, MINUTE, HOUR, DAY",
+                                unit_str
+                            ),
+                            position: Some(self.current_token().position),
+                        });
+                    }
                 };
 
                 // Parse PRECEDING or FOLLOWING

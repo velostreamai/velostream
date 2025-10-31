@@ -15,7 +15,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 /// Transactional job processor with at-least-once delivery semantics
 ///
@@ -410,7 +410,10 @@ impl TransactionalJobProcessor {
                     true
                 }
                 false => {
-                    warn!("Job '{}': Reader claimed transaction support but begin_transaction returned false", job_name);
+                    warn!(
+                        "Job '{}': Reader claimed transaction support but begin_transaction returned false",
+                        job_name
+                    );
                     false
                 }
             }
@@ -426,7 +429,10 @@ impl TransactionalJobProcessor {
                         true
                     }
                     false => {
-                        warn!("Job '{}': Writer claimed transaction support but begin_transaction returned false", job_name);
+                        warn!(
+                            "Job '{}': Writer claimed transaction support but begin_transaction returned false",
+                            job_name
+                        );
                         false
                     }
                 }
@@ -829,8 +835,10 @@ impl TransactionalJobProcessor {
                         active_reader_transactions.insert(source_name.clone(), true);
                     }
                     Ok(false) => {
-                        warn!("Job '{}': Source '{}' claimed transaction support but begin_transaction returned false", 
-                              job_name, source_name);
+                        warn!(
+                            "Job '{}': Source '{}' claimed transaction support but begin_transaction returned false",
+                            job_name, source_name
+                        );
                         active_reader_transactions.insert(source_name.clone(), false);
                     }
                     Err(e) => {
@@ -874,8 +882,10 @@ impl TransactionalJobProcessor {
                         active_writer_transactions.insert(sink_name.clone(), true);
                     }
                     Ok(false) => {
-                        warn!("Job '{}': Sink '{}' claimed transaction support but begin_transaction returned false", 
-                              job_name, sink_name);
+                        warn!(
+                            "Job '{}': Sink '{}' claimed transaction support but begin_transaction returned false",
+                            job_name, sink_name
+                        );
                         active_writer_transactions.insert(sink_name.clone(), false);
                     }
                     Err(e) => {
@@ -1094,9 +1104,7 @@ impl TransactionalJobProcessor {
 
                         debug!(
                             "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
-                            job_name,
-                            record_count,
-                            &sink_names[0]
+                            job_name, record_count, &sink_names[0]
                         );
                     }
                     Err(e) => {
@@ -1146,9 +1154,7 @@ impl TransactionalJobProcessor {
 
                             debug!(
                                 "Job '{}': Successfully wrote {} records to sink '{}' within transaction",
-                                job_name,
-                                record_count,
-                                sink_name
+                                job_name, record_count, sink_name
                             );
                         }
                         Err(e) => {

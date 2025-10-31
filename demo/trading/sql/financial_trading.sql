@@ -41,7 +41,7 @@ SELECT
     symbol,
     exchange,
     timestamp,
-    timestamp as event_timestamp,
+    timestamp as _event_time,
     price,
     bid_price,
     ask_price,
@@ -101,8 +101,8 @@ SELECT
     FIRST_VALUE(price) as open_price,
     LAST_VALUE(price) as close_price
 FROM market_data_ts
-GROUP BY symbol
 WINDOW TUMBLING(event_time, INTERVAL '1' SECOND)
+GROUP BY symbol
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
@@ -141,17 +141,52 @@ SELECT
     event_time,
     
     -- Phase 3: Advanced window functions
-    LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) as prev_price,
-    LEAD(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) as next_price,
-    
+    LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    ) as prev_price,
+    LEAD(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    ) as next_price,
+
     -- Price change calculations with exact precision
-    (price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-     LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) * 100 as price_change_pct,
-    
+    (price - LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    )) /
+     LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY event_time
+    ) * 100 as price_change_pct,
+
     -- Ranking functions for price movements
-    RANK() OVER (PARTITION BY symbol ORDER BY price DESC) as price_rank,
-    DENSE_RANK() OVER (PARTITION BY symbol ORDER BY volume DESC) as volume_rank,
-    PERCENT_RANK() OVER (PARTITION BY symbol ORDER BY price) as price_percentile,
+    RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY symbol
+            ORDER BY price DESC
+    ) as price_rank,
+    DENSE_RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY symbol
+            ORDER BY volume DESC
+    ) as volume_rank,
+    PERCENT_RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY symbol
+            ORDER BY price
+    ) as price_percentile,
     
     -- Statistical measures over sliding window
     STDDEV(price) OVER (
@@ -162,23 +197,36 @@ SELECT
     
     -- Detect significant movements
     CASE
-        WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 5.0 THEN 'SIGNIFICANT'
-        WHEN ABS((price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) / 
-                 LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time)) * 100 > 2.0 THEN 'MODERATE'
+        WHEN ABS((price - LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) /
+                 LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) * 100 > 5.0 THEN 'SIGNIFICANT'
+        WHEN ABS((price - LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) /
+                 LAG(price, 1) OVER (
+                    ROWS WINDOW
+                        BUFFER 100 ROWS
+                        PARTITION BY symbol
+                        ORDER BY event_time
+                 )) * 100 > 2.0 THEN 'MODERATE'
         ELSE 'NORMAL'
     END as movement_severity,
     
     NOW() as detection_time
 FROM market_data_ts
--- Phase 3: Complex HAVING clause with multiple conditions
--- RELAXED for demo: allowing more events to flow through for testing
-HAVING COUNT(*) > 1  -- At least 1 trade (was > 10)
-   AND STDDEV(price) > AVG(price) * 0.0001  -- Volatility > 0.01% of avg price (was > 1%)
-   AND MAX(volume) > AVG(volume) * 1.1      -- Minimal volume spike (was > 2x)
--- Phase 1B: Event-time based windowing (1-minute tumbling windows)
-WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
-EMIT CHANGES
+
 WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
@@ -238,8 +286,9 @@ SELECT
 
 FROM market_data_ts
 GROUP BY symbol
-WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
-EMIT CHANGES
+  WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+  HAVING COUNT(*) > 0
+  EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
@@ -580,13 +629,14 @@ SELECT
     TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
 FROM in_order_book_stream
 GROUP BY symbol
-HAVING
-    SUM(quantity) > 10000
+    WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+  HAVING
+     SUM(quantity) > 10000
    AND (
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
     OR SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) > 0.7
     )
-WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)
+
 EMIT CHANGES
 WITH (
     'in_order_book_stream.type' = 'kafka_source',
@@ -618,7 +668,7 @@ SELECT
     (a.bid_price - b.ask_price) / b.ask_price * 10000 as spread_bps,
     LEAST(a.bid_size, b.ask_size) as available_volume,
     (a.bid_price - b.ask_price) * LEAST(a.bid_size, b.ask_size) as potential_profit,
-    timestamp() as opportunity_time
+    NOW() as opportunity_time
 FROM in_market_data_stream_a a
 JOIN in_market_data_stream_b b ON a.symbol = b.symbol
 WHERE a.bid_price > b.ask_price
@@ -634,4 +684,61 @@ WITH (
 
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
     'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
+);
+
+-- ====================================================================================
+-- FR-079 PHASE 7: SIMPLIFIED WINDOWED GROUP BY WITH EMIT CHANGES (DEBUG)
+-- ====================================================================================
+-- @job_name: simple-price-movement-test
+-- @phase: 7
+-- Testing basic GROUP BY + WINDOW + EMIT CHANGES with window pseudo-columns
+-- This simplified version tests the window boundary fix without complex aggregations
+--
+-- Query Logic:
+-- 1. Groups market data by symbol
+-- 2. Emits changes per record (EMIT CHANGES)
+-- 3. Includes window metadata (_window_start, _window_end)
+-- 4. Uses 1-minute tumbling windows
+-- Expected output: Should emit records with window boundaries for each price update
+
+CREATE STREAM price_movement_simple AS
+SELECT
+    symbol,
+    COUNT(*) as record_count,
+    AVG(price) as avg_price,
+    _window_start AS window_start,
+    _window_end AS window_end,
+--
+--     STDDEV(price) as stddev_price,
+--     MAX(volume) as max_volume,
+--     AVG(volume) as avg_volume,
+--     COUNT(*) as count_filter_value,
+--     COUNT(*) > 1 as passes_count_filter,
+--     STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+--     AVG(price) * 0.0001 as volatility_threshold,
+--     MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+--     AVG(volume) * 1.1 as volume_threshold
+
+    -- Combined result
+--     CASE
+--         WHEN COUNT(*) > 1
+--             AND STDDEV(price) > AVG(price) * 0.0001
+--             AND MAX(volume) > AVG(volume) * 1.1
+--             THEN 'WILL_EMIT'
+--         ELSE 'FILTERED_OUT'
+--         END as filter_result,
+
+    NOW() AS debug_timestamp
+
+FROM market_data_ts
+GROUP BY symbol
+  WINDOW TUMBLING(1m)
+  EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'price_movement_simple.type' = 'kafka_sink',
+    'price_movement_simple.topic.name' = 'price_movement_debug_2',
+    'price_movement_simple.config_file' = 'configs/price_alerts_sink.yaml'
 );

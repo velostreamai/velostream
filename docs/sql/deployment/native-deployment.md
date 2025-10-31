@@ -335,10 +335,10 @@ velo-sql execute \
     SELECT 
       JSON_VALUE(payload, '$.order_id') as order_id,
       JSON_VALUE(payload, '$.customer_id') as customer_id,
-      CAST(JSON_VALUE(payload, '$.total'), 'FLOAT') as total,
+      CAST(JSON_VALUE(payload, '$.total') AS FLOAT) as total,
       TIMESTAMP() as processed_at
     FROM orders 
-    WHERE CAST(JSON_VALUE(payload, '$.total'), 'FLOAT') > 1000.0
+    WHERE CAST(JSON_VALUE(payload, '$.total') AS FLOAT) > 1000.0
   " \
   --topic order_events \
   --brokers kafka-prod:9092 \
@@ -373,10 +373,10 @@ velo-sql execute \
     SELECT 
       JSON_VALUE(payload, '$.device_id') as device_id,
       JSON_VALUE(payload, '$.location') as location,
-      CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') as temp,
+      CAST(JSON_VALUE(payload, '$.temperature') AS FLOAT) as temp,
       CASE 
-        WHEN CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') > 75.0 THEN 'HIGH'
-        WHEN CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') < 32.0 THEN 'LOW'
+        WHEN CAST(JSON_VALUE(payload, '$.temperature') AS FLOAT) > 75.0 THEN 'HIGH'
+        WHEN CAST(JSON_VALUE(payload, '$.temperature') AS FLOAT) < 32.0 THEN 'LOW'
         ELSE 'NORMAL'
       END as alert_level
     FROM iot_sensors 

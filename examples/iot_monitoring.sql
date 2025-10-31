@@ -6,46 +6,29 @@
 -- Tag: environment:production
 -- Tag: domain:iot
 
--- Configure IoT data streams using extends-based configuration
-CREATE STREAM sensor_data WITH (
-    config_file = 'examples/configs/sensor_data_topic.yaml'
-);
-
-CREATE STREAM device_status WITH (
-    config_file = 'examples/configs/device_status_topic.yaml'
-);
-
-CREATE STREAM critical_alerts WITH (
-    config_file = 'examples/configs/critical_alerts_sink.yaml'
-);
-
 -- Temperature Alert System
 -- Monitors temperature sensors for high temperature conditions
-INSERT INTO critical_alerts
-SELECT 
+CREATE STREAM critical_alerts AS
+SELECT
     device_id,
     sensor_type,
     temperature,
     location,
-    timestamp() as alert_time,
+    NOW() as alert_time,
     'TEMPERATURE_HIGH' as alert_type
 FROM sensor_data
 WHERE sensor_type = 'temperature' AND temperature > 80;
 
 -- Pressure Monitoring System
 -- Monitors pressure sensors for critical low pressure conditions
-CREATE STREAM pressure_alerts WITH (
-    config_file = 'examples/configs/pressure_alerts_sink.yaml'
-);
-
-INSERT INTO pressure_alerts
-SELECT 
+CREATE STREAM pressure_alerts AS
+SELECT
     device_id,
     sensor_type,
     pressure,
     location,
-    timestamp() as alert_time,
-    CASE 
+    NOW() as alert_time,
+    CASE
         WHEN pressure < 5 THEN 'CRITICAL_LOW'
         WHEN pressure < 10 THEN 'WARNING_LOW'
         ELSE 'NORMAL'
@@ -55,18 +38,14 @@ WHERE sensor_type = 'pressure' AND pressure < 15;
 
 -- Vibration Analysis System
 -- Windowed analysis of vibration levels for predictive maintenance
-CREATE STREAM vibration_analytics WITH (
-    config_file = 'examples/configs/vibration_analytics_sink.yaml'
-);
-
-INSERT INTO vibration_analytics
-SELECT 
+CREATE STREAM vibration_analytics AS
+SELECT
     device_id,
     location,
     AVG(vibration_level) as avg_vibration,
     MAX(vibration_level) as peak_vibration,
     COUNT(*) as reading_count,
-    CASE 
+    CASE
         WHEN MAX(vibration_level) > 8.0 THEN 'CRITICAL'
         WHEN AVG(vibration_level) > 5.0 THEN 'HIGH'
         ELSE 'NORMAL'
@@ -78,18 +57,14 @@ WINDOW TUMBLING(10m);
 
 -- Battery Level Monitor
 -- Monitors device battery levels for maintenance alerts
-CREATE STREAM battery_alerts WITH (
-    config_file = 'examples/configs/battery_alerts_sink.yaml'
-);
-
-INSERT INTO battery_alerts
-SELECT 
+CREATE STREAM battery_alerts AS
+SELECT
     device_id,
     location,
     battery_level,
     last_charge_time,
-    DATEDIFF('hours', last_charge_time, timestamp()) as hours_since_charge,
-    CASE 
+    DATEDIFF('hours', last_charge_time, NOW()) as hours_since_charge,
+    CASE
         WHEN battery_level < 5 THEN 'CRITICAL'
         WHEN battery_level < 20 THEN 'LOW'
         WHEN battery_level < 50 THEN 'MEDIUM'
@@ -100,21 +75,17 @@ WHERE battery_level IS NOT NULL;
 
 -- Sensor Health Check System
 -- Windowed health monitoring for sensor availability and performance
-CREATE STREAM sensor_health_reports WITH (
-    config_file = 'examples/configs/sensor_health_reports_sink.yaml'
-);
-
-INSERT INTO sensor_health_reports
-SELECT 
+CREATE STREAM sensor_health_reports AS
+SELECT
     device_id,
     location,
     sensor_type,
     COUNT(*) as reading_count,
     MAX(timestamp) as last_reading,
-    DATEDIFF('minutes', MAX(timestamp), timestamp()) as minutes_since_last_reading,
-    CASE 
+    DATEDIFF('minutes', MAX(timestamp), NOW()) as minutes_since_last_reading,
+    CASE
         WHEN COUNT(*) = 0 THEN 'OFFLINE'
-        WHEN DATEDIFF('minutes', MAX(timestamp), timestamp()) > 15 THEN 'TIMEOUT'
+        WHEN DATEDIFF('minutes', MAX(timestamp), NOW()) > 15 THEN 'TIMEOUT'
         WHEN COUNT(*) < 10 THEN 'DEGRADED'
         ELSE 'HEALTHY'
     END as health_status

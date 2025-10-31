@@ -4,12 +4,12 @@ use crate::velostream::observability::error_tracker::ErrorMessageBuffer;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::PrometheusConfig;
 use prometheus::{
-    register_gauge_vec_with_registry, register_gauge_with_registry,
-    register_histogram_vec_with_registry, register_histogram_with_registry,
-    register_int_counter_vec_with_registry, register_int_counter_with_registry,
-    register_int_gauge_vec_with_registry, register_int_gauge_with_registry, Encoder, Gauge,
-    GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec, IntGauge,
-    IntGaugeVec, Opts, Registry, TextEncoder,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec, Opts, Registry, TextEncoder, register_gauge_vec_with_registry,
+    register_gauge_with_registry, register_histogram_vec_with_registry,
+    register_histogram_with_registry, register_int_counter_vec_with_registry,
+    register_int_counter_with_registry, register_int_gauge_vec_with_registry,
+    register_int_gauge_with_registry,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -174,7 +174,7 @@ impl MetricsProvider {
 
     /// Set the node ID for this metrics provider (used in observability context)
     pub fn set_node_id(&mut self, node_id: Option<String>) -> Result<(), SqlError> {
-        if let Some(ref id) = node_id {
+        if let Some(id) = node_id {
             log::info!("📊 Metrics node context set: {}", id);
             // Update error tracker with node ID for all future error messages
             if let Ok(mut tracker) = self.error_tracker.lock() {
@@ -299,8 +299,13 @@ impl MetricsProvider {
         if self.active {
             self.streaming_metrics
                 .record_operation(operation, duration, record_count, throughput);
-            log::trace!("📊 Recorded streaming metrics: operation={}, duration={:?}, records={}, throughput={:.2}",
-                operation, duration, record_count, throughput);
+            log::trace!(
+                "📊 Recorded streaming metrics: operation={}, duration={:?}, records={}, throughput={:.2}",
+                operation,
+                duration,
+                record_count,
+                throughput
+            );
         }
     }
 

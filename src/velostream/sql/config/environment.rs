@@ -388,11 +388,11 @@ impl EnvironmentConfig {
         config.parameters = expanded_params;
 
         // Expand other string fields
-        if let Some(ref host) = config.host {
+        if let Some(host) = &config.host {
             config.host = Some(self.expand_string(host)?);
         }
 
-        if let Some(ref path) = config.path {
+        if let Some(path) = &config.path {
             config.path = Some(self.expand_string(path)?);
         }
 

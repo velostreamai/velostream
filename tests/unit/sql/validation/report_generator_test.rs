@@ -2,9 +2,9 @@
 
 use std::path::Path;
 use velostream::velostream::sql::execution::processors::BatchValidationTarget;
+use velostream::velostream::sql::validation::ApplicationMetadata;
 use velostream::velostream::sql::validation::report_generator::ValidationReportGenerator;
 use velostream::velostream::sql::validation::result_types::QueryValidationResult;
-use velostream::velostream::sql::validation::ApplicationMetadata;
 
 #[test]
 fn test_report_generator_creation() {

@@ -5,11 +5,11 @@
 //! SQL WITH clauses or programmatic configuration.
 
 use crate::velostream::kafka::{
+    KafkaConsumer, Message,
     consumer_config::ConsumerConfig,
     kafka_error::ConsumerError,
     serialization::{JsonSerializer, SerializationError},
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
-    KafkaConsumer, Message,
 };
 use rdkafka::{consumer::DefaultConsumerContext, error::KafkaError};
 use serde::{Deserialize, Serialize};

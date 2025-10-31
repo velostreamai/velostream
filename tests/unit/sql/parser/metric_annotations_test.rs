@@ -1,5 +1,5 @@
 use velostream::velostream::sql::parser::annotations::{
-    parse_metric_annotations, MetricAnnotation, MetricType,
+    MetricAnnotation, MetricType, parse_metric_annotations,
 };
 
 #[test]

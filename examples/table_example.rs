@@ -131,8 +131,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Creates and configures the User Profile Table
-async fn create_user_profile_table(
-) -> Result<Table<String, StringSerializer, JsonFormat>, Box<dyn std::error::Error>> {
+async fn create_user_profile_table()
+-> Result<Table<String, StringSerializer, JsonFormat>, Box<dyn std::error::Error>> {
     let config = ConsumerConfig::new(KAFKA_BROKERS, "user-profile-table-group")
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted)

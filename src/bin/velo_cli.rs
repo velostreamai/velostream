@@ -974,6 +974,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
+                // Print system columns reference from first result if available
+                if let Some(result) = results.first() {
+                    if let Some(ref reference_output) = result.reference_output {
+                        println!("{}", reference_output);
+                    }
+                }
+
                 // Exit with error code if validation failed and strict mode
                 if strict && valid_files < total_files {
                     std::process::exit(1);
@@ -1117,7 +1124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let topics_output = Command::new("docker")
                         .args([
                             "exec",
-                            container_name,
+                            &container_name,
                             "kafka-topics",
                             "--bootstrap-server",
                             "localhost:9092",
@@ -1141,7 +1148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let output = Command::new("docker")
                                         .args([
                                             "exec",
-                                            container_name,
+                                            &container_name,
                                             "kafka-run-class",
                                             "kafka.tools.GetOffsetShell",
                                             "--bootstrap-server",
@@ -1195,11 +1202,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Also show consumer groups if topics are requested
                 println!("\n👥 Consumer Groups:");
-                if let Some(ref container_name) = kafka_container {
+                if let Some(container_name) = kafka_container {
                     let output = Command::new("docker")
                         .args([
                             "exec",
-                            container_name,
+                            &container_name,
                             "kafka-consumer-groups",
                             "--bootstrap-server",
                             "localhost:9092",

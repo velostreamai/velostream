@@ -100,19 +100,19 @@ impl ObservabilityManager {
         }
 
         // Extract deployment context for all providers
-        let deployment_node_id = self.config.deployment_node_id.clone();
-        if let Some(ref node_id) = deployment_node_id {
+        let deployment_node_id = self.config.deployment_node_id.as_ref();
+        if let Some(node_id) = deployment_node_id {
             log::info!("📍 Node identification: {}", node_id);
         }
 
         // Initialize distributed tracing if enabled
         if self.config.enable_distributed_tracing {
-            if let Some(ref tracing_config) = self.config.tracing_config {
+            if let Some(tracing_config) = &self.config.tracing_config {
                 let mut telemetry =
                     telemetry::TelemetryProvider::new(tracing_config.clone()).await?;
                 // Pass deployment config to telemetry
                 telemetry.set_deployment_context(
-                    deployment_node_id.clone(),
+                    self.config.deployment_node_id.clone(),
                     self.config.deployment_node_name.clone(),
                     self.config.deployment_region.clone(),
                 )?;
@@ -123,10 +123,10 @@ impl ObservabilityManager {
 
         // Initialize Prometheus metrics if enabled
         if self.config.enable_prometheus_metrics {
-            if let Some(ref prometheus_config) = self.config.prometheus_config {
+            if let Some(prometheus_config) = &self.config.prometheus_config {
                 let mut metrics = metrics::MetricsProvider::new(prometheus_config.clone()).await?;
                 // Pass deployment config to metrics
-                metrics.set_node_id(deployment_node_id.clone())?;
+                metrics.set_node_id(self.config.deployment_node_id.clone())?;
                 self.metrics = Some(metrics);
                 log::info!(
                     "✅ Phase 4: Prometheus metrics initialized on port {}",
@@ -137,12 +137,12 @@ impl ObservabilityManager {
 
         // Initialize performance profiling if enabled
         if self.config.enable_performance_profiling {
-            if let Some(ref profiling_config) = self.config.profiling_config {
+            if let Some(profiling_config) = &self.config.profiling_config {
                 let mut profiling =
                     profiling::ProfilingProvider::new(profiling_config.clone()).await?;
                 // Pass deployment config to profiling
                 profiling.set_deployment_context(
-                    deployment_node_id.clone(),
+                    self.config.deployment_node_id.clone(),
                     self.config.deployment_node_name.clone(),
                     self.config.deployment_region.clone(),
                 )?;
@@ -197,12 +197,12 @@ impl ObservabilityManager {
         deployment_ctx: error_tracker::DeploymentContext,
     ) -> Result<(), SqlError> {
         // Update metrics provider with deployment context (for error tracking, system metrics, and SQL metrics)
-        if let Some(ref mut metrics) = self.metrics {
+        if let Some(metrics) = self.metrics.as_mut() {
             metrics.set_deployment_context(deployment_ctx.clone())?;
         }
 
         // Update telemetry provider with deployment context (for distributed tracing spans)
-        if let Some(ref mut telemetry) = self.telemetry {
+        if let Some(telemetry) = self.telemetry.as_mut() {
             telemetry.set_deployment_context(
                 deployment_ctx.node_id.clone(),
                 deployment_ctx.node_name.clone(),
@@ -211,7 +211,7 @@ impl ObservabilityManager {
         }
 
         // Update profiling provider with deployment context (for performance profiling reports)
-        if let Some(ref mut profiling) = self.profiling {
+        if let Some(profiling) = self.profiling.as_mut() {
             profiling.set_deployment_context(
                 deployment_ctx.node_id.clone(),
                 deployment_ctx.node_name.clone(),

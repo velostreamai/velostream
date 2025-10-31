@@ -3,9 +3,9 @@
 //! This module centralizes telemetry (tracing) and metrics recording logic
 //! to eliminate duplication across SimpleJobProcessor and TransactionalJobProcessor.
 
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::observability::telemetry::BatchSpan;
 use crate::velostream::observability::trace_propagation;
-use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::BatchProcessingResultWithOutput;
 use crate::velostream::server::processors::observability_utils::{
     calculate_throughput, with_observability_try_lock,
@@ -355,7 +355,7 @@ impl ObservabilityHelper {
         batch_start: &Instant,
         records_processed: u64,
     ) {
-        if let Some(ref mut span) = batch_span {
+        if let Some(span) = batch_span {
             let batch_duration = batch_start.elapsed().as_millis() as u64;
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);
@@ -402,7 +402,7 @@ impl ObservabilityHelper {
         records_processed: u64,
         records_failed: usize,
     ) {
-        if let Some(ref mut span) = batch_span {
+        if let Some(span) = batch_span {
             let batch_duration = batch_start.elapsed().as_millis() as u64;
             span.set_total_records(records_processed);
             span.set_batch_duration(batch_duration);

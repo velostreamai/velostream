@@ -4,8 +4,8 @@
 //! CTAS code and moved here for testing purposes only.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::task::JoinHandle;
 
 use velostream::velostream::kafka::consumer_config::ConsumerConfig;

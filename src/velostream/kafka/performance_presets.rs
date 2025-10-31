@@ -240,9 +240,11 @@ mod tests {
 
         assert_eq!(config.request_timeout, Duration::from_secs(60));
         assert_eq!(config.retry_backoff, Duration::from_millis(200));
-        assert!(config
-            .custom_config
-            .contains_key("socket.send.buffer.bytes"));
+        assert!(
+            config
+                .custom_config
+                .contains_key("socket.send.buffer.bytes")
+        );
         assert_eq!(
             config.custom_config.get("socket.send.buffer.bytes"),
             Some(&"131072".to_string())
@@ -256,9 +258,11 @@ mod tests {
 
         assert_eq!(config.request_timeout, Duration::from_secs(10));
         assert_eq!(config.retry_backoff, Duration::from_millis(50));
-        assert!(config
-            .custom_config
-            .contains_key("socket.send.buffer.bytes"));
+        assert!(
+            config
+                .custom_config
+                .contains_key("socket.send.buffer.bytes")
+        );
         assert_eq!(
             config.custom_config.get("socket.send.buffer.bytes"),
             Some(&"32768".to_string())
@@ -272,9 +276,11 @@ mod tests {
 
         assert_eq!(config.request_timeout, Duration::from_secs(120));
         assert_eq!(config.retry_backoff, Duration::from_millis(1000));
-        assert!(config
-            .custom_config
-            .contains_key("socket.send.buffer.bytes"));
+        assert!(
+            config
+                .custom_config
+                .contains_key("socket.send.buffer.bytes")
+        );
         assert_eq!(
             config.custom_config.get("socket.send.buffer.bytes"),
             Some(&"262144".to_string())

@@ -678,7 +678,7 @@ impl FileWriter {
             return Ok(());
         }
 
-        if let Some(ref mut file) = self.current_file {
+        if let Some(file) = self.current_file.as_mut() {
             file.write_all(&self.write_buffer).await.map_err(|e| {
                 Box::new(FileDataSourceError::IoError(e.to_string()))
                     as Box<dyn Error + Send + Sync>
@@ -809,7 +809,7 @@ impl DataWriter for FileWriter {
     async fn flush(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.flush_buffer().await?;
 
-        if let Some(ref mut file) = self.current_file {
+        if let Some(file) = self.current_file.as_mut() {
             file.sync_all().await.map_err(|e| {
                 Box::new(FileDataSourceError::IoError(e.to_string()))
                     as Box<dyn Error + Send + Sync>
@@ -927,14 +927,14 @@ impl ConfigSchemaProvider for FileDataSink {
                 if value.contains("..") && !value.contains("%") {
                     // Allow ".." in strftime patterns like "%Y-%m-%d/../../archive"
                     return Err(vec![
-                        "path contains '..' which could be a security risk".to_string()
+                        "path contains '..' which could be a security risk".to_string(),
                     ]);
                 }
 
                 // Validate path doesn't end with directory separator without filename
                 if value.ends_with('/') || value.ends_with('\\') {
                     return Err(vec![
-                        "path must specify a filename, not just a directory".to_string()
+                        "path must specify a filename, not just a directory".to_string(),
                     ]);
                 }
             }
@@ -960,7 +960,7 @@ impl ConfigSchemaProvider for FileDataSink {
                 if let Ok(size) = value.parse::<u64>() {
                     if size < 1024 {
                         return Err(vec![
-                            "buffer_size_bytes must be at least 1024 bytes".to_string()
+                            "buffer_size_bytes must be at least 1024 bytes".to_string(),
                         ]);
                     }
                     if size > 1024 * 1024 * 1024 {
@@ -972,7 +972,7 @@ impl ConfigSchemaProvider for FileDataSink {
                     }
                 } else {
                     return Err(vec![
-                        "buffer_size_bytes must be a valid number in bytes".to_string()
+                        "buffer_size_bytes must be a valid number in bytes".to_string(),
                     ]);
                 }
             }
@@ -980,7 +980,7 @@ impl ConfigSchemaProvider for FileDataSink {
                 if let Ok(size) = value.parse::<u64>() {
                     if size < 1024 {
                         return Err(vec![
-                            "max_file_size_bytes must be at least 1024 bytes".to_string()
+                            "max_file_size_bytes must be at least 1024 bytes".to_string(),
                         ]);
                     }
                     if size > 1024u64.pow(4) {
@@ -989,7 +989,7 @@ impl ConfigSchemaProvider for FileDataSink {
                     }
                 } else {
                     return Err(vec![
-                        "max_file_size_bytes must be a valid number in bytes".to_string()
+                        "max_file_size_bytes must be a valid number in bytes".to_string(),
                     ]);
                 }
             }
@@ -1017,12 +1017,12 @@ impl ConfigSchemaProvider for FileDataSink {
                 if let Ok(max) = value.parse::<u64>() {
                     if max == 0 {
                         return Err(vec![
-                            "max_records_per_file must be greater than 0".to_string()
+                            "max_records_per_file must be greater than 0".to_string(),
                         ]);
                     }
                 } else {
                     return Err(vec![
-                        "max_records_per_file must be a valid positive number".to_string()
+                        "max_records_per_file must be a valid positive number".to_string(),
                     ]);
                 }
             }
@@ -1068,7 +1068,7 @@ impl ConfigSchemaProvider for FileDataSink {
                     }
                 } else {
                     return Err(vec![
-                        "writer_threads must be a valid positive number".to_string()
+                        "writer_threads must be a valid positive number".to_string(),
                     ]);
                 }
             }

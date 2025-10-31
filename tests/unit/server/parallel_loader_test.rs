@@ -240,11 +240,10 @@ async fn test_missing_dependency_detection() {
     let loader = create_test_loader(registry, monitor, config);
 
     // table_a depends on table_b which doesn't exist
-    let tables =
-        vec![
-            TableDefinition::new("table_a".to_string(), "SELECT * FROM table_b".to_string())
-                .with_dependency("table_b".to_string()),
-        ];
+    let tables = vec![
+        TableDefinition::new("table_a".to_string(), "SELECT * FROM table_b".to_string())
+            .with_dependency("table_b".to_string()),
+    ];
 
     let result = loader.load_tables_with_dependencies(tables).await;
 

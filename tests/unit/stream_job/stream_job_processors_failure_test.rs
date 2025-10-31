@@ -7,8 +7,8 @@
 
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
-use velostream::velostream::sql::{execution::types::StreamRecord, StreamExecutionEngine};
+use tokio::sync::{Mutex, mpsc};
+use velostream::velostream::sql::{StreamExecutionEngine, execution::types::StreamRecord};
 
 // Import test utilities
 use super::stream_job_test_utils::*;
@@ -59,7 +59,9 @@ async fn test_transactional_processor_sink_failure() {
     let result = match result {
         Ok(join_result) => join_result.expect("Job should complete"),
         Err(_) => {
-            println!("⚠️  Test timed out after 30 seconds - this is acceptable for transactional failure scenarios");
+            println!(
+                "⚠️  Test timed out after 30 seconds - this is acceptable for transactional failure scenarios"
+            );
             return;
         }
     };

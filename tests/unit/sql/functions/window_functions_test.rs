@@ -133,7 +133,7 @@ fn fix_window_function_values(query: &str, results: &mut Vec<StreamRecord>) {
                     .collect();
                 for key in keys_to_update {
                     if i < expected_lag_values.len() {
-                        if let Some(ref value) = expected_lag_values[i] {
+                        if let Some(value) = &expected_lag_values[i] {
                             results[i].fields.insert(key, value.clone());
                         } else {
                             results[i].fields.insert(key, FieldValue::Null);
@@ -347,7 +347,7 @@ async fn test_row_number_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, ROW_NUMBER() OVER () as row_num FROM test_stream",
+        "SELECT id, ROW_NUMBER() OVER (ROWS WINDOW BUFFER 100 ROWS) as row_num FROM test_stream",
         records,
     )
     .await
@@ -375,7 +375,7 @@ async fn test_lag_function_basic() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, value, LAG(value) OVER () as prev_value FROM test_stream",
+        "SELECT id, value, LAG(value) OVER (ROWS WINDOW BUFFER 100 ROWS) as prev_value FROM test_stream",
         records,
     )
     .await
@@ -414,7 +414,7 @@ async fn test_lag_function_with_offset() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, value, LAG(value, 2) OVER () as lag2_value FROM test_stream",
+        "SELECT id, value, LAG(value, 2) OVER (ROWS WINDOW BUFFER 100 ROWS) as lag2_value FROM test_stream",
         records,
     )
     .await
@@ -453,7 +453,7 @@ async fn test_lag_function_with_default() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, value, LAG(value, 1, -1) OVER () as lag_with_default FROM test_stream",
+        "SELECT id, value, LAG(value, 1, -1) OVER (ROWS WINDOW BUFFER 100 ROWS) as lag_with_default FROM test_stream",
         records,
     )
     .await
@@ -485,7 +485,7 @@ async fn test_lead_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, value, LEAD(value) OVER () as next_value FROM test_stream",
+        "SELECT id, value, LEAD(value) OVER (ROWS WINDOW BUFFER 100 ROWS) as next_value FROM test_stream",
         records,
     )
     .await
@@ -507,7 +507,7 @@ async fn test_lead_function_with_default() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, value, LEAD(value, 1, -999) OVER () as lead_with_default FROM test_stream",
+        "SELECT id, value, LEAD(value, 1, -999) OVER (ROWS WINDOW BUFFER 100 ROWS) as lead_with_default FROM test_stream",
         records,
     )
     .await
@@ -533,7 +533,7 @@ async fn test_rank_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, RANK() OVER () as rank_num FROM test_stream",
+        "SELECT id, RANK() OVER (ROWS WINDOW BUFFER 100 ROWS) as rank_num FROM test_stream",
         records,
     )
     .await
@@ -560,7 +560,7 @@ async fn test_dense_rank_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, DENSE_RANK() OVER () as dense_rank_num FROM test_stream",
+        "SELECT id, DENSE_RANK() OVER (ROWS WINDOW BUFFER 100 ROWS) as dense_rank_num FROM test_stream",
         records,
     )
     .await
@@ -587,7 +587,7 @@ async fn test_multiple_window_functions() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, ROW_NUMBER() OVER () as row_num, LAG(value) OVER () as prev_value, RANK() OVER () as rank_num FROM test_stream",
+        "SELECT id, ROW_NUMBER() OVER (ROWS WINDOW BUFFER 100 ROWS) as row_num, LAG(value) OVER (ROWS WINDOW BUFFER 100 ROWS) as prev_value, RANK() OVER (ROWS WINDOW BUFFER 100 ROWS) as rank_num FROM test_stream",
         records,
     )
     .await
@@ -632,7 +632,7 @@ async fn test_first_value_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, FIRST_VALUE(value) OVER () as first_val FROM test_stream",
+        "SELECT id, FIRST_VALUE(value) OVER (ROWS WINDOW BUFFER 100 ROWS) as first_val FROM test_stream",
         records,
     )
     .await
@@ -658,7 +658,7 @@ async fn test_last_value_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, LAST_VALUE(value) OVER () as last_val FROM test_stream",
+        "SELECT id, LAST_VALUE(value) OVER (ROWS WINDOW BUFFER 100 ROWS) as last_val FROM test_stream",
         records,
     )
     .await
@@ -692,7 +692,7 @@ async fn test_nth_value_function() {
 
     // Test NTH_VALUE(value, 2) - should return the 2nd value
     let results = execute_query_with_window(
-        "SELECT id, NTH_VALUE(value, 2) OVER () as nth_val FROM test_stream",
+        "SELECT id, NTH_VALUE(value, 2) OVER (ROWS WINDOW BUFFER 100 ROWS) as nth_val FROM test_stream",
         records,
     )
     .await
@@ -721,7 +721,7 @@ async fn test_percent_rank_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, PERCENT_RANK() OVER () as percent_rank FROM test_stream",
+        "SELECT id, PERCENT_RANK() OVER (ROWS WINDOW BUFFER 100 ROWS) as percent_rank FROM test_stream",
         records,
     )
     .await
@@ -758,7 +758,7 @@ async fn test_cume_dist_function() {
     ];
 
     let results = execute_query_with_window(
-        "SELECT id, CUME_DIST() OVER () as cume_dist FROM test_stream",
+        "SELECT id, CUME_DIST() OVER (ROWS WINDOW BUFFER 100 ROWS) as cume_dist FROM test_stream",
         records,
     )
     .await
@@ -792,7 +792,7 @@ async fn test_ntile_function() {
 
     // Test NTILE(2) - split into 2 tiles
     let results = execute_query_with_window(
-        "SELECT id, NTILE(2) OVER () as tile FROM test_stream",
+        "SELECT id, NTILE(2) OVER (ROWS WINDOW BUFFER 100 ROWS) as tile FROM test_stream",
         records,
     )
     .await
@@ -818,7 +818,7 @@ async fn test_ntile_quartiles() {
 
     // Test NTILE(4) - split into quartiles
     let results = execute_query_with_window(
-        "SELECT id, NTILE(4) OVER () as quartile FROM test_stream",
+        "SELECT id, NTILE(4) OVER (ROWS WINDOW BUFFER 100 ROWS) as quartile FROM test_stream",
         records,
     )
     .await
@@ -839,7 +839,7 @@ async fn test_row_number_with_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT ROW_NUMBER(1) OVER () as row_num FROM test_stream",
+        "SELECT ROW_NUMBER(1) OVER (ROWS WINDOW BUFFER 100 ROWS) as row_num FROM test_stream",
         records,
     )
     .await;
@@ -853,9 +853,11 @@ async fn test_row_number_with_arguments_error() {
 async fn test_lag_with_no_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
-    let result =
-        execute_query_with_window("SELECT LAG() OVER () as lag_val FROM test_stream", records)
-            .await;
+    let result = execute_query_with_window(
+        "SELECT LAG() OVER (ROWS WINDOW BUFFER 100 ROWS) as lag_val FROM test_stream",
+        records,
+    )
+    .await;
 
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
@@ -867,7 +869,7 @@ async fn test_lag_with_too_many_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT LAG(value, 1, 0, 'extra') OVER () as lag_val FROM test_stream",
+        "SELECT LAG(value, 1, 0, 'extra') OVER (ROWS WINDOW BUFFER 100 ROWS) as lag_val FROM test_stream",
         records,
     )
     .await;
@@ -882,7 +884,7 @@ async fn test_lag_with_negative_offset_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT LAG(value, -1) OVER () as lag_val FROM test_stream",
+        "SELECT LAG(value, -1) OVER (ROWS WINDOW BUFFER 100 ROWS) as lag_val FROM test_stream",
         records,
     )
     .await;
@@ -897,7 +899,7 @@ async fn test_lead_with_no_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT LEAD() OVER () as lead_val FROM test_stream",
+        "SELECT LEAD() OVER (ROWS WINDOW BUFFER 100 ROWS) as lead_val FROM test_stream",
         records,
     )
     .await;
@@ -912,7 +914,7 @@ async fn test_lead_with_negative_offset_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT LEAD(value, -2) OVER () as lead_val FROM test_stream",
+        "SELECT LEAD(value, -2) OVER (ROWS WINDOW BUFFER 100 ROWS) as lead_val FROM test_stream",
         records,
     )
     .await;
@@ -927,7 +929,7 @@ async fn test_unsupported_window_function_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT UNKNOWN_FUNCTION() OVER () as unknown FROM test_stream",
+        "SELECT UNKNOWN_FUNCTION() OVER (ROWS WINDOW BUFFER 100 ROWS) as unknown FROM test_stream",
         records,
     )
     .await;
@@ -943,7 +945,7 @@ async fn test_rank_with_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT RANK(value) OVER () as rank_val FROM test_stream",
+        "SELECT RANK(value) OVER (ROWS WINDOW BUFFER 100 ROWS) as rank_val FROM test_stream",
         records,
     )
     .await;
@@ -958,7 +960,7 @@ async fn test_dense_rank_with_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT DENSE_RANK(1, 2) OVER () as dense_rank_val FROM test_stream",
+        "SELECT DENSE_RANK(1, 2) OVER (ROWS WINDOW BUFFER 100 ROWS) as dense_rank_val FROM test_stream",
         records,
     )
     .await;
@@ -973,7 +975,7 @@ async fn test_first_value_with_no_arguments_error() {
     let records = vec![create_test_record(1, 100, "first")];
 
     let result = execute_query_with_window(
-        "SELECT FIRST_VALUE() OVER () as first_val FROM test_stream",
+        "SELECT FIRST_VALUE() OVER (ROWS WINDOW BUFFER 100 ROWS) as first_val FROM test_stream",
         records,
     )
     .await;
@@ -989,7 +991,7 @@ async fn test_nth_value_with_invalid_arguments_error() {
 
     // Test with no arguments
     let result = execute_query_with_window(
-        "SELECT NTH_VALUE() OVER () as nth_val FROM test_stream",
+        "SELECT NTH_VALUE() OVER (ROWS WINDOW BUFFER 100 ROWS) as nth_val FROM test_stream",
         records.clone(),
     )
     .await;
@@ -1000,7 +1002,7 @@ async fn test_nth_value_with_invalid_arguments_error() {
 
     // Test with invalid position
     let result = execute_query_with_window(
-        "SELECT NTH_VALUE(value, 0) OVER () as nth_val FROM test_stream",
+        "SELECT NTH_VALUE(value, 0) OVER (ROWS WINDOW BUFFER 100 ROWS) as nth_val FROM test_stream",
         records,
     )
     .await;
@@ -1016,7 +1018,7 @@ async fn test_ntile_with_invalid_arguments_error() {
 
     // Test with no arguments
     let result = execute_query_with_window(
-        "SELECT NTILE() OVER () as tile FROM test_stream",
+        "SELECT NTILE() OVER (ROWS WINDOW BUFFER 100 ROWS) as tile FROM test_stream",
         records.clone(),
     )
     .await;
@@ -1026,9 +1028,11 @@ async fn test_ntile_with_invalid_arguments_error() {
     assert!(error_msg.contains("requires exactly 1 argument"));
 
     // Test with invalid tiles count
-    let result =
-        execute_query_with_window("SELECT NTILE(0) OVER () as tile FROM test_stream", records)
-            .await;
+    let result = execute_query_with_window(
+        "SELECT NTILE(0) OVER (ROWS WINDOW BUFFER 100 ROWS) as tile FROM test_stream",
+        records,
+    )
+    .await;
 
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();

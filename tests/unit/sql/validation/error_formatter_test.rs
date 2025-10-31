@@ -58,9 +58,11 @@ fn test_format_parsing_error() {
     let formatted = formatter.format_parsing_error(&error, content);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("Unexpected token")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("Unexpected token"))
+    );
 }
 
 #[test]
@@ -71,9 +73,11 @@ fn test_format_query_result_valid() {
     let formatted = formatter.format_query_result(&result, 1);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("SELECT * FROM test_stream")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("SELECT * FROM test_stream"))
+    );
 }
 
 #[test]
@@ -102,9 +106,11 @@ fn test_format_query_result_with_warnings() {
     let formatted = formatter.format_query_result(&result, 1);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("SELECT * FROM large_stream")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("SELECT * FROM large_stream"))
+    );
 }
 
 #[test]
@@ -119,9 +125,11 @@ fn test_format_application_result_valid() {
     let formatted = formatter.format_application_result(&result);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("Test Application")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("Test Application"))
+    );
 }
 
 #[test]
@@ -141,9 +149,11 @@ fn test_format_application_result_invalid() {
     let formatted = formatter.format_application_result(&result);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("Invalid Application")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("Invalid Application"))
+    );
     // The error would be in the query result formatting, not directly in application result
 }
 
@@ -165,9 +175,11 @@ fn test_format_application_result_with_queries() {
     let formatted = formatter.format_application_result(&result);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("Multi-Query Application")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("Multi-Query Application"))
+    );
 }
 
 #[test]
@@ -211,9 +223,11 @@ fn test_format_application_result_comprehensive() {
     let formatted = formatter.format_application_result(&result);
 
     assert!(!formatted.is_empty());
-    assert!(formatted
-        .iter()
-        .any(|line| line.contains("Comprehensive Test")));
+    assert!(
+        formatted
+            .iter()
+            .any(|line| line.contains("Comprehensive Test"))
+    );
     // The "Global error" would be in the query result, not directly accessible here
     assert!(true); // Test completed - the error is in the query result
 }

@@ -6,11 +6,11 @@ subqueries independently without calling back to the engine. This maintains the
 proper parent-child architecture where the engine delegates to processors.
 */
 
+use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::SubqueryType;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
-use crate::velostream::sql::StreamingQuery;
 
 /// Trait for executing subqueries within expression evaluation
 ///

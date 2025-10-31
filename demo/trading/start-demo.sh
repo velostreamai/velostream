@@ -284,6 +284,7 @@ REQUIRED_TOPICS=(
     "in_trading_positions_stream:8"
     "in_order_book_stream:12"
     "price_movement_debug:1"
+    "price_movement_debug_2:1"
     "tick_buckets:1"
     "advanced_price_movement_alerts:1"
     "volume_spike_analysis:1"

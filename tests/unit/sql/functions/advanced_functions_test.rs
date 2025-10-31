@@ -115,10 +115,10 @@ mod tests {
         let parser = StreamingSqlParser::new();
 
         let test_cases = vec![
-            ("CAST(amount, 'INTEGER')", "INTEGER"),
-            ("CAST(price, 'FLOAT')", "FLOAT"),
-            ("CAST(customer_id, 'STRING')", "STRING"),
-            ("CAST(is_active, 'BOOLEAN')", "BOOLEAN"),
+            ("CAST(amount AS INTEGER)", "INTEGER"),
+            ("CAST(price AS FLOAT)", "FLOAT"),
+            ("CAST(customer_id AS STRING)", "STRING"),
+            ("CAST(is_active AS BOOLEAN)", "BOOLEAN"),
         ];
 
         for (cast_expr, expected_type) in test_cases {
@@ -245,7 +245,7 @@ mod tests {
 
         let query = "SELECT 
             customer_id,
-            CAST(amount, 'FLOAT') as amount_float,
+            CAST(amount AS FLOAT) as amount_float,
             TIMESTAMP() as event_time,
             FIRST_VALUE(product_name) as first_product,
             APPROX_COUNT_DISTINCT(category) as unique_categories,
@@ -351,7 +351,7 @@ mod tests {
     fn test_nested_function_calls() {
         let parser = StreamingSqlParser::new();
 
-        let query = "SELECT CAST(SPLIT(metadata, ':'), 'INTEGER') as port FROM servers";
+        let query = "SELECT CAST(SPLIT(metadata, ':') AS INTEGER) as port FROM servers";
         let result = parser.parse(query);
         assert!(
             result.is_ok(),
@@ -433,9 +433,9 @@ mod tests {
 
         // These should parse successfully (validation happens at execution time)
         let valid_cases = vec![
-            "SELECT CAST(amount) FROM orders", // Missing type argument
-            "SELECT SPLIT(name) FROM orders",  // Missing delimiter
-            "SELECT JOIN() FROM orders",       // No arguments
+            "SELECT CAST(amount AS FLOAT) FROM orders", // Valid CAST with SQL Standard syntax
+            "SELECT SPLIT(name) FROM orders",           // Missing delimiter
+            "SELECT JOIN() FROM orders",                // No arguments
         ];
 
         for query_str in valid_cases {
@@ -477,11 +477,11 @@ mod tests {
         let query = "DEPLOY JOB enrichment VERSION '2.0.0' AS 
             SELECT 
                 customer_id,
-                CAST(amount, 'FLOAT') as amount_float,
+                CAST(amount AS FLOAT) as amount_float,
                 SPLIT(address, ', ') as city,
                 TIMESTAMP() as processed_at
             FROM orders 
-            WHERE amount > CAST('100', 'INTEGER')
+            WHERE amount > CAST('100' AS INTEGER)
             STRATEGY CANARY(10)";
 
         let result = parser.parse(query);

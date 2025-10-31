@@ -211,31 +211,19 @@ pub mod utils {
         pub fn get_throughput_ops_per_sec(&self) -> f64 {
             let elapsed = self.start_time.elapsed().as_secs_f64();
             let ops = self.operations_completed.load(Ordering::Relaxed) as f64;
-            if elapsed > 0.0 {
-                ops / elapsed
-            } else {
-                0.0
-            }
+            if elapsed > 0.0 { ops / elapsed } else { 0.0 }
         }
 
         pub fn get_throughput_bytes_per_sec(&self) -> f64 {
             let elapsed = self.start_time.elapsed().as_secs_f64();
             let bytes = self.bytes_processed.load(Ordering::Relaxed) as f64;
-            if elapsed > 0.0 {
-                bytes / elapsed
-            } else {
-                0.0
-            }
+            if elapsed > 0.0 { bytes / elapsed } else { 0.0 }
         }
 
         pub fn get_error_rate(&self) -> f64 {
             let total = self.operations_completed.load(Ordering::Relaxed) as f64;
             let errors = self.errors.load(Ordering::Relaxed) as f64;
-            if total > 0.0 {
-                errors / total
-            } else {
-                0.0
-            }
+            if total > 0.0 { errors / total } else { 0.0 }
         }
     }
 

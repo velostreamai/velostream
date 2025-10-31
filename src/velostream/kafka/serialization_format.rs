@@ -280,10 +280,10 @@ impl SerializationFactory {
             } => {
                 // For now, return an error - we'll implement proper Avro support
                 // with Schema Registry integration in the next step
-                Err(SerializationError::UnsupportedType(
-                    format!("Avro serialization with Schema Registry not yet implemented. URL: {}, Subject: {}", 
-                           schema_registry_url, subject)
-                ))
+                Err(SerializationError::UnsupportedType(format!(
+                    "Avro serialization with Schema Registry not yet implemented. URL: {}, Subject: {}",
+                    schema_registry_url, subject
+                )))
             }
 
             SerializationFormat::Protobuf { message_type } => {

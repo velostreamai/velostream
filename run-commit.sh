@@ -163,10 +163,6 @@ git add .
 echo -e "${BLUE}Creating commit...${NC}"
 git commit -m "$commit_message
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude <noreply@anthropic.com>"
-
 echo ""
 echo -e "${GREEN}✅ Successfully committed!${NC}"
 echo ""

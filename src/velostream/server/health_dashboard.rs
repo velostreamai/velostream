@@ -209,7 +209,7 @@ impl HealthDashboard {
     pub async fn get_connection_stats(
         &self,
     ) -> Result<ConnectionStatsResponse, HealthDashboardError> {
-        if let Some(ref streaming) = self.progress_streaming {
+        if let Some(streaming) = self.progress_streaming.as_ref() {
             let stats = streaming.get_connection_stats();
             Ok(ConnectionStatsResponse {
                 stats,
@@ -262,7 +262,7 @@ impl HealthDashboard {
         }
 
         // Connection stats if available
-        let connection_stats = if let Some(ref streaming) = self.progress_streaming {
+        let connection_stats = if let Some(streaming) = self.progress_streaming.as_ref() {
             Some(streaming.get_connection_stats())
         } else {
             None
@@ -492,7 +492,7 @@ impl HealthDashboard {
         ));
 
         // Connection stats if available
-        if let Some(ref conn_stats) = metrics.connection_stats {
+        if let Some(conn_stats) = metrics.connection_stats {
             prometheus_output.push_str(&format!(
                 "# HELP velostream_streaming_connections_active Active streaming connections\n\
                  # TYPE velostream_streaming_connections_active gauge\n\

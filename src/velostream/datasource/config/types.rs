@@ -825,7 +825,7 @@ impl ConfigSchemaProvider for BatchConfig {
                     }
                 } else {
                     return Err(vec![
-                        "batch.size must be a valid positive integer".to_string()
+                        "batch.size must be a valid positive integer".to_string(),
                     ]);
                 }
             }
@@ -837,7 +837,7 @@ impl ConfigSchemaProvider for BatchConfig {
                     if timeout_ms > 300_000 {
                         // 5 minutes max
                         return Err(vec![
-                            "batch.timeout must not exceed 300,000ms (5 minutes)".to_string()
+                            "batch.timeout must not exceed 300,000ms (5 minutes)".to_string(),
                         ]);
                     }
                 } else {
@@ -874,7 +874,7 @@ impl ConfigSchemaProvider for BatchConfig {
                     }
                 } else {
                     return Err(vec![
-                        "batch.min_size must be a valid positive integer".to_string()
+                        "batch.min_size must be a valid positive integer".to_string(),
                     ]);
                 }
             }
@@ -888,7 +888,7 @@ impl ConfigSchemaProvider for BatchConfig {
                     }
                 } else {
                     return Err(vec![
-                        "batch.max_size must be a valid positive integer".to_string()
+                        "batch.max_size must be a valid positive integer".to_string(),
                     ]);
                 }
             }
@@ -896,7 +896,7 @@ impl ConfigSchemaProvider for BatchConfig {
                 if let Ok(latency_ms) = value.parse::<u64>() {
                     if latency_ms == 0 {
                         return Err(vec![
-                            "batch.target_latency must be greater than 0ms".to_string()
+                            "batch.target_latency must be greater than 0ms".to_string(),
                         ]);
                     }
                 } else {
@@ -923,7 +923,7 @@ impl ConfigSchemaProvider for BatchConfig {
             "batch.eager_processing" => {
                 if !["true", "false"].contains(&value) {
                     return Err(vec![
-                        "batch.eager_processing must be 'true' or 'false'".to_string()
+                        "batch.eager_processing must be 'true' or 'false'".to_string(),
                     ]);
                 }
             }

@@ -8,8 +8,8 @@ are properly converted to/from JSON format.
 use super::common_test_data::*;
 use std::collections::HashMap;
 use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
-use velostream::velostream::sql::execution::types::StreamRecord;
 use velostream::velostream::sql::FieldValue;
+use velostream::velostream::sql::execution::types::StreamRecord;
 
 #[tokio::test]
 async fn test_json_serialization_round_trip() {

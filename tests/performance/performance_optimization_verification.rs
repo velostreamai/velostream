@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 use velostream::velostream::kafka::kafka_error::ConsumerError;
 use velostream::velostream::table::retry_utils::{
-    categorize_kafka_error, format_categorized_error, parse_duration, parse_retry_strategy,
-    ErrorCategory, RetryDefaults, RetryMetrics, RetryStrategy,
+    ErrorCategory, RetryDefaults, RetryMetrics, RetryStrategy, categorize_kafka_error,
+    format_categorized_error, parse_duration, parse_retry_strategy,
 };
 
 #[test]

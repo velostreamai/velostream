@@ -609,14 +609,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             customer_id,
             merchant_category,
             COUNT(*) as transaction_count,
-            SUM(CAST(amount, 'DECIMAL')) as total_spent,
-            AVG(CAST(amount, 'DECIMAL')) as avg_transaction,
-            MIN(CAST(amount, 'DECIMAL')) as min_transaction,
-            MAX(CAST(amount, 'DECIMAL')) as max_transaction,
+            SUM(CAST(amount AS DECIMAL)) as total_spent,
+            AVG(CAST(amount AS DECIMAL)) as avg_transaction,
+            MIN(CAST(amount AS DECIMAL)) as min_transaction,
+            MAX(CAST(amount AS DECIMAL)) as max_transaction,
             WINDOW_START as window_start,
             WINDOW_END as window_end
         FROM transaction_stream
-        WHERE CAST(amount, 'DECIMAL') > CAST('10.00', 'DECIMAL')
+        WHERE CAST(amount AS DECIMAL) > CAST('10.00' AS DECIMAL)
         GROUP BY customer_id, merchant_category
         WINDOW TUMBLING(5m)
         EMIT CHANGES

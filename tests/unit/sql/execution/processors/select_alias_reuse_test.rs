@@ -371,7 +371,7 @@ fn test_window_functions_with_alias() {
     let sql = r#"
     SELECT
         volume,
-        ROW_NUMBER() OVER (ORDER BY volume) AS row_num,
+        ROW_NUMBER() OVER (ROWS WINDOW BUFFER 100 ROWS ORDER BY volume) AS row_num,
         row_num + 1 AS next_row_num
     FROM trades
     "#;

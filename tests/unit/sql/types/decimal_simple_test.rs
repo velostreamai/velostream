@@ -64,14 +64,15 @@ mod decimal_simple_tests {
                 StreamingQuery::Select { fields, .. } => {
                     if let Some(first_field) = fields.first() {
                         match first_field {
-                            SelectField::Expression { expr, .. } => {
-                                match expr {
-                                    Expr::Literal(LiteralValue::Decimal(value)) => {
-                                        assert_eq!(value, "123.45");
-                                    }
-                                    _ => panic!("Expected Decimal literal (decimal numbers now parse as Decimal for exact precision), got: {:?}", expr),
+                            SelectField::Expression { expr, .. } => match expr {
+                                Expr::Literal(LiteralValue::Decimal(value)) => {
+                                    assert_eq!(value, "123.45");
                                 }
-                            }
+                                _ => panic!(
+                                    "Expected Decimal literal (decimal numbers now parse as Decimal for exact precision), got: {:?}",
+                                    expr
+                                ),
+                            },
                             _ => panic!("Expected expression field, got: {:?}", first_field),
                         }
                     } else {

@@ -6,8 +6,8 @@
 //! 3. Read messages
 
 use std::collections::HashMap;
-use velostream::velostream::datasource::kafka::data_source::KafkaDataSource;
 use velostream::velostream::datasource::DataSource;
+use velostream::velostream::datasource::kafka::data_source::KafkaDataSource;
 
 #[tokio::test]
 async fn test_kafka_source_from_properties_with_config_file() {

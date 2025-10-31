@@ -103,9 +103,13 @@ impl WindowFunctions {
             "MIN" => Self::evaluate_min_window_function(args, &window_context),
             "MAX" => Self::evaluate_max_window_function(args, &window_context),
             "COUNT" => Self::evaluate_count_window_function(args, &window_context),
-            "STDDEV" | "STDDEV_SAMP" => Self::evaluate_stddev_samp_window_function(args, &window_context),
+            "STDDEV" | "STDDEV_SAMP" => {
+                Self::evaluate_stddev_samp_window_function(args, &window_context)
+            }
             "STDDEV_POP" => Self::evaluate_stddev_pop_window_function(args, &window_context),
-            "VARIANCE" | "VAR_SAMP" => Self::evaluate_variance_samp_window_function(args, &window_context),
+            "VARIANCE" | "VAR_SAMP" => {
+                Self::evaluate_variance_samp_window_function(args, &window_context)
+            }
             "VAR_POP" => Self::evaluate_variance_pop_window_function(args, &window_context),
             other => Err(SqlError::ExecutionError {
                 message: format!(
@@ -202,8 +206,8 @@ impl WindowFunctions {
 
     /// Compare field values for ordering
     fn compare_field_values(a: &FieldValue, b: &FieldValue) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
         use FieldValue::*;
+        use std::cmp::Ordering;
 
         match (a, b) {
             (Null, Null) => Ordering::Equal,
@@ -897,20 +901,22 @@ impl WindowFunctions {
         }
 
         // Calculate actual frame indices using frame bounds
-        let (start_idx, end_idx) =
-            if let Some((frame_start_offset, frame_end_offset)) = window_context.frame_bounds {
-                let frame_start =
-                    (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
-                let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
-                    .min(window_context.buffer.len() as i64)
-                    .max(0)) as usize;
-                (frame_start, frame_end)
-            } else {
-                // Fallback to partition bounds if no frame specified
-                window_context
-                    .partition_bounds
-                    .unwrap_or((0, window_context.buffer.len()))
-            };
+        let (start_idx, end_idx) = if let Some((frame_start_offset, frame_end_offset)) =
+            window_context.frame_bounds
+        {
+            let frame_start =
+                (window_context.current_position as i64 + frame_start_offset).max(0) as usize;
+            let frame_end = ((window_context.current_position as i64 + frame_end_offset + 1)
+                .min(window_context.buffer.len() as i64)
+                .max(0)) as usize;
+            (frame_start, frame_end)
+        } else {
+            // Fallback to partition bounds if no frame specified
+            let bounds = window_context
+                .partition_bounds
+                .unwrap_or((0, window_context.buffer.len()));
+            bounds
+        };
 
         let mut sum = 0.0;
 

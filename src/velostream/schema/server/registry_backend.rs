@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::velostream::schema::client::registry_client::SchemaReference;
 use crate::velostream::schema::SchemaResult;
+use crate::velostream::schema::client::registry_client::SchemaReference;
 
 pub use super::backends::{
     AmazonMskSchemaRegistryBackend, AwsCredentials, ConfluentAuth, ConfluentSchemaRegistryBackend,
@@ -29,7 +29,7 @@ pub trait SchemaRegistryBackend: Send + Sync {
 
     /// Get a specific version of a schema for a subject
     async fn get_schema_version(&self, subject: &str, version: i32)
-        -> SchemaResult<SchemaResponse>;
+    -> SchemaResult<SchemaResponse>;
 
     /// Register a new schema version
     async fn register_schema(

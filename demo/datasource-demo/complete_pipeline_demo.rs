@@ -21,22 +21,22 @@
 //! cargo run --example complete_pipeline_demo --features json
 //! ```
 
+use velostream::Headers;
 use velostream::velostream::datasource::file::config::FileFormat;
 use velostream::velostream::datasource::file::{
-    config::{CompressionType, FileSinkConfig, FileSourceConfig},
     FileDataSink, FileDataSource,
+    config::{CompressionType, FileSinkConfig, FileSourceConfig},
 };
 use velostream::velostream::datasource::traits::{DataSink, DataSource};
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::producer_config::{AckMode, ProducerConfig};
 use velostream::velostream::kafka::{JsonSerializer, KafkaConsumer, KafkaProducer};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use velostream::Headers;
 
 use futures::StreamExt;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::time::{interval, sleep};
 

@@ -1,8 +1,62 @@
 # FR-078: Comprehensive Subquery Support - Progress Summary
 
-**Date**: 2025-10-20 (Updated)
-**Branch**: `feature/fr-078-subquery-completion`
-**Status**: ✅ ALL PHASES COMPLETE | ✅ SCALAR SUBQUERIES WIRED | ✅ WINDOW FRAME BOUNDS IMPLEMENTED
+**Date**: 2025-10-29 (Phase 8 Planning Added)
+**Branch**: `feature/fr-078-subquery-completion` → `feature/fr-078-rows-window`
+**Status**: ✅ ALL PHASES COMPLETE | ✅ PHASE 8 READY FOR IMPLEMENTATION | ✅ ROWS WINDOW PLANNED
+
+---
+
+## 🚀 Phase 8: ROWS WINDOW - READY FOR IMPLEMENTATION
+
+**Status**: PLANNING COMPLETE - Ready to Begin Development
+**Scope**: Memory-safe, row-count-based analytic windows with bounded buffers
+**Effort**: 6-8 hours (Parser + Processor + Testing)
+**Strategic Decision**: Switch from SESSION window frames to new ROWS WINDOW type
+
+### Why ROWS WINDOW Over SESSION Frames?
+- **Memory-safe**: Buffer size specified upfront (no surprises)
+- **Semantically clear**: Row count is natural for analytics
+- **Competitive**: Like PostgreSQL/BigQuery analytic functions
+- **Perfect for financial analytics**: Moving averages, LAG/LEAD, running totals
+- **No overhead for other windows**: TUMBLING/HOPPING/SLIDING unaffected
+
+### Key Features
+✅ Bounded buffer with configurable size (e.g., BUFFER 100 ROWS)
+✅ Per-partition state management
+✅ Support for PARTITION BY and ORDER BY
+✅ Optional ROWS BETWEEN frame specifications
+✅ Memory guaranteed upfront (no surprises)
+✅ O(1) buffer management with VecDeque
+
+### Example SQL
+```sql
+SELECT
+    symbol, price,
+    AVG(price) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY timestamp
+    ) as moving_avg_100,
+    LAG(price, 1) OVER (
+        ROWS WINDOW BUFFER 100 ROWS
+        PARTITION BY symbol ORDER BY timestamp
+    ) as prev_price
+FROM market_data;
+```
+
+### Documentation References
+- **Implementation Plan**: `/docs/feature/FR-078-PHASE8-ROWS-WINDOW.md` (COMPREHENSIVE)
+- **Latency Analysis**: `/docs/feature/FR-078-PHASE7-LATENCY-ANALYSIS-WINDOW-BUFFERING.md`
+- **Phase 7 Analysis**: `/docs/feature/FR-078-PHASE7-FINAL-ANALYSIS.md`
+
+### Next Steps
+1. **Phase 8.1**: Parser & AST changes (1-2 hours)
+2. **Phase 8.2**: Window processor implementation (2-3 hours)
+3. **Phase 8.3**: Testing & validation (1-2 hours)
+4. **Phase 8.4**: Documentation & polish (30 min)
+
+**Total Estimated Time**: 6-8 hours for fully working ROWS WINDOW implementation
 
 ---
 

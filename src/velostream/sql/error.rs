@@ -226,6 +226,19 @@ pub enum SqlError {
         /// Description of the configuration error
         message: String,
     },
+
+    /// Aggregate function validation errors.
+    ///
+    /// Occurs when aggregate functions (AVG, SUM, COUNT, STDDEV, MAX, MIN) are used
+    /// in SELECT statements without GROUP BY or WINDOW clause context. Aggregate
+    /// functions require state accumulation across multiple records and cannot be
+    /// evaluated on individual records in isolation.
+    AggregateWithoutGrouping {
+        /// List of aggregate functions found without grouping context (e.g., ["AVG", "SUM"])
+        functions: Vec<String>,
+        /// Helpful suggestion for fixing the error
+        suggestion: String,
+    },
 }
 
 impl fmt::Display for SqlError {
@@ -291,6 +304,17 @@ impl fmt::Display for SqlError {
             }
             SqlError::ConfigurationError { message } => {
                 write!(f, "Configuration error: {}", message)
+            }
+            SqlError::AggregateWithoutGrouping {
+                functions,
+                suggestion,
+            } => {
+                write!(
+                    f,
+                    "Aggregate functions without grouping context: {}. {}",
+                    functions.join(", "),
+                    suggestion
+                )
             }
         }
     }

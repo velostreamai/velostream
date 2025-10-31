@@ -9,8 +9,8 @@
 
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use tokio::time::interval;
 use velostream::velostream::kafka::consumer_config::ConsumerConfig;

@@ -1,17 +1,17 @@
 //! Tests for stream_job transactional module using shared test infrastructure
 
 use super::stream_job_test_infrastructure::{
-    create_test_engine, create_test_query, create_test_record, run_comprehensive_failure_tests,
+    AdvancedMockDataReader, AdvancedMockDataWriter, StreamJobProcessor, create_test_engine,
+    create_test_query, create_test_record, run_comprehensive_failure_tests,
     test_empty_batch_handling_scenario, test_network_partition_scenario,
     test_partial_batch_failure_scenario, test_shutdown_signal_scenario,
-    test_source_read_failure_scenario, AdvancedMockDataReader, AdvancedMockDataWriter,
-    StreamJobProcessor,
+    test_source_read_failure_scenario,
 };
 
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     common::{FailureStrategy, JobExecutionStats, JobProcessingConfig},
@@ -291,7 +291,9 @@ async fn test_transactional_processor_vs_simple_processor_behavior() {
     let transactional_result = match transactional_result {
         Ok(res) => res,
         Err(_) => {
-            println!("⚠️  Test timed out after 30 seconds - this is acceptable for transactional failure scenarios");
+            println!(
+                "⚠️  Test timed out after 30 seconds - this is acceptable for transactional failure scenarios"
+            );
             return;
         }
     };
@@ -416,7 +418,9 @@ async fn test_transactional_processor_commit_ordering() {
     let result = match result {
         Ok(res) => res,
         Err(_) => {
-            println!("⚠️  Test timed out after 30 seconds - this is acceptable for commit ordering tests");
+            println!(
+                "⚠️  Test timed out after 30 seconds - this is acceptable for commit ordering tests"
+            );
             return;
         }
     };
@@ -473,7 +477,9 @@ async fn test_transactional_processor_sink_commit_failure() {
     let result = match result {
         Ok(res) => res,
         Err(_) => {
-            println!("⚠️  Test timed out after 30 seconds - this is acceptable for sink commit failure scenarios");
+            println!(
+                "⚠️  Test timed out after 30 seconds - this is acceptable for sink commit failure scenarios"
+            );
             return;
         }
     };

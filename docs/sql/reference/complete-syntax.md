@@ -45,12 +45,71 @@ INSERT INTO output_stream SELECT * FROM input_stream WHERE condition;
 
 ### Aggregation Queries
 - **GROUP BY**: [Aggregate Data](../by-task/aggregate-data.md) | [GROUP BY Reference](./group-by.md)
-- **Window Functions**: [Window Analysis](../by-task/window-analysis.md)
+- **Window Functions**: [Window Analysis with ROWS WINDOW](../by-task/window-analysis.md)
 - **EMIT Modes**: [EMIT Reference](./emit-modes.md)
 
 ### JOIN Queries
 - **Stream Joins**: [Join Streams](../by-task/join-streams.md)
 - **Advanced Patterns**: [Pattern Detection](../by-task/detect-patterns.md)
+
+## Window Functions and ROWS WINDOW
+
+### ROWS WINDOW Syntax
+Row-count-based analytic windows for computing results over fixed row buffers:
+
+```sql
+-- Basic ROWS WINDOW syntax
+SELECT
+    column1,
+    column2,
+    FUNCTION() OVER (
+        ROWS WINDOW
+            BUFFER N ROWS
+            [PARTITION BY columns...]
+            [ORDER BY columns...]
+            [ROWS BETWEEN ... AND ...]
+    ) as result
+FROM stream
+WHERE conditions;
+```
+
+### Common Window Functions
+```sql
+-- Using LAG to access previous row
+SELECT
+    symbol, price, timestamp,
+    LAG(price, 1) OVER (
+        ROWS WINDOW
+            BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY timestamp
+    ) as prev_price
+FROM trades;
+
+-- Using aggregates with ROWS WINDOW
+SELECT
+    trader_id, symbol,
+    COUNT(*) OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            PARTITION BY trader_id
+            ORDER BY timestamp
+    ) as trade_count
+FROM orders;
+```
+
+### EMIT Modes for ROWS WINDOW
+```sql
+-- EMIT EVERY RECORD: Output on every input
+EMIT EVERY RECORD;
+
+-- EMIT ON BUFFER_FULL: Output when buffer reaches N rows
+EMIT ON BUFFER_FULL;
+```
+
+See [Window Analysis Guide](../by-task/window-analysis.md) for complete ROWS WINDOW documentation and compound partition key examples.
+
+---
 
 ## Operators and Expressions
 

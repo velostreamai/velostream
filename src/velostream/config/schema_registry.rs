@@ -1172,9 +1172,11 @@ mod tests {
         let provider = TestConfigProvider;
 
         // Valid property
-        assert!(provider
-            .validate_property("required_property", "valid_value")
-            .is_ok());
+        assert!(
+            provider
+                .validate_property("required_property", "valid_value")
+                .is_ok()
+        );
 
         // Invalid property (empty required)
         assert!(provider.validate_property("required_property", "").is_err());

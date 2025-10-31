@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, StreamSource};
-use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
 use velostream::velostream::sql::execution::FieldValue;
+use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
 
 #[test]
 fn test_stream_table_join_detection() {
