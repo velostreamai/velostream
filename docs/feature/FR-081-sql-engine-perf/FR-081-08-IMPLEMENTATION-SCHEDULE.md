@@ -228,8 +228,10 @@ src/velostream/sql/execution/window_v2/
 ### Sub-Phase 2A.3: Integration & Migration 🔄 IN PROGRESS
 
 **Goal**: Integrate window_v2 with existing engine
-**Status**: 🔄 IN PROGRESS
+**Status**: 🔄 IN PROGRESS (1/5 tasks complete - 20%)
 **Estimated**: 12 hours
+**Started**: 2025-11-01
+**Commit**: 5bc3335
 
 **Current** (`internal.rs:557-587`):
 ```rust
@@ -239,34 +241,53 @@ pub struct WindowState {
 }
 ```
 
-**New** (feature-flagged):
+**New Architecture**:
 ```rust
-// Feature flag: arc-records
-#[cfg(feature = "arc-records")]
-pub struct WindowState {
-    pub buffer: Vec<Arc<StreamRecord>>,  // Cheap reference counting
-    pub last_emit: i64,
+// Adapter layer bridges legacy and v2 implementations
+pub struct WindowAdapter;
+
+impl WindowAdapter {
+    // Convert WindowSpec to WindowStrategy
+    pub fn create_strategy(window_spec: &WindowSpec) -> Result<Box<dyn WindowStrategy>, SqlError>;
+
+    // Convert EmitMode to EmissionStrategy
+    pub fn create_emission_strategy(query: &StreamingQuery) -> Result<Box<dyn EmissionStrategy>, SqlError>;
+
+    // Process record using v2 strategies
+    pub fn process_with_v2(query_id: &str, query: &StreamingQuery, record: &StreamRecord, context: &mut ProcessorContext) -> Result<Option<StreamRecord>, SqlError>;
 }
 
-#[cfg(not(feature = "arc-records"))]
-pub struct WindowState {
-    pub buffer: Vec<StreamRecord>,  // Legacy
-    pub last_emit: i64,
+// ProcessorContext extended with v2 state storage
+pub struct ProcessorContext {
+    // Existing fields...
+    pub window_v2_states: HashMap<String, Box<dyn Any + Send + Sync>>,  // NEW
 }
 ```
 
 **Tasks**:
-- [ ] Create adapter layer between engine and window_v2
+- [x] Create adapter layer between engine and window_v2 (**COMPLETE**)
+  - WindowAdapter with strategy creation methods
+  - ProcessorContext extended with window_v2_states HashMap
+  - 5 unit tests passing
+  - 363 lines of code
 - [ ] Implement feature flag for gradual rollout
 - [ ] Update StreamExecutionEngine to support both implementations
 - [ ] Migrate GROUP BY logic to use window_v2
 - [ ] Comprehensive integration testing
 
+**Adapter Layer Features** ✅:
+- `create_strategy()`: Converts WindowSpec → WindowStrategy (Tumbling, Sliding, Session, Rows)
+- `create_emission_strategy()`: Converts EmitMode → EmissionStrategy (Changes, Final)
+- `convert_window_results()`: Converts SharedRecords → StreamRecords for legacy interface
+- `get_group_by_columns()`: Extracts GROUP BY columns for partitioned processing
+- `is_emit_changes()`: Detects EMIT CHANGES vs EMIT FINAL semantics
+
 **Success Criteria**:
-- Compiles with both legacy and v2 implementations
-- All existing tests pass
-- Performance baseline maintained
-- Zero functional regressions
+- [x] Adapter layer compiles and tests pass
+- [ ] Compiles with both legacy and v2 implementations (feature-flagged)
+- [ ] All existing tests pass with v2 enabled
+- [ ] Performance baseline maintained
+- [ ] Zero functional regressions
 
 ---
 
