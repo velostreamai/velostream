@@ -12,7 +12,7 @@
 | Phase | Status | Progress | Start Date | Target Date | Performance Goal | Current | Delta |
 |-------|--------|----------|------------|-------------|------------------|---------|-------|
 | **Phase 1** | ✅ COMPLETE | 100% | 2025-10-15 | 2025-11-01 | 15.7K rec/sec | **15.7K** | ✅ |
-| **Phase 2A** | 🔄 IN PROGRESS | 12% | 2025-11-01 | TBD | 50-75K rec/sec | 46.5K (ROWS) | Day 1/8 ✅ |
+| **Phase 2A** | 🔄 IN PROGRESS | 25% | 2025-11-01 | TBD | 50-75K rec/sec | 46.5K (ROWS) | 2/8 sub-phases ✅ |
 | **Phase 2B** | 🔄 READY | 0% | TBD | TBD | 100K+ msg/sec | - | - |
 | **Phase 3** | 📋 PLANNED | 0% | TBD | TBD | 100K+ rec/sec | - | - |
 
@@ -27,11 +27,12 @@
 
 ## 🎯 Current Milestone
 
-**Active**: Phase 2A Week 1 - Foundation & Infrastructure
-**Current**: Day 1 complete - window_v2 module foundation created
-**Next Action**: Day 2 - Implement TumblingWindowStrategy
+**Active**: Phase 2A - Window Processing V2 Architecture
+**Current**: Foundation complete - TumblingWindowStrategy and EmitFinalStrategy implemented
+**Progress**: 25% (2 of 8 sub-phases complete)
+**Next Action**: Integration with existing engine
 **Blockers**: None
-**Last Updated**: 2025-11-01 18:30 PST
+**Last Updated**: 2025-11-01 19:45 PST
 
 ---
 
@@ -127,7 +128,7 @@
 ## Phase 2A: Window Processing Architectural Refactoring
 
 **Estimated Duration**: 3-4 weeks
-**Status**: 🔄 IN PROGRESS (Day 1/8 complete)
+**Status**: 🔄 IN PROGRESS (2/8 sub-phases complete)
 **Branch**: fr-081-sql-engine-perf
 **Target**: 3-5x additional improvement (50-75K rec/sec)
 **Started**: 2025-11-01
@@ -145,10 +146,11 @@
 
 ---
 
-### Week 1: Preparation & Infrastructure
+### Sub-Phase 2A.1: Foundation & Trait Architecture ✅ COMPLETE
 
-**Goal**: Set up refactoring foundation without breaking existing code
-**Progress**: 12% complete (Day 1/8)
+**Goal**: Create trait-based architecture foundation for window processing
+**Status**: ✅ COMPLETE
+**Duration**: 8 hours
 
 #### 1.1 Module Structure Setup ✅ COMPLETE
 **Effort**: 4 hours
@@ -187,11 +189,43 @@ src/velostream/sql/execution/window_v2/
 
 ---
 
-#### 1.2 Arc<StreamRecord> Wrapper ✅ COMPLETE
-**Effort**: 4 hours (actual, vs 8 estimated)
-**Owner**: Phase 2A Team
-**Completed**: 2025-11-01
-**Commit**: adbdeaf
+#### Accomplishments:
+- [x] SharedRecord (Arc<StreamRecord>) wrapper implemented
+- [x] WindowStrategy, EmissionStrategy, GroupByStrategy traits defined
+- [x] WindowStrategyBuilder for fluent API
+- [x] Module structure created (window_v2/)
+- [x] 7 comprehensive tests
+
+**Commits**: adbdeaf
+**Files Created**: 5 (440 lines)
+**Test Coverage**: 7/7 passing
+
+---
+
+### Sub-Phase 2A.2: Core Strategy Implementations ✅ COMPLETE
+
+**Goal**: Implement TumblingWindowStrategy and EmitFinalStrategy
+**Status**: ✅ COMPLETE
+**Duration**: 6 hours
+
+#### Accomplishments:
+- [x] TumblingWindowStrategy (293 lines, 8 tests)
+- [x] EmitFinalStrategy (131 lines, 4 tests)
+- [x] O(1) record addition with VecDeque
+- [x] Automatic window boundary alignment
+- [x] Multi-field timestamp extraction
+
+**Commits**: 363408c
+**Files Created**: 2 (424 lines)
+**Test Coverage**: 18/18 passing (11 new)
+
+---
+
+### Sub-Phase 2A.3: Integration & Migration 🔄 IN PROGRESS
+
+**Goal**: Integrate window_v2 with existing engine
+**Status**: 🔄 IN PROGRESS
+**Estimated**: 12 hours
 
 **Current** (`internal.rs:557-587`):
 ```rust
@@ -217,76 +251,110 @@ pub struct WindowState {
 }
 ```
 
-**Implementation Steps**:
-1. Add `arc-records` feature to `Cargo.toml`
-2. Create conditional compilation blocks in `internal.rs`
-3. Update `window.rs:80` to wrap in Arc at ingestion:
-   ```rust
-   #[cfg(feature = "arc-records")]
-   let record_ref = Arc::new(record.clone());
+**Tasks**:
+- [ ] Create adapter layer between engine and window_v2
+- [ ] Implement feature flag for gradual rollout
+- [ ] Update StreamExecutionEngine to support both implementations
+- [ ] Migrate GROUP BY logic to use window_v2
+- [ ] Comprehensive integration testing
 
-   #[cfg(not(feature = "arc-records"))]
-   let record_ref = record.clone();
+**Success Criteria**:
+- Compiles with both legacy and v2 implementations
+- All existing tests pass
+- Performance baseline maintained
+- Zero functional regressions
 
-   window_state.add_record(record_ref);
-   ```
-4. Update aggregation functions to accept `&Arc<StreamRecord>` or `&StreamRecord`
+---
+
+### Sub-Phase 2A.4: Additional Window Strategies
+
+**Goal**: Implement SLIDING, SESSION, and ROWS window strategies
+**Status**: 📋 PLANNED
+**Estimated**: 16 hours
 
 **Tasks**:
-- [ ] Add feature flag to `Cargo.toml`
-- [ ] Implement conditional `WindowState` definitions
-- [ ] Update buffer operations (add, cleanup, access)
-- [ ] Update aggregation function signatures
-- [ ] Test both feature flag states
-
-**Success Criteria**:
-- ✅ Compiles with `--features arc-records`
-- ✅ Compiles without feature (legacy mode)
-- ✅ All tests pass in both modes
-- ✅ Performance baseline maintained in legacy mode
-
-**Expected Improvement** (when enabled): 62x less memory copying (5MB → 80KB for 10K records)
+- [ ] SlidingWindowStrategy with ring buffer
+- [ ] SessionWindowStrategy with gap detection
+- [ ] RowsWindowStrategy with bounded buffer
+- [ ] EmitChangesStrategy for streaming updates
+- [ ] Comprehensive test coverage for each
 
 ---
 
-#### 1.3 Integration Test Suite
-**Effort**: 12 hours
-**Owner**: TBD
+### Sub-Phase 2A.5: Performance Optimization
 
-**Goal**: Comprehensive tests covering all window types and edge cases
+**Goal**: Optimize hot paths and validate performance targets
+**Status**: 📋 PLANNED
+**Estimated**: 12 hours
 
-**Test Structure**:
-```
-tests/
-├── integration/
-│   └── sql/
-│       └── window_refactoring/
-│           ├── mod.rs
-│           ├── tumbling_test.rs
-│           ├── sliding_test.rs
-│           ├── session_test.rs
-│           ├── rows_test.rs
-│           └── edge_cases_test.rs
-```
-
-**Test Coverage**:
-- [ ] TUMBLING windows (EMIT FINAL, EMIT CHANGES)
-- [ ] SLIDING windows (all configurations)
-- [ ] SESSION windows (gap-based logic)
-- [ ] ROWS windows (fixed-size buffers)
-- [ ] Edge cases (empty windows, single record, watermarks)
-- [ ] GROUP BY variations (single group, multi-group, no group)
-- [ ] Aggregation functions (COUNT, SUM, AVG, MIN, MAX)
-
-**Success Criteria**:
-- ✅ 50+ integration tests created
-- ✅ All tests passing
-- ✅ Code coverage >85%
-- ✅ Tests run in <30 seconds
+**Tasks**:
+- [ ] Profile critical paths with instrumentation
+- [ ] Optimize buffer management
+- [ ] Reduce allocations in window operations
+- [ ] Benchmark against Phase 1 baseline
+- [ ] Validate 3-5x improvement target
 
 ---
 
-#### 1.4 Performance Baseline & Regression Suite
+### Sub-Phase 2A.6: Integration Testing & Validation
+
+**Goal**: Comprehensive end-to-end testing
+**Status**: 📋 PLANNED
+**Estimated**: 10 hours
+
+**Tasks**:
+- [ ] Integration tests for all window types
+- [ ] Edge case testing (empty windows, late data)
+- [ ] GROUP BY with multiple partition keys
+- [ ] Aggregation function validation
+- [ ] Watermark integration testing
+
+---
+
+### Sub-Phase 2A.7: Legacy Migration & Cleanup
+
+**Goal**: Complete migration to window_v2
+**Status**: 📋 PLANNED
+**Estimated**: 8 hours
+
+**Tasks**:
+- [ ] Remove legacy window.rs
+- [ ] Update all references to use window_v2
+- [ ] Remove feature flags (make v2 default)
+- [ ] Update documentation
+- [ ] Final performance validation
+
+---
+
+### Sub-Phase 2A.8: Documentation & Handoff
+
+**Goal**: Complete documentation and prepare for Phase 2B
+**Status**: 📋 PLANNED
+**Estimated**: 6 hours
+
+**Tasks**:
+- [ ] API documentation for all public interfaces
+- [ ] Performance comparison report
+- [ ] Migration guide for future enhancements
+- [ ] Update FR-081 documentation suite
+- [ ] Prepare Phase 2B kickoff
+
+---
+
+## Phase 2A Summary
+
+**Total Estimated Duration**: 3-4 weeks
+**Current Progress**: 25% (2/8 sub-phases complete)
+**Completed**:
+- ✅ Sub-Phase 2A.1: Foundation & Trait Architecture
+- ✅ Sub-Phase 2A.2: Core Strategy Implementations
+
+**Next Up**:
+- 🔄 Sub-Phase 2A.3: Integration & Migration
+
+---
+
+### Performance Regression Suite
 **Effort**: 6 hours
 **Owner**: TBD
 
