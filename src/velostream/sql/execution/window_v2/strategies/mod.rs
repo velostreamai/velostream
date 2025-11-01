@@ -4,11 +4,11 @@
 
 pub mod tumbling;
 pub mod sliding;
-// pub mod session;
-// pub mod rows;
+pub mod session;
+pub mod rows;
 
 // Re-exports
 pub use tumbling::TumblingWindowStrategy;
 pub use sliding::SlidingWindowStrategy;
-// pub use session::SessionWindowStrategy;
-// pub use rows::RowsWindowStrategy;
+pub use session::SessionWindowStrategy;
+pub use rows::RowsWindowStrategy;
