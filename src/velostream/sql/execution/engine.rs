@@ -585,11 +585,12 @@ impl StreamExecutionEngine {
             // Process using windowed logic with high-performance state management
             {
                 let mut context = self.create_processor_context(&query_id);
-                let result = WindowProcessor::process_windowed_query(
+                let result = WindowProcessor::process_windowed_query_enhanced(
                     &query_id,
                     query,
                     &stream_record,
                     &mut context,
+                    None, // source_id
                 )?;
 
                 // Efficiently persist only modified window states (zero-copy for unchanged states)
@@ -980,11 +981,12 @@ impl StreamExecutionEngine {
                 // Use windowed processing for queries with window specifications
                 {
                     let mut context = self.create_processor_context(&query_id);
-                    let result = WindowProcessor::process_windowed_query(
+                    let result = WindowProcessor::process_windowed_query_enhanced(
                         &query_id,
                         &query,
                         &record,
                         &mut context,
+                        None, // source_id
                     )?;
 
                     // Persist modified states efficiently
@@ -1034,11 +1036,12 @@ impl StreamExecutionEngine {
                     // Only flush windowed queries
                     let result = {
                         let mut context = self.create_processor_context(&query_id);
-                        let result = WindowProcessor::process_windowed_query(
+                        let result = WindowProcessor::process_windowed_query_enhanced(
                             &query_id,
                             &query,
                             &trigger_record,
                             &mut context,
+                            None, // source_id
                         )?;
 
                         // Persist modified states efficiently

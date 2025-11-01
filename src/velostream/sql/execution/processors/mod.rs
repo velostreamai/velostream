@@ -35,7 +35,7 @@ impl QueryProcessor {
                     // Generate a query_id for window processing
                     let query_id = "select_";
                     let _window_result =
-                        WindowProcessor::process_windowed_query(query_id, query, record, context)?;
+                        WindowProcessor::process_windowed_query_enhanced(query_id, query, record, context, None)?;
                     // Return empty result - WindowProcessor handles buffering internally
                     Ok(ProcessorResult {
                         record: None,

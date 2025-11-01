@@ -21,6 +21,7 @@ pub struct WindowProcessor;
 impl WindowProcessor {
     /// Process a windowed query with optional watermark awareness (Phase 1B)
     /// This is the new enhanced entry point that handles both legacy and watermark-aware processing
+    /// FR-081 Phase 2A.3: Now routes to window_v2 trait-based architecture when enabled
     pub fn process_windowed_query_enhanced(
         query_id: &str,
         query: &StreamingQuery,
@@ -28,6 +29,14 @@ impl WindowProcessor {
         context: &mut ProcessorContext,
         source_id: Option<&str>,
     ) -> Result<Option<StreamRecord>, SqlError> {
+        // FR-081 Phase 2A.3: Check for window_v2 architecture first (highest priority)
+        if context.is_window_v2_enabled() {
+            debug!("FR-081 Phase 2A.3: Routing to window_v2 trait-based architecture for query: {}", query_id);
+            return crate::velostream::sql::execution::window_v2::adapter::WindowAdapter::process_with_v2(
+                query_id, query, record, context,
+            );
+        }
+
         // Phase 1B: Check for watermark processing
         if context.has_watermarks_enabled() {
             Self::process_windowed_query_with_watermarks(

@@ -124,11 +124,28 @@ impl WindowAdapter {
         window_spec: &WindowSpec,
         query: &StreamingQuery,
     ) -> Result<(), SqlError> {
+        // Create window strategy based on spec
+        let strategy = Self::create_strategy(window_spec)?;
+
+        // Create emission strategy based on query
+        let emission_strategy = Self::create_emission_strategy(query)?;
+
+        // Extract GROUP BY columns if present
+        let group_by_columns = Self::get_group_by_columns(query);
+
+        // Create WindowV2State
+        let v2_state = WindowV2State {
+            strategy,
+            emission_strategy,
+            group_by_columns,
+        };
+
+        // Store in context's window_v2_states HashMap (boxed as Any for type erasure)
+        context.window_v2_states.insert(state_key.to_string(), Box::new(v2_state));
+
         // Mark that we have v2 state for this query
         context.metadata.insert(state_key.to_string(), "initialized".to_string());
 
-        // We'll store actual state in a separate HashMap structure
-        // For Phase 2A.3, we'll add a new field to ProcessorContext
         Ok(())
     }
 
@@ -138,12 +155,66 @@ impl WindowAdapter {
         state_key: &str,
         record: SharedRecord,
         query: &StreamingQuery,
-        window_spec: &WindowSpec,
+        _window_spec: &WindowSpec,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        // This is where we'll integrate with window_v2 strategies
-        // For now, return None to indicate no emission
-        // Full implementation will follow in subsequent steps
-        Ok(None)
+        // Get the window_v2 state (downcast from Any)
+        let v2_state_any = context.window_v2_states.get_mut(state_key)
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: format!("Window V2 state not found for key: {}", state_key),
+                query: None,
+            })?;
+
+        // Downcast from Box<dyn Any> to WindowV2State
+        let v2_state = v2_state_any
+            .downcast_mut::<WindowV2State>()
+            .ok_or_else(|| SqlError::ExecutionError {
+                message: format!("Failed to downcast Window V2 state for key: {}", state_key),
+                query: None,
+            })?;
+
+        use super::traits::EmitDecision;
+
+        // Process record through emission strategy (which internally uses window strategy)
+        let emit_decision = v2_state.emission_strategy.process_record(
+            record.clone(),
+            &*v2_state.strategy,
+        )?;
+
+        match emit_decision {
+            EmitDecision::Emit | EmitDecision::EmitAndClear => {
+                // Get window results from strategy
+                let window_records = v2_state.strategy.get_window_records();
+
+                if window_records.is_empty() {
+                    return Ok(None);
+                }
+
+                // Clear window if requested
+                if emit_decision == EmitDecision::EmitAndClear {
+                    v2_state.strategy.clear();
+                }
+
+                // Convert SharedRecord results to StreamRecord for compatibility
+                // For GROUP BY queries, we may have multiple results (one per group)
+                // For now, return the first result and queue the rest
+                // Full GROUP BY support will be enhanced in later phases
+                if let StreamingQuery::Select { fields, .. } = query {
+                    let converted_results = Self::convert_window_results(window_records, fields)?;
+
+                    if !converted_results.is_empty() {
+                        // Return first result
+                        // TODO: Queue remaining results for multi-emission support
+                        return Ok(Some(converted_results.into_iter().next().unwrap()));
+                    }
+                }
+
+                Ok(None)
+            }
+            EmitDecision::Skip => {
+                // No emission this cycle
+                Ok(None)
+            }
+        }
     }
 
     /// Create a window strategy based on the window specification

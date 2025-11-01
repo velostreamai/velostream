@@ -107,6 +107,11 @@ pub struct ProcessorContext {
     /// Maps state_key (format: "window_v2:query_id") to WindowV2State
     /// Used for high-performance window processing with Arc<StreamRecord> zero-copy semantics
     pub window_v2_states: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
+
+    // === STREAMING ENGINE CONFIGURATION ===
+    /// Optional streaming engine configuration
+    /// When None, uses default configuration (all enhancements disabled)
+    pub streaming_config: Option<crate::velostream::sql::execution::config::StreamingConfig>,
 }
 
 /// Table reference with optional alias for SQL parsing and correlation
@@ -171,6 +176,7 @@ impl ProcessorContext {
             validated_select_queries: std::collections::HashSet::new(), // FR-078: Track validated SELECT queries
             rows_window_states: HashMap::new(), // Phase 8.2: Initialize ROWS window state map
             window_v2_states: HashMap::new(), // FR-081 Phase 2A: Initialize window v2 state map
+            streaming_config: None, // Use default config unless explicitly set
         }
     }
 
@@ -1025,5 +1031,32 @@ impl ProcessorContext {
     /// Used during context cleanup or reset.
     pub fn clear_all_pending_results(&mut self) {
         self.pending_results.clear();
+    }
+
+    // === FR-081 PHASE 2A: WINDOW V2 CONFIGURATION ===
+
+    /// Check if window_v2 architecture is enabled (FR-081 Phase 2A)
+    ///
+    /// Returns true if the streaming config has window_v2 enabled.
+    /// When enabled, window processing uses the high-performance trait-based architecture.
+    pub fn is_window_v2_enabled(&self) -> bool {
+        self.streaming_config
+            .as_ref()
+            .map(|config| config.enable_window_v2)
+            .unwrap_or(false) // Default to false (legacy behavior)
+    }
+
+    /// Set the streaming configuration (FR-081 Phase 2A)
+    ///
+    /// Allows runtime configuration of streaming engine features.
+    pub fn set_streaming_config(&mut self, config: crate::velostream::sql::execution::config::StreamingConfig) {
+        self.streaming_config = Some(config);
+    }
+
+    /// Get the streaming configuration (FR-081 Phase 2A)
+    ///
+    /// Returns the current streaming configuration, or a default config if none is set.
+    pub fn get_streaming_config(&self) -> crate::velostream::sql::execution::config::StreamingConfig {
+        self.streaming_config.clone().unwrap_or_default()
     }
 }
