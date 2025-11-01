@@ -12,7 +12,7 @@
 | Phase | Status | Progress | Start Date | Target Date | Performance Goal | Current | Delta |
 |-------|--------|----------|------------|-------------|------------------|---------|-------|
 | **Phase 1** | ✅ COMPLETE | 100% | 2025-10-15 | 2025-11-01 | 15.7K rec/sec | **15.7K** | ✅ |
-| **Phase 2A** | 🔄 READY | 0% | TBD | TBD | 50-75K rec/sec | 15.7K | - |
+| **Phase 2A** | 🔄 IN PROGRESS | 12% | 2025-11-01 | TBD | 50-75K rec/sec | 46.5K (ROWS) | Day 1/8 ✅ |
 | **Phase 2B** | 🔄 READY | 0% | TBD | TBD | 100K+ msg/sec | - | - |
 | **Phase 3** | 📋 PLANNED | 0% | TBD | TBD | 100K+ rec/sec | - | - |
 
@@ -27,10 +27,11 @@
 
 ## 🎯 Current Milestone
 
-**Active**: Phase 2 preparation
-**Next Action**: Choose parallel vs sequential execution strategy
+**Active**: Phase 2A Week 1 - Foundation & Infrastructure
+**Current**: Day 1 complete - window_v2 module foundation created
+**Next Action**: Day 2 - Implement TumblingWindowStrategy
 **Blockers**: None
-**Last Updated**: 2025-11-01
+**Last Updated**: 2025-11-01 18:30 PST
 
 ---
 
@@ -126,65 +127,71 @@
 ## Phase 2A: Window Processing Architectural Refactoring
 
 **Estimated Duration**: 3-4 weeks
-**Status**: 🔄 READY TO START
-**Branch**: fr-081-phase2-architectural-refactoring
+**Status**: 🔄 IN PROGRESS (Day 1/8 complete)
+**Branch**: fr-081-sql-engine-perf
 **Target**: 3-5x additional improvement (50-75K rec/sec)
+**Started**: 2025-11-01
 
 ### Dependencies
 - [x] Phase 1 complete
 - [x] Documentation created (FR-081-04 Blueprint)
 - [x] Performance baseline established
+- [x] Profiling test suite created
 
-### Strategy Decision Required
+### Strategy Selected
 
-**Option 1: Sequential** - Complete Phase 2A, then 2B
-**Option 2: Parallel** - Run both simultaneously (if team size permits)
-**Option 3: Interleaved** - Alternate weeks between window and Kafka work
+**Decision**: Sequential - Complete Phase 2A first, then Phase 2B
+**Rationale**: Phase 2B (Kafka migration) will benefit from improved window processing architecture
 
 ---
 
 ### Week 1: Preparation & Infrastructure
 
 **Goal**: Set up refactoring foundation without breaking existing code
+**Progress**: 12% complete (Day 1/8)
 
-#### 1.1 Module Structure Setup
+#### 1.1 Module Structure Setup ✅ COMPLETE
 **Effort**: 4 hours
-**Owner**: TBD
+**Owner**: Phase 2A Team
+**Completed**: 2025-11-01
+**Commit**: adbdeaf
 
+**Implemented Structure**:
 ```
-src/velostream/sql/execution/processors/
-├── window/
-│   ├── mod.rs (new)
-│   ├── processor.rs (extracted from window.rs)
-│   ├── strategies/ (new)
-│   │   ├── mod.rs
-│   │   ├── window_strategy.rs
-│   │   ├── emission_strategy.rs
-│   │   └── group_strategy.rs
-│   ├── buffer/ (new)
-│   │   ├── mod.rs
-│   │   ├── ring_buffer.rs
-│   │   └── deque_buffer.rs
-│   └── time.rs (utilities)
-└── window.rs (legacy - keep for now)
+src/velostream/sql/execution/window_v2/
+├── mod.rs (documentation + re-exports)
+├── types.rs (SharedRecord = Arc<StreamRecord>)
+├── traits.rs (WindowStrategy, EmissionStrategy, GroupByStrategy)
+├── strategies/mod.rs (placeholder)
+└── emission/mod.rs (placeholder)
 ```
 
 **Tasks**:
-- [ ] Create new directory structure
-- [ ] Create stub `mod.rs` files with proper exports
-- [ ] Update `src/velostream/sql/execution/processors/mod.rs`
-- [ ] Verify compilation with empty modules
+- [x] Create new directory structure
+- [x] Create `mod.rs` files with proper exports
+- [x] Update `src/velostream/sql/execution/mod.rs`
+- [x] Verify compilation with empty modules
 
 **Success Criteria**:
 - ✅ Code compiles without errors
-- ✅ Existing tests still pass (using legacy window.rs)
+- ✅ Existing tests still pass (372/372)
 - ✅ No functionality changes
+- ✅ New tests passing (7/7)
+
+**Files Created**:
+- window_v2/mod.rs (27 lines)
+- window_v2/types.rs (119 lines)
+- window_v2/traits.rs (274 lines)
+- window_v2/strategies/mod.rs (12 lines)
+- window_v2/emission/mod.rs (8 lines)
 
 ---
 
-#### 1.2 Arc<StreamRecord> Wrapper (Feature-Flagged)
-**Effort**: 8 hours
-**Owner**: TBD
+#### 1.2 Arc<StreamRecord> Wrapper ✅ COMPLETE
+**Effort**: 4 hours (actual, vs 8 estimated)
+**Owner**: Phase 2A Team
+**Completed**: 2025-11-01
+**Commit**: adbdeaf
 
 **Current** (`internal.rs:557-587`):
 ```rust
