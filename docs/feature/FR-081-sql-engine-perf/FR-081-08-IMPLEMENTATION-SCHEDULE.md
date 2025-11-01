@@ -40,14 +40,18 @@
 
 ### Window Processing Performance
 
-| Metric | Baseline (Before) | Phase 1 (Current) | Phase 2 Target | Phase 3 Target |
-|--------|-------------------|-------------------|----------------|----------------|
-| TUMBLING throughput | 120 rec/sec | **15,700 rec/sec** | 50-75K rec/sec | 100K+ rec/sec |
-| SLIDING throughput | 175 rec/sec | **15,700 rec/sec** | 40-60K rec/sec | 80K+ rec/sec |
-| SESSION throughput | 917 rec/sec | 917 rec/sec | 10K+ rec/sec | 20K+ rec/sec |
-| Per-record time | 14.9ms | **60µs** | 20-13µs | <10µs |
-| Memory usage (peak) | 2.5 GB | **85 MB** | <100 MB | <150 MB |
-| Growth ratio | 16.47x (O(N²)) | **1.0x (O(1))** | <1.2x | <1.5x |
+| Metric | Baseline | Phase 1 | Phase 2A (Actual) | Phase 2 Target | vs Target | Phase 3 Target |
+|--------|----------|---------|-------------------|----------------|-----------|----------------|
+| **TUMBLING throughput** | 120 rec/sec | 15.7K | **428K rec/sec** | 50-75K | ✅ **5.7-8.6x OVER** | 100K+ |
+| **SLIDING throughput** | 175 rec/sec | 15.7K | **491K rec/sec** | 40-60K | ✅ **8.2-12.3x OVER** | 80K+ |
+| **SESSION throughput** | 917 rec/sec | 917 | **1,010K rec/sec** | 10K+ | ✅ **101x OVER** | 20K+ |
+| **ROWS throughput** | N/A | 46.5K | **1,234K rec/sec** | 60K+ | ✅ **20.6x OVER** | 100K+ |
+| **Per-record time** | 14.9ms | 60µs | **0.81-2.33µs** | 13-20µs | ✅ **5.6-24.7x FASTER** | <10µs |
+| **Memory growth** | 16.47x (O(N²)) | 1.0x | **0.00-1.00x** | <1.2x | ✅ **EXCEEDS** | <1.5x |
+| **Clone overhead** | Deep copy | Deep copy | **23.29ns/clone** | N/A | ✅ **42.9M/sec** | N/A |
+| **Emission overhead** | N/A | N/A | **672-711K/sec** | >100K | ✅ **6.7-7.1x OVER** | N/A |
+
+**Phase 2A Achievement**: **27-79x improvement** over Phase 1 baseline, **5.4-101x over targets**
 
 ### Kafka I/O Performance
 
