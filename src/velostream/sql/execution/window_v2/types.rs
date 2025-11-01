@@ -2,8 +2,8 @@
 //!
 //! This module provides zero-copy types using Arc for shared ownership.
 
-use std::sync::Arc;
 use crate::velostream::sql::execution::types::StreamRecord;
+use std::sync::Arc;
 
 /// Shared reference to a StreamRecord using Arc for zero-copy semantics.
 ///
@@ -109,10 +109,7 @@ mod tests {
         assert!(unwrapped.is_some());
 
         let record = unwrapped.unwrap();
-        assert_eq!(
-            record.fields.get("id"),
-            Some(&FieldValue::Integer(42))
-        );
+        assert_eq!(record.fields.get("id"), Some(&FieldValue::Integer(42)));
     }
 
     #[test]

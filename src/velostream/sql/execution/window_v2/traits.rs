@@ -2,9 +2,9 @@
 //!
 //! This module defines the strategy pattern traits for pluggable window processing.
 
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use crate::velostream::sql::SqlError;
 use super::types::SharedRecord;
+use crate::velostream::sql::SqlError;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
 /// Strategy trait for window boundary detection and buffer management.
@@ -44,11 +44,7 @@ pub trait EmissionStrategy: Send + Sync {
     /// Returns:
     /// - true: Emit results now
     /// - false: Do not emit yet
-    fn should_emit_for_record(
-        &self,
-        record: &SharedRecord,
-        window_complete: bool,
-    ) -> bool;
+    fn should_emit_for_record(&self, record: &SharedRecord, window_complete: bool) -> bool;
 
     /// Process a record and return whether to emit.
     fn process_record(
