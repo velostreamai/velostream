@@ -13,8 +13,8 @@ use tokio::sync::Mutex;
 use velostream::velostream::server::processors::common::*;
 use velostream::velostream::server::stream_job_server::StreamJobServer;
 use velostream::velostream::sql::{
-    execution::types::{FieldValue, StreamRecord},
     StreamExecutionEngine,
+    execution::types::{FieldValue, StreamRecord},
 };
 
 /// Helper function to create test records
@@ -258,8 +258,8 @@ async fn test_log_functions() {
 
 #[tokio::test]
 async fn test_retry_with_backoff_success() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let attempt_count = Arc::new(AtomicUsize::new(0));
 
@@ -291,8 +291,8 @@ async fn test_retry_with_backoff_success() {
 
 #[tokio::test]
 async fn test_retry_with_backoff_max_retries_exceeded() {
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     let attempt_count = Arc::new(AtomicUsize::new(0));
 

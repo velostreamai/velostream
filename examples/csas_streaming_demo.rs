@@ -33,7 +33,7 @@ This demo shows how CSAS differs from CTAS:
 - ✅ CSAS fan-out pattern (regional streams)
 */
 
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::main]

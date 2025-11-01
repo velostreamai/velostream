@@ -5,6 +5,7 @@
 
 use super::super::internal::GroupAccumulator;
 use super::super::types::{FieldValue, StreamRecord};
+use super::super::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
@@ -20,6 +21,25 @@ impl AccumulatorManager {
         record: &StreamRecord,
         aggregate_expressions: &[(String, Expr)], // (field_name, expression) pairs
     ) -> Result<(), SqlError> {
+        // Phase 2: Validate all aggregate fields exist in record before processing
+        // Extract all fields referenced in the expressions
+        let mut all_fields = Vec::new();
+        for (_, expr) in aggregate_expressions {
+            let expr_fields = FieldValidator::extract_field_names(expr);
+            all_fields.extend(expr_fields);
+        }
+
+        if !all_fields.is_empty() {
+            // Validate all referenced fields exist in the record
+            let field_refs: Vec<&str> = all_fields.iter().map(|s| s.as_str()).collect();
+            FieldValidator::validate_fields_exist(
+                record,
+                &field_refs,
+                ValidationContext::Aggregation,
+            )
+            .map_err(|e| e.to_sql_error())?;
+        }
+
         // Always increment the count for this group
         accumulator.increment_count();
 

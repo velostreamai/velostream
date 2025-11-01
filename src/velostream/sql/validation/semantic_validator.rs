@@ -225,7 +225,8 @@ mod tests {
     #[test]
     fn test_valid_function() {
         let validator = SemanticValidator::new();
-        let query = parse_query("SELECT COUNT(*) FROM orders");
+        // Use GROUP BY to provide grouping context for aggregate function
+        let query = parse_query("SELECT status, COUNT(*) FROM orders GROUP BY status");
         let mut result = QueryValidationResult::new(String::new());
 
         validator.validate(&query, &mut result);
@@ -250,7 +251,7 @@ mod tests {
     fn test_valid_window_function() {
         let validator = SemanticValidator::new();
         let query = parse_query(
-            "SELECT LAG(price) OVER (PARTITION BY symbol ORDER BY event_time) FROM market_data",
+            "SELECT LAG(price) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time) FROM market_data",
         );
         let mut result = QueryValidationResult::new(String::new());
 
@@ -264,7 +265,7 @@ mod tests {
         let validator = SemanticValidator::new();
         // COUNT is an aggregate function and IS NOW allowed in OVER clause
         let query = parse_query(
-            "SELECT COUNT(*) OVER (PARTITION BY symbol ORDER BY event_time) FROM market_data",
+            "SELECT COUNT(*) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time) FROM market_data",
         );
         let mut result = QueryValidationResult::new(String::new());
 
@@ -280,19 +281,19 @@ mod tests {
         let test_cases = vec![
             (
                 "SUM",
-                "SELECT SUM(price) OVER (ORDER BY event_time) FROM trades",
+                "SELECT SUM(price) OVER (ROWS WINDOW BUFFER 10 ROWS ORDER BY event_time) FROM trades",
             ),
             (
                 "AVG",
-                "SELECT AVG(price) OVER (ORDER BY event_time) FROM trades",
+                "SELECT AVG(price) OVER (ROWS WINDOW BUFFER 10 ROWS ORDER BY event_time) FROM trades",
             ),
             (
                 "MIN",
-                "SELECT MIN(price) OVER (ORDER BY event_time) FROM trades",
+                "SELECT MIN(price) OVER (ROWS WINDOW BUFFER 10 ROWS ORDER BY event_time) FROM trades",
             ),
             (
                 "MAX",
-                "SELECT MAX(price) OVER (ORDER BY event_time) FROM trades",
+                "SELECT MAX(price) OVER (ROWS WINDOW BUFFER 10 ROWS ORDER BY event_time) FROM trades",
             ),
         ];
 

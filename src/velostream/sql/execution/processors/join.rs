@@ -5,12 +5,12 @@
 
 use super::stream_table_join::StreamTableJoinProcessor;
 use super::{ProcessorContext, SelectProcessor};
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{JoinClause, JoinType, StreamSource};
 use crate::velostream::sql::execution::algorithms::{HashJoinBuilder, JoinStrategy};
 use crate::velostream::sql::execution::{
-    expression::ExpressionEvaluator, FieldValue, StreamRecord,
+    FieldValue, StreamRecord, expression::ExpressionEvaluator,
 };
-use crate::velostream::sql::SqlError;
 use std::collections::HashMap;
 
 /// JOIN processing utilities

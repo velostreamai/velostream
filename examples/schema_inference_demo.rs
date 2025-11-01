@@ -20,7 +20,7 @@ cargo run --example schema_inference_demo --no-default-features
 - **Type Safety**: Choose the right level of type enforcement for your use case
 */
 
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::main]

@@ -59,6 +59,10 @@ pub mod resource_manager;
 // Circuit breaker for fault tolerance and retry logic
 pub mod circuit_breaker;
 
+// === PHASE 2: RUNTIME FIELD VALIDATION ===
+// Runtime validation for field existence and type compatibility
+pub mod validation;
+
 // Re-export public API only
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};

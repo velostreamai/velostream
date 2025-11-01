@@ -14,8 +14,8 @@ mod financial_ticker_analytics_tests {
                 MIN(price) as low_15m,
                 MAX(price) as high_15m
             FROM ticker_feed 
-            WINDOW SLIDING(15m, 1m)
             GROUP BY symbol
+            WINDOW SLIDING(15m, 1m)
         "#;
 
         let records = TestDataBuilder::generate_price_series("AAPL", 150.0, 20, 60); // 20 minutes
@@ -33,8 +33,8 @@ mod financial_ticker_analytics_tests {
                 AVG(volume) as avg_volume_1h,
                 AVG(spread) as avg_spread_1h
             FROM ticker_feed 
-            WINDOW SLIDING(1h, 5m)
             GROUP BY symbol
+            WINDOW SLIDING(1h, 5m)
         "#;
 
         let records = TestDataBuilder::generate_price_series("TSLA", 800.0, 70, 60); // 70 minutes of data
@@ -52,8 +52,8 @@ mod financial_ticker_analytics_tests {
                 SUM(volume) as total_volume_4h,
                 (MAX(price) - MIN(price)) as trading_range_4h
             FROM ticker_feed 
-            WINDOW SLIDING(4h, 15m)
             GROUP BY symbol
+            WINDOW SLIDING(4h, 15m)
         "#;
 
         let records = TestDataBuilder::generate_price_series("NVDA", 500.0, 250, 60); // 4+ hours of data
@@ -72,8 +72,8 @@ mod financial_ticker_analytics_tests {
                 MAX(price) as max_price,
                 COUNT(*) as price_count
             FROM ticker_feed 
-            WINDOW SLIDING(10m, 1m)
             GROUP BY symbol
+            WINDOW SLIDING(10m, 1m)
         "#;
 
         let records = TestDataBuilder::generate_with_outliers("AAPL", 150.0, 10);
@@ -90,8 +90,8 @@ mod financial_ticker_analytics_tests {
                 volume,
                 AVG(volume) as avg_volume_window
             FROM ticker_feed 
-            WINDOW SLIDING(30m, 5m)
             GROUP BY symbol
+            WINDOW SLIDING(30m, 5m)
             HAVING volume > AVG(volume) * 2  -- Volume 2x above average
         "#;
 
@@ -113,8 +113,8 @@ mod financial_ticker_analytics_tests {
                     ELSE 'NORMAL'
                 END as volume_status
             FROM ticker_feed 
-            WINDOW SLIDING(15m, 3m)
             GROUP BY symbol
+            WINDOW SLIDING(15m, 3m)
         "#;
 
         let records = TestDataBuilder::generate_price_series("DASHBOARD", 425.0, 20, 180); // 1 hour of 3-min intervals

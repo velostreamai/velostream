@@ -153,7 +153,7 @@ sql_context.execute_streaming("
 sql_context.execute_streaming("
     SELECT 
         customer_id,
-        CAST(amount, 'FLOAT') as amount_float,
+        CAST(amount AS FLOAT) as amount_float,
         SPLIT(full_name, ' ') as first_name,
         JOIN(', ', city, state, country) as address,
         SUBSTRING(description, 1, 50) as short_desc,
@@ -856,10 +856,10 @@ sql_context.execute_streaming("
     SELECT 
         JSON_VALUE(payload, '$.user.id') as user_id,
         COUNT(*) as transaction_count,
-        SUM(CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT')) as total_amount,
-        AVG(CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT')) as avg_amount
+        SUM(CAST(JSON_VALUE(payload, '$.amount') AS FLOAT)) as total_amount,
+        AVG(CAST(JSON_VALUE(payload, '$.amount') AS FLOAT)) as avg_amount
     FROM transaction_events 
-    WHERE CAST(JSON_VALUE(payload, '$.amount'), 'FLOAT') > 10000.0
+    WHERE CAST(JSON_VALUE(payload, '$.amount') AS FLOAT) > 10000.0
     AND JSON_VALUE(payload, '$.type') = 'wire_transfer'
     GROUP BY JSON_VALUE(payload, '$.user.id')
     WINDOW TUMBLING(5m)
@@ -888,7 +888,7 @@ sql_context.execute_streaming("
     SELECT 
         user_id,
         COUNT(*) as page_views,
-        MAX(CAST(JSON_VALUE(payload, '$.session_duration'), 'INTEGER')) as session_length
+        MAX(CAST(JSON_VALUE(payload, '$.session_duration') AS INTEGER)) as session_length
     FROM user_events
     WHERE JSON_VALUE(payload, '$.event_type') = 'page_view'
     GROUP BY user_id

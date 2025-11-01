@@ -413,4 +413,299 @@ mod tests {
             }
         }
     }
+
+    // FR-081: Tests for SQL-based event-time assignment
+    #[tokio::test]
+    async fn test_event_time_assignment_from_integer_execution() {
+        // FR-081: Test that _event_time assigned from integer milliseconds is converted to DateTime
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        let query = parser
+            .parse("SELECT id, timestamp_ms as _event_time FROM orders")
+            .unwrap();
+
+        // Create test record with timestamp_ms field
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(1));
+        fields.insert(
+            "timestamp_ms".to_string(),
+            FieldValue::Integer(1609459200000), // 2021-01-01 00:00:00 UTC
+        );
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        };
+
+        // Execute query
+        let result = engine.execute_with_record(&query, record).await;
+        assert!(result.is_ok());
+
+        // Check output
+        let output = rx.try_recv().unwrap();
+        assert!(output.fields.contains_key("id"));
+        assert!(output.fields.contains_key("_event_time"));
+
+        // Verify event_time is set (not None) - proves conversion happened
+        assert!(
+            output.event_time.is_some(),
+            "event_time should be set from _event_time assignment"
+        );
+
+        // Verify it's a valid DateTime (should be around 2021-01-01)
+        let event_time = output.event_time.unwrap();
+        assert_eq!(event_time.timestamp(), 1609459200);
+    }
+
+    #[tokio::test]
+    async fn test_event_time_default_now_when_not_assigned() {
+        // FR-081: Test that event_time defaults to NOW() when _event_time is not assigned
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        // Query WITHOUT _event_time assignment
+        let query = parser.parse("SELECT id, amount FROM orders").unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(42));
+        fields.insert("amount".to_string(), FieldValue::Float(99.99));
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        };
+
+        let before_exec = chrono::Utc::now();
+        let result = engine.execute_with_record(&query, record).await;
+        let after_exec = chrono::Utc::now();
+
+        assert!(result.is_ok());
+
+        let output = rx.try_recv().unwrap();
+        // Even though _event_time wasn't assigned, event_time should be set to NOW()
+        assert!(
+            output.event_time.is_some(),
+            "event_time should default to NOW()"
+        );
+
+        let event_time = output.event_time.unwrap();
+        // Verify it's close to the execution time (within a few seconds)
+        assert!(
+            event_time
+                >= before_exec
+                    .checked_sub_signed(chrono::Duration::seconds(1))
+                    .unwrap()
+        );
+        assert!(
+            event_time
+                <= after_exec
+                    .checked_add_signed(chrono::Duration::seconds(1))
+                    .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_event_time_default_now_for_non_convertible_type() {
+        // FR-081: Test that event_time defaults to NOW() when _event_time value is non-convertible
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        // Assign a STRING value to _event_time (non-convertible)
+        let query = parser
+            .parse("SELECT id, description as _event_time FROM orders")
+            .unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(99));
+        fields.insert(
+            "description".to_string(),
+            FieldValue::String("invalid timestamp".to_string()),
+        );
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        };
+
+        let before_exec = chrono::Utc::now();
+        let result = engine.execute_with_record(&query, record).await;
+        let after_exec = chrono::Utc::now();
+
+        assert!(result.is_ok());
+
+        let output = rx.try_recv().unwrap();
+        // Non-convertible type should fallback to NOW()
+        assert!(
+            output.event_time.is_some(),
+            "event_time should default to NOW() for non-convertible type"
+        );
+
+        let event_time = output.event_time.unwrap();
+        // Verify it's close to NOW
+        assert!(
+            event_time
+                >= before_exec
+                    .checked_sub_signed(chrono::Duration::seconds(1))
+                    .unwrap()
+        );
+        assert!(
+            event_time
+                <= after_exec
+                    .checked_add_signed(chrono::Duration::seconds(1))
+                    .unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_event_time_assignment_with_timestamp_type() {
+        // FR-081: Test that _event_time assigned from NaiveDateTime Timestamp is converted correctly
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut engine = StreamExecutionEngine::new(tx);
+
+        let parser = StreamingSqlParser::new();
+        let query = parser
+            .parse("SELECT id, event_ts as _event_time FROM events")
+            .unwrap();
+
+        // Create NaiveDateTime for 2021-06-15 12:30:45
+        let naive_dt = chrono::NaiveDateTime::from_timestamp_opt(1623769845, 0).unwrap();
+
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(5));
+        fields.insert("event_ts".to_string(), FieldValue::Timestamp(naive_dt));
+
+        let record = StreamRecord {
+            fields,
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            headers: HashMap::new(),
+        };
+
+        let result = engine.execute_with_record(&query, record).await;
+        assert!(result.is_ok());
+
+        let output = rx.try_recv().unwrap();
+        assert!(output.event_time.is_some());
+
+        // Verify the timestamp was preserved
+        let event_time = output.event_time.unwrap();
+        assert_eq!(event_time.timestamp(), 1623769845);
+    }
+
+    #[test]
+    fn test_event_time_assignment_from_integer_parsing() {
+        let parser = StreamingSqlParser::new();
+        let query = "SELECT id, timestamp_ms as _event_time FROM orders";
+
+        let result = parser.parse(query);
+        assert!(
+            result.is_ok(),
+            "Failed to parse event-time assignment query"
+        );
+
+        // Verify the query parses correctly with the alias
+        match result.unwrap() {
+            StreamingQuery::Select { fields, .. } => {
+                // Should have two fields: id and timestamp_ms as _event_time
+                assert_eq!(fields.len(), 2);
+
+                // Check second field is aliased as _event_time
+                match &fields[1] {
+                    SelectField::Expression {
+                        alias: Some(alias), ..
+                    } => {
+                        assert_eq!(alias.to_uppercase(), "_EVENT_TIME");
+                    }
+                    _ => panic!("Expected aliased expression for _event_time"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_event_time_assignment_basic_parsing() {
+        let parser = StreamingSqlParser::new();
+        // Test basic parsing without complex window syntax
+        let query = "SELECT price, timestamp_ms as _event_time FROM trades";
+
+        let result = parser.parse(query);
+        assert!(
+            result.is_ok(),
+            "Failed to parse basic event-time assignment"
+        );
+
+        // Verify query structure
+        match result.unwrap() {
+            StreamingQuery::Select { fields, .. } => {
+                assert_eq!(fields.len(), 2);
+                // Verify second field is aliased as _event_time
+                match &fields[1] {
+                    SelectField::Expression {
+                        alias: Some(alias), ..
+                    } => {
+                        assert_eq!(alias.to_uppercase(), "_EVENT_TIME");
+                    }
+                    _ => panic!("Expected aliased expression for _event_time"),
+                }
+            }
+            _ => panic!("Expected Select query"),
+        }
+    }
+
+    #[test]
+    fn test_event_time_assignment_case_insensitive_parsing() {
+        let parser = StreamingSqlParser::new();
+
+        // Test case-insensitive _event_time alias
+        let queries = vec![
+            "SELECT id, ts as _event_time FROM stream",
+            "SELECT id, ts as _EVENT_TIME FROM stream", // uppercase
+            "SELECT id, ts as _Event_Time FROM stream", // mixed case
+        ];
+
+        for query in queries {
+            let result = parser.parse(query);
+            assert!(
+                result.is_ok(),
+                "Failed to parse query with _event_time alias: {}",
+                query
+            );
+
+            match result.unwrap() {
+                StreamingQuery::Select { fields, .. } => {
+                    assert_eq!(fields.len(), 2);
+
+                    // Verify second field is the aliased column
+                    match &fields[1] {
+                        SelectField::Expression {
+                            alias: Some(alias), ..
+                        } => {
+                            assert_eq!(alias.to_uppercase(), "_EVENT_TIME");
+                        }
+                        _ => panic!("Expected aliased expression for {}", query),
+                    }
+                }
+                _ => panic!("Expected Select query"),
+            }
+        }
+    }
 }

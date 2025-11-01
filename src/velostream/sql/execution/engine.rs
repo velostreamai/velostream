@@ -110,8 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     engine.execute_with_record(&query, record).await?;
 
     // Process results from output channel
-    while let Some(result) = rx.recv().await {
-        println!("Query result: {:?}", result);
+    while let Some(_result) = rx.recv().await {
         break; // Just show one result for demo
     }
     Ok(())
@@ -134,7 +133,7 @@ use super::internal::{
 };
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
-use crate::velostream::datasource::{create_sink, create_source, DataReader, DataWriter};
+use crate::velostream::datasource::{DataReader, DataWriter, create_sink, create_source};
 use crate::velostream::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
 use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
@@ -142,8 +141,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 // Processor imports for Phase 5B integration
 use super::processors::{
-    HeaderMutation as ProcessorHeaderMutation, HeaderOperation as ProcessorHeaderOperation,
-    JoinContext, ProcessorContext, QueryProcessor, SelectProcessor, WindowContext, WindowProcessor,
+    HeaderMutation, HeaderMutation as ProcessorHeaderMutation, HeaderOperation,
+    HeaderOperation as ProcessorHeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
+    SelectProcessor, WindowContext, WindowProcessor,
 };
 
 pub struct StreamExecutionEngine {
@@ -326,11 +326,7 @@ impl StreamExecutionEngine {
     /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
-    fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
-        println!(
-            "DEBUG: create_processor_context called for query_id: {}",
-            query_id
-        );
+    fn create_processor_context(&mut self, query_id: &str) -> ProcessorContext {
         let mut context = ProcessorContext::new(query_id);
 
         // Set engine state
@@ -374,13 +370,15 @@ impl StreamExecutionEngine {
 
     /// Load window states for a specific context (high-performance, minimal loading)
     /// Only loads states for queries that are actually being processed
-    fn load_window_states_for_context(&self, query_id: &str) -> Vec<(String, WindowState)> {
+    /// OPTIMIZED: Moves state instead of cloning to eliminate O(N²) buffer copies
+    fn load_window_states_for_context(&mut self, query_id: &str) -> Vec<(String, WindowState)> {
         let mut states = Vec::with_capacity(1); // Usually just one state per context
 
-        // Load the specific window state for this query if it exists
-        if let Some(execution) = self.active_queries.get(query_id) {
-            if let Some(window_state) = &execution.window_state {
-                states.push((query_id.to_string(), window_state.clone()));
+        // MOVE the window state from engine to context (zero-copy)
+        // This eliminates the O(N²) cloning bottleneck
+        if let Some(execution) = self.active_queries.get_mut(query_id) {
+            if let Some(window_state) = execution.window_state.take() {
+                states.push((query_id.to_string(), window_state));
             }
         }
 
@@ -389,10 +387,15 @@ impl StreamExecutionEngine {
 
     /// Save modified window states back to engine (high-performance, saves only dirty states)
     /// Called after processor context completes to persist changes
-    fn save_window_states_from_context(&mut self, context: &ProcessorContext) {
-        for (query_id, window_state) in context.get_dirty_window_states() {
+    /// OPTIMIZED: Uses references to avoid O(N²) buffer cloning
+    fn save_window_states_from_context(&mut self, context: &mut ProcessorContext) {
+        let dirty_states = context.get_dirty_window_states_mut();
+        for (query_id, window_state_ref) in dirty_states {
             if let Some(execution) = self.active_queries.get_mut(&query_id) {
-                execution.window_state = Some(window_state);
+                // Move the window state by replacing it with an empty one
+                // This eliminates 50M+ clone operations for 10K records
+                let empty_state = WindowState::new(window_state_ref.window_spec.clone());
+                execution.window_state = Some(std::mem::replace(window_state_ref, empty_state));
             }
             // Note: If query execution doesn't exist, we skip saving the state
             // This can happen if the query completed between context creation and persistence
@@ -442,17 +445,20 @@ impl StreamExecutionEngine {
         // For now, results accumulate in group_states and can be retrieved via explicit calls
 
         // Persist window states from context (high-performance, only saves dirty states)
-        self.save_window_states_from_context(&context);
+        self.save_window_states_from_context(&mut context);
 
         // Update engine state from context
         if result.should_count && result.record.is_some() {
             self.record_count += 1;
         }
 
-        // Apply header mutations
-        self.apply_header_mutations(&result.header_mutations)?;
+        // Apply header mutations to the output record
+        let mut final_record = result.record;
+        if let Some(ref mut record) = final_record {
+            self.apply_header_mutations_to_record(record, &result.header_mutations)?;
+        }
 
-        Ok(result.record)
+        Ok(final_record)
     }
 
     /// Generate a consistent query ID for processor context management
@@ -480,26 +486,27 @@ impl StreamExecutionEngine {
         }
     }
 
-    /// Header mutation application handler
-    fn apply_header_mutations(
-        &mut self,
-        mutations: &[ProcessorHeaderMutation],
+    /// Apply header mutations directly to a StreamRecord
+    /// This modifies the record's headers HashMap based on SET/REMOVE operations
+    fn apply_header_mutations_to_record(
+        &self,
+        record: &mut StreamRecord,
+        mutations: &[HeaderMutation],
     ) -> Result<(), SqlError> {
-        // Store mutations to apply to output records
-        // Implementation depends on how headers are currently handled
         for mutation in mutations {
             match &mutation.operation {
-                ProcessorHeaderOperation::Set => {
-                    // SET_HEADER implementation would go here
-                    log::debug!(
-                        "Header mutation: SET {} = {:?}",
-                        mutation.key,
-                        mutation.value
-                    );
+                HeaderOperation::Set => {
+                    // SET_HEADER: Add or update header value
+                    if let Some(value) = &mutation.value {
+                        record.headers.insert(mutation.key.clone(), value.clone());
+                        log::debug!("Applied header mutation: SET {} = {}", mutation.key, value);
+                    }
                 }
-                ProcessorHeaderOperation::Remove => {
-                    // REMOVE_HEADER implementation would go here
-                    log::debug!("Header mutation: REMOVE {}", mutation.key);
+                HeaderOperation::Remove => {
+                    // REMOVE_HEADER: Remove header from record
+                    if record.headers.remove(&mutation.key).is_some() {
+                        log::debug!("Applied header mutation: REMOVE {}", mutation.key);
+                    }
                 }
             }
         }
@@ -525,8 +532,14 @@ impl StreamExecutionEngine {
         {
             if let Some(ts_field) = stream_record.fields.get("_timestamp") {
                 match ts_field {
-                    FieldValue::Integer(ts) => stream_record.timestamp = *ts,
-                    FieldValue::Float(ts) => stream_record.timestamp = *ts as i64,
+                    FieldValue::Integer(ts) => {
+                        // _timestamp field must be in milliseconds since epoch
+                        stream_record.timestamp = *ts;
+                    }
+                    FieldValue::Float(ts) => {
+                        // _timestamp field must be in milliseconds since epoch
+                        stream_record.timestamp = *ts as i64;
+                    }
                     _ => {
                         // Keep existing timestamp if _timestamp field isn't a valid time
                     }
@@ -580,14 +593,36 @@ impl StreamExecutionEngine {
                 )?;
 
                 // Efficiently persist only modified window states (zero-copy for unchanged states)
-                self.save_window_states_from_context(&context);
+                self.save_window_states_from_context(&mut context);
 
-                result
+                // FR-079 Phase 6: Emit pending results from queue
+                // After processing the current record, check if there are additional results queued
+                let mut pending_results = Vec::new();
+                while context.has_pending_results(&query_id) {
+                    if let Some(pending_result) = context.dequeue_result(&query_id) {
+                        pending_results.push(pending_result);
+                    } else {
+                        break;
+                    }
+                }
+
+                // Store pending results for later emission outside context block
+                if !pending_results.is_empty() {
+                    log::debug!(
+                        "FR-079 Phase 6: Dequeued {} pending results for emission",
+                        pending_results.len()
+                    );
+                }
+
+                (result, pending_results)
             }
         } else {
             // Regular non-windowed processing
-            self.apply_query(query, &stream_record)?
+            (self.apply_query(query, &stream_record)?, Vec::new())
         };
+
+        // Unpack result and pending results
+        let (result, pending_results) = result;
 
         // Process result if any
         if let Some(result) = result {
@@ -610,6 +645,30 @@ impl StreamExecutionEngine {
                 .send(result)
                 .map_err(|e| SqlError::ExecutionError {
                     message: format!("Failed to send result to output channel: {}", e),
+                    query: None,
+                })?;
+        }
+
+        // FR-079 Phase 6: Emit all pending results queued from GROUP BY emission
+        for pending_result in pending_results {
+            log::debug!("FR-079 Phase 6: Emitting queued result for windowed GROUP BY");
+            let correlation_id = ExecutionMessage::generate_correlation_id();
+            self.message_sender
+                .send(ExecutionMessage::QueryResult {
+                    query_id: "default".to_string(),
+                    result: pending_result.clone(),
+                    correlation_id,
+                })
+                .map_err(|_| SqlError::ExecutionError {
+                    message: "Failed to send pending result".to_string(),
+                    query: None,
+                })?;
+
+            // Send pending result to output channel
+            self.output_sender
+                .send(pending_result)
+                .map_err(|e| SqlError::ExecutionError {
+                    message: format!("Failed to send pending result to output channel: {}", e),
                     query: None,
                 })?;
         }
@@ -929,7 +988,7 @@ impl StreamExecutionEngine {
                     )?;
 
                     // Persist modified states efficiently
-                    self.save_window_states_from_context(&context);
+                    self.save_window_states_from_context(&mut context);
 
                     result
                 }
@@ -983,7 +1042,7 @@ impl StreamExecutionEngine {
                         )?;
 
                         // Persist modified states efficiently
-                        self.save_window_states_from_context(&context);
+                        self.save_window_states_from_context(&mut context);
 
                         result
                     };
@@ -1333,7 +1392,7 @@ impl StreamExecutionEngine {
 
         // Sync state back to engine
         self.group_states = std::mem::take(&mut context.group_by_states);
-        self.save_window_states_from_context(&context);
+        self.save_window_states_from_context(&mut context);
 
         Ok(())
     }
@@ -1383,7 +1442,7 @@ impl StreamExecutionEngine {
 
                 // Sync state
                 self.group_states = std::mem::take(&mut context.group_by_states);
-                self.save_window_states_from_context(&context);
+                self.save_window_states_from_context(&mut context);
 
                 if result.should_count {
                     self.record_count += 1;
@@ -1437,7 +1496,7 @@ impl StreamExecutionEngine {
 
                         // Sync state
                         self.group_states = std::mem::take(&mut context.group_by_states);
-                        self.save_window_states_from_context(&context);
+                        self.save_window_states_from_context(&mut context);
 
                         if result.should_count {
                             self.record_count += 1;

@@ -43,7 +43,7 @@ impl ErrorTracker {
         error_message: String,
         parent_context: Option<opentelemetry::trace::SpanContext>,
     ) {
-        if let Some(ref obs_manager) = observability {
+        if let Some(obs_manager) = observability {
             let manager = obs_manager.clone();
             let prefixed_message = format!("[{}] {}", job_name, error_message);
             let job_name_owned = job_name.to_string();

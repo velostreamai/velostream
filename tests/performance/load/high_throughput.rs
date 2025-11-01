@@ -4,12 +4,12 @@
 //! validating performance with large datasets and high-speed data ingestion.
 
 use super::super::common::{
-    generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
+    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use velostream::velostream::sql::execution::{types::FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::{StreamRecord, types::FieldValue};
 
 /// Test maximum throughput with large datasets
 #[tokio::test]

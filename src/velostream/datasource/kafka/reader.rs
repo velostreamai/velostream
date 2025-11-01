@@ -3,11 +3,11 @@
 use crate::velostream::datasource::{
     BatchConfig, BatchStrategy, DataReader, EventTimeConfig, SourceOffset,
 };
-use crate::velostream::kafka::{serialization::StringSerializer, KafkaConsumer};
+use crate::velostream::kafka::{KafkaConsumer, serialization::StringSerializer};
 
 // Removed unused imports - AvroSerializer and ProtoSerializer don't exist
 // Using AvroCodec and ProtobufCodec directly instead
-use crate::velostream::serialization::{json_codec::JsonCodec, SerializationCodec};
+use crate::velostream::serialization::{SerializationCodec, json_codec::JsonCodec};
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use chrono;
@@ -1130,7 +1130,7 @@ impl KafkaDataReader {
         }
 
         // Extract event_time if configured
-        let event_time = if let Some(ref config) = self.event_time_config {
+        let event_time = if let Some(config) = &self.event_time_config {
             use crate::velostream::datasource::extract_event_time;
             match extract_event_time(&fields, config) {
                 Ok(dt) => Some(dt),

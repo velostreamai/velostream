@@ -12,10 +12,10 @@ use velostream::velostream::kafka::consumer_config::ConsumerConfig;
 use velostream::velostream::kafka::serialization::StringSerializer;
 use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::table::Table;
 use velostream::velostream::table::compact_table::CompactTable;
 use velostream::velostream::table::sql::TableDataSource;
 use velostream::velostream::table::unified_table::OptimizedTableImpl;
-use velostream::velostream::table::Table;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

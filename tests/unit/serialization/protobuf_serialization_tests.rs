@@ -8,8 +8,8 @@ mod protobuf_tests {
     use super::super::common_test_data::*;
     use std::collections::HashMap;
     use velostream::velostream::serialization::{ProtobufFormat, SerializationFormat};
-    use velostream::velostream::sql::execution::types::StreamRecord;
     use velostream::velostream::sql::FieldValue;
+    use velostream::velostream::sql::execution::types::StreamRecord;
 
     #[tokio::test]
     async fn test_protobuf_format_creation() {
@@ -277,8 +277,8 @@ mod protobuf_tests {
     #[tokio::test]
     async fn test_protobuf_logical_types_roundtrip() {
         use chrono::{NaiveDate, NaiveDateTime};
-        use velostream::velostream::serialization::protobuf_codec::ProtobufCodec;
         use velostream::velostream::serialization::SerializationCodec;
+        use velostream::velostream::serialization::protobuf_codec::ProtobufCodec;
 
         println!("Testing Protobuf logical types roundtrip...");
 

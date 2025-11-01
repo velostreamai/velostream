@@ -6,27 +6,27 @@
 
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{
-    error_tracker::DeploymentContext, ObservabilityManager, SharedObservabilityManager,
+    ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
 };
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
-    create_multi_sink_writers, create_multi_source_readers, FailureStrategy, JobProcessingConfig,
-    SimpleJobProcessor, TransactionalJobProcessor,
+    FailureStrategy, JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor,
+    create_multi_sink_writers, create_multi_source_readers,
 };
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
 use crate::velostream::sql::{
+    SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
     execution::config::StreamingConfig, execution::performance::PerformanceMonitor,
-    query_analyzer::QueryAnalyzer, SqlApplication, SqlError, SqlValidator, StreamExecutionEngine,
-    StreamingSqlParser,
+    query_analyzer::QueryAnalyzer,
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
@@ -145,7 +145,10 @@ impl StreamJobServer {
                     Some(Arc::new(RwLock::new(obs_manager)))
                 }
                 Err(e) => {
-                    warn!("⚠️ Failed to initialize server-level observability: {}. Metrics will be unavailable.", e);
+                    warn!(
+                        "⚠️ Failed to initialize server-level observability: {}. Metrics will be unavailable.",
+                        e
+                    );
                     None
                 }
             }
@@ -211,7 +214,10 @@ impl StreamJobServer {
                     Some(Arc::new(RwLock::new(obs_manager)))
                 }
                 Err(e) => {
-                    warn!("⚠️ Failed to initialize observability: {}. Continuing without observability.", e);
+                    warn!(
+                        "⚠️ Failed to initialize observability: {}. Continuing without observability.",
+                        e
+                    );
                     None
                 }
             }
@@ -245,9 +251,7 @@ impl StreamJobServer {
                     Ok(()) => {
                         info!(
                             "✅ Server-level deployment context initialized: node_id={:?}, node_name={:?}, region={:?}",
-                            deployment_ctx.node_id,
-                            deployment_ctx.node_name,
-                            deployment_ctx.region
+                            deployment_ctx.node_id, deployment_ctx.node_name, deployment_ctx.region
                         );
                     }
                     Err(e) => {
@@ -259,7 +263,7 @@ impl StreamJobServer {
 
         // Spawn background task to periodically collect system metrics
         if let Some(ref obs_mgr) = observability {
-            let obs_manager_clone = Arc::clone(obs_mgr);
+            let obs_manager_clone = obs_mgr.clone();
             let jobs_clone = Arc::clone(&server.jobs);
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -321,7 +325,7 @@ impl StreamJobServer {
     /// Get performance metrics (if monitoring is enabled)
     pub fn get_performance_metrics(&self) -> Option<String> {
         // First try to get metrics from server-level ObservabilityManager (Phase 4)
-        if let Some(ref obs_manager) = self.observability {
+        if let Some(obs_manager) = &self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if let Some(metrics_provider) = obs_lock.metrics() {
                     // Sync error metrics to Prometheus gauges before export
@@ -337,7 +341,7 @@ impl StreamJobServer {
         // Try to get metrics from any running job's ObservabilityManager
         if let Ok(jobs) = self.jobs.try_read() {
             for job in jobs.values() {
-                if let Some(ref job_obs) = job.observability {
+                if let Some(job_obs) = &job.observability {
                     if let Ok(obs_lock) = job_obs.try_read() {
                         if let Some(metrics_provider) = obs_lock.metrics() {
                             // Sync error metrics to Prometheus gauges before export
@@ -362,7 +366,7 @@ impl StreamJobServer {
     /// Check if performance monitoring is enabled
     pub fn has_performance_monitoring(&self) -> bool {
         // Check if server-level observability metrics are enabled (Phase 4)
-        if let Some(ref obs_manager) = self.observability {
+        if let Some(obs_manager) = &self.observability {
             if let Ok(obs_lock) = obs_manager.try_read() {
                 if obs_lock.metrics().is_some() {
                     return true;
@@ -373,7 +377,7 @@ impl StreamJobServer {
         // Check if any job has observability metrics enabled
         if let Ok(jobs) = self.jobs.try_read() {
             for job in jobs.values() {
-                if let Some(ref job_obs) = job.observability {
+                if let Some(job_obs) = &job.observability {
                     if let Ok(obs_lock) = job_obs.try_read() {
                         if obs_lock.metrics().is_some() {
                             return true;
@@ -640,7 +644,7 @@ impl StreamJobServer {
         );
 
         // Initialize deployment context for error tracking and observability
-        if let Some(ref obs_manager) = observability_manager {
+        if let Some(obs_manager) = &observability_manager {
             let deployment_ctx = Self::build_deployment_context(&name, &version);
             if let Ok(mut obs_lock) = obs_manager.try_write() {
                 match obs_lock.set_deployment_context_for_job(deployment_ctx.clone()) {
@@ -803,7 +807,10 @@ impl StreamJobServer {
                             );
 
                             if use_transactions {
-                                info!("Job '{}' using transactional processor for multi-source processing", job_name);
+                                info!(
+                                    "Job '{}' using transactional processor for multi-source processing",
+                                    job_name
+                                );
                                 let processor = TransactionalJobProcessor::with_observability(
                                     config,
                                     observability_for_spawn.clone(),
@@ -1098,22 +1105,22 @@ impl StreamJobServer {
         );
 
         // Log SQL application annotations (top-level metadata)
-        if let Some(ref application) = app.metadata.application {
+        if let Some(application) = app.metadata.application {
             info!("  @application: {}", application);
         }
-        if let Some(ref phase) = app.metadata.phase {
+        if let Some(phase) = app.metadata.phase {
             info!("  @phase: {}", phase);
         }
-        if let Some(ref sla_latency) = app.metadata.sla_latency_p99 {
+        if let Some(sla_latency) = app.metadata.sla_latency_p99 {
             info!("  @sla.latency.p99: {}", sla_latency);
         }
-        if let Some(ref sla_availability) = app.metadata.sla_availability {
+        if let Some(sla_availability) = app.metadata.sla_availability {
             info!("  @sla.availability: {}", sla_availability);
         }
-        if let Some(ref data_retention) = app.metadata.data_retention {
+        if let Some(data_retention) = app.metadata.data_retention {
             info!("  @data_retention: {}", data_retention);
         }
-        if let Some(ref compliance) = app.metadata.compliance {
+        if let Some(compliance) = app.metadata.compliance {
             info!("  @compliance: {}", compliance);
         }
 
@@ -1185,7 +1192,7 @@ impl StreamJobServer {
                     validation_result.total_queries - validation_result.valid_queries,
                     validation_result.total_queries
                 ),
-                None
+                None,
             ));
         }
 
@@ -1331,7 +1338,10 @@ impl StreamJobServer {
 
                             // CLEANUP: Stop any jobs that were already deployed to prevent partial state
                             if !deployed_jobs.is_empty() {
-                                error!("Cleaning up {} already-deployed jobs to prevent partial deployment state", deployed_jobs.len());
+                                error!(
+                                    "Cleaning up {} already-deployed jobs to prevent partial deployment state",
+                                    deployed_jobs.len()
+                                );
                                 for cleanup_job in &deployed_jobs {
                                     if let Err(cleanup_err) = self.stop_job(cleanup_job).await {
                                         warn!(
@@ -1351,9 +1361,12 @@ impl StreamJobServer {
                             return Err(SqlError::execution_error(
                                 format!(
                                     "Deployment of application '{}' aborted: Job '{}' failed to deploy: {}. {} previously deployed jobs were stopped to prevent partial deployment state.",
-                                    app.metadata.name, job_name, e, deployed_jobs.len()
+                                    app.metadata.name,
+                                    job_name,
+                                    e,
+                                    deployed_jobs.len()
                                 ),
-                                Some(stmt.sql.clone())
+                                Some(stmt.sql.clone()),
                             ));
                         }
                     }

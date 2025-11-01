@@ -5,12 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use velostream::ProducerBuilder;
 use velostream::velostream::kafka::{
     configurable_consumer::ConfigurableKafkaConsumerBuilder,
     configurable_producer::ConfigurableKafkaProducerBuilder,
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
 };
-use velostream::ProducerBuilder;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct CustomerSpendingEvent {

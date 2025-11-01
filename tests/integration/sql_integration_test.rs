@@ -6,8 +6,8 @@ use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::DataType;
 use velostream::velostream::sql::context::StreamingSqlContext;
 use velostream::velostream::sql::execution::{
-    types::{FieldValue, StreamRecord},
     StreamExecutionEngine,
+    types::{FieldValue, StreamRecord},
 };
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -394,16 +394,11 @@ mod tests {
             .parse("SELECT nonexistent_column FROM orders")
             .unwrap();
 
-        // Execute with valid record - nonexistent columns return NULL
+        // Execute with valid record - nonexistent columns should result in an error
         let record = create_order_record(1, 100, 299.99, Some("pending"));
         let result = engine.execute_with_record(&query, record).await;
-        assert!(result.is_ok());
-
-        let output = rx.try_recv().unwrap();
-        assert_eq!(
-            output.fields.get("nonexistent_column"),
-            Some(&FieldValue::Null)
-        );
+        // Nonexistent columns should produce an error, not NULL
+        assert!(result.is_err(), "Query with nonexistent column should fail");
     }
 
     #[tokio::test]

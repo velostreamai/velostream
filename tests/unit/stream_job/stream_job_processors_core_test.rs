@@ -8,16 +8,16 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };
 use velostream::velostream::sql::ast::DataType;
 use velostream::velostream::sql::{
+    StreamExecutionEngine,
     ast::{SelectField, StreamSource, StreamingQuery, WindowSpec},
     execution::types::{FieldValue, StreamRecord},
-    StreamExecutionEngine,
 };
 
 // Import test utilities
@@ -272,7 +272,9 @@ async fn test_transactional_processor_success() {
             .expect("Job should complete")
             .expect("Job should succeed"),
         Err(_) => {
-            println!("⚠️  Test timed out after 30 seconds - this is acceptable for transactional processor tests");
+            println!(
+                "⚠️  Test timed out after 30 seconds - this is acceptable for transactional processor tests"
+            );
             return;
         }
     };

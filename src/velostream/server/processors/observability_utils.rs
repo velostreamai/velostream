@@ -4,8 +4,8 @@
 //! ProcessorMetricsHelper and ObservabilityHelper, reducing code duplication by ~30%.
 
 use crate::velostream::observability::{
-    label_extraction::{extract_label_values, LabelExtractionConfig},
     SharedObservabilityManager,
+    label_extraction::{LabelExtractionConfig, extract_label_values},
 };
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::parser::annotations::MetricAnnotation;

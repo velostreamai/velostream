@@ -300,11 +300,11 @@ async fn test_multi_job_server_deploy_all_jobs() {
         None
     }.or_else(|| {
         // Local development - try Docker
-        if let Some(ref container_name) = get_kafka_container_name_sync() {
+        if let Some(container_name) = get_kafka_container_name_sync() {
             Command::new("docker")
                 .args([
                     "exec",
-                    container_name,
+                    &container_name,
                     "kafka-consumer-groups",
                     "--bootstrap-server",
                     "localhost:9092",
@@ -370,11 +370,11 @@ async fn test_multi_job_server_deploy_all_jobs() {
             None
         }.or_else(|| {
             // Local development - use Docker
-            if let Some(ref container_name) = get_kafka_container_name_sync() {
+            if let Some(container_name) = get_kafka_container_name_sync() {
                 Command::new("docker")
                     .args([
                         "exec",
-                        container_name,
+                        &container_name,
                         "kafka-topics",
                         "--create",
                         "--bootstrap-server",

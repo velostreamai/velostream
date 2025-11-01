@@ -6,11 +6,11 @@
 
 use crate::velostream::kafka::kafka_producer_def_context::LoggingProducerContext;
 use crate::velostream::kafka::{
+    Headers, KafkaProducer,
     kafka_error::ProducerError,
     producer_config::ProducerConfig,
     serialization::{JsonSerializer, SerializationError},
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
-    Headers, KafkaProducer,
 };
 use rdkafka::{
     error::KafkaError,

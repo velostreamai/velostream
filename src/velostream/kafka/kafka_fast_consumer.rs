@@ -112,16 +112,16 @@
 //! See the `examples` module at the bottom of this file for complete usage examples.
 
 use futures::{
-    task::{Context, Poll},
     Stream,
+    task::{Context, Poll},
 };
 
 use crate::velostream::kafka::headers::Headers;
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::serialization::Serde;
-use rdkafka::consumer::BaseConsumer;
 use rdkafka::Message as RdKafkaMessage;
+use rdkafka::consumer::BaseConsumer;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -757,32 +757,34 @@ where
         let (tx, rx) = std::sync::mpsc::sync_channel(1000);
 
         let consumer = self.clone();
-        let handle = std::thread::spawn(move || loop {
-            match consumer.consumer.poll(Duration::from_millis(100)) {
-                Some(Ok(msg)) => {
-                    match process_kafka_message(
-                        msg,
-                        &*consumer.key_serializer,
-                        &*consumer.value_serializer,
-                    ) {
-                        Ok(processed) => {
-                            if tx.send(Ok(processed)).is_err() {
-                                break;
+        let handle = std::thread::spawn(move || {
+            loop {
+                match consumer.consumer.poll(Duration::from_millis(100)) {
+                    Some(Ok(msg)) => {
+                        match process_kafka_message(
+                            msg,
+                            &*consumer.key_serializer,
+                            &*consumer.value_serializer,
+                        ) {
+                            Ok(processed) => {
+                                if tx.send(Ok(processed)).is_err() {
+                                    break;
+                                }
                             }
-                        }
-                        Err(e) => {
-                            if tx.send(Err(e)).is_err() {
-                                break;
+                            Err(e) => {
+                                if tx.send(Err(e)).is_err() {
+                                    break;
+                                }
                             }
                         }
                     }
-                }
-                Some(Err(e)) => {
-                    if tx.send(Err(ConsumerError::KafkaError(e))).is_err() {
-                        break;
+                    Some(Err(e)) => {
+                        if tx.send(Err(ConsumerError::KafkaError(e))).is_err() {
+                            break;
+                        }
                     }
+                    None => {}
                 }
-                None => {}
             }
         });
         DedicatedKafkaStream {

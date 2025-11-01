@@ -81,13 +81,13 @@ impl ProfilingProvider {
         self.deployment_node_name = node_name.clone();
         self.deployment_region = region.clone();
 
-        if let Some(ref id) = node_id {
+        if let Some(id) = node_id {
             log::info!("🔧 Profiling deployment context set - Instance: {}", id);
         }
-        if let Some(ref name) = node_name {
+        if let Some(name) = node_name {
             log::info!("🔧 Profiling deployment context set - Node: {}", name);
         }
-        if let Some(ref r) = region {
+        if let Some(r) = region {
             log::info!("🔧 Profiling deployment context set - Region: {}", r);
         }
 

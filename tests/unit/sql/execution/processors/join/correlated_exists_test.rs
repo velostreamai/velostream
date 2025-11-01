@@ -134,7 +134,9 @@ async fn test_correlated_exists_exact_match() {
                 println!("   Actual: No results found - correlation resolution failing");
 
                 // This is the exact issue we're diagnosing
-                panic!("CORRELATION ISSUE: EXISTS subquery not resolving users.id to outer query value (100)");
+                panic!(
+                    "CORRELATION ISSUE: EXISTS subquery not resolving users.id to outer query value (100)"
+                );
             } else {
                 println!("✅ Correlated EXISTS working correctly!");
                 assert_eq!(results.len(), 1, "Should return exactly one user record");

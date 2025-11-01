@@ -196,8 +196,16 @@ AS SELECT
     spread_bps,
     notional_value,
     volume_category,
-    ROW_NUMBER() OVER (ORDER BY price DESC) as price_rank,
-    PERCENT_RANK() OVER (ORDER BY volume) as volume_percentile,
+    ROW_NUMBER() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            ORDER BY price DESC
+    ) as price_rank,
+    PERCENT_RANK() OVER (
+        ROWS WINDOW
+            BUFFER 1000 ROWS
+            ORDER BY volume
+    ) as volume_percentile,
     CASE
         WHEN volume_category = 'HIGH' AND spread_bps < 5 THEN 'LIQUID_ACTIVE'
         WHEN volume_category = 'HIGH' AND spread_bps >= 5 THEN 'ACTIVE_WIDE_SPREAD'

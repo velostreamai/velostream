@@ -11,7 +11,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::time::Instant;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use super::config::{FileFormat, FileSourceConfig};
 use super::error::FileDataSourceError;
@@ -312,7 +312,7 @@ impl FileReader {
         &self,
         fields: &HashMap<String, FieldValue>,
     ) -> Option<chrono::DateTime<chrono::Utc>> {
-        if let Some(ref config) = self.event_time_config {
+        if let Some(config) = &self.event_time_config {
             use crate::velostream::datasource::extract_event_time;
             match extract_event_time(fields, config) {
                 Ok(dt) => Some(dt),
@@ -334,7 +334,7 @@ impl FileReader {
 
         // Use header names if available, otherwise fall back to column indices
         for (i, field_value) in parsed_fields.iter().enumerate() {
-            let field_name = if let Some(ref headers) = self.csv_headers {
+            let field_name = if let Some(headers) = &self.csv_headers {
                 headers
                     .get(i)
                     .cloned()
@@ -651,7 +651,7 @@ impl DataReader for FileReader {
             _ => {
                 return Err(Box::new(FileDataSourceError::InvalidPath(
                     "Invalid offset type for file source".to_string(),
-                )))
+                )));
             }
         };
 

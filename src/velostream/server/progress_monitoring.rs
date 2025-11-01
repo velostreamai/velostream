@@ -5,10 +5,10 @@
 
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 
 /// Real-time progress tracking for table loading operations
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -456,7 +456,7 @@ impl LoadingSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::time::{sleep, Duration as TokioDuration};
+    use tokio::time::{Duration as TokioDuration, sleep};
 
     #[test]
     fn test_table_progress_tracker() {

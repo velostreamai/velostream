@@ -141,12 +141,17 @@ mod codec_integration_tests {
                                                 if fractional_part == 0 {
                                                     integer_part.to_string()
                                                 } else {
-                                                    format!("{}.{:02}", integer_part, fractional_part)
+                                                    format!(
+                                                        "{}.{:02}",
+                                                        integer_part, fractional_part
+                                                    )
                                                 }
                                             };
                                             assert_eq!(s, &expected_decimal);
                                         }
-                                        _ => panic!("Expected ScaledInteger to deserialize as String from Avro")
+                                        _ => panic!(
+                                            "Expected ScaledInteger to deserialize as String from Avro"
+                                        ),
                                     }
                                 }
                             }

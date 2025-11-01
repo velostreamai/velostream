@@ -140,9 +140,10 @@ fn test_market_data_aggregation_ctas() {
             symbol,
             exchange,
             AVG(price) OVER (
-                PARTITION BY symbol
-                ORDER BY timestamp
-                RANGE BETWEEN INTERVAL '5' MINUTE PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY symbol
+                    ORDER BY timestamp
             ) as moving_avg_5min,
             SUM(volume) as total_volume,
             (MAX(ask_price) - MIN(bid_price)) / AVG(price) * 10000 as spread_bps
@@ -301,8 +302,7 @@ fn test_multiple_named_sink_config_pattern() {
         if let Ok(StreamingQuery::CreateTable { as_select, .. }) = result {
             if let StreamingQuery::Select { emit_mode, .. } = *as_select {
                 assert_eq!(
-                    emit_mode,
-                    None,
+                    emit_mode, None,
                     "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level) for sink '{}'",
                     sink_name
                 );
@@ -360,7 +360,11 @@ async fn test_ctas_named_sources_integration_ready() {
             name,
             status,
             created_at,
-            COUNT(*) OVER (PARTITION BY status) as status_count
+            COUNT(*) OVER (
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY status
+            ) as status_count
         FROM integration_source
         WITH ('config_file' = 'tests/configs/integration_source.yaml')
         WHERE status IN ('active', 'pending')

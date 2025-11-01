@@ -1,5 +1,5 @@
 use crate::velostream::kafka::common_config::{CommonKafkaConfig, HasCommonConfig};
-use crate::velostream::kafka::performance_presets::{presets, PerformancePresets};
+use crate::velostream::kafka::performance_presets::{PerformancePresets, presets};
 use std::collections::HashMap;
 use std::time::Duration;
 

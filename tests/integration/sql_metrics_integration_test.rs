@@ -4,10 +4,10 @@ use tokio::sync::Mutex;
 use velostream::velostream::observability::{
     ObservabilityManager, PrometheusConfig, TelemetryConfig,
 };
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use velostream::velostream::sql::execution::StreamExecutionEngine;
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::StreamingQuery;
+use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 #[cfg(test)]
 mod tests {

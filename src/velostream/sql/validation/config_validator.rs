@@ -218,8 +218,77 @@ impl ConfigurationValidator {
         let (errors, warnings, recommendations) =
             KafkaDataSource::validate_source_config(config, source_name);
 
-        for error in errors {
-            result.add_configuration_error(format!("Kafka source '{}': {}", source_name, error));
+        // Build enhanced error message with loaded properties context
+        if !errors.is_empty() {
+            let mut error_msg = format!(
+                "\n════════ Configuration Validation Report - Kafka Source '{}' ════════\n",
+                source_name
+            );
+
+            // Count loaded properties (all config keys that are source-related)
+            let loaded_count = config
+                .keys()
+                .filter(|k| {
+                    !k.starts_with(&format!("{}.config_file", source_name))
+                        && (k.starts_with(&format!("{}.", source_name))
+                            || matches!(
+                                k.as_str(),
+                                "bootstrap.servers"
+                                    | "topic"
+                                    | "group.id"
+                                    | "value.serializer"
+                                    | "schema.registry.url"
+                                    | "enable.auto.commit"
+                                    | "fetch.min.bytes"
+                                    | "fetch.max.wait.ms"
+                                    | "compression.type"
+                                    | "security.protocol"
+                                    | "sasl.mechanism"
+                            ))
+                })
+                .count();
+
+            error_msg.push_str(&format!("\n✓ LOADED PROPERTIES: {}\n", loaded_count));
+            for (key, value) in config.iter() {
+                if key.starts_with(&format!("{}.", source_name))
+                    || matches!(
+                        key.as_str(),
+                        "bootstrap.servers"
+                            | "topic"
+                            | "group.id"
+                            | "value.serializer"
+                            | "schema.registry.url"
+                            | "enable.auto.commit"
+                            | "fetch.min.bytes"
+                            | "fetch.max.wait.ms"
+                            | "compression.type"
+                            | "security.protocol"
+                            | "sasl.mechanism"
+                    )
+                {
+                    if !key.contains("config_file") {
+                        error_msg.push_str(&format!("  • {} = {}\n", key, value));
+                    }
+                }
+            }
+
+            error_msg.push_str(&format!("\n✗ VALIDATION FAILURES: {}\n", errors.len()));
+            for error in &errors {
+                error_msg.push_str(&format!("  • {}\n", error));
+            }
+
+            error_msg.push_str("\n💡 DEBUGGING TIPS:\n");
+            error_msg.push_str(&format!(
+                "  • {} out of {} properties validated\n",
+                loaded_count - errors.len(),
+                loaded_count
+            ));
+            error_msg.push_str("  • Fix the validation failures above and retry\n");
+            error_msg.push_str("  • Ensure property values match their expected formats\n");
+            error_msg
+                .push_str("════════════════════════════════════════════════════════════════\n");
+
+            result.add_configuration_error(error_msg);
         }
 
         for warning in warnings {
@@ -243,18 +312,88 @@ impl ConfigurationValidator {
         let (errors, warnings, recommendations) =
             KafkaDataSink::validate_sink_config(config, sink_name);
 
-        for error in errors {
-            result.add_configuration_error(format!("Kafka sink '{}': {}", sink_name, error));
-        }
+        // Build enhanced error message with loaded properties context
+        if !errors.is_empty() {
+            let mut error_msg = format!(
+                "\n════════ Configuration Validation Report - Kafka Sink '{}' ════════\n",
+                sink_name
+            );
 
-        for warning in warnings {
-            result.add_warning(format!("Kafka sink '{}': {}", sink_name, warning));
-        }
+            // Count loaded properties (all config keys that are sink-related)
+            let loaded_count = config
+                .keys()
+                .filter(|k| {
+                    !k.starts_with(&format!("{}.config_file", sink_name))
+                        && (k.starts_with(&format!("{}.", sink_name))
+                            || matches!(
+                                k.as_str(),
+                                "bootstrap.servers"
+                                    | "topic"
+                                    | "acks"
+                                    | "value.serializer"
+                                    | "schema.registry.url"
+                                    | "retries"
+                                    | "batch.size"
+                                    | "linger.ms"
+                                    | "compression.type"
+                                    | "security.protocol"
+                                    | "sasl.mechanism"
+                            ))
+                })
+                .count();
 
-        for recommendation in recommendations {
-            result
-                .performance_warnings
-                .push(format!("Kafka sink '{}': {}", sink_name, recommendation));
+            error_msg.push_str(&format!("\n✓ LOADED PROPERTIES: {}\n", loaded_count));
+            for (key, value) in config.iter() {
+                if key.starts_with(&format!("{}.", sink_name))
+                    || matches!(
+                        key.as_str(),
+                        "bootstrap.servers"
+                            | "topic"
+                            | "acks"
+                            | "value.serializer"
+                            | "schema.registry.url"
+                            | "retries"
+                            | "batch.size"
+                            | "linger.ms"
+                            | "compression.type"
+                            | "security.protocol"
+                            | "sasl.mechanism"
+                    )
+                {
+                    if !key.contains("config_file") {
+                        error_msg.push_str(&format!("  • {} = {}\n", key, value));
+                    }
+                }
+            }
+
+            error_msg.push_str(&format!("\n✗ VALIDATION FAILURES: {}\n", errors.len()));
+            for error in &errors {
+                error_msg.push_str(&format!("  • {}\n", error));
+            }
+
+            error_msg.push_str("\n💡 DEBUGGING TIPS:\n");
+            error_msg.push_str(&format!(
+                "  • {} out of {} properties validated\n",
+                loaded_count - errors.len(),
+                loaded_count
+            ));
+            error_msg.push_str("  • Fix the validation failures above and retry\n");
+            error_msg.push_str("  • Ensure property values match their expected formats\n");
+            error_msg
+                .push_str("════════════════════════════════════════════════════════════════\n");
+
+            result.add_configuration_error(error_msg);
+        } else {
+            // No errors - add warnings and recommendations normally
+            for warning in warnings {
+                result.add_warning(format!("Kafka sink '{}': {}", sink_name, warning));
+            }
+
+            for recommendation in recommendations {
+                result
+                    .performance_warnings
+                    .push(format!("Kafka sink '{}': {}", sink_name, recommendation));
+            }
         }
     }
 

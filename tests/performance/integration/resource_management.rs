@@ -5,7 +5,7 @@
 //! comprehensive system resource monitoring.
 
 use super::super::common::{
-    generate_test_records, BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig,
+    BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};

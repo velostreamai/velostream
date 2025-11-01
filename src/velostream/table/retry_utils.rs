@@ -2,10 +2,10 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::time::Instant;
 use tokio::time::sleep;
@@ -630,8 +630,12 @@ pub fn format_categorized_error(
                  Example SQL: CREATE TABLE my_table AS SELECT * FROM kafka_source WITH (\"topic.wait.timeout\" = \"{}\")\n\
                  \n\
                  Original error: {}",
-                topic, topic, ErrorMessageConfig::default_partitions(), ErrorMessageConfig::default_replication_factor(),
-                ErrorMessageConfig::suggested_timeout(), ErrorMessageConfig::suggested_timeout(),
+                topic,
+                topic,
+                ErrorMessageConfig::default_partitions(),
+                ErrorMessageConfig::default_replication_factor(),
+                ErrorMessageConfig::suggested_timeout(),
+                ErrorMessageConfig::suggested_timeout(),
                 error
             )
         }
@@ -646,7 +650,9 @@ pub fn format_categorized_error(
                  5. Check network connectivity and firewall rules\n\
                  \n\
                  Original error: {}",
-                topic, ErrorMessageConfig::network_timeout(), error
+                topic,
+                ErrorMessageConfig::network_timeout(),
+                error
             )
         }
 

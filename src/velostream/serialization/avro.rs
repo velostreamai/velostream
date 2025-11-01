@@ -1,8 +1,8 @@
 //! Avro serialization format implementation
 
 use super::helpers::{
-    avro_value_to_field_value, avro_value_to_field_value_with_schema, field_value_to_avro,
-    field_value_to_avro_with_decimal_schema, DecimalSchemaInfo,
+    DecimalSchemaInfo, avro_value_to_field_value, avro_value_to_field_value_with_schema,
+    field_value_to_avro, field_value_to_avro_with_decimal_schema,
 };
 use super::{FieldValue, SerializationError, SerializationFormat};
 use std::collections::HashMap;
@@ -362,8 +362,10 @@ fn extract_decimal_info(field_schema: &apache_avro::Schema) -> Option<DecimalSch
                 scale: decimal_schema.scale as u32,
                 is_standard_logical_type: true, // This is the standard "logicalType": "decimal"
             };
-            eprintln!("DEBUG: Extracted decimal info from Decimal schema - precision: {}, scale: {} (inner: {:?})", 
-                     info.precision, info.scale, decimal_schema.inner);
+            eprintln!(
+                "DEBUG: Extracted decimal info from Decimal schema - precision: {}, scale: {} (inner: {:?})",
+                info.precision, info.scale, decimal_schema.inner
+            );
             Some(info)
         }
         apache_avro::Schema::Bytes => {
@@ -432,7 +434,10 @@ fn extract_decimal_info_from_field(
             field_attrs.get("decimalScale"),
         ) {
             if let (Some(precision), Some(scale)) = (precision_val.as_u64(), scale_val.as_u64()) {
-                eprintln!("DEBUG: Extracted from field-level custom properties - precision: {}, scale: {}", precision, scale);
+                eprintln!(
+                    "DEBUG: Extracted from field-level custom properties - precision: {}, scale: {}",
+                    precision, scale
+                );
                 return Some(DecimalSchemaInfo {
                     precision: precision as u32,
                     scale: scale as u32,
@@ -450,7 +455,10 @@ fn extract_decimal_info_from_field(
                     if let (Some(precision), Some(scale)) =
                         (precision_val.as_u64(), scale_val.as_u64())
                     {
-                        eprintln!("DEBUG: Extracted from field-level logicalType - precision: {}, scale: {}", precision, scale);
+                        eprintln!(
+                            "DEBUG: Extracted from field-level logicalType - precision: {}, scale: {}",
+                            precision, scale
+                        );
                         return Some(DecimalSchemaInfo {
                             precision: precision as u32,
                             scale: scale as u32,

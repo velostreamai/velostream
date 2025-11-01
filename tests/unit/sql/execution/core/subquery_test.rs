@@ -308,7 +308,7 @@ async fn test_scalar_subquery_parsing() {
     let simple_query = "SELECT id FROM test_stream";
     let parser = StreamingSqlParser::new();
     let simple_parse_result = parser.parse(simple_query);
-    if let Err(ref e) = simple_parse_result {
+    if let Err(e) = simple_parse_result {
         panic!("Simple parse error: {:?}", e);
     }
     println!("Simple query parsed successfully");

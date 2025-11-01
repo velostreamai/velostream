@@ -306,7 +306,9 @@ async fn test_correlation_with_different_operators() {
 
     let result = execute_targeted_test(query, test_record).await;
 
-    println!("🎯 OPERATOR TEST: Correlation with range operators (user_id > users.id - 1 AND user_id < users.id + 1)");
+    println!(
+        "🎯 OPERATOR TEST: Correlation with range operators (user_id > users.id - 1 AND user_id < users.id + 1)"
+    );
     match &result {
         Ok(results) => {
             println!("🎯 Result: {} records returned", results.len());
@@ -351,7 +353,9 @@ async fn test_minimal_reproduction_case() {
                 println!("💡 Fix needed: Correlation context resolution in EXISTS evaluation");
 
                 // This is our target reproduction case
-                panic!("MINIMAL REPRODUCTION: Correlation variable users.id not resolving to 999 in EXISTS subquery");
+                panic!(
+                    "MINIMAL REPRODUCTION: Correlation variable users.id not resolving to 999 in EXISTS subquery"
+                );
             } else {
                 println!("\n✅ BUG FIXED: Correlation working correctly!");
             }

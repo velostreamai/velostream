@@ -1,6 +1,6 @@
 use velostream::velostream::sql::ast::*;
-use velostream::velostream::sql::parser::annotations::MetricType;
 use velostream::velostream::sql::parser::StreamingSqlParser;
+use velostream::velostream::sql::parser::annotations::MetricType;
 
 #[test]
 fn test_simple_select_all() {
@@ -103,7 +103,68 @@ fn test_tumbling_window() {
         _ => panic!("Expected Select query"),
     }
 }
+#[test]
+fn test_tumbling_window_with_params() {
+    let parser = StreamingSqlParser::new();
+    let result = parser.parse(
+        "SELECT
+                status,
+                SUM(amount) as total_amount,
+                COUNT(*) > 1 as passes_count_filter,
+                STDDEV(price) > AVG(price) * 0.0001 as passes_volatility_filter,
+                AVG(price) * 0.0001 as volatility_threshold,
+                MAX(volume) > AVG(volume) * 1.1 as passes_volume_filter,
+                AVG(volume) * 1.1 as volume_threshold,
+                COUNT(*) as order_count
+        FROM orders
+        GROUP BY status
+        WINDOW TUMBLING(1m)
+        EMIT CHANGES",
+    );
 
+    assert!(result.is_ok());
+    let query = result.unwrap();
+
+    match query {
+        StreamingQuery::Select {
+            fields,
+            window,
+            group_by,
+            having,
+            limit,
+            emit_mode,
+            ..
+        } => {
+            // Verify SELECT fields - 8 fields total
+            assert_eq!(fields.len(), 8);
+
+            // Verify GROUP BY exists and contains status
+            assert!(group_by.is_some());
+            let group_by_exprs = group_by.unwrap();
+            assert_eq!(group_by_exprs.len(), 1);
+            assert!(matches!(group_by_exprs[0], Expr::Column(ref col) if col == "status"));
+
+            // Verify HAVING clause does not exist (not in this SQL)
+            assert!(having.is_none());
+
+            // Verify LIMIT does not exist (not in this SQL)
+            assert!(limit.is_none());
+
+            // Verify WINDOW clause exists and is TUMBLING
+            assert!(window.is_some());
+            let window_spec = window.unwrap();
+            assert!(matches!(window_spec, WindowSpec::Tumbling { .. }));
+            if let WindowSpec::Tumbling { size, .. } = window_spec {
+                assert_eq!(size.as_secs(), 60); // 1 minute
+            }
+
+            // Verify EMIT CHANGES is set
+            assert!(emit_mode.is_some());
+            assert!(matches!(emit_mode.unwrap(), EmitMode::Changes));
+        }
+        _ => panic!("Expected Select query"),
+    }
+}
 #[test]
 fn test_sliding_window() {
     let parser = StreamingSqlParser::new();

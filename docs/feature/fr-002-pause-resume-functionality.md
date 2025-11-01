@@ -1,21 +1,43 @@
 # FR-002: Pause/Resume Job Functionality
 
-**Status**: Open  
-**Priority**: Medium  
-**Complexity**: High  
-**Estimated Effort**: 2-3 weeks  
+**Status**: In Progress - Partial Implementation
+**Priority**: Medium
+**Complexity**: High
+**Estimated Effort**: 1 week (remaining)
 
 ## 📋 **Summary**
 
-Implement proper pause/resume functionality for MultiJobSqlServer jobs that actually suspends and resumes job execution, unlike the previously removed broken implementation.
+Complete the pause/resume functionality for StreamJobServer jobs. The codebase already has AST support, parser support, and a partial implementation of `pause_job()`. This feature requires completing the `resume_job()` method and fixing the pause mechanism to truly suspend jobs rather than aborting them.
+
+## 📊 **Current Implementation Status**
+
+### **What's Already Implemented** ✅
+- `JobStatus` enum with `Paused` variant
+- `StreamingQuery::PauseJob` and `StreamingQuery::ResumeJob` AST variants
+- SQL parser support for `PAUSE JOB <name>` and `RESUME JOB <name>` commands
+- `StreamJobServer::pause_job()` method (partially working - uses task abort)
+- Parser-level unit tests for pause/resume commands
+
+### **What's Missing** ❌
+- `StreamJobServer::resume_job()` method (critical missing piece)
+- Proper pause mechanism (currently aborts task instead of suspending)
+- `JobProcessor` integration (has stubs that need wiring)
+- Server-level unit tests for `resume_job()`
+- State preservation during pause/resume cycles
+
+### **Architecture Notes**
+- **Server Class**: `StreamJobServer` (not MultiJobSqlServer as in original spec)
+- **Location**: `src/velostream/server/stream_job_server.rs`
+- **Current pause approach**: Uses `shutdown_sender` channel to abort task
+- **Issue**: Task abortion prevents clean resume - need graceful pause instead
 
 ## 🎯 **Problem Statement**
 
 ### **Current Limitation**
-- Jobs can only be **stopped** (terminated) or **running**
-- No way to temporarily suspend a job while preserving state
-- Stopping a job loses all runtime context and requires full redeployment
-- Operators need pause/resume for maintenance windows, debugging, and resource management
+- Jobs have pause capability but **no resume functionality**
+- Pause mechanism aborts the task entirely, preventing true resume
+- Paused jobs lose runtime state and Kafka consumer context
+- Operators cannot suspend jobs for maintenance and resume them afterward
 
 ### **Use Cases**
 1. **Maintenance Windows**: Pause jobs during system maintenance without losing state
@@ -26,20 +48,40 @@ Implement proper pause/resume functionality for MultiJobSqlServer jobs that actu
 
 ## 🚀 **Proposed Solution**
 
-### **New API Methods**
+### **Complete API Methods**
 
 ```rust
-impl MultiJobSqlServer {
-    /// Pause a running job (suspends message processing)
-    pub async fn pause_job(&self, name: &str) -> Result<(), SqlError>;
-    
-    /// Resume a paused job (restarts message processing)
-    pub async fn resume_job(&self, name: &str) -> Result<(), SqlError>;
-    
-    /// Get detailed job state including pause information
-    pub async fn get_job_details(&self, name: &str) -> Option<JobDetails>;
+impl StreamJobServer {
+    // ✅ EXISTING: Pause a running job (needs fix - currently aborts)
+    pub async fn pause_job(&self, name: &str) -> Result<(), SqlError> {
+        // Currently implemented at stream_job_server.rs:1033
+        // Issue: Uses shutdown_sender which aborts task completely
+    }
+
+    // ❌ MISSING: Resume a paused job (needs implementation)
+    pub async fn resume_job(&self, name: &str) -> Result<(), SqlError> {
+        // Find paused job, restart execution, change status to Running
+        // Currently: NO IMPLEMENTATION
+    }
+
+    /// Get detailed job state including pause information (future enhancement)
+    pub async fn get_job_details(&self, name: &str) -> Option<JobDetails> {
+        // Return comprehensive job state including pause history
+    }
 }
 ```
+
+### **Existing Code Locations**
+
+| Component | File | Line | Status |
+|-----------|------|------|--------|
+| `pause_job()` implementation | `src/velostream/server/stream_job_server.rs` | 1033-1051 | ⚠️ Partial |
+| `JobStatus::Paused` variant | `src/velostream/sql/ast.rs` | 62-65 | ✅ Complete |
+| `StreamingQuery::PauseJob` | `src/velostream/sql/ast.rs` | 213-216 | ✅ Complete |
+| `StreamingQuery::ResumeJob` | `src/velostream/sql/ast.rs` | 221-224 | ✅ Complete |
+| Parser for PAUSE/RESUME | `src/velostream/sql/parser.rs` | — | ✅ Complete |
+| `JobProcessor` stubs | `src/velostream/sql/execution/processors/job.rs` | 117-192 | ⚠️ Stub Only |
+| Parser tests | `tests/unit/sql/lifecycle_test.rs` | — | ✅ Complete |
 
 ### **Enhanced Job Status**
 
@@ -243,91 +285,158 @@ pub struct KafkaJobState {
 
 ## 📝 **Implementation Requirements**
 
-### **Phase 1: Core Pause/Resume (Week 1)**
-- [ ] Implement `JobControl` enum and communication channels
-- [ ] Add `pause_job()` and `resume_job()` methods to `MultiJobSqlServer`
-- [ ] Enhance job execution loop with pause/resume logic
-- [ ] Add `JobStatus::Paused` variant with metadata
-- [ ] Basic unit tests for pause/resume functionality
+### **Phase 1: Complete Missing `resume_job()` Method (3 days)**
+Since most components already exist, focus on the critical missing piece:
 
-### **Phase 2: State Management (Week 2)**
-- [ ] Implement Kafka offset management during pause/resume
-- [ ] Add pause history tracking
-- [ ] Implement lag monitoring while paused
-- [ ] Add timeout handling for state transitions
-- [ ] Enhanced error handling and recovery
+- [ ] Implement `StreamJobServer::resume_job()` method
+  - Find paused job by name in `self.jobs` map
+  - Verify job status is `JobStatus::Paused`
+  - Change status to `JobStatus::Running`
+  - Update `updated_at` timestamp
+  - Return success/error result
 
-### **Phase 3: Advanced Features (Week 3)**
-- [ ] Add `get_job_details()` method with comprehensive state
+- [ ] Fix pause mechanism to support true resume
+  - Current issue: `pause_job()` sends shutdown signal that aborts task
+  - Need graceful pause that suspends message processing but preserves consumer state
+  - Option A: Add separate pause flag (don't abort the task)
+  - Option B: Re-deploy job on resume (simpler but loses Kafka state)
+
+- [ ] Add server-level unit tests
+  - `test_resume_job_basic()` - Resume after pause
+  - `test_pause_resume_state_transitions()` - Status changes
+  - `test_resume_job_not_found()` - Error handling
+
+### **Phase 2: Wire JobProcessor Integration (2 days)**
+- [ ] Replace `JobProcessor::process_pause_job()` stub
+  - Call `StreamJobServer::pause_job()`
+  - Return proper response to client
+
+- [ ] Replace `JobProcessor::process_resume_job()` stub
+  - Call `StreamJobServer::resume_job()`
+  - Return proper response to client
+
+- [ ] Integration tests
+  - SQL `PAUSE JOB` command execution
+  - SQL `RESUME JOB` command execution
+
+### **Phase 3: Enhanced Features (Optional - Future)**
+- [ ] Add `get_job_details()` with pause history
 - [ ] Implement pause reasons and metadata
 - [ ] Add metrics for pause/resume operations
-- [ ] Integration tests with real Kafka
+- [ ] Kafka state preservation across pause/resume
 - [ ] Performance testing and optimization
 
 ## 🧪 **Testing Strategy**
 
-### **Unit Tests**
+### **Unit Tests - Already Passing** ✅
 ```rust
-#[tokio::test]
-async fn test_pause_running_job() {
-    let server = create_test_server().await;
-    server.deploy_job("test_job", "1.0", "SELECT * FROM topic", "topic").await.unwrap();
-    
-    // Wait for job to be running
-    wait_for_job_status(&server, "test_job", JobStatus::Running).await;
-    
-    // Pause the job
-    server.pause_job("test_job").await.unwrap();
-    
-    // Verify paused state
-    let status = server.get_job_status("test_job").await.unwrap();
-    assert!(matches!(status.status, JobStatus::Paused { .. }));
+// Location: tests/unit/sql/lifecycle_test.rs
+
+#[test]
+fn test_pause_job_basic() {
+    // ✅ PASSES - PAUSE JOB parsing works
 }
 
-#[tokio::test]
-async fn test_resume_paused_job() {
-    // Similar test for resume functionality
+#[test]
+fn test_resume_job_basic() {
+    // ✅ PASSES - RESUME JOB parsing works
 }
 
-#[tokio::test]
-async fn test_pause_resume_preserves_kafka_state() {
-    // Test that Kafka offsets and state are preserved
-}
-
-#[tokio::test]
-async fn test_multiple_pause_resume_cycles() {
-    // Test repeated pause/resume operations
+#[test]
+fn test_case_insensitive_lifecycle_commands() {
+    // ✅ PASSES - Case-insensitive parsing works
 }
 ```
 
-### **Integration Tests**
-- Pause/resume with real Kafka message flow
-- State preservation across multiple cycles
-- Error recovery scenarios
-- Performance impact measurement
+### **Unit Tests - Need to Implement** ❌
+```rust
+// Location: tests/unit/server/stream_job_server_test.rs (or similar)
+
+#[tokio::test]
+async fn test_pause_job_changes_status() {
+    let server = create_test_server().await;
+    let job = deploy_test_job(&server, "test_job").await;
+
+    // Pause the job
+    server.pause_job("test_job").await.unwrap();
+
+    // Verify status changed to Paused
+    let jobs = server.list_jobs().await.unwrap();
+    let job_status = jobs.iter().find(|j| j.name == "test_job").unwrap();
+    assert!(matches!(job_status.status, JobStatus::Paused));
+}
+
+#[tokio::test]
+async fn test_resume_job_basic() {
+    // THIS IS THE CRITICAL MISSING TEST
+    let server = create_test_server().await;
+    deploy_test_job(&server, "test_job").await;
+
+    // Pause then resume
+    server.pause_job("test_job").await.unwrap();
+    server.resume_job("test_job").await.unwrap();
+
+    // Verify status changed back to Running
+    let jobs = server.list_jobs().await.unwrap();
+    let job_status = jobs.iter().find(|j| j.name == "test_job").unwrap();
+    assert!(matches!(job_status.status, JobStatus::Running));
+}
+
+#[tokio::test]
+async fn test_resume_nonpaused_job_errors() {
+    let server = create_test_server().await;
+    deploy_test_job(&server, "test_job").await;
+
+    // Try to resume a running job (should error)
+    let result = server.resume_job("test_job").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_resume_missing_job_errors() {
+    let server = create_test_server().await;
+
+    // Try to resume non-existent job
+    let result = server.resume_job("missing_job").await;
+    assert!(result.is_err());
+}
+```
+
+### **Integration Tests - Job Execution** ⏳
+- Execute `PAUSE JOB` SQL command and verify pause
+- Execute `RESUME JOB` SQL command and verify resume
+- Verify JobProcessor wiring works correctly
+- Test error cases (invalid job names, wrong states)
 
 ## 📊 **Success Criteria**
 
-### **Functional Requirements**
-- [ ] Jobs can be paused without losing state
-- [ ] Paused jobs stop processing new messages
-- [ ] Kafka consumer offsets are preserved during pause
-- [ ] Jobs can be resumed and continue from where they left off
-- [ ] Multiple pause/resume cycles work correctly
-- [ ] Pause/resume operations complete within 5 seconds
+### **Phase 1 Functional Requirements (Critical Path)**
+- [x] Parser supports PAUSE JOB and RESUME JOB syntax
+- [x] JobStatus enum has Paused variant
+- [x] AST has PauseJob and ResumeJob variants
+- [ ] `StreamJobServer::pause_job()` changes job status correctly
+- [ ] `StreamJobServer::resume_job()` method exists and works
+- [ ] Resume changes status from Paused to Running
+- [ ] Error handling: Resume non-existent job returns error
+- [ ] Error handling: Resume non-paused job returns error
 
-### **Performance Requirements**
-- [ ] Pause operation completes within 2 seconds
-- [ ] Resume operation completes within 3 seconds  
-- [ ] No message loss during pause/resume transitions
-- [ ] Kafka lag increases predictably while paused
-- [ ] Memory usage remains stable during pause
+### **Phase 2 Integration Requirements**
+- [ ] `JobProcessor::process_pause_job()` calls server method
+- [ ] `JobProcessor::process_resume_job()` calls server method
+- [ ] SQL `PAUSE JOB <name>` command executes successfully
+- [ ] SQL `RESUME JOB <name>` command executes successfully
 
-### **Reliability Requirements**
-- [ ] State transitions are atomic and consistent
-- [ ] Error handling for failed pause/resume operations
-- [ ] Recovery from network failures during transitions
-- [ ] Proper cleanup if job crashes during pause/resume
+### **Phase 3+ Performance & State Requirements (Future)**
+- [ ] Pause/resume complete within 5 seconds
+- [ ] Jobs preserve Kafka consumer offsets during pause
+- [ ] Jobs can resume from correct offset
+- [ ] Multiple pause/resume cycles work without data loss
+- [ ] Kafka lag monitoring accurate while paused
+
+### **Reliability Requirements (Current)**
+- [ ] Status transitions are consistent
+- [ ] Proper error messages for invalid operations
+- [ ] Server handles concurrent pause/resume requests safely
 
 ## 🚨 **Risks and Mitigations**
 
@@ -383,14 +492,25 @@ async fn test_multiple_pause_resume_cycles() {
 
 ## 🎯 **Definition of Done**
 
-- [ ] All pause/resume functionality implemented and tested
-- [ ] Unit test coverage > 95% for new code
-- [ ] Integration tests passing with real Kafka
+### **Phase 1 - Core Functionality** (Current Focus)
+- [ ] `StreamJobServer::resume_job()` method implemented
+- [ ] Unit tests for pause/resume state transitions pass
+- [ ] Unit tests for error cases pass
+- [ ] Code compiles and passes CI
+- [ ] Code review completed
+
+### **Phase 2 - Integration** (Next)
+- [ ] JobProcessor methods wire to server implementation
+- [ ] SQL `PAUSE JOB` and `RESUME JOB` command execution works
+- [ ] Integration tests pass
+- [ ] Error handling and logging complete
+
+### **Phase 3+ - Polish & Enhancement** (Future)
 - [ ] Performance tests meet success criteria
 - [ ] Documentation updated (API docs, operator guide)
 - [ ] Metrics and monitoring implemented
-- [ ] Code review completed
-- [ ] Feature flag for gradual rollout implemented
+- [ ] Feature flag for gradual rollout (if needed)
+- [ ] Kafka state preservation verified
 
 ## 👥 **Stakeholders**
 
@@ -401,6 +521,24 @@ async fn test_multiple_pause_resume_cycles() {
 
 ---
 
-**Created**: 2025-01-08  
-**Last Updated**: 2025-01-08  
-**Next Review**: 2025-01-15
+**Created**: 2025-01-08
+**Last Updated**: 2025-10-29
+**Last Reviewed**: 2025-10-29 (Implementation Status Audit Completed)
+**Next Review**: After Phase 1 completion
+
+## 📝 **Implementation Status Audit (2025-10-29)**
+
+### **Key Findings**
+1. **Server**: `StreamJobServer` in `src/velostream/server/stream_job_server.rs` (not MultiJobSqlServer)
+2. **Partially Implemented**: `pause_job()` exists but has architectural issues (uses task abort)
+3. **Completely Missing**: `resume_job()` method (main blocker)
+4. **AST Ready**: PauseJob and ResumeJob variants already in AST
+5. **Parser Ready**: PAUSE JOB and RESUME JOB parsing works
+6. **Stubs Only**: JobProcessor has placeholder implementations
+
+### **Critical Path to Completion**
+1. Implement `resume_job()` method (~1 day)
+2. Fix pause mechanism for true suspension (~1 day)
+3. Wire JobProcessor integration (~1 day)
+4. Add comprehensive tests (~1 day)
+5. Total: ~1 week estimated effort (revised down from 2-3 weeks)

@@ -1,12 +1,12 @@
+use crate::velostream::sql::SqlError;
 /// Field Value Comparison Utilities
 ///
 /// Handles comparison operations between FieldValue instances.
 /// These are pure comparison functions with no engine state dependency.
 use crate::velostream::sql::ast::BinaryOperator;
 use crate::velostream::sql::execution::FieldValue;
-use crate::velostream::sql::SqlError;
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 
 /// Utility class for comparing FieldValue instances
 pub struct FieldValueComparator;
@@ -256,7 +256,8 @@ impl FieldValueComparator {
     }
 
     /// Convert ScaledInteger to f64 for comparison operations
-    fn scaled_to_f64(value: i64, scale: u8) -> f64 {
+    /// Convert a ScaledInteger to f64 by dividing by the scale factor
+    pub fn scaled_to_f64(value: i64, scale: u8) -> f64 {
         let divisor = 10_i64.pow(scale as u32) as f64;
         value as f64 / divisor
     }

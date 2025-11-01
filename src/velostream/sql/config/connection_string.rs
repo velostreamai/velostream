@@ -301,7 +301,7 @@ impl ConnectionString {
             })
             .collect();
 
-        let (username, password) = if let Some(ref userinfo) = self.userinfo {
+        let (username, password) = if let Some(userinfo) = &self.userinfo {
             if let Some(colon_pos) = userinfo.find(':') {
                 let username = userinfo[..colon_pos].to_string();
                 let password = userinfo[colon_pos + 1..].to_string();
@@ -414,7 +414,7 @@ impl ConnectionString {
     pub fn to_uri(&self) -> String {
         let mut uri = format!("{}://", self.scheme);
 
-        if let Some(ref userinfo) = self.userinfo {
+        if let Some(userinfo) = &self.userinfo {
             uri.push_str(userinfo);
             uri.push('@');
         }
@@ -434,7 +434,7 @@ impl ConnectionString {
             uri.push_str(&host_strings.join(","));
         }
 
-        if let Some(ref path) = self.path {
+        if let Some(path) = &self.path {
             if !path.starts_with('/') {
                 uri.push('/');
             }
@@ -457,7 +457,7 @@ impl ConnectionString {
             uri.push_str(&params.join("&"));
         }
 
-        if let Some(ref fragment) = self.fragment {
+        if let Some(fragment) = &self.fragment {
             uri.push('#');
             uri.push_str(fragment);
         }

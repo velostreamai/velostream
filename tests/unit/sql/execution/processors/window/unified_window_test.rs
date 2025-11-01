@@ -28,6 +28,66 @@ mod unified_window_tests {
             let results = SqlExecutor::execute_query(&sql, records.clone()).await;
             WindowTestAssertions::assert_has_results(&results, test_name);
             WindowTestAssertions::print_results(&results, test_name);
+
+            // Add comprehensive value assertions for each aggregation type
+            match agg_func {
+                "COUNT" => {
+                    for (idx, result) in results.iter().enumerate() {
+                        if let Some(count_field) = result.fields.get("result") {
+                            match count_field {
+                                velostream::velostream::sql::execution::FieldValue::Integer(
+                                    count,
+                                ) => {
+                                    assert!(
+                                        *count > 0,
+                                        "{}: COUNT should be positive, got {}",
+                                        test_name,
+                                        count
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                "SUM" | "AVG" => {
+                    for (idx, result) in results.iter().enumerate() {
+                        if let Some(agg_field) = result.fields.get("result") {
+                            match agg_field {
+                                velostream::velostream::sql::execution::FieldValue::Float(val) => {
+                                    assert!(
+                                        *val > 0.0,
+                                        "{}: {} should be positive, got {}",
+                                        test_name,
+                                        agg_func,
+                                        val
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                "MIN" | "MAX" => {
+                    for result in results.iter() {
+                        if let Some(agg_field) = result.fields.get("result") {
+                            match agg_field {
+                                velostream::velostream::sql::execution::FieldValue::Float(val) => {
+                                    assert!(
+                                        *val > 0.0,
+                                        "{}: {} should be positive, got {}",
+                                        test_name,
+                                        agg_func,
+                                        val
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -40,8 +100,8 @@ mod unified_window_tests {
                 SUM(amount) as total_revenue,
                 AVG(amount) as avg_order_value
             FROM orders 
-            WINDOW TUMBLING(1h)
             GROUP BY status
+            WINDOW TUMBLING(1h)
             HAVING COUNT(*) > 1
             EMIT CHANGES
         "#;
@@ -67,8 +127,8 @@ mod unified_window_tests {
                 SUM(amount) as total_revenue,
                 AVG(amount) as avg_order_value
             FROM orders
-            WINDOW TUMBLING(1h)
             GROUP BY status
+            WINDOW TUMBLING(1h)
             HAVING COUNT(*) > 1
         "#;
 
@@ -187,8 +247,8 @@ mod unified_window_tests {
                     ELSE 'NORMAL'
                 END as market_status
             FROM ticker_feed 
-            WINDOW SLIDING(15m, 3m)
             GROUP BY symbol
+            WINDOW SLIDING(15m, 3m)
         "#;
 
         let records = vec![
@@ -234,8 +294,8 @@ mod unified_window_tests {
                 AVG(price) as avg_price,
                 COUNT(*) as tick_count
             FROM ticker_feed 
-            WINDOW SLIDING(10m, 2m)
             GROUP BY symbol
+            WINDOW SLIDING(10m, 2m)
             ORDER BY symbol
         "#;
 
@@ -266,8 +326,8 @@ mod unified_window_tests {
                     ELSE 'LOW_VALUE'
                 END as customer_segment
             FROM orders 
-            WINDOW SESSION(10m)
             GROUP BY customer_id
+            WINDOW SESSION(10m)
             HAVING COUNT(*) >= 2
             ORDER BY SUM(amount) DESC
         ";
@@ -288,5 +348,73 @@ mod unified_window_tests {
         WindowTestAssertions::assert_has_results(&results, "Complex analytical query");
         WindowTestAssertions::print_results(&results, "Complex analytical query");
         WindowTestAssertions::assert_result_count_min(&results, 2, "Complex analytical query");
+
+        // Add comprehensive value assertions
+        for (idx, result) in results.iter().enumerate() {
+            // Validate session_actions (COUNT) is positive
+            if let Some(velostream::velostream::sql::execution::FieldValue::Integer(
+                session_actions,
+            )) = result.fields.get("session_actions")
+            {
+                assert!(
+                    *session_actions >= 2,
+                    "Result {}: session_actions should be >= 2 (HAVING clause), got {}",
+                    idx,
+                    session_actions
+                );
+            }
+
+            // Validate session_value (SUM) is reasonable
+            if let Some(session_value_field) = result.fields.get("session_value") {
+                let session_value = match session_value_field {
+                    velostream::velostream::sql::execution::FieldValue::Float(v) => Some(*v),
+                    velostream::velostream::sql::execution::FieldValue::ScaledInteger(v, _) => {
+                        Some(*v as f64)
+                    }
+                    _ => None,
+                };
+
+                if let Some(val) = session_value {
+                    assert!(
+                        val > 0.0,
+                        "Result {}: session_value should be positive, got {}",
+                        idx,
+                        val
+                    );
+                }
+            }
+
+            // Validate avg_action_value (AVG) is positive
+            if let Some(avg_action_field) = result.fields.get("avg_action_value") {
+                let avg_action = match avg_action_field {
+                    velostream::velostream::sql::execution::FieldValue::Float(v) => Some(*v),
+                    velostream::velostream::sql::execution::FieldValue::ScaledInteger(v, _) => {
+                        Some(*v as f64)
+                    }
+                    _ => None,
+                };
+
+                if let Some(val) = avg_action {
+                    assert!(
+                        val > 0.0,
+                        "Result {}: avg_action_value should be positive, got {}",
+                        idx,
+                        val
+                    );
+                }
+            }
+
+            // Validate customer_segment is one of the expected categories
+            if let Some(velostream::velostream::sql::execution::FieldValue::String(segment)) =
+                result.fields.get("customer_segment")
+            {
+                assert!(
+                    vec!["HIGH_VALUE", "MEDIUM_VALUE", "LOW_VALUE"].contains(&segment.as_str()),
+                    "Result {}: customer_segment should be one of HIGH_VALUE, MEDIUM_VALUE, or LOW_VALUE, got {}",
+                    idx,
+                    segment
+                );
+            }
+        }
     }
 }

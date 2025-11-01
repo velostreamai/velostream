@@ -696,9 +696,9 @@ docker exec velo-streams velo-sql execute \
   --query "
     SELECT 
       JSON_VALUE(payload, '$.device_id') as device_id,
-      CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') as temp,
+      CAST(JSON_VALUE(payload, '$.temperature') AS FLOAT) as temp,
       CASE 
-        WHEN CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') > 75.0 
+        WHEN CAST(JSON_VALUE(payload, '$.temperature') AS FLOAT) > 75.0 
         THEN 'HIGH' ELSE 'NORMAL'
       END as alert_level
     FROM sensor_data 
@@ -741,7 +741,7 @@ docker exec velo-streams velo-sql stream \
       timestamp() as alert_time,
       'TEMPERATURE_HIGH' as alert_type
     FROM sensor_data 
-    WHERE CAST(JSON_VALUE(payload, '$.temperature'), 'FLOAT') > 75.0
+    WHERE CAST(JSON_VALUE(payload, '$.temperature') AS FLOAT) > 75.0
   " \
   --input-topic iot_sensors \
   --output-topic emergency_alerts \

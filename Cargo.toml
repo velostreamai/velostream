@@ -1,8 +1,8 @@
 [package]
 name = "velostream"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.70.0"
+edition = "2024"
+rust-version = "1.91.0"
 license = "Apache-2.0"
 authors = ["Velostream Contributors"]
 description = "High-performance stream processing engine with SQL support"
@@ -10,18 +10,44 @@ repository = "https://github.com/velostreamai/velostream"
 keywords = ["streaming", "sql", "kafka", "data-processing", "real-time"]
 categories = ["database-implementations", "asynchronous", "data-structures"]
 
+[profile.test]
+incremental = true
+codegen-units = 256  # For fast iteration during development
+split-debuginfo = "packed"  # FASTER debug info on macOS
+
+[profile.release]
+incremental = true
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
 [profile.dev]
 opt-level = 0
 debug = true
 debug-assertions = true
 overflow-checks = true
+codegen-units = 256  # For fast iteration during development
+incremental = true
+split-debuginfo = "packed"  # FASTER debug info on macOS
 
 [dependencies]
+backtrace = "0.3.76"
 pretty_env_logger = "0.5.0"
 log = "0.4.27"
 env_logger = "0.11.8"
 rdkafka = "0.38.0"
-tokio = { version = "1.47.0", features = ["full"] }
+tokio = { version = "1.47.0", features = [
+    "rt-multi-thread",  # Multi-threaded async runtime with task management
+    "time",              # Timing utilities: sleep, timeout, interval
+    "sync",              # Synchronization: mpsc, Mutex, RwLock, Semaphore
+    "macros",            # Attribute macros: #[tokio::main], #[tokio::test]
+    "fs",                # Async file system operations
+    "io-util",           # Async I/O: AsyncWriteExt, AsyncReadExt
+    "net",               # Async networking: TcpListener, TcpStream
+    "process",           # Subprocess handling for integration tests
+    "signal",            # Unix signal handling (Ctrl+C) for examples
+] }
 chrono = { version = "0.4.41", features = ["serde"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 logtest = "2.0.0"
@@ -102,6 +128,37 @@ path = "examples/performance/datasource_performance_test.rs"
 name = "quick_performance_test"
 path = "examples/performance/quick_performance_test.rs"
 
+# Benchmark examples - organized in subfolder
+[[example]]
+name = "table_performance_benchmark"
+path = "examples/performance/table_performance_benchmark.rs"
+
+[[example]]
+name = "stream_table_join_baseline_benchmark"
+path = "examples/performance/stream_table_join_baseline_benchmark.rs"
+
+[[example]]
+name = "phase4_batch_benchmark"
+path = "examples/performance/phase4_batch_benchmark.rs"
+
+# Demo examples
+[[example]]
+name = "table_financial_ctas_demo"
+path = "examples/table_financial_ctas_demo.rs"
+
+[[example]]
+name = "stream_table_join_financial_demo"
+path = "examples/stream_table_join_financial_demo.rs"
+
+# Validator and utility demos
+[[example]]
+name = "test_sql_validator_demo"
+path = "examples/test_sql_validator_demo.rs"
+
+[[example]]
+name = "test_batch_with_clause"
+path = "examples/test_batch_with_clause.rs"
+
 # Multi-Job SQL Server Binary
 [[bin]]
 name = "velo-sql-multi"
@@ -111,11 +168,6 @@ path = "src/bin/velo-sql-multi.rs"
 [[bin]]
 name = "velo-cli"
 path = "src/bin/velo_cli.rs"
-
-# SQL Validator Binary (Object-Oriented Version)
-[[bin]]
-name = "sql-validator-new"
-path = "src/bin/sql_validator_new.rs"
 
 # File Processing Demo Binary
 [[bin]]
@@ -131,31 +183,6 @@ path = "demo/datasource-demo/complete_pipeline_demo.rs"
 [[bin]]
 name = "sql-batch"
 path = "src/bin/sql_batch.rs"
-
-# Debug Encoding Test
-[[bin]]
-name = "debug_encoding_test"
-path = "tests/debug/debug_encoding_test.rs"
-
-
-
-# Performance Benchmarks
-# (No active benchmarks currently - use cargo test for performance tests)
-
-# Simple Conversion Performance Test
-[[bin]]
-name = "simple_conversion_test"
-path = "tests/debug/simple_conversion_test.rs"
-
-# StreamRecord Performance Test
-[[bin]]
-name = "test_streamrecord_performance" 
-path = "tests/debug/test_streamrecord_performance.rs"
-
-# Final Complete Performance Test
-[[bin]]
-name = "test_final_performance"
-path = "tests/debug/test_final_performance.rs"
 
 
 

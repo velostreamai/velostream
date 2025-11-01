@@ -11,11 +11,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::ast::WindowSpec;
+use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::internal::{
     GroupAccumulator, GroupByState, WindowState,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use velostream::velostream::sql::execution::StreamExecutionEngine;
 
 #[test]
 fn test_get_group_states_empty() {

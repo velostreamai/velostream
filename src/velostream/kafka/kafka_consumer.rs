@@ -5,6 +5,7 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::serialization::Serde;
 use futures::StreamExt;
+use log::{debug, error};
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{
     Consumer, ConsumerContext, DefaultConsumerContext, MessageStream, StreamConsumer,
@@ -252,7 +253,7 @@ where
                 // Attempt value deserialization
                 let value = match self.value_serde.deserialize(payload) {
                     Ok(v) => {
-                        log::debug!(
+                        debug!(
                             target: "kafka_consumer",
                             topic = msg.topic(),
                             partition = msg.partition(),
@@ -263,7 +264,7 @@ where
                         v
                     }
                     Err(e) => {
-                        log::error!(
+                        error!(
                             target: "kafka_consumer",
                             "Failed to deserialize message value: topic={} partition={} offset={} payload_size={} error={:?}",
                             msg.topic(),

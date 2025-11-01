@@ -170,7 +170,7 @@ async fn test_execute_with_literals() {
 }
 
 #[tokio::test]
-async fn test_missing_column_returns_null() {
+async fn test_missing_column_returns_error() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
 
@@ -195,14 +195,10 @@ async fn test_missing_column_returns_null() {
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
     let result = engine.execute_with_record(&query, record).await;
-    assert!(result.is_ok());
-
-    let output = rx.try_recv().unwrap();
-    // Missing columns should return NULL
-    assert_eq!(
-        output.fields.get("nonexistent_column"),
-        Some(&FieldValue::Null)
-    );
+    // Selecting a nonexistent field should fail with an error
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("not found") || error_msg.contains("nonexistent_column"));
 }
 
 #[tokio::test]

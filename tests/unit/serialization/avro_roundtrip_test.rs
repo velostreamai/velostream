@@ -3,8 +3,8 @@
 /// Tests that data can be written in Avro format and read back successfully,
 /// ensuring schema compatibility between writer and reader.
 use std::collections::HashMap;
-use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::serialization::SerializationCodec;
+use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::sql::execution::types::FieldValue;
 
 #[test]
@@ -409,6 +409,7 @@ fn test_avro_all_logical_types_roundtrip() {
         FieldValue::Timestamp(ts) => {
             // Verify the timestamp matches 2024-01-15 14:30:45.500000 UTC
             use chrono::NaiveDateTime;
+            #[allow(deprecated)]
             let expected_ts = NaiveDateTime::from_timestamp_opt(1705329045, 500000000).unwrap();
             assert_eq!(ts, &expected_ts, "Timestamp value mismatch");
             println!("✅ Timestamp-micros roundtrip verified (Timestamp type)");

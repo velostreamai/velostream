@@ -3,15 +3,13 @@
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
 use opentelemetry::{
-    global,
+    KeyValue, global,
     trace::{Span, SpanKind, Status, Tracer, TracerProvider as _},
-    KeyValue,
 };
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    runtime,
+    Resource, runtime,
     trace::{RandomIdGenerator, Sampler, TracerProvider},
-    Resource,
 };
 use std::time::Instant;
 
@@ -212,13 +210,13 @@ impl TelemetryProvider {
         self.deployment_node_name = node_name.clone();
         self.deployment_region = region.clone();
 
-        if let Some(ref id) = node_id {
+        if let Some(id) = node_id {
             log::info!("🔍 Telemetry deployment context set - Instance: {}", id);
         }
-        if let Some(ref name) = node_name {
+        if let Some(name) = node_name {
             log::info!("🔍 Telemetry deployment context set - Node: {}", name);
         }
-        if let Some(ref r) = region {
+        if let Some(r) = region {
             log::info!("🔍 Telemetry deployment context set - Region: {}", r);
         }
 
@@ -255,19 +253,19 @@ impl TelemetryProvider {
         ];
 
         // Add deployment context attributes if set
-        if let Some(ref node_id) = self.deployment_node_id {
+        if let Some(node_id) = &self.deployment_node_id {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
                 node_id.clone(),
             ));
         }
-        if let Some(ref node_name) = self.deployment_node_name {
+        if let Some(node_name) = &self.deployment_node_name {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::HOST_NAME,
                 node_name.clone(),
             ));
         }
-        if let Some(ref region) = self.deployment_region {
+        if let Some(region) = &self.deployment_region {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::CLOUD_REGION,
                 region.clone(),
@@ -338,19 +336,19 @@ impl TelemetryProvider {
         ];
 
         // Add deployment context attributes if set
-        if let Some(ref node_id) = self.deployment_node_id {
+        if let Some(node_id) = &self.deployment_node_id {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
                 node_id.clone(),
             ));
         }
-        if let Some(ref node_name) = self.deployment_node_name {
+        if let Some(node_name) = &self.deployment_node_name {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::HOST_NAME,
                 node_name.clone(),
             ));
         }
-        if let Some(ref region) = self.deployment_region {
+        if let Some(region) = &self.deployment_region {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::CLOUD_REGION,
                 region.clone(),
@@ -412,19 +410,19 @@ impl TelemetryProvider {
         ];
 
         // Add deployment context attributes if set
-        if let Some(ref node_id) = self.deployment_node_id {
+        if let Some(node_id) = &self.deployment_node_id {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
                 node_id.clone(),
             ));
         }
-        if let Some(ref node_name) = self.deployment_node_name {
+        if let Some(node_name) = &self.deployment_node_name {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::HOST_NAME,
                 node_name.clone(),
             ));
         }
-        if let Some(ref region) = self.deployment_region {
+        if let Some(region) = &self.deployment_region {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::CLOUD_REGION,
                 region.clone(),
@@ -484,19 +482,19 @@ impl TelemetryProvider {
         ];
 
         // Add deployment context attributes if set
-        if let Some(ref node_id) = self.deployment_node_id {
+        if let Some(node_id) = &self.deployment_node_id {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
                 node_id.clone(),
             ));
         }
-        if let Some(ref node_name) = self.deployment_node_name {
+        if let Some(node_name) = &self.deployment_node_name {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::HOST_NAME,
                 node_name.clone(),
             ));
         }
-        if let Some(ref region) = self.deployment_region {
+        if let Some(region) = &self.deployment_region {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::CLOUD_REGION,
                 region.clone(),
@@ -575,19 +573,19 @@ impl TelemetryProvider {
         ];
 
         // Add deployment context attributes if set
-        if let Some(ref node_id) = self.deployment_node_id {
+        if let Some(node_id) = &self.deployment_node_id {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
                 node_id.clone(),
             ));
         }
-        if let Some(ref node_name) = self.deployment_node_name {
+        if let Some(node_name) = &self.deployment_node_name {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::HOST_NAME,
                 node_name.clone(),
             ));
         }
-        if let Some(ref region) = self.deployment_region {
+        if let Some(region) = &self.deployment_region {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::CLOUD_REGION,
                 region.clone(),
@@ -654,19 +652,19 @@ impl TelemetryProvider {
         ];
 
         // Add deployment context attributes if set
-        if let Some(ref node_id) = self.deployment_node_id {
+        if let Some(node_id) = &self.deployment_node_id {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::SERVICE_INSTANCE_ID,
                 node_id.clone(),
             ));
         }
-        if let Some(ref node_name) = self.deployment_node_name {
+        if let Some(node_name) = &self.deployment_node_name {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::HOST_NAME,
                 node_name.clone(),
             ));
         }
-        if let Some(ref region) = self.deployment_region {
+        if let Some(region) = &self.deployment_region {
             attributes.push(KeyValue::new(
                 opentelemetry_semantic_conventions::resource::CLOUD_REGION,
                 region.clone(),

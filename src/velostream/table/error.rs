@@ -88,9 +88,7 @@ pub enum CtasError {
     },
 
     /// Memory limit exceeded
-    #[error(
-        "Memory limit exceeded for table '{table_name}': used {used_mb}MB, limit {limit_mb}MB"
-    )]
+    #[error("Memory limit exceeded for table '{table_name}': used {used_mb}MB, limit {limit_mb}MB")]
     MemoryLimitExceeded {
         table_name: String,
         used_mb: usize,

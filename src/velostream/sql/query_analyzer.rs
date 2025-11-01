@@ -3,16 +3,16 @@
 //! This module analyzes parsed SQL queries to determine what Kafka consumers, producers,
 //! and serializers need to be created dynamically based on the query requirements.
 
-use crate::velostream::config::schema_registry::validate_configuration;
 use crate::velostream::config::HierarchicalSchemaRegistry;
+use crate::velostream::config::schema_registry::validate_configuration;
 use crate::velostream::datasource::file::{FileDataSink, FileDataSource};
 use crate::velostream::datasource::kafka::data_sink::KafkaDataSink;
 use crate::velostream::datasource::kafka::data_source::KafkaDataSource;
 use crate::velostream::kafka::serialization_format::SerializationConfig;
 use crate::velostream::sql::{
+    SqlError,
     ast::{InsertSource, IntoClause, StreamSource, StreamingQuery},
     config::load_yaml_config,
-    SqlError,
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -224,15 +224,16 @@ impl QueryAnalyzer {
                 self.merge_analysis(&mut analysis, nested_analysis);
 
                 // ENHANCEMENT: Detect sinks defined in WITH clause
-                self.detect_sinks_from_config(&mut analysis)?;
+                // Pass the stream name so we can match properties by direct name (e.g., output_stream.type)
+                self.detect_sinks_from_config(name, &mut analysis)?;
 
                 // VALIDATION: CSAS (CREATE STREAM AS SELECT) requires a sink configuration
                 if analysis.required_sinks.is_empty() {
                     return Err(SqlError::ConfigurationError {
                         message: format!(
                             "CREATE STREAM '{}' requires a sink configuration. \
-                            Define a sink in the WITH clause with '{}_sink.type' = 'kafka_sink' (or file_sink/s3_sink). \
-                            Example: WITH ('{}_sink.type' = 'kafka_sink', '{}_sink.topic' = 'output_topic', ...)",
+                            Define a sink in the WITH clause with '{}.type' = 'kafka_sink' (or file_sink/s3_sink). \
+                            Example: WITH ('{}.type' = 'kafka_sink', '{}.topic' = 'output_topic', ...)",
                             name, name, name, name
                         ),
                     });
@@ -338,38 +339,13 @@ impl QueryAnalyzer {
         if self.known_tables.contains(table_name) {
             return Ok(());
         }
-        // Determine source type - EXPLICIT ONLY (no autodetection)
-        // Uses simple compound type format: {name}.type = '{type}_source'
-        // Examples: 'kafka_source', 'file_source', 's3_source'
-        let source_type_str = config
-            .get(&format!("{}.type", table_name))
-            .map(|s| s.as_str())
-            .ok_or_else(|| SqlError::ConfigurationError {
-                message: format!(
-                    "Source type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_source', 'file_source', 's3_source', 'database_source'",
-                    table_name, table_name
-                ),
-            })?;
-
-        let source_type = match source_type_str {
-            "kafka_source" => DataSourceType::Kafka,
-            "file_source" => DataSourceType::File,
-            "s3_source" => DataSourceType::S3,
-            "database_source" => DataSourceType::Database,
-            other => return Err(SqlError::ConfigurationError {
-                message: format!(
-                    "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
-                    other, table_name
-                ),
-            }),
-        };
-
         // Build properties map from named source configuration
         let mut properties = HashMap::new();
         let source_prefix = format!("{}.", table_name);
 
         // Check for config_file and load YAML configuration
         let config_file_key = format!("{}.config_file", table_name);
+        let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
             match load_yaml_config(config_file_path) {
                 Ok(yaml_config) => {
@@ -377,12 +353,11 @@ impl QueryAnalyzer {
                     flatten_yaml_value(&yaml_config.config, "", &mut properties);
                 }
                 Err(e) => {
-                    return Err(SqlError::ConfigurationError {
-                        message: format!(
-                            "Failed to load config file '{}' for source '{}': {}",
-                            config_file_path, table_name, e
-                        ),
-                    });
+                    // Store the error to show in the enhanced error message
+                    config_file_error = Some(format!(
+                        "Failed to load config file '{}': {}",
+                        config_file_path, e
+                    ));
                 }
             }
         }
@@ -390,13 +365,85 @@ impl QueryAnalyzer {
         // Add all source-specific properties (e.g., "kafka_source.bootstrap.servers")
         for (key, value) in config {
             if key.starts_with(&source_prefix) {
+                // Skip config_file and .type keys - these are handled separately
+                let suffix = &key[source_prefix.len()..];
+                if suffix == "config_file" || suffix == "type" {
+                    continue;
+                }
+
                 // Convert to standard property format (remove source name prefix)
-                let standard_key = key[source_prefix.len()..].to_string();
+                let standard_key = suffix.to_string();
                 properties.insert(standard_key, value.clone());
 
                 // Also preserve original key for legacy compatibility during transition
                 properties.insert(key.clone(), value.clone());
             }
+        }
+
+        // Determine source type - EXPLICIT ONLY (no autodetection)
+        // Uses simple compound type format: {name}.type = '{type}_source'
+        // Examples: 'kafka_source', 'file_source', 's3_source'
+        let source_type_str = config
+            .get(&format!("{}.type", table_name))
+            .map(|s| s.as_str())
+            .ok_or_else(|| {
+                // Build enhanced error message showing loaded properties
+                let mut error_msg = format!(
+                    "Source type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_source', 'file_source', 's3_source', 'database_source'\n\n",
+                    table_name, table_name
+                );
+
+                // Show loaded properties for debugging
+                if !properties.is_empty() {
+                    error_msg.push_str("✓ LOADED PROPERTIES:\n");
+                    for (key, value) in &properties {
+                        if !key.contains("config_file") {
+                            error_msg.push_str(&format!("  • {} = {}\n", key, value));
+                        }
+                    }
+                } else {
+                    // Provide detailed diagnostic information
+                    if let Some(file_error) = &config_file_error {
+                        error_msg.push_str("❌ CONFIGURATION FILE ERROR:\n");
+                        error_msg.push_str(&format!("  {}\n\n", file_error));
+                        error_msg.push_str("RESOLUTION:\n");
+                        error_msg.push_str("  • Verify the config_file path is correct and the file exists\n");
+                        error_msg.push_str("  • Ensure the YAML file is valid and contains expected properties\n");
+                    } else if config.contains_key(&config_file_key) {
+                        error_msg.push_str("⚠ NO PROPERTIES LOADED - config_file exists but is empty or could not be parsed\n");
+                        error_msg.push_str(&format!("  config_file: {}\n\n", config.get(&config_file_key).unwrap()));
+                    } else {
+                        error_msg.push_str("⚠ NO CONFIGURATION PROVIDED\n");
+                        error_msg.push_str(&format!("  • Missing '{}.config_file' specification\n", table_name));
+                        error_msg.push_str(&format!("  • Define it in the WITH clause or ensure it's in the global configuration\n"));
+                    }
+                }
+
+                SqlError::ConfigurationError {
+                    message: error_msg,
+                }
+            })?;
+
+        let source_type = match source_type_str {
+            "kafka_source" => DataSourceType::Kafka,
+            "file_source" => DataSourceType::File,
+            "s3_source" => DataSourceType::S3,
+            "database_source" => DataSourceType::Database,
+            other => {
+                return Err(SqlError::ConfigurationError {
+                    message: format!(
+                        "Invalid source type '{}' for '{}'. Supported values: 'kafka_source', 'file_source', 's3_source', 'database_source'",
+                        other, table_name
+                    ),
+                });
+            }
+        };
+
+        // Check if config file failed to load (even though source type was provided)
+        if let Some(file_error) = config_file_error {
+            return Err(SqlError::ConfigurationError {
+                message: file_error,
+            });
         }
 
         // Add default properties and validate using schema
@@ -463,39 +510,13 @@ impl QueryAnalyzer {
         _serialization_config: &SerializationConfig,
         analysis: &mut QueryAnalysis,
     ) -> Result<(), SqlError> {
-        // Determine sink type - EXPLICIT ONLY (no autodetection)
-        // Uses simple compound type format: {name}.type = '{type}_sink'
-        // Examples: 'kafka_sink', 'file_sink', 's3_sink'
-        let sink_type_str = config
-            .get(&format!("{}.type", table_name))
-            .map(|s| s.as_str())
-            .ok_or_else(|| SqlError::ConfigurationError {
-                message: format!(
-                    "Sink type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
-                    table_name, table_name
-                ),
-            })?;
-
-        let sink_type = match sink_type_str {
-            "kafka_sink" => DataSinkType::Kafka,
-            "file_sink" => DataSinkType::File,
-            "s3_sink" => DataSinkType::S3,
-            "database_sink" => DataSinkType::Database,
-            "iceberg_sink" => DataSinkType::Iceberg,
-            other => return Err(SqlError::ConfigurationError {
-                message: format!(
-                    "Invalid sink type '{}' for '{}'. Supported values: 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
-                    other, table_name
-                ),
-            }),
-        };
-
         // Build properties map from named sink configuration
         let mut properties = HashMap::new();
         let sink_prefix = format!("{}.", table_name);
 
         // Check for config_file and load YAML configuration
         let config_file_key = format!("{}.config_file", table_name);
+        let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
             log::info!(
                 "Loading config file '{}' for sink '{}' (via analyze_sink)",
@@ -513,12 +534,11 @@ impl QueryAnalyzer {
                     );
                 }
                 Err(e) => {
-                    return Err(SqlError::ConfigurationError {
-                        message: format!(
-                            "Failed to load config file '{}' for sink '{}': {}",
-                            config_file_path, table_name, e
-                        ),
-                    });
+                    // Store the error to show in the enhanced error message
+                    config_file_error = Some(format!(
+                        "Failed to load config file '{}': {}",
+                        config_file_path, e
+                    ));
                 }
             }
         }
@@ -527,13 +547,86 @@ impl QueryAnalyzer {
         // These SQL properties will override YAML properties with the same key
         for (key, value) in config {
             if key.starts_with(&sink_prefix) {
+                // Skip config_file and .type keys - these are handled separately
+                let suffix = &key[sink_prefix.len()..];
+                if suffix == "config_file" || suffix == "type" {
+                    continue;
+                }
+
                 // Convert to standard property format (remove sink name prefix)
-                let standard_key = key[sink_prefix.len()..].to_string();
+                let standard_key = suffix.to_string();
                 properties.insert(standard_key, value.clone());
 
                 // Also preserve original key for legacy compatibility during transition
                 properties.insert(key.clone(), value.clone());
             }
+        }
+
+        // Determine sink type - EXPLICIT ONLY (no autodetection)
+        // Uses simple compound type format: {name}.type = '{type}_sink'
+        // Examples: 'kafka_sink', 'file_sink', 's3_sink'
+        let sink_type_str = config
+            .get(&format!("{}.type", table_name))
+            .map(|s| s.as_str())
+            .ok_or_else(|| {
+                // Build enhanced error message showing loaded properties
+                let mut error_msg = format!(
+                    "Sink type must be explicitly specified for '{}'. Use: '{}.type' with values like 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'\n\n",
+                    table_name, table_name
+                );
+
+                // Show loaded properties for debugging
+                if !properties.is_empty() {
+                    error_msg.push_str("✓ LOADED PROPERTIES:\n");
+                    for (key, value) in &properties {
+                        if !key.contains("config_file") {
+                            error_msg.push_str(&format!("  • {} = {}\n", key, value));
+                        }
+                    }
+                } else {
+                    // Provide detailed diagnostic information
+                    if let Some(file_error) = &config_file_error {
+                        error_msg.push_str("❌ CONFIGURATION FILE ERROR:\n");
+                        error_msg.push_str(&format!("  {}\n\n", file_error));
+                        error_msg.push_str("RESOLUTION:\n");
+                        error_msg.push_str("  • Verify the config_file path is correct and the file exists\n");
+                        error_msg.push_str("  • Ensure the YAML file is valid and contains expected properties\n");
+                    } else if config.contains_key(&config_file_key) {
+                        error_msg.push_str("⚠ NO PROPERTIES LOADED - config_file exists but is empty or could not be parsed\n");
+                        error_msg.push_str(&format!("  config_file: {}\n\n", config.get(&config_file_key).unwrap()));
+                    } else {
+                        error_msg.push_str("⚠ NO CONFIGURATION PROVIDED\n");
+                        error_msg.push_str(&format!("  • Missing '{}.config_file' specification\n", table_name));
+                        error_msg.push_str(&format!("  • Define it in the WITH clause or ensure it's in the global configuration\n"));
+                    }
+                }
+
+                SqlError::ConfigurationError {
+                    message: error_msg,
+                }
+            })?;
+
+        let sink_type = match sink_type_str {
+            "kafka_sink" => DataSinkType::Kafka,
+            "file_sink" => DataSinkType::File,
+            "s3_sink" => DataSinkType::S3,
+            "database_sink" => DataSinkType::Database,
+            "iceberg_sink" => DataSinkType::Iceberg,
+            other => {
+                return Err(SqlError::ConfigurationError {
+                    message: format!(
+                        "Invalid sink type '{}' for '{}'. Supported values: 'kafka_sink', 'file_sink', 's3_sink', 'database_sink', 'iceberg_sink'",
+                        other, table_name
+                    ),
+                });
+            }
+        };
+
+        // Check if config file failed to load (even though sink type was provided)
+        if let Some(file_error) = config_file_error {
+            return Err(SqlError::ConfigurationError {
+                message: file_error,
+            });
         }
 
         // Add default properties and validate using schema
@@ -929,15 +1022,20 @@ impl QueryAnalyzer {
 
     /// Detect sink definitions from WITH clause configuration
     /// Looks for patterns like '{name}.type' = '{type}_sink'
-    fn detect_sinks_from_config(&self, analysis: &mut QueryAnalysis) -> Result<(), SqlError> {
+    fn detect_sinks_from_config(
+        &self,
+        sink_name: &str,
+        analysis: &mut QueryAnalysis,
+    ) -> Result<(), SqlError> {
         let config = &analysis.configuration.clone();
 
-        // Scan for sink type definitions
-        for (key, value) in config {
-            if key.ends_with(".type") && value.ends_with("_sink") {
-                // Extract sink name from key (remove .type suffix)
-                let sink_name = key.strip_suffix(".type").unwrap();
+        // Look for sink configuration using direct name matching (e.g., output_stream.type)
+        // This matches the naming convention used for sources, avoiding the _sink postfix requirement
+        let sink_type_key = format!("{}.type", sink_name);
 
+        if let Some(value) = config.get(&sink_type_key) {
+            // Determine if this looks like a sink type (ends with _sink suffix)
+            if value.ends_with("_sink") {
                 // Extract sink type
                 let sink_type_str = value.as_str();
                 let sink_type = match sink_type_str {

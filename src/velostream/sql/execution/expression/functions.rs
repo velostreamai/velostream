@@ -21,6 +21,7 @@ use super::super::types::{FieldValue, StreamRecord};
 use super::evaluator::ExpressionEvaluator;
 use crate::velostream::sql::ast::{Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
+use backtrace::Backtrace;
 use chrono::Utc;
 use regex::Regex;
 use serde_json;
@@ -1827,10 +1828,20 @@ impl BuiltinFunctions {
             });
         }
 
+        // let bt = Backtrace::new();
+        //
+        // // 2. Print the backtrace
+        // // This will print the stack frames, including
+        // // function names, file names, and line numbers.
+        // println!("{:?}", bt);
+
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => {
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => {
                 // For streaming, return 0.0 since we only have one value
                 // In a real implementation, this would calculate over a window of values
                 // warn!(
@@ -1857,7 +1868,10 @@ impl BuiltinFunctions {
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => Ok(FieldValue::Float(0.0)),
             _ => Err(SqlError::ExecutionError {
                 message: "STDDEV_POP requires numeric argument".to_string(),
                 query: None,
@@ -1877,7 +1891,10 @@ impl BuiltinFunctions {
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => Ok(FieldValue::Float(0.0)),
             _ => Err(SqlError::ExecutionError {
                 message: "VAR_POP requires numeric argument".to_string(),
                 query: None,
@@ -1897,7 +1914,10 @@ impl BuiltinFunctions {
         let value = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         match value {
             FieldValue::Null => Ok(FieldValue::Null),
-            FieldValue::Integer(_) | FieldValue::Float(_) => Ok(FieldValue::Float(0.0)),
+            FieldValue::Integer(_)
+            | FieldValue::Float(_)
+            | FieldValue::Decimal(_)
+            | FieldValue::ScaledInteger(_, _) => Ok(FieldValue::Float(0.0)),
             _ => Err(SqlError::ExecutionError {
                 message: "VARIANCE requires numeric argument".to_string(),
                 query: None,
@@ -2473,7 +2493,9 @@ impl BuiltinFunctions {
 
         // For streaming context, return a placeholder value with a warning
         // In practice, this should be implemented as a window function with aggregation
-        log::warn!("PERCENTILE_CONT function: returning approximate value for single streaming record - requires window aggregation for accurate percentile calculation");
+        log::warn!(
+            "PERCENTILE_CONT function: returning approximate value for single streaming record - requires window aggregation for accurate percentile calculation"
+        );
 
         // Return a simple approximation for demonstration
         // In real implementation, this would require access to sorted data over the window
@@ -2533,7 +2555,9 @@ impl BuiltinFunctions {
 
         // For streaming context, return a placeholder value with a warning
         // In practice, this should be implemented as a window function with aggregation
-        log::warn!("PERCENTILE_DISC function: returning approximate value for single streaming record - requires window aggregation for accurate percentile calculation");
+        log::warn!(
+            "PERCENTILE_DISC function: returning approximate value for single streaming record - requires window aggregation for accurate percentile calculation"
+        );
 
         // Return a simple approximation for demonstration
         // In real implementation, this would return an actual value from the sorted dataset
@@ -2564,7 +2588,9 @@ impl BuiltinFunctions {
             | (FieldValue::Float(_), FieldValue::Integer(_)) => {
                 // For streaming context, return a placeholder correlation
                 // In practice, this requires window aggregation with covariance calculation
-                log::warn!("CORR function: returning approximate value for single streaming record - requires window aggregation for accurate correlation calculation");
+                log::warn!(
+                    "CORR function: returning approximate value for single streaming record - requires window aggregation for accurate correlation calculation"
+                );
                 Ok(FieldValue::Float(1.0)) // Placeholder: perfect correlation for demonstration
             }
             _ => Err(SqlError::ExecutionError {
@@ -2594,19 +2620,27 @@ impl BuiltinFunctions {
             (FieldValue::Null, _) | (_, FieldValue::Null) => Ok(FieldValue::Null),
             (FieldValue::Integer(y), FieldValue::Integer(x)) => {
                 // For streaming context, return zero covariance for single value
-                log::warn!("COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation");
+                log::warn!(
+                    "COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation"
+                );
                 Ok(FieldValue::Float(0.0))
             }
             (FieldValue::Float(y), FieldValue::Float(x)) => {
-                log::warn!("COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation");
+                log::warn!(
+                    "COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation"
+                );
                 Ok(FieldValue::Float(0.0))
             }
             (FieldValue::Integer(y), FieldValue::Float(x)) => {
-                log::warn!("COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation");
+                log::warn!(
+                    "COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation"
+                );
                 Ok(FieldValue::Float(0.0))
             }
             (FieldValue::Float(y), FieldValue::Integer(x)) => {
-                log::warn!("COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation");
+                log::warn!(
+                    "COVAR_POP function: returning zero for single streaming record - requires window aggregation for accurate covariance calculation"
+                );
                 Ok(FieldValue::Float(0.0))
             }
             _ => Err(SqlError::ExecutionError {
@@ -2639,7 +2673,9 @@ impl BuiltinFunctions {
             | (FieldValue::Integer(_), FieldValue::Float(_))
             | (FieldValue::Float(_), FieldValue::Integer(_)) => {
                 // For streaming context, return undefined for single value (sample requires n > 1)
-                log::warn!("COVAR_SAMP function: returning NULL for single streaming record - requires window aggregation with multiple values for sample covariance calculation");
+                log::warn!(
+                    "COVAR_SAMP function: returning NULL for single streaming record - requires window aggregation with multiple values for sample covariance calculation"
+                );
                 Ok(FieldValue::Null) // Sample covariance undefined for single value
             }
             _ => Err(SqlError::ExecutionError {
@@ -2672,7 +2708,9 @@ impl BuiltinFunctions {
             | (FieldValue::Integer(_), FieldValue::Float(_))
             | (FieldValue::Float(_), FieldValue::Integer(_)) => {
                 // For streaming context, return undefined for single point (regression requires multiple points)
-                log::warn!("REGR_SLOPE function: returning NULL for single streaming record - requires window aggregation with multiple values for regression calculation");
+                log::warn!(
+                    "REGR_SLOPE function: returning NULL for single streaming record - requires window aggregation with multiple values for regression calculation"
+                );
                 Ok(FieldValue::Null) // Regression slope undefined for single point
             }
             _ => Err(SqlError::ExecutionError {
@@ -2709,7 +2747,9 @@ impl BuiltinFunctions {
             | (FieldValue::Integer(_), FieldValue::Float(_))
             | (FieldValue::Float(_), FieldValue::Integer(_)) => {
                 // For streaming context, return undefined for single point (regression requires multiple points)
-                log::warn!("REGR_INTERCEPT function: returning NULL for single streaming record - requires window aggregation with multiple values for regression calculation");
+                log::warn!(
+                    "REGR_INTERCEPT function: returning NULL for single streaming record - requires window aggregation with multiple values for regression calculation"
+                );
                 Ok(FieldValue::Null) // Regression intercept undefined for single point
             }
             _ => Err(SqlError::ExecutionError {
@@ -2742,7 +2782,9 @@ impl BuiltinFunctions {
             | (FieldValue::Integer(_), FieldValue::Float(_))
             | (FieldValue::Float(_), FieldValue::Integer(_)) => {
                 // For streaming context, return undefined for single point (R² requires multiple points)
-                log::warn!("REGR_R2 function: returning NULL for single streaming record - requires window aggregation with multiple values for R² calculation");
+                log::warn!(
+                    "REGR_R2 function: returning NULL for single streaming record - requires window aggregation with multiple values for R² calculation"
+                );
                 Ok(FieldValue::Null) // R² undefined for single point
             }
             _ => Err(SqlError::ExecutionError {

@@ -7,7 +7,7 @@ Tests the complete pipeline from JSON → FieldValue → SQL operations.
 
 use async_trait::async_trait;
 use futures::stream;
-use serde_json::{json, Value as JsonValue};
+use serde_json::{Value as JsonValue, json};
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::error::SqlError;

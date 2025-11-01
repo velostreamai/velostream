@@ -29,9 +29,23 @@ impl QueryProcessor {
         context: &mut ProcessorContext,
     ) -> Result<ProcessorResult, SqlError> {
         match query {
-            StreamingQuery::Select { .. } => {
-                // Delegate to the specialized SelectProcessor
-                SelectProcessor::process(query, record, context)
+            StreamingQuery::Select { window, .. } => {
+                // If query has WINDOW clause, route to WindowProcessor for proper buffering and aggregation
+                if window.is_some() {
+                    // Generate a query_id for window processing
+                    let query_id = "select_";
+                    let _window_result =
+                        WindowProcessor::process_windowed_query(query_id, query, record, context)?;
+                    // Return empty result - WindowProcessor handles buffering internally
+                    Ok(ProcessorResult {
+                        record: None,
+                        header_mutations: Vec::new(),
+                        should_count: false,
+                    })
+                } else {
+                    // Delegate to the specialized SelectProcessor for non-windowed queries
+                    SelectProcessor::process(query, record, context)
+                }
             }
             StreamingQuery::CreateStream { as_select, .. } => {
                 // For CREATE STREAM AS SELECT, delegate to SelectProcessor for the inner query
@@ -188,6 +202,7 @@ pub use self::delete::DeleteProcessor;
 pub use self::insert::InsertProcessor;
 pub use self::join::JoinProcessor;
 pub use self::limit::LimitProcessor;
+pub use self::order::OrderProcessor;
 pub use self::select::SelectProcessor;
 pub use self::show::ShowProcessor;
 pub use self::update::UpdateProcessor;
@@ -201,6 +216,7 @@ pub mod job;
 pub mod join;
 pub mod join_context;
 pub mod limit;
+pub mod order;
 pub mod query_parsing;
 pub mod select;
 pub mod show;

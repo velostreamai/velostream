@@ -7,13 +7,13 @@
 use crate::velostream::server::progress_monitoring::{
     LoadingSummary, ProgressMonitor, TableLoadProgress, TableProgressTracker,
 };
-use crate::velostream::sql::{ast::StreamingQuery, SqlError};
+use crate::velostream::sql::{SqlError, ast::StreamingQuery};
 use crate::velostream::table::{CtasExecutor, UnifiedTable};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{RwLock, broadcast};
 use tokio::task::JoinHandle;
 
 /// Statistics and metadata for registered tables
@@ -826,10 +826,10 @@ impl TableRegistry {
                                 if let Some(progress) =
                                     self.get_table_loading_progress(table_name).await
                                 {
-                                    info!("Table '{}' loading progress: {} records loaded at {:.1} records/sec",
-                                          table_name,
-                                          progress.records_loaded,
-                                          progress.loading_rate);
+                                    info!(
+                                        "Table '{}' loading progress: {} records loaded at {:.1} records/sec",
+                                        table_name, progress.records_loaded, progress.loading_rate
+                                    );
                                     if let Some(eta) = progress.estimated_completion {
                                         info!(
                                             "Table '{}' ETA: {}",

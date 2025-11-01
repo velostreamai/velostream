@@ -106,7 +106,7 @@ fn test_streaming_query_validation() {
     let streaming_queries = vec![
         "SELECT user_id, COUNT(*) OVER (PARTITION BY user_id) FROM events",
         "SELECT * FROM stream WHERE timestamp > NOW() - INTERVAL '1 hour'",
-        "SELECT user_id, AVG(amount) FROM transactions WINDOW TUMBLING(INTERVAL 5 MINUTE) GROUP BY user_id",
+        "SELECT user_id, AVG(amount) FROM transactions GROUP BY user_id WINDOW TUMBLING(INTERVAL 5 MINUTE)",
     ];
 
     for query in streaming_queries {
