@@ -413,18 +413,28 @@ pub struct ProcessorContext {
 
 ---
 
-### Sub-Phase 2A.7: Legacy Migration & Cleanup
+### Sub-Phase 2A.7: Documentation & Validation
 
-**Goal**: Complete migration to window_v2
-**Status**: 📋 PLANNED
-**Estimated**: 8 hours
+**Goal**: Document window_v2 architecture and validate production readiness
+**Status**: 🔄 IN PROGRESS
+**Estimated**: 6 hours
+**Started**: 2025-11-01
+
+**Conservative Approach**:
+- KEEP legacy window processor as fallback (proven stable)
+- KEEP feature flag system (gradual rollout capability)
+- FOCUS on documentation and validation
+- Prepare for production deployment
 
 **Tasks**:
-- [ ] Remove legacy window.rs
-- [ ] Update all references to use window_v2
-- [ ] Remove feature flags (make v2 default)
-- [ ] Update documentation
-- [ ] Final performance validation
+- [ ] Document window_v2 architecture and design patterns
+- [ ] Create usage examples (enabling window_v2 via StreamingConfig)
+- [ ] Document performance characteristics and benchmarks
+- [ ] Create migration guide for future enhancements
+- [ ] Validate feature flag behavior (v2 enabled vs disabled)
+- [ ] Update FR-081 documentation suite
+
+**Rationale**: Maintain backward compatibility and rollback capability for production safety.
 
 ---
 
