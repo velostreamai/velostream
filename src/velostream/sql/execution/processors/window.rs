@@ -203,8 +203,7 @@ impl WindowProcessor {
         if let Some(cols) = &group_by_cols {
             debug!(
                 "FR-079 Phase 3: Activating GROUP BY windowed query routing (EMIT CHANGES: {}) for query: {}",
-                is_emit_changes,
-                query_id
+                is_emit_changes, query_id
             );
 
             // Get window state reference - borrow will be released after cloning buffer
@@ -567,9 +566,7 @@ impl WindowProcessor {
                 match field_value {
                     FieldValue::Integer(ts) => *ts,
                     FieldValue::Timestamp(ts) => ts.and_utc().timestamp_millis(),
-                    FieldValue::String(s) => {
-                        s.parse::<i64>().unwrap_or(record.timestamp)
-                    }
+                    FieldValue::String(s) => s.parse::<i64>().unwrap_or(record.timestamp),
                     _ => record.timestamp,
                 }
             } else {

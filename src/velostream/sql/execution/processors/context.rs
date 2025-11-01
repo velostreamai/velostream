@@ -273,7 +273,8 @@ impl ProcessorContext {
         let mut dirty_states = Vec::new();
         let dirty_mask = self.dirty_window_states;
 
-        for (idx, (query_id, window_state)) in self.persistent_window_states.iter_mut().enumerate() {
+        for (idx, (query_id, window_state)) in self.persistent_window_states.iter_mut().enumerate()
+        {
             if idx < 32 && (dirty_mask & (1 << idx)) != 0 {
                 dirty_states.push((query_id.clone(), window_state));
             }

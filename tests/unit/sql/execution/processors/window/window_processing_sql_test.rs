@@ -353,7 +353,8 @@ async fn test_session_window() {
 #[tokio::test]
 async fn test_window_with_where_clause() {
     // Test windowed query with WHERE filtering
-    let query = "SELECT COUNT(*) as high_value_orders FROM orders WHERE amount > 250.0 WINDOW TUMBLING(5s)";
+    let query =
+        "SELECT COUNT(*) as high_value_orders FROM orders WHERE amount > 250.0 WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Filtered out (amount <= 250)
@@ -387,7 +388,8 @@ async fn test_window_with_where_clause() {
 #[tokio::test]
 async fn test_window_with_having_clause() {
     // Test windowed query with HAVING filtering
-    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(5s) HAVING COUNT(*) >= 2";
+    let query =
+        "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(5s) HAVING COUNT(*) >= 2";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Window 1: 3 records (passes HAVING)
@@ -412,7 +414,8 @@ async fn test_window_with_having_clause() {
 #[tokio::test]
 async fn test_empty_window() {
     // Test window behavior with no matching records
-    let query = "SELECT COUNT(*) as order_count FROM orders WHERE amount > 1000.0 WINDOW TUMBLING(5s)";
+    let query =
+        "SELECT COUNT(*) as order_count FROM orders WHERE amount > 1000.0 WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // All amounts < 1000, so no matches
@@ -467,7 +470,8 @@ async fn test_window_boundary_alignment() {
 async fn test_window_with_multiple_aggregations() {
     // Test window query with multiple aggregation functions
     // This demonstrates advanced window processing patterns similar to subquery behavior
-    let query = "SELECT COUNT(*) as order_count, SUM(amount) as total FROM orders WINDOW TUMBLING(10s)";
+    let query =
+        "SELECT COUNT(*) as order_count, SUM(amount) as total FROM orders WINDOW TUMBLING(10s)";
 
     // Create test records with varying amounts
     let records = vec![

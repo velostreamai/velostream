@@ -277,9 +277,7 @@ async fn benchmark_sliding_window_emit_final() {
     );
     println!("   🔥 Throughput: {:.0} records/sec", throughput);
     println!("   ✅ Generated {} windowed results", results.len());
-    println!(
-        "   📈 Expected: ~120 emissions (3600s / 30s slide), first result per emission"
-    );
+    println!("   📈 Expected: ~120 emissions (3600s / 30s slide), first result per emission");
 
     // Performance target: >10K records/sec (realistic for high-emission GROUP BY queries)
     assert!(
@@ -344,9 +342,7 @@ async fn benchmark_sliding_window_emit_changes() {
     );
     println!("   🔥 Throughput: {:.0} records/sec", throughput);
     println!("   ✅ Generated {} windowed results", results.len());
-    println!(
-        "   📈 Expected: ~6000 results (120 emissions × 50 groups)"
-    );
+    println!("   📈 Expected: ~6000 results (120 emissions × 50 groups)");
 
     // Performance target: >10K records/sec (realistic for high-emission GROUP BY queries)
     assert!(
