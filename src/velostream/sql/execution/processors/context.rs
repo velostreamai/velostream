@@ -101,6 +101,12 @@ pub struct ProcessorContext {
     /// Maps state_key (format: "rows_window:query_id:partition_key") to RowsWindowState
     /// Used for maintaining per-partition row buffers with configurable emission strategies
     pub rows_window_states: HashMap<String, RowsWindowState>,
+
+    // === FR-081 PHASE 2A: WINDOW V2 STATE MANAGEMENT ===
+    /// Window V2 states for trait-based window processing
+    /// Maps state_key (format: "window_v2:query_id") to WindowV2State
+    /// Used for high-performance window processing with Arc<StreamRecord> zero-copy semantics
+    pub window_v2_states: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
 }
 
 /// Table reference with optional alias for SQL parsing and correlation
@@ -164,6 +170,7 @@ impl ProcessorContext {
             pending_results: HashMap::new(), // FR-079 Phase 4: Initialize result queue
             validated_select_queries: std::collections::HashSet::new(), // FR-078: Track validated SELECT queries
             rows_window_states: HashMap::new(), // Phase 8.2: Initialize ROWS window state map
+            window_v2_states: HashMap::new(), // FR-081 Phase 2A: Initialize window v2 state map
         }
     }
 

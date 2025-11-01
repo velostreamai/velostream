@@ -23,11 +23,13 @@
 //! - `#[cfg(feature = "window-v2")]` - Enable new architecture
 //! - Default: Uses existing window.rs implementation
 
+pub mod adapter;
 pub mod emission;
 pub mod strategies;
 pub mod traits;
 pub mod types;
 
 // Re-export key types and traits
+pub use adapter::WindowAdapter;
 pub use traits::{EmissionStrategy, WindowStrategy};
 pub use types::SharedRecord;
