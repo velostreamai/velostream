@@ -8,3 +8,4 @@ pub mod sliding_window_profiling;
 pub mod tumbling_emit_changes_profiling;
 pub mod tumbling_instrumented_profiling;
 pub mod tumbling_window_profiling;
+pub mod window_v2_benchmarks;
