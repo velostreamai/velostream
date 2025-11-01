@@ -326,7 +326,7 @@ impl StreamExecutionEngine {
     /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
-    fn create_processor_context(&self, query_id: &str) -> ProcessorContext {
+    fn create_processor_context(&mut self, query_id: &str) -> ProcessorContext {
         let mut context = ProcessorContext::new(query_id);
 
         // Set engine state
@@ -370,13 +370,15 @@ impl StreamExecutionEngine {
 
     /// Load window states for a specific context (high-performance, minimal loading)
     /// Only loads states for queries that are actually being processed
-    fn load_window_states_for_context(&self, query_id: &str) -> Vec<(String, WindowState)> {
+    /// OPTIMIZED: Moves state instead of cloning to eliminate O(N²) buffer copies
+    fn load_window_states_for_context(&mut self, query_id: &str) -> Vec<(String, WindowState)> {
         let mut states = Vec::with_capacity(1); // Usually just one state per context
 
-        // Load the specific window state for this query if it exists
-        if let Some(execution) = self.active_queries.get(query_id) {
-            if let Some(window_state) = &execution.window_state {
-                states.push((query_id.to_string(), window_state.clone()));
+        // MOVE the window state from engine to context (zero-copy)
+        // This eliminates the O(N²) cloning bottleneck
+        if let Some(execution) = self.active_queries.get_mut(query_id) {
+            if let Some(window_state) = execution.window_state.take() {
+                states.push((query_id.to_string(), window_state));
             }
         }
 
@@ -385,10 +387,15 @@ impl StreamExecutionEngine {
 
     /// Save modified window states back to engine (high-performance, saves only dirty states)
     /// Called after processor context completes to persist changes
-    fn save_window_states_from_context(&mut self, context: &ProcessorContext) {
-        for (query_id, window_state) in context.get_dirty_window_states() {
+    /// OPTIMIZED: Uses references to avoid O(N²) buffer cloning
+    fn save_window_states_from_context(&mut self, context: &mut ProcessorContext) {
+        let dirty_states = context.get_dirty_window_states_mut();
+        for (query_id, window_state_ref) in dirty_states {
             if let Some(execution) = self.active_queries.get_mut(&query_id) {
-                execution.window_state = Some(window_state);
+                // Move the window state by replacing it with an empty one
+                // This eliminates 50M+ clone operations for 10K records
+                let empty_state = WindowState::new(window_state_ref.window_spec.clone());
+                execution.window_state = Some(std::mem::replace(window_state_ref, empty_state));
             }
             // Note: If query execution doesn't exist, we skip saving the state
             // This can happen if the query completed between context creation and persistence
@@ -438,7 +445,7 @@ impl StreamExecutionEngine {
         // For now, results accumulate in group_states and can be retrieved via explicit calls
 
         // Persist window states from context (high-performance, only saves dirty states)
-        self.save_window_states_from_context(&context);
+        self.save_window_states_from_context(&mut context);
 
         // Update engine state from context
         if result.should_count && result.record.is_some() {
@@ -525,8 +532,14 @@ impl StreamExecutionEngine {
         {
             if let Some(ts_field) = stream_record.fields.get("_timestamp") {
                 match ts_field {
-                    FieldValue::Integer(ts) => stream_record.timestamp = *ts,
-                    FieldValue::Float(ts) => stream_record.timestamp = *ts as i64,
+                    FieldValue::Integer(ts) => {
+                        // _timestamp field must be in milliseconds since epoch
+                        stream_record.timestamp = *ts;
+                    }
+                    FieldValue::Float(ts) => {
+                        // _timestamp field must be in milliseconds since epoch
+                        stream_record.timestamp = *ts as i64;
+                    }
                     _ => {
                         // Keep existing timestamp if _timestamp field isn't a valid time
                     }
@@ -580,7 +593,7 @@ impl StreamExecutionEngine {
                 )?;
 
                 // Efficiently persist only modified window states (zero-copy for unchanged states)
-                self.save_window_states_from_context(&context);
+                self.save_window_states_from_context(&mut context);
 
                 // FR-079 Phase 6: Emit pending results from queue
                 // After processing the current record, check if there are additional results queued
@@ -975,7 +988,7 @@ impl StreamExecutionEngine {
                     )?;
 
                     // Persist modified states efficiently
-                    self.save_window_states_from_context(&context);
+                    self.save_window_states_from_context(&mut context);
 
                     result
                 }
@@ -1029,7 +1042,7 @@ impl StreamExecutionEngine {
                         )?;
 
                         // Persist modified states efficiently
-                        self.save_window_states_from_context(&context);
+                        self.save_window_states_from_context(&mut context);
 
                         result
                     };
@@ -1379,7 +1392,7 @@ impl StreamExecutionEngine {
 
         // Sync state back to engine
         self.group_states = std::mem::take(&mut context.group_by_states);
-        self.save_window_states_from_context(&context);
+        self.save_window_states_from_context(&mut context);
 
         Ok(())
     }
@@ -1429,7 +1442,7 @@ impl StreamExecutionEngine {
 
                 // Sync state
                 self.group_states = std::mem::take(&mut context.group_by_states);
-                self.save_window_states_from_context(&context);
+                self.save_window_states_from_context(&mut context);
 
                 if result.should_count {
                     self.record_count += 1;
@@ -1483,7 +1496,7 @@ impl StreamExecutionEngine {
 
                         // Sync state
                         self.group_states = std::mem::take(&mut context.group_by_states);
-                        self.save_window_states_from_context(&context);
+                        self.save_window_states_from_context(&mut context);
 
                         if result.should_count {
                             self.record_count += 1;

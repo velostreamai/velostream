@@ -1,657 +1,1000 @@
-# Velostream Phase 8 Development Plan: ROWS WINDOW Implementation
+# Window Performance & Correctness Fix Plan
 
-**Last Updated**: October 30, 2025 (07:15 UTC)
-**Status**: Phase 8 COMPLETE - All Tasks Finished ✅
-**Reference**: FR-078 ROWS WINDOW Buffer Execution - Exclusive ROWS WINDOW BUFFER Syntax Only
+## Status Tracking
 
----
+| Phase | Status | Files | Tests | Priority |
+|-------|--------|-------|-------|----------|
+| **Phase 1: O(N²) Performance Fix** | 🔴 Not Started | 2 files | 4 tests | 🔥 CRITICAL |
+| **Phase 2: Emission Logic Correctness** | 🔴 Not Started | 1 file | 6 tests | 🔥 CRITICAL |
+| **Phase 3: Test Data Fixes** | 🔴 Not Started | 1 file | 3 tests | 🟡 HIGH |
+| **Phase 4: Validation & Cleanup** | 🔴 Not Started | 3 files | Full suite | 🟢 MEDIUM |
 
-## Overview
-
-This document tracks outstanding development work for ROWS WINDOW execution (FR-078) with exclusive support for ROWS WINDOW BUFFER syntax. Previous phases (1-7) focused on traditional window frame analysis; Phase 8 implements the new memory-safe ROWS WINDOW architecture.
-
-### Completed Phases
-- ✅ **Phase 1-5**: Traditional window frame analysis and gap analysis (completed in previous work)
-- ✅ **Phase 8.1**: ROWS WINDOW BUFFER Parser Implementation (October 29, 2025)
-  - Implemented exclusive ROWS WINDOW BUFFER syntax in parse_over_clause()
-  - Removed traditional PARTITION BY/ORDER BY fallback paths
-  - Fixed all WindowSpec::Rows type mismatches
-  - Added window_spec: None field to 14 test cases
-  - **Compilation Status**: ✅ CLEAN (no errors)
-- ✅ **Phase 8.2**: RowsWindowState Implementation & Window Processing (October 30, 2025)
-  - Created RowsWindowState with VecDeque buffer + BTreeMap ranking index
-  - Implemented process_rows_window() with time-gap detection
-  - Implemented incremental RANK/DENSE_RANK/PERCENT_RANK computation
-  - **Status**: COMPLETE
-- ✅ **Phase 8.3**: ProcessorContext Enhancement for Rows Window State Tracking (October 30, 2025)
-  - Enhanced ProcessorContext with rows_window_states field
-  - Integrated state management into query execution pipeline
-  - **Status**: COMPLETE
-- ✅ **Phase 8.4**: Comprehensive Unit Tests & Pre-commit Validation (October 30, 2025)
-  - Created 11 comprehensive unit tests in rows_window_test.rs
-  - All tests compiled and passing
-  - Pre-commit validation: 365 unit tests passing, formatting clean
-  - **Status**: COMPLETE
+**Overall Progress**: 0/4 phases complete
 
 ---
 
-## Phase 8 Completion Summary (October 30, 2025)
+## Executive Summary
 
-**Status**: ✅ ALL PHASE 8 TASKS COMPLETE
+### Problems Identified
 
-### Key Achievements
-1. **Parser Implementation** (Phase 8.1)
-   - Exclusive ROWS WINDOW BUFFER syntax support
-   - Clean compilation with zero errors
+1. **O(N²) Buffer Cloning** (All window types)
+   - Impact: 166x slower than target (120 vs 20,000 rec/sec)
+   - Root cause: `context.rs:263` clones entire buffer on every record
+   - Affected: TUMBLING, SLIDING, SESSION (but EMIT CHANGES works around it)
 
-2. **State Management** (Phase 8.2)
-   - VecDeque-based row buffer with configurable capacity
-   - BTreeMap-based ranking index for efficient rank computation
-   - Time-gap detection with millisecond precision
-   - Incremental RANK/DENSE_RANK/PERCENT_RANK computation
+2. **Incorrect Emission Logic** (TUMBLING, SLIDING)
+   - Absolute timestamp (1.7B ms) compared with relative duration (60K ms)
+   - Result: TUMBLING emits 0 times, SLIDING emits 2 times for 10K records
 
-3. **Context Enhancement** (Phase 8.3)
-   - ProcessorContext integration with rows_window_states HashMap
-   - State persistence and recovery mechanisms
+3. **SESSION Window Always Emits**
+   - Emits on every record instead of waiting for session gap
+   - Works only because buffer stays manageable with frequent emissions
 
-4. **Testing & Validation** (Phase 8.4)
-   - 11 comprehensive unit tests in rows_window_test.rs
-   - All tests passing
-   - Pre-commit validation: 365 unit tests passing
-   - Code formatting: clean
+4. **Test Data Unit Mismatch**
+   - Comments say "10 second intervals" but code increments by 10 milliseconds
+   - Missing `* 1000` conversion causes windows to never complete properly
 
-### Files Modified
-- `src/velostream/sql/execution/processors/window.rs` - Core implementation
-- `src/velostream/sql/execution/processors/context.rs` - State management
-- `src/velostream/sql/ast.rs` - Parser structures
-- `tests/unit/sql/execution/processors/window/rows_window_test.rs` - NEW
-- `tests/unit/sql/execution/processors/window/mod.rs` - Registration
+### Expected Improvements After Fixes
 
-### Test Coverage
-- Buffer initialization and operations: ✅
-- Buffer overflow detection: ✅
-- Partition isolation: ✅
-- Ranking functions (RANK, DENSE_RANK, PERCENT_RANK): ✅
-- Time-gap detection: ✅
-- Emission strategies (EveryRecord, BufferFull): ✅
-
-### Validation Results
-```
-✅ Code formatting: PASSED
-✅ Compilation: PASSED (0 errors)
-✅ Clippy linting: PASSED
-✅ Unit tests: 365 PASSED
-✅ Pre-commit checks: ALL PASSED
-```
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Throughput (10K) | 120 rec/sec | >20,000 rec/sec | **166x** |
+| Clone operations | 50,005,000 | 10,000 | **5000x** |
+| Memory usage | ~10 GB | ~10 MB | **1000x** |
+| Growth ratio | 16.47x | <2.0x | **8x better** |
 
 ---
 
-## Work Summary
+## Phase 1: Fix O(N²) Buffer Cloning Performance
 
-| Phase | Task | Documentation | Est. Hours | Status |
-|-------|------|-----------------|-----------|--------|
-| **8.1** | ROWS WINDOW BUFFER Parser Implementation | FR-078 Phase 8.1 | 3-4 | ✅ **COMPLETE** |
-| **8.2** | RowsWindowState & Window Processing | FR-078 Phase 8.2 | 4-6 | ✅ **COMPLETE** |
-| 8.2.1 | Create RowsWindowState struct with VecDeque buffer | window.rs | 2-3 | ✅ **COMPLETE** |
-| 8.2.2 | Implement process_rows_window() with gap detection | window.rs | 2-3 | ✅ **COMPLETE** |
-| 8.2.3 | Implement rank computation (RANK/DENSE_RANK/PERCENT_RANK) | window.rs | 1-2 | ✅ **COMPLETE** |
-| **8.3** | ProcessorContext Enhancement | FR-078 Phase 8.3 | 2-3 | ✅ **COMPLETE** |
-| **8.4** | Unit Tests & Pre-commit Validation | FR-078 Phase 8.4 | 3-5 | ✅ **COMPLETE** |
-| **TOTAL (Phase 8)** | | | **18-26** | ✅ **ALL COMPLETE** |
+**Status**: 🔴 Not Started
+**Priority**: 🔥 CRITICAL
+**Estimated Time**: 2-3 hours
+**Risk**: Low (clear fix, well-understood problem)
 
----
+### Root Cause
 
-## Phase 8.1: ROWS WINDOW BUFFER Parser Implementation - COMPLETE ✅
+**File**: `src/velostream/sql/execution/processors/context.rs:263`
 
-**Completed**: October 29, 2025 (22:45 UTC)
-**Documentation**: `/docs/feature/FR-078-PHASE8-ROWS-WINDOW.md`
-**Reference**: Architectural Requirement: "we are NOT going to support this without ROWS WINDOW BUFFER"
-**Compilation Status**: ✅ CLEAN (no errors, 323 warnings only)
-
-### Summary
-Successfully implemented exclusive ROWS WINDOW BUFFER syntax parser that ONLY accepts row-count-based window specifications with explicit buffer sizes. All traditional PARTITION BY/ORDER BY fallback syntax has been removed per user requirement.
-
-### What Was Completed ✅
-1. **Parser Implementation** (`src/velostream/sql/parser.rs:4095-4225`)
-   - Implemented `parse_over_clause()` to ONLY accept ROWS WINDOW BUFFER syntax
-   - Removed all traditional PARTITION BY/ORDER BY fallback paths
-   - Parser expects exact sequence: `OVER (ROWS WINDOW BUFFER <size> ROWS [optional clauses])`
-   - Added support for optional PARTITION BY, ORDER BY, window frames, and EMIT modes
-
-2. **AST Enhancement** (`src/velostream/sql/ast.rs:515-528`)
-   - Added `window_spec: Option<Box<WindowSpec>>` field to OverClause struct
-   - Enables embedding WindowSpec::Rows directly in OVER clauses
-   - Maintains backward compatibility with optional field
-
-3. **WindowSpec::Rows Definition** (`src/velostream/sql/ast.rs:484-499`)
-   - buffer_size: u32 (e.g., 100, 1000)
-   - partition_by: Vec<Expr> (for logical partitioning)
-   - order_by: Vec<OrderByExpr> (for ranking/LAG-LEAD)
-   - time_gap: Option<Duration> (for session-aware semantics)
-   - window_frame: Option<WindowFrame> (for frame specifications)
-   - emit_mode: RowsEmitMode (EveryRecord or BufferFull)
-
-4. **Type System Fixes**
-   - Fixed WindowSpec::Rows field type mismatches (3 compilation errors resolved)
-   - Updated 14 test case OverClause initializations with `window_spec: None`
-   - All type errors eliminated through proper unwrap_or_default() handling
-
-### Syntax Example
 ```rust
-// ONLY supported syntax going forward:
-SELECT
-    symbol,
-    price,
-    AVG(price) OVER (
-        ROWS WINDOW BUFFER 100 ROWS
-        PARTITION BY symbol
-        ORDER BY timestamp
-        ROWS BETWEEN 10 PRECEDING AND CURRENT ROW
-        EMIT EVERY RECORD
-    ) as moving_avg
-FROM trades
-WHERE status = 'active';
-```
-
-### Files Modified
-1. `src/velostream/sql/parser.rs` - parse_over_clause() implementation (130 lines)
-2. `src/velostream/sql/ast.rs` - OverClause struct enhancement
-3. `src/velostream/sql/execution/validation/window_frame_validator.rs` - Test updates (2 cases)
-4. `tests/unit/sql/execution/expression/enhanced_window_functions_test.rs` - Field additions (14 occurrences)
-
-### Compilation Status
-```
-✅ Compiling velostream v0.1.0
-✅ Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.78s
-```
-- **Errors**: 0
-- **Warnings**: 323 (pre-existing, non-blocking)
-- **Type Mismatches**: 0 (fixed with unwrap_or_default())
-
-### Next Step: Phase 8.2 - RowsWindowState Implementation
-
----
-
-## Phase 6: Integration Debugging and window_frame Propagation - IN PROGRESS 🔄
-
-**Started**: October 29, 2025
-**Documentation**: `/docs/feature/fr-078-window-frame-bounds-analysis.md` (Phase 6 section)
-**Estimated Effort**: 4-6 hours
-
-### Task 6.1: Trace OverClause Pipeline (2-3 hours)
-**Goal**: Verify how OverClause flows from parser through SELECT processor to window functions
-
-**Investigation Steps**:
-1. Trace parser output of OverClause with populated window_frame
-2. Track OverClause through SELECT processor execution path
-3. Verify OverClause reaches window function context creation
-4. Identify where window_frame field becomes None
-
-**Key Code Locations**:
-- `select.rs` - SELECT query processor
-- `window_functions.rs:120-170` - `create_window_context()` function
-- Window function evaluation points
-
-### Task 6.2: Identify window_frame Loss Point (1-2 hours)
-**Goal**: Find where/why window_frame is cleared or replaced in the pipeline
-
-**Debugging Approach**:
-- Add debug logging at OverClause extraction points
-- Log window_frame value at each pipeline stage
-- Identify transformation that clears the field
-- Check for WindowSpec vs OverClause confusion
-
-### Task 6.3: Implement Integration Fix (1-2 hours)
-**Goal**: Ensure parsed window_frame flows through to window function evaluation
-
-**Implementation Steps**:
-1. Fix data flow bottleneck (likely simple fix)
-2. Verify frame_bounds are correctly calculated
-3. Confirm window functions use frame bounds
-4. Run window_frame_execution tests to validate
-
----
-
-## Priority 1 - Phase 7: Add Value Assertions to 194 Parsing-Only SQL Tests
-
-### Issue Discovery
-Comprehensive test audit reveals **61% of SQL tests (194/318) only validate SQL parsing, NOT computed values**. This is a systematic test quality issue across the entire codebase.
-
-### Test Quality Breakdown
-- **194 tests (61%)** - Parsing-only (HIGH RISK)
-- **124 tests (39%)** - Have value assertions (GOOD)
-- **83 tests (26%)** - ZERO assertions whatsoever
-
-### Critical Test Files (83 parsing-only tests)
-
-**Tier 1 - Most Critical (8 files, 83 tests)**:
-1. `tests/unit/sql/execution/processors/window/window_edge_cases_test.rs` (15 tests)
-2. `tests/unit/sql/execution/processors/window/statistical_functions_test.rs` (12 tests)
-3. `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs` (6 tests)
-4. `tests/unit/sql/execution/processors/window/emit_changes_late_data_semantics_test.rs` (8 tests)
-5. `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs` (9 tests)
-6. `tests/unit/sql/execution/processors/window/session_window_functions_test.rs` (8 tests)
-7. `tests/unit/sql/execution/processors/window/fr079_phase1_detection_test.rs` (22 tests)
-8. `tests/unit/sql/execution/processors/window/timebased_joins_test.rs` (3 tests)
-
-**Tier 2 - Mixed Quality (3 files, 43 tests with 50-79% assertions)**:
-- `fr079_aggregate_expressions_test.rs` (77% parsing-only)
-- `window_gaps_test.rs` (67% parsing-only)
-- `emit_changes_advanced_test.rs` (56% parsing-only)
-
-### Reference Models (Best Practices)
-These files show excellent value assertion patterns to copy from:
-- `tests/unit/sql/execution/aggregation/functions_test.rs` (100% assertions)
-- `tests/unit/sql/execution/aggregation/group_by_test.rs` (90% assertions)
-- `tests/unit/sql/execution/processors/window/emit_changes_basic_test.rs` (100% assertions)
-
-### Pattern: Before vs After
-
-**❌ BEFORE (Parsing-Only - Insufficient)**:
-```rust
-#[tokio::test]
-async fn test_window_aggregation() {
-    let results = SqlExecutor::execute_query(sql, records).await;
-    WindowTestAssertions::print_results(&results, "Debug output");
-    // ❌ No actual assertions! Bug could be hiding here.
+pub fn get_dirty_window_states(&self) -> Vec<(String, WindowState)> {
+    let mut dirty_states = Vec::new();
+    for (idx, (query_id, window_state)) in self.persistent_window_states.iter().enumerate() {
+        if idx < 32 && (self.dirty_window_states & (1 << idx)) != 0 {
+            dirty_states.push((query_id.clone(), window_state.clone()));  // ← CLONES ENTIRE BUFFER!
+            //                                     ^^^^^^^^^^^^^^^^^^
+            //                          50 MILLION clone operations for 10K records
+        }
+    }
+    dirty_states
 }
 ```
 
-**✅ AFTER (With Value Assertions - Comprehensive)**:
-```rust
-#[tokio::test]
-async fn test_window_aggregation() {
-    let results = SqlExecutor::execute_query(sql, records).await;
-    assert!(!results.is_empty(), "Should produce results");
+**Called from**: `engine.rs:583` - invoked on EVERY record
 
-    if let Some(record) = results.first() {
-        // ✅ Validate actual computed values
-        assert_eq!(
-            record.fields.get("sum_amount"),
-            Some(&FieldValue::Float(150.0)),
-            "SUM should be 150.0 for window [10, 20, 30, 40, 50]"
+### Tasks
+
+#### Task 1.1: Modify `get_dirty_window_states()` to use references
+
+**File**: `src/velostream/sql/execution/processors/context.rs`
+**Lines**: 258-268
+**Status**: ⬜ Not Started
+
+**Implementation**:
+```rust
+// BEFORE (O(N²) - clones entire buffer)
+pub fn get_dirty_window_states(&self) -> Vec<(String, WindowState)> {
+    let mut dirty_states = Vec::new();
+    for (idx, (query_id, window_state)) in self.persistent_window_states.iter().enumerate() {
+        if idx < 32 && (self.dirty_window_states & (1 << idx)) != 0 {
+            dirty_states.push((query_id.clone(), window_state.clone())); // ← CLONE!
+        }
+    }
+    dirty_states
+}
+
+// AFTER (O(1) - references only)
+pub fn get_dirty_window_states_mut(&mut self) -> Vec<(String, &mut WindowState)> {
+    let mut dirty_states = Vec::new();
+    for (idx, (query_id, window_state)) in self.persistent_window_states.iter_mut().enumerate() {
+        if idx < 32 && (self.dirty_window_states & (1 << idx)) != 0 {
+            dirty_states.push((query_id.clone(), window_state)); // ← REFERENCE!
+        }
+    }
+    dirty_states
+}
+```
+
+**Checklist**:
+- [ ] Change return type to `Vec<(String, &mut WindowState)>`
+- [ ] Change `iter()` to `iter_mut()`
+- [ ] Remove `.clone()` from window_state
+- [ ] Compile and verify no borrowing conflicts
+
+---
+
+#### Task 1.2: Update `save_window_states_from_context()` in engine
+
+**File**: `src/velostream/sql/execution/engine.rs`
+**Lines**: 383-396, 573-583
+**Status**: ⬜ Not Started
+
+**Implementation**:
+```rust
+// BEFORE
+fn save_window_states_from_context(&mut self, context: &ProcessorContext) {
+    for (query_id, window_state) in context.get_dirty_window_states() {
+        //                                     ^^^ returns cloned states
+        if let Some(execution) = self.active_queries.get_mut(&query_id) {
+            execution.window_state = Some(window_state);
+        }
+    }
+}
+
+// AFTER
+fn save_window_states_from_context(&mut self, context: &mut ProcessorContext) {
+    //                                            ^^^ now needs mut
+    for (query_id, window_state_ref) in context.get_dirty_window_states_mut() {
+        //                                       ^^^ returns references
+        if let Some(execution) = self.active_queries.get_mut(&query_id) {
+            // Move instead of clone (transfer ownership)
+            execution.window_state = Some(std::mem::take(window_state_ref));
+        }
+    }
+    // Context window states are now empty (moved), but that's fine since context is dropped
+}
+```
+
+**Checklist**:
+- [ ] Change parameter to `&mut ProcessorContext`
+- [ ] Update call to `get_dirty_window_states_mut()`
+- [ ] Use `std::mem::take()` instead of clone
+- [ ] Update call sites at line 583 to pass `&mut context`
+- [ ] Compile and verify functionality
+
+---
+
+#### Task 1.3: Update all call sites in `execute_internal()`
+
+**File**: `src/velostream/sql/execution/engine.rs`
+**Lines**: 573-583
+**Status**: ⬜ Not Started
+
+**Changes**:
+```rust
+// Line 574: Context must be mutable
+let mut context = self.create_processor_context(timestamp);
+
+// Line 583: Pass mutable reference
+self.save_window_states_from_context(&mut context);
+```
+
+**Checklist**:
+- [ ] Add `mut` to context declaration
+- [ ] Change call to use `&mut context`
+- [ ] Verify no other code assumes context is immutable
+
+---
+
+#### Task 1.4: Run validation tests
+
+**Status**: ⬜ Not Started
+
+**Tests to run**:
+```bash
+# 1. TUMBLING standard path - should see massive speedup
+cargo test profile_tumbling_instrumented_standard_path --no-default-features -- --nocapture
+
+# 2. TUMBLING with EMIT CHANGES - should remain fast
+cargo test profile_tumbling_emit_changes_path --no-default-features -- --nocapture
+
+# 3. SLIDING window - should see massive speedup
+cargo test benchmark_sliding_window_moving_average --no-default-features -- --nocapture
+
+# 4. SESSION window - should see moderate speedup
+cargo test profile_session_window_iot_clustering --no-default-features -- --nocapture
+```
+
+**Success Criteria**:
+- [ ] TUMBLING throughput: >20,000 rec/sec (was 120)
+- [ ] SLIDING throughput: >20,000 rec/sec (was 175)
+- [ ] SESSION throughput: >15,000 rec/sec (was 917)
+- [ ] EMIT CHANGES: >25,000 rec/sec (should stay fast)
+- [ ] Growth ratio: <2.0x for all window types
+- [ ] No functional regressions in any test
+
+**Expected Results**:
+| Window Type | Before | After | Speedup |
+|-------------|--------|-------|---------|
+| TUMBLING | 120 rec/sec | >20,000 rec/sec | **166x** |
+| SLIDING | 175 rec/sec | >20,000 rec/sec | **114x** |
+| SESSION | 917 rec/sec | >15,000 rec/sec | **16x** |
+| EMIT CHANGES | 29,321 rec/sec | ~29,000 rec/sec | (no change) |
+
+---
+
+## Phase 2: Fix Emission Logic Correctness
+
+**Status**: 🔴 Not Started
+**Priority**: 🔥 CRITICAL
+**Estimated Time**: 3-4 hours
+**Risk**: Medium (requires careful window semantics understanding)
+
+### Root Causes
+
+**File**: `src/velostream/sql/execution/processors/window.rs:600-635`
+
+All three window types have emission logic bugs:
+
+1. **TUMBLING** (lines 600-609): Compares absolute timestamp with relative duration
+2. **SLIDING** (lines 612-621): Same absolute/relative time bug
+3. **SESSION** (lines 623-635): Emits on every record instead of session gap
+
+---
+
+### Task 2.1: Fix TUMBLING window emission logic
+
+**File**: `src/velostream/sql/execution/processors/window.rs`
+**Lines**: 600-609
+**Status**: ⬜ Not Started
+
+**Current (BROKEN)**:
+```rust
+WindowSpec::Tumbling { size, .. } => {
+    let window_size_ms = size.as_millis() as i64;
+
+    // For tumbling windows, emit when window fills
+    if last_emit == 0 {
+        return event_time >= window_size_ms;  // ⚠️ WRONG: 1700000000 >= 60000
+        //     ^^^^^^^^^^^^^    ^^^^^^^^^^^^^^
+        //     Absolute time    Relative duration
+    }
+
+    event_time >= last_emit + window_size_ms
+}
+```
+
+**Fixed**:
+```rust
+WindowSpec::Tumbling { size, .. } => {
+    let window_size_ms = size.as_millis() as i64;
+
+    if last_emit == 0 {
+        // First window: need at least one window's worth of data
+        let first_time = window_state.buffer.first()
+            .map(|r| Self::extract_event_time(r, window_spec.time_column()))
+            .unwrap_or(event_time);
+
+        event_time - first_time >= window_size_ms  // ← CORRECT: duration comparison
+    } else {
+        // Subsequent windows: emit every window_size_ms
+        event_time >= last_emit + window_size_ms
+    }
+}
+```
+
+**Checklist**:
+- [ ] Add code to get first record's timestamp
+- [ ] Change comparison to `event_time - first_time >= window_size_ms`
+- [ ] Compile and verify logic
+- [ ] Run TUMBLING tests
+
+---
+
+### Task 2.2: Fix SLIDING window emission logic
+
+**File**: `src/velostream/sql/execution/processors/window.rs`
+**Lines**: 612-621
+**Status**: ⬜ Not Started
+
+**Current (BROKEN)**:
+```rust
+WindowSpec::Sliding { advance, .. } => {
+    let advance_ms = advance.as_millis() as i64;
+
+    if last_emit == 0 {
+        return event_time >= advance_ms;  // ⚠️ WRONG: same bug as TUMBLING
+    }
+
+    event_time >= last_emit + advance_ms
+}
+```
+
+**Fixed**:
+```rust
+WindowSpec::Sliding { size, advance, .. } => {
+    let advance_ms = advance.as_millis() as i64;
+
+    if last_emit == 0 {
+        // First window: need at least one slide interval of data
+        let first_time = window_state.buffer.first()
+            .map(|r| Self::extract_event_time(r, window_spec.time_column()))
+            .unwrap_or(event_time);
+
+        event_time - first_time >= advance_ms  // ← CORRECT: duration comparison
+    } else {
+        // Subsequent windows: emit every slide interval
+        event_time >= last_emit + advance_ms
+    }
+}
+```
+
+**Checklist**:
+- [ ] Add code to get first record's timestamp
+- [ ] Change comparison to `event_time - first_time >= advance_ms`
+- [ ] Compile and verify logic
+- [ ] Run SLIDING tests
+
+---
+
+### Task 2.3: Fix SESSION window emission logic
+
+**File**: `src/velostream/sql/execution/processors/window.rs`
+**Lines**: 623-635
+**Status**: ⬜ Not Started
+
+**Current (BROKEN)**:
+```rust
+WindowSpec::Session { gap, .. } => {
+    // Session window emits when gap is exceeded
+    if window_state.buffer.is_empty() {
+        return false;
+    }
+
+    if window_state.buffer.len() == 1 {
+        return false;
+    }
+
+    // Check if gap exceeded between last record and current
+    !window_state.buffer.is_empty()  // ⚠️ WRONG: Always true, emits every record
+}
+```
+
+**Fixed**:
+```rust
+WindowSpec::Session { gap, .. } => {
+    let gap_ms = gap.as_millis() as i64;
+
+    // Session window emits when gap is exceeded
+    if window_state.buffer.is_empty() {
+        return false;
+    }
+
+    if window_state.buffer.len() == 1 {
+        return false;  // Need at least 2 records to check gap
+    }
+
+    // Get timestamp of last record in buffer
+    let last_record = window_state.buffer.last().unwrap();
+    let last_time = Self::extract_event_time(last_record, window_spec.time_column());
+
+    // Emit if gap exceeded
+    event_time - last_time > gap_ms  // ← CORRECT: Check actual gap
+}
+```
+
+**Checklist**:
+- [ ] Extract last record's timestamp
+- [ ] Compare actual gap: `event_time - last_time > gap_ms`
+- [ ] Compile and verify logic
+- [ ] Run SESSION tests
+
+---
+
+### Task 2.4: Add buffer cleanup after emission
+
+**File**: `src/velostream/sql/execution/processors/window.rs`
+**Lines**: After emission logic (around line 170)
+**Status**: ⬜ Not Started
+
+**Purpose**: Prevent unbounded buffer growth in SLIDING windows
+
+**Implementation**:
+```rust
+// After emission, cleanup old records (for SLIDING windows)
+if let WindowSpec::Sliding { size, .. } = window_spec {
+    let window_size_ms = size.as_millis() as i64;
+    let window_start_time = event_time - window_size_ms;
+
+    window_state.buffer.retain(|r| {
+        let record_time = Self::extract_event_time(r, window_spec.time_column());
+        record_time >= window_start_time
+    });
+}
+```
+
+**Checklist**:
+- [ ] Add buffer cleanup after window emission
+- [ ] Only apply to SLIDING windows (TUMBLING clears buffer)
+- [ ] Test that buffer doesn't grow unbounded
+
+---
+
+### Task 2.5: Run emission correctness tests
+
+**Status**: ⬜ Not Started
+
+**Tests to run**:
+```bash
+# 1. TUMBLING should emit every 1 minute for 10K records (167 emissions)
+cargo test benchmark_tumbling_window_financial_analytics --no-default-features -- --nocapture | grep "Generated.*windowed results"
+
+# 2. SLIDING should emit every 5 minutes for 10K records (~33 emissions)
+cargo test benchmark_sliding_window_moving_average --no-default-features -- --nocapture | grep "Generated.*windowed results"
+
+# 3. SESSION should emit when gap exceeded (~20-50 emissions for IoT data)
+cargo test benchmark_session_window_iot_clustering --no-default-features -- --nocapture | grep "Generated.*windowed results"
+```
+
+**Success Criteria**:
+- [ ] TUMBLING: ~167 emissions (10K records ÷ 60s window × 10s intervals)
+- [ ] SLIDING: ~33 emissions (10K records ÷ 300s slide × 10s intervals)
+- [ ] SESSION: 20-50 emissions (depends on gap pattern, NOT 10,000)
+- [ ] All aggregation results are correct (verify sample output)
+
+---
+
+### Task 2.6: Verify window boundary correctness
+
+**Status**: ⬜ Not Started
+
+**Create test**: `tests/unit/sql/execution/processors/window/emission_correctness_test.rs`
+
+**Test cases**:
+```rust
+#[test]
+fn test_tumbling_window_emission_timing() {
+    // Create 60-second tumbling window
+    // Feed 10 records at 10-second intervals (total 100 seconds)
+    // Expect: 1 emission at t=60s (first window complete)
+    // Verify: Window contains records 0-5 (t=0 to t=50)
+}
+
+#[test]
+fn test_sliding_window_emission_frequency() {
+    // Create SLIDING(60s, 30s) - 60s window, 30s slide
+    // Feed 10 records at 10-second intervals (total 100 seconds)
+    // Expect: 3 emissions (t=60s, t=90s, t=120s)
+    // Verify: Each window contains correct overlapping records
+}
+
+#[test]
+fn test_session_window_gap_detection() {
+    // Create SESSION(20s gap)
+    // Feed: [t=0, t=5, t=10, t=40, t=45, t=70]
+    // Expect: 3 emissions (gaps at t=10→40, t=45→70, end of stream)
+    // Verify: Sessions contain correct records
+}
+```
+
+**Checklist**:
+- [ ] Create emission_correctness_test.rs
+- [ ] Add `pub mod emission_correctness_test;` to `tests/unit/sql/execution/processors/window/mod.rs`
+- [ ] Implement all 3 test cases
+- [ ] All tests pass
+
+---
+
+## Phase 3: Fix Test Data Consistency
+
+**Status**: 🔴 Not Started
+**Priority**: 🟡 HIGH
+**Estimated Time**: 1-2 hours
+**Risk**: Low (straightforward fix)
+
+### Root Cause
+
+**File**: `tests/performance/unit/time_window_sql_benchmarks.rs`
+
+All benchmark tests have unit mismatches:
+
+```rust
+// Line 256: Comment says "10 second intervals"
+let timestamp = base_time + (i as i64 * 10);  // ← But increments by 10 ms!
+//                                      ^^
+//                                Should be: 10 * 1000 (10 seconds in milliseconds)
+```
+
+Windows expect millisecond timestamps, but test data increments by only 10ms (effectively 0.01 seconds).
+
+**Impact**:
+- 10,000 records span only 100 seconds (instead of ~27 hours at 10s intervals)
+- Windows never complete or complete incorrectly
+- Explains why TUMBLING/SLIDING emit 0-2 times instead of 100+ times
+
+---
+
+### Task 3.1: Fix TUMBLING window test data
+
+**File**: `tests/performance/unit/time_window_sql_benchmarks.rs`
+**Lines**: 173-227
+**Status**: ⬜ Not Started
+
+**Current**:
+```rust
+// Line 197: 10,000 records
+for i in 0..10_000 {
+    let timestamp = base_time + (i as i64 * 1);  // ← 1 millisecond interval
+    // ...
+}
+```
+
+**Fixed**:
+```rust
+// Line 197: 10,000 records at 10-second intervals
+for i in 0..10_000 {
+    let timestamp = base_time + (i as i64 * 10 * 1000);  // ← 10 seconds in ms
+    // Total span: 10,000 × 10s = 100,000 seconds = 27.7 hours
+}
+```
+
+**Expected behavior after fix**:
+- Window: TUMBLING 1 MINUTE
+- Records: 10,000 at 10s intervals = 100,000 seconds total
+- Expected emissions: 100,000s ÷ 60s = **1,666 windows**
+
+**Checklist**:
+- [ ] Change interval from `1` to `10 * 1000`
+- [ ] Run test and verify ~1,666 window emissions
+- [ ] Verify aggregation results are correct
+
+---
+
+### Task 3.2: Fix SLIDING window test data
+
+**File**: `tests/performance/unit/time_window_sql_benchmarks.rs`
+**Lines**: 233-282
+**Status**: ⬜ Not Started
+
+**Current**:
+```rust
+// Line 256: 10,000 records
+for i in 0..10_000 {
+    let timestamp = base_time + (i as i64 * 10);  // ← 10 millisecond interval
+    // ...
+}
+```
+
+**Fixed**:
+```rust
+// Line 256: 10,000 records at 10-second intervals
+for i in 0..10_000 {
+    let timestamp = base_time + (i as i64 * 10 * 1000);  // ← 10 seconds in ms
+    // Total span: 10,000 × 10s = 100,000 seconds
+}
+```
+
+**Expected behavior after fix**:
+- Window: SLIDING(10 MINUTES, 5 MINUTES)
+- Window size: 600s, Slide: 300s
+- Expected emissions: 100,000s ÷ 300s = **333 windows**
+
+**Checklist**:
+- [ ] Change interval from `10` to `10 * 1000`
+- [ ] Run test and verify ~333 window emissions
+- [ ] Verify overlapping windows contain correct records
+
+---
+
+### Task 3.3: Fix SESSION window test data
+
+**File**: `tests/performance/unit/time_window_sql_benchmarks.rs`
+**Lines**: 453-503
+**Status**: ⬜ Not Started
+
+**Current**:
+```rust
+// Line 473: 1,000 records (reduced from 10K for timeout)
+for i in 0..1_000 {
+    let sensor_id = i % 200;
+    let timestamp = if i % 10 == 0 {
+        base_time + (i as i64 * 2000)  // ← Burst: 2000ms gap
+    } else {
+        base_time + (i as i64 * 10)    // ← Normal: 10ms gap
+    };
+    // ...
+}
+```
+
+**Fixed**:
+```rust
+// Line 473: 10,000 records with realistic IoT gaps
+for i in 0..10_000 {
+    let sensor_id = i % 200;
+    let timestamp = if i % 10 == 0 {
+        base_time + (i as i64 * 20 * 1000)  // ← Burst: 20 second gap
+    } else {
+        base_time + (i as i64 * 5 * 1000)   // ← Normal: 5 second gap
+    };
+    // ...
+}
+```
+
+**Expected behavior after fix**:
+- Window: SESSION(15 SECONDS gap)
+- Normal gap: 5 seconds (no session break)
+- Burst gap: 20 seconds (session break)
+- Expected sessions: ~1,000 sessions (one per burst)
+
+**Checklist**:
+- [ ] Change normal gap from `10` to `5 * 1000`
+- [ ] Change burst gap from `2000` to `20 * 1000`
+- [ ] Increase record count back to 10,000 (performance is fixed)
+- [ ] Run test and verify ~1,000 session emissions
+- [ ] Verify test completes in <10 seconds (was >120s)
+
+---
+
+## Phase 4: Validation, Testing & Cleanup
+
+**Status**: 🔴 Not Started
+**Priority**: 🟢 MEDIUM
+**Estimated Time**: 2-3 hours
+**Risk**: Low
+
+---
+
+### Task 4.1: Run full benchmark suite
+
+**Status**: ⬜ Not Started
+
+**Commands**:
+```bash
+# Run all performance benchmarks
+cargo test --no-default-features --test time_window_sql_benchmarks -- --nocapture
+
+# Run all profiling tests
+cargo test --no-default-features -p velostream --test '*' profile_ -- --nocapture
+
+# Verify comprehensive test suite passes
+cargo test --tests --no-default-features -- --skip integration:: --skip performance::
+```
+
+**Success Criteria**:
+- [ ] All 3 benchmark tests complete in <30 seconds total (was >240s)
+- [ ] TUMBLING: >20,000 rec/sec, ~1,666 emissions
+- [ ] SLIDING: >20,000 rec/sec, ~333 emissions
+- [ ] SESSION: >15,000 rec/sec, ~1,000 emissions
+- [ ] All unit tests pass (no regressions)
+
+---
+
+### Task 4.2: Remove temporary instrumentation code
+
+**Status**: ⬜ Not Started
+
+**Files to clean**:
+1. **`src/velostream/sql/execution/processors/window.rs`**
+   - Remove any `eprintln!` instrumentation
+   - Remove `use std::time::Instant` if not needed elsewhere
+   - Lines to check: 134-181 (may have temporary timing code)
+
+2. **`tests/performance/analysis/tumbling_instrumented_profiling.rs`**
+   - This file can remain (useful for future debugging)
+   - But remove from default test runs if too noisy
+
+3. **`INSTRUMENTATION_PATCH.md`**
+   - Move to `docs/performance/` for historical reference
+   - Update README to reference this document
+
+**Checklist**:
+- [ ] Remove all `eprintln!` debugging from window.rs
+- [ ] Remove unused `use std::time::Instant` imports
+- [ ] Move INSTRUMENTATION_PATCH.md to docs/performance/
+- [ ] Compile and verify no warnings
+- [ ] Run clippy: `cargo clippy --no-default-features`
+
+---
+
+### Task 4.3: Create regression test to prevent future O(N²) issues
+
+**Status**: ⬜ Not Started
+
+**Create file**: `tests/unit/sql/execution/processors/window/performance_regression_test.rs`
+
+**Purpose**: Ensure window processing maintains O(N) or better complexity
+
+**Implementation**:
+```rust
+//! Performance regression tests to prevent O(N²) issues
+//!
+//! These tests verify that window processing maintains acceptable
+//! algorithmic complexity and doesn't regress to O(N²) behavior.
+
+use std::time::Instant;
+use velostream::velostream::sql::execution::types::StreamRecord;
+// ... imports
+
+#[test]
+fn test_window_processing_linear_growth() {
+    // Test that processing time grows linearly, not quadratically
+
+    let sizes = vec![1_000, 2_000, 4_000, 8_000];
+    let mut times = Vec::new();
+
+    for size in sizes {
+        let start = Instant::now();
+
+        // Process `size` records through a TUMBLING window
+        for i in 0..size {
+            // ... process record
+        }
+
+        times.push(start.elapsed());
+    }
+
+    // Verify growth is linear (ratio should be ~2.0 for doubling)
+    let ratio_1 = times[1].as_secs_f64() / times[0].as_secs_f64();
+    let ratio_2 = times[2].as_secs_f64() / times[1].as_secs_f64();
+    let ratio_3 = times[3].as_secs_f64() / times[2].as_secs_f64();
+
+    // Allow 50% variance (linear = 2.0x, quadratic = 4.0x)
+    assert!(ratio_1 < 3.0, "Growth ratio {} indicates O(N²) behavior", ratio_1);
+    assert!(ratio_2 < 3.0, "Growth ratio {} indicates O(N²) behavior", ratio_2);
+    assert!(ratio_3 < 3.0, "Growth ratio {} indicates O(N²) behavior", ratio_3);
+}
+
+#[test]
+fn test_throughput_meets_target() {
+    // Verify all window types meet 20K rec/sec target
+
+    let window_types = vec!["TUMBLING", "SLIDING", "SESSION"];
+
+    for window_type in window_types {
+        let start = Instant::now();
+
+        // Process 10,000 records
+        for i in 0..10_000 {
+            // ... process record with window_type
+        }
+
+        let elapsed = start.elapsed().as_secs_f64();
+        let throughput = 10_000.0 / elapsed;
+
+        assert!(
+            throughput >= 20_000.0,
+            "{} window throughput {} rec/sec is below 20K target",
+            window_type,
+            throughput
         );
-        assert_eq!(
-            record.fields.get("count_rows"),
-            Some(&FieldValue::Integer(3)),
-            "COUNT should be 3"
+    }
+}
+
+#[test]
+fn test_buffer_clone_count_linear() {
+    // Verify buffer is not cloned O(N²) times
+
+    // This requires instrumentation or a custom allocator
+    // For now, we can verify time-based proxy
+
+    let sizes = vec![1_000, 5_000, 10_000];
+
+    for size in sizes {
+        let start = Instant::now();
+
+        // Process records
+        for i in 0..size {
+            // ...
+        }
+
+        let elapsed = start.elapsed();
+        let time_per_record = elapsed.as_nanos() / size as u128;
+
+        // Should be < 50µs per record (was 8ms with O(N²))
+        assert!(
+            time_per_record < 50_000,
+            "Processing time {}ns per record suggests O(N²) cloning",
+            time_per_record
         );
     }
 }
 ```
 
-### Implementation Strategy
-
-**Phase 1 - High-Risk Tests (Tier 1, 83 tests)**:
-- Add 2-3 value assertions per test
-- Focus on: window boundaries, aggregation results, watermark behavior
-- Estimated effort: 2-4 weeks
-- Expected result: +26 percentage points (39% → 65% coverage)
-
-**Phase 2 - Medium-Risk Tests (Tier 2, 43 tests)**:
-- Add additional assertions to partially-tested functions
-- Estimated effort: 1-2 weeks
-- Expected result: +14 percentage points (65% → 79% coverage)
-
-**Phase 3 - Remaining Tests (remaining test files)**:
-- Systematic audit and enhancement
-- Estimated effort: 1 week
-- Expected result: +6 percentage points (79% → 85% coverage)
-
-### Business Impact
-
-**Current Risk: HIGH**
-- Bugs in aggregation logic undetected
-- Window semantics not validated at all
-- Watermark behavior not verified
-- Statistical functions not mathematically checked
-- Edge cases silently fail
-
-**After Implementation: LOW**
-- All computational bugs caught immediately
-- Complete semantic validation
-- Regression detection enabled
-- Edge cases properly verified
-
-### Success Criteria
-- Phase 1: All 83 Tier 1 tests have at least 2 value assertions
-- Phase 2: All 43 Tier 2 tests have ≥80% assertion coverage
-- Overall: Achieve 85%+ value assertion coverage across all SQL tests
+**Checklist**:
+- [ ] Create performance_regression_test.rs
+- [ ] Add `pub mod performance_regression_test;` to mod.rs
+- [ ] Implement all 3 test cases
+- [ ] Tests pass with current fixed code
+- [ ] Document expected performance baselines in comments
 
 ---
 
-## Priority 2: Window Frame Execution Implementation
+### Task 4.4: Update documentation
 
-### Issue
-Window frame specifications (ROWS BETWEEN, RANGE BETWEEN) are parsed correctly but **NOT applied during query execution**. Tests in `window_frame_execution_test.rs` are detecting real bugs in aggregation calculations.
+**Status**: ⬜ Not Started
 
-### Root Cause Analysis
-**File**: `src/velostream/sql/execution/expression/window_functions.rs` (lines 281-353)
-- `calculate_frame_bounds()` function exists but is **NEVER CALLED**
-- Window frame specification is parsed but discarded during execution
+**Files to update**:
 
-**File**: `src/velostream/sql/execution/aggregation/accumulator.rs`
-- `process_record_into_accumulator()` includes **ALL records** in aggregation
-- No filtering by window frame bounds (start_offset, end_offset)
-- Rebuild aggregations for each row position considering only frame-filtered records
+1. **`docs/performance/WINDOW_PERFORMANCE_SUMMARY.md`** (new file)
+   - Summarize all performance improvements
+   - Document O(N²) issue and fix
+   - Include before/after benchmarks
+   - Link to detailed analysis docs
 
-### Test Evidence
-**Test File**: `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs`
-**Test Count**: 9 async functions with value assertions
+2. **`docs/sql/windows.md`** (update if exists)
+   - Document correct emission semantics
+   - Clarify time unit expectations
+   - Add examples of each window type
 
-**Example Failure**:
-```
-Test: test_rows_between_unbounded_preceding_execution
-Row 2 calculation:
-  Expected: AVG(10.0, 20.0) = 15.0  (rows 1-2 in UNBOUNDED PRECEDING frame)
-  Actual: 20.0 (only current row or miscalculated)
-  Status: FAILS ❌
-```
+3. **`README.md`** (add performance section)
+   - Highlight window performance: >20K rec/sec
+   - Link to detailed performance documentation
 
-### Implementation Tasks
-
-#### Task 1.1: Integrate Frame Bounds into Aggregation Pipeline
-- [ ] **File**: `src/velostream/sql/execution/aggregation/accumulator.rs`
-- [ ] **Function**: `process_record_into_accumulator()`
-- [ ] **Change**: Before aggregating a record, calculate frame bounds using `calculate_frame_bounds()`
-- [ ] **Complexity**: Medium
-- [ ] **Estimated Effort**: 4-6 hours
-
-#### Task 1.2: Handle Frame Boundary Edge Cases
-- [ ] **File**: `src/velostream/sql/execution/aggregation/accumulator.rs`
-- [ ] **Cases**:
-  - UNBOUNDED PRECEDING: include all rows from start to current
-  - CURRENT ROW: only current row
-  - UNBOUNDED FOLLOWING: include current row to end
-  - PRECEDING(n): last n rows before current
-  - FOLLOWING(n): next n rows after current
-- [ ] **Complexity**: Medium-High
-- [ ] **Estimated Effort**: 3-4 hours
-
-#### Task 1.3: Verify Against Test Suite
-- [ ] **Test File**: `window_frame_execution_test.rs` (9 tests)
-- [ ] **Success Criteria**: All 9 tests pass with correct value assertions
-- [ ] **Complexity**: Low (tests already exist)
-- [ ] **Estimated Effort**: 1-2 hours (will iterate with implementation)
-
-**Total Priority 2 Effort**: ~8-12 hours
+**Checklist**:
+- [ ] Create WINDOW_PERFORMANCE_SUMMARY.md
+- [ ] Update windows.md with emission semantics
+- [ ] Update README.md with performance highlights
+- [ ] Add links between related docs
 
 ---
 
-## Priority 3: SQL Parser Gap Fixes
+### Task 4.5: Pre-commit verification
 
-### Issue
-5 critical gaps affecting 5 SQL demo/example files. Parser rejects valid SQL syntax.
+**Status**: ⬜ Not Started
 
-### Gap 1: CREATE STREAM...WITH Configuration Syntax
-
-**Files Affected** (3 files):
-- `examples/ecommerce_analytics.sql`
-- `examples/iot_monitoring.sql`
-- `examples/social_media_analytics.sql`
-
-**Error**: `Expected As, found With`
-
-#### Tasks:
-- [ ] Task 2.1.1: Extend parser for WITH clause in CREATE STREAM
-  - [ ] Estimated Effort: 3-4 hours
-- [ ] Task 2.1.2: Implement WITH configuration parser (key-value pairs)
-  - [ ] Estimated Effort: 2-3 hours
-- [ ] Task 2.1.3: Validate against 3 affected SQL files
-  - [ ] Estimated Effort: 1 hour
-
-**Subtotal Gap 1**: ~6-8 hours
-
----
-
-### Gap 2: WITH Clause Property Configuration
-
-**Files Affected** (1 file):
-- `examples/file_processing_sql_demo.sql`
-
-**Error**: `Expected String, found Identifier`
-
-#### Tasks:
-- [ ] Task 2.2.1: Enhance parser for contextual property blocks
-  - [ ] Estimated Effort: 2-3 hours
-- [ ] Task 2.2.2: Validate against test file
-  - [ ] Estimated Effort: 0.5 hours
-
-**Subtotal Gap 2**: ~2-3.5 hours
-
----
-
-### Gap 3: Special Character Handling (Colon)
-
-**Files Affected** (1 file):
-- `examples/iot_monitoring_with_metrics.sql`
-
-**Error**: `Unexpected character ':' at position 10247`
-
-#### Tasks:
-- [ ] Task 2.3.1: Debug and locate exact colon usage
-  - [ ] Estimated Effort: 0.5 hours
-- [ ] Task 2.3.2: Implement targeted colon support
-  - [ ] Estimated Effort: 1-2 hours
-- [ ] Task 2.3.3: Validate against test file
-  - [ ] Estimated Effort: 0.5 hours
-
-**Subtotal Gap 3**: ~2-3 hours
-
----
-
-## Priority 4: Pre-Commit Verification & Reporting
-
-### Task 3.1: Complete Pre-Commit Verification Suite
-- [ ] Code formatting check
-- [ ] Compilation check
-- [ ] Clippy linting
-- [ ] Unit tests
-- [ ] Full test suite
-- [ ] Example compilation
-- [ ] Binary compilation
-- [ ] Documentation tests
-- [ ] Estimated Effort**: 1-2 hours
-
-### Task 3.2: Generate Test Coverage Report
-- [ ] Create summary of all test results
-- [ ] Document pass/fail status for each module
-- [ ] Include metrics (total tests, pass rate, coverage)
-- [ ] **Estimated Effort**: 1-2 hours
-
-### Task 3.3: Git Commit Phase 2-3 Work
-- [ ] Stage all changes
-- [ ] Create commit with detailed message
-- [ ] **Estimated Effort**: 0.5 hours
-
----
-
-## Testing & Validation
-
-### Window Frame Tests
-**File**: `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs`
-- 9 test functions with explicit expected values
-- Value assertions validate actual aggregation calculations
-
-### Parser Validation
-**Files**: 5 demo/example SQL files requiring parser fixes
-
-Run after parser implementation:
+**Run complete pre-commit checks**:
 ```bash
-cargo build --examples --no-default-features
-cargo run --bin velo-cli validate examples/ecommerce_analytics.sql
+echo "🧹 Running Velostream pre-commit checks..."
+
+echo "1️⃣ Code formatting..."
+cargo fmt --all -- --check || exit 1
+
+echo "2️⃣ Compilation..."
+cargo check --all-targets --no-default-features || exit 1
+
+echo "3️⃣ Clippy linting..."
+cargo clippy --all-targets --no-default-features || exit 1
+
+echo "4️⃣ Unit tests..."
+cargo test --lib --no-default-features --quiet || exit 1
+
+echo "5️⃣ Comprehensive tests..."
+cargo test --tests --no-default-features --quiet -- --skip integration:: --skip performance:: || exit 1
+
+echo "6️⃣ Documentation tests..."
+cargo test --doc --no-default-features --quiet || exit 1
+
+echo "7️⃣ Examples..."
+cargo build --examples --no-default-features || exit 1
+
+echo "8️⃣ Binaries..."
+cargo build --bins --no-default-features || exit 1
+
+echo "🎉 ALL CHECKS PASSED!"
 ```
 
----
-
-## SQL Parser Gaps - Detailed Analysis
-
-### Gap 1: CREATE STREAM...WITH Configuration (3 files, 72% demo compatibility)
-
-**Files Affected**:
-- `examples/ecommerce_analytics.sql`
-- `examples/iot_monitoring.sql`
-- `examples/social_media_analytics.sql`
-
-**Error**: `Expected As, found With`
-
-**Current Issue**:
-```sql
--- Currently FAILS
-CREATE STREAM orders WITH (
-    config_file = 'examples/configs/orders_topic.config',
-    format = 'json',
-    compression = 'gzip'
-);
-```
-
-**Parser Currently Accepts**:
-```sql
-CREATE STREAM orders AS
-SELECT * FROM kafka_source;
-```
-
-**Solution**: Implement full `CREATE STREAM ... WITH (property = value, ...) ...` syntax support
-
-**Impact**: Medium - blocks configuration-driven stream definitions
+**Checklist**:
+- [ ] All formatting checks pass
+- [ ] No compilation warnings
+- [ ] No clippy warnings
+- [ ] All tests pass
+- [ ] Examples compile
+- [ ] Binaries compile
 
 ---
 
-### Gap 2: WITH Clause Property Configuration (1 file)
+## Testing Strategy
 
-**Files Affected**:
-- `examples/file_processing_sql_demo.sql`
+### Test Coverage
 
-**Error**: `Expected String, found Identifier`
+#### Unit Tests (Existing)
+- `tests/unit/sql/execution/processors/window/` - All window processor tests
+- Should continue to pass after fixes
 
-**Current Issue**:
-```sql
-WITH (
-    format = 'jsonlines',
-    compression = 'gzip',
-    batch_size = 1000
-)
-```
+#### Performance Tests (Existing + New)
+- `tests/performance/analysis/tumbling_window_profiling.rs` - TUMBLING profiling
+- `tests/performance/analysis/sliding_window_profiling.rs` - SLIDING profiling (create if missing)
+- `tests/performance/analysis/session_window_profiling.rs` - SESSION profiling
+- `tests/performance/analysis/tumbling_emit_changes_profiling.rs` - EMIT CHANGES baseline
 
-**Solution**: Enhance parser for property-style WITH clauses with contextual parsing
+#### Benchmark Tests (Existing - to be fixed)
+- `tests/performance/unit/time_window_sql_benchmarks.rs`
+  - `benchmark_tumbling_window_financial_analytics`
+  - `benchmark_sliding_window_moving_average`
+  - `benchmark_session_window_iot_clustering`
 
-**Impact**: Medium - affects configuration blocks in various contexts
-
----
-
-### Gap 3: Special Character Handling - Colon (1 file)
-
-**Files Affected**:
-- `examples/iot_monitoring_with_metrics.sql`
-
-**Error**: `Unexpected character ':' at position 10247`
-
-**Likely Causes**:
-- YAML-style configuration blocks (key: value)
-- URL specifications (http://...)
-- Type annotations or namespacing
-- Time specifications (12:34:56)
-
-**Solution**: Debug exact context and implement targeted colon support
-
-**Impact**: Low-Medium - context-specific, requires investigation
+#### Regression Tests (New)
+- `tests/unit/sql/execution/processors/window/performance_regression_test.rs` (Task 4.3)
+- `tests/unit/sql/execution/processors/window/emission_correctness_test.rs` (Task 2.6)
 
 ---
 
-## Phase 1 Validation Results Summary
+## Risk Management
 
-**Date**: October 28, 2025
-**Total Files Tested**: 18
-**Passed**: 13 (72.2%)
-**Failed**: 5 (27.8%)
+### High-Risk Changes
+1. **Context mutable borrowing** (Task 1.1, 1.2)
+   - Risk: Borrow checker conflicts
+   - Mitigation: Use `std::mem::take()` for ownership transfer
+   - Rollback: Can revert to clone if needed (with performance hit)
 
-### Successful Parses (13 files)
-- ✅ enhanced_sql_demo.sql
-- ✅ simple_test.sql
-- ✅ test_kafka.sql
-- ✅ financial_trading.sql
-- ✅ ctas_file_trading.sql
-- ✅ ecommerce_analytics_phase4.sql
-- ✅ ecommerce_with_metrics.sql
-- ✅ financial_trading_with_metrics.sql
-- ✅ iot_monitoring_phase4.sql
-- ✅ social_media_analytics_phase4.sql
-- ✅ test_emit_changes.sql
-- ✅ test_simple_validation.sql
-- ✅ test_parsing_error.sql (intentionally invalid)
+2. **Emission logic changes** (Task 2.1, 2.2, 2.3)
+   - Risk: Breaking existing window semantics
+   - Mitigation: Comprehensive test suite, manual verification
+   - Rollback: Git revert, well-documented changes
 
-### Failed Parses (5 files)
-- ❌ file_processing_sql_demo.sql (Gap 2: WITH clause syntax)
-- ❌ ecommerce_analytics.sql (Gap 1: CREATE STREAM...WITH)
-- ❌ iot_monitoring.sql (Gap 1: CREATE STREAM...WITH)
-- ❌ iot_monitoring_with_metrics.sql (Gap 3: Special character handling)
-- ❌ social_media_analytics.sql (Gap 1: CREATE STREAM...WITH)
+### Medium-Risk Changes
+1. **Test data time units** (Task 3.1, 3.2, 3.3)
+   - Risk: Breaking tests that depend on specific timing
+   - Mitigation: Review all affected tests before committing
+   - Rollback: Easy to revert timestamp calculations
+
+### Low-Risk Changes
+1. **Buffer cleanup** (Task 2.4)
+   - Risk: Minimal - only affects SLIDING windows
+   - Mitigation: Test that buffer doesn't grow unbounded
+
+2. **Documentation updates** (Task 4.4)
+   - Risk: None - documentation only
 
 ---
 
-## Phase 2 Test Coverage Summary
+## Success Metrics
 
-### Test Files Created (41 tests)
-1. **Session Window Functions** (8 tests)
-   - `tests/unit/sql/execution/processors/window/session_window_functions_test.rs`
-   - Tests: SESSION_DURATION, SESSION_START, SESSION_END
-   - Status: ✅ 8/8 PASSING
+### Performance Targets
+- [ ] TUMBLING throughput: >20,000 rec/sec (was 120)
+- [ ] SLIDING throughput: >20,000 rec/sec (was 175)
+- [ ] SESSION throughput: >15,000 rec/sec (was 917)
+- [ ] Growth ratio: <2.0x for all types (was 16.47x)
+- [ ] Memory usage: <100 MB for 10K records (was ~10 GB)
 
-2. **Statistical Functions** (14 tests)
-   - `tests/unit/sql/execution/processors/window/statistical_functions_test.rs`
-   - Tests: PERCENTILE_CONT, PERCENTILE_DISC, STDDEV, VARIANCE + value assertions
-   - Status: ✅ 14/14 PASSING (9 parser + 5 value assertions)
+### Correctness Targets
+- [ ] TUMBLING: ~1,666 emissions for 10K records at 10s intervals with 1min window
+- [ ] SLIDING: ~333 emissions for 10K records with 10min window, 5min slide
+- [ ] SESSION: ~1,000 emissions for 10K records with 15s gap
+- [ ] All aggregation results mathematically correct
+- [ ] No functional regressions in existing tests
 
-3. **Complex HAVING Clauses** (10 tests)
-   - `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs`
-   - Tests: Advanced aggregation filtering with complex boolean logic
-   - Status: ✅ 10/10 COMPILED
-
-4. **Temporal JOINs** (9 tests)
-   - `tests/unit/sql/execution/processors/window/timebased_joins_test.rs`
-   - Tests: Time-based JOIN patterns with BETWEEN constraints
-   - Status: ✅ 9/9 COMPILED
-
-### Phase 2 Key Achievements
-- Implemented value assertion testing pattern (floating-point tolerance < 0.001)
-- Discovered SQL syntax requirement: GROUP BY must precede WINDOW clause
-- Created comprehensive test infrastructure for advanced SQL features
-- Total new tests: 41 (31 passing + 10 compiled)
+### Code Quality Targets
+- [ ] Zero clippy warnings
+- [ ] All pre-commit checks pass
+- [ ] Comprehensive test coverage (>90%)
+- [ ] Documentation updated and accurate
 
 ---
 
-## References
+## Timeline Estimate
 
-### Key Documentation Files
-- `CLAUDE.md` - Project guidelines, development commands, and architecture principles
-- Updated test modules in `tests/unit/sql/execution/processors/window/mod.rs`
-- Updated validation tests in `tests/unit/sql/validation/mod.rs`
+| Phase | Estimated Time | Dependencies |
+|-------|---------------|--------------|
+| Phase 1 | 2-3 hours | None |
+| Phase 2 | 3-4 hours | Phase 1 complete (optional) |
+| Phase 3 | 1-2 hours | Phase 2 complete (for accurate emission counts) |
+| Phase 4 | 2-3 hours | Phases 1-3 complete |
+| **Total** | **8-12 hours** | Sequential or parallel execution |
+
+**Recommended Approach**:
+1. Start with Phase 1 (performance) - immediate 100x+ improvement
+2. Run Phase 2 and 3 in parallel (emission logic + test data)
+3. Finish with Phase 4 (validation and cleanup)
+
+**Critical Path**: Phase 1 → Phase 3 → Phase 4
+**Parallel Path**: Phase 2 can run independently
+
+---
+
+## Appendix: Related Documents
+
+### Analysis Documents (docs/performance/)
+- `SESSION_WINDOW_PERFORMANCE_ANALYSIS.md` - SESSION O(N²) analysis
+- `WINDOW_PERFORMANCE_COMPARISON.md` - Cross-window comparison
+- `BREAKTHROUGH_EMIT_CHANGES_ANALYSIS.md` - Why EMIT CHANGES is fast
+- `ROOT_CAUSE_FOUND.md` - O(N²) buffer cloning root cause
+- `SLIDING_WINDOW_CORRECTNESS_ANALYSIS.md` - SLIDING emission bugs
+- `INSTRUMENTATION_PATCH.md` - How we found the bottleneck
+
+### Code References
+- `src/velostream/sql/execution/processors/context.rs:258-268` - O(N²) clone location
+- `src/velostream/sql/execution/engine.rs:516-605` - Main execution loop
+- `src/velostream/sql/execution/processors/window.rs:124-185` - Window processing
+- `src/velostream/sql/execution/processors/window.rs:587-635` - Emission logic
+- `tests/performance/unit/time_window_sql_benchmarks.rs` - Benchmark tests
 
 ### Test Files
-- `tests/unit/sql/execution/processors/window/window_frame_execution_test.rs` (9 tests)
-- `tests/unit/sql/execution/processors/window/session_window_functions_test.rs` (8 tests)
-- `tests/unit/sql/execution/processors/window/statistical_functions_test.rs` (14 tests)
-- `tests/unit/sql/execution/processors/window/complex_having_clauses_test.rs` (10 tests)
-- `tests/unit/sql/execution/processors/window/timebased_joins_test.rs` (9 tests)
-
-### Implementation Files (Targets)
-- `src/velostream/sql/execution/expression/window_functions.rs` (lines 281-353: calculate_frame_bounds)
-- `src/velostream/sql/execution/aggregation/accumulator.rs` (process_record_into_accumulator)
-- `src/velostream/sql/parser.rs` (CREATE STREAM, WITH clause, colon handling)
+- `tests/performance/analysis/*_profiling.rs` - Profiling test suite
+- `tests/unit/sql/execution/processors/window/` - Window unit tests
 
 ---
 
-## Success Criteria
-
-✅ Window Frame Implementation
-- All 9 window_frame_execution_test.rs tests PASS
-- Value assertions match expected calculations
-- No regression in existing tests
-
-✅ Parser Gap Fixes
-- All 5 demo/example files parse without errors
-- No regression in existing parser tests
-
-✅ Pre-Commit Verification
-- All formatting, compilation, and test checks pass
-- Code ready for merge to main branch
+**Document Version**: 1.0
+**Last Updated**: 2025-11-01
+**Status**: Ready for implementation

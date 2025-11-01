@@ -267,6 +267,21 @@ impl ProcessorContext {
         dirty_states
     }
 
+    /// Get modified window states as mutable references (O(1) - no cloning)
+    /// This eliminates the O(N²) buffer cloning issue
+    pub fn get_dirty_window_states_mut(&mut self) -> Vec<(String, &mut WindowState)> {
+        let mut dirty_states = Vec::new();
+        let dirty_mask = self.dirty_window_states;
+
+        for (idx, (query_id, window_state)) in self.persistent_window_states.iter_mut().enumerate() {
+            if idx < 32 && (dirty_mask & (1 << idx)) != 0 {
+                dirty_states.push((query_id.clone(), window_state));
+            }
+        }
+
+        dirty_states
+    }
+
     /// Clear dirty flags (called after persistence)
     pub fn clear_dirty_flags(&mut self) {
         self.dirty_window_states = 0;

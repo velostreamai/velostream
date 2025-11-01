@@ -12,6 +12,7 @@
 pub mod common;
 
 // Organized test hierarchy (Phase 2)
+pub mod analysis; // Performance profiling and analysis
 pub mod integration; // End-to-end pipeline benchmarks
 pub mod load;
 pub mod unit; // Component-specific benchmarks // High-throughput and stress testing

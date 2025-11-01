@@ -192,15 +192,18 @@ impl WindowProcessor {
         event_time: i64,
         context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        // Phase 1: GROUP BY Detection for EMIT CHANGES + Window combination
-        // Check if this is a GROUP BY + EMIT CHANGES windowed query
+        // Phase 1: GROUP BY Detection for Window combination
+        // Check if this is a GROUP BY windowed query (with or without EMIT CHANGES)
         let group_by_cols = Self::get_group_by_columns(query);
         let is_emit_changes = Self::is_emit_changes(query);
 
-        // Phase 3: ENGINE INTEGRATION - Activate GROUP BY routing
-        if let (Some(cols), true) = (&group_by_cols, is_emit_changes) {
+        // Phase 3: ENGINE INTEGRATION - Route ALL GROUP BY queries through multi-group path
+        // CRITICAL: execute_windowed_aggregation_impl() ignores GROUP BY, so we must use
+        // compute_all_group_results() for any query with GROUP BY
+        if let Some(cols) = &group_by_cols {
             debug!(
-                "FR-079 Phase 3: Activating GROUP BY + EMIT CHANGES windowed query routing for query: {}",
+                "FR-079 Phase 3: Activating GROUP BY windowed query routing (EMIT CHANGES: {}) for query: {}",
+                is_emit_changes,
                 query_id
             );
 
@@ -241,7 +244,25 @@ impl WindowProcessor {
                             .collect();
                         (filtered, start, end)
                     }
-                    WindowSpec::Sliding { .. } => (buffer.clone(), 0, 0), // For other window types, use all buffered records
+                    WindowSpec::Sliding { size, .. } => {
+                        // CRITICAL FIX: Filter records within the sliding window bounds
+                        // For SLIDING windows, include records from [start, end] (inclusive on both ends)
+                        let window_size_ms = size.as_millis() as i64;
+                        let window_end = event_time;
+                        let window_start = window_end - window_size_ms;
+
+                        let filtered = buffer
+                            .iter()
+                            .filter(|r| {
+                                let record_time =
+                                    Self::extract_event_time(r, window_spec.time_column());
+                                // Include current record: use <= instead of <
+                                record_time >= window_start && record_time <= window_end
+                            })
+                            .cloned()
+                            .collect();
+                        (filtered, window_start, window_end)
+                    }
                     WindowSpec::Session { .. } => (buffer.clone(), 0, 0),
                     WindowSpec::Rows { .. } => (buffer.clone(), 0, 0), // Phase 8.2: ROWS windows - emit all buffered records
                 }
@@ -539,13 +560,16 @@ impl WindowProcessor {
     }
 
     /// Extract event time from record
+    /// IMPORTANT: All timestamps must be in milliseconds since epoch
     pub fn extract_event_time(record: &StreamRecord, time_column: Option<&str>) -> i64 {
         if let Some(column_name) = time_column {
             if let Some(field_value) = record.fields.get(column_name) {
                 match field_value {
                     FieldValue::Integer(ts) => *ts,
                     FieldValue::Timestamp(ts) => ts.and_utc().timestamp_millis(),
-                    FieldValue::String(s) => s.parse::<i64>().unwrap_or(record.timestamp),
+                    FieldValue::String(s) => {
+                        s.parse::<i64>().unwrap_or(record.timestamp)
+                    }
                     _ => record.timestamp,
                 }
             } else {
@@ -613,11 +637,13 @@ impl WindowProcessor {
                 let advance_ms = advance.as_millis() as i64;
 
                 // For sliding windows, emit based on advance interval
-                if last_emit == 0 {
-                    return event_time >= advance_ms;
-                }
+                let should_emit = if last_emit == 0 {
+                    event_time >= advance_ms
+                } else {
+                    event_time >= last_emit + advance_ms
+                };
 
-                event_time >= last_emit + advance_ms
+                should_emit
             }
             WindowSpec::Session { .. } => {
                 // Session windows use enhanced logic with proper gap detection and overflow safety

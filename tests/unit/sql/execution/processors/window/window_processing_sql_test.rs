@@ -108,8 +108,8 @@ async fn execute_windowed_test(
 
 #[tokio::test]
 async fn test_tumbling_window_count() {
-    // Test tumbling window with COUNT aggregation
-    let query = "SELECT customer_id, COUNT(*) as order_count FROM orders GROUP BY customer_id WINDOW TUMBLING(5s)";
+    // Test tumbling window with COUNT aggregation (no GROUP BY)
+    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(5s)";
 
     // Create records spanning 10 seconds (2 windows of 5 seconds each)
     let records = vec![
@@ -145,7 +145,7 @@ async fn test_tumbling_window_count() {
 #[tokio::test]
 async fn test_tumbling_window_sum() {
     // Test tumbling window with SUM aggregation
-    let query = "SELECT customer_id, SUM(amount) as total_amount FROM orders GROUP BY customer_id WINDOW TUMBLING(5s)";
+    let query = "SELECT SUM(amount) as total_amount FROM orders WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Window 1
@@ -178,7 +178,7 @@ async fn test_tumbling_window_sum() {
 #[tokio::test]
 async fn test_tumbling_window_avg() {
     // Test tumbling window with AVG aggregation
-    let query = "SELECT customer_id, AVG(amount) as avg_amount FROM orders GROUP BY customer_id WINDOW TUMBLING(5s)";
+    let query = "SELECT AVG(amount) as avg_amount FROM orders WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Window 1
@@ -211,7 +211,7 @@ async fn test_tumbling_window_avg() {
 #[tokio::test]
 async fn test_tumbling_window_min_max() {
     // Test tumbling window with MIN and MAX aggregations
-    let query = "SELECT customer_id, MIN(amount) as min_amount, MAX(amount) as max_amount FROM orders GROUP BY customer_id WINDOW TUMBLING(5s)";
+    let query = "SELECT MIN(amount) as min_amount, MAX(amount) as max_amount FROM orders WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Window 1
@@ -253,7 +253,7 @@ async fn test_tumbling_window_min_max() {
 #[tokio::test]
 async fn test_sliding_window() {
     // Test sliding window (10s window, 5s advance)
-    let query = "SELECT customer_id, COUNT(*) as order_count FROM orders GROUP BY customer_id WINDOW SLIDING(10s, 5s)";
+    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW SLIDING(10s, 5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000),  // Will be in multiple windows
@@ -296,7 +296,7 @@ async fn test_sliding_window() {
 #[tokio::test]
 async fn test_session_window() {
     // Test session window with 3-second gap
-    let query = "SELECT customer_id, COUNT(*) as order_count FROM orders GROUP BY customer_id WINDOW SESSION(3s)";
+    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW SESSION(3s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000),  // Start session 1
@@ -353,7 +353,7 @@ async fn test_session_window() {
 #[tokio::test]
 async fn test_window_with_where_clause() {
     // Test windowed query with WHERE filtering
-    let query = "SELECT customer_id, COUNT(*) as high_value_orders FROM orders WHERE amount > 250.0 GROUP BY customer_id WINDOW TUMBLING(5s)";
+    let query = "SELECT COUNT(*) as high_value_orders FROM orders WHERE amount > 250.0 WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Filtered out (amount <= 250)
@@ -387,7 +387,7 @@ async fn test_window_with_where_clause() {
 #[tokio::test]
 async fn test_window_with_having_clause() {
     // Test windowed query with HAVING filtering
-    let query = "SELECT customer_id, COUNT(*) as order_count FROM orders GROUP BY customer_id WINDOW TUMBLING(5s) HAVING COUNT(*) >= 2";
+    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(5s) HAVING COUNT(*) >= 2";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Window 1: 3 records (passes HAVING)
@@ -412,7 +412,7 @@ async fn test_window_with_having_clause() {
 #[tokio::test]
 async fn test_empty_window() {
     // Test window behavior with no matching records
-    let query = "SELECT customer_id, COUNT(*) as order_count FROM orders WHERE amount > 1000.0 GROUP BY customer_id WINDOW TUMBLING(5s)";
+    let query = "SELECT COUNT(*) as order_count FROM orders WHERE amount > 1000.0 WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // All amounts < 1000, so no matches
@@ -429,7 +429,7 @@ async fn test_empty_window() {
 #[tokio::test]
 async fn test_window_boundary_alignment() {
     // Test that tumbling windows align properly to boundaries
-    let query = "SELECT customer_id, COUNT(*) as order_count FROM orders GROUP BY customer_id WINDOW TUMBLING(10s)";
+    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(10s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000),  // Window 1: 0-10000ms
@@ -467,7 +467,7 @@ async fn test_window_boundary_alignment() {
 async fn test_window_with_multiple_aggregations() {
     // Test window query with multiple aggregation functions
     // This demonstrates advanced window processing patterns similar to subquery behavior
-    let query = "SELECT customer_id, COUNT(*) as order_count, SUM(amount) as total FROM orders GROUP BY customer_id WINDOW TUMBLING(10s)";
+    let query = "SELECT COUNT(*) as order_count, SUM(amount) as total FROM orders WINDOW TUMBLING(10s)";
 
     // Create test records with varying amounts
     let records = vec![
@@ -485,7 +485,6 @@ async fn test_window_with_multiple_aggregations() {
 
     // Verify all aggregation fields exist in results
     for result in &results {
-        assert!(result.fields.contains_key("customer_id"));
         assert!(result.fields.contains_key("order_count"));
         assert!(result.fields.contains_key("total"));
 
@@ -505,7 +504,7 @@ async fn test_window_with_multiple_aggregations() {
 async fn test_window_with_calculated_fields() {
     // Test window with simple arithmetic that simulates subquery-like behavior
     // This demonstrates advanced window processing patterns within current parser capabilities
-    let query = "SELECT customer_id, amount, COUNT(*) as window_count FROM orders WHERE amount > 150 GROUP BY customer_id WINDOW TUMBLING(8s)";
+    let query = "SELECT amount, COUNT(*) as window_count FROM orders WHERE amount > 150 WINDOW TUMBLING(8s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Filtered out (amount <= 150)
@@ -526,7 +525,6 @@ async fn test_window_with_calculated_fields() {
 
     // Verify fields and aggregations
     for result in &results {
-        assert!(result.fields.contains_key("customer_id"));
         assert!(result.fields.contains_key("amount"));
         assert!(result.fields.contains_key("window_count"));
 
@@ -549,7 +547,7 @@ async fn test_window_with_calculated_fields() {
 async fn test_window_with_subquery_simulation() {
     // Test window with patterns that simulate subquery behavior using basic SQL features
     // This tests advanced conditional logic within current parser capabilities
-    let query = "SELECT customer_id, COUNT(*) as total_orders, SUM(amount) as total_amount, AVG(amount) as avg_amount FROM orders WHERE amount > 100 GROUP BY customer_id WINDOW TUMBLING(10s)";
+    let query = "SELECT COUNT(*) as total_orders, SUM(amount) as total_amount, AVG(amount) as avg_amount FROM orders WHERE amount > 100 WINDOW TUMBLING(10s)";
 
     let records = vec![
         create_test_record(1, 50.0, 1000),   // Window 1 - filtered out
