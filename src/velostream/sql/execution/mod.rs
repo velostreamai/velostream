@@ -63,6 +63,11 @@ pub mod circuit_breaker;
 // Runtime validation for field existence and type compatibility
 pub mod validation;
 
+// === PHASE 2A: WINDOW PROCESSING V2 (FR-081) ===
+// Trait-based window architecture with Arc<StreamRecord> zero-copy semantics
+// Target: 3-5x performance improvement (50-75K rec/sec)
+pub mod window_v2;
+
 // Re-export public API only
 pub use engine::StreamExecutionEngine;
 pub use types::{FieldValue, StreamRecord};
