@@ -7,9 +7,9 @@
 //! [00:00-05:00] [05:00-10:00] [10:00-15:00]
 //! ```
 
-use crate::velostream::sql::execution::window_v2::traits::{WindowStrategy, WindowStats};
-use crate::velostream::sql::execution::window_v2::types::SharedRecord;
 use crate::velostream::sql::SqlError;
+use crate::velostream::sql::execution::window_v2::traits::{WindowStats, WindowStrategy};
+use crate::velostream::sql::execution::window_v2::types::SharedRecord;
 use std::collections::VecDeque;
 
 /// Tumbling window strategy with fixed-size non-overlapping windows.
@@ -80,10 +80,7 @@ impl TumblingWindowStrategy {
                 query: None,
             }),
             None => Err(SqlError::ExecutionError {
-                message: format!(
-                    "Time field '{}' not found in record",
-                    self.time_field
-                ),
+                message: format!("Time field '{}' not found in record", self.time_field),
                 query: None,
             }),
         }
@@ -121,20 +118,37 @@ impl WindowStrategy for TumblingWindowStrategy {
         // Initialize window on first record
         if self.window_start_time.is_none() {
             self.initialize_window(timestamp);
+            self.buffer.push_back(record);
+            return Ok(false); // No emission on first record
         }
 
         // Check if record belongs to current window
-        if self.is_in_current_window(timestamp) {
-            self.buffer.push_back(record);
-            Ok(false) // No emission yet
-        } else {
-            // Record is beyond current window - should emit
-            Ok(true)
-        }
+        let should_emit = !self.is_in_current_window(timestamp);
+
+        // Always add record to buffer (it belongs to next window if beyond current)
+        self.buffer.push_back(record);
+
+        Ok(should_emit)
     }
 
     fn get_window_records(&self) -> Vec<SharedRecord> {
-        self.buffer.iter().cloned().collect()
+        // Filter records that are within the current window bounds
+        // This is important because add_record may add records beyond the current window
+        if let (Some(start), Some(end)) = (self.window_start_time, self.window_end_time) {
+            self.buffer
+                .iter()
+                .filter(|record| {
+                    if let Ok(ts) = self.extract_timestamp(record) {
+                        ts >= start && ts < end
+                    } else {
+                        false
+                    }
+                })
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        }
     }
 
     fn should_emit(&self, current_time: i64) -> bool {
@@ -145,9 +159,26 @@ impl WindowStrategy for TumblingWindowStrategy {
     }
 
     fn clear(&mut self) {
-        self.buffer.clear();
+        // Advance window first
         self.advance_window();
         self.emission_count += 1;
+
+        // Evict records that are before the new window start
+        // (for tumbling windows, this should be all records from previous window)
+        if let Some(start) = self.window_start_time {
+            while let Some(record) = self.buffer.front() {
+                if let Ok(ts) = self.extract_timestamp(record) {
+                    if ts < start {
+                        self.buffer.pop_front();
+                    } else {
+                        break; // Records are time-ordered
+                    }
+                } else {
+                    // If we can't extract timestamp, remove it
+                    self.buffer.pop_front();
+                }
+            }
+        }
     }
 
     fn get_stats(&self) -> WindowStats {

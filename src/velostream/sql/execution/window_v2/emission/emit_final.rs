@@ -4,11 +4,11 @@
 //!
 //! This is the standard emission strategy for batch-oriented window processing.
 
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::execution::window_v2::traits::{
     EmissionStrategy, EmitDecision, WindowStrategy,
 };
 use crate::velostream::sql::execution::window_v2::types::SharedRecord;
-use crate::velostream::sql::SqlError;
 
 /// Emit final strategy - emits once per window at completion.
 ///
@@ -38,11 +38,7 @@ impl Default for EmitFinalStrategy {
 }
 
 impl EmissionStrategy for EmitFinalStrategy {
-    fn should_emit_for_record(
-        &self,
-        _record: &SharedRecord,
-        window_complete: bool,
-    ) -> bool {
+    fn should_emit_for_record(&self, _record: &SharedRecord, window_complete: bool) -> bool {
         // Only emit when window completes
         window_complete
     }
@@ -53,9 +49,7 @@ impl EmissionStrategy for EmitFinalStrategy {
         window_strategy: &dyn WindowStrategy,
     ) -> Result<EmitDecision, SqlError> {
         // Check if adding this record triggers window completion
-        let window_needs_emit = window_strategy.should_emit(
-            extract_timestamp(&record)?
-        );
+        let window_needs_emit = window_strategy.should_emit(extract_timestamp(&record)?);
 
         if window_needs_emit && self.window_active {
             // Window is complete - emit and clear
