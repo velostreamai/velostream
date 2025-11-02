@@ -408,7 +408,7 @@ impl WindowAdapter {
 
             // Process each record into the accumulator (using Arc references - zero copy!)
             for shared_record in &window_records {
-                let record = shared_record.as_ref();  // &StreamRecord (no clone!)
+                let record = shared_record.as_ref(); // &StreamRecord (no clone!)
                 AccumulatorManager::process_record_into_accumulator(
                     &mut accumulator,
                     record,
@@ -428,7 +428,7 @@ impl WindowAdapter {
 
         // Process each record into the appropriate group accumulator (using Arc references - zero copy!)
         for shared_record in &window_records {
-            let record = shared_record.as_ref();  // &StreamRecord (no clone!)
+            let record = shared_record.as_ref(); // &StreamRecord (no clone!)
 
             // Evaluate GROUP BY key for this record
             let mut group_key = Vec::new();
