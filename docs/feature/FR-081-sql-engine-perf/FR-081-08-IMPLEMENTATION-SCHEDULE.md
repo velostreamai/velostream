@@ -413,26 +413,43 @@ pub struct ProcessorContext {
 
 ---
 
-### Sub-Phase 2A.7: Documentation & Validation
+### Sub-Phase 2A.7: Documentation & Validation ✅ COMPLETE
 
 **Goal**: Document window_v2 architecture and validate production readiness
-**Status**: 🔄 IN PROGRESS
+**Status**: ✅ COMPLETE
 **Estimated**: 6 hours
+**Actual**: 4 hours
 **Started**: 2025-11-01
+**Completed**: 2025-11-01
+**Commits**: bd736db (docs), TBD (validation tests)
 
-**Conservative Approach**:
-- KEEP legacy window processor as fallback (proven stable)
-- KEEP feature flag system (gradual rollout capability)
-- FOCUS on documentation and validation
-- Prepare for production deployment
+**Conservative Approach** ✅:
+- ✅ KEEP legacy window processor as fallback (proven stable)
+- ✅ KEEP feature flag system (gradual rollout capability)
+- ✅ FOCUS on documentation and validation
+- ✅ Prepare for production deployment
 
 **Tasks**:
-- [ ] Document window_v2 architecture and design patterns
-- [ ] Create usage examples (enabling window_v2 via StreamingConfig)
-- [ ] Document performance characteristics and benchmarks
-- [ ] Create migration guide for future enhancements
-- [ ] Validate feature flag behavior (v2 enabled vs disabled)
-- [ ] Update FR-081 documentation suite
+- [x] Document window_v2 architecture and design patterns (FR-081-10, 1,017 lines)
+- [x] Create usage examples (enabling window_v2 via StreamingConfig)
+- [x] Document performance characteristics and benchmarks
+- [x] Create migration guide for future enhancements
+- [x] Validate feature flag behavior (v2 enabled vs disabled) - **10 validation tests passing**
+- [x] Update FR-081 documentation suite
+
+**Validation Tests** ✅:
+- **10/10 window_v2 validation tests passing**
+- Tests explicitly enable window_v2 to prove functionality
+- All window types validated: TUMBLING, SLIDING, SESSION, ROWS
+- GROUP BY with window_v2 validated
+- EMIT CHANGES with window_v2 validated
+- Legacy path verified still works (backward compatibility)
+- Feature flag defaults validated (disabled by default)
+
+**CI/CD Coverage**:
+- ⚠️ **IMPORTANT**: By default, CI/CD exercises LEGACY code paths (window_v2 OFF)
+- ✅ **NEW**: 10 dedicated tests explicitly enable window_v2 for CI/CD coverage
+- ✅ Both code paths now validated in automated testing
 
 **Rationale**: Maintain backward compatibility and rollback capability for production safety.
 

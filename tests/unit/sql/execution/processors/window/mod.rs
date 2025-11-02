@@ -23,4 +23,5 @@ pub mod unified_window_test;
 pub mod window_edge_cases_sql_test;
 pub mod window_gaps_sql_test;
 pub mod window_processing_sql_test;
+pub mod window_v2_validation_test;
 pub mod windowing_test;
