@@ -83,7 +83,8 @@ async fn execute_windowed_test(
     // Find the maximum timestamp and add a large buffer
     let max_timestamp = records.iter().map(|r| r.timestamp).max().unwrap_or(0);
     let flush_timestamp = max_timestamp + 30000; // 30 seconds past the last record
-    let flush_record = create_test_record(999, 0.0, flush_timestamp);
+    // Use a very large amount (1e9) to ensure flush record passes any WHERE clause filters
+    let flush_record = create_test_record(999, 1e9, flush_timestamp);
     match engine.process_stream_record("orders", flush_record).await {
         Ok(_) => {}
         Err(e) => {

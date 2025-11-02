@@ -224,16 +224,55 @@ impl WindowAdapter {
                 // FR-081 Phase 2A+: Compute aggregations over buffered window records
                 // This replaces the naive convert_window_results() approach
                 if let StreamingQuery::Select {
-                    fields, group_by, ..
+                    fields,
+                    group_by,
+                    having,
+                    ..
                 } = query
                 {
+                    // FR-081: Clone window_records for HAVING evaluation (Arc makes this cheap)
+                    let window_records_clone = window_records.clone();
+
                     let computed_results =
                         Self::compute_aggregations_over_window(window_records, fields, group_by)?;
 
                     if !computed_results.is_empty() {
-                        // Return first result
-                        // TODO: Queue remaining results for multi-emission support (GROUP BY multi-partition)
-                        return Ok(Some(computed_results.into_iter().next().unwrap()));
+                        let first_result = computed_results.into_iter().next().unwrap();
+
+                        // FR-081: Apply HAVING clause filter to aggregated results
+                        if let Some(having_expr) = having {
+                            // Build accumulator from window records for HAVING evaluation
+                            // (needed because HAVING may reference aggregates like COUNT(*))
+                            let mut having_accumulator = GroupAccumulator::new();
+
+                            // Extract aggregate expressions for HAVING evaluation
+                            let aggregate_expressions = Self::extract_aggregate_expressions(fields)?;
+
+                            // Process window records into accumulator
+                            for shared_record in &window_records_clone {
+                                let record = shared_record.as_ref();
+                                AccumulatorManager::process_record_into_accumulator(
+                                    &mut having_accumulator,
+                                    record,
+                                    &aggregate_expressions,
+                                )?;
+                            }
+
+                            // Evaluate HAVING expression using the accumulator
+                            // This allows HAVING to reference aggregate functions directly
+                            let having_passes =
+                                Self::evaluate_having_with_accumulator(having_expr, &having_accumulator)?;
+
+                            if having_passes {
+                                return Ok(Some(first_result));
+                            } else {
+                                // HAVING condition failed - do not emit
+                                return Ok(None);
+                            }
+                        } else {
+                            // No HAVING clause - emit result
+                            return Ok(Some(first_result));
+                        }
                     }
                 }
 
@@ -599,6 +638,123 @@ impl WindowAdapter {
         }
 
         Ok(StreamRecord::new(result_fields))
+    }
+
+    /// Evaluate HAVING clause expression using accumulator for aggregate values.
+    ///
+    /// # Arguments
+    ///
+    /// * `having_expr` - HAVING clause expression (may contain aggregate functions)
+    /// * `accumulator` - Group accumulator with aggregate values
+    ///
+    /// # Returns
+    ///
+    /// Boolean indicating if HAVING condition is satisfied
+    fn evaluate_having_with_accumulator(
+        having_expr: &Expr,
+        accumulator: &GroupAccumulator,
+    ) -> Result<bool, SqlError> {
+        use crate::velostream::sql::ast::BinaryOperator;
+
+        match having_expr {
+            Expr::BinaryOp { left, op, right } => {
+                // Evaluate both sides - left may contain aggregate function
+                let left_value = if Self::is_aggregate_expression(left) {
+                    // Compute aggregate value (use "having_agg" as field name)
+                    AggregateFunctions::compute_field_aggregate_value("having_agg", left, accumulator)?
+                } else {
+                    // Non-aggregate expression - should be a literal
+                    match left.as_ref() {
+                        Expr::Literal(lit) => match lit {
+                            crate::velostream::sql::ast::LiteralValue::Integer(i) => {
+                                FieldValue::Integer(*i)
+                            }
+                            crate::velostream::sql::ast::LiteralValue::Float(f) => {
+                                FieldValue::Float(*f)
+                            }
+                            _ => FieldValue::Null,
+                        },
+                        _ => FieldValue::Null,
+                    }
+                };
+
+                let right_value = match right.as_ref() {
+                    Expr::Literal(lit) => match lit {
+                        crate::velostream::sql::ast::LiteralValue::Integer(i) => {
+                            FieldValue::Integer(*i)
+                        }
+                        crate::velostream::sql::ast::LiteralValue::Float(f) => FieldValue::Float(*f),
+                        _ => FieldValue::Null,
+                    },
+                    _ => {
+                        if Self::is_aggregate_expression(right) {
+                            AggregateFunctions::compute_field_aggregate_value("having_agg", right, accumulator)?
+                        } else {
+                            FieldValue::Null
+                        }
+                    }
+                };
+
+                // Apply comparison operator
+                Ok(match op {
+                    BinaryOperator::GreaterThanOrEqual => match (&left_value, &right_value) {
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l >= r,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => l >= r,
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) >= *r,
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => l >= &(*r as f64),
+                        _ => false,
+                    },
+                    BinaryOperator::GreaterThan => match (&left_value, &right_value) {
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l > r,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => l > r,
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) > *r,
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => l > &(*r as f64),
+                        _ => false,
+                    },
+                    BinaryOperator::LessThanOrEqual => match (&left_value, &right_value) {
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l <= r,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => l <= r,
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) <= *r,
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => l <= &(*r as f64),
+                        _ => false,
+                    },
+                    BinaryOperator::LessThan => match (&left_value, &right_value) {
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l < r,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => l < r,
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => (*l as f64) < *r,
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => l < &(*r as f64),
+                        _ => false,
+                    },
+                    BinaryOperator::Equal => match (&left_value, &right_value) {
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l == r,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => (l - r).abs() < f64::EPSILON,
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            ((*l as f64) - r).abs() < f64::EPSILON
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            (l - (*r as f64)).abs() < f64::EPSILON
+                        }
+                        _ => false,
+                    },
+                    BinaryOperator::NotEqual => match (&left_value, &right_value) {
+                        (FieldValue::Integer(l), FieldValue::Integer(r)) => l != r,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => (l - r).abs() >= f64::EPSILON,
+                        (FieldValue::Integer(l), FieldValue::Float(r)) => {
+                            ((*l as f64) - r).abs() >= f64::EPSILON
+                        }
+                        (FieldValue::Float(l), FieldValue::Integer(r)) => {
+                            (l - (*r as f64)).abs() >= f64::EPSILON
+                        }
+                        _ => false,
+                    },
+                    _ => false,
+                })
+            }
+            _ => {
+                // Unsupported HAVING expression type
+                Ok(false)
+            }
+        }
     }
 }
 
