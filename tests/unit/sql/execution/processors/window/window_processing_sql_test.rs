@@ -21,6 +21,8 @@ fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
     fields.insert("customer_id".to_string(), FieldValue::Integer(id));
+    // FR-081 Phase 2A+: window_v2 requires event_time field for time-based windows
+    fields.insert("event_time".to_string(), FieldValue::Integer(timestamp));
 
     StreamRecord {
         fields,

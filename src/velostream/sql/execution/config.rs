@@ -119,8 +119,8 @@ impl Default for StreamingConfig {
             enable_resource_monitoring: false,
             circuit_breaker_config: None,
             resource_monitoring_config: None,
-            // FR-081 Phase 2A defaults - disabled for backward compatibility
-            enable_window_v2: false,
+            // FR-081 Phase 2A defaults - ENABLED by default (500K+ rec/sec performance)
+            enable_window_v2: true,
             // Phase 4 defaults - all disabled for backward compatibility
             enable_distributed_tracing: false,
             enable_prometheus_metrics: false,
