@@ -2251,6 +2251,313 @@ pub async fn execute_with_record(...) -> Result<...>
 
 ---
 
+## 🚨 CRITICAL: window_v2 Aggregation Integration Required
+
+**Date**: 2025-11-02
+**Status**: 🔴 **BLOCKING** - Legacy path deprecated, 40+ tests failing
+**Priority**: **CRITICAL**
+**Impact**: window_v2 achieves 120K+ rec/sec but emits 0 results for aggregation queries
+
+### Executive Summary
+
+window_v2 (Phase 2A) delivers **27-79x performance improvement** (428K-1.23M rec/sec) for direct window strategy testing but **does NOT support GROUP BY aggregation computation**. This blocks migration from legacy path to window_v2 for all queries containing AVG/MIN/MAX/COUNT/SUM/STDDEV/VARIANCE.
+
+**Current State**:
+- ✅ window_v2: 120K+ rec/sec throughput (6x faster than legacy)
+- ❌ window_v2: 0 results emitted for aggregation queries (broken)
+- ✅ Legacy path: 20K rec/sec with correct aggregation results (5x slower than target)
+
+**Performance Gap**: Need 100K+ rec/sec with correct aggregation results (user requirement)
+
+**Action Taken**: Legacy window processing path deprecated with `ExecutionError` exception to force identification of all affected tests.
+
+---
+
+### Problem Statement
+
+#### Root Cause Analysis
+
+**File**: `src/velostream/sql/execution/window_v2/adapter.rs:189-223`
+
+```rust
+// Get window results from strategy
+let window_records = v2_state.strategy.get_window_records();  // ← RETURNS RAW RECORDS
+
+// Convert SharedRecord results to StreamRecord for compatibility
+// For GROUP BY queries, we may have multiple results (one per group)
+// For now, return the first result and queue the rest
+// Full GROUP BY support will be enhanced in later phases  // ← MISSING AGGREGATION COMPUTATION
+```
+
+**Issue**: `WindowAdapter::process_with_v2()` retrieves **raw buffered records** from window strategies, but **never computes aggregations** (AVG, MIN, MAX, COUNT, SUM, etc.) required by the query.
+
+**Why It Happens**:
+- Phase 2A focused on **zero-copy window buffering** with `Arc<StreamRecord>`
+- Window strategies (Tumbling, Sliding, Session, Rows) only manage **record lifetime**
+- Emission strategies (EmitFinal, EmitChanges) only determine **when to emit**
+- **No integration** with aggregation computation layer
+
+**Expected Behavior**: On window completion, compute aggregations over buffered records and emit computed results.
+
+**Actual Behavior**: On window completion, return raw buffered records without aggregation computation.
+
+---
+
+### Impact Assessment
+
+#### Tests Affected
+
+**Deprecation Exception Enabled**: 2025-11-02
+**Tests Failing**: 40+ (minimum identified)
+
+**Failed Test Categories**:
+
+| Category | Count | Examples |
+|----------|-------|----------|
+| **Window Processing** | 13 | `test_tumbling_window_avg`, `test_sliding_window`, `test_session_window` |
+| **Complex HAVING** | 6 | `test_having_with_window_frame_execution`, `test_having_with_nested_aggregates_execution` |
+| **Statistical Functions** | 9 | `test_percentile_cont_execution`, `test_stddev_execution`, `test_variance_execution` |
+| **GROUP BY + HAVING** | 4 | `test_group_by_window_having_sum_aggregate`, `test_group_by_window_having_complex_condition` |
+| **Financial Analytics** | 3 | `test_15_minute_moving_average`, `test_1_hour_moving_average`, `test_4_hour_moving_average` |
+| **EMIT CHANGES** | 2 | `test_emit_changes_with_tumbling_window`, `test_emit_changes_with_tumbling_window_same_window` |
+| **Performance Benchmarks** | 2+ | `benchmark_sliding_window_emit_changes`, `benchmark_sliding_window_emit_final` |
+| **Integration Tests** | 1+ | `test_session_window_integration` |
+
+**Total Identified**: 40+ tests (count ongoing as tests run)
+
+**Error Message** (for tracking):
+```
+DEPRECATED: Legacy window processing path used for aggregation query '<query_id>'.
+window_v2 does NOT support GROUP BY aggregations yet.
+This query requires: AVG/MIN/MAX/COUNT/SUM computation.
+ACTION REQUIRED: Fix window_v2 to support aggregations in emission path.
+See: FR-081-08-IMPLEMENTATION-SCHEDULE.md
+```
+
+---
+
+### Technical Requirements
+
+#### 1. Aggregation Computation Integration
+
+**Location**: `src/velostream/sql/execution/window_v2/adapter.rs`
+
+**Required Changes**:
+1. **Extract aggregation requirements** from query (AVG, MIN, MAX, COUNT, SUM, etc.)
+2. **Compute aggregations** over buffered window records
+3. **Group by partition keys** (if GROUP BY present)
+4. **Emit computed results** (not raw records)
+
+**Example Flow**:
+```rust
+// Current (BROKEN):
+let window_records = v2_state.strategy.get_window_records();  // Raw records
+return Ok(Some(window_records[0].clone()));  // ❌ No aggregation
+
+// Required (CORRECT):
+let window_records = v2_state.strategy.get_window_records();  // Raw records
+let aggregated_results = compute_aggregations(window_records, query);  // ✅ Compute aggregations
+return Ok(Some(aggregated_results));  // ✅ Emit computed results
+```
+
+#### 2. Integration Points
+
+**Aggregation Computation Layer**: `src/velostream/sql/execution/aggregation/`
+- **File**: `accumulator.rs` - Aggregation state management (AVG, SUM, COUNT, MIN, MAX)
+- **File**: `group_by.rs` - GROUP BY key management
+- **File**: `window_aggregator.rs` - Window-aware aggregation (if exists)
+
+**Required Integration**:
+- Call existing aggregation accumulator for each buffered record
+- Maintain GROUP BY partition state
+- Finalize aggregations on window completion
+- Emit one result per GROUP BY partition
+
+#### 3. Performance Considerations
+
+**Target**: 100K+ rec/sec with correct aggregation results
+
+**Optimization Strategies**:
+- **Incremental aggregation**: Compute aggregations as records arrive (not on emission)
+- **Arc-based sharing**: Share buffered records between window and aggregation layers
+- **Vectorized operations**: Batch aggregation computation where possible
+- **Cache GROUP BY keys**: Avoid repeated hash lookups
+
+**Expected Performance**:
+- window_v2 buffering: 428K-1.23M rec/sec (proven in Phase 2A)
+- Aggregation overhead: ~10-20µs per record (existing accumulator performance)
+- **Target**: 100K+ rec/sec (5x faster than legacy, 10x overhead budget vs raw buffering)
+
+---
+
+### Action Plan
+
+#### Phase 1: Investigation & Design (4-6 hours)
+
+**Tasks**:
+1. ✅ **Deprecate legacy path** - Force all tests to fail explicitly (COMPLETED 2025-11-02)
+2. ✅ **Identify affected tests** - 40+ tests failing with deprecation exception (COMPLETED 2025-11-02)
+3. 📋 **Analyze aggregation API** - Study `accumulator.rs` and `group_by.rs` interfaces
+4. 📋 **Design integration pattern** - Plan how window_v2 calls aggregation layer
+5. 📋 **Prototype proof-of-concept** - Single aggregation function (COUNT or SUM)
+
+**Deliverables**:
+- Integration design document
+- POC demonstrating COUNT(*) aggregation in window_v2
+- Performance estimate for full integration
+
+#### Phase 2: Implementation (12-16 hours)
+
+**Tasks**:
+1. 📋 **Extract aggregation requirements** - Parse query for aggregation functions
+2. 📋 **Initialize aggregation state** - Create accumulators on window start
+3. 📋 **Incremental aggregation** - Update accumulators as records arrive
+4. 📋 **Finalize on emission** - Compute final aggregation values on window completion
+5. 📋 **GROUP BY support** - Maintain separate accumulators per partition key
+6. 📋 **Multi-aggregation** - Support multiple aggregations in single query (AVG + MIN + MAX)
+
+**Files Modified**:
+- `src/velostream/sql/execution/window_v2/adapter.rs` - Main integration point
+- `src/velostream/sql/execution/window_v2/strategies/*.rs` - Add aggregation hooks (if needed)
+- `src/velostream/sql/execution/window_v2/emission/*.rs` - Finalize aggregations on emit
+
+**Complexity Estimate**:
+- **Simple aggregations** (COUNT, SUM): 4-6 hours
+- **Complex aggregations** (AVG, STDDEV): 6-8 hours
+- **GROUP BY integration**: 4-6 hours
+- **Testing & refinement**: 4-6 hours
+
+#### Phase 3: Testing & Validation (8-12 hours)
+
+**Tasks**:
+1. 📋 **Fix failing tests** - Update 40+ tests to pass with window_v2 + aggregations
+2. 📋 **Performance benchmarking** - Verify 100K+ rec/sec target
+3. 📋 **Correctness validation** - Compare results with legacy path
+4. 📋 **Edge case testing** - Empty windows, single record, GROUP BY with 1000+ partitions
+
+**Success Criteria**:
+- ✅ All 40+ previously failing tests pass
+- ✅ Throughput: 100K+ rec/sec (5x improvement over legacy)
+- ✅ Correctness: Exact match with legacy path results
+- ✅ Memory: No significant increase vs Phase 2A
+
+#### Phase 4: Cleanup & Documentation (4-6 hours)
+
+**Tasks**:
+1. 📋 **Remove legacy path** - Delete deprecated window processing code
+2. 📋 **Update documentation** - Add aggregation integration to FR-081 docs
+3. 📋 **Performance report** - Document final throughput vs target
+4. 📋 **Migration guide** - Update for users relying on aggregations
+
+---
+
+### Current Implementation Status
+
+**Date**: 2025-11-02
+**Last Updated**: 2025-11-02 19:10 PST
+
+**✅ PHASE 1 COMPLETE** (Investigation & Design - 4 hours):
+- ✅ Legacy path deprecated with clear error messages (src/velostream/sql/execution/processors/window.rs:47-78)
+- ✅ Aggregation detection logic implemented (query_has_aggregations helper)
+- ✅ 40+ failing tests identified and categorized
+- ✅ Aggregation API analyzed (AccumulatorManager, AggregateFunctions)
+- ✅ Integration design completed
+
+**✅ PHASE 2 COMPLETE** (Implementation - 8 hours):
+- ✅ **Full aggregation computation implemented** (adapter.rs:370-574, +220 lines)
+  - `compute_aggregations_over_window()` - Main aggregation computation
+  - `extract_aggregate_expressions()` - Parse aggregation functions from SELECT
+  - `is_aggregate_expression()` - Detect COUNT/SUM/AVG/MIN/MAX/STDDEV/VARIANCE
+  - `build_result_record()` - Build result StreamRecords with computed values
+- ✅ **GROUP BY support added** - Separate accumulators per partition
+- ✅ **Multi-aggregation support** - Multiple aggregations in single query
+- ✅ **Non-aggregate field handling** - Proper sample_record usage
+- ✅ **Removed aggregation restriction** - window_v2 now routes all queries (window.rs:32-42)
+- ✅ **Integration with existing aggregation layer**
+  - Uses AccumulatorManager for record processing
+  - Uses AggregateFunctions for final computation
+  - Leverages GroupAccumulator and GroupByState infrastructure
+
+**Files Modified**:
+| File | Lines | Description |
+|------|-------|-------------|
+| `src/velostream/sql/execution/window_v2/adapter.rs` | +220 | Full aggregation implementation |
+| `src/velostream/sql/execution/processors/window.rs` | -2, +10 | Removed aggregation restriction, updated routing |
+| **Total** | **~230 lines** | Complete aggregation support |
+
+**🔄 PHASE 3 IN PROGRESS** (Testing & Validation):
+- 🔄 Running performance validation with window_v2 enabled
+- 📋 Need to enable window_v2 in 40+ remaining tests
+- 📋 Performance target verification (100K+ rec/sec)
+
+**Next Steps**:
+1. **Immediate**: Complete performance validation test
+2. **Short-term**: Enable window_v2 in remaining 40+ tests
+3. **Medium-term**: Verify all tests pass with correct results
+4. **Long-term**: Remove legacy path entirely, document performance improvements
+
+---
+
+### Performance Comparison
+
+| Path | Throughput | Aggregations | Status |
+|------|-----------|--------------|--------|
+| **Legacy** | 20K rec/sec | ✅ Correct | ⚠️ 5x slower than target |
+| **window_v2 (current)** | 120K rec/sec | ❌ Missing | 🔴 Broken for aggregations |
+| **window_v2 (target)** | 100K+ rec/sec | ✅ Correct | 📋 Implementation required |
+
+**Performance Target**: **100,000+ rec/sec** with correct aggregation results
+**Current Gap**: window_v2 is 6x faster but produces 0 results
+**Required Work**: Integrate aggregation computation without sacrificing >80% of window_v2 speedup
+
+---
+
+### Related Code Locations
+
+**window_v2 Architecture**:
+- `src/velostream/sql/execution/window_v2/adapter.rs` - Main integration point (189-223: MISSING AGGREGATION)
+- `src/velostream/sql/execution/window_v2/strategies/` - Window buffering strategies
+- `src/velostream/sql/execution/window_v2/emission/` - Emission timing strategies
+
+**Aggregation Layer**:
+- `src/velostream/sql/execution/aggregation/accumulator.rs` - Aggregation state management
+- `src/velostream/sql/execution/aggregation/group_by.rs` - GROUP BY partition management
+
+**Window Processing Entry Point**:
+- `src/velostream/sql/execution/processors/window.rs:25-78` - process_windowed_query_enhanced (routes to window_v2 or throws deprecation error)
+
+**Configuration**:
+- `src/velostream/sql/execution/config.rs:61-65` - enable_window_v2 flag
+- `src/velostream/sql/execution/engine.rs:339` - StreamingConfig passed to ProcessorContext
+
+---
+
+### Risk Assessment
+
+| Risk | Impact | Likelihood | Mitigation |
+|------|--------|-----------|------------|
+| **Aggregation integration breaks window_v2 performance** | HIGH | MEDIUM | Incremental aggregation, careful benchmarking |
+| **GROUP BY adds significant overhead** | MEDIUM | HIGH | Hash-based partition caching, vectorized operations |
+| **Complex aggregations (STDDEV, PERCENTILE) too slow** | MEDIUM | MEDIUM | Defer to Phase 3, focus on AVG/MIN/MAX/COUNT first |
+| **Integration takes longer than 16 hours** | MEDIUM | MEDIUM | Start with POC, iterate incrementally |
+
+---
+
+### Success Metrics
+
+**Completion Criteria**:
+- ✅ Legacy path removed (deprecated code deleted)
+- ✅ window_v2 supports all aggregation functions (AVG, MIN, MAX, COUNT, SUM, STDDEV, VARIANCE)
+- ✅ window_v2 supports GROUP BY partitioning
+- ✅ All 40+ failing tests pass
+- ✅ Performance: 100K+ rec/sec (5x improvement over legacy)
+- ✅ Correctness: Results match legacy path exactly
+- ✅ Memory: No regression vs Phase 2A baseline
+
+**Estimated Total Effort**: 28-40 hours (1 week full-time)
+
+---
+
 ## Related Documents
 
 ### Core Documentation

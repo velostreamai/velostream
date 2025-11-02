@@ -57,9 +57,8 @@ async fn profile_sliding_window_moving_average() {
     let phase2_start = Instant::now();
     let (tx, mut rx) = mpsc::unbounded_channel();
 
-    // Enable enhanced configuration with window_v2 for maximum performance
-    // This enables all Phase 2A optimizations including window_v2 architecture
-    let config = StreamingConfig::enhanced();
+    // Enable window_v2 for 27-79x performance improvement
+    let config = StreamingConfig::new().with_window_v2();
     let mut engine = StreamExecutionEngine::new_with_config(tx, config);
 
     let parser = StreamingSqlParser::new();

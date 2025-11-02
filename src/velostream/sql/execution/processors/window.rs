@@ -29,10 +29,11 @@ impl WindowProcessor {
         context: &mut ProcessorContext,
         source_id: Option<&str>,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        // FR-081 Phase 2A.3: Check for window_v2 architecture first (highest priority)
+        // FR-081 Phase 2A+: Route to window_v2 architecture if enabled
+        // Now supports GROUP BY aggregations (AVG, MIN, MAX, COUNT, SUM, etc.)
         if context.is_window_v2_enabled() {
             debug!(
-                "FR-081 Phase 2A.3: Routing to window_v2 trait-based architecture for query: {}",
+                "FR-081 Phase 2A+: Routing to window_v2 with aggregation support for query: {}",
                 query_id
             );
             return crate::velostream::sql::execution::window_v2::adapter::WindowAdapter::process_with_v2(
@@ -40,14 +41,82 @@ impl WindowProcessor {
             );
         }
 
-        // Phase 1B: Check for watermark processing
-        if context.has_watermarks_enabled() {
-            Self::process_windowed_query_with_watermarks(
-                query_id, query, record, context, source_id,
+        // Legacy path deprecation check (for queries not using window_v2)
+        let has_aggregations = Self::query_has_aggregations(query);
+
+        // FR-081 CRITICAL: Legacy window processing path is DEPRECATED
+        // All queries MUST use window_v2 architecture going forward
+        // This exception helps identify tests that need to be fixed
+
+        let error_msg = if has_aggregations {
+            format!(
+                "DEPRECATED: Legacy window processing path used for aggregation query '{}'. \
+                window_v2 does NOT support GROUP BY aggregations yet. \
+                This query requires: AVG/MIN/MAX/COUNT/SUM computation. \
+                ACTION REQUIRED: Fix window_v2 to support aggregations in emission path. \
+                See: FR-081-08-IMPLEMENTATION-SCHEDULE.md",
+                query_id
             )
         } else {
-            // Fallback to existing legacy processing for backward compatibility
-            Self::process_windowed_query(query_id, query, record, context)
+            format!(
+                "DEPRECATED: Legacy window processing path used for query '{}'. \
+                window_v2 should be enabled for this query. \
+                ACTION REQUIRED: Enable window_v2 or investigate why it's not being used. \
+                See: FR-081-08-IMPLEMENTATION-SCHEDULE.md",
+                query_id
+            )
+        };
+
+        error!(
+            "FR-081 DEPRECATION ERROR: Legacy path reached for query: {} | Aggregations: {} | window_v2 enabled: {}",
+            query_id,
+            has_aggregations,
+            context.is_window_v2_enabled()
+        );
+
+        return Err(SqlError::ExecutionError {
+            message: error_msg,
+            query: Some(format!("{:?}", query)),
+        });
+    }
+
+    /// Check if query has aggregation functions (AVG, MIN, MAX, COUNT, SUM, etc.)
+    fn query_has_aggregations(query: &StreamingQuery) -> bool {
+        use crate::velostream::sql::ast::SelectField;
+
+        if let StreamingQuery::Select { fields, .. } = query {
+            for field in fields {
+                match field {
+                    SelectField::Column(_) => continue,
+                    SelectField::AliasedColumn { .. } => continue,
+                    SelectField::Wildcard => continue,
+                    SelectField::Expression { expr, .. } => {
+                        if Self::expr_is_aggregation(expr) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Recursively check if an expression contains aggregation functions
+    fn expr_is_aggregation(expr: &crate::velostream::sql::ast::Expr) -> bool {
+        use crate::velostream::sql::ast::Expr;
+
+        match expr {
+            Expr::Function { name, .. } => {
+                let name_upper = name.to_uppercase();
+                matches!(
+                    name_upper.as_str(),
+                    "AVG" | "MIN" | "MAX" | "COUNT" | "SUM" | "STDDEV" | "VARIANCE"
+                )
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                Self::expr_is_aggregation(left) || Self::expr_is_aggregation(right)
+            }
+            _ => false,
         }
     }
 

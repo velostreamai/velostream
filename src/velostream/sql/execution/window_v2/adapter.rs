@@ -32,12 +32,12 @@ use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{
     EmitMode, Expr, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
 };
-use crate::velostream::sql::execution::processors::ProcessorContext;
-use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState};
+use crate::velostream::sql::execution::processors::ProcessorContext;
+use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
 /// Window V2 state stored in ProcessorContext
@@ -420,7 +420,8 @@ impl WindowAdapter {
             }
 
             // Compute final aggregate values and build result record
-            let result_record = Self::build_result_record(fields, &aggregate_expressions, &accumulator)?;
+            let result_record =
+                Self::build_result_record(fields, &aggregate_expressions, &accumulator)?;
             return Ok(vec![result_record]);
         }
 
@@ -451,7 +452,8 @@ impl WindowAdapter {
         // Build result record for each group
         let mut results = Vec::new();
         for (_group_key, accumulator) in &group_state.groups {
-            let result_record = Self::build_result_record(fields, &aggregate_expressions, accumulator)?;
+            let result_record =
+                Self::build_result_record(fields, &aggregate_expressions, accumulator)?;
             results.push(result_record);
         }
 
@@ -499,9 +501,19 @@ impl WindowAdapter {
                 let name_upper = name.to_uppercase();
                 matches!(
                     name_upper.as_str(),
-                    "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "STDDEV" | "VARIANCE"
-                        | "COUNT_DISTINCT" | "APPROX_COUNT_DISTINCT"
-                        | "FIRST" | "LAST" | "STRING_AGG" | "GROUP_CONCAT"
+                    "COUNT"
+                        | "SUM"
+                        | "AVG"
+                        | "MIN"
+                        | "MAX"
+                        | "STDDEV"
+                        | "VARIANCE"
+                        | "COUNT_DISTINCT"
+                        | "APPROX_COUNT_DISTINCT"
+                        | "FIRST"
+                        | "LAST"
+                        | "STRING_AGG"
+                        | "GROUP_CONCAT"
                 )
             }
             _ => false,
@@ -526,12 +538,11 @@ impl WindowAdapter {
                             .clone()
                             .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
 
-                        let aggregate_value =
-                            AggregateFunctions::compute_field_aggregate_value(
-                                &field_name,
-                                expr,
-                                accumulator,
-                            )?;
+                        let aggregate_value = AggregateFunctions::compute_field_aggregate_value(
+                            &field_name,
+                            expr,
+                            accumulator,
+                        )?;
 
                         result_fields.insert(field_name, aggregate_value);
                     } else {
@@ -540,7 +551,8 @@ impl WindowAdapter {
                             let field_name = alias
                                 .clone()
                                 .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
-                            let value = ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
+                            let value =
+                                ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
                             result_fields.insert(field_name, value);
                         }
                     }
