@@ -2,6 +2,7 @@
 pub mod admin_client;
 pub mod configurable_consumer;
 pub mod configurable_producer;
+pub mod consumer_adapters;
 pub mod consumer_factory;
 pub mod kafka_consumer;
 mod kafka_producer;
