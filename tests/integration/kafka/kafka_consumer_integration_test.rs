@@ -11,11 +11,18 @@
 //! - Message consumption (fast BaseConsumer)
 //! - Unified consumer trait behavior
 //! - Performance tier selection
+//!
+//! # Running Tests
+//!
+//! These tests require Docker to be running. Run with:
+//! ```bash
+//! cargo test --test mod kafka::kafka_consumer_integration_test -- --ignored
+//! ```
 
 use futures::StreamExt;
-use std::collections::HashMap;
 use std::time::Duration;
-use testcontainers::{clients::Cli, images::kafka::Kafka, RunnableImage};
+use testcontainers::{runners::AsyncRunner, ContainerAsync};
+use testcontainers_modules::kafka::Kafka;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, ConsumerTier};
 use velostream::velostream::kafka::kafka_consumer::KafkaConsumer;
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
@@ -30,8 +37,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 ///
 /// Provides a real Kafka instance running in Docker for integration testing.
 pub struct KafkaTestEnv {
-    _docker: Cli,
-    _kafka_container: testcontainers::Container<'static, Kafka>,
+    _kafka_container: ContainerAsync<Kafka>,
     bootstrap_servers: String,
 }
 
@@ -40,18 +46,23 @@ impl KafkaTestEnv {
     ///
     /// Starts a Kafka container and returns the bootstrap servers address.
     pub async fn new() -> Self {
-        let docker = Cli::default();
-        let kafka_image = Kafka::default();
-        let kafka_container = docker.run(kafka_image);
+        // Start Kafka container (testcontainers 0.23 API)
+        let kafka_container = Kafka::default()
+            .start()
+            .await
+            .expect("Failed to start Kafka container");
 
-        let kafka_port = kafka_container.get_host_port_ipv4(9093);
+        // Get bootstrap servers from container
+        let kafka_port = kafka_container
+            .get_host_port_ipv4(9093)
+            .await
+            .expect("Failed to get Kafka port");
         let bootstrap_servers = format!("127.0.0.1:{}", kafka_port);
 
         // Wait for Kafka to be ready
         tokio::time::sleep(Duration::from_secs(5)).await;
 
         Self {
-            _docker: docker,
             _kafka_container: kafka_container,
             bootstrap_servers,
         }
@@ -106,8 +117,8 @@ impl KafkaTestEnv {
                 .map_err(|(e, _)| format!("Failed to send message: {}", e))?;
         }
 
-        // Flush to ensure all messages are sent
-        producer.flush(Duration::from_secs(5));
+        // FutureProducer::send().await already waits for delivery, no explicit flush needed
+        // Producer will be dropped at end of scope, ensuring all messages are sent
 
         Ok(())
     }
@@ -354,4 +365,180 @@ async fn test_consumer_commit() {
             panic!("Timeout");
         }
     }
+}
+
+// ===== Performance Tier Integration Tests =====
+
+#[tokio::test]
+#[ignore] // Requires Docker - run with: cargo test --ignored
+async fn test_standard_tier_adapter() {
+    use velostream::velostream::kafka::consumer_factory::ConsumerFactory;
+
+    let env = KafkaTestEnv::new().await;
+    let topic = "test-standard-tier";
+
+    env.create_topic(topic, 1).await.expect("Failed to create topic");
+
+    let messages = vec![
+        ("key1".to_string(), "\"value1\"".to_string()),
+        ("key2".to_string(), "\"value2\"".to_string()),
+    ];
+    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+
+    // Create consumer using ConsumerFactory with Standard tier
+    let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-standard")
+        .performance_tier(ConsumerTier::Standard);
+
+    let consumer = ConsumerFactory::create::<String, String, _, _>(
+        config,
+        JsonSerializer,
+        JsonSerializer,
+    ).expect("Failed to create Standard tier consumer");
+
+    consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+    let mut stream = consumer.stream();
+    let mut received_count = 0;
+
+    tokio::select! {
+        _ = async {
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(message) => {
+                        received_count += 1;
+                        println!("Standard tier received: {:?}", message.key());
+                        if received_count >= 2 {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        break;
+                    }
+                }
+            }
+        } => {}
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            panic!("Timeout waiting for messages");
+        }
+    }
+
+    assert_eq!(received_count, 2, "Standard tier should have received 2 messages");
+}
+
+#[tokio::test]
+#[ignore] // Requires Docker - run with: cargo test --ignored
+async fn test_buffered_tier_adapter() {
+    use velostream::velostream::kafka::consumer_factory::ConsumerFactory;
+
+    let env = KafkaTestEnv::new().await;
+    let topic = "test-buffered-tier";
+
+    env.create_topic(topic, 1).await.expect("Failed to create topic");
+
+    let messages = vec![
+        ("key1".to_string(), "\"value1\"".to_string()),
+        ("key2".to_string(), "\"value2\"".to_string()),
+        ("key3".to_string(), "\"value3\"".to_string()),
+    ];
+    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+
+    // Create consumer using ConsumerFactory with Buffered tier
+    let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-buffered")
+        .performance_tier(ConsumerTier::Buffered { batch_size: 32 });
+
+    let consumer = ConsumerFactory::create::<String, String, _, _>(
+        config,
+        JsonSerializer,
+        JsonSerializer,
+    ).expect("Failed to create Buffered tier consumer");
+
+    consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+    let mut stream = consumer.stream();
+    let mut received_count = 0;
+
+    tokio::select! {
+        _ = async {
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(message) => {
+                        received_count += 1;
+                        println!("Buffered tier received: {:?}", message.key());
+                        if received_count >= 3 {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        break;
+                    }
+                }
+            }
+        } => {}
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            panic!("Timeout waiting for messages");
+        }
+    }
+
+    assert_eq!(received_count, 3, "Buffered tier should have received 3 messages");
+}
+
+#[tokio::test]
+#[ignore] // Requires Docker - run with: cargo test --ignored
+async fn test_dedicated_tier_adapter() {
+    use velostream::velostream::kafka::consumer_factory::ConsumerFactory;
+
+    let env = KafkaTestEnv::new().await;
+    let topic = "test-dedicated-tier";
+
+    env.create_topic(topic, 1).await.expect("Failed to create topic");
+
+    let messages = vec![
+        ("key1".to_string(), "\"value1\"".to_string()),
+        ("key2".to_string(), "\"value2\"".to_string()),
+        ("key3".to_string(), "\"value3\"".to_string()),
+        ("key4".to_string(), "\"value4\"".to_string()),
+    ];
+    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+
+    // Create consumer using ConsumerFactory with Dedicated tier
+    let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-dedicated")
+        .performance_tier(ConsumerTier::Dedicated);
+
+    let consumer = ConsumerFactory::create::<String, String, _, _>(
+        config,
+        JsonSerializer,
+        JsonSerializer,
+    ).expect("Failed to create Dedicated tier consumer");
+
+    consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+    let mut stream = consumer.stream();
+    let mut received_count = 0;
+
+    tokio::select! {
+        _ = async {
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(message) => {
+                        received_count += 1;
+                        println!("Dedicated tier received: {:?}", message.key());
+                        if received_count >= 4 {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: {}", e);
+                        break;
+                    }
+                }
+            }
+        } => {}
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            panic!("Timeout waiting for messages");
+        }
+    }
+
+    assert_eq!(received_count, 4, "Dedicated tier should have received 4 messages");
 }
