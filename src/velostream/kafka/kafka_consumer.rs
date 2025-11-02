@@ -588,7 +588,11 @@ where
     VS: Serde<V> + Send + Sync,
     C: ConsumerContext + 'static,
 {
-    fn stream(&self) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
+    fn stream(
+        &self,
+    ) -> std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>,
+    > {
         // Box the stream for object safety
         Box::pin(self.stream())
     }

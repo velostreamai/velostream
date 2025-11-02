@@ -5,16 +5,16 @@ Tests that explicitly enable window_v2 and validate the integration works correc
 These tests provide CI/CD coverage for the feature-flagged window_v2 architecture.
 */
 
+use chrono::{DateTime, TimeZone, Utc};
 use std::collections::HashMap;
 use std::time::Duration;
-use chrono::{DateTime, TimeZone, Utc};
 use velostream::velostream::sql::ast::{
     DataType, EmitMode, Expr, RowExpirationMode, RowsEmitMode, SelectField, StreamSource,
     StreamingQuery, WindowSpec,
 };
 use velostream::velostream::sql::execution::config::StreamingConfig;
-use velostream::velostream::sql::execution::processors::{JoinContext, ProcessorContext};
 use velostream::velostream::sql::execution::processors::WindowProcessor;
+use velostream::velostream::sql::execution::processors::{JoinContext, ProcessorContext};
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 
 fn create_test_record(timestamp: i64, value: i64) -> StreamRecord {
@@ -69,7 +69,10 @@ fn create_context_with_window_v2_enabled() -> ProcessorContext {
 async fn test_window_v2_feature_flag_enabled() {
     let context = create_context_with_window_v2_enabled();
 
-    assert!(context.is_window_v2_enabled(), "window_v2 should be enabled");
+    assert!(
+        context.is_window_v2_enabled(),
+        "window_v2 should be enabled"
+    );
 }
 
 // Test 2: Validate window_v2 is disabled by default
@@ -100,19 +103,20 @@ async fn test_window_v2_feature_flag_disabled_by_default() {
         validated_select_queries: std::collections::HashSet::new(),
         rows_window_states: HashMap::new(),
         window_v2_states: HashMap::new(),
-        streaming_config: None,  // Default config
+        streaming_config: None, // Default config
     };
 
-    assert!(!context.is_window_v2_enabled(), "window_v2 should be disabled by default");
+    assert!(
+        !context.is_window_v2_enabled(),
+        "window_v2 should be disabled by default"
+    );
 }
 
 // Test 3: TUMBLING window with window_v2 enabled
 #[tokio::test]
 async fn test_tumbling_window_with_v2() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -145,17 +149,17 @@ async fn test_tumbling_window_with_v2() {
     assert!(result.is_ok(), "Window V2 processing should succeed");
 
     // Verify v2 state was created
-    assert!(context.metadata.contains_key("window_v2:test_query"),
-            "Window V2 state should be initialized");
+    assert!(
+        context.metadata.contains_key("window_v2:test_query"),
+        "Window V2 state should be initialized"
+    );
 }
 
 // Test 4: ROWS window with window_v2 enabled
 #[tokio::test]
 async fn test_rows_window_with_v2() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -189,21 +193,25 @@ async fn test_rows_window_with_v2() {
             &mut context,
             None,
         );
-        assert!(result.is_ok(), "Window V2 ROWS processing should succeed for record {}", i);
+        assert!(
+            result.is_ok(),
+            "Window V2 ROWS processing should succeed for record {}",
+            i
+        );
     }
 
     // Verify v2 state exists
-    assert!(context.metadata.contains_key("window_v2:test_rows_query"),
-            "Window V2 ROWS state should be initialized");
+    assert!(
+        context.metadata.contains_key("window_v2:test_rows_query"),
+        "Window V2 ROWS state should be initialized"
+    );
 }
 
 // Test 5: SESSION window with window_v2 enabled
 #[tokio::test]
 async fn test_session_window_with_v2() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -232,18 +240,23 @@ async fn test_session_window_with_v2() {
         None,
     );
 
-    assert!(result.is_ok(), "Window V2 SESSION processing should succeed");
-    assert!(context.metadata.contains_key("window_v2:test_session_query"),
-            "Window V2 SESSION state should be initialized");
+    assert!(
+        result.is_ok(),
+        "Window V2 SESSION processing should succeed"
+    );
+    assert!(
+        context
+            .metadata
+            .contains_key("window_v2:test_session_query"),
+        "Window V2 SESSION state should be initialized"
+    );
 }
 
 // Test 6: SLIDING window with window_v2 enabled
 #[tokio::test]
 async fn test_sliding_window_with_v2() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -272,18 +285,23 @@ async fn test_sliding_window_with_v2() {
         None,
     );
 
-    assert!(result.is_ok(), "Window V2 SLIDING processing should succeed");
-    assert!(context.metadata.contains_key("window_v2:test_sliding_query"),
-            "Window V2 SLIDING state should be initialized");
+    assert!(
+        result.is_ok(),
+        "Window V2 SLIDING processing should succeed"
+    );
+    assert!(
+        context
+            .metadata
+            .contains_key("window_v2:test_sliding_query"),
+        "Window V2 SLIDING state should be initialized"
+    );
 }
 
 // Test 7: EMIT CHANGES with window_v2
 #[tokio::test]
 async fn test_emit_changes_with_v2() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -296,7 +314,7 @@ async fn test_emit_changes_with_v2() {
         }),
         order_by: None,
         limit: None,
-        emit_mode: Some(EmitMode::Changes),  // EMIT CHANGES
+        emit_mode: Some(EmitMode::Changes), // EMIT CHANGES
         properties: None,
     };
 
@@ -311,16 +329,17 @@ async fn test_emit_changes_with_v2() {
         None,
     );
 
-    assert!(result.is_ok(), "Window V2 EMIT CHANGES processing should succeed");
+    assert!(
+        result.is_ok(),
+        "Window V2 EMIT CHANGES processing should succeed"
+    );
 }
 
 // Test 8: GROUP BY with window_v2
 #[tokio::test]
 async fn test_group_by_with_v2() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -348,18 +367,23 @@ async fn test_group_by_with_v2() {
         None,
     );
 
-    assert!(result.is_ok(), "Window V2 GROUP BY processing should succeed");
-    assert!(context.window_v2_states.contains_key("window_v2:test_group_by_query"),
-            "Window V2 GROUP BY state should be stored");
+    assert!(
+        result.is_ok(),
+        "Window V2 GROUP BY processing should succeed"
+    );
+    assert!(
+        context
+            .window_v2_states
+            .contains_key("window_v2:test_group_by_query"),
+        "Window V2 GROUP BY state should be stored"
+    );
 }
 
 // Test 9: Validate legacy path still works (window_v2 disabled)
 #[tokio::test]
 async fn test_legacy_path_still_works() {
     let query = StreamingQuery::Select {
-        fields: vec![
-            SelectField::Wildcard,
-        ],
+        fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -401,7 +425,7 @@ async fn test_legacy_path_still_works() {
         validated_select_queries: std::collections::HashSet::new(),
         rows_window_states: HashMap::new(),
         window_v2_states: HashMap::new(),
-        streaming_config: None,  // Disabled
+        streaming_config: None, // Disabled
     };
 
     let record = create_test_record(1000, 100);
@@ -416,13 +440,18 @@ async fn test_legacy_path_still_works() {
     assert!(result.is_ok(), "Legacy window processing should still work");
 
     // Should NOT have window_v2 state
-    assert!(!context.metadata.contains_key("window_v2:test_legacy_query"),
-            "Legacy path should not create window_v2 state");
+    assert!(
+        !context.metadata.contains_key("window_v2:test_legacy_query"),
+        "Legacy path should not create window_v2 state"
+    );
 }
 
 // Test 10: Validate enhanced() config enables window_v2
 #[tokio::test]
 async fn test_enhanced_config_enables_window_v2() {
     let config = StreamingConfig::enhanced();
-    assert!(config.enable_window_v2, "Enhanced config should enable window_v2");
+    assert!(
+        config.enable_window_v2,
+        "Enhanced config should enable window_v2"
+    );
 }

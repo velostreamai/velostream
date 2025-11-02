@@ -48,8 +48,8 @@ use crate::velostream::kafka::{
     consumer_adapters::{BufferedAdapter, DedicatedAdapter, StandardAdapter},
     consumer_config::{ConsumerConfig, ConsumerTier},
     kafka_fast_consumer::Consumer as FastConsumer,
-    unified_consumer::KafkaStreamConsumer,
     serialization::Serde,
+    unified_consumer::KafkaStreamConsumer,
 };
 use rdkafka::error::KafkaError;
 use std::sync::Arc;
@@ -197,31 +197,22 @@ impl ConsumerFactory {
         match config.performance_tier {
             // Standard tier (default): Direct polling with BaseConsumer
             None | Some(ConsumerTier::Standard) => {
-                let consumer = FastConsumer::<K, V>::with_config(
-                    config,
-                    key_serializer,
-                    value_serializer,
-                )?;
+                let consumer =
+                    FastConsumer::<K, V>::with_config(config, key_serializer, value_serializer)?;
                 Ok(Box::new(StandardAdapter::new(consumer)))
             }
 
             // Buffered tier: Batched polling adapter
             Some(ConsumerTier::Buffered { batch_size }) => {
-                let consumer = FastConsumer::<K, V>::with_config(
-                    config,
-                    key_serializer,
-                    value_serializer,
-                )?;
+                let consumer =
+                    FastConsumer::<K, V>::with_config(config, key_serializer, value_serializer)?;
                 Ok(Box::new(BufferedAdapter::new(consumer, batch_size)))
             }
 
             // Dedicated tier: Dedicated thread adapter
             Some(ConsumerTier::Dedicated) => {
-                let consumer = FastConsumer::<K, V>::with_config(
-                    config,
-                    key_serializer,
-                    value_serializer,
-                )?;
+                let consumer =
+                    FastConsumer::<K, V>::with_config(config, key_serializer, value_serializer)?;
                 Ok(Box::new(DedicatedAdapter::new(Arc::new(consumer))))
             }
         }

@@ -67,8 +67,8 @@ use crate::velostream::kafka::kafka_fast_consumer::Consumer;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::unified_consumer::KafkaStreamConsumer;
 use futures::Stream;
-use rdkafka::error::KafkaError;
 use rdkafka::TopicPartitionList;
+use rdkafka::error::KafkaError;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -117,7 +117,9 @@ where
     K: Send + Sync + 'static,
     V: Send + Sync + 'static,
 {
-    fn stream(&self) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
+    fn stream(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
         // Use standard stream for direct polling
         Box::pin(self.consumer.stream())
     }
@@ -189,7 +191,10 @@ impl<K, V> BufferedAdapter<K, V> {
     /// * `consumer` - The base consumer to wrap
     /// * `batch_size` - Number of messages to buffer (recommended: 32)
     pub fn new(consumer: Consumer<K, V>, batch_size: usize) -> Self {
-        Self { consumer, batch_size }
+        Self {
+            consumer,
+            batch_size,
+        }
     }
 
     /// Get the configured batch size.
@@ -203,7 +208,9 @@ where
     K: Send + Sync + Unpin + 'static,
     V: Send + Sync + Unpin + 'static,
 {
-    fn stream(&self) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
+    fn stream(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
         // Use buffered stream for batched processing
         Box::pin(self.consumer.buffered_stream(self.batch_size))
     }
@@ -311,7 +318,9 @@ where
     K: Send + Sync + 'static,
     V: Send + Sync + 'static,
 {
-    fn stream(&self) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
+    fn stream(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
         // Clone the Arc to share ownership with the dedicated stream
         let consumer_arc = Arc::clone(&self.consumer);
 

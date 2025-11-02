@@ -31,7 +31,10 @@ impl WindowProcessor {
     ) -> Result<Option<StreamRecord>, SqlError> {
         // FR-081 Phase 2A.3: Check for window_v2 architecture first (highest priority)
         if context.is_window_v2_enabled() {
-            debug!("FR-081 Phase 2A.3: Routing to window_v2 trait-based architecture for query: {}", query_id);
+            debug!(
+                "FR-081 Phase 2A.3: Routing to window_v2 trait-based architecture for query: {}",
+                query_id
+            );
             return crate::velostream::sql::execution::window_v2::adapter::WindowAdapter::process_with_v2(
                 query_id, query, record, context,
             );

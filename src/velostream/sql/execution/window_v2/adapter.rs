@@ -22,16 +22,18 @@
 //! }
 //! ```
 
+use super::emission::{EmitChangesStrategy, EmitFinalStrategy};
 use super::strategies::{
     RowsWindowStrategy, SessionWindowStrategy, SlidingWindowStrategy, TumblingWindowStrategy,
 };
-use super::emission::{EmitChangesStrategy, EmitFinalStrategy};
 use super::traits::{EmissionStrategy, WindowStrategy};
 use super::types::SharedRecord;
-use crate::velostream::sql::ast::{EmitMode, RowsEmitMode, WindowSpec, StreamingQuery, SelectField};
-use crate::velostream::sql::execution::{StreamRecord, FieldValue};
-use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::SqlError;
+use crate::velostream::sql::ast::{
+    EmitMode, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
+};
+use crate::velostream::sql::execution::processors::ProcessorContext;
+use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
 /// Window V2 state stored in ProcessorContext
@@ -141,10 +143,14 @@ impl WindowAdapter {
         };
 
         // Store in context's window_v2_states HashMap (boxed as Any for type erasure)
-        context.window_v2_states.insert(state_key.to_string(), Box::new(v2_state));
+        context
+            .window_v2_states
+            .insert(state_key.to_string(), Box::new(v2_state));
 
         // Mark that we have v2 state for this query
-        context.metadata.insert(state_key.to_string(), "initialized".to_string());
+        context
+            .metadata
+            .insert(state_key.to_string(), "initialized".to_string());
 
         Ok(())
     }
@@ -158,11 +164,12 @@ impl WindowAdapter {
         _window_spec: &WindowSpec,
     ) -> Result<Option<StreamRecord>, SqlError> {
         // Get the window_v2 state (downcast from Any)
-        let v2_state_any = context.window_v2_states.get_mut(state_key)
-            .ok_or_else(|| SqlError::ExecutionError {
+        let v2_state_any = context.window_v2_states.get_mut(state_key).ok_or_else(|| {
+            SqlError::ExecutionError {
                 message: format!("Window V2 state not found for key: {}", state_key),
                 query: None,
-            })?;
+            }
+        })?;
 
         // Downcast from Box<dyn Any> to WindowV2State
         let v2_state = v2_state_any
@@ -175,10 +182,9 @@ impl WindowAdapter {
         use super::traits::EmitDecision;
 
         // Process record through emission strategy (which internally uses window strategy)
-        let emit_decision = v2_state.emission_strategy.process_record(
-            record.clone(),
-            &*v2_state.strategy,
-        )?;
+        let emit_decision = v2_state
+            .emission_strategy
+            .process_record(record.clone(), &*v2_state.strategy)?;
 
         match emit_decision {
             EmitDecision::Emit | EmitDecision::EmitAndClear => {
@@ -224,34 +230,55 @@ impl WindowAdapter {
                 let window_size_ms = size.as_millis() as i64;
                 Ok(Box::new(TumblingWindowStrategy::new(
                     window_size_ms,
-                    time_column.clone().unwrap_or_else(|| "event_time".to_string()),
+                    time_column
+                        .clone()
+                        .unwrap_or_else(|| "event_time".to_string()),
                 )))
             }
-            WindowSpec::Sliding { size, advance, time_column } => {
+            WindowSpec::Sliding {
+                size,
+                advance,
+                time_column,
+            } => {
                 let window_size_ms = size.as_millis() as i64;
                 let advance_ms = advance.as_millis() as i64;
                 Ok(Box::new(SlidingWindowStrategy::new(
                     window_size_ms,
                     advance_ms,
-                    time_column.clone().unwrap_or_else(|| "event_time".to_string()),
+                    time_column
+                        .clone()
+                        .unwrap_or_else(|| "event_time".to_string()),
                 )))
             }
-            WindowSpec::Session { gap, time_column, .. } => {
+            WindowSpec::Session {
+                gap, time_column, ..
+            } => {
                 let gap_ms = gap.as_millis() as i64;
                 Ok(Box::new(SessionWindowStrategy::new(
                     gap_ms,
-                    time_column.clone().unwrap_or_else(|| "event_time".to_string()),
+                    time_column
+                        .clone()
+                        .unwrap_or_else(|| "event_time".to_string()),
                 )))
             }
-            WindowSpec::Rows { buffer_size, emit_mode, .. } => {
+            WindowSpec::Rows {
+                buffer_size,
+                emit_mode,
+                ..
+            } => {
                 let emit_per_record = matches!(emit_mode, RowsEmitMode::EveryRecord);
-                Ok(Box::new(RowsWindowStrategy::new(*buffer_size as usize, emit_per_record)))
+                Ok(Box::new(RowsWindowStrategy::new(
+                    *buffer_size as usize,
+                    emit_per_record,
+                )))
             }
         }
     }
 
     /// Create an emission strategy based on the query
-    pub fn create_emission_strategy(query: &StreamingQuery) -> Result<Box<dyn EmissionStrategy>, SqlError> {
+    pub fn create_emission_strategy(
+        query: &StreamingQuery,
+    ) -> Result<Box<dyn EmissionStrategy>, SqlError> {
         // Check if query has EMIT CHANGES
         let is_emit_changes = Self::is_emit_changes(query);
 
@@ -266,13 +293,20 @@ impl WindowAdapter {
 
     /// Check if query has EMIT CHANGES clause
     fn is_emit_changes(query: &StreamingQuery) -> bool {
-        if let StreamingQuery::Select { emit_mode, window, .. } = query {
+        if let StreamingQuery::Select {
+            emit_mode, window, ..
+        } = query
+        {
             // Check emit_mode field on the SELECT query
             if let Some(mode) = emit_mode {
                 matches!(mode, EmitMode::Changes)
             } else {
                 // For ROWS windows, check the emit_mode in the window spec
-                if let Some(WindowSpec::Rows { emit_mode: rows_emit, .. }) = window {
+                if let Some(WindowSpec::Rows {
+                    emit_mode: rows_emit,
+                    ..
+                }) = window
+                {
                     matches!(rows_emit, RowsEmitMode::EveryRecord)
                 } else {
                     false // Default to EMIT FINAL for other windows

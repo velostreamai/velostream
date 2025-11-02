@@ -912,7 +912,8 @@ where
     /// ```
     pub fn commit(&self) -> Result<(), rdkafka::error::KafkaError> {
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
-        self.consumer.commit_consumer_state(rdkafka::consumer::CommitMode::Sync)
+        self.consumer
+            .commit_consumer_state(rdkafka::consumer::CommitMode::Sync)
     }
 
     /// Returns the current offset positions for assigned partitions.
@@ -922,7 +923,9 @@ where
     /// - `Ok(Some(partition_list))` with current offsets if supported
     /// - `Ok(None)` if no partitions are assigned
     /// - `Err(KafkaError)` if query failed
-    pub fn current_offsets(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+    pub fn current_offsets(
+        &self,
+    ) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
         match self.consumer.assignment() {
             Ok(partition_list) => {
@@ -943,7 +946,9 @@ where
     /// - `Ok(Some(partition_list))` with assigned partitions if supported
     /// - `Ok(None)` if no partitions are assigned
     /// - `Err(KafkaError)` if query failed
-    pub fn assignment(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+    pub fn assignment(
+        &self,
+    ) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
         match self.consumer.assignment() {
             Ok(partition_list) => {
@@ -972,7 +977,11 @@ where
     K: Send + Sync + 'static,
     V: Send + Sync + 'static,
 {
-    fn stream(&self) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
+    fn stream(
+        &self,
+    ) -> std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>,
+    > {
         // Box the stream for object safety
         Box::pin(self.stream())
     }
@@ -987,12 +996,16 @@ where
         self.commit()
     }
 
-    fn current_offsets(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+    fn current_offsets(
+        &self,
+    ) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
         // Delegate to newly added current_offsets() method
         self.current_offsets()
     }
 
-    fn assignment(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+    fn assignment(
+        &self,
+    ) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
         // Delegate to newly added assignment() method
         self.assignment()
     }

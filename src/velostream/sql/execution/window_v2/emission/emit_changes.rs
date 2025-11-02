@@ -148,12 +148,22 @@ mod tests {
 
         // Should emit on 10th, 20th, 30th records
         for i in 1..=9 {
-            assert_eq!(strategy.should_emit_now(), false, "Record {} should not emit", i);
+            assert_eq!(
+                strategy.should_emit_now(),
+                false,
+                "Record {} should not emit",
+                i
+            );
         }
         assert_eq!(strategy.should_emit_now(), true, "Record 10 should emit");
 
         for i in 1..=9 {
-            assert_eq!(strategy.should_emit_now(), false, "Record {} should not emit", i + 10);
+            assert_eq!(
+                strategy.should_emit_now(),
+                false,
+                "Record {} should not emit",
+                i + 10
+            );
         }
         assert_eq!(strategy.should_emit_now(), true, "Record 20 should emit");
     }
@@ -191,7 +201,11 @@ mod tests {
         for i in 1..=4 {
             let record = create_test_record(i * 1000);
             let decision = strategy.process_record(record, &window).unwrap();
-            assert!(matches!(decision, EmitDecision::Skip), "Record {} should skip", i);
+            assert!(
+                matches!(decision, EmitDecision::Skip),
+                "Record {} should skip",
+                i
+            );
         }
 
         // 5th record - should emit
@@ -243,7 +257,11 @@ mod tests {
         for i in 1..=100 {
             let record = create_test_record(i * 1000);
             let decision = strategy.process_record(record, &window).unwrap();
-            assert!(matches!(decision, EmitDecision::Emit), "Record {} should emit", i);
+            assert!(
+                matches!(decision, EmitDecision::Emit),
+                "Record {} should emit",
+                i
+            );
         }
 
         assert_eq!(strategy.emission_count, 100);
@@ -255,7 +273,12 @@ mod tests {
 
         // Should not emit until 1000th record
         for i in 1..=999 {
-            assert_eq!(strategy.should_emit_now(), false, "Record {} should not emit", i);
+            assert_eq!(
+                strategy.should_emit_now(),
+                false,
+                "Record {} should not emit",
+                i
+            );
         }
         assert_eq!(strategy.should_emit_now(), true, "Record 1000 should emit");
     }

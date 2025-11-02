@@ -20,19 +20,19 @@
 //! ```
 
 use futures::StreamExt;
+use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
+use rdkafka::client::DefaultClientContext;
+use rdkafka::config::ClientConfig;
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use serde_json;
 use std::time::Duration;
-use testcontainers::{runners::AsyncRunner, ContainerAsync};
+use testcontainers::{ContainerAsync, runners::AsyncRunner};
 use testcontainers_modules::kafka::Kafka;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, ConsumerTier};
 use velostream::velostream::kafka::kafka_consumer::KafkaConsumer;
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::serialization::JsonSerializer;
 use velostream::velostream::kafka::unified_consumer::KafkaStreamConsumer;
-use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
-use rdkafka::client::DefaultClientContext;
-use rdkafka::config::ClientConfig;
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use serde_json;
 
 /// Kafka test environment using testcontainers.
 ///
@@ -108,9 +108,7 @@ impl KafkaTestEnv {
             .map_err(|e| format!("Failed to create producer: {}", e))?;
 
         for (key, value) in messages {
-            let record = FutureRecord::to(topic)
-                .key(&key)
-                .payload(&value);
+            let record = FutureRecord::to(topic).key(&key).payload(&value);
 
             producer
                 .send(record, Duration::from_secs(5))
@@ -153,23 +151,21 @@ async fn test_kafka_consumer_basic_consumption() {
     let topic = "test-basic-consumption";
 
     // Create topic
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
     // Produce test messages (JSON-encoded for String type)
-    let messages = json_messages(&[
-        ("key1", "value1"),
-        ("key2", "value2"),
-        ("key3", "value3"),
-    ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    let messages = json_messages(&[("key1", "value1"), ("key2", "value2"), ("key3", "value3")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Create consumer
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-1");
-    let consumer = KafkaConsumer::<String, String, _, _>::with_config(
-        config,
-        JsonSerializer,
-        JsonSerializer,
-    ).expect("Failed to create consumer");
+    let consumer =
+        KafkaConsumer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)
+            .expect("Failed to create consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -211,14 +207,15 @@ async fn test_fast_consumer_with_config() {
     let topic = "test-fast-consumer";
 
     // Create topic
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
     // Produce test messages
-    let messages = json_messages(&[
-        ("key1", "msg1"),
-        ("key2", "msg2"),
-    ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    let messages = json_messages(&[("key1", "msg1"), ("key2", "msg2")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Create fast consumer using with_config()
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-2");
@@ -226,7 +223,8 @@ async fn test_fast_consumer_with_config() {
         config,
         Box::new(JsonSerializer),
         Box::new(JsonSerializer),
-    ).expect("Failed to create fast consumer");
+    )
+    .expect("Failed to create fast consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -265,24 +263,25 @@ async fn test_unified_consumer_trait() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-unified-trait";
 
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
-    let messages = json_messages(&[
-        ("k1", "v1"),
-    ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    let messages = json_messages(&[("k1", "v1")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Test via trait interface
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-3");
     let consumer: Box<dyn KafkaStreamConsumer<String, String>> = Box::new(
-        KafkaConsumer::<String, String, _, _>::with_config(
-            config,
-            JsonSerializer,
-            JsonSerializer,
-        ).expect("Failed to create consumer")
+        KafkaConsumer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)
+            .expect("Failed to create consumer"),
     );
 
-    consumer.subscribe(&[topic]).expect("Failed to subscribe via trait");
+    consumer
+        .subscribe(&[topic])
+        .expect("Failed to subscribe via trait");
 
     let mut stream = consumer.stream();
     let mut received = false;
@@ -350,22 +349,22 @@ async fn test_consumer_commit() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-commit";
 
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
-    let messages = json_messages(&[
-        ("k1", "v1"),
-    ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    let messages = json_messages(&[("k1", "v1")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Create consumer with manual commit
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-7")
         .auto_commit(false, Duration::from_secs(5));
 
-    let consumer = KafkaConsumer::<String, String, _, _>::with_config(
-        config,
-        JsonSerializer,
-        JsonSerializer,
-    ).expect("Failed to create consumer");
+    let consumer =
+        KafkaConsumer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)
+            .expect("Failed to create consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -397,23 +396,22 @@ async fn test_standard_tier_adapter() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-standard-tier";
 
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
-    let messages = json_messages(&[
-        ("key1", "value1"),
-        ("key2", "value2"),
-    ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    let messages = json_messages(&[("key1", "value1"), ("key2", "value2")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Create consumer using ConsumerFactory with Standard tier
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-standard")
         .performance_tier(ConsumerTier::Standard);
 
-    let consumer = ConsumerFactory::create::<String, String, _, _>(
-        config,
-        JsonSerializer,
-        JsonSerializer,
-    ).expect("Failed to create Standard tier consumer");
+    let consumer =
+        ConsumerFactory::create::<String, String, _, _>(config, JsonSerializer, JsonSerializer)
+            .expect("Failed to create Standard tier consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -443,7 +441,10 @@ async fn test_standard_tier_adapter() {
         }
     }
 
-    assert_eq!(received_count, 2, "Standard tier should have received 2 messages");
+    assert_eq!(
+        received_count, 2,
+        "Standard tier should have received 2 messages"
+    );
 }
 
 #[tokio::test]
@@ -454,24 +455,22 @@ async fn test_buffered_tier_adapter() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-buffered-tier";
 
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
-    let messages = json_messages(&[
-        ("key1", "value1"),
-        ("key2", "value2"),
-        ("key3", "value3"),
-    ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    let messages = json_messages(&[("key1", "value1"), ("key2", "value2"), ("key3", "value3")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Create consumer using ConsumerFactory with Buffered tier
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-buffered")
         .performance_tier(ConsumerTier::Buffered { batch_size: 32 });
 
-    let consumer = ConsumerFactory::create::<String, String, _, _>(
-        config,
-        JsonSerializer,
-        JsonSerializer,
-    ).expect("Failed to create Buffered tier consumer");
+    let consumer =
+        ConsumerFactory::create::<String, String, _, _>(config, JsonSerializer, JsonSerializer)
+            .expect("Failed to create Buffered tier consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -501,7 +500,10 @@ async fn test_buffered_tier_adapter() {
         }
     }
 
-    assert_eq!(received_count, 3, "Buffered tier should have received 3 messages");
+    assert_eq!(
+        received_count, 3,
+        "Buffered tier should have received 3 messages"
+    );
 }
 
 #[tokio::test]
@@ -512,7 +514,9 @@ async fn test_dedicated_tier_adapter() {
     let env = KafkaTestEnv::new().await;
     let topic = "test-dedicated-tier";
 
-    env.create_topic(topic, 1).await.expect("Failed to create topic");
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
 
     let messages = json_messages(&[
         ("key1", "value1"),
@@ -520,17 +524,17 @@ async fn test_dedicated_tier_adapter() {
         ("key3", "value3"),
         ("key4", "value4"),
     ]);
-    env.produce_messages(topic, messages).await.expect("Failed to produce messages");
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
 
     // Create consumer using ConsumerFactory with Dedicated tier
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-dedicated")
         .performance_tier(ConsumerTier::Dedicated);
 
-    let consumer = ConsumerFactory::create::<String, String, _, _>(
-        config,
-        JsonSerializer,
-        JsonSerializer,
-    ).expect("Failed to create Dedicated tier consumer");
+    let consumer =
+        ConsumerFactory::create::<String, String, _, _>(config, JsonSerializer, JsonSerializer)
+            .expect("Failed to create Dedicated tier consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -560,5 +564,8 @@ async fn test_dedicated_tier_adapter() {
         }
     }
 
-    assert_eq!(received_count, 4, "Dedicated tier should have received 4 messages");
+    assert_eq!(
+        received_count, 4,
+        "Dedicated tier should have received 4 messages"
+    );
 }

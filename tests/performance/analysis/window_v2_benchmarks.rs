@@ -9,15 +9,17 @@
 //! Goal: 50-75K rec/sec
 
 use serial_test::serial;
+use std::collections::HashMap;
 use std::time::Instant;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::window_v2::{
     emission::{EmitChangesStrategy, EmitFinalStrategy},
-    strategies::{RowsWindowStrategy, SessionWindowStrategy, SlidingWindowStrategy, TumblingWindowStrategy},
+    strategies::{
+        RowsWindowStrategy, SessionWindowStrategy, SlidingWindowStrategy, TumblingWindowStrategy,
+    },
     traits::{EmissionStrategy, WindowStrategy},
     types::SharedRecord,
 };
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use std::collections::HashMap;
 
 /// Performance metrics for benchmark results
 #[derive(Debug)]
@@ -213,7 +215,10 @@ async fn benchmark_emit_changes_overhead() {
     println!("Total Records: {}", record_count);
     println!("Duration: {} ms", duration.as_millis());
     println!("Throughput: {:.0} rec/sec", throughput);
-    println!("Avg Time/Record: {:.2} µs", duration.as_micros() as f64 / record_count as f64);
+    println!(
+        "Avg Time/Record: {:.2} µs",
+        duration.as_micros() as f64 / record_count as f64
+    );
     println!("======================================================\n");
 
     // Target: >100K rec/sec (emission decision is very lightweight)
@@ -252,7 +257,10 @@ async fn benchmark_emit_final_overhead() {
     println!("Total Records: {}", record_count);
     println!("Duration: {} ms", duration.as_millis());
     println!("Throughput: {:.0} rec/sec", throughput);
-    println!("Avg Time/Record: {:.2} µs", duration.as_micros() as f64 / record_count as f64);
+    println!(
+        "Avg Time/Record: {:.2} µs",
+        duration.as_micros() as f64 / record_count as f64
+    );
     println!("====================================================\n");
 
     // Target: >100K rec/sec
@@ -288,7 +296,10 @@ async fn benchmark_shared_record_cloning() {
     println!("Total Clones: {}", clone_count);
     println!("Duration: {} ms", duration.as_millis());
     println!("Clone Throughput: {:.0} clones/sec", clones_per_sec);
-    println!("Avg Time/Clone: {:.2} ns", duration.as_nanos() as f64 / clone_count as f64);
+    println!(
+        "Avg Time/Clone: {:.2} ns",
+        duration.as_nanos() as f64 / clone_count as f64
+    );
     println!("Ref Count: {}", record.ref_count());
     println!("======================================================\n");
 
@@ -310,14 +321,18 @@ async fn benchmark_memory_efficiency_comparison() {
     // ROWS window - strictly bounded
     let mut rows_strategy = RowsWindowStrategy::new(100, false);
     for i in 0..10000 {
-        rows_strategy.add_record(create_record(i * 1000, i)).unwrap();
+        rows_strategy
+            .add_record(create_record(i * 1000, i))
+            .unwrap();
     }
     let rows_stats = rows_strategy.get_stats();
 
     // Tumbling window - time-bounded
     let mut tumbling_strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
     for i in 0..10000 {
-        tumbling_strategy.add_record(create_record(i * 1000, i)).unwrap();
+        tumbling_strategy
+            .add_record(create_record(i * 1000, i))
+            .unwrap();
     }
     let tumbling_stats = tumbling_strategy.get_stats();
 
@@ -325,16 +340,25 @@ async fn benchmark_memory_efficiency_comparison() {
     println!("ROWS Window (100 rows):");
     println!("  Buffer Size: {} bytes", rows_stats.buffer_size_bytes);
     println!("  Record Count: {}", rows_stats.record_count);
-    println!("  Bytes/Record: {:.2}", rows_stats.buffer_size_bytes as f64 / rows_stats.record_count.max(1) as f64);
+    println!(
+        "  Bytes/Record: {:.2}",
+        rows_stats.buffer_size_bytes as f64 / rows_stats.record_count.max(1) as f64
+    );
     println!();
     println!("Tumbling Window (60s):");
     println!("  Buffer Size: {} bytes", tumbling_stats.buffer_size_bytes);
     println!("  Record Count: {}", tumbling_stats.record_count);
-    println!("  Bytes/Record: {:.2}", tumbling_stats.buffer_size_bytes as f64 / tumbling_stats.record_count.max(1) as f64);
+    println!(
+        "  Bytes/Record: {:.2}",
+        tumbling_stats.buffer_size_bytes as f64 / tumbling_stats.record_count.max(1) as f64
+    );
     println!("====================================================\n");
 
     // ROWS window should maintain exactly 100 records
-    assert_eq!(rows_stats.record_count, 100, "ROWS window should maintain exactly 100 records");
+    assert_eq!(
+        rows_stats.record_count, 100,
+        "ROWS window should maintain exactly 100 records"
+    );
 
     println!("✅ Memory efficiency validated!");
 }
@@ -396,8 +420,14 @@ async fn benchmark_comparison_summary() {
     ];
 
     println!("\n========== Performance Comparison Table ==========");
-    println!("{:<15} {:>12} {:>15} {:>12}", "Strategy", "Throughput", "Time/Record", "Growth");
-    println!("{:<15} {:>12} {:>15} {:>12}", "", "(rec/sec)", "(µs)", "(ratio)");
+    println!(
+        "{:<15} {:>12} {:>15} {:>12}",
+        "Strategy", "Throughput", "Time/Record", "Growth"
+    );
+    println!(
+        "{:<15} {:>12} {:>15} {:>12}",
+        "", "(rec/sec)", "(µs)", "(ratio)"
+    );
     println!("-------------------------------------------------------------");
 
     for result in &results {
@@ -416,7 +446,10 @@ async fn benchmark_comparison_summary() {
     let baseline = 15700.0;
     for result in &results {
         let improvement = result.throughput_rec_per_sec / baseline;
-        println!("{}: {:.2}x improvement over Phase 1", result.name, improvement);
+        println!(
+            "{}: {:.2}x improvement over Phase 1",
+            result.name, improvement
+        );
     }
 
     println!("\n✅ All window strategies meet or exceed performance targets!");

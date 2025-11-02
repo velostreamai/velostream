@@ -48,8 +48,8 @@
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use futures::Stream;
-use rdkafka::error::KafkaError;
 use rdkafka::TopicPartitionList;
+use rdkafka::error::KafkaError;
 use std::pin::Pin;
 
 /// Unified Kafka consumer interface supporting both StreamConsumer and BaseConsumer implementations.
@@ -107,7 +107,9 @@ pub trait KafkaStreamConsumer<K, V>: Send + Sync {
     ///     }
     /// }
     /// ```
-    fn stream(&self) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>>;
+    fn stream(
+        &self,
+    ) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>>;
 
     /// Subscribes to the specified Kafka topics.
     ///
@@ -222,7 +224,8 @@ mod tests {
     impl KafkaStreamConsumer<String, String> for MockConsumer {
         fn stream(
             &self,
-        ) -> Pin<Box<dyn Stream<Item = Result<Message<String, String>, ConsumerError>> + Send + '_>> {
+        ) -> Pin<Box<dyn Stream<Item = Result<Message<String, String>, ConsumerError>> + Send + '_>>
+        {
             // Return empty stream for testing
             Box::pin(stream::empty())
         }

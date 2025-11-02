@@ -240,7 +240,7 @@ mod tests {
 
         // Add events within gap
         let r1 = create_test_record(1000);
-        let r2 = create_test_record(60000);  // 1 minute later
+        let r2 = create_test_record(60000); // 1 minute later
         let r3 = create_test_record(120000); // 2 minutes later
 
         assert_eq!(strategy.add_record(r1).unwrap(), false);
@@ -392,8 +392,8 @@ mod tests {
         let mut strategy = SessionWindowStrategy::new(10000, "event_time".to_string());
 
         let r1 = create_test_record(1000);
-        let r2 = create_test_record(5000);   // 4s later - within gap
-        let r3 = create_test_record(20000);  // 15s later - beyond gap
+        let r2 = create_test_record(5000); // 4s later - within gap
+        let r3 = create_test_record(20000); // 15s later - beyond gap
 
         assert_eq!(strategy.add_record(r1).unwrap(), false);
         assert_eq!(strategy.add_record(r2).unwrap(), false);

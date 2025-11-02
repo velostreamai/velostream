@@ -175,8 +175,8 @@ impl ProcessorContext {
             pending_results: HashMap::new(), // FR-079 Phase 4: Initialize result queue
             validated_select_queries: std::collections::HashSet::new(), // FR-078: Track validated SELECT queries
             rows_window_states: HashMap::new(), // Phase 8.2: Initialize ROWS window state map
-            window_v2_states: HashMap::new(), // FR-081 Phase 2A: Initialize window v2 state map
-            streaming_config: None, // Use default config unless explicitly set
+            window_v2_states: HashMap::new(),   // FR-081 Phase 2A: Initialize window v2 state map
+            streaming_config: None,             // Use default config unless explicitly set
         }
     }
 
@@ -1049,14 +1049,19 @@ impl ProcessorContext {
     /// Set the streaming configuration (FR-081 Phase 2A)
     ///
     /// Allows runtime configuration of streaming engine features.
-    pub fn set_streaming_config(&mut self, config: crate::velostream::sql::execution::config::StreamingConfig) {
+    pub fn set_streaming_config(
+        &mut self,
+        config: crate::velostream::sql::execution::config::StreamingConfig,
+    ) {
         self.streaming_config = Some(config);
     }
 
     /// Get the streaming configuration (FR-081 Phase 2A)
     ///
     /// Returns the current streaming configuration, or a default config if none is set.
-    pub fn get_streaming_config(&self) -> crate::velostream::sql::execution::config::StreamingConfig {
+    pub fn get_streaming_config(
+        &self,
+    ) -> crate::velostream::sql::execution::config::StreamingConfig {
         self.streaming_config.clone().unwrap_or_default()
     }
 }
