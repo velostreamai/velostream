@@ -46,17 +46,19 @@ impl EmissionStrategy for EmitFinalStrategy {
     fn process_record(
         &mut self,
         record: SharedRecord,
-        window_strategy: &dyn WindowStrategy,
+        window_strategy: &mut dyn WindowStrategy,
     ) -> Result<EmitDecision, SqlError> {
-        // Check if adding this record triggers window completion
-        let window_needs_emit = window_strategy.should_emit(extract_timestamp(&record)?);
+        // CRITICAL: Add the record to the window buffer
+        // add_record() returns true if window boundary is crossed and should emit
+        let window_needs_emit = window_strategy.add_record(record)?;
 
-        if window_needs_emit && self.window_active {
+        if window_needs_emit {
             // Window is complete - emit and clear
-            self.window_active = false;
+            // Keep window_active true because a new window starts after clear()
+            self.window_active = true;
             Ok(EmitDecision::EmitAndClear)
         } else {
-            // Window still active or starting new window
+            // Window still active
             self.window_active = true;
             Ok(EmitDecision::Skip)
         }

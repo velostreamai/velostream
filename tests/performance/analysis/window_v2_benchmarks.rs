@@ -195,7 +195,7 @@ async fn benchmark_emit_changes_overhead() {
     println!("\n🔥 EMIT CHANGES EMISSION OVERHEAD BENCHMARK");
 
     let mut strategy = EmitChangesStrategy::new(1); // Emit on every record
-    let tumbling = TumblingWindowStrategy::new(60000, "event_time".to_string());
+    let mut tumbling = TumblingWindowStrategy::new(60000, "event_time".to_string());
 
     let start = Instant::now();
     let record_count = 10000;
@@ -205,7 +205,7 @@ async fn benchmark_emit_changes_overhead() {
         let record = create_record(timestamp, i);
 
         // Process record through emission strategy
-        let _decision = strategy.process_record(record, &tumbling).unwrap();
+        let _decision = strategy.process_record(record, &mut tumbling).unwrap();
     }
 
     let duration = start.elapsed();
@@ -237,7 +237,7 @@ async fn benchmark_emit_final_overhead() {
     println!("\n🔥 EMIT FINAL EMISSION OVERHEAD BENCHMARK");
 
     let mut strategy = EmitFinalStrategy::new();
-    let tumbling = TumblingWindowStrategy::new(60000, "event_time".to_string());
+    let mut tumbling = TumblingWindowStrategy::new(60000, "event_time".to_string());
 
     let start = Instant::now();
     let record_count = 10000;
@@ -247,7 +247,7 @@ async fn benchmark_emit_final_overhead() {
         let record = create_record(timestamp, i);
 
         // Process record through emission strategy
-        let _decision = strategy.process_record(record, &tumbling).unwrap();
+        let _decision = strategy.process_record(record, &mut tumbling).unwrap();
     }
 
     let duration = start.elapsed();

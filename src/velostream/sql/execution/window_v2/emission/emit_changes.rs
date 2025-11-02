@@ -82,9 +82,12 @@ impl EmissionStrategy for EmitChangesStrategy {
 
     fn process_record(
         &mut self,
-        _record: SharedRecord,
-        _window_strategy: &dyn WindowStrategy,
+        record: SharedRecord,
+        window_strategy: &mut dyn WindowStrategy,
     ) -> Result<EmitDecision, SqlError> {
+        // CRITICAL: Add the record to the window buffer
+        window_strategy.add_record(record)?;
+
         // Check if we should emit based on frequency
         if self.should_emit_now() {
             self.emission_count += 1;
@@ -180,12 +183,12 @@ mod tests {
         use crate::velostream::sql::execution::window_v2::strategies::TumblingWindowStrategy;
 
         let mut strategy = EmitChangesStrategy::new(1);
-        let window = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut window = TumblingWindowStrategy::new(60000, "event_time".to_string());
 
         let record = create_test_record(1000);
 
         // Process record - should emit
-        let decision = strategy.process_record(record, &window).unwrap();
+        let decision = strategy.process_record(record, &mut window).unwrap();
         assert!(matches!(decision, EmitDecision::Emit));
         assert_eq!(strategy.emission_count, 1);
     }
@@ -195,12 +198,12 @@ mod tests {
         use crate::velostream::sql::execution::window_v2::strategies::TumblingWindowStrategy;
 
         let mut strategy = EmitChangesStrategy::new(5);
-        let window = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut window = TumblingWindowStrategy::new(60000, "event_time".to_string());
 
         // Process 4 records - should skip
         for i in 1..=4 {
             let record = create_test_record(i * 1000);
-            let decision = strategy.process_record(record, &window).unwrap();
+            let decision = strategy.process_record(record, &mut window).unwrap();
             assert!(
                 matches!(decision, EmitDecision::Skip),
                 "Record {} should skip",
@@ -210,7 +213,7 @@ mod tests {
 
         // 5th record - should emit
         let record = create_test_record(5000);
-        let decision = strategy.process_record(record, &window).unwrap();
+        let decision = strategy.process_record(record, &mut window).unwrap();
         assert!(matches!(decision, EmitDecision::Emit));
         assert_eq!(strategy.emission_count, 1);
     }
@@ -220,12 +223,12 @@ mod tests {
         use crate::velostream::sql::execution::window_v2::strategies::TumblingWindowStrategy;
 
         let mut strategy = EmitChangesStrategy::new(3);
-        let window = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut window = TumblingWindowStrategy::new(60000, "event_time".to_string());
 
         // Process 9 records - should emit 3 times (on 3rd, 6th, 9th)
         for i in 1..=9 {
             let record = create_test_record(i * 1000);
-            strategy.process_record(record, &window).unwrap();
+            strategy.process_record(record, &mut window).unwrap();
         }
 
         assert_eq!(strategy.emission_count, 3);
@@ -236,12 +239,12 @@ mod tests {
         use crate::velostream::sql::execution::window_v2::strategies::TumblingWindowStrategy;
 
         let mut strategy = EmitChangesStrategy::new(1);
-        let window = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut window = TumblingWindowStrategy::new(60000, "event_time".to_string());
 
         let record = create_test_record(1000);
 
         // Process record - should return Emit, not EmitAndClear
-        let decision = strategy.process_record(record, &window).unwrap();
+        let decision = strategy.process_record(record, &mut window).unwrap();
         assert!(matches!(decision, EmitDecision::Emit));
         assert!(!matches!(decision, EmitDecision::EmitAndClear));
     }
@@ -251,12 +254,12 @@ mod tests {
         use crate::velostream::sql::execution::window_v2::strategies::SlidingWindowStrategy;
 
         let mut strategy = EmitChangesStrategy::new(1);
-        let window = SlidingWindowStrategy::new(60000, 30000, "event_time".to_string());
+        let mut window = SlidingWindowStrategy::new(60000, 30000, "event_time".to_string());
 
         // Simulate continuous stream - every record should emit
         for i in 1..=100 {
             let record = create_test_record(i * 1000);
-            let decision = strategy.process_record(record, &window).unwrap();
+            let decision = strategy.process_record(record, &mut window).unwrap();
             assert!(
                 matches!(decision, EmitDecision::Emit),
                 "Record {} should emit",

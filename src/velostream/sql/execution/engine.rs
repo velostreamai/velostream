@@ -154,6 +154,8 @@ pub struct StreamExecutionEngine {
     record_count: u64,
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
+    // FR-081 Phase 2A+: Window V2 state persistence
+    window_v2_states: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
     // Performance monitoring
     performance_monitor:
         Option<Arc<crate::velostream::sql::execution::performance::PerformanceMonitor>>,
@@ -196,6 +198,7 @@ impl StreamExecutionEngine {
             output_sender,
             record_count: 0,
             group_states: HashMap::new(),
+            window_v2_states: HashMap::new(),
             performance_monitor: None,
             config,
             context_customizer: None,
@@ -341,6 +344,10 @@ impl StreamExecutionEngine {
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
 
+        // FR-081 Phase 2A+: Load window_v2 states from engine to context
+        // Move all window_v2_states to the context (they will be saved back after processing)
+        context.window_v2_states = std::mem::take(&mut self.window_v2_states);
+
         // Apply any context customization (used by tests)
         if let Some(customizer) = &self.context_customizer {
             customizer(&mut context);
@@ -403,6 +410,9 @@ impl StreamExecutionEngine {
             // Note: If query execution doesn't exist, we skip saving the state
             // This can happen if the query completed between context creation and persistence
         }
+
+        // FR-081 Phase 2A+: Save window_v2 states from context back to engine
+        self.window_v2_states = std::mem::take(&mut context.window_v2_states);
     }
 
     /// Process query using the modern processor architecture
@@ -437,6 +447,9 @@ impl StreamExecutionEngine {
 
         // Update engine state from context - sync back the GROUP BY states
         self.group_states = std::mem::take(&mut context.group_by_states);
+
+        // FR-081 Phase 2A+: Save window_v2 states back to engine
+        self.window_v2_states = std::mem::take(&mut context.window_v2_states);
 
         // NOTE: GROUP BY results emission moved to explicit triggers
         // Emitting after every record was causing performance issues and incorrect results
@@ -1018,8 +1031,12 @@ impl StreamExecutionEngine {
     /// Forces emission of any buffered window results for all active queries.
     pub async fn flush_windows(&mut self) -> Result<(), SqlError> {
         // Create a trigger record with a very high timestamp to force window emission
+        let mut trigger_fields = HashMap::new();
+        // FR-081 Phase 2A+: window_v2 requires "event_time" field for timestamp extraction
+        trigger_fields.insert("event_time".to_string(), FieldValue::Integer(i64::MAX));
+
         let trigger_record = StreamRecord {
-            fields: HashMap::new(),
+            fields: trigger_fields,
             timestamp: i64::MAX, // Far future timestamp
             offset: 0,
             partition: 0,

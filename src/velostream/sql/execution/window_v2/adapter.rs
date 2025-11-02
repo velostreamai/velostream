@@ -30,10 +30,14 @@ use super::traits::{EmissionStrategy, WindowStrategy};
 use super::types::SharedRecord;
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{
-    EmitMode, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
+    EmitMode, Expr, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
 };
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
+use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
+use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
+use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState};
 use std::collections::HashMap;
 
 /// Window V2 state stored in ProcessorContext
@@ -116,7 +120,9 @@ impl WindowAdapter {
 
     /// Check if window_v2 state exists for the given key
     fn has_v2_state(context: &ProcessorContext, state_key: &str) -> bool {
-        context.metadata.contains_key(state_key)
+        // FR-081 Phase 2A+: Check window_v2_states HashMap instead of metadata
+        // (metadata gets cleared on each context creation, but window_v2_states persists)
+        context.window_v2_states.contains_key(state_key)
     }
 
     /// Initialize window_v2 state for a new query
@@ -184,7 +190,7 @@ impl WindowAdapter {
         // Process record through emission strategy (which internally uses window strategy)
         let emit_decision = v2_state
             .emission_strategy
-            .process_record(record.clone(), &*v2_state.strategy)?;
+            .process_record(record.clone(), &mut *v2_state.strategy)?;
 
         match emit_decision {
             EmitDecision::Emit | EmitDecision::EmitAndClear => {
@@ -200,17 +206,19 @@ impl WindowAdapter {
                     v2_state.strategy.clear();
                 }
 
-                // Convert SharedRecord results to StreamRecord for compatibility
-                // For GROUP BY queries, we may have multiple results (one per group)
-                // For now, return the first result and queue the rest
-                // Full GROUP BY support will be enhanced in later phases
-                if let StreamingQuery::Select { fields, .. } = query {
-                    let converted_results = Self::convert_window_results(window_records, fields)?;
+                // FR-081 Phase 2A+: Compute aggregations over buffered window records
+                // This replaces the naive convert_window_results() approach
+                if let StreamingQuery::Select {
+                    fields, group_by, ..
+                } = query
+                {
+                    let computed_results =
+                        Self::compute_aggregations_over_window(window_records, fields, group_by)?;
 
-                    if !converted_results.is_empty() {
+                    if !computed_results.is_empty() {
                         // Return first result
-                        // TODO: Queue remaining results for multi-emission support
-                        return Ok(Some(converted_results.into_iter().next().unwrap()));
+                        // TODO: Queue remaining results for multi-emission support (GROUP BY multi-partition)
+                        return Ok(Some(computed_results.into_iter().next().unwrap()));
                     }
                 }
 
@@ -359,6 +367,212 @@ impl WindowAdapter {
                 Ok(shared_rec.as_ref().clone())
             })
             .collect()
+    }
+
+    /// Compute aggregations over buffered window records (FR-081 Phase 2A+ integration)
+    ///
+    /// This method integrates window_v2 with the aggregation computation layer,
+    /// replacing the naive convert_window_results() approach.
+    ///
+    /// # Arguments
+    ///
+    /// * `window_records` - Buffered records from the window strategy
+    /// * `fields` - SELECT fields from the query (contains aggregate expressions)
+    /// * `group_by` - Optional GROUP BY expressions
+    ///
+    /// # Returns
+    ///
+    /// Vector of computed result records (one per GROUP BY partition, or single result if no GROUP BY)
+    fn compute_aggregations_over_window(
+        window_records: Vec<SharedRecord>,
+        fields: &[SelectField],
+        group_by: &Option<Vec<Expr>>,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        // Extract aggregate expressions from SELECT fields
+        let aggregate_expressions = Self::extract_aggregate_expressions(fields)?;
+
+        // If no aggregations found, return empty (shouldn't happen if we reached here)
+        if aggregate_expressions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Convert SharedRecords to StreamRecords for processing
+        let stream_records: Vec<StreamRecord> = window_records
+            .iter()
+            .map(|shared_rec| shared_rec.as_ref().clone())
+            .collect();
+
+        if stream_records.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Case 1: No GROUP BY - single accumulator for all records
+        if group_by.is_none() || group_by.as_ref().unwrap().is_empty() {
+            let mut accumulator = GroupAccumulator::new();
+
+            // Process each record into the accumulator
+            for record in &stream_records {
+                AccumulatorManager::process_record_into_accumulator(
+                    &mut accumulator,
+                    record,
+                    &aggregate_expressions,
+                )?;
+            }
+
+            // Compute final aggregate values and build result record
+            let result_record = Self::build_result_record(fields, &aggregate_expressions, &accumulator)?;
+            return Ok(vec![result_record]);
+        }
+
+        // Case 2: GROUP BY present - create accumulator per partition
+        let group_exprs = group_by.as_ref().unwrap();
+        let mut group_state = GroupByState::new(group_exprs.clone(), fields.to_vec(), None);
+
+        // Process each record into the appropriate group accumulator
+        for record in &stream_records {
+            // Evaluate GROUP BY key for this record
+            let mut group_key = Vec::new();
+            for expr in group_exprs {
+                let key_value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
+                group_key.push(format!("{:?}", key_value));
+            }
+
+            // Get or create accumulator for this group
+            let accumulator = group_state.get_or_create_group(group_key);
+
+            // Process record into accumulator
+            AccumulatorManager::process_record_into_accumulator(
+                accumulator,
+                record,
+                &aggregate_expressions,
+            )?;
+        }
+
+        // Build result record for each group
+        let mut results = Vec::new();
+        for (_group_key, accumulator) in &group_state.groups {
+            let result_record = Self::build_result_record(fields, &aggregate_expressions, accumulator)?;
+            results.push(result_record);
+        }
+
+        Ok(results)
+    }
+
+    /// Extract aggregate expressions from SELECT fields
+    ///
+    /// Returns vector of (field_name, expression) pairs for aggregate functions
+    fn extract_aggregate_expressions(
+        fields: &[SelectField],
+    ) -> Result<Vec<(String, Expr)>, SqlError> {
+        let mut aggregates = Vec::new();
+
+        for field in fields {
+            match field {
+                SelectField::Expression { expr, alias } => {
+                    // Check if expression is an aggregate function
+                    if Self::is_aggregate_expression(expr) {
+                        let field_name = alias
+                            .clone()
+                            .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
+                        aggregates.push((field_name, expr.clone()));
+                    }
+                }
+                SelectField::Column(_) => {
+                    // Non-aggregate field - will use sample_record
+                }
+                SelectField::AliasedColumn { .. } => {
+                    // Non-aggregate field - will use sample_record
+                }
+                SelectField::Wildcard => {
+                    // SELECT * - will use sample_record
+                }
+            }
+        }
+
+        Ok(aggregates)
+    }
+
+    /// Check if an expression is an aggregate function
+    fn is_aggregate_expression(expr: &Expr) -> bool {
+        match expr {
+            Expr::Function { name, .. } => {
+                let name_upper = name.to_uppercase();
+                matches!(
+                    name_upper.as_str(),
+                    "COUNT" | "SUM" | "AVG" | "MIN" | "MAX" | "STDDEV" | "VARIANCE"
+                        | "COUNT_DISTINCT" | "APPROX_COUNT_DISTINCT"
+                        | "FIRST" | "LAST" | "STRING_AGG" | "GROUP_CONCAT"
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// Build a result StreamRecord from computed aggregate values
+    fn build_result_record(
+        fields: &[SelectField],
+        aggregate_expressions: &[(String, Expr)],
+        accumulator: &GroupAccumulator,
+    ) -> Result<StreamRecord, SqlError> {
+        let mut result_fields = HashMap::new();
+
+        // Process each SELECT field
+        for field in fields {
+            match field {
+                SelectField::Expression { expr, alias } => {
+                    if Self::is_aggregate_expression(expr) {
+                        // Compute aggregate value
+                        let field_name = alias
+                            .clone()
+                            .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
+
+                        let aggregate_value =
+                            AggregateFunctions::compute_field_aggregate_value(
+                                &field_name,
+                                expr,
+                                accumulator,
+                            )?;
+
+                        result_fields.insert(field_name, aggregate_value);
+                    } else {
+                        // Non-aggregate expression - use sample record
+                        if let Some(sample) = &accumulator.sample_record {
+                            let field_name = alias
+                                .clone()
+                                .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
+                            let value = ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
+                            result_fields.insert(field_name, value);
+                        }
+                    }
+                }
+                SelectField::Column(col_name) => {
+                    // Non-aggregate column - use sample record
+                    if let Some(sample) = &accumulator.sample_record {
+                        if let Some(value) = sample.fields.get(col_name) {
+                            result_fields.insert(col_name.clone(), value.clone());
+                        }
+                    }
+                }
+                SelectField::AliasedColumn { column, alias } => {
+                    // Non-aggregate column with alias - use sample record
+                    if let Some(sample) = &accumulator.sample_record {
+                        if let Some(value) = sample.fields.get(column) {
+                            result_fields.insert(alias.clone(), value.clone());
+                        }
+                    }
+                }
+                SelectField::Wildcard => {
+                    // SELECT * - include all fields from sample record
+                    if let Some(sample) = &accumulator.sample_record {
+                        for (key, value) in &sample.fields {
+                            result_fields.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(StreamRecord::new(result_fields))
     }
 }
 

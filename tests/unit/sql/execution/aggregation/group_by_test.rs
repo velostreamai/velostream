@@ -4,6 +4,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
 use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::execution::config::StreamingConfig;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -14,7 +15,9 @@ mod tests {
     fn create_test_engine() -> (StreamExecutionEngine, mpsc::UnboundedReceiver<StreamRecord>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
-        let engine = StreamExecutionEngine::new(sender);
+        // FR-081 Phase 2A+: Enable window_v2 with aggregation support
+        let config = StreamingConfig::new().with_window_v2();
+        let engine = StreamExecutionEngine::new_with_config(sender, config);
         (engine, receiver)
     }
 
@@ -657,7 +660,7 @@ mod tests {
         let mut record1 = create_stream_record_with_fields(fields1, 1);
         record1
             .fields
-            .insert("_timestamp".to_string(), FieldValue::Float(60000.0)); // 1 minute
+            .insert("event_time".to_string(), FieldValue::Integer(60000)); // 1 minute (window_v2 expects Integer)
         record1
             .fields
             .insert("amount".to_string(), FieldValue::Float(100.0));
@@ -667,7 +670,7 @@ mod tests {
         let mut record2 = create_stream_record_with_fields(fields2, 2);
         record2
             .fields
-            .insert("_timestamp".to_string(), FieldValue::Float(120000.0)); // 2 minutes
+            .insert("event_time".to_string(), FieldValue::Integer(120000)); // 2 minutes (window_v2 expects Integer)
         record2
             .fields
             .insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
@@ -677,7 +680,7 @@ mod tests {
         let mut record3 = create_stream_record_with_fields(fields3, 3);
         record3
             .fields
-            .insert("_timestamp".to_string(), FieldValue::Float(360000.0)); // 6 minutes
+            .insert("event_time".to_string(), FieldValue::Integer(360000)); // 6 minutes (window_v2 expects Integer)
         record3
             .fields
             .insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window

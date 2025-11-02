@@ -50,7 +50,7 @@ pub trait EmissionStrategy: Send + Sync {
     fn process_record(
         &mut self,
         record: SharedRecord,
-        window_strategy: &dyn WindowStrategy,
+        window_strategy: &mut dyn WindowStrategy,
     ) -> Result<EmitDecision, SqlError>;
 }
 

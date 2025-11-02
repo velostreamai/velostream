@@ -90,8 +90,8 @@ impl TumblingWindowStrategy {
     fn initialize_window(&mut self, timestamp: i64) {
         // Align to window boundaries
         let window_index = timestamp / self.window_size_ms;
-        self.window_start_time = Some(window_index * self.window_size_ms);
-        self.window_end_time = Some((window_index + 1) * self.window_size_ms);
+        self.window_start_time = Some(window_index.saturating_mul(self.window_size_ms));
+        self.window_end_time = Some(window_index.saturating_add(1).saturating_mul(self.window_size_ms));
     }
 
     /// Check if timestamp belongs to current window.
