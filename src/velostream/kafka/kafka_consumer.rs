@@ -588,9 +588,9 @@ where
     VS: Serde<V> + Send + Sync,
     C: ConsumerContext + 'static,
 {
-    fn stream(&self) -> impl futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
-        // Delegate to existing stream() method
-        self.stream()
+    fn stream(&self) -> std::pin::Pin<Box<dyn futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>> {
+        // Box the stream for object safety
+        Box::pin(self.stream())
     }
 
     fn subscribe(&self, topics: &[&str]) -> Result<(), KafkaError> {

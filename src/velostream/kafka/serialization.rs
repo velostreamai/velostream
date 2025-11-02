@@ -24,7 +24,10 @@ pub trait KafkaDeserialize<T> {
 }
 
 /// Trait for serializers that can convert between objects and bytes
-pub trait Serde<T> {
+///
+/// The `Send + Sync` supertraits ensure the serializer can be safely shared
+/// across threads, which is required for use in async/multi-threaded contexts.
+pub trait Serde<T>: Send + Sync {
     /// Serialize an object to bytes
     fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
 
