@@ -32,6 +32,7 @@ use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
+use serde_json;
 
 /// Kafka test environment using testcontainers.
 ///
@@ -98,7 +99,7 @@ impl KafkaTestEnv {
     pub async fn produce_messages(
         &self,
         topic: &str,
-        messages: Vec<(String, String)>, // (key, value) pairs
+        messages: Vec<(String, String)>, // (key, value) pairs - both should be JSON-encoded for JsonSerializer
     ) -> Result<(), String> {
         let producer: FutureProducer = ClientConfig::new()
             .set("bootstrap.servers", &self.bootstrap_servers)
@@ -124,6 +125,25 @@ impl KafkaTestEnv {
     }
 }
 
+/// Helper to create JSON-encoded message pairs for String types.
+/// Both keys and values are JSON-encoded since JsonSerializer is used for both.
+fn json_messages(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs
+        .iter()
+        .map(|(k, v)| {
+            // JSON-encode the key
+            let key_bytes = serde_json::to_vec(k).unwrap();
+            let key_str = String::from_utf8(key_bytes).unwrap();
+
+            // JSON-encode the value
+            let value_bytes = serde_json::to_vec(v).unwrap();
+            let value_str = String::from_utf8(value_bytes).unwrap();
+
+            (key_str, value_str)
+        })
+        .collect()
+}
+
 // ===== Integration Tests =====
 
 #[tokio::test]
@@ -135,12 +155,12 @@ async fn test_kafka_consumer_basic_consumption() {
     // Create topic
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
-    // Produce test messages
-    let messages = vec![
-        ("key1".to_string(), "\"value1\"".to_string()),
-        ("key2".to_string(), "\"value2\"".to_string()),
-        ("key3".to_string(), "\"value3\"".to_string()),
-    ];
+    // Produce test messages (JSON-encoded for String type)
+    let messages = json_messages(&[
+        ("key1", "value1"),
+        ("key2", "value2"),
+        ("key3", "value3"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Create consumer
@@ -194,10 +214,10 @@ async fn test_fast_consumer_with_config() {
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
     // Produce test messages
-    let messages = vec![
-        ("key1".to_string(), "\"msg1\"".to_string()),
-        ("key2".to_string(), "\"msg2\"".to_string()),
-    ];
+    let messages = json_messages(&[
+        ("key1", "msg1"),
+        ("key2", "msg2"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Create fast consumer using with_config()
@@ -247,9 +267,9 @@ async fn test_unified_consumer_trait() {
 
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
-    let messages = vec![
-        ("k1".to_string(), "\"v1\"".to_string()),
-    ];
+    let messages = json_messages(&[
+        ("k1", "v1"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Test via trait interface
@@ -332,9 +352,9 @@ async fn test_consumer_commit() {
 
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
-    let messages = vec![
-        ("k1".to_string(), "\"v1\"".to_string()),
-    ];
+    let messages = json_messages(&[
+        ("k1", "v1"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Create consumer with manual commit
@@ -379,10 +399,10 @@ async fn test_standard_tier_adapter() {
 
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
-    let messages = vec![
-        ("key1".to_string(), "\"value1\"".to_string()),
-        ("key2".to_string(), "\"value2\"".to_string()),
-    ];
+    let messages = json_messages(&[
+        ("key1", "value1"),
+        ("key2", "value2"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Create consumer using ConsumerFactory with Standard tier
@@ -436,11 +456,11 @@ async fn test_buffered_tier_adapter() {
 
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
-    let messages = vec![
-        ("key1".to_string(), "\"value1\"".to_string()),
-        ("key2".to_string(), "\"value2\"".to_string()),
-        ("key3".to_string(), "\"value3\"".to_string()),
-    ];
+    let messages = json_messages(&[
+        ("key1", "value1"),
+        ("key2", "value2"),
+        ("key3", "value3"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Create consumer using ConsumerFactory with Buffered tier
@@ -494,12 +514,12 @@ async fn test_dedicated_tier_adapter() {
 
     env.create_topic(topic, 1).await.expect("Failed to create topic");
 
-    let messages = vec![
-        ("key1".to_string(), "\"value1\"".to_string()),
-        ("key2".to_string(), "\"value2\"".to_string()),
-        ("key3".to_string(), "\"value3\"".to_string()),
-        ("key4".to_string(), "\"value4\"".to_string()),
-    ];
+    let messages = json_messages(&[
+        ("key1", "value1"),
+        ("key2", "value2"),
+        ("key3", "value3"),
+        ("key4", "value4"),
+    ]);
     env.produce_messages(topic, messages).await.expect("Failed to produce messages");
 
     // Create consumer using ConsumerFactory with Dedicated tier
