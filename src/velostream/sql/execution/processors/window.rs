@@ -88,8 +88,10 @@ impl WindowProcessor {
                 // Get window state for modification
                 let window_state = context.get_or_create_window_state(query_id, window_spec);
 
-                // Add record to buffer first
-                window_state.add_record(record.clone());
+                // Add record to buffer first (skip trigger records with empty fields)
+                if !record.fields.is_empty() {
+                    window_state.add_record(record.clone());
+                }
 
                 // Phase 1B: Check emission using watermark-aware logic (without borrowing context)
                 let should_emit = if has_watermarks_enabled {
@@ -226,11 +228,18 @@ impl WindowProcessor {
 
             // Filter buffer for current window
             // For EMIT CHANGES with GROUP BY, use all buffered records (no window boundary filtering)
+            // For flush operations (event_time == i64::MAX), use all buffered records
             // For standard window emissions, filter by window completion
             let is_emit_changes = Self::is_emit_changes(query);
-            let (windowed_buffer, window_start, window_end) = if is_emit_changes {
-                // EMIT CHANGES: Use ALL records in buffer, don't filter by window boundary
-                debug!("FR-079 Phase 7: EMIT CHANGES mode - using all buffered records");
+            let is_flush_operation = event_time == i64::MAX; // Trigger record from flush_windows()
+
+            let (windowed_buffer, window_start, window_end) = if is_emit_changes || is_flush_operation {
+                // EMIT CHANGES or FLUSH: Use ALL records in buffer, don't filter by window boundary
+                if is_emit_changes {
+                    debug!("FR-079 Phase 7: EMIT CHANGES mode - using all buffered records");
+                } else {
+                    debug!("FR-079 FLUSH: Flush operation detected - using all buffered records");
+                }
                 (buffer.clone(), 0, 0)
             } else {
                 // Standard window emission: Filter by window completion
@@ -740,13 +749,17 @@ impl WindowProcessor {
         record: &StreamRecord,
         group_by_cols: &[String],
     ) -> Result<Vec<FieldValue>, SqlError> {
-        // Phase 2: Validate that all GROUP BY fields exist in the record
-        FieldValidator::validate_fields_exist(
-            record,
-            &group_by_cols.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
-            ValidationContext::GroupBy,
-        )
-        .map_err(|e| e.to_sql_error())?;
+        // Skip validation for trigger records (empty fields used for flushing)
+        // Trigger records have empty fields and are used to force window emission
+        if !record.fields.is_empty() {
+            // Phase 2: Validate that all GROUP BY fields exist in the record
+            FieldValidator::validate_fields_exist(
+                record,
+                &group_by_cols.iter().map(|s| s.as_str()).collect::<Vec<_>>(),
+                ValidationContext::GroupBy,
+            )
+            .map_err(|e| e.to_sql_error())?;
+        }
 
         // Extract field values for GROUP BY columns
         let group_key = group_by_cols
@@ -783,6 +796,12 @@ impl WindowProcessor {
         let mut groups: HashMap<String, (Vec<FieldValue>, Vec<StreamRecord>)> = HashMap::new();
 
         for record in records {
+            // Skip trigger records (empty fields used for flushing)
+            // These are synthetic records with no data and shouldn't be grouped
+            if record.fields.is_empty() {
+                continue;
+            }
+
             let group_key = Self::extract_group_key(record, group_by_cols)?;
             // Use debug representation as HashMap key (safe because FieldValue is Eq semantically)
             let key_str = format!("{:?}", group_key);
@@ -893,6 +912,13 @@ impl WindowProcessor {
             return Ok(Vec::new());
         }
 
+        // Check if query has HAVING clause (needed for error handling)
+        let has_having = if let StreamingQuery::Select { having, .. } = query {
+            having.is_some()
+        } else {
+            false
+        };
+
         // Step 2: Compute aggregations for each group
         let mut all_results = Vec::new();
         for (_key_str, (group_key, group_records)) in groups.iter() {
@@ -928,7 +954,19 @@ impl WindowProcessor {
                         "FR-079 Phase 3: Error computing aggregate for group {:?}: {:?}",
                         group_key, e
                     );
-                    // Emit partial result with GROUP BY columns AND window metadata when aggregation fails
+
+                    // BUG FIX: Don't emit partial results for HAVING queries
+                    // HAVING clause needs aggregation fields to evaluate, so partial results
+                    // without aggregation fields will cause incorrect behavior
+                    if has_having {
+                        debug!(
+                            "⚠️  FR-079 Phase 3: Skipping partial result for HAVING query (group {:?} failed aggregation)",
+                            group_key
+                        );
+                        continue; // Skip this group entirely
+                    }
+
+                    // For non-HAVING queries, emit partial result with GROUP BY columns AND window metadata
                     let mut partial_fields = HashMap::new();
                     for (i, col_name) in group_by_cols.iter().enumerate() {
                         if let Some(key_val) = group_key.get(i) {
