@@ -101,6 +101,86 @@
 10. **49749ce** - Sub-Phase 4.2: Kafka consumer migration guide (614 lines)
 11. **9107c4a** - Refactoring: Remove Legacy tier, make Standard the default (code simplification)
 12. **9d6b2ae** - Documentation: Minor update to kafka-consumer-performance-tiers.md
+13. **7cdd3e8** - **Bug Fix**: Prevent partial result emission for HAVING queries with failed aggregations
+
+### 🐛 Bugs Fixed During Phase 2B
+
+#### Bug #1: Partial Results Emitted for HAVING Queries (Commit 7cdd3e8)
+**Severity**: HIGH
+**Impact**: Incorrect query results for GROUP BY + HAVING queries
+**Discovered**: 2025-11-02 (during test failure investigation)
+**Fixed**: 2025-11-02
+
+**Problem**:
+When `compute_group_aggregate()` failed for a group (e.g., due to HAVING clause filtering), the error handler in `compute_all_group_results()` unconditionally emitted a partial result containing:
+- GROUP BY columns (e.g., `customer_id`)
+- Window metadata (`_window_start`, `_window_end`)
+- **Missing**: Aggregation fields (`SUM`, `COUNT`, etc.)
+
+This caused two issues:
+1. **Incorrect Results**: Partial results without aggregation fields were emitted even though they should have been filtered by HAVING
+2. **Test Failures**: 5 GROUP BY/HAVING tests failed intermittently
+
+**Root Cause Analysis**:
+```rust
+// window.rs lines 948-994 (BEFORE FIX)
+Err(e) => {
+    // Emit partial result with GROUP BY columns AND window metadata when aggregation fails
+    let mut partial_fields = HashMap::new();
+    for (i, col_name) in group_by_cols.iter().enumerate() {
+        partial_fields.insert(col_name.clone(), key_val.clone());
+    }
+    partial_fields.insert("_window_start".to_string(), FieldValue::Integer(window_start));
+    partial_fields.insert("_window_end".to_string(), FieldValue::Integer(window_end));
+    all_results.push(StreamRecord { fields: partial_fields, ... });
+}
+```
+
+For queries like `SELECT customer_id, SUM(amount) as total FROM orders GROUP BY customer_id HAVING SUM(amount) > 200.0`:
+- customer_id=1: SUM=300.0 → passes HAVING ✅
+- customer_id=0: SUM=150.0 → fails HAVING, but partial result `{customer_id: 0, _window_start: 0, _window_end: 5000}` was still emitted ❌
+
+**Fix Implementation**:
+```rust
+// window.rs lines 915-967 (AFTER FIX)
+// Check if query has HAVING clause (needed for error handling)
+let has_having = if let StreamingQuery::Select { having, .. } = query {
+    having.is_some()
+} else {
+    false
+};
+
+// In error handler:
+Err(e) => {
+    // BUG FIX: Don't emit partial results for HAVING queries
+    // HAVING clause needs aggregation fields to evaluate, so partial results
+    // without aggregation fields will cause incorrect behavior
+    if has_having {
+        debug!("⚠️  Skipping partial result for HAVING query (group {:?} failed aggregation)", group_key);
+        continue; // Skip this group entirely
+    }
+
+    // For non-HAVING queries, emit partial result as before (backward compatible)
+    ...
+}
+```
+
+**Testing**:
+- ✅ All 5 failing tests now pass:
+  * `test_15_minute_moving_average`
+  * `test_1_hour_moving_average`
+  * `test_4_hour_moving_average`
+  * `test_having_with_window_frame_execution`
+  * `test_group_by_window_having_sum_aggregate`
+- ✅ Zero regressions (partial results still emitted for non-HAVING queries)
+- ✅ Full library test suite: 438/438 passing
+
+**Files Modified**:
+- `src/velostream/sql/execution/processors/window.rs` (lines 915-967): Added HAVING detection and conditional skip
+- `tests/.../group_by_window_having_order_sql_test.rs`: Removed debug workaround code
+
+**Backward Compatibility**: ✅ Maintained
+Non-HAVING queries still emit partial results for failed aggregations (preserves existing behavior)
 
 ---
 
