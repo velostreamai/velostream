@@ -335,6 +335,9 @@ impl StreamExecutionEngine {
         context.join_context = JoinContext::new();
         context.performance_monitor = self.performance_monitor.as_ref().map(Arc::clone);
 
+        // Pass engine's StreamingConfig to context (enables window_v2 and other optimizations)
+        context.streaming_config = Some(self.config.clone());
+
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
 

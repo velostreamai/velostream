@@ -7,6 +7,7 @@ use serial_test::serial;
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::config::StreamingConfig;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, parser::StreamingSqlParser};
 
@@ -25,7 +26,7 @@ async fn profile_sliding_window_moving_average() {
             COUNT(*) as trade_count
         FROM market_data
         GROUP BY symbol
-        WINDOW SLIDING (event_time, INTERVAL '60' SECOND, INTERVAL '30' SECOND)
+        WINDOW SLIDING(event_time, 60s, 30s)
     "#;
 
     // Phase 1: Record Generation
@@ -55,7 +56,12 @@ async fn profile_sliding_window_moving_average() {
     // Phase 2: Engine Setup and SQL Parsing
     let phase2_start = Instant::now();
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx);
+
+    // Enable enhanced configuration with window_v2 for maximum performance
+    // This enables all Phase 2A optimizations including window_v2 architecture
+    let config = StreamingConfig::enhanced();
+    let mut engine = StreamExecutionEngine::new_with_config(tx, config);
+
     let parser = StreamingSqlParser::new();
 
     let query = match parser.parse(sql) {
@@ -241,7 +247,7 @@ async fn profile_sliding_window_with_short_advance() {
             SUM(quantity) as total_quantity
         FROM market_data
         GROUP BY trader_id, symbol
-        WINDOW SLIDING (trade_time, INTERVAL '30' SECOND, INTERVAL '10' SECOND)
+        WINDOW SLIDING(trade_time, 30s, 10s)
     "#;
 
     let phase1_start = Instant::now();
@@ -340,7 +346,7 @@ async fn profile_sliding_window_with_long_advance() {
             COUNT(*) as sample_count
         FROM market_data
         GROUP BY symbol
-        WINDOW SLIDING (event_time, INTERVAL '120' SECOND, INTERVAL '60' SECOND)
+        WINDOW SLIDING(event_time, 120s, 60s)
     "#;
 
     let phase1_start = Instant::now();

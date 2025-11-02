@@ -233,7 +233,9 @@ impl WindowProcessor {
             let is_emit_changes = Self::is_emit_changes(query);
             let is_flush_operation = event_time == i64::MAX; // Trigger record from flush_windows()
 
-            let (windowed_buffer, window_start, window_end) = if is_emit_changes || is_flush_operation {
+            let (windowed_buffer, window_start, window_end) = if is_emit_changes
+                || is_flush_operation
+            {
                 // EMIT CHANGES or FLUSH: Use ALL records in buffer, don't filter by window boundary
                 if is_emit_changes {
                     debug!("FR-079 Phase 7: EMIT CHANGES mode - using all buffered records");
