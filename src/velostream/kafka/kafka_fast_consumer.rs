@@ -435,6 +435,87 @@ impl<K, V> Consumer<K, V> {
         }
     }
 
+    /// Creates a new high-performance consumer from `ConsumerConfig` (Phase 2B).
+    ///
+    /// This constructor enables feature parity with `KafkaConsumer::with_config()`,
+    /// allowing applications to create fast consumers using the same configuration pattern.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Consumer configuration (brokers, group_id, timeouts, etc.)
+    /// * `key_serializer` - Serializer for message keys
+    /// * `value_serializer` - Serializer for message payloads
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Consumer)` if creation succeeded
+    /// - `Err(KafkaError)` if BaseConsumer creation failed
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    /// use velostream::velostream::kafka::kafka_fast_consumer::Consumer;
+    /// use velostream::velostream::kafka::serialization::JsonSerializer;
+    ///
+    /// let config = ConsumerConfig::new("localhost:9092", "my-group");
+    /// let consumer = Consumer::with_config(
+    ///     config,
+    ///     Box::new(JsonSerializer),
+    ///     Box::new(JsonSerializer),
+    /// )?;
+    /// ```
+    pub fn with_config(
+        config: crate::velostream::kafka::consumer_config::ConsumerConfig,
+        key_serializer: Box<dyn Serde<K> + Send + Sync>,
+        value_serializer: Box<dyn Serde<V> + Send + Sync>,
+    ) -> Result<Self, rdkafka::error::KafkaError> {
+        use crate::velostream::kafka::client_config_builder::ClientConfigBuilder;
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+
+        // Build rdkafka ClientConfig from ConsumerConfig
+        let mut client_config = ClientConfigBuilder::new()
+            .bootstrap_servers(&config.common.brokers)
+            .client_id(config.common.client_id.as_deref())
+            .request_timeout(config.common.request_timeout)
+            .retry_backoff(config.common.retry_backoff)
+            .custom_properties(&config.common.custom_config)
+            .build();
+
+        // Set consumer-specific configuration
+        client_config
+            .set("group.id", &config.group_id)
+            .set("auto.offset.reset", config.auto_offset_reset.as_str())
+            .set("enable.auto.commit", config.enable_auto_commit.to_string())
+            .set(
+                "auto.commit.interval.ms",
+                config.auto_commit_interval.as_millis().to_string(),
+            )
+            .set(
+                "session.timeout.ms",
+                config.session_timeout.as_millis().to_string(),
+            )
+            .set(
+                "heartbeat.interval.ms",
+                config.heartbeat_interval.as_millis().to_string(),
+            )
+            .set("fetch.min.bytes", config.fetch_min_bytes.to_string())
+            .set(
+                "fetch.message.max.bytes",
+                config.max_partition_fetch_bytes.to_string(),
+            )
+            .set("isolation.level", config.isolation_level.as_str());
+
+        // Create BaseConsumer
+        let base_consumer: BaseConsumer = client_config.create()?;
+
+        Ok(Self {
+            consumer: base_consumer,
+            key_serializer,
+            value_serializer,
+        })
+    }
+
     /// Polls for a message with blocking timeout (fastest synchronous method).
     ///
     /// This is the fastest way to consume messages in synchronous code. It blocks
@@ -791,6 +872,129 @@ where
             receiver: rx,
             _handle: handle,
         }
+    }
+
+    /// Subscribes to the specified Kafka topics.
+    ///
+    /// # Arguments
+    ///
+    /// * `topics` - Slice of topic names to subscribe to
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if subscription succeeded
+    /// - `Err(KafkaError)` if subscription failed
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let consumer = Consumer::new(base_consumer, key_ser, value_ser);
+    /// consumer.subscribe(&["events", "logs"])?;
+    /// ```
+    pub fn subscribe(&self, topics: &[&str]) -> Result<(), rdkafka::error::KafkaError> {
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+        self.consumer.subscribe(topics)
+    }
+
+    /// Manually commits the current consumer offset.
+    ///
+    /// Only relevant when `enable.auto.commit=false` in consumer configuration.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if commit succeeded
+    /// - `Err(KafkaError)` if commit failed
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// consumer.commit()?;
+    /// ```
+    pub fn commit(&self) -> Result<(), rdkafka::error::KafkaError> {
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+        self.consumer.commit_consumer_state(rdkafka::consumer::CommitMode::Sync)
+    }
+
+    /// Returns the current offset positions for assigned partitions.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(partition_list))` with current offsets if supported
+    /// - `Ok(None)` if no partitions are assigned
+    /// - `Err(KafkaError)` if query failed
+    pub fn current_offsets(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+        match self.consumer.assignment() {
+            Ok(partition_list) => {
+                if partition_list.count() > 0 {
+                    Ok(Some(partition_list))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Returns the current partition assignment.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Some(partition_list))` with assigned partitions if supported
+    /// - `Ok(None)` if no partitions are assigned
+    /// - `Err(KafkaError)` if query failed
+    pub fn assignment(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+        match self.consumer.assignment() {
+            Ok(partition_list) => {
+                if partition_list.count() > 0 {
+                    Ok(Some(partition_list))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+// ===== Phase 2B: Unified Consumer Trait Implementation =====
+
+use crate::velostream::kafka::unified_consumer::KafkaStreamConsumer;
+
+/// Implementation of `KafkaStreamConsumer` trait for fast `Consumer`.
+///
+/// This enables the BaseConsumer-based fast consumer to be used through the unified
+/// consumer interface, allowing applications to switch between StreamConsumer and
+/// BaseConsumer implementations without code changes.
+impl<K, V> KafkaStreamConsumer<K, V> for Consumer<K, V>
+where
+    K: Send + Sync + 'static,
+    V: Send + Sync + 'static,
+{
+    fn stream(&self) -> impl futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
+        // Delegate to existing stream() method
+        self.stream()
+    }
+
+    fn subscribe(&self, topics: &[&str]) -> Result<(), rdkafka::error::KafkaError> {
+        // Delegate to newly added subscribe() method
+        self.subscribe(topics)
+    }
+
+    fn commit(&self) -> Result<(), rdkafka::error::KafkaError> {
+        // Delegate to newly added commit() method
+        self.commit()
+    }
+
+    fn current_offsets(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+        // Delegate to newly added current_offsets() method
+        self.current_offsets()
+    }
+
+    fn assignment(&self) -> Result<Option<rdkafka::TopicPartitionList>, rdkafka::error::KafkaError> {
+        // Delegate to newly added assignment() method
+        self.assignment()
     }
 }
 

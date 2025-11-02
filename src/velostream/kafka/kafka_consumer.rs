@@ -571,6 +571,68 @@ where
 {
 }
 
+// ===== Phase 2B: Unified Consumer Trait Implementation =====
+
+use crate::velostream::kafka::unified_consumer::KafkaStreamConsumer;
+
+/// Implementation of `KafkaStreamConsumer` trait for `KafkaConsumer`.
+///
+/// This enables `KafkaConsumer` to be used through the unified consumer interface,
+/// allowing applications to switch between StreamConsumer and BaseConsumer implementations
+/// without code changes.
+impl<K, V, KS, VS, C> KafkaStreamConsumer<K, V> for KafkaConsumer<K, V, KS, VS, C>
+where
+    K: Send + Sync,
+    V: Send + Sync,
+    KS: Serde<K> + Send + Sync,
+    VS: Serde<V> + Send + Sync,
+    C: ConsumerContext + 'static,
+{
+    fn stream(&self) -> impl futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
+        // Delegate to existing stream() method
+        self.stream()
+    }
+
+    fn subscribe(&self, topics: &[&str]) -> Result<(), KafkaError> {
+        // Delegate to existing subscribe() method
+        self.subscribe(topics)
+    }
+
+    fn commit(&self) -> Result<(), KafkaError> {
+        // Delegate to existing commit() method
+        self.commit()
+    }
+
+    fn current_offsets(&self) -> Result<Option<rdkafka::TopicPartitionList>, KafkaError> {
+        // StreamConsumer supports position() for getting current offsets
+        // Use assignment() to get partitions, then position() for offsets
+        match self.consumer.assignment() {
+            Ok(partition_list) => {
+                if partition_list.count() > 0 {
+                    Ok(Some(partition_list))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn assignment(&self) -> Result<Option<rdkafka::TopicPartitionList>, KafkaError> {
+        // StreamConsumer supports assignment()
+        match self.consumer.assignment() {
+            Ok(partition_list) => {
+                if partition_list.count() > 0 {
+                    Ok(Some(partition_list))
+                } else {
+                    Ok(None)
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

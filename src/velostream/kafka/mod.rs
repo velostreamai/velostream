@@ -7,6 +7,7 @@ mod kafka_producer;
 mod kafka_producer_def_context;
 pub mod serialization;
 pub mod serialization_format;
+pub mod unified_consumer;
 mod utils;
 
 // Common types
