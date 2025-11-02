@@ -7,10 +7,9 @@
 //!
 //! # Performance Tiers
 //!
-//! - **None (Legacy)**: Uses StreamConsumer (backward compatible)
-//! - **Standard**: Direct polling with BaseConsumer (~10K msg/sec)
-//! - **Buffered**: Batched polling for higher throughput (~50K+ msg/sec)
-//! - **Dedicated**: Dedicated thread for maximum throughput (~100K+ msg/sec)
+//! - **None or Standard**: Direct polling with BaseConsumer (~10K-15K msg/sec, default)
+//! - **Buffered**: Batched polling for higher throughput (~50K-75K msg/sec)
+//! - **Dedicated**: Dedicated thread for maximum throughput (~100K-150K msg/sec)
 //!
 //! # Usage
 //!
@@ -48,12 +47,11 @@
 use crate::velostream::kafka::{
     consumer_adapters::{BufferedAdapter, DedicatedAdapter, StandardAdapter},
     consumer_config::{ConsumerConfig, ConsumerTier},
-    kafka_consumer::KafkaConsumer,
     kafka_fast_consumer::Consumer as FastConsumer,
     unified_consumer::KafkaStreamConsumer,
     serialization::Serde,
 };
-use rdkafka::{consumer::DefaultConsumerContext, error::KafkaError};
+use rdkafka::error::KafkaError;
 use std::sync::Arc;
 
 /// Factory for creating tier-based Kafka consumers.
@@ -89,10 +87,9 @@ impl ConsumerFactory {
     ///
     /// # Tier Selection
     ///
-    /// - **`None`**: Legacy StreamConsumer (backward compatible)
-    /// - **`Standard`**: Direct polling with BaseConsumer
-    /// - **`Buffered`**: Batched polling adapter (Sub-Phase 2B.6)
-    /// - **`Dedicated`**: Dedicated thread adapter (Sub-Phase 2B.6)
+    /// - **`None` or `Standard`**: Direct polling with BaseConsumer (default)
+    /// - **`Buffered`**: Batched polling adapter
+    /// - **`Dedicated`**: Dedicated thread adapter
     ///
     /// # Example
     ///
@@ -127,18 +124,8 @@ impl ConsumerFactory {
         VS: Serde<V> + Send + Sync + 'static,
     {
         match config.performance_tier {
-            // Legacy StreamConsumer (backward compatible)
-            None => {
-                let consumer = KafkaConsumer::<K, V, KS, VS, DefaultConsumerContext>::with_config(
-                    config,
-                    key_serializer,
-                    value_serializer,
-                )?;
-                Ok(Box::new(consumer))
-            }
-
-            // Standard tier: Direct polling with BaseConsumer via StandardAdapter
-            Some(ConsumerTier::Standard) => {
+            // Standard tier (default): Direct polling with BaseConsumer via StandardAdapter
+            None | Some(ConsumerTier::Standard) => {
                 let consumer = FastConsumer::<K, V>::with_config(
                     config,
                     Box::new(key_serializer),
@@ -204,54 +191,38 @@ impl ConsumerFactory {
         value_serializer: Box<dyn Serde<V> + Send + Sync>,
     ) -> Result<Box<dyn KafkaStreamConsumer<K, V>>, KafkaError>
     where
-        K: Send + Sync + 'static,
-        V: Send + Sync + 'static,
+        K: Send + Sync + Unpin + 'static,
+        V: Send + Sync + Unpin + 'static,
     {
         match config.performance_tier {
-            // Legacy StreamConsumer (backward compatible)
-            None => {
-                // KafkaConsumer expects concrete serializer types, not boxed
-                // For now, this path requires concrete types via create()
-                Err(KafkaError::Subscription(
-                    "Legacy StreamConsumer requires concrete serializer types. Use create() instead.".to_string()
-                ))
-            }
-
-            // Standard tier: Direct polling with BaseConsumer
-            Some(ConsumerTier::Standard) => {
+            // Standard tier (default): Direct polling with BaseConsumer
+            None | Some(ConsumerTier::Standard) => {
                 let consumer = FastConsumer::<K, V>::with_config(
                     config,
                     key_serializer,
                     value_serializer,
                 )?;
-                Ok(Box::new(consumer))
+                Ok(Box::new(StandardAdapter::new(consumer)))
             }
 
-            // Buffered tier: Batched polling adapter (Sub-Phase 2B.6)
+            // Buffered tier: Batched polling adapter
             Some(ConsumerTier::Buffered { batch_size }) => {
-                log::warn!(
-                    "Buffered tier (batch_size={}) not yet implemented, falling back to Standard tier",
-                    batch_size
-                );
                 let consumer = FastConsumer::<K, V>::with_config(
                     config,
                     key_serializer,
                     value_serializer,
                 )?;
-                Ok(Box::new(consumer))
+                Ok(Box::new(BufferedAdapter::new(consumer, batch_size)))
             }
 
-            // Dedicated tier: Dedicated thread adapter (Sub-Phase 2B.6)
+            // Dedicated tier: Dedicated thread adapter
             Some(ConsumerTier::Dedicated) => {
-                log::warn!(
-                    "Dedicated tier not yet implemented, falling back to Standard tier"
-                );
                 let consumer = FastConsumer::<K, V>::with_config(
                     config,
                     key_serializer,
                     value_serializer,
                 )?;
-                Ok(Box::new(consumer))
+                Ok(Box::new(DedicatedAdapter::new(Arc::new(consumer))))
             }
         }
     }

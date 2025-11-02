@@ -8,20 +8,20 @@ This guide helps you migrate existing Kafka consumer applications to use the new
 
 | Current Implementation | Recommended Tier | Migration Effort |
 |------------------------|------------------|------------------|
-| No tier specified (Legacy) | Keep as-is or upgrade to Standard | Minimal (1-2 lines) |
-| Low-latency real-time apps | Standard tier | Easy (5 minutes) |
+| No tier specified | Automatically uses Standard | None (already optimized!) |
+| Low-latency real-time apps | Standard tier (default) | None |
 | Analytics/batch processing | Buffered tier | Easy (5 minutes) |
 | High-volume streaming | Dedicated tier | Moderate (10-15 minutes) |
 
 ## Backward Compatibility
 
-**Important**: The tier system is **100% backward compatible**. Existing applications will continue to work without any changes:
+**Important**: The tier system is **100% backward compatible**. Existing applications will continue to work without any changes and get 2-3x better performance automatically:
 
 ```rust
 // Existing code (no changes required)
 let config = ConsumerConfig::new("localhost:9092", "my-group");
 let consumer = ConsumerFactory::create(...)?;
-// Automatically uses Legacy tier (StreamConsumer)
+// Automatically uses Standard tier (10K-15K msg/s) - 2-3x faster than before!
 ```
 
 ## Migration Patterns
@@ -85,9 +85,9 @@ while let Some(result) = stream.next().await {
 
 **Effort**: 2 imports + 2 lines changed = ~5 minutes
 
-### Pattern 2: Migrating Legacy StreamConsumer to Buffered Tier
+### Pattern 2: Upgrading from Standard to Buffered Tier
 
-**Before** (Legacy):
+**Before** (Standard - default):
 ```rust
 let config = ConsumerConfig::new("localhost:9092", "analytics-group");
 let consumer = ConsumerFactory::create::<String, MyEvent, _, _>(
@@ -95,6 +95,7 @@ let consumer = ConsumerFactory::create::<String, MyEvent, _, _>(
     JsonSerializer,
     JsonSerializer,
 )?;
+// Uses Standard tier automatically (10K-15K msg/s)
 ```
 
 **After** (Buffered tier - 50K-75K msg/s):
@@ -557,25 +558,32 @@ let consumer = ConsumerFactory::create::<String, MyType, _, _>(
 
 ## Rollback Procedure
 
-If you encounter issues after migration:
+If you encounter issues after upgrading to Buffered or Dedicated tiers:
 
 ### Quick Rollback
 
-Remove the `.performance_tier()` call to revert to Legacy tier:
+Remove the `.performance_tier()` call to revert to Standard tier (default):
 
 ```rust
 // Rollback: Remove this line
-// .performance_tier(ConsumerTier::Standard)
+// .performance_tier(ConsumerTier::Buffered { batch_size: 32 })
 
 let config = ConsumerConfig::new("localhost:9092", "my-group");
-// Automatically uses Legacy tier
+// Automatically uses Standard tier (safe default)
+```
+
+Or explicitly specify Standard:
+
+```rust
+let config = ConsumerConfig::new("localhost:9092", "my-group")
+    .performance_tier(ConsumerTier::Standard);  // Explicit Standard tier
 ```
 
 ### Gradual Rollback
 
 For production environments:
 
-1. **Deploy Legacy Version**: Redeploy previous version without tier config
+1. **Downgrade Tier**: Switch from Dedicated/Buffered → Standard
 2. **Monitor Consumer Lag**: Ensure lag decreases
 3. **Verify Message Processing**: Check application logs
 4. **Document Issue**: Record what went wrong for future fix
@@ -592,11 +600,13 @@ For production environments:
 
 ## Performance Expectations After Migration
 
-| Tier | Throughput Increase | Latency Change | CPU Impact | Memory Impact |
-|------|---------------------|----------------|------------|---------------|
-| Legacy → Standard | +2-3x | Same (~1ms) | +0-2% | Minimal |
+| Tier Change | Throughput Increase | Latency Change | CPU Impact | Memory Impact |
+|-------------|---------------------|----------------|------------|---------------|
 | Standard → Buffered | +4-5x | +<1ms | +1-3% | +10-20MB |
 | Buffered → Dedicated | +2x | -10-20% | +5-10% | +5-10MB |
+| Standard → Dedicated | +8-10x | -10-20% | +8-13% | +15-30MB |
+
+**Note**: If you're upgrading from an older version that didn't use tiers, you're already getting 2-3x better performance with Standard tier (the new default)!
 
 ## Next Steps
 

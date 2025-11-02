@@ -29,10 +29,9 @@ Velostream provides a tiered consumer architecture that allows you to select the
 
 | Tier | Throughput | Latency (p99) | CPU Usage | Memory | Use Case |
 |------|-----------|---------------|-----------|--------|----------|
-| **Standard** | 10K-15K msg/s | ~1ms | 2-5% | Low | Real-time events, low-latency apps |
+| **Standard (default)** | 10K-15K msg/s | ~1ms | 2-5% | Low | Real-time events, low-latency apps |
 | **Buffered** | 50K-75K msg/s | ~1ms | 3-8% | Medium | Analytics, batch processing |
 | **Dedicated** | 100K-150K msg/s | <1ms | 10-15% | Medium | Maximum throughput, high-volume streaming |
-| **Legacy** | ~5K msg/s | ~1ms | 2-5% | Low | Backward compatibility (auto-selected if no tier specified) |
 
 ## Quick Start
 
@@ -133,13 +132,13 @@ while let Some(result) = stream.next().await {
 - Eliminates polling overhead from your application thread
 - Best for CPU-bound processing where you want to offload I/O
 
-### Legacy Tier (Backward Compatible)
+### Default Behavior (No Tier Specified)
 
-Automatically selected when no tier is specified. Uses the original `StreamConsumer` implementation.
+When no tier is specified, Standard tier is automatically selected, providing excellent performance out of the box.
 
 ```rust
-// No performance_tier() specified → Legacy tier automatically selected
-let config = ConsumerConfig::new("localhost:9092", "legacy-group");
+// No performance_tier() specified → Standard tier automatically selected
+let config = ConsumerConfig::new("localhost:9092", "my-group");
 
 let consumer = ConsumerFactory::create::<String, String, _, _>(
     config,
@@ -147,7 +146,7 @@ let consumer = ConsumerFactory::create::<String, String, _, _>(
     JsonSerializer,
 )?;
 
-// Works exactly as before - backward compatible
+// Uses Standard tier (10K-15K msg/s) by default
 consumer.subscribe(&["my-topic"])?;
 let mut stream = consumer.stream();
 ```
@@ -159,9 +158,7 @@ let mut stream = consumer.stream();
 ```text
 Start
   │
-  ├─ Need backward compatibility? → **Legacy** (auto-selected)
-  │
-  ├─ Need < 20K msg/s with low latency? → **Standard**
+  ├─ Need < 20K msg/s with low latency? → **Standard** (default)
   │
   ├─ Need 20K-80K msg/s for analytics? → **Buffered**
   │
@@ -339,23 +336,23 @@ kafka-run-class.sh kafka.tools.ConsumerPerformance \
 
 ## Migration Guide
 
-### From Legacy StreamConsumer
+### No Migration Needed!
 
-**Before** (Legacy - automatic):
+**Great news**: The tier system is now the default! When you don't specify a tier, Standard tier is automatically selected, giving you 2-3x better performance than before.
+
 ```rust
+// This code automatically uses Standard tier now
 let config = ConsumerConfig::new("localhost:9092", "my-group");
 let consumer = ConsumerFactory::create(...)?;
-// Uses Legacy tier automatically
+// Automatically uses Standard tier (10K-15K msg/s)
 ```
 
-**After** (Explicit tier selection):
+**Optional**: Explicitly specify tier for clarity or to use Buffered/Dedicated:
 ```rust
 let config = ConsumerConfig::new("localhost:9092", "my-group")
-    .performance_tier(ConsumerTier::Standard);  // Choose your tier
+    .performance_tier(ConsumerTier::Buffered { batch_size: 32 });
 let consumer = ConsumerFactory::create(...)?;
 ```
-
-**Note**: If you don't specify a tier, Legacy is automatically selected for backward compatibility.
 
 ### From Direct Consumer Usage
 
