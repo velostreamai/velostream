@@ -80,7 +80,22 @@ impl WindowAdapter {
         record: &StreamRecord,
         context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        if let StreamingQuery::Select { window, .. } = query {
+        if let StreamingQuery::Select { window, where_clause, .. } = query {
+            // FR-081 CRITICAL: Apply WHERE clause BEFORE windowing
+            // Records that don't match WHERE should not enter window buffers
+            if let Some(where_expr) = where_clause {
+                let matches = ExpressionEvaluator::evaluate_expression_value(where_expr, record)?;
+                match matches {
+                    FieldValue::Boolean(false) | FieldValue::Integer(0) => {
+                        // Record filtered out by WHERE clause - skip windowing
+                        return Ok(None);
+                    }
+                    _ => {
+                        // Record passes WHERE clause - proceed to windowing
+                    }
+                }
+            }
+
             if let Some(window_spec) = window {
                 // Get or create window_v2 state
                 let state_key = format!("window_v2:{}", query_id);
