@@ -396,13 +396,9 @@ impl WindowAdapter {
             return Ok(Vec::new());
         }
 
-        // Convert SharedRecords to StreamRecords for processing
-        let stream_records: Vec<StreamRecord> = window_records
-            .iter()
-            .map(|shared_rec| shared_rec.as_ref().clone())
-            .collect();
-
-        if stream_records.is_empty() {
+        // FR-081 PERFORMANCE FIX: Use Arc references directly instead of deep cloning
+        // Zero-copy semantics: SharedRecord = Arc<StreamRecord>, so we can work with references
+        if window_records.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -410,8 +406,9 @@ impl WindowAdapter {
         if group_by.is_none() || group_by.as_ref().unwrap().is_empty() {
             let mut accumulator = GroupAccumulator::new();
 
-            // Process each record into the accumulator
-            for record in &stream_records {
+            // Process each record into the accumulator (using Arc references - zero copy!)
+            for shared_record in &window_records {
+                let record = shared_record.as_ref();  // &StreamRecord (no clone!)
                 AccumulatorManager::process_record_into_accumulator(
                     &mut accumulator,
                     record,
@@ -429,8 +426,10 @@ impl WindowAdapter {
         let group_exprs = group_by.as_ref().unwrap();
         let mut group_state = GroupByState::new(group_exprs.clone(), fields.to_vec(), None);
 
-        // Process each record into the appropriate group accumulator
-        for record in &stream_records {
+        // Process each record into the appropriate group accumulator (using Arc references - zero copy!)
+        for shared_record in &window_records {
+            let record = shared_record.as_ref();  // &StreamRecord (no clone!)
+
             // Evaluate GROUP BY key for this record
             let mut group_key = Vec::new();
             for expr in group_exprs {
