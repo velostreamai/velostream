@@ -257,7 +257,7 @@ async fn run_latency_test(
     .build()?;
 
     // Create consumer
-    let consumer = KafkaConsumer::<String, LatencyTestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, LatencyTestMessage, _, _>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,

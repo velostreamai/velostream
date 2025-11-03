@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )?;
 
-    let consumer = KafkaConsumer::<String, ProductEvent, _, _>::new(
+    let consumer = FastConsumer::<String, ProductEvent, _, _>::new(
         broker,
         &group_id,
         JsonSerializer,

@@ -231,7 +231,7 @@ async fn run_performance_test(
         .fetch_max_wait(Duration::from_millis(500))
         .high_throughput(); // Apply high-throughput preset
 
-    let consumer = KafkaConsumer::<String, PerformanceTestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, PerformanceTestMessage, _, _>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,

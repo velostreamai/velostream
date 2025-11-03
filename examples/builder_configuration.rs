@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("6. Consumer Configurations:");
 
     // Basic consumer
-    let _basic_consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
+    let _basic_consumer = FastConsumer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
         "order-processors",
         JsonSerializer,
@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .client_id("ht-consumer")
         .high_throughput();
 
-    let _ht_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
+    let _ht_consumer = FastConsumer::<String, OrderEvent, _, _>::with_config(
         _ht_consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .auto_offset_reset(OffsetReset::Latest)
         .streaming(); // Optimized for continuous processing
 
-    let _streaming_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
+    let _streaming_consumer = FastConsumer::<String, OrderEvent, _, _>::with_config(
         _streaming_config,
         JsonSerializer,
         JsonSerializer,
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .development() // Development-friendly settings
         .auto_commit(true, Duration::from_secs(1));
 
-    let _dev_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
+    let _dev_consumer = FastConsumer::<String, OrderEvent, _, _>::with_config(
         _dev_config,
         JsonSerializer,
         JsonSerializer,

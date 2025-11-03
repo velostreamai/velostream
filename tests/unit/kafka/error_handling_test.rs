@@ -208,7 +208,7 @@ async fn test_consumer_deserialization_error() {
 
 async fn test_consumer_deserialization_workflow() {
     // Create a consumer with a deserializer that always fails
-    let consumer_result = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer_result = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         "error-test-group",
         FailingSerializer, // Key deserializer fails
@@ -284,7 +284,7 @@ async fn test_consumer_deserialization_workflow() {
 
 #[tokio::test]
 async fn test_consumer_invalid_topic_subscription() {
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         "error-test-group",
         JsonSerializer,
@@ -309,7 +309,7 @@ async fn test_consumer_invalid_topic_subscription() {
 
 #[tokio::test]
 async fn test_consumer_poll_timeout() {
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         "timeout-test-group",
         JsonSerializer,

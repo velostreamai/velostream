@@ -712,7 +712,7 @@ impl Serde<HashMap<String, FieldValue>> for AvroCodec {
     }
 }
 
-/// Create an Avro serializer that can be used with KafkaConsumer
+/// Create an Avro serializer that can be used with FastConsumer
 pub fn create_avro_serializer(schema_json: &str) -> Result<AvroCodec, SerializationError> {
     AvroCodec::new(schema_json)
 }

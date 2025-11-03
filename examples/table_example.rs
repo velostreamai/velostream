@@ -184,7 +184,7 @@ async fn process_order_stream(
         .auto_offset_reset(OffsetReset::Latest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let order_consumer = KafkaConsumer::<String, Order, _, _>::with_config(
+    let order_consumer = FastConsumer::<String, Order, _, _>::with_config(
         order_config,
         JsonSerializer,
         JsonSerializer,

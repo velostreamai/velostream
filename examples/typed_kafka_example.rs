@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 2: Type-safe consumer with automatic deserialization
     println!("\n=== Type-Safe Consumer Example ===");
 
-    let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
+    let consumer = FastConsumer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
         "order-processor-group",
         JsonSerializer,

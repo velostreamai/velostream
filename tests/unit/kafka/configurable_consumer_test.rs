@@ -1,12 +1,12 @@
 //! Tests for Phase 2 Configurable Kafka Consumer functionality
 //!
-//! These tests validate the ConfigurableKafkaConsumerBuilder and related
+//! These tests validate the ConfigurableFastConsumerBuilder and related
 //! functionality for runtime serialization format selection.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use velostream::velostream::kafka::{
-    configurable_consumer::ConfigurableKafkaConsumerBuilder,
+    configurable_consumer::ConfigurableFastConsumerBuilder,
     serialization_format::{SerializationConfig, SerializationFormat},
 };
 
@@ -31,7 +31,7 @@ mod configurable_consumer_tests {
 
     // #[test]
     // fn test_configurable_consumer_builder_creation() {
-    //     let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+    //     let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
     //         "localhost:9092",
     //         "test-group",
     //     );
@@ -43,7 +43,7 @@ mod configurable_consumer_tests {
 
     #[test]
     fn test_configurable_consumer_builder_with_formats() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )
@@ -56,7 +56,7 @@ mod configurable_consumer_tests {
 
     #[test]
     fn test_configurable_consumer_builder_fluent_api() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, OrderEvent>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, OrderEvent>::new(
             "kafka-cluster:9092",
             "order-processing-group",
         )
@@ -76,7 +76,7 @@ mod configurable_consumer_tests {
         sql_params.insert("key.serializer".to_string(), "string".to_string());
         sql_params.insert("value.serializer".to_string(), "json".to_string());
 
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
             "test-group",
             &sql_params,
@@ -100,7 +100,7 @@ mod configurable_consumer_tests {
         sql_params.insert("auto.offset.reset".to_string(), "earliest".to_string());
         sql_params.insert("enable.auto.commit".to_string(), "false".to_string());
 
-        let builder = ConfigurableKafkaConsumerBuilder::<Vec<u8>, String>::from_sql_config(
+        let builder = ConfigurableFastConsumerBuilder::<Vec<u8>, String>::from_sql_config(
             "localhost:9092",
             "complex-consumer-group",
             &sql_params,
@@ -131,7 +131,7 @@ mod configurable_consumer_tests {
         let mut sql_params = HashMap::new();
         sql_params.insert("key.serializer".to_string(), "invalid_format".to_string());
 
-        let result = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
+        let result = ConfigurableFastConsumerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
             "test-group",
             &sql_params,
@@ -144,7 +144,7 @@ mod configurable_consumer_tests {
 
     #[test]
     fn test_configurable_consumer_builder_avro_key_serialization() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )
@@ -164,7 +164,7 @@ mod configurable_consumer_tests {
 
     #[test]
     fn test_configurable_consumer_builder_avro_value_serialization() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )
@@ -184,7 +184,7 @@ mod configurable_consumer_tests {
 
     #[test]
     fn test_configurable_consumer_builder_protobuf_serialization() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )
@@ -212,7 +212,7 @@ mod configurable_consumer_tests {
 
         let serialization_config = SerializationConfig::from_sql_params(&sql_params).unwrap();
 
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )
@@ -226,7 +226,7 @@ mod configurable_consumer_tests {
     #[test]
     fn test_configurable_consumer_builder_method_chaining() {
         // Test that all builder methods can be chained together
-        let builder = ConfigurableKafkaConsumerBuilder::<String, OrderEvent>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, OrderEvent>::new(
             "localhost:9092",
             "test-group",
         )
@@ -254,7 +254,7 @@ mod configurable_consumer_tests {
         );
 
         let builder =
-            ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, serde_json::Value>::from_sql_config(
                 "localhost:9092",
                 "customer-events-group",
                 &sql_params,
@@ -280,24 +280,20 @@ mod configurable_consumer_tests {
         // Test with different key-value type combinations
 
         // String key, JSON value
-        let _builder1 = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
-            "localhost:9092",
-            "group1",
-        );
+        let _builder1 =
+            ConfigurableFastConsumerBuilder::<String, TestMessage>::new("localhost:9092", "group1");
 
         // Integer key, String value
         let _builder2 =
-            ConfigurableKafkaConsumerBuilder::<i64, String>::new("localhost:9092", "group2");
+            ConfigurableFastConsumerBuilder::<i64, String>::new("localhost:9092", "group2");
 
         // Bytes key, JSON value
-        let _builder3 = ConfigurableKafkaConsumerBuilder::<Vec<u8>, OrderEvent>::new(
-            "localhost:9092",
-            "group3",
-        );
+        let _builder3 =
+            ConfigurableFastConsumerBuilder::<Vec<u8>, OrderEvent>::new("localhost:9092", "group3");
 
         // JSON key, JSON value
         let _builder4 =
-            ConfigurableKafkaConsumerBuilder::<serde_json::Value, serde_json::Value>::new(
+            ConfigurableFastConsumerBuilder::<serde_json::Value, serde_json::Value>::new(
                 "localhost:9092",
                 "group4",
             );
@@ -322,7 +318,7 @@ mod configurable_consumer_tests {
         }
 
         let _financial_builder =
-            ConfigurableKafkaConsumerBuilder::<String, Transaction>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, Transaction>::from_sql_config(
                 "financial-kafka:9092",
                 "transaction-processor-group",
                 &financial_params,
@@ -345,7 +341,7 @@ mod configurable_consumer_tests {
         }
 
         let _iot_builder =
-            ConfigurableKafkaConsumerBuilder::<Vec<u8>, SensorReading>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<Vec<u8>, SensorReading>::from_sql_config(
                 "iot-cluster:9092",
                 "sensor-data-group",
                 &iot_params,
@@ -359,7 +355,7 @@ mod configurable_consumer_tests {
         log_params.insert("session.timeout.ms".to_string(), "30000".to_string());
         log_params.insert("heartbeat.interval.ms".to_string(), "3000".to_string());
 
-        let _log_builder = ConfigurableKafkaConsumerBuilder::<String, String>::from_sql_config(
+        let _log_builder = ConfigurableFastConsumerBuilder::<String, String>::from_sql_config(
             "log-cluster:9092",
             "log-aggregation-group",
             &log_params,
@@ -375,7 +371,7 @@ mod configurable_consumer_tests {
         let mut invalid_params = HashMap::new();
         invalid_params.insert("key.serializer".to_string(), "xml".to_string());
 
-        let result = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
+        let result = ConfigurableFastConsumerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
             "test-group",
             &invalid_params,
@@ -388,7 +384,7 @@ mod configurable_consumer_tests {
             avro_params.insert("value.serializer".to_string(), "avro".to_string());
             // Missing schema.registry.url and value.subject
 
-            let result = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
+            let result = ConfigurableFastConsumerBuilder::<String, TestMessage>::from_sql_config(
                 "localhost:9092",
                 "test-group",
                 &avro_params,
@@ -404,7 +400,7 @@ mod configurable_consumer_tests {
 
     #[test]
     fn test_configurable_consumer_format_accessors() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )

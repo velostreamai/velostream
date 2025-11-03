@@ -183,7 +183,7 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
         .fetch_max_wait(Duration::from_millis(100))
         .high_throughput();
 
-    let consumer = KafkaConsumer::<String, AsyncTestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, AsyncTestMessage, _, _>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,

@@ -200,7 +200,7 @@ async fn test_consumer_builder_with_presets() {
         .client_id("ht-consumer")
         .high_throughput();
 
-    let ht_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
+    let ht_consumer_result = FastConsumer::<String, TestMessage, _, _>::with_config(
         high_throughput_config,
         JsonSerializer,
         JsonSerializer,
@@ -215,7 +215,7 @@ async fn test_consumer_builder_with_presets() {
         .client_id("ll-consumer")
         .low_latency();
 
-    let ll_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
+    let ll_consumer_result = FastConsumer::<String, TestMessage, _, _>::with_config(
         low_latency_config,
         JsonSerializer,
         JsonSerializer,
@@ -230,7 +230,7 @@ async fn test_consumer_builder_with_presets() {
         .client_id("dev-consumer")
         .development();
 
-    let dev_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
+    let dev_consumer_result = FastConsumer::<String, TestMessage, _, _>::with_config(
         development_config,
         JsonSerializer,
         JsonSerializer,
@@ -245,7 +245,7 @@ async fn test_consumer_builder_with_presets() {
         .client_id("stream-consumer")
         .streaming();
 
-    let stream_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
+    let stream_consumer_result = FastConsumer::<String, TestMessage, _, _>::with_config(
         streaming_config,
         JsonSerializer,
         JsonSerializer,
@@ -424,7 +424,7 @@ async fn test_kafka_workflow() {
         .auto_offset_reset(OffsetReset::Latest)
         .development();
 
-    let consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
+    let consumer_result = FastConsumer::<String, TestMessage, _, _>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,

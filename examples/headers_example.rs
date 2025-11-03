@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Create consumer with key/value serializers
-    let consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
+    let consumer = FastConsumer::<String, OrderEvent, _, _>::new(
         broker,
         group_id,
         JsonSerializer,

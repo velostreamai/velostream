@@ -49,7 +49,7 @@ use std::sync::Arc;
 ///
 /// ## Integration with Messages
 /// ```rust,no_run
-/// use velostream::{KafkaConsumer, JsonSerializer};
+/// use velostream::{kafka_fast_consumer::Consumer as FastConsumer, JsonSerializer};
 /// use std::time::Duration;
 ///
 /// fn handle_user_created(_value: &String) {}
@@ -57,7 +57,7 @@ use std::sync::Arc;
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let consumer = KafkaConsumer::<String, String, _, _>::new(
+///     let consumer = FastConsumer::<String, String>::new(
 ///         "localhost:9092",
 ///         "group",
 ///         JsonSerializer,

@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create consumer for User messages
-    let consumer = match KafkaConsumer::<String, User, _, _>::new(
+    let consumer = match FastConsumer::<String, User, _, _>::new(
         "localhost:9092",
         "user-processor",
         JsonSerializer,

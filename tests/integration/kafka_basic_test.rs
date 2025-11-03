@@ -1,6 +1,6 @@
 use super::*;
 use futures::StreamExt;
-use velostream::ConsumerBuilder;
+
 use velostream::ProducerBuilder;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -28,7 +28,7 @@ async fn test_basic_producer_consumer() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -87,7 +87,7 @@ async fn test_multiple_messages() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -173,7 +173,7 @@ async fn test_different_message_types() {
     )
     .expect("Failed to create simple producer");
 
-    let test_consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let test_consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -181,7 +181,7 @@ async fn test_different_message_types() {
     )
     .expect("Failed to create test consumer");
 
-    let simple_consumer = KafkaConsumer::<String, SimpleMessage, _, _>::new(
+    let simple_consumer = FastConsumer::<String, SimpleMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -326,7 +326,7 @@ async fn test_convenience_trait() {
     let group_id = format!("trait-group-{}", Uuid::new_v4());
 
     // Test KafkaConsumable trait
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -389,7 +389,7 @@ async fn test_error_handling() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -416,7 +416,7 @@ async fn test_error_handling() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Test timeout behavior
-    let empty_consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let empty_consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &format!("empty-{}", Uuid::new_v4()),
         JsonSerializer,
@@ -457,7 +457,7 @@ async fn test_message_with_timestamp() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -562,7 +562,7 @@ async fn test_consumer_stream() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -654,7 +654,7 @@ async fn test_fluent_consumer_style() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -731,7 +731,7 @@ async fn test_fluent_api_patterns() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -779,7 +779,7 @@ async fn test_fluent_api_patterns() {
     );
 
     // Pattern 2: Take only first N messages using take()
-    let consumer2 = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer2 = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &format!("{}-2", group_id),
         JsonSerializer,
@@ -801,7 +801,7 @@ async fn test_fluent_api_patterns() {
     assert_eq!(first_three.len(), 3, "Should take exactly 3 messages");
 
     // Pattern 3: Filter by content and map to different type
-    let consumer3 = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer3 = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &format!("{}-3", group_id),
         JsonSerializer,
@@ -858,7 +858,7 @@ async fn test_implicit_deserialization() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -926,7 +926,7 @@ async fn test_headers_functionality() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         "localhost:9092",
         &group_id,
         JsonSerializer,

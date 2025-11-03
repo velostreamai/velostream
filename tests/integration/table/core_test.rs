@@ -69,7 +69,7 @@ async fn test_table_from_consumer() {
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let consumer_result = KafkaConsumer::<String, Vec<u8>, _, _>::with_config(
+    let consumer_result = FastConsumer::<String, Vec<u8>, _, _>::with_config(
         consumer_config,
         StringSerializer,
         BytesSerializer,

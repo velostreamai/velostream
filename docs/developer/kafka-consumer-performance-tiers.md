@@ -405,6 +405,282 @@ cargo test consumer_adapters
 cargo test consumer_factory
 ```
 
+## Intelligent Tier Selection in KafkaDataReader
+
+**FR-081 Phase 2C** introduces automatic tier selection in the datasource layer. `KafkaDataReader` intelligently chooses the optimal consumer tier based on your batch configuration, eliminating the need for manual tier selection in most cases.
+
+### The Relationship: batch.size Drives max.poll.records
+
+**Key Insight**: Your `batch.size` directly sets Kafka's `max.poll.records` property, ensuring efficient polling:
+
+```
+BatchConfig.strategy = FixedSize(500)
+    ↓
+consumer_config.max_poll_records = 500  (Kafka polls 500 records)
+    ↓
+ConsumerTier = Buffered { batch_size: 500 }  (processes 500 records)
+    ↓
+Result: Poll size matches processing batch size (efficient!)
+```
+
+This design ensures:
+- ✅ **No wasted polls**: Poll exactly what you'll process
+- ✅ **No memory waste**: Don't buffer more than you need
+- ✅ **Optimal throughput**: Single poll satisfies batch requirement
+
+### How Auto-Selection Works
+
+When creating a `KafkaDataReader`, the system analyzes your `BatchConfig` strategy and automatically:
+1. Sets `max.poll.records` based on your batch size
+2. Selects the optimal consumer tier for that batch size
+3. Configures fetch settings for efficiency
+
+**YAML Configuration** (most common):
+```yaml
+# config/orders_source.yaml
+
+# Example 1: Large batch → Auto-selects Buffered tier
+datasource:
+  type: kafka
+  consumer_config:
+    bootstrap.servers: "localhost:9092"
+    # No max.poll.records specified, uses batch.size below
+
+# BatchConfig determines both max.poll.records and tier
+batch_config:
+  strategy: FixedSize
+  batch_size: 500  # → max.poll.records=500, Buffered tier (50-75K msg/s)
+
+# Example 2: Small batch → Auto-selects Standard tier
+batch_config:
+  strategy: FixedSize
+  batch_size: 50  # → max.poll.records=50, Standard tier (10-15K msg/s)
+
+# Example 3: Memory-based → Auto-selects Buffered tier
+batch_config:
+  strategy: MemoryBased
+  max_memory_bytes: 10485760  # 10MB → Buffered tier with batch_size=500
+```
+
+**Programmatic Configuration**:
+```rust
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+
+// Example 1: Large batch → Buffered tier
+let config = BatchConfig {
+    strategy: BatchStrategy::FixedSize(500),
+    ..Default::default()
+};
+// Result: max_poll_records=500, Buffered tier (50-75K msg/s)
+
+// Example 2: Small batch → Standard tier
+let config = BatchConfig {
+    strategy: BatchStrategy::FixedSize(50),
+    ..Default::default()
+};
+// Result: max_poll_records=50, Standard tier (10-15K msg/s)
+```
+
+### Auto-Selection Rules
+
+**Key**: `batch.size` → `max.poll.records` → `tier`
+
+| Batch Strategy | max.poll.records | Selected Tier | Throughput |
+|----------------|------------------|---------------|------------|
+| `FixedSize(500)` | **500** | `Buffered { batch_size: 500 }` | 50-75K msg/s |
+| `FixedSize(2000)` | **2000** | `Buffered { batch_size: 1000 }*` | 50-75K msg/s |
+| `FixedSize(100)` | **100** | `Standard` | 10-15K msg/s |
+| `FixedSize(50)` | **50** | `Standard` | 10-15K msg/s |
+| `MemoryBased(10MB)` | **~10,000** | `Buffered { batch_size: 500 }` | 50-75K msg/s |
+| `AdaptiveSize { min: 50, max: 500 }` | **50** (starts at min) | `Standard` | 10-15K msg/s |
+| `LowLatency { max: 10 }` | **10** | `Standard` | 10-15K msg/s |
+
+*Tier batch_size is capped at 1000 to prevent memory issues, but `max.poll.records` is not capped
+
+### Explicit Tier Override
+
+You can override auto-selection by explicitly setting the `performance_tier`:
+
+**YAML Configuration**:
+```yaml
+# config/high_throughput_source.yaml
+datasource:
+  type: kafka
+  consumer_config:
+    bootstrap.servers: "localhost:9092"
+    # Explicit tier override (advanced usage)
+    performance.tier: dedicated  # Override auto-selection
+
+batch_config:
+  strategy: FixedSize
+  batch_size: 100  # Would normally select Standard tier
+  # But explicit override forces Dedicated tier (100K-150K msg/s)
+```
+
+**Programmatic Override**:
+```rust
+use velostream::velostream::kafka::consumer_config::{ConsumerConfig, ConsumerTier};
+use velostream::velostream::datasource::{BatchConfig, BatchStrategy};
+
+let mut consumer_config = ConsumerConfig::new("localhost:9092", "my-group");
+
+// Override: Force Dedicated tier regardless of batch size
+consumer_config.performance_tier = Some(ConsumerTier::Dedicated);
+
+let batch_config = BatchConfig {
+    strategy: BatchStrategy::FixedSize(100),  // Would select Standard
+    ..Default::default()
+};
+
+// Result: Uses Dedicated tier (100K-150K msg/s) despite small batch size
+```
+
+**When to Override**:
+- ✅ Maximum throughput needed regardless of batch size
+- ✅ Testing different tiers for performance comparison
+- ⚠️ Usually not needed - auto-selection is optimal for most cases
+
+### Performance Impact
+
+Auto-tier selection provides significant performance improvements with zero configuration:
+
+| Scenario | Auto-Selected Tier | Throughput Gain |
+|----------|-------------------|-----------------|
+| Small batches (≤100) | Standard | **2-3x** vs legacy StreamConsumer |
+| Large batches (>100) | Buffered | **5-7x** vs legacy StreamConsumer |
+| Memory-based batching | Buffered | **5-7x** vs legacy StreamConsumer |
+
+### Tier-Appropriate Streaming Methods
+
+Each `KafkaDataReader` method uses the optimal streaming approach based on the selected tier:
+
+| Method | Standard Tier | Buffered Tier | Dedicated Tier |
+|--------|--------------|---------------|----------------|
+| `read_single()` | Direct polling | Batched polling | Dedicated thread |
+| `read_fixed_size()` | Buffered with target size | Native batch size | Buffered with target size |
+| `read_time_window()` | Direct polling | Direct polling | Direct polling |
+| `read_memory_based()` | Buffered (100 msgs) | Buffered (500 msgs) | Buffered (500 msgs) |
+| `read_low_latency()` | Direct polling | Direct polling | Direct polling |
+
+### Example: Complete Datasource Setup
+
+**YAML Configuration** (recommended):
+```yaml
+# config/analytics_source.yaml
+datasource:
+  type: kafka
+  consumer_config:
+    bootstrap.servers: "localhost:9092"
+    group.id: "analytics_group"
+
+  schema:
+    value.format: json
+
+# batch.size drives max.poll.records and tier selection
+batch_config:
+  strategy: FixedSize
+  batch_size: 200  # → max.poll.records=200, Buffered tier
+  batch_timeout_ms: 500
+  max_batch_size: 1000
+```
+
+**SQL Usage** (references configured source):
+```sql
+-- SQL uses pre-configured table
+-- Tier selection already determined by YAML config
+SELECT order_id, amount, status
+FROM orders  -- References YAML-configured source
+WHERE amount > 1000;
+```
+
+**Programmatic Setup**:
+```rust
+use velostream::velostream::datasource::{
+    kafka::KafkaDataSource,
+    BatchConfig, BatchStrategy, create_source,
+};
+use std::time::Duration;
+
+// 1. Configure batch strategy
+let batch_config = BatchConfig {
+    strategy: BatchStrategy::FixedSize(200),
+    batch_timeout: Duration::from_millis(500),
+    max_batch_size: 1000,
+    enable_batching: true,
+};
+// Result: max_poll_records=200, Buffered tier auto-selected
+
+// 2. Create source from connection string
+let uri = "kafka://localhost:9092/orders?group.id=analytics";
+let source = create_source(uri)?;
+
+// 3. Create reader with batch config
+let mut reader = source.create_reader_with_batch_config(batch_config).await?;
+// → Uses Buffered tier (50-75K msg/s)
+// → Kafka polls 200 records per poll
+// → Processes 200 records per batch
+
+// 4. Read batches efficiently
+let records = reader.read_batch().await?;
+```
+
+### Logging
+
+Auto-tier selection is logged for visibility:
+
+```log
+INFO: FR-081: Auto-selecting Buffered tier (50-75K msg/s) for large batch size: 200
+INFO: FR-081: KafkaDataReader using Buffered tier for optimal CPU/memory efficiency
+```
+
+### Migration from Legacy Consumer
+
+**Before (Phase 2A - StreamConsumer)**:
+```yaml
+# Old configuration - no tier concept
+datasource:
+  type: kafka
+  consumer_config:
+    bootstrap.servers: "localhost:9092"
+    max.poll.records: 500  # Ignored by old implementation
+
+# → Always used StreamConsumer (5-10K msg/s)
+# → max.poll.records didn't affect processing
+```
+
+**After (Phase 2C - Intelligent Tier Selection)**:
+```yaml
+# New configuration - batch.size drives everything
+datasource:
+  type: kafka
+  consumer_config:
+    bootstrap.servers: "localhost:9092"
+    # max.poll.records automatically set from batch.size
+
+batch_config:
+  strategy: FixedSize
+  batch_size: 500  # → max.poll.records=500, Buffered tier
+
+# → Uses FastConsumer with Buffered tier (50-75K msg/s)
+# → 2-7x performance improvement with zero code changes
+# → batch.size and poll size perfectly aligned
+```
+
+**Key Improvements**:
+- ✅ `batch.size` → `max.poll.records` synchronization (no wasted polls)
+- ✅ Automatic tier selection based on workload
+- ✅ 2-7x throughput improvement
+- ✅ Lower CPU usage per message
+- ✅ Better memory efficiency
+
+### Benefits
+
+1. **Zero Configuration**: Optimal tier selected automatically
+2. **Performance by Default**: 2-7x throughput improvement without code changes
+3. **CPU/Memory Efficient**: Each tier optimized for its use case
+4. **Backward Compatible**: Existing code gets automatic performance boost
+5. **Override Available**: Explicit tier selection when needed
+
 ## Troubleshooting
 
 ### Consumer Group Rebalancing Issues

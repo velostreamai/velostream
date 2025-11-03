@@ -224,7 +224,7 @@ async fn run_raw_performance_test(
         .fetch_max_wait(Duration::from_millis(100))
         .high_throughput(); // Apply high-throughput preset with consolidated settings
 
-    let consumer = KafkaConsumer::<String, Vec<u8>, _, _>::with_config(
+    let consumer = FastConsumer::<String, Vec<u8>, _, _>::with_config(
         consumer_config,
         key_serializer.clone(),
         value_serializer.clone(),

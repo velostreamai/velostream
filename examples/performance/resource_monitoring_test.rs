@@ -160,7 +160,7 @@ async fn run_monitored_test() -> Result<u64, Box<dyn std::error::Error>> {
         .client_id("resource-test-consumer")
         .high_throughput();
 
-    let consumer = KafkaConsumer::<String, ResourceTestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, ResourceTestMessage, _, _>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,

@@ -29,7 +29,6 @@ use std::time::Duration;
 use testcontainers::{ContainerAsync, runners::AsyncRunner};
 use testcontainers_modules::kafka::Kafka;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, ConsumerTier};
-use velostream::velostream::kafka::kafka_consumer::KafkaConsumer;
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::serialization::JsonSerializer;
 use velostream::velostream::kafka::unified_consumer::KafkaStreamConsumer;
@@ -161,11 +160,14 @@ async fn test_kafka_consumer_basic_consumption() {
         .await
         .expect("Failed to produce messages");
 
-    // Create consumer
+    // Create consumer (FR-081 Phase 2D: Using FastConsumer)
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-1");
-    let consumer =
-        KafkaConsumer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)
-            .expect("Failed to create consumer");
+    let consumer = FastConsumer::<String, String>::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
+    )
+    .expect("Failed to create consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -272,11 +274,15 @@ async fn test_unified_consumer_trait() {
         .await
         .expect("Failed to produce messages");
 
-    // Test via trait interface
+    // Test via trait interface (FR-081 Phase 2D: Using FastConsumer)
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-3");
     let consumer: Box<dyn KafkaStreamConsumer<String, String>> = Box::new(
-        KafkaConsumer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)
-            .expect("Failed to create consumer"),
+        FastConsumer::<String, String>::with_config(
+            config,
+            Box::new(JsonSerializer),
+            Box::new(JsonSerializer),
+        )
+        .expect("Failed to create consumer"),
     );
 
     consumer
@@ -358,13 +364,16 @@ async fn test_consumer_commit() {
         .await
         .expect("Failed to produce messages");
 
-    // Create consumer with manual commit
+    // Create consumer with manual commit (FR-081 Phase 2D: Using FastConsumer)
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-7")
         .auto_commit(false, Duration::from_secs(5));
 
-    let consumer =
-        KafkaConsumer::<String, String, _, _>::with_config(config, JsonSerializer, JsonSerializer)
-            .expect("Failed to create consumer");
+    let consumer = FastConsumer::<String, String>::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
+    )
+    .expect("Failed to create consumer");
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 

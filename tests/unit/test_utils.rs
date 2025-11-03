@@ -82,11 +82,8 @@ pub(crate) fn create_order_producer(
 // Consumer creation helpers
 pub(crate) fn create_test_message_consumer(
     group_id: &str,
-) -> Result<
-    KafkaConsumer<String, TestMessage, JsonSerializer, JsonSerializer>,
-    Box<dyn std::error::Error>,
-> {
-    Ok(KafkaConsumer::new(
+) -> Result<FastConsumer<String, TestMessage>, Box<dyn std::error::Error>> {
+    Ok(FastConsumer::new(
         "localhost:9092",
         group_id,
         JsonSerializer,
@@ -96,9 +93,8 @@ pub(crate) fn create_test_message_consumer(
 
 pub(crate) fn create_user_consumer(
     group_id: &str,
-) -> Result<KafkaConsumer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
-{
-    Ok(KafkaConsumer::new(
+) -> Result<FastConsumer<String, User>, Box<dyn std::error::Error>> {
+    Ok(FastConsumer::new(
         "localhost:9092",
         group_id,
         JsonSerializer,
@@ -108,11 +104,8 @@ pub(crate) fn create_user_consumer(
 
 pub(crate) fn create_order_consumer(
     group_id: &str,
-) -> Result<
-    KafkaConsumer<String, OrderEvent, JsonSerializer, JsonSerializer>,
-    Box<dyn std::error::Error>,
-> {
-    Ok(KafkaConsumer::new(
+) -> Result<FastConsumer<String, OrderEvent>, Box<dyn std::error::Error>> {
+    Ok(FastConsumer::new(
         "localhost:9092",
         group_id,
         JsonSerializer,
@@ -147,7 +140,7 @@ where
     #[allow(dead_code)]
     pub producer: KafkaProducer<String, T, JsonSerializer, JsonSerializer>,
     #[allow(dead_code)]
-    pub consumer: KafkaConsumer<String, T, JsonSerializer, JsonSerializer>,
+    pub consumer: FastConsumer<String, T>,
 }
 
 impl TestSetup<TestMessage> {
@@ -206,7 +199,7 @@ impl TestSetup<OrderEvent> {
 
 // Safe commit helper
 pub(crate) fn safe_commit<K, V, KS, VS>(
-    consumer: &KafkaConsumer<K, V, KS, VS>,
+    consumer: &FastConsumer<K, V, KS, VS>,
     received_count: usize,
 ) where
     KS: Serde<K>,

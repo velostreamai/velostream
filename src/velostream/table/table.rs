@@ -1,7 +1,7 @@
 use crate::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::serialization::Serde;
-use crate::velostream::kafka::{KafkaConsumer, Message};
+use crate::velostream::kafka::{Message, kafka_fast_consumer::Consumer as FastConsumer};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
 use crate::velostream::table::retry_utils::{
     RetryMetrics, RetryStrategy, calculate_retry_delay, categorize_kafka_error,
@@ -15,6 +15,7 @@ use crate::velostream::table::unified_table::{TableResult, UnifiedTable};
 use futures::StreamExt;
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime};
@@ -71,15 +72,16 @@ where
     KS: Serde<K> + Send + Sync + 'static,
     VS: SerializationFormat + Send + Sync + 'static,
 {
-    consumer: Arc<
-        KafkaConsumer<K, Vec<u8>, KS, crate::velostream::kafka::serialization::BytesSerializer>,
-    >,
+    // FR-081 Phase 2D: Migrated to FastConsumer (BaseConsumer-based)
+    consumer: Arc<FastConsumer<K, Vec<u8>>>,
     value_format: Arc<VS>,
     state: Arc<RwLock<HashMap<K, HashMap<String, FieldValue>>>>,
     topic: String,
     group_id: String,
     running: Arc<AtomicBool>,
     last_updated: Arc<RwLock<Option<SystemTime>>>,
+    // Maintain API compatibility - KS is now boxed inside FastConsumer
+    _phantom: PhantomData<KS>,
 }
 
 /// Statistics about the Table state
@@ -357,11 +359,12 @@ where
 
         let group_id = consumer_config.group_id.clone();
 
+        // FR-081 Phase 2D: Use FastConsumer (BaseConsumer-based, high-performance)
         // Use BytesSerializer for values since we'll handle deserialization ourselves
-        let consumer = KafkaConsumer::with_config(
+        let consumer = FastConsumer::<K, Vec<u8>>::with_config(
             consumer_config,
-            key_serializer,
-            crate::velostream::kafka::serialization::BytesSerializer,
+            Box::new(key_serializer),
+            Box::new(crate::velostream::kafka::serialization::BytesSerializer),
         )?;
 
         // This is where the error occurs if topic doesn't exist
@@ -375,22 +378,23 @@ where
             group_id,
             running: Arc::new(AtomicBool::new(false)),
             last_updated: Arc::new(RwLock::new(None)),
+            _phantom: PhantomData,
         })
     }
 
-    /// Creates a Table with an existing consumer and SerializationFormat
+    /// Creates a Table with an existing FastConsumer and SerializationFormat
+    ///
+    /// # Arguments
+    /// * `consumer` - FastConsumer instance (already subscribed to topic)
+    /// * `topic` - Topic name
+    /// * `group_id` - Consumer group ID
+    /// * `value_format` - Serialization format for values
     pub fn from_consumer(
-        consumer: KafkaConsumer<
-            K,
-            Vec<u8>,
-            KS,
-            crate::velostream::kafka::serialization::BytesSerializer,
-        >,
+        consumer: FastConsumer<K, Vec<u8>>,
         topic: String,
+        group_id: String,
         value_format: VS,
     ) -> Self {
-        let group_id = consumer.group_id().to_string();
-
         Table {
             consumer: Arc::new(consumer),
             value_format: Arc::new(value_format),
@@ -399,6 +403,7 @@ where
             group_id,
             running: Arc::new(AtomicBool::new(false)),
             last_updated: Arc::new(RwLock::new(None)),
+            _phantom: PhantomData,
         }
     }
 
@@ -735,6 +740,7 @@ where
             group_id: self.group_id.clone(),
             running: self.running.clone(),
             last_updated: self.last_updated.clone(),
+            _phantom: PhantomData,
         }
     }
 }

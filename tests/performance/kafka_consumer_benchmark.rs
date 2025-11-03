@@ -17,7 +17,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use velostream::velostream::kafka::kafka_consumer::KafkaConsumer;
+use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::serialization::{JsonSerializer, Serde, StringSerializer};
 use velostream::velostream::sql::execution::types::FieldValue;
@@ -196,7 +196,7 @@ async fn benchmark_stream_consumer(
 ) -> PerformanceMetrics {
     println!("\n>>> Benchmarking: StreamConsumer (Legacy)");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
         &env.bootstrap_servers,
         "benchmark-stream-consumer",
         StringSerializer,

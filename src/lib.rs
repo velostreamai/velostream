@@ -49,7 +49,7 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use velostream::{KafkaProducer, KafkaConsumer, JsonSerializer, Headers};
+//! use velostream::{KafkaProducer, FastConsumer, JsonSerializer, Headers};
 //! use serde::{Serialize, Deserialize};
 //! use std::time::Duration;
 //!
@@ -77,11 +77,11 @@
 //!     producer.send(Some(&"key-1".to_string()), &message, headers, None).await?;
 //!
 //!     // Consumer with headers
-//!     let consumer = KafkaConsumer::<String, MyMessage, _, _>::new(
+//!     let consumer = FastConsumer::<String, MyMessage>::new(
 //!         "localhost:9092",
 //!         "my-group",
-//!         JsonSerializer,
-//!         JsonSerializer,
+//!         Box::new(JsonSerializer),
+//!         Box::new(JsonSerializer),
 //!     )?;
 //!
 //!     consumer.subscribe(&["my-topic"])?;
@@ -100,8 +100,8 @@
 pub mod velostream;
 
 // Re-export main API at crate root for easy access
+// FR-081 Phase 2D: FastConsumer is the primary consumer API
 pub use velostream::kafka::{
-    ConsumerBuilder, Headers, JsonSerializer, KafkaConsumer, KafkaProducer, Message,
-    ProducerBuilder,
+    FastConsumer, Headers, JsonSerializer, KafkaProducer, Message, ProducerBuilder,
 };
 pub use velostream::table::Table;
