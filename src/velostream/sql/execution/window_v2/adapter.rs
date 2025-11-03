@@ -37,6 +37,7 @@ use crate::velostream::sql::execution::aggregation::functions::AggregateFunction
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState};
 use crate::velostream::sql::execution::processors::ProcessorContext;
+use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 use std::collections::HashMap;
 
@@ -275,7 +276,7 @@ impl WindowAdapter {
                     window_size_ms,
                     time_column
                         .clone()
-                        .unwrap_or_else(|| "timestamp".to_string()),
+                        .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
                 )))
             }
             WindowSpec::Sliding {
@@ -290,7 +291,7 @@ impl WindowAdapter {
                     advance_ms,
                     time_column
                         .clone()
-                        .unwrap_or_else(|| "timestamp".to_string()),
+                        .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
                 )))
             }
             WindowSpec::Session {
@@ -301,7 +302,7 @@ impl WindowAdapter {
                     gap_ms,
                     time_column
                         .clone()
-                        .unwrap_or_else(|| "timestamp".to_string()),
+                        .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
                 )))
             }
             WindowSpec::Rows {

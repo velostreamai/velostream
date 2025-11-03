@@ -48,7 +48,7 @@ impl TumblingWindowStrategy {
     ///
     /// # Example
     /// ```rust,ignore
-    /// let strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+    /// let strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
     /// ```
     pub fn new(window_size_ms: i64, time_field: String) -> Self {
         Self {
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_basic() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         // Add records within same window
         let r1 = create_test_record(1000);
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_boundary() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         // Add record in first window
         let r1 = create_test_record(30000);
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_clear() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(20000);
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_stats() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_should_emit() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         let r1 = create_test_record(10000);
         strategy.add_record(r1).unwrap();
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_get_records() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         let r1 = create_test_record(10000);
         let r2 = create_test_record(20000);
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_tumbling_window_alignment() {
-        let mut strategy = TumblingWindowStrategy::new(60000, "event_time".to_string());
+        let mut strategy = TumblingWindowStrategy::new(60000, "_TIMESTAMP".to_string());
 
         // Record at timestamp 75000 should be in window [60000, 120000)
         let r1 = create_test_record(75000);
