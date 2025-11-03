@@ -61,63 +61,17 @@ impl TumblingWindowStrategy {
         }
     }
 
-    /// Extract timestamp from record.
+    /// Extract timestamp from record using shared utility.
     ///
-    /// FR-081: Use StreamRecord metadata instead of payload fields
-    /// Priority:
-    /// 1. System columns (_TIMESTAMP, _EVENT_TIME) → use metadata
-    /// 2. Regular fields → use get_event_time() (event-time with processing-time fallback)
-    /// 3. Legacy user fields → extract from fields HashMap (backward compatibility)
+    /// FR-081: Uses shared extract_record_timestamp() which implements three-tier priority:
+    /// 1. System columns (_TIMESTAMP, _EVENT_TIME) → metadata
+    /// 2. Regular fields (timestamp, event_time) → get_event_time()
+    /// 3. Legacy user fields → fields HashMap (backward compatibility)
     fn extract_timestamp(&self, record: &SharedRecord) -> Result<i64, SqlError> {
-        use crate::velostream::sql::execution::types::{FieldValue, system_columns};
-
-        let rec = record.as_ref();
-
-        // FR-081: Check if this is a system column reference
-        if self.time_field.starts_with('_') {
-            return match self.time_field.as_str() {
-                system_columns::TIMESTAMP => Ok(rec.timestamp),
-                system_columns::EVENT_TIME => {
-                    if let Some(event_time) = rec.event_time {
-                        Ok(event_time.timestamp_millis())
-                    } else {
-                        // Fall back to processing-time if event-time not set
-                        Ok(rec.timestamp)
-                    }
-                }
-                _ => Err(SqlError::ExecutionError {
-                    message: format!("Unknown system column '{}'", self.time_field),
-                    query: None,
-                }),
-            };
-        }
-
-        // FR-081: For non-system columns, use StreamRecord.get_event_time()
-        // This provides event-time with processing-time fallback
-        // NOTE: This is the recommended approach per StreamRecord documentation
-        if self.time_field == "timestamp" || self.time_field == "event_time" {
-            return Ok(rec.get_event_time().timestamp_millis());
-        }
-
-        // Legacy: Extract from user payload fields (backward compatibility)
-        match rec.fields.get(&self.time_field) {
-            Some(FieldValue::Integer(ts)) => Ok(*ts),
-            Some(FieldValue::Timestamp(dt)) => {
-                // Convert NaiveDateTime to milliseconds since epoch
-                Ok(dt.and_utc().timestamp_millis())
-            }
-            Some(other) => Err(SqlError::ExecutionError {
-                message: format!(
-                    "Time field '{}' has wrong type: {:?}",
-                    self.time_field, other
-                ),
-                query: None,
-            }),
-            None => Err(SqlError::ExecutionError {
-                message: format!("Time field '{}' not found in record", self.time_field),
-                query: None,
-            }),
-        }
+        crate::velostream::sql::execution::window_v2::timestamp_utils::extract_record_timestamp(
+            record,
+            &self.time_field,
+        )
     }
 
     /// Initialize window boundaries based on first record.
