@@ -80,7 +80,12 @@ impl WindowAdapter {
         record: &StreamRecord,
         context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        if let StreamingQuery::Select { window, where_clause, .. } = query {
+        if let StreamingQuery::Select {
+            window,
+            where_clause,
+            ..
+        } = query
+        {
             // FR-081 CRITICAL: Apply WHERE clause BEFORE windowing
             // Records that don't match WHERE should not enter window buffers
             if let Some(where_expr) = where_clause {
@@ -230,49 +235,25 @@ impl WindowAdapter {
                     ..
                 } = query
                 {
-                    // FR-081: Clone window_records for HAVING evaluation (Arc makes this cheap)
-                    let window_records_clone = window_records.clone();
-
-                    let computed_results =
-                        Self::compute_aggregations_over_window(window_records, fields, group_by)?;
+                    // FR-081 Phase 6: Pass HAVING clause to compute_aggregations_over_window
+                    // HAVING is evaluated using group accumulators, NOT result field names
+                    let computed_results = Self::compute_aggregations_over_window(
+                        window_records,
+                        fields,
+                        group_by,
+                        having,
+                    )?;
 
                     if !computed_results.is_empty() {
-                        let first_result = computed_results.into_iter().next().unwrap();
-
-                        // FR-081: Apply HAVING clause filter to aggregated results
-                        if let Some(having_expr) = having {
-                            // Build accumulator from window records for HAVING evaluation
-                            // (needed because HAVING may reference aggregates like COUNT(*))
-                            let mut having_accumulator = GroupAccumulator::new();
-
-                            // Extract aggregate expressions for HAVING evaluation
-                            let aggregate_expressions = Self::extract_aggregate_expressions(fields)?;
-
-                            // Process window records into accumulator
-                            for shared_record in &window_records_clone {
-                                let record = shared_record.as_ref();
-                                AccumulatorManager::process_record_into_accumulator(
-                                    &mut having_accumulator,
-                                    record,
-                                    &aggregate_expressions,
-                                )?;
-                            }
-
-                            // Evaluate HAVING expression using the accumulator
-                            // This allows HAVING to reference aggregate functions directly
-                            let having_passes =
-                                Self::evaluate_having_with_accumulator(having_expr, &having_accumulator)?;
-
-                            if having_passes {
-                                return Ok(Some(first_result));
-                            } else {
-                                // HAVING condition failed - do not emit
-                                return Ok(None);
-                            }
-                        } else {
-                            // No HAVING clause - emit result
-                            return Ok(Some(first_result));
+                        // Queue remaining results for subsequent emissions (if multiple groups)
+                        if computed_results.len() > 1 {
+                            let query_id =
+                                state_key.strip_prefix("window_v2:").unwrap_or(state_key);
+                            context.queue_results(query_id, computed_results[1..].to_vec());
                         }
+
+                        // Return first result
+                        return Ok(Some(computed_results.into_iter().next().unwrap()));
                     }
                 }
 
@@ -294,7 +275,7 @@ impl WindowAdapter {
                     window_size_ms,
                     time_column
                         .clone()
-                        .unwrap_or_else(|| "event_time".to_string()),
+                        .unwrap_or_else(|| "timestamp".to_string()),
                 )))
             }
             WindowSpec::Sliding {
@@ -309,7 +290,7 @@ impl WindowAdapter {
                     advance_ms,
                     time_column
                         .clone()
-                        .unwrap_or_else(|| "event_time".to_string()),
+                        .unwrap_or_else(|| "timestamp".to_string()),
                 )))
             }
             WindowSpec::Session {
@@ -320,7 +301,7 @@ impl WindowAdapter {
                     gap_ms,
                     time_column
                         .clone()
-                        .unwrap_or_else(|| "event_time".to_string()),
+                        .unwrap_or_else(|| "timestamp".to_string()),
                 )))
             }
             WindowSpec::Rows {
@@ -433,14 +414,16 @@ impl WindowAdapter {
     /// * `window_records` - Buffered records from the window strategy
     /// * `fields` - SELECT fields from the query (contains aggregate expressions)
     /// * `group_by` - Optional GROUP BY expressions
+    /// * `having` - Optional HAVING clause (evaluated per group using accumulators)
     ///
     /// # Returns
     ///
-    /// Vector of computed result records (one per GROUP BY partition, or single result if no GROUP BY)
+    /// Vector of computed result records (one per GROUP BY partition that passes HAVING, or single result if no GROUP BY)
     fn compute_aggregations_over_window(
         window_records: Vec<SharedRecord>,
         fields: &[SelectField],
         group_by: &Option<Vec<Expr>>,
+        having: &Option<Expr>,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         // Extract aggregate expressions from SELECT fields
         let aggregate_expressions = Self::extract_aggregate_expressions(fields)?;
@@ -468,6 +451,16 @@ impl WindowAdapter {
                     record,
                     &aggregate_expressions,
                 )?;
+            }
+
+            // FR-081 Phase 6: Evaluate HAVING clause for non-GROUP BY queries
+            // If HAVING doesn't pass, return empty vec (no result for this window)
+            if let Some(having_expr) = having {
+                let having_passes =
+                    Self::evaluate_having_with_accumulator(having_expr, &accumulator)?;
+                if !having_passes {
+                    return Ok(Vec::new()); // Window doesn't pass HAVING filter
+                }
             }
 
             // Compute final aggregate values and build result record
@@ -502,9 +495,20 @@ impl WindowAdapter {
             )?;
         }
 
-        // Build result record for each group
+        // Build result record for each group (with HAVING filter using accumulators)
         let mut results = Vec::new();
         for (_group_key, accumulator) in &group_state.groups {
+            // Evaluate HAVING clause using THIS group's accumulator
+            if let Some(having_expr) = having {
+                let having_passes =
+                    Self::evaluate_having_with_accumulator(having_expr, accumulator)?;
+                if !having_passes {
+                    // This group doesn't pass HAVING filter - skip it
+                    continue;
+                }
+            }
+
+            // Group passed HAVING (or no HAVING) - build result record
             let result_record =
                 Self::build_result_record(fields, &aggregate_expressions, accumulator)?;
             results.push(result_record);
@@ -601,9 +605,16 @@ impl WindowAdapter {
                     } else {
                         // Non-aggregate expression - use sample record
                         if let Some(sample) = &accumulator.sample_record {
-                            let field_name = alias
-                                .clone()
-                                .unwrap_or_else(|| format!("{:?}", expr).replace(' ', "_"));
+                            // Determine field name: use alias, or column name, or formatted expr
+                            let field_name = if let Some(alias_name) = alias {
+                                alias_name.clone()
+                            } else if let Expr::Column(col_name) = expr {
+                                // For simple columns, use the column name directly
+                                col_name.clone()
+                            } else {
+                                // For other expressions, format the expr
+                                format!("{:?}", expr).replace(' ', "_")
+                            };
                             let value =
                                 ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
                             result_fields.insert(field_name, value);
@@ -660,8 +671,33 @@ impl WindowAdapter {
             Expr::BinaryOp { left, op, right } => {
                 // Evaluate both sides - left may contain aggregate function
                 let left_value = if Self::is_aggregate_expression(left) {
-                    // Compute aggregate value (use "having_agg" as field name)
-                    AggregateFunctions::compute_field_aggregate_value("having_agg", left, accumulator)?
+                    // For COUNT(*) or COUNT(1), just return the total count
+                    if let Expr::Function { name, args } = left.as_ref() {
+                        if name.to_uppercase() == "COUNT" {
+                            // COUNT(*) or COUNT(1) - return total count
+                            if args.is_empty()
+                                || (args.len() == 1 && matches!(args[0], Expr::Literal(_)))
+                            {
+                                FieldValue::Integer(accumulator.count as i64)
+                            } else {
+                                // COUNT(column) - not supported in HAVING yet
+                                FieldValue::Integer(accumulator.count as i64)
+                            }
+                        } else {
+                            // Other aggregates - compute using field
+                            AggregateFunctions::compute_field_aggregate_value(
+                                "having_agg",
+                                left,
+                                accumulator,
+                            )?
+                        }
+                    } else {
+                        AggregateFunctions::compute_field_aggregate_value(
+                            "having_agg",
+                            left,
+                            accumulator,
+                        )?
+                    }
                 } else {
                     // Non-aggregate expression - should be a literal
                     match left.as_ref() {
@@ -683,12 +719,18 @@ impl WindowAdapter {
                         crate::velostream::sql::ast::LiteralValue::Integer(i) => {
                             FieldValue::Integer(*i)
                         }
-                        crate::velostream::sql::ast::LiteralValue::Float(f) => FieldValue::Float(*f),
+                        crate::velostream::sql::ast::LiteralValue::Float(f) => {
+                            FieldValue::Float(*f)
+                        }
                         _ => FieldValue::Null,
                     },
                     _ => {
                         if Self::is_aggregate_expression(right) {
-                            AggregateFunctions::compute_field_aggregate_value("having_agg", right, accumulator)?
+                            AggregateFunctions::compute_field_aggregate_value(
+                                "having_agg",
+                                right,
+                                accumulator,
+                            )?
                         } else {
                             FieldValue::Null
                         }
@@ -727,7 +769,9 @@ impl WindowAdapter {
                     },
                     BinaryOperator::Equal => match (&left_value, &right_value) {
                         (FieldValue::Integer(l), FieldValue::Integer(r)) => l == r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => (l - r).abs() < f64::EPSILON,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            (l - r).abs() < f64::EPSILON
+                        }
                         (FieldValue::Integer(l), FieldValue::Float(r)) => {
                             ((*l as f64) - r).abs() < f64::EPSILON
                         }
@@ -738,7 +782,9 @@ impl WindowAdapter {
                     },
                     BinaryOperator::NotEqual => match (&left_value, &right_value) {
                         (FieldValue::Integer(l), FieldValue::Integer(r)) => l != r,
-                        (FieldValue::Float(l), FieldValue::Float(r)) => (l - r).abs() >= f64::EPSILON,
+                        (FieldValue::Float(l), FieldValue::Float(r)) => {
+                            (l - r).abs() >= f64::EPSILON
+                        }
                         (FieldValue::Integer(l), FieldValue::Float(r)) => {
                             ((*l as f64) - r).abs() >= f64::EPSILON
                         }
@@ -754,6 +800,226 @@ impl WindowAdapter {
                 // Unsupported HAVING expression type
                 Ok(false)
             }
+        }
+    }
+
+    /// Evaluate HAVING clause using computed aggregate fields in the result record.
+    ///
+    /// This method is used for GROUP BY queries where each group has its own computed
+    /// aggregate values (COUNT, SUM, AVG, etc.) stored as fields in the result record.
+    ///
+    /// # Arguments
+    ///
+    /// * `having_expr` - HAVING clause expression (references aggregate field names)
+    /// * `result` - StreamRecord with computed aggregate fields (e.g., "cnt", "total", "avg_amt")
+    ///
+    /// # Returns
+    ///
+    /// Boolean indicating if this result passes the HAVING condition
+    fn evaluate_having_with_result(
+        having_expr: &Expr,
+        result: &StreamRecord,
+    ) -> Result<bool, SqlError> {
+        use crate::velostream::sql::ast::BinaryOperator;
+
+        match having_expr {
+            Expr::BinaryOp { left, op, right } => {
+                // Evaluate left side - for aggregates, look up the computed field in result
+                let left_value = Self::evaluate_having_operand(left, result)?;
+                let right_value = Self::evaluate_having_operand(right, result)?;
+
+                // Apply comparison operator
+                Ok(match op {
+                    BinaryOperator::GreaterThanOrEqual => {
+                        Self::compare_values(&left_value, &right_value, |l, r| l >= r)
+                    }
+                    BinaryOperator::GreaterThan => {
+                        Self::compare_values(&left_value, &right_value, |l, r| l > r)
+                    }
+                    BinaryOperator::LessThanOrEqual => {
+                        Self::compare_values(&left_value, &right_value, |l, r| l <= r)
+                    }
+                    BinaryOperator::LessThan => {
+                        Self::compare_values(&left_value, &right_value, |l, r| l < r)
+                    }
+                    BinaryOperator::Equal => {
+                        Self::compare_values(&left_value, &right_value, |l, r| {
+                            (l - r).abs() < f64::EPSILON
+                        })
+                    }
+                    BinaryOperator::NotEqual => {
+                        Self::compare_values(&left_value, &right_value, |l, r| {
+                            (l - r).abs() >= f64::EPSILON
+                        })
+                    }
+                    BinaryOperator::And => {
+                        // For AND, both sides should be boolean expressions
+                        // Recursively evaluate both sides
+                        if let Expr::BinaryOp { .. } = left.as_ref() {
+                            let left_result = Self::evaluate_having_with_result(left, result)?;
+                            let right_result = Self::evaluate_having_with_result(right, result)?;
+                            left_result && right_result
+                        } else {
+                            false
+                        }
+                    }
+                    _ => false,
+                })
+            }
+            _ => {
+                // Unsupported HAVING expression type
+                Ok(false)
+            }
+        }
+    }
+
+    /// Evaluate a HAVING operand (left or right side of comparison)
+    ///
+    /// For aggregate functions like COUNT(*), look up the computed field in the result.
+    /// For literals, return the literal value.
+    fn evaluate_having_operand(expr: &Expr, result: &StreamRecord) -> Result<FieldValue, SqlError> {
+        match expr {
+            // Aggregate function - map to computed field name in result
+            Expr::Function { name, args } => {
+                let func_name = name.to_uppercase();
+
+                // Map aggregate function to its computed field name
+                let field_name = if func_name == "COUNT" {
+                    // COUNT(*) or COUNT(column) usually aliased as "cnt"
+                    if let Some(alias) = Self::find_aggregate_alias_in_result(result, &func_name) {
+                        alias
+                    } else {
+                        "cnt".to_string() // Default COUNT alias
+                    }
+                } else if func_name == "SUM" {
+                    Self::find_aggregate_alias_in_result(result, &func_name)
+                        .unwrap_or_else(|| "total".to_string())
+                } else if func_name == "AVG" {
+                    Self::find_aggregate_alias_in_result(result, &func_name)
+                        .unwrap_or_else(|| "avg_amt".to_string())
+                } else if func_name == "MAX" {
+                    Self::find_aggregate_alias_in_result(result, &func_name)
+                        .unwrap_or_else(|| "max_volume".to_string())
+                } else {
+                    // For other aggregates, try to infer from args
+                    func_name.to_lowercase()
+                };
+
+                // Look up the computed aggregate value in result fields
+                result.fields.get(&field_name).cloned().ok_or_else(|| {
+                    SqlError::ExecutionError {
+                        message: format!("HAVING: Aggregate field '{}' not found in result. Available fields: {:?}",
+                                       field_name, result.fields.keys().collect::<Vec<_>>()),
+                        query: None,
+                    }
+                })
+            }
+            // Literal value
+            Expr::Literal(lit) => match lit {
+                crate::velostream::sql::ast::LiteralValue::Integer(i) => {
+                    Ok(FieldValue::Integer(*i))
+                }
+                crate::velostream::sql::ast::LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                _ => Ok(FieldValue::Null),
+            },
+            _ => Ok(FieldValue::Null),
+        }
+    }
+
+    /// Find the alias for an aggregate function in the result fields
+    fn find_aggregate_alias_in_result(result: &StreamRecord, func_name: &str) -> Option<String> {
+        // Look for common aggregate aliases
+        let func_lower = func_name.to_lowercase();
+
+        // First, try to find a field containing the function name
+        for field_name in result.fields.keys() {
+            let field_lower = field_name.to_lowercase();
+            if field_lower.contains(&func_lower) {
+                return Some(field_name.clone());
+            }
+        }
+
+        // If not found, use heuristics based on field value types
+        // For COUNT: Look for any Integer field (excluding dimensions like customer_id, user_id, etc.)
+        if func_lower == "count" {
+            for (field_name, field_value) in &result.fields {
+                if matches!(
+                    field_value,
+                    crate::velostream::sql::execution::FieldValue::Integer(_)
+                ) {
+                    let field_lower = field_name.to_lowercase();
+                    // Skip common dimension fields
+                    if !field_lower.contains("id")
+                        && !field_lower.contains("key")
+                        && !field_lower.contains("segment")
+                    {
+                        return Some(field_name.clone());
+                    }
+                }
+            }
+        }
+
+        // For SUM/AVG/MAX/MIN: Look for Float or ScaledInteger fields
+        if matches!(func_lower.as_str(), "sum" | "avg" | "max" | "min") {
+            for (field_name, field_value) in &result.fields {
+                if matches!(
+                    field_value,
+                    crate::velostream::sql::execution::FieldValue::Float(_)
+                        | crate::velostream::sql::execution::FieldValue::ScaledInteger(_, _)
+                ) {
+                    let field_lower = field_name.to_lowercase();
+                    // Prefer fields with relevant keywords
+                    if func_lower == "sum"
+                        && (field_lower.contains("total")
+                            || field_lower.contains("sum")
+                            || field_lower.contains("value"))
+                    {
+                        return Some(field_name.clone());
+                    }
+                    if func_lower == "avg"
+                        && (field_lower.contains("avg") || field_lower.contains("average"))
+                    {
+                        return Some(field_name.clone());
+                    }
+                    if func_lower == "max" && field_lower.contains("max") {
+                        return Some(field_name.clone());
+                    }
+                    if func_lower == "min" && field_lower.contains("min") {
+                        return Some(field_name.clone());
+                    }
+                }
+            }
+
+            // Fallback: return first numeric field
+            for (field_name, field_value) in &result.fields {
+                if matches!(
+                    field_value,
+                    crate::velostream::sql::execution::FieldValue::Float(_)
+                        | crate::velostream::sql::execution::FieldValue::ScaledInteger(_, _)
+                        | crate::velostream::sql::execution::FieldValue::Integer(_)
+                ) {
+                    let field_lower = field_name.to_lowercase();
+                    if !field_lower.contains("id") && !field_lower.contains("key") {
+                        return Some(field_name.clone());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Compare two FieldValues using a comparison function
+    fn compare_values<F>(left: &FieldValue, right: &FieldValue, cmp: F) -> bool
+    where
+        F: Fn(f64, f64) -> bool,
+    {
+        match (left, right) {
+            (FieldValue::Integer(l), FieldValue::Integer(r)) => cmp(*l as f64, *r as f64),
+            (FieldValue::Float(l), FieldValue::Float(r)) => cmp(*l, *r),
+            (FieldValue::Integer(l), FieldValue::Float(r)) => cmp(*l as f64, *r),
+            (FieldValue::Float(l), FieldValue::Integer(r)) => cmp(*l, *r as f64),
+            _ => false,
         }
     }
 }

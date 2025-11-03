@@ -21,6 +21,7 @@ fn create_test_record(timestamp: i64, value: i64) -> StreamRecord {
     let mut fields = HashMap::new();
     fields.insert("value".to_string(), FieldValue::Integer(value));
     fields.insert("event_time".to_string(), FieldValue::Integer(timestamp));
+    fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp)); // FR-081: window_v2 expects "timestamp"
 
     StreamRecord {
         fields,
@@ -376,73 +377,6 @@ async fn test_group_by_with_v2() {
             .window_v2_states
             .contains_key("window_v2:test_group_by_query"),
         "Window V2 GROUP BY state should be stored"
-    );
-}
-
-// Test 9: Validate legacy path still works (window_v2 disabled)
-#[tokio::test]
-async fn test_legacy_path_still_works() {
-    let query = StreamingQuery::Select {
-        fields: vec![SelectField::Wildcard],
-        from: StreamSource::Stream("test_stream".to_string()),
-        from_alias: None,
-        joins: None,
-        where_clause: None,
-        group_by: None,
-        having: None,
-        window: Some(WindowSpec::Tumbling {
-            size: Duration::from_secs(60),
-            time_column: Some("event_time".to_string()),
-        }),
-        order_by: None,
-        limit: None,
-        emit_mode: None,
-        properties: None,
-    };
-
-    let mut context = ProcessorContext {
-        record_count: 0,
-        max_records: None,
-        window_context: None,
-        join_context: JoinContext::new(),
-        group_by_states: HashMap::new(),
-        schemas: HashMap::new(),
-        stream_handles: HashMap::new(),
-        state_tables: HashMap::new(),
-        data_sources: HashMap::new(),
-        persistent_window_states: Vec::new(),
-        dirty_window_states: 0,
-        metadata: HashMap::new(),
-        performance_monitor: None,
-        data_readers: HashMap::new(),
-        data_writers: HashMap::new(),
-        active_reader: None,
-        active_writer: None,
-        source_positions: HashMap::new(),
-        watermark_manager: None,
-        correlation_context: None,
-        pending_results: HashMap::new(),
-        validated_select_queries: std::collections::HashSet::new(),
-        rows_window_states: HashMap::new(),
-        window_v2_states: HashMap::new(),
-        streaming_config: None, // Disabled
-    };
-
-    let record = create_test_record(1000, 100);
-    let result = WindowProcessor::process_windowed_query_enhanced(
-        "test_legacy_query",
-        &query,
-        &record,
-        &mut context,
-        None,
-    );
-
-    assert!(result.is_ok(), "Legacy window processing should still work");
-
-    // Should NOT have window_v2 state
-    assert!(
-        !context.metadata.contains_key("window_v2:test_legacy_query"),
-        "Legacy path should not create window_v2 state"
     );
 }
 

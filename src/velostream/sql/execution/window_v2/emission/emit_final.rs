@@ -66,28 +66,15 @@ impl EmissionStrategy for EmitFinalStrategy {
 }
 
 /// Helper to extract timestamp from record.
+///
+/// FR-081: Use StreamRecord.get_event_time() for proper event-time/processing-time handling
+/// This aligns with window strategies and provides correct semantics
 fn extract_timestamp(record: &SharedRecord) -> Result<i64, SqlError> {
-    use crate::velostream::sql::execution::types::FieldValue;
-
-    // Try common timestamp field names
-    let field_names = vec!["event_time", "timestamp", "ts", "time"];
-
-    for field_name in field_names {
-        if let Some(value) = record.as_ref().fields.get(field_name) {
-            match value {
-                FieldValue::Integer(ts) => return Ok(*ts),
-                FieldValue::Timestamp(dt) => {
-                    return Ok(dt.and_utc().timestamp_millis());
-                }
-                _ => continue,
-            }
-        }
-    }
-
-    Err(SqlError::ExecutionError {
-        message: "No valid timestamp field found in record".to_string(),
-        query: None,
-    })
+    // FR-081: Use StreamRecord's get_event_time() method which provides:
+    // - Event-time if set (record.event_time)
+    // - Processing-time fallback (record.timestamp)
+    // This is the canonical way to get timestamps for windowing per StreamRecord documentation
+    Ok(record.as_ref().get_event_time().timestamp_millis())
 }
 
 #[cfg(test)]
@@ -97,9 +84,12 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_record(timestamp: i64) -> SharedRecord {
-        let mut fields = HashMap::new();
-        fields.insert("event_time".to_string(), FieldValue::Integer(timestamp));
-        SharedRecord::new(StreamRecord::new(fields))
+        // FR-081: Set StreamRecord.timestamp metadata instead of fields HashMap
+        // This is the correct way per the new architecture
+        let fields = HashMap::new();
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = timestamp; // Set processing-time metadata
+        SharedRecord::new(record)
     }
 
     #[test]
@@ -127,11 +117,16 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_timestamp_missing_field() {
+    fn test_extract_timestamp_without_user_fields() {
+        // FR-081: extract_timestamp now uses get_event_time() which always succeeds
+        // It uses record.event_time if set, otherwise fallback to record.timestamp
         let mut fields = HashMap::new();
         fields.insert("value".to_string(), FieldValue::Integer(42));
-        let record = SharedRecord::new(StreamRecord::new(fields));
+        let mut record_data = StreamRecord::new(fields);
+        record_data.timestamp = 9999; // Set processing-time
+        let record = SharedRecord::new(record_data);
 
-        assert!(extract_timestamp(&record).is_err());
+        // Should succeed and return processing-time
+        assert_eq!(extract_timestamp(&record).unwrap(), 9999);
     }
 }

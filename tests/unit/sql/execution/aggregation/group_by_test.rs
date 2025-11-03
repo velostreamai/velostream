@@ -25,9 +25,21 @@ mod tests {
         fields: HashMap<String, FieldValue>,
         offset: i64,
     ) -> StreamRecord {
+        // FR-081: Extract timestamp from fields if present to set StreamRecord metadata
+        // This ensures window calculations use the intended test timestamps
+        let timestamp_ms = fields
+            .get("timestamp")
+            .or_else(|| fields.get("event_time"))
+            .and_then(|v| match v {
+                FieldValue::Integer(ts) => Some(*ts),
+                FieldValue::Timestamp(dt) => Some(dt.and_utc().timestamp_millis()),
+                _ => None,
+            })
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
         StreamRecord {
             fields,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: timestamp_ms,
             offset,
             partition: 0,
             event_time: None,
@@ -657,33 +669,21 @@ mod tests {
         // Create test records
         let mut fields1 = HashMap::new();
         fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1
-            .fields
-            .insert("event_time".to_string(), FieldValue::Integer(60000)); // 1 minute (window_v2 expects Integer)
-        record1
-            .fields
-            .insert("amount".to_string(), FieldValue::Float(100.0));
+        fields1.insert("timestamp".to_string(), FieldValue::Integer(60000)); // 1 minute
+        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
+        let record1 = create_stream_record_with_fields(fields1, 1);
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2
-            .fields
-            .insert("event_time".to_string(), FieldValue::Integer(120000)); // 2 minutes (window_v2 expects Integer)
-        record2
-            .fields
-            .insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
+        fields2.insert("timestamp".to_string(), FieldValue::Integer(120000)); // 2 minutes
+        fields2.insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
+        let record2 = create_stream_record_with_fields(fields2, 2);
 
         let mut fields3 = HashMap::new();
         fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3
-            .fields
-            .insert("event_time".to_string(), FieldValue::Integer(360000)); // 6 minutes (window_v2 expects Integer)
-        record3
-            .fields
-            .insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
+        fields3.insert("timestamp".to_string(), FieldValue::Integer(360000)); // 6 minutes
+        fields3.insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
+        let record3 = create_stream_record_with_fields(fields3, 3);
 
         // Test windowed GROUP BY
         let query = parser

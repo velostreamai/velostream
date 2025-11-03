@@ -75,10 +75,44 @@ impl SlidingWindowStrategy {
     }
 
     /// Extract timestamp from record.
+    ///
+    /// FR-081: Use StreamRecord metadata instead of payload fields
+    /// Priority:
+    /// 1. System columns (_TIMESTAMP, _EVENT_TIME) → use metadata
+    /// 2. Regular fields → use get_event_time() (event-time with processing-time fallback)
+    /// 3. Legacy user fields → extract from fields HashMap (backward compatibility)
     fn extract_timestamp(&self, record: &SharedRecord) -> Result<i64, SqlError> {
-        use crate::velostream::sql::execution::types::FieldValue;
+        use crate::velostream::sql::execution::types::{FieldValue, system_columns};
 
         let rec = record.as_ref();
+
+        // FR-081: Check if this is a system column reference
+        if self.time_field.starts_with('_') {
+            return match self.time_field.as_str() {
+                system_columns::TIMESTAMP => Ok(rec.timestamp),
+                system_columns::EVENT_TIME => {
+                    if let Some(event_time) = rec.event_time {
+                        Ok(event_time.timestamp_millis())
+                    } else {
+                        // Fall back to processing-time if event-time not set
+                        Ok(rec.timestamp)
+                    }
+                }
+                _ => Err(SqlError::ExecutionError {
+                    message: format!("Unknown system column '{}'", self.time_field),
+                    query: None,
+                }),
+            };
+        }
+
+        // FR-081: For non-system columns, use StreamRecord.get_event_time()
+        // This provides event-time with processing-time fallback
+        // NOTE: This is the recommended approach per StreamRecord documentation
+        if self.time_field == "timestamp" || self.time_field == "event_time" {
+            return Ok(rec.get_event_time().timestamp_millis());
+        }
+
+        // Legacy: Extract from user payload fields (backward compatibility)
         match rec.fields.get(&self.time_field) {
             Some(FieldValue::Integer(ts)) => Ok(*ts),
             Some(FieldValue::Timestamp(dt)) => {
@@ -103,8 +137,12 @@ impl SlidingWindowStrategy {
     fn initialize_window(&mut self, timestamp: i64) {
         // Align to advance interval boundaries
         let window_index = timestamp / self.advance_interval_ms;
-        self.next_window_start = Some(window_index * self.advance_interval_ms);
-        self.current_window_end = Some(self.next_window_start.unwrap() + self.window_size_ms);
+        self.next_window_start = Some(window_index.saturating_mul(self.advance_interval_ms));
+        self.current_window_end = Some(
+            self.next_window_start
+                .unwrap()
+                .saturating_add(self.window_size_ms),
+        );
     }
 
     /// Check if timestamp is within current window range.
@@ -118,8 +156,12 @@ impl SlidingWindowStrategy {
     /// Advance window to next position.
     fn advance_window(&mut self) {
         if let Some(start) = self.next_window_start {
-            self.next_window_start = Some(start + self.advance_interval_ms);
-            self.current_window_end = Some(self.next_window_start.unwrap() + self.window_size_ms);
+            self.next_window_start = Some(start.saturating_add(self.advance_interval_ms));
+            self.current_window_end = Some(
+                self.next_window_start
+                    .unwrap()
+                    .saturating_add(self.window_size_ms),
+            );
         }
     }
 
@@ -221,10 +263,13 @@ mod tests {
     use std::collections::HashMap;
 
     fn create_test_record(timestamp: i64) -> SharedRecord {
+        // FR-081: Set StreamRecord.timestamp metadata instead of fields HashMap
+        // This is the correct way per the new architecture
         let mut fields = HashMap::new();
-        fields.insert("event_time".to_string(), FieldValue::Integer(timestamp));
         fields.insert("value".to_string(), FieldValue::Integer(42));
-        SharedRecord::new(StreamRecord::new(fields))
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = timestamp; // Set processing-time metadata
+        SharedRecord::new(record)
     }
 
     #[test]

@@ -77,7 +77,10 @@ mod window_edge_cases_tests {
             FieldValue::String("completed".to_string()),
         );
         fields.insert("timestamp".to_string(), FieldValue::Integer(-60000)); // -1 minute
-        let record = StreamRecord::new(fields);
+
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = -60000;
 
         let records = vec![record];
         let results = SqlExecutor::execute_query(sql, records).await;
@@ -314,7 +317,11 @@ mod window_edge_cases_tests {
             FieldValue::String("completed".to_string()),
         );
         nan_fields.insert("timestamp".to_string(), FieldValue::Integer(30000));
-        records.push(StreamRecord::new(nan_fields));
+
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let mut nan_record = StreamRecord::new(nan_fields);
+        nan_record.timestamp = 30000;
+        records.push(nan_record);
 
         // Add infinity record (if supported)
         let mut inf_fields = HashMap::new();
@@ -326,7 +333,11 @@ mod window_edge_cases_tests {
             FieldValue::String("completed".to_string()),
         );
         inf_fields.insert("timestamp".to_string(), FieldValue::Integer(45000));
-        records.push(StreamRecord::new(inf_fields));
+
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let mut inf_record = StreamRecord::new(inf_fields);
+        inf_record.timestamp = 45000;
+        records.push(inf_record);
 
         let results = SqlExecutor::execute_query(sql, records).await;
         assert!(
@@ -476,9 +487,9 @@ mod window_edge_cases_tests {
 
         let records = vec![
             TestDataBuilder::order_record(1, 100, 25.0, "day1", 0),
-            TestDataBuilder::order_record(2, 100, 35.0, "day3", 259200), // 3 days later
-            TestDataBuilder::order_record(3, 100, 45.0, "day6", 518400), // 6 days later
-            TestDataBuilder::order_record(4, 100, 55.0, "day10", 864000), // 10 days later (new session)
+            TestDataBuilder::order_record(2, 100, 35.0, "day3", 259200), // 3 days later (day 3)
+            TestDataBuilder::order_record(3, 100, 45.0, "day6", 518400), // 3 days later (day 6)
+            TestDataBuilder::order_record(4, 100, 55.0, "day16", 1382400), // 10 days later (day 16) - exceeds 1w gap → new session
         ];
 
         let results = SqlExecutor::execute_query(sql, records).await;
@@ -664,7 +675,11 @@ mod window_edge_cases_tests {
                 FieldValue::String("completed".to_string()),
             );
             fields.insert("timestamp".to_string(), FieldValue::Integer(i * 10)); // Every 10ms
-            records.push(StreamRecord::new(fields));
+
+            // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+            let mut record = StreamRecord::new(fields);
+            record.timestamp = i * 10;
+            records.push(record);
         }
 
         let results = SqlExecutor::execute_query(sql, records).await;
