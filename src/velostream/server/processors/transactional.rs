@@ -518,16 +518,16 @@ impl TransactionalJobProcessor {
 
         // Step 5: Write processed data to sink if we have one (with serialization telemetry)
         if let Some(w) = writer.as_mut() {
-            if should_commit && !batch_result.output_records.is_empty() {
+            if should_commit && !output_owned.is_empty() {
                 debug!(
                     "Job '{}': Writing {} output records to sink",
                     job_name,
-                    batch_result.output_records.len()
+                    output_owned.len()
                 );
                 let ser_start = Instant::now();
-                let record_count = batch_result.output_records.len();
+                let record_count = output_owned.len();
                 // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
-                match w.write_batch(batch_result.output_records).await {
+                match w.write_batch(output_owned).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -1056,7 +1056,7 @@ impl TransactionalJobProcessor {
             debug!(
                 "Job '{}': Writing {} output records to {} sink(s) within transaction",
                 job_name,
-                all_output_records.len(),
+                output_owned.len(),
                 sink_names.len()
             );
 

@@ -582,19 +582,18 @@ impl SimpleJobProcessor {
         // Step 4: Write processed data to sink if we have one (with telemetry)
         let mut sink_write_failed = false;
         if let Some(w) = writer.as_mut() {
-            if should_commit && !batch_result.output_records.is_empty() {
+            if should_commit && !output_owned.is_empty() {
                 debug!(
                     "Job '{}': Writing {} output records to sink",
                     job_name,
-                    batch_result.output_records.len()
+                    output_owned.len()
                 );
 
                 // Attempt to write to sink with retry logic (with telemetry)
-                // PERF: Unwrap Arc for trait compat - still 7x faster due to multi-sink Arc clones
-                let ser_start = Instant::now();
-                let record_count = batch_result.output_records.len();
                 // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
-                match w.write_batch(batch_result.output_records).await {
+                let ser_start = Instant::now();
+                let record_count = output_owned.len();
+                match w.write_batch(output_owned).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -629,7 +628,7 @@ impl SimpleJobProcessor {
 
                         let error_msg = format!(
                             "Failed to write {} records to sink: {:?}",
-                            batch_result.output_records.len(),
+                            record_count,
                             e
                         );
                         warn!("Job '{}': {}", job_name, error_msg);
@@ -1124,13 +1123,13 @@ impl SimpleJobProcessor {
                         }
                     }
                 }
-            } else if !all_output_records.is_empty() {
+            } else if !output_owned.is_empty() {
                 debug!(
                     "Job '{}': Processed {} output records but no sinks configured",
                     job_name,
-                    all_output_records.len()
+                    output_owned.len()
                 );
-            } else if total_records_processed > 0 && all_output_records.is_empty() {
+            } else if total_records_processed > 0 && output_owned.is_empty() {
                 // DIAGNOSTIC: Silent failure case - records processed but no output
                 warn!(
                     "Job '{}': ⚠️  CRITICAL DIAGNOSTIC: {} records processed but 0 output records!",
