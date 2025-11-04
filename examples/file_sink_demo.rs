@@ -235,9 +235,10 @@ async fn demo_batch_writing() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
 
-        // Write entire batch
+        // Write entire batch (wrap in Arc for zero-copy API)
+        let records_arc: Vec<std::sync::Arc<_>> = records.into_iter().map(std::sync::Arc::new).collect();
         writer
-            .write_batch(records)
+            .write_batch(records_arc)
             .await
             .map_err(|e| format!("Batch write error: {}", e))?;
 

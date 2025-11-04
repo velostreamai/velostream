@@ -179,7 +179,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         }
 
         // Transform records (example: add processing timestamp)
-        let transformed_batch: Vec<_> = batch
+        let transformed_batch: Vec<std::sync::Arc<_>> = batch
             .into_iter()
             .map(|mut record| {
                 // Add metadata fields
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                         batch_count.to_string(),
                     ),
                 );
-                record
+                std::sync::Arc::new(record)
             })
             .collect();
 
