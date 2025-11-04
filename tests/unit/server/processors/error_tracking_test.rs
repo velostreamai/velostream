@@ -177,7 +177,7 @@ impl DataWriter for FailingMockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.write_count.fetch_add(records.len(), Ordering::SeqCst);
 
@@ -185,7 +185,9 @@ impl DataWriter for FailingMockDataWriter {
             return Err("Simulated batch write failure".into());
         }
 
-        self.written_records.extend(records);
+        // Dereference Arc and clone for storage
+        self.written_records
+            .extend(records.iter().map(|r| (**r).clone()));
         Ok(())
     }
 

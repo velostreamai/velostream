@@ -203,7 +203,7 @@ impl DataWriter for BenchmarkDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
         let count = records.len();

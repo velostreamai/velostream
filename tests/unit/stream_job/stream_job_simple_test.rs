@@ -197,7 +197,7 @@ impl DataWriter for MockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "MockDataWriter: write_batch called with {} records (batch {})",
@@ -216,8 +216,9 @@ impl DataWriter for MockDataWriter {
             }
         }
 
-        for record in records {
-            self.write(record).await?;
+        for record_arc in records {
+            // Dereference Arc and clone for write() which takes ownership
+            self.write((*record_arc).clone()).await?;
         }
         self.current_batch_count += 1;
         Ok(())

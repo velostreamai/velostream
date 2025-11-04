@@ -142,14 +142,18 @@ impl DataWriter for MockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "MockDataWriter '{}' writing {} records (transactional test)",
             self.name,
             records.len()
         );
-        self.written_records.lock().unwrap().extend(records);
+        // Dereference Arc and clone for storage
+        self.written_records
+            .lock()
+            .unwrap()
+            .extend(records.iter().map(|r| (**r).clone()));
         Ok(())
     }
 

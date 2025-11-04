@@ -156,7 +156,7 @@ impl DataWriter for TransactionalBenchmarkWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written += records.len() as u64;
         Ok(())

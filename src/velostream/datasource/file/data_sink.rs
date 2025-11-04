@@ -798,10 +798,12 @@ impl DataWriter for FileWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        for record in records {
-            self.write(record).await?;
+        for record_arc in records {
+            // Dereference Arc and clone for write() which takes ownership
+            // Note: Single write() call per record, so clone is unavoidable here
+            self.write((*record_arc).clone()).await?;
         }
         Ok(())
     }
