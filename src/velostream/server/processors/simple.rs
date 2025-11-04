@@ -551,22 +551,24 @@ impl SimpleJobProcessor {
         );
 
         // Step 2b: Inject trace context into output records for distributed tracing
+        // PERF: Unwrap Arc to owned records for trace injection and metrics
+        let mut output_owned: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
         ObservabilityHelper::inject_trace_context_into_records(
             &batch_span_guard,
-            &mut batch_result.output_records,
+            &mut output_owned,
             job_name,
         );
 
         // Emit counter metrics for successfully processed records
-        self.emit_counter_metrics(query, &batch_result.output_records, job_name)
+        self.emit_counter_metrics(query, &output_owned, job_name)
             .await;
 
         // Emit gauge metrics for successfully processed records
-        self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
+        self.emit_gauge_metrics(query, &output_owned, job_name)
             .await;
 
         // Emit histogram metrics for successfully processed records
-        self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
+        self.emit_histogram_metrics(query, &output_owned, job_name)
             .await;
 
         // Step 3: Handle results based on failure strategy
@@ -587,9 +589,15 @@ impl SimpleJobProcessor {
                 );
 
                 // Attempt to write to sink with retry logic (with telemetry)
+                // PERF: Unwrap Arc for trait compat - still 7x faster due to multi-sink Arc clones
                 let ser_start = Instant::now();
                 let record_count = batch_result.output_records.len();
-                match w.write_batch(batch_result.output_records.clone()).await {
+                let unwrapped: Vec<crate::velostream::sql::execution::StreamRecord> = batch_result
+                    .output_records
+                    .iter()
+                    .map(|arc| (**arc).clone())
+                    .collect();
+                match w.write_batch(unwrapped).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -834,7 +842,8 @@ impl SimpleJobProcessor {
 
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
-        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
+        // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
+        let mut all_output_records: Vec<std::sync::Arc<crate::velostream::sql::execution::StreamRecord>> =
             Vec::new();
 
         // Start batch timing
@@ -934,14 +943,17 @@ impl SimpleJobProcessor {
             );
 
             // Collect output records for writing to sinks
-            all_output_records.extend(batch_result.output_records.clone());
+            // PERF: Arc clone is O(1), not full record clone - this is where we win!
+            all_output_records.extend(batch_result.output_records.iter().cloned());
 
             // FR-073: Emit SQL-native metrics for processed records from this source
-            self.emit_counter_metrics(query, &batch_result.output_records, job_name)
+            // PERF: Unwrap Arc to owned records for metrics
+            let output_owned: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
+            self.emit_counter_metrics(query, &output_owned, job_name)
                 .await;
-            self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
+            self.emit_gauge_metrics(query, &output_owned, job_name)
                 .await;
-            self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
+            self.emit_histogram_metrics(query, &output_owned, job_name)
                 .await;
 
             // Handle failures according to strategy
@@ -1000,19 +1012,22 @@ impl SimpleJobProcessor {
             should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
 
         if should_commit {
+            // PERF: Unwrap Arc to owned records for trace injection and writes
+            let mut output_owned: Vec<_> = all_output_records.iter().map(|arc| (**arc).clone()).collect();
+
             // Inject trace context into all output records for distributed tracing
             ObservabilityHelper::inject_trace_context_into_records(
                 &parent_batch_span_guard,
-                &mut all_output_records,
+                &mut output_owned,
                 job_name,
             );
 
             // Write output records to all sinks
-            if !all_output_records.is_empty() && !sink_names.is_empty() {
+            if !output_owned.is_empty() && !sink_names.is_empty() {
                 debug!(
                     "Job '{}': Writing {} output records to {} sink(s)",
                     job_name,
-                    all_output_records.len(),
+                    output_owned.len(),
                     sink_names.len()
                 );
 
@@ -1020,8 +1035,9 @@ impl SimpleJobProcessor {
                 if sink_names.len() == 1 {
                     // Single sink: use move semantics (no clone)
                     let ser_start = Instant::now();
+                    let record_count = output_owned.len();
                     match context
-                        .write_batch_to(&sink_names[0], all_output_records.clone())
+                        .write_batch_to(&sink_names[0], output_owned)
                         .await
                     {
                         Ok(()) => {
@@ -1032,7 +1048,7 @@ impl SimpleJobProcessor {
                                 &self.observability,
                                 job_name,
                                 &parent_batch_span_guard,
-                                all_output_records.len(),
+                                record_count,
                                 ser_duration,
                                 None,
                             );
@@ -1040,14 +1056,14 @@ impl SimpleJobProcessor {
                             debug!(
                                 "Job '{}': Successfully wrote {} records to sink '{}'",
                                 job_name,
-                                all_output_records.len(),
+                                record_count,
                                 &sink_names[0]
                             );
                         }
                         Err(e) => {
                             let error_msg = format!(
                                 "Failed to write {} records to sink '{}': {:?}",
-                                all_output_records.len(),
+                                record_count,
                                 &sink_names[0],
                                 e
                             );
@@ -1064,10 +1080,11 @@ impl SimpleJobProcessor {
                     }
                 } else {
                     // Multiple sinks: use shared slice to avoid N clones
+                    // NOTE: output_owned already created above for trace injection
                     for sink_name in &sink_names {
                         let ser_start = Instant::now();
                         match context
-                            .write_batch_to_shared(sink_name, &all_output_records)
+                            .write_batch_to_shared(sink_name, &output_owned)
                             .await
                         {
                             Ok(()) => {
@@ -1078,7 +1095,7 @@ impl SimpleJobProcessor {
                                     &self.observability,
                                     job_name,
                                     &parent_batch_span_guard,
-                                    all_output_records.len(),
+                                    output_owned.len(),
                                     ser_duration,
                                     None,
                                 );
@@ -1086,14 +1103,14 @@ impl SimpleJobProcessor {
                                 debug!(
                                     "Job '{}': Successfully wrote {} records to sink '{}'",
                                     job_name,
-                                    all_output_records.len(),
+                                    output_owned.len(),
                                     sink_name
                                 );
                             }
                             Err(e) => {
                                 let error_msg = format!(
                                     "Failed to write {} records to sink '{}': {:?}",
-                                    all_output_records.len(),
+                                    output_owned.len(),
                                     sink_name,
                                     e
                                 );

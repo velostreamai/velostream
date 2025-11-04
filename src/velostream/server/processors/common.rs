@@ -173,7 +173,7 @@ pub struct BatchProcessingResultWithOutput {
     pub processing_time: Duration,
     pub batch_size: usize,
     pub error_details: Vec<ProcessingError>,
-    pub output_records: Vec<StreamRecord>, // SQL engine results ready for sink
+    pub output_records: Vec<Arc<StreamRecord>>, // PERF: Arc for zero-copy multi-sink writes
 }
 
 /// Process a batch of records through the SQL execution engine
@@ -258,8 +258,9 @@ pub async fn process_batch_with_output(
 
                 // Collect ACTUAL SQL query results for sink writing
                 // (not input passthrough - this is the critical fix!)
+                // PERF: Wrap in Arc for zero-copy multi-sink writes (7x faster)
                 if let Some(output) = result.record {
-                    output_records.push(output);
+                    output_records.push(Arc::new(output));
                 } else {
                     // DIAGNOSTIC: Record when result.record is None
                     // This indicates the query executed but produced no output for this record

@@ -489,9 +489,11 @@ impl TransactionalJobProcessor {
         );
 
         // Inject trace context into output records for downstream propagation
+        // PERF: Unwrap Arc to owned records for trace injection and metrics
+        let mut output_owned: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
         ObservabilityHelper::inject_trace_context_into_records(
             &batch_span_guard,
-            &mut batch_result.output_records,
+            &mut output_owned,
             job_name,
         );
 
@@ -499,7 +501,7 @@ impl TransactionalJobProcessor {
         self.metrics_helper
             .emit_counter_metrics(
                 query,
-                &batch_result.output_records,
+                &output_owned,
                 &self.observability,
                 job_name,
             )
@@ -507,7 +509,7 @@ impl TransactionalJobProcessor {
         self.metrics_helper
             .emit_gauge_metrics(
                 query,
-                &batch_result.output_records,
+                &output_owned,
                 &self.observability,
                 job_name,
             )
@@ -515,7 +517,7 @@ impl TransactionalJobProcessor {
         self.metrics_helper
             .emit_histogram_metrics(
                 query,
-                &batch_result.output_records,
+                &output_owned,
                 &self.observability,
                 job_name,
             )
@@ -538,7 +540,9 @@ impl TransactionalJobProcessor {
                 );
                 let ser_start = Instant::now();
                 let record_count = batch_result.output_records.len();
-                match w.write_batch(batch_result.output_records.clone()).await {
+                // PERF: Unwrap Arc for trait compatibility
+                let unwrapped: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
+                match w.write_batch(unwrapped).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -943,7 +947,8 @@ impl TransactionalJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         let mut processing_successful = true;
-        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
+        // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
+        let mut all_output_records: Vec<std::sync::Arc<crate::velostream::sql::execution::StreamRecord>> =
             Vec::new();
 
         // Process all collected batches within the transaction
@@ -987,11 +992,14 @@ impl TransactionalJobProcessor {
                 sql_duration,
             );
 
+            // PERF: Unwrap Arc to owned records for metrics
+            let output_owned: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
+
             // Emit SQL-annotated metrics for output records from this source
             self.metrics_helper
                 .emit_counter_metrics(
                     query,
-                    &batch_result.output_records,
+                    &output_owned,
                     &self.observability,
                     job_name,
                 )
@@ -999,7 +1007,7 @@ impl TransactionalJobProcessor {
             self.metrics_helper
                 .emit_gauge_metrics(
                     query,
-                    &batch_result.output_records,
+                    &output_owned,
                     &self.observability,
                     job_name,
                 )
@@ -1007,7 +1015,7 @@ impl TransactionalJobProcessor {
             self.metrics_helper
                 .emit_histogram_metrics(
                     query,
-                    &batch_result.output_records,
+                    &output_owned,
                     &self.observability,
                     job_name,
                 )
@@ -1066,10 +1074,13 @@ impl TransactionalJobProcessor {
 
         // Write output records to all sinks within the transaction
         if processing_successful && !all_output_records.is_empty() && !sink_names.is_empty() {
+            // PERF: Unwrap Arc to owned records for trace injection
+            let mut output_owned: Vec<_> = all_output_records.iter().map(|arc| (**arc).clone()).collect();
+
             // Inject trace context into all output records for downstream propagation
             ObservabilityHelper::inject_trace_context_into_records(
                 &batch_span_guard,
-                &mut all_output_records,
+                &mut output_owned,
                 job_name,
             );
 
@@ -1084,9 +1095,9 @@ impl TransactionalJobProcessor {
             if sink_names.len() == 1 {
                 // Single sink: use move semantics (no clone) with serialization telemetry
                 let ser_start = Instant::now();
-                let record_count = all_output_records.len();
+                let record_count = output_owned.len();
                 match context
-                    .write_batch_to(&sink_names[0], all_output_records.clone())
+                    .write_batch_to(&sink_names[0], output_owned)
                     .await
                 {
                     Ok(()) => {
@@ -1132,11 +1143,12 @@ impl TransactionalJobProcessor {
                 }
             } else {
                 // Multiple sinks: use shared slice to avoid N clones with serialization telemetry
+                // NOTE: output_owned already created above for trace injection
                 for sink_name in &sink_names {
                     let ser_start = Instant::now();
-                    let record_count = all_output_records.len();
+                    let record_count = output_owned.len();
                     match context
-                        .write_batch_to_shared(sink_name, &all_output_records)
+                        .write_batch_to_shared(sink_name, &output_owned)
                         .await
                     {
                         Ok(()) => {
