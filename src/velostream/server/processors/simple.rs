@@ -629,11 +629,8 @@ impl SimpleJobProcessor {
                             None,
                         );
 
-                        let error_msg = format!(
-                            "Failed to write {} records to sink: {:?}",
-                            record_count,
-                            e
-                        );
+                        let error_msg =
+                            format!("Failed to write {} records to sink: {:?}", record_count, e);
                         warn!("Job '{}': {}", job_name, error_msg);
                         ErrorTracker::record_error(&self.observability, job_name, error_msg);
 
@@ -1188,10 +1185,7 @@ impl SimpleJobProcessor {
 
             debug!(
                 "Job '{}': Successfully processed multi-source batch - {} records processed, {} failed, {} written to sinks",
-                job_name,
-                total_records_processed,
-                total_records_failed,
-                output_record_count
+                job_name, total_records_processed, total_records_failed, output_record_count
             );
 
             // Complete batch span with success

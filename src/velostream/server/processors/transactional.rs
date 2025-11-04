@@ -981,13 +981,28 @@ impl TransactionalJobProcessor {
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Emit SQL-annotated metrics for output records from this source
             self.metrics_helper
-                .emit_counter_metrics(query, &batch_result.output_records, &self.observability, job_name)
+                .emit_counter_metrics(
+                    query,
+                    &batch_result.output_records,
+                    &self.observability,
+                    job_name,
+                )
                 .await;
             self.metrics_helper
-                .emit_gauge_metrics(query, &batch_result.output_records, &self.observability, job_name)
+                .emit_gauge_metrics(
+                    query,
+                    &batch_result.output_records,
+                    &self.observability,
+                    job_name,
+                )
                 .await;
             self.metrics_helper
-                .emit_histogram_metrics(query, &batch_result.output_records, &self.observability, job_name)
+                .emit_histogram_metrics(
+                    query,
+                    &batch_result.output_records,
+                    &self.observability,
+                    job_name,
+                )
                 .await;
 
             total_records_processed += batch_result.records_processed;
