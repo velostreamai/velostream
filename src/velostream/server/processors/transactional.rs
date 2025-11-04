@@ -489,6 +489,9 @@ impl TransactionalJobProcessor {
             sql_duration,
         );
 
+        // Update stats from batch result BEFORE moving output_records
+        update_stats_from_batch_result(stats, &batch_result);
+
         // Inject trace context into output records for downstream propagation
         // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
         let mut output_owned: Vec<Arc<StreamRecord>> = batch_result.output_records;
@@ -597,9 +600,6 @@ impl TransactionalJobProcessor {
         if should_commit {
             self.commit_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
-
-            // Update stats from batch result
-            update_stats_from_batch_result(stats, &batch_result);
 
             // Complete batch span with success
             ObservabilityHelper::complete_batch_span_success(

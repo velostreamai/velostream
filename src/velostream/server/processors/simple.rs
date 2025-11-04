@@ -1190,7 +1190,7 @@ impl SimpleJobProcessor {
                 job_name,
                 total_records_processed,
                 total_records_failed,
-                all_output_records.len()
+                output_owned.len()
             );
 
             // Complete batch span with success
