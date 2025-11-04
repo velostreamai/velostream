@@ -98,6 +98,10 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         validated_select_queries: std::collections::HashSet::new(),
         // === PHASE 8: ROWS WINDOW STATE MANAGEMENT ===
         rows_window_states: HashMap::new(),
+        // === FR-081 PHASE 2A: WINDOW V2 STATE MANAGEMENT ===
+        window_v2_states: HashMap::new(),
+        // === STREAMING ENGINE CONFIGURATION ===
+        streaming_config: None,
     }
 }
 
@@ -450,6 +454,10 @@ async fn test_show_streams_empty_context() {
         validated_select_queries: std::collections::HashSet::new(),
         // === PHASE 8: ROWS WINDOW STATE MANAGEMENT ===
         rows_window_states: HashMap::new(),
+        // === FR-081 PHASE 2A: WINDOW V2 STATE MANAGEMENT ===
+        window_v2_states: HashMap::new(),
+        // === STREAMING ENGINE CONFIGURATION ===
+        streaming_config: None,
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

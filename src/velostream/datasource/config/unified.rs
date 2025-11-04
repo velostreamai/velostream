@@ -227,8 +227,8 @@ impl BatchConfigApplicator {
     ) {
         let batch_size = (size * 1024).min(max_batch_size * 1024); // KB estimate
         config.suggest("batch.size", batch_size.to_string());
-        config.suggest("linger.ms", "10");
-        config.suggest("compression.type", "snappy");
+        config.suggest("linger.ms", "5");
+        config.suggest("compression.type", "lz4");
 
         // Additional performance properties
         config.suggest("auto.commit.interval.ms", "5000");
@@ -252,13 +252,13 @@ impl BatchConfigApplicator {
         let linger_ms = target_latency.as_millis().min(5000) as u64; // Cap at 5s
         config.suggest("linger.ms", linger_ms.to_string());
         config.suggest("batch.size", "32768"); // 32KB adaptive batches
-        config.suggest("compression.type", "snappy");
+        config.suggest("compression.type", "lz4");
     }
 
     fn apply_memory_based_kafka(config: &mut HashMap<String, String>, max_bytes: usize) {
         let batch_size = (max_bytes / 2).min(1024 * 1024); // Half of memory target, max 1MB
         config.suggest("batch.size", batch_size.to_string());
-        config.suggest("linger.ms", "100"); // Longer linger for large batches
+        config.suggest("linger.ms", "50"); // Longer linger for large batches
         config.suggest("compression.type", "gzip"); // Better compression for large batches
 
         // Use memory target for buffer settings

@@ -44,7 +44,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use velostream::KafkaConsumer;
+use velostream::FastConsumer;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
@@ -133,12 +133,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("6. Consumer Configurations:");
 
     // Basic consumer
-    let _basic_consumer = KafkaConsumer::<String, OrderEvent, _, _>::new(
-        "localhost:9092",
-        "order-processors",
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let _basic_consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            "order-processors",
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     println!("✅ Created basic consumer with defaults");
 
     // High-throughput consumer
@@ -146,11 +147,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .client_id("ht-consumer")
         .high_throughput();
 
-    let _ht_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
-        _ht_consumer_config,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let _ht_consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::with_config(
+            _ht_consumer_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     println!("✅ Created high-throughput consumer");
 
     // Streaming consumer
@@ -159,11 +161,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .auto_offset_reset(OffsetReset::Latest)
         .streaming(); // Optimized for continuous processing
 
-    let _streaming_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
-        _streaming_config,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let _streaming_consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::with_config(
+            _streaming_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     println!("✅ Created streaming consumer");
 
     // Development consumer
@@ -172,11 +175,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .development() // Development-friendly settings
         .auto_commit(true, Duration::from_secs(1));
 
-    let _dev_consumer = KafkaConsumer::<String, OrderEvent, _, _>::with_config(
-        _dev_config,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let _dev_consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::with_config(
+            _dev_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     println!("✅ Created development consumer\n");
 
     // 7. Demonstrate sending with different producers

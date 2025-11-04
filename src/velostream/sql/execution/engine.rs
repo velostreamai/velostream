@@ -154,6 +154,8 @@ pub struct StreamExecutionEngine {
     record_count: u64,
     // Stateful GROUP BY support
     group_states: HashMap<String, GroupByState>,
+    // FR-081 Phase 2A+: Window V2 state persistence
+    window_v2_states: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
     // Performance monitoring
     performance_monitor:
         Option<Arc<crate::velostream::sql::execution::performance::PerformanceMonitor>>,
@@ -196,6 +198,7 @@ impl StreamExecutionEngine {
             output_sender,
             record_count: 0,
             group_states: HashMap::new(),
+            window_v2_states: HashMap::new(),
             performance_monitor: None,
             config,
             context_customizer: None,
@@ -335,8 +338,15 @@ impl StreamExecutionEngine {
         context.join_context = JoinContext::new();
         context.performance_monitor = self.performance_monitor.as_ref().map(Arc::clone);
 
+        // Pass engine's StreamingConfig to context (enables window_v2 and other optimizations)
+        context.streaming_config = Some(self.config.clone());
+
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
+
+        // FR-081 Phase 2A+: Load window_v2 states from engine to context
+        // Move all window_v2_states to the context (they will be saved back after processing)
+        context.window_v2_states = std::mem::take(&mut self.window_v2_states);
 
         // Apply any context customization (used by tests)
         if let Some(customizer) = &self.context_customizer {
@@ -400,6 +410,9 @@ impl StreamExecutionEngine {
             // Note: If query execution doesn't exist, we skip saving the state
             // This can happen if the query completed between context creation and persistence
         }
+
+        // FR-081 Phase 2A+: Save window_v2 states from context back to engine
+        self.window_v2_states = std::mem::take(&mut context.window_v2_states);
     }
 
     /// Process query using the modern processor architecture
@@ -434,6 +447,9 @@ impl StreamExecutionEngine {
 
         // Update engine state from context - sync back the GROUP BY states
         self.group_states = std::mem::take(&mut context.group_by_states);
+
+        // FR-081 Phase 2A+: Save window_v2 states back to engine
+        self.window_v2_states = std::mem::take(&mut context.window_v2_states);
 
         // NOTE: GROUP BY results emission moved to explicit triggers
         // Emitting after every record was causing performance issues and incorrect results
@@ -559,6 +575,7 @@ impl StreamExecutionEngine {
         // Check if this is a windowed query and process accordingly
         let result = if let StreamingQuery::Select {
             window: Some(window_spec),
+            group_by,
             ..
         } = query
         {
@@ -585,11 +602,12 @@ impl StreamExecutionEngine {
             // Process using windowed logic with high-performance state management
             {
                 let mut context = self.create_processor_context(&query_id);
-                let result = WindowProcessor::process_windowed_query(
+                let result = WindowProcessor::process_windowed_query_enhanced(
                     &query_id,
                     query,
                     &stream_record,
                     &mut context,
+                    None, // source_id
                 )?;
 
                 // Efficiently persist only modified window states (zero-copy for unchanged states)
@@ -597,21 +615,24 @@ impl StreamExecutionEngine {
 
                 // FR-079 Phase 6: Emit pending results from queue
                 // After processing the current record, check if there are additional results queued
+                // Only dequeue for queries WITH GROUP BY (non-GROUP BY queries produce single result)
                 let mut pending_results = Vec::new();
-                while context.has_pending_results(&query_id) {
-                    if let Some(pending_result) = context.dequeue_result(&query_id) {
-                        pending_results.push(pending_result);
-                    } else {
-                        break;
+                if group_by.is_some() {
+                    while context.has_pending_results(&query_id) {
+                        if let Some(pending_result) = context.dequeue_result(&query_id) {
+                            pending_results.push(pending_result);
+                        } else {
+                            break;
+                        }
                     }
-                }
 
-                // Store pending results for later emission outside context block
-                if !pending_results.is_empty() {
-                    log::debug!(
-                        "FR-079 Phase 6: Dequeued {} pending results for emission",
-                        pending_results.len()
-                    );
+                    // Store pending results for later emission outside context block
+                    if !pending_results.is_empty() {
+                        log::debug!(
+                            "FR-079 Phase 6: Dequeued {} pending results for emission",
+                            pending_results.len()
+                        );
+                    }
                 }
 
                 (result, pending_results)
@@ -980,11 +1001,12 @@ impl StreamExecutionEngine {
                 // Use windowed processing for queries with window specifications
                 {
                     let mut context = self.create_processor_context(&query_id);
-                    let result = WindowProcessor::process_windowed_query(
+                    let result = WindowProcessor::process_windowed_query_enhanced(
                         &query_id,
                         &query,
                         &record,
                         &mut context,
+                        None, // source_id
                     )?;
 
                     // Persist modified states efficiently
@@ -1009,12 +1031,16 @@ impl StreamExecutionEngine {
         Ok(())
     }
 
-    /// Flush any pending window results by processing a final trigger record  
+    /// Flush any pending window results by processing a final trigger record
     /// Forces emission of any buffered window results for all active queries.
     pub async fn flush_windows(&mut self) -> Result<(), SqlError> {
         // Create a trigger record with a very high timestamp to force window emission
+        let mut trigger_fields = HashMap::new();
+        // FR-081 Phase 2A+: window_v2 requires "timestamp" field for timestamp extraction
+        trigger_fields.insert("timestamp".to_string(), FieldValue::Integer(i64::MAX));
+
         let trigger_record = StreamRecord {
-            fields: HashMap::new(),
+            fields: trigger_fields,
             timestamp: i64::MAX, // Far future timestamp
             offset: 0,
             partition: 0,
@@ -1028,27 +1054,45 @@ impl StreamExecutionEngine {
             if let Some(execution) = self.active_queries.get(&query_id) {
                 let query = execution.query.clone();
                 if let StreamingQuery::Select {
-                    window: Some(_), ..
+                    window: Some(_),
+                    group_by,
+                    ..
                 } = &query
                 {
                     // Only flush windowed queries
-                    let result = {
+                    let (result, mut context) = {
                         let mut context = self.create_processor_context(&query_id);
-                        let result = WindowProcessor::process_windowed_query(
+                        let result = WindowProcessor::process_windowed_query_enhanced(
                             &query_id,
                             &query,
                             &trigger_record,
                             &mut context,
+                            None, // source_id
                         )?;
 
                         // Persist modified states efficiently
                         self.save_window_states_from_context(&mut context);
 
-                        result
+                        (result, context)
                     };
+
+                    // Send the first result (if any)
                     if let Some(result_record) = result {
                         // Send the flushed result directly - no conversion needed!
                         let _ = self.output_sender.send(result_record);
+                    }
+
+                    // FR-081 Phase 6: Emit all pending GROUP BY results from queue
+                    // When GROUP BY + WINDOW produces multiple groups, additional results are queued
+                    // Only dequeue for queries WITH GROUP BY (non-GROUP BY queries produce single result)
+                    if group_by.is_some() {
+                        while context.has_pending_results(&query_id) {
+                            if let Some(pending_result) = context.dequeue_result(&query_id) {
+                                let _ = self.output_sender.send(pending_result);
+                            } else {
+                                break;
+                            }
+                        }
                     }
                 }
             }

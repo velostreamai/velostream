@@ -4,7 +4,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 use uuid::Uuid;
 use velostream::velostream::kafka::serialization::Serde;
-use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::velostream::kafka::{FastConsumer, Headers, JsonSerializer, KafkaProducer};
 
 /// Helper functions
 pub(crate) fn is_kafka_running() -> bool {
@@ -79,16 +79,17 @@ pub(crate) fn create_order_producer(
     )?)
 }
 
-// Consumer creation helpers
+// Consumer creation helpers (FR-081 Phase 2D: Updated for FastConsumer)
 pub(crate) fn create_test_message_consumer(
     group_id: &str,
 ) -> Result<
-    KafkaConsumer<String, TestMessage, JsonSerializer, JsonSerializer>,
+    FastConsumer<String, TestMessage, JsonSerializer, JsonSerializer>,
     Box<dyn std::error::Error>,
 > {
-    Ok(KafkaConsumer::new(
-        "localhost:9092",
-        group_id,
+    use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    let config = ConsumerConfig::new("localhost:9092", group_id);
+    Ok(FastConsumer::with_config(
+        config,
         JsonSerializer,
         JsonSerializer,
     )?)
@@ -96,11 +97,12 @@ pub(crate) fn create_test_message_consumer(
 
 pub(crate) fn create_user_consumer(
     group_id: &str,
-) -> Result<KafkaConsumer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
+) -> Result<FastConsumer<String, User, JsonSerializer, JsonSerializer>, Box<dyn std::error::Error>>
 {
-    Ok(KafkaConsumer::new(
-        "localhost:9092",
-        group_id,
+    use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    let config = ConsumerConfig::new("localhost:9092", group_id);
+    Ok(FastConsumer::with_config(
+        config,
         JsonSerializer,
         JsonSerializer,
     )?)
@@ -109,12 +111,13 @@ pub(crate) fn create_user_consumer(
 pub(crate) fn create_order_consumer(
     group_id: &str,
 ) -> Result<
-    KafkaConsumer<String, OrderEvent, JsonSerializer, JsonSerializer>,
+    FastConsumer<String, OrderEvent, JsonSerializer, JsonSerializer>,
     Box<dyn std::error::Error>,
 > {
-    Ok(KafkaConsumer::new(
-        "localhost:9092",
-        group_id,
+    use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    let config = ConsumerConfig::new("localhost:9092", group_id);
+    Ok(FastConsumer::with_config(
+        config,
         JsonSerializer,
         JsonSerializer,
     )?)
@@ -147,7 +150,7 @@ where
     #[allow(dead_code)]
     pub producer: KafkaProducer<String, T, JsonSerializer, JsonSerializer>,
     #[allow(dead_code)]
-    pub consumer: KafkaConsumer<String, T, JsonSerializer, JsonSerializer>,
+    pub consumer: FastConsumer<String, T, JsonSerializer, JsonSerializer>,
 }
 
 impl TestSetup<TestMessage> {
@@ -205,12 +208,12 @@ impl TestSetup<OrderEvent> {
 }
 
 // Safe commit helper
-pub(crate) fn safe_commit<K, V, KS, VS>(
-    consumer: &KafkaConsumer<K, V, KS, VS>,
+pub(crate) fn safe_commit<K, V>(
+    consumer: &FastConsumer<K, V, JsonSerializer, JsonSerializer>,
     received_count: usize,
 ) where
-    KS: Serde<K>,
-    VS: Serde<V>,
+    K: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + Sync + 'static,
+    V: serde::Serialize + for<'de> serde::Deserialize<'de> + Send + Sync + 'static,
 {
     if received_count > 0 {
         let _ = consumer.commit(); // Make commit optional

@@ -47,7 +47,12 @@ impl TestDataBuilder {
             "timestamp".to_string(),
             FieldValue::Integer(timestamp_seconds * 1000),
         );
-        StreamRecord::new(fields)
+
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let timestamp_ms = timestamp_seconds * 1000;
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = timestamp_ms;
+        record
     }
 
     /// Create a financial ticker record
@@ -68,7 +73,12 @@ impl TestDataBuilder {
             "timestamp".to_string(),
             FieldValue::Integer(timestamp_seconds * 1000),
         );
-        StreamRecord::new(fields)
+
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let timestamp_ms = timestamp_seconds * 1000;
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = timestamp_ms;
+        record
     }
 
     /// Create a trade record (for use in trading-specific window tests)
@@ -88,7 +98,11 @@ impl TestDataBuilder {
             "timestamp".to_string(),
             FieldValue::Integer(timestamp_millis),
         );
-        StreamRecord::new(fields)
+
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = timestamp_millis;
+        record
     }
 
     /// Create a market data record based on the market_data_ts.avsc schema
@@ -137,7 +151,10 @@ impl TestDataBuilder {
             );
         }
 
-        StreamRecord::new(fields)
+        // FR-081: Set StreamRecord metadata timestamp for proper window calculations
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = timestamp_millis;
+        record
     }
 
     /// Generate a sequence of records with gradual price changes
@@ -222,7 +239,10 @@ impl SqlExecutor {
     /// Execute SQL query and return results as StreamRecords
     pub async fn execute_query(sql: &str, records: Vec<StreamRecord>) -> Vec<StreamRecord> {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let mut engine = StreamExecutionEngine::new(tx);
+        // FR-081: Enable window_v2 for proper GROUP BY + WINDOW + HAVING execution
+        let config =
+            velostream::velostream::sql::execution::config::StreamingConfig::new().with_window_v2();
+        let mut engine = StreamExecutionEngine::new_with_config(tx, config);
 
         let parser = StreamingSqlParser::new();
 

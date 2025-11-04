@@ -5,9 +5,10 @@
 //! SQL WITH clauses or programmatic configuration.
 
 use crate::velostream::kafka::{
-    KafkaConsumer, Message,
+    Message,
     consumer_config::ConsumerConfig,
     kafka_error::ConsumerError,
+    kafka_fast_consumer::Consumer as FastConsumer,
     serialization::{JsonSerializer, SerializationError},
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
 };
@@ -24,7 +25,7 @@ use std::{collections::HashMap, marker::PhantomData};
 ///
 /// ## Basic JSON Serialization
 /// ```rust,no_run
-/// use velostream::velostream::kafka::configurable_consumer::ConfigurableKafkaConsumerBuilder;
+/// use velostream::velostream::kafka::configurable_consumer::ConfigurableFastConsumerBuilder;
 /// use velostream::velostream::kafka::serialization_format::SerializationFormat;
 /// use serde::{Deserialize, Serialize};
 ///
@@ -34,7 +35,7 @@ use std::{collections::HashMap, marker::PhantomData};
 ///     content: String,
 /// }
 ///
-/// let consumer = ConfigurableKafkaConsumerBuilder::<String, MyMessage>::new(
+/// let consumer = ConfigurableFastConsumerBuilder::<String, MyMessage>::new(
 ///     "localhost:9092",
 ///     "my-group"
 /// )
@@ -47,10 +48,10 @@ use std::{collections::HashMap, marker::PhantomData};
 /// ## Avro Serialization with Schema Registry (requires "avro" feature)
 /// ```rust,no_run
 /// # {
-/// use velostream::velostream::kafka::configurable_consumer::ConfigurableKafkaConsumerBuilder;
+/// use velostream::velostream::kafka::configurable_consumer::ConfigurableFastConsumerBuilder;
 /// use velostream::velostream::kafka::serialization_format::SerializationFormat;
 ///
-/// let consumer = ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::new(
+/// let consumer = ConfigurableFastConsumerBuilder::<String, serde_json::Value>::new(
 ///     "localhost:9092",
 ///     "my-group"
 /// )
@@ -66,7 +67,7 @@ use std::{collections::HashMap, marker::PhantomData};
 /// ## SQL WITH Clause Configuration
 /// ```rust,no_run
 /// use std::collections::HashMap;
-/// use velostream::velostream::kafka::configurable_consumer::ConfigurableKafkaConsumerBuilder;
+/// use velostream::velostream::kafka::configurable_consumer::ConfigurableFastConsumerBuilder;
 /// use velostream::velostream::kafka::serialization_format::SerializationConfig;
 ///
 /// let mut sql_params = HashMap::new();
@@ -78,7 +79,7 @@ use std::{collections::HashMap, marker::PhantomData};
 /// let config = SerializationConfig::from_sql_params(&sql_params)
 ///     .expect("Failed to parse SQL parameters");
 ///
-/// let consumer = ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::new(
+/// let consumer = ConfigurableFastConsumerBuilder::<String, serde_json::Value>::new(
 ///     "localhost:9092",
 ///     "my-group"
 /// )
@@ -86,7 +87,7 @@ use std::{collections::HashMap, marker::PhantomData};
 /// .build()
 /// .expect("Failed to create consumer");
 /// ```
-pub struct ConfigurableKafkaConsumerBuilder<K, V>
+pub struct ConfigurableFastConsumerBuilder<K, V>
 where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
@@ -103,7 +104,7 @@ where
     _phantom_value: PhantomData<V>,
 }
 
-impl<K, V> ConfigurableKafkaConsumerBuilder<K, V>
+impl<K, V> ConfigurableFastConsumerBuilder<K, V>
 where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
@@ -146,7 +147,7 @@ where
     }
 }
 
-impl<K, V> ConfigurableKafkaConsumerBuilder<K, V>
+impl<K, V> ConfigurableFastConsumerBuilder<K, V>
 where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
@@ -217,7 +218,7 @@ where
 
     // Context methods can be added later for advanced use cases
     /*
-    pub fn with_context<NewC>(self, context: NewC) -> ConfigurableKafkaConsumerBuilder<K, V>
+    pub fn with_context<NewC>(self, context: NewC) -> ConfigurableFastConsumerBuilder<K, V>
     where
         NewC: ConsumerContext + 'static,
     {
@@ -230,7 +231,7 @@ where
     ///
     /// This method creates the appropriate serializers based on the configured formats
     /// and constructs the KafkaConsumer with proper serialization support.
-    pub fn build(self) -> Result<ConfigurableKafkaConsumer<K, V>, KafkaError> {
+    pub fn build(self) -> Result<ConfigurableFastConsumer<K, V>, KafkaError> {
         // Validate serialization formats
         SerializationFactory::validate_format(&self.key_format)
             .map_err(|e| KafkaError::ClientCreation(e.to_string()))?;
@@ -243,12 +244,22 @@ where
 
         // Create a basic JSON consumer
         let json_consumer = if let Some(config) = self.consumer_config {
-            KafkaConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(config, JsonSerializer, JsonSerializer)?
+            FastConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(
+                config,
+                JsonSerializer,
+                JsonSerializer,
+            )?
         } else {
-            KafkaConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::new(&self.brokers, &self.group_id, JsonSerializer, JsonSerializer)?
+            // Create default config from brokers and group_id
+            let config = ConsumerConfig::new(&self.brokers, &self.group_id);
+            FastConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(
+                config,
+                JsonSerializer,
+                JsonSerializer,
+            )?
         };
 
-        Ok(ConfigurableKafkaConsumer {
+        Ok(ConfigurableFastConsumer {
             inner_consumer: json_consumer,
             key_format: self.key_format,
             value_format: self.value_format,
@@ -263,25 +274,20 @@ where
 /// This consumer wraps the existing KafkaConsumer and provides serialization format
 /// conversion at runtime, enabling the same consumer to work with different data formats
 /// based on configuration.
-pub struct ConfigurableKafkaConsumer<K, V>
+pub struct ConfigurableFastConsumer<K, V>
 where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
 {
-    inner_consumer: KafkaConsumer<
-        serde_json::Value,
-        serde_json::Value,
-        JsonSerializer,
-        JsonSerializer,
-        DefaultConsumerContext,
-    >,
+    inner_consumer:
+        FastConsumer<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>,
     key_format: SerializationFormat,
     value_format: SerializationFormat,
     _phantom_key: PhantomData<K>,
     _phantom_value: PhantomData<V>,
 }
 
-impl<K, V> ConfigurableKafkaConsumer<K, V>
+impl<K, V> ConfigurableFastConsumer<K, V>
 where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
@@ -292,12 +298,24 @@ where
     }
 
     /// Poll for a message with configurable serialization
+    /// Note: FastConsumer uses streaming API instead of direct poll
     pub async fn poll(&self, timeout: std::time::Duration) -> Result<Message<K, V>, ConsumerError> {
-        // Get the raw message from the inner consumer
-        let raw_message = self.inner_consumer.poll(timeout).await?;
+        use futures::StreamExt;
+        use tokio::time::timeout as tokio_timeout;
 
-        // Convert the message to the desired formats
-        self.convert_message(raw_message)
+        // Get a stream from the inner consumer
+        let mut stream = self.inner_consumer.stream();
+
+        // Poll with timeout
+        match tokio_timeout(timeout, stream.next()).await {
+            Ok(Some(Ok(raw_message))) => {
+                // Convert the message to the desired formats
+                self.convert_message(raw_message)
+            }
+            Ok(Some(Err(e))) => Err(e),
+            Ok(None) => Err(ConsumerError::NoMessage),
+            Err(_) => Err(ConsumerError::Timeout),
+        }
     }
 
     /// Get the key serialization format
@@ -432,7 +450,7 @@ mod tests {
 
     #[test]
     fn test_configurable_consumer_builder_creation() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         );
@@ -444,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_configurable_consumer_builder_with_formats() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )
@@ -461,7 +479,7 @@ mod tests {
         sql_params.insert("key.serializer".to_string(), "string".to_string());
         sql_params.insert("value.serializer".to_string(), "json".to_string());
 
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::from_sql_config(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::from_sql_config(
             "localhost:9092",
             "test-group",
             &sql_params,
@@ -474,7 +492,7 @@ mod tests {
 
     #[test]
     fn test_avro_configuration() {
-        let builder = ConfigurableKafkaConsumerBuilder::<String, TestMessage>::new(
+        let builder = ConfigurableFastConsumerBuilder::<String, TestMessage>::new(
             "localhost:9092",
             "test-group",
         )

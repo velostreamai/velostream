@@ -19,6 +19,8 @@ fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
     fields.insert("customer_id".to_string(), FieldValue::Integer(id % 2));
+    // FR-081: Add timestamp field for window_v2
+    fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp));
 
     StreamRecord {
         fields,
@@ -35,7 +37,10 @@ async fn execute_windowed_query(
     records: Vec<StreamRecord>,
 ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut engine = StreamExecutionEngine::new(tx);
+    // FR-081: Enable window_v2 for proper GROUP BY + WINDOW + HAVING execution
+    let config =
+        velostream::velostream::sql::execution::config::StreamingConfig::new().with_window_v2();
+    let mut engine = StreamExecutionEngine::new_with_config(tx, config);
     let parser = StreamingSqlParser::new();
 
     let parsed_query = parser.parse(query)?;
@@ -91,6 +96,11 @@ async fn test_group_by_window_having_basic_execution() {
                 !results.is_empty(),
                 "Expected results from windowed query with HAVING clause"
             );
+
+            println!("DEBUG: Got {} results", results.len());
+            for (idx, result) in results.iter().enumerate() {
+                println!("DEBUG: Result {}: {:?}", idx, result.fields);
+            }
 
             // Verify each result has the expected fields
             for result in &results {

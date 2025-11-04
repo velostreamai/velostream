@@ -3,7 +3,11 @@
 use crate::velostream::datasource::{
     BatchConfig, BatchStrategy, DataReader, EventTimeConfig, SourceOffset,
 };
-use crate::velostream::kafka::{KafkaConsumer, serialization::StringSerializer};
+// FR-081 Phase 2B: Use kafka_fast_consumer (BaseConsumer-based) directly
+use crate::velostream::kafka::{
+    Message, consumer_config::ConsumerTier, kafka_error::ConsumerError,
+    kafka_fast_consumer::Consumer as FastConsumer, serialization::StringSerializer,
+};
 
 // Removed unused imports - AvroSerializer and ProtoSerializer don't exist
 // Using AvroCodec and ProtobufCodec directly instead
@@ -14,15 +18,19 @@ use chrono;
 use log::{error, info, warn};
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 // Import the unified SerializationFormat from the main module
 pub use crate::velostream::kafka::serialization_format::SerializationFormat;
 
 /// Unified Kafka DataReader that handles all serialization formats
+/// FR-081 Phase 2B: Now uses BaseConsumer-based fast consumer with configurable performance tiers
 pub struct KafkaDataReader {
-    consumer:
-        KafkaConsumer<String, HashMap<String, FieldValue>, StringSerializer, SerializationCodec>,
+    consumer: Arc<
+        FastConsumer<String, HashMap<String, FieldValue>, StringSerializer, SerializationCodec>,
+    >,
+    tier: ConsumerTier,
     batch_config: BatchConfig,
     event_time_config: Option<EventTimeConfig>,
     topic: String,
@@ -333,14 +341,37 @@ impl KafkaDataReader {
         // Then apply batch config (which may override some properties)
         Self::apply_batch_config_to_consumer(&mut consumer_config, &batch_config);
 
+        // FR-081 Phase 2B: Select optimal performance tier based on batch strategy
+        // Performance-focused tier selection for CPU and memory efficiency
+        let tier = consumer_config.performance_tier.take().unwrap_or_else(|| {
+            match &batch_config.strategy {
+                BatchStrategy::FixedSize(size) if *size > 100 => {
+                    info!("FR-081: Auto-selecting Buffered tier (50-75K msg/s) for large batch size: {}", size);
+                    ConsumerTier::Buffered { batch_size: (*size).min(1000) }
+                },
+                BatchStrategy::MemoryBased(_) => {
+                    info!("FR-081: Auto-selecting Buffered tier (50-75K msg/s) for memory-based batching");
+                    ConsumerTier::Buffered { batch_size: 500 }
+                },
+                _ => {
+                    info!("FR-081: Using Standard tier (10-15K msg/s, low CPU/memory) for Kafka consumer");
+                    ConsumerTier::Standard
+                }
+            }
+        });
+
         // Log the applied consumer configuration
         Self::log_consumer_config(&consumer_config, &batch_config);
 
-        let consumer = crate::velostream::kafka::KafkaConsumer::with_config(
-            consumer_config,
+        // FR-081 Phase 2B: Create fast consumer (BaseConsumer-based, low overhead)
+        let consumer = Arc::new(FastConsumer::<
+            String,
+            HashMap<String, FieldValue>,
             StringSerializer,
-            codec,
-        )?;
+            SerializationCodec,
+        >::with_config(
+            consumer_config, StringSerializer, codec
+        )?);
 
         consumer
             .subscribe(&[topic.as_str()])
@@ -355,6 +386,7 @@ impl KafkaDataReader {
 
         Ok(Self {
             consumer,
+            tier,
             batch_config,
             event_time_config,
             topic,
@@ -868,40 +900,94 @@ impl KafkaDataReader {
     }
 
     /// Read a single record (when batching is disabled)
+    /// FR-081 Phase 2B: Performance-optimized using tier-appropriate streaming
     async fn read_single(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        let timeout = self.batch_config.batch_timeout;
+        use futures::StreamExt;
+        use tokio::time::timeout;
 
-        match self.consumer.poll(timeout).await {
-            Ok(message) => {
+        let timeout_duration = self.batch_config.batch_timeout;
+
+        // FR-081: Use appropriate streaming method based on tier for optimal CPU/memory
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
+                    > + Send,
+            >,
+        > = match &self.tier {
+            ConsumerTier::Standard => {
+                // Direct polling - lowest CPU overhead (~2-5%)
+                Box::pin(self.consumer.stream())
+            }
+            ConsumerTier::Buffered { batch_size } => {
+                // Batched polling - better throughput, moderate CPU (~3-8%)
+                Box::pin(self.consumer.buffered_stream(*batch_size))
+            }
+            ConsumerTier::Dedicated => {
+                // Dedicated thread - maximum throughput, higher CPU (~10-15%)
+                // Convert DedicatedKafkaStream to futures::Stream
+                let consumer_arc = Arc::clone(&self.consumer);
+                let mut dedicated = consumer_arc.dedicated_stream();
+                Box::pin(futures::stream::poll_fn(move |_cx| {
+                    std::task::Poll::Ready(dedicated.next())
+                }))
+            }
+        };
+
+        match timeout(timeout_duration, stream.next()).await {
+            Ok(Some(Ok(message))) => {
                 let record = self.create_stream_record(message)?;
                 Ok(vec![record])
             }
-            Err(_) => Ok(vec![]), // Timeout or error - return empty batch
+            Ok(Some(Err(_))) | Ok(None) | Err(_) => Ok(vec![]), // Timeout or error - return empty batch
         }
     }
 
     /// Read fixed number of records
+    /// FR-081 Phase 2B: Performance-optimized batch reading using tier-appropriate streaming
     async fn read_fixed_size(
         &mut self,
         size: usize,
     ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        use futures::StreamExt;
+        use tokio::time::timeout;
+
         let mut records = Vec::with_capacity(size.min(self.batch_config.max_batch_size));
-        let timeout = Duration::from_millis(1000);
+        let timeout_duration = Duration::from_millis(1000);
+        let target_size = size.min(self.batch_config.max_batch_size);
 
         log::debug!(
-            "🔍 read_fixed_size: attempting to read {} records with timeout {:?}",
-            size,
-            timeout
+            "🔍 FR-081: read_fixed_size using {:?} tier for {} records",
+            self.tier,
+            target_size
         );
 
-        for i in 0..size.min(self.batch_config.max_batch_size) {
+        // FR-081: Use buffered streaming for batch reads (memory efficient)
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
+                    > + Send,
+            >,
+        > = match &self.tier {
+            ConsumerTier::Buffered { batch_size } => {
+                // Already optimized for batching - use native batch size
+                Box::pin(self.consumer.buffered_stream(*batch_size))
+            }
+            _ => {
+                // Standard/Dedicated: Use buffered stream with target size for better performance
+                Box::pin(self.consumer.buffered_stream(target_size))
+            }
+        };
+
+        for i in 0..target_size {
             log::debug!(
                 "🔍 read_fixed_size: poll attempt {} of {}",
                 i + 1,
-                size.min(self.batch_config.max_batch_size)
+                target_size
             );
-            match self.consumer.poll(timeout).await {
-                Ok(message) => {
+            match timeout(timeout_duration, stream.next()).await {
+                Ok(Some(Ok(message))) => {
                     log::debug!(
                         "🔍 read_fixed_size: poll returned message from partition {} offset {}",
                         message.partition(),
@@ -914,32 +1000,34 @@ impl KafkaDataReader {
                         records.len()
                     );
                 }
-                Err(e) => {
-                    // Check if this is a deserialization error (CRITICAL) vs timeout (normal)
-                    let is_deserialization_error =
-                        format!("{:?}", e).contains("SerializationError");
-
-                    if is_deserialization_error {
-                        log::error!(
-                            "🚨 DESERIALIZATION FAILURE on topic '{}': {:?}, records so far: {}",
-                            self.topic,
-                            e,
-                            records.len()
-                        );
-                        log::error!(
-                            "🚨 This indicates a schema mismatch or format incompatibility"
-                        );
-                        log::error!("🚨 Check that source and sink serialization formats match");
-                    } else {
-                        log::debug!(
-                            "🔍 read_fixed_size: poll error/timeout from topic '{}': {:?}, records so far: {}",
-                            self.topic,
-                            e,
-                            records.len()
-                        );
+                Ok(Some(Err(e))) => {
+                    // Consumer error (deserialization, protocol, etc.)
+                    log::error!(
+                        "🚨 Consumer error on topic '{}': {:?}, records so far: {}",
+                        self.topic,
+                        e,
+                        records.len()
+                    );
+                    // Break if we have some records, otherwise continue trying
+                    if !records.is_empty() {
+                        break;
                     }
-
-                    // Timeout or error - break if we have some records, otherwise continue
+                }
+                Ok(None) => {
+                    // Stream ended (consumer closed or partition EOF)
+                    log::debug!(
+                        "🔍 read_fixed_size: stream ended, returning {} records",
+                        records.len()
+                    );
+                    break;
+                }
+                Err(_) => {
+                    // Timeout - break if we have records, otherwise continue
+                    log::debug!(
+                        "🔍 read_fixed_size: poll timeout from topic '{}', records so far: {}",
+                        self.topic,
+                        records.len()
+                    );
                     if !records.is_empty() {
                         break;
                     }
@@ -952,26 +1040,39 @@ impl KafkaDataReader {
     }
 
     /// Read records within a time window
+    /// FR-081 Phase 2B: Performance-optimized time-windowed batch reading
     async fn read_time_window(
         &mut self,
         duration: Duration,
     ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        use futures::StreamExt;
+        use tokio::time::timeout;
+
         let mut records = Vec::new();
         let start_time = Instant::now();
-        let timeout = Duration::from_millis(100); // Short poll timeout for time-based batching
+        let poll_timeout = Duration::from_millis(100); // Short poll timeout for time-based batching
 
         // Initialize batch start time if not set
         if self.current_batch_start.is_none() {
             self.current_batch_start = Some(start_time);
         }
 
+        // FR-081: Use standard streaming for time windows (low CPU, predictable latency)
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
+                    > + Send,
+            >,
+        > = Box::pin(self.consumer.stream());
+
         while start_time.elapsed() < duration && records.len() < self.batch_config.max_batch_size {
-            match self.consumer.poll(timeout).await {
-                Ok(message) => {
+            match timeout(poll_timeout, stream.next()).await {
+                Ok(Some(Ok(message))) => {
                     let record = self.create_stream_record(message)?;
                     records.push(record);
                 }
-                Err(_) => {
+                Ok(Some(Err(_))) | Ok(None) | Err(_) => {
                     // Continue trying until time window expires
                     if records.is_empty() && start_time.elapsed() < duration {
                         continue;
@@ -1029,17 +1130,30 @@ impl KafkaDataReader {
     }
 
     /// Read records up to a memory limit (approximate)
+    /// FR-081 Phase 2B: Performance-optimized memory-bounded batch reading
     async fn read_memory_based(
         &mut self,
         max_bytes: usize,
     ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        use futures::StreamExt;
+        use tokio::time::timeout;
+
         let mut records = Vec::new();
         let mut estimated_size = 0usize;
-        let timeout = Duration::from_millis(1000);
+        let timeout_duration = Duration::from_millis(1000);
+
+        // FR-081: Use buffered streaming for memory-based batching (better throughput)
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
+                    > + Send,
+            >,
+        > = Box::pin(self.consumer.buffered_stream(100));
 
         while estimated_size < max_bytes && records.len() < self.batch_config.max_batch_size {
-            match self.consumer.poll(timeout).await {
-                Ok(message) => {
+            match timeout(timeout_duration, stream.next()).await {
+                Ok(Some(Ok(message))) => {
                     let record = self.create_stream_record(message)?;
 
                     // Rough estimate: 24 bytes overhead + field data
@@ -1058,7 +1172,7 @@ impl KafkaDataReader {
                     estimated_size += record_size;
                     records.push(record);
                 }
-                Err(_) => {
+                Ok(Some(Err(_))) | Ok(None) | Err(_) => {
                     // Timeout or error - return what we have
                     if !records.is_empty() {
                         break;
@@ -1071,28 +1185,40 @@ impl KafkaDataReader {
     }
 
     /// Read records with low-latency optimization
+    /// FR-081 Phase 2B: Performance-optimized low-latency batch reading
     async fn read_low_latency(
         &mut self,
         max_batch_size: usize,
         max_wait_time: Duration,
         eager_processing: bool,
     ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
+        use futures::StreamExt;
+        use tokio::time::timeout;
+
         let mut records = Vec::with_capacity(max_batch_size.min(self.batch_config.max_batch_size));
         let start_time = Instant::now();
 
+        // FR-081: Use standard streaming for low-latency (minimal overhead, predictable timing)
+        let mut stream: std::pin::Pin<
+            Box<
+                dyn futures::Stream<
+                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
+                    > + Send,
+            >,
+        > = Box::pin(self.consumer.stream());
+
         // Low-latency strategy: prioritize immediate processing over batch completeness
         while records.len() < max_batch_size && start_time.elapsed() < max_wait_time {
-            let poll_result = if eager_processing {
-                // Poll with immediate timeout for eager processing
-                self.consumer.poll(Duration::from_millis(0))
+            let poll_timeout = if eager_processing {
+                // Immediate timeout for eager processing
+                Duration::from_millis(0)
             } else {
-                // Poll with minimal timeout
-                self.consumer
-                    .poll(std::cmp::min(max_wait_time, Duration::from_millis(1)))
+                // Minimal timeout
+                std::cmp::min(max_wait_time, Duration::from_millis(1))
             };
 
-            match poll_result.await {
-                Ok(message) => {
+            match timeout(poll_timeout, stream.next()).await {
+                Ok(Some(Ok(message))) => {
                     let record = self.create_stream_record(message)?;
                     records.push(record);
 
@@ -1101,9 +1227,18 @@ impl KafkaDataReader {
                         break;
                     }
                 }
-                Err(e) => {
-                    // In low-latency mode, we don't want to wait on errors
-                    warn!("Kafka poll error in low-latency mode: {:?}", e);
+                Ok(Some(Err(e))) => {
+                    // Consumer error - log and break (prioritize low latency)
+                    warn!("Consumer error in low-latency mode: {:?}", e);
+                    break;
+                }
+                Ok(None) => {
+                    // Stream ended - break immediately
+                    log::debug!("Stream ended in low-latency mode");
+                    break;
+                }
+                Err(_) => {
+                    // Timeout - break immediately (low latency = no waiting)
                     break;
                 }
             }

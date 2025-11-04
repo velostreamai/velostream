@@ -17,7 +17,6 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use velostream::velostream::kafka::kafka_consumer::KafkaConsumer;
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::serialization::{JsonSerializer, Serde, StringSerializer};
 use velostream::velostream::sql::execution::types::FieldValue;
@@ -194,15 +193,20 @@ async fn benchmark_stream_consumer(
     topic: &str,
     message_count: usize,
 ) -> PerformanceMetrics {
-    println!("\n>>> Benchmarking: StreamConsumer (Legacy)");
+    println!("\n>>> Benchmarking: FastConsumer (BaseConsumer-based)");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
-        &env.bootstrap_servers,
-        "benchmark-stream-consumer",
+    let base_consumer = rdkafka::config::ClientConfig::new()
+        .set("bootstrap.servers", &env.bootstrap_servers)
+        .set("group.id", "benchmark-stream-consumer")
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("Failed to create BaseConsumer");
+
+    let consumer = FastConsumer::<String, TestMessage, StringSerializer, JsonSerializer>::new(
+        base_consumer,
         StringSerializer,
         JsonSerializer,
-    )
-    .expect("Failed to create StreamConsumer");
+    );
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 
@@ -274,11 +278,8 @@ async fn benchmark_standard_consumer(
         .subscribe(&[topic])
         .expect("Failed to subscribe");
 
-    let consumer: FastConsumer<String, TestMessage> = FastConsumer::new(
-        base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
-    );
+    let consumer: FastConsumer<String, TestMessage, StringSerializer, JsonSerializer> =
+        FastConsumer::new(base_consumer, StringSerializer, JsonSerializer);
 
     // Warmup
     println!("Warming up...");
@@ -352,11 +353,8 @@ async fn benchmark_buffered_consumer(
         .subscribe(&[topic])
         .expect("Failed to subscribe");
 
-    let consumer: FastConsumer<String, TestMessage> = FastConsumer::new(
-        base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
-    );
+    let consumer: FastConsumer<String, TestMessage, StringSerializer, JsonSerializer> =
+        FastConsumer::new(base_consumer, StringSerializer, JsonSerializer);
 
     // Warmup
     println!("Warming up...");
@@ -426,11 +424,12 @@ fn benchmark_dedicated_consumer(
         .subscribe(&[topic])
         .expect("Failed to subscribe");
 
-    let consumer = Arc::new(FastConsumer::<String, TestMessage>::new(
-        base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
-    ));
+    let consumer = Arc::new(FastConsumer::<
+        String,
+        TestMessage,
+        JsonSerializer,
+        JsonSerializer,
+    >::new(base_consumer, JsonSerializer, JsonSerializer));
 
     // Warmup
     println!("Warming up...");

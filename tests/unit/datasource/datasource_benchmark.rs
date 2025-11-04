@@ -41,7 +41,7 @@ fn bench_kafka_direct_creation(c: &mut Criterion) {
     c.bench_function("kafka_direct_consumer_creation", |b| {
         b.iter(|| {
             // Simulate consumer creation cost
-            let _consumer = KafkaConsumer::new(
+            let _consumer = FastConsumer::new(
                 black_box("localhost:9092"),
                 black_box("test-group"),
                 JsonSerializer,

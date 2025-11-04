@@ -24,12 +24,29 @@ pub trait KafkaDeserialize<T> {
 }
 
 /// Trait for serializers that can convert between objects and bytes
-pub trait Serde<T> {
+///
+/// The `Send + Sync` supertraits ensure the serializer can be safely shared
+/// across threads, which is required for use in async/multi-threaded contexts.
+pub trait Serde<T>: Send + Sync {
     /// Serialize an object to bytes
     fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError>;
 
     /// Deserialize bytes to an object
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError>;
+}
+
+/// Blanket implementation of Serde for Box<dyn Serde<T>>
+///
+/// This allows boxed serializers to be used where Serde<T> is required,
+/// which is necessary for dynamic dispatch in the consumer factory.
+impl<T> Serde<T> for Box<dyn Serde<T> + Send + Sync> {
+    fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError> {
+        (**self).serialize(value)
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError> {
+        (**self).deserialize(bytes)
+    }
 }
 
 /// Modern async serialization trait using Rust 2024 edition features

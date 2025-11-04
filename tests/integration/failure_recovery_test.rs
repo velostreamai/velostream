@@ -142,13 +142,14 @@ async fn test_consumer_graceful_degradation() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -418,13 +419,14 @@ async fn test_graceful_shutdown_recovery() {
     )
     .expect("Failed to create producer");
 
-    let consumer = KafkaConsumer::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 

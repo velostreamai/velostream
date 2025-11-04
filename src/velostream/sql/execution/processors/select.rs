@@ -351,11 +351,12 @@ impl SelectProcessor {
                     StreamSource::Subquery(_) => "select_subquery_windowed".to_string(),
                 };
 
-                let window_result = crate::velostream::sql::execution::processors::WindowProcessor::process_windowed_query(
+                let window_result = crate::velostream::sql::execution::processors::WindowProcessor::process_windowed_query_enhanced(
                     &query_id,
                     query,
                     record,
                     context,
+                    None, // source_id
                 )?;
 
                 if let Some(windowed_record) = window_result {

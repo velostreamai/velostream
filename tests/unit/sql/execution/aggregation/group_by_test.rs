@@ -4,6 +4,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::{JsonFormat, SerializationFormat};
 use velostream::velostream::sql::ast::*;
+use velostream::velostream::sql::execution::config::StreamingConfig;
 use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
@@ -14,7 +15,9 @@ mod tests {
     fn create_test_engine() -> (StreamExecutionEngine, mpsc::UnboundedReceiver<StreamRecord>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
-        let engine = StreamExecutionEngine::new(sender);
+        // FR-081 Phase 2A+: Enable window_v2 with aggregation support
+        let config = StreamingConfig::new().with_window_v2();
+        let engine = StreamExecutionEngine::new_with_config(sender, config);
         (engine, receiver)
     }
 
@@ -22,9 +25,21 @@ mod tests {
         fields: HashMap<String, FieldValue>,
         offset: i64,
     ) -> StreamRecord {
+        // FR-081: Extract timestamp from fields if present to set StreamRecord metadata
+        // This ensures window calculations use the intended test timestamps
+        let timestamp_ms = fields
+            .get("timestamp")
+            .or_else(|| fields.get("event_time"))
+            .and_then(|v| match v {
+                FieldValue::Integer(ts) => Some(*ts),
+                FieldValue::Timestamp(dt) => Some(dt.and_utc().timestamp_millis()),
+                _ => None,
+            })
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
         StreamRecord {
             fields,
-            timestamp: chrono::Utc::now().timestamp_millis(),
+            timestamp: timestamp_ms,
             offset,
             partition: 0,
             event_time: None,
@@ -654,33 +669,21 @@ mod tests {
         // Create test records
         let mut fields1 = HashMap::new();
         fields1.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let mut record1 = create_stream_record_with_fields(fields1, 1);
-        record1
-            .fields
-            .insert("_timestamp".to_string(), FieldValue::Float(60000.0)); // 1 minute
-        record1
-            .fields
-            .insert("amount".to_string(), FieldValue::Float(100.0));
+        fields1.insert("timestamp".to_string(), FieldValue::Integer(60000)); // 1 minute
+        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
+        let record1 = create_stream_record_with_fields(fields1, 1);
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let mut record2 = create_stream_record_with_fields(fields2, 2);
-        record2
-            .fields
-            .insert("_timestamp".to_string(), FieldValue::Float(120000.0)); // 2 minutes
-        record2
-            .fields
-            .insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
+        fields2.insert("timestamp".to_string(), FieldValue::Integer(120000)); // 2 minutes
+        fields2.insert("amount".to_string(), FieldValue::Float(200.0)); // 100+200=300 for first window
+        let record2 = create_stream_record_with_fields(fields2, 2);
 
         let mut fields3 = HashMap::new();
         fields3.insert("customer_id".to_string(), FieldValue::Float(1.0));
-        let mut record3 = create_stream_record_with_fields(fields3, 3);
-        record3
-            .fields
-            .insert("_timestamp".to_string(), FieldValue::Float(360000.0)); // 6 minutes
-        record3
-            .fields
-            .insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
+        fields3.insert("timestamp".to_string(), FieldValue::Integer(360000)); // 6 minutes
+        fields3.insert("amount".to_string(), FieldValue::Float(500.0)); // 500 for second window
+        let record3 = create_stream_record_with_fields(fields3, 3);
 
         // Test windowed GROUP BY
         let query = parser

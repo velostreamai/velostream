@@ -8,7 +8,7 @@ use velostream::velostream::kafka::serialization::{JsonSerializer, StringSeriali
 use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::table::Table;
-use velostream::{Headers, KafkaConsumer, KafkaProducer};
+use velostream::{FastConsumer, Headers, KafkaProducer};
 
 /// User profile stored in the Table
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -184,11 +184,12 @@ async fn process_order_stream(
         .auto_offset_reset(OffsetReset::Latest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let order_consumer = KafkaConsumer::<String, Order, _, _>::with_config(
-        order_config,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let order_consumer =
+        FastConsumer::<String, Order, JsonSerializer, JsonSerializer>::with_config(
+            order_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
 
     order_consumer.subscribe(&[ORDERS_TOPIC])?;
 

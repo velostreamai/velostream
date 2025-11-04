@@ -20,10 +20,10 @@ SELECT
 FROM orders;
 ```
 
-### COUNT_DISTINCT - Count Unique Values
+### COUNT_DISTINCT - Count Unique Values (Exact)
 
 ```sql
--- Count unique customers
+-- Count unique customers (exact count)
 SELECT COUNT_DISTINCT(customer_id) as unique_customers FROM orders;
 
 -- Count unique products per category
@@ -33,6 +33,44 @@ SELECT
 FROM products
 GROUP BY category;
 ```
+
+**Note:** COUNT_DISTINCT provides exact counts but requires storing all unique values in memory. For large datasets, consider using APPROX_COUNT_DISTINCT for better performance.
+
+### APPROX_COUNT_DISTINCT - Approximate Unique Count (HyperLogLog)
+
+Fast approximation of unique value counts using the HyperLogLog algorithm. Provides ~2% error rate while using minimal memory (12KB fixed size regardless of cardinality).
+
+```sql
+-- Approximate unique visitor count (fast, memory-efficient)
+SELECT APPROX_COUNT_DISTINCT(visitor_id) as approx_unique_visitors
+FROM page_views;
+
+-- Approximate unique users per page (scales to billions)
+SELECT
+    page_url,
+    APPROX_COUNT_DISTINCT(user_id) as approx_unique_users,
+    COUNT(*) as total_views
+FROM page_views
+GROUP BY page_url;
+
+-- Compare exact vs approximate for validation
+SELECT
+    COUNT_DISTINCT(user_id) as exact_count,
+    APPROX_COUNT_DISTINCT(user_id) as approx_count,
+    ABS(COUNT_DISTINCT(user_id) - APPROX_COUNT_DISTINCT(user_id)) as difference
+FROM events;
+```
+
+**When to use APPROX_COUNT_DISTINCT:**
+- ✅ Large datasets (millions/billions of unique values)
+- ✅ Real-time dashboards requiring fast responses
+- ✅ Memory-constrained environments
+- ✅ When ~2% error is acceptable
+
+**When to use COUNT_DISTINCT:**
+- ✅ Small to medium datasets (< 1M unique values)
+- ✅ When exact precision is required
+- ✅ Financial/billing calculations
 
 ### SUM - Calculate Totals
 
@@ -407,7 +445,8 @@ ORDER BY year;
 |----------|---------|---------------|
 | `COUNT(*)` | Count all rows | Totals, frequencies |
 | `COUNT(column)` | Count non-null values | Data quality checks |
-| `COUNT_DISTINCT(column)` | Count unique values | Uniqueness analysis |
+| `COUNT_DISTINCT(column)` | Count unique values (exact) | Uniqueness analysis |
+| `APPROX_COUNT_DISTINCT(column)` | Count unique values (~2% error, fast) | Large-scale uniqueness, dashboards |
 | `SUM(column)` | Total numeric values | Revenue, quantities |
 | `AVG(column)` | Average values | Performance metrics |
 | `MIN(column)` / `MAX(column)` | Extreme values | Ranges, limits |

@@ -16,6 +16,7 @@
 - **[FR-081-04-ARCHITECTURAL-BLUEPRINT.md](./FR-081-04-ARCHITECTURAL-BLUEPRINT.md)** - Future refactoring plan
 - **[FR-081-05-TEST-RESULTS.md](./FR-081-05-TEST-RESULTS.md)** - Comprehensive test results and benchmarks
 - **[FR-081-07-TOKIO-PERFORMANCE-ANALYSIS.md](./FR-081-07-TOKIO-PERFORMANCE-ANALYSIS.md)** - Tokio async overhead analysis
+- **[FR-081-08-IMPLEMENTATION-SCHEDULE.md](./FR-081-08-IMPLEMENTATION-SCHEDULE.md)** - 📅 **Implementation schedule, phases, and progress tracking**
 
 ### 🔍 Historical Analysis Documents
 - **[FR-081-06-INSTRUMENTATION-ANALYSIS.md](./FR-081-06-INSTRUMENTATION-ANALYSIS.md)** - How the bottleneck was discovered

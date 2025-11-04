@@ -153,6 +153,74 @@ See `docs/feature/FR-079-agg-func-*.md` for detailed analysis:
 
 ---
 
+## ROWS WINDOW Performance Baseline
+
+**Date Captured:** November 1, 2025
+**Test:** `profile_rows_window_moving_average`
+**Test File:** `tests/performance/analysis/rows_window_profiling.rs`
+
+### Test Configuration
+- **Records Processed:** 10,000
+- **Partitions:** 10 (symbol-based)
+- **Buffer Size:** 100 rows per partition (bounded memory)
+- **Aggregations:** AVG(price), MIN(price), MAX(price)
+
+### Performance Results
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Throughput** | **46,550 rec/sec** | 2.3x above 20K target ✅ |
+| **Total Time** | 214.82 ms | End-to-end execution |
+| **Avg per Record** | 19.23 µs | Consistent after warmup |
+| **Growth Ratio** | **0.09x** | Excellent bounded behavior ✅ |
+| **Results Emitted** | 10,000 | One per input record |
+
+### Phase Breakdown
+
+| Phase | Time | % of Total | Status |
+|-------|------|------------|--------|
+| Phase 1 (Record Gen) | 9.26 ms | 4.3% | ✅ |
+| Phase 2 (Setup+Parse) | 202.79 µs | 0.1% | ✅ |
+| **Phase 3 (Execution)** | **192.31 ms** | **89.5%** | ⚠️ CRITICAL PATH |
+| Phase 4 (Flush Windows) | 8.71 µs | 0.0% | ✅ |
+| Phase 5 (Flush GroupBy) | 125 ns | 0.0% | ✅ |
+| Phase 6 (Sleep) | 12.09 ms | 5.6% | ✅ |
+| Phase 7 (Collect) | 948.04 µs | 0.4% | ✅ |
+
+### Key Observations
+
+**✅ Bounded Memory Behavior:**
+- Growth ratio of 0.09x indicates constant-time performance
+- Record 0: 205.92 µs (initial warmup)
+- Records 1000-9000: 17.79-26.46 µs (stable)
+- Expected: Growth ratio < 1.5x for ROWS WINDOW ✅
+
+**✅ Above Target Performance:**
+- Target: >20,000 rec/sec
+- Achieved: 46,550 rec/sec (2.3x faster)
+- Headroom: 26,550 rec/sec above target
+
+**⚠️ Optimization Opportunity:**
+- Phase 3 (Execution) accounts for 89.5% of total time
+- Current: 19.23 µs per record
+- Phase 2A target: <15 µs per record (50-75K rec/sec)
+
+### Related Work
+
+**Phase 2A Optimization Targets** (see `docs/feature/FR-081-sql-engine-perf/`):
+- Trait-based window architecture (WindowStrategy, EmissionStrategy)
+- Arc<StreamRecord> zero-copy processing
+- Ring buffer for efficient windowing
+- Target: 50-75K rec/sec (3-5x improvement from Phase 1 baseline)
+
+**Profiling Test Suite:**
+- `rows_window_profiling.rs` - ROWS WINDOW (aggregations, ranking, offset functions)
+- `sliding_window_profiling.rs` - SLIDING WINDOW (varying overlap percentages)
+- `tumbling_window_profiling.rs` - TUMBLING WINDOW (financial analytics)
+- `session_window_profiling.rs` - SESSION WINDOW (gap-based)
+
+---
+
 **Total Implementation Time:** ~2 hours
 **Lines of Code:** ~840 (390 implementation + 450 tests)
 **Test Coverage:** 35+ new tests

@@ -55,7 +55,11 @@ async fn profile_tumbling_emit_changes_financial_analytics() {
         records.push(StreamRecord::new(fields));
     }
     let phase1_duration = phase1_start.elapsed();
-    println!("✅ Phase 1: Record generation ({} records): {:?}", records.len(), phase1_duration);
+    println!(
+        "✅ Phase 1: Record generation ({} records): {:?}",
+        records.len(),
+        phase1_duration
+    );
 
     // Phase 2: Engine Setup and SQL Parsing
     let phase2_start = Instant::now();
@@ -71,7 +75,10 @@ async fn profile_tumbling_emit_changes_financial_analytics() {
         }
     };
     let phase2_duration = phase2_start.elapsed();
-    println!("✅ Phase 2: Engine setup + SQL parsing: {:?}", phase2_duration);
+    println!(
+        "✅ Phase 2: Engine setup + SQL parsing: {:?}",
+        phase2_duration
+    );
 
     // Phase 3: Record Execution (THE CRITICAL PATH)
     let phase3_start = Instant::now();
@@ -89,8 +96,15 @@ async fn profile_tumbling_emit_changes_financial_analytics() {
         }
     }
     let phase3_duration = phase3_start.elapsed();
-    println!("✅ Phase 3: Execute {} records: {:?}", records.len(), phase3_duration);
-    println!("   Average per record: {:?}", phase3_duration / records.len() as u32);
+    println!(
+        "✅ Phase 3: Execute {} records: {:?}",
+        records.len(),
+        phase3_duration
+    );
+    println!(
+        "   Average per record: {:?}",
+        phase3_duration / records.len() as u32
+    );
 
     // Analyze execution time distribution
     if !execution_times.is_empty() {
@@ -139,21 +153,58 @@ async fn profile_tumbling_emit_changes_financial_analytics() {
         results.push(output);
     }
     let phase7_duration = phase7_start.elapsed();
-    println!("✅ Phase 7: Collect {} results: {:?}", results.len(), phase7_duration);
+    println!(
+        "✅ Phase 7: Collect {} results: {:?}",
+        results.len(),
+        phase7_duration
+    );
 
     // Summary
-    let total_duration = phase1_duration + phase2_duration + phase3_duration
-                       + phase4_duration + phase5_duration + phase6_duration + phase7_duration;
+    let total_duration = phase1_duration
+        + phase2_duration
+        + phase3_duration
+        + phase4_duration
+        + phase5_duration
+        + phase6_duration
+        + phase7_duration;
 
     println!("\n📊 PERFORMANCE BREAKDOWN (EMIT CHANGES Mode)");
     println!("{}", "=".repeat(70));
-    println!("Phase 1 (Record Gen):      {:?} ({:.1}%)", phase1_duration, 100.0 * phase1_duration.as_secs_f64() / total_duration.as_secs_f64());
-    println!("Phase 2 (Setup+Parse):     {:?} ({:.1}%)", phase2_duration, 100.0 * phase2_duration.as_secs_f64() / total_duration.as_secs_f64());
-    println!("Phase 3 (Execution):       {:?} ({:.1}%) ⚠️ CRITICAL", phase3_duration, 100.0 * phase3_duration.as_secs_f64() / total_duration.as_secs_f64());
-    println!("Phase 4 (Flush Windows):   {:?} ({:.1}%)", phase4_duration, 100.0 * phase4_duration.as_secs_f64() / total_duration.as_secs_f64());
-    println!("Phase 5 (Flush GroupBy):   {:?} ({:.1}%)", phase5_duration, 100.0 * phase5_duration.as_secs_f64() / total_duration.as_secs_f64());
-    println!("Phase 6 (Sleep):           {:?} ({:.1}%)", phase6_duration, 100.0 * phase6_duration.as_secs_f64() / total_duration.as_secs_f64());
-    println!("Phase 7 (Collect):         {:?} ({:.1}%)", phase7_duration, 100.0 * phase7_duration.as_secs_f64() / total_duration.as_secs_f64());
+    println!(
+        "Phase 1 (Record Gen):      {:?} ({:.1}%)",
+        phase1_duration,
+        100.0 * phase1_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
+    println!(
+        "Phase 2 (Setup+Parse):     {:?} ({:.1}%)",
+        phase2_duration,
+        100.0 * phase2_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
+    println!(
+        "Phase 3 (Execution):       {:?} ({:.1}%) ⚠️ CRITICAL",
+        phase3_duration,
+        100.0 * phase3_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
+    println!(
+        "Phase 4 (Flush Windows):   {:?} ({:.1}%)",
+        phase4_duration,
+        100.0 * phase4_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
+    println!(
+        "Phase 5 (Flush GroupBy):   {:?} ({:.1}%)",
+        phase5_duration,
+        100.0 * phase5_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
+    println!(
+        "Phase 6 (Sleep):           {:?} ({:.1}%)",
+        phase6_duration,
+        100.0 * phase6_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
+    println!(
+        "Phase 7 (Collect):         {:?} ({:.1}%)",
+        phase7_duration,
+        100.0 * phase7_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
     println!("{}", "─".repeat(70));
     println!("TOTAL:                     {:?}", total_duration);
 
@@ -165,15 +216,22 @@ async fn profile_tumbling_emit_changes_financial_analytics() {
     // Comparison with baseline
     let baseline_throughput = 120.0;
     if throughput < baseline_throughput {
-        println!("⚠️  SLOWER than baseline by {:.0} rec/s ({:.1}x)",
-                 baseline_throughput - throughput,
-                 baseline_throughput / throughput);
+        println!(
+            "⚠️  SLOWER than baseline by {:.0} rec/s ({:.1}x)",
+            baseline_throughput - throughput,
+            baseline_throughput / throughput
+        );
     } else if throughput > baseline_throughput * 2.0 {
-        println!("✅ FASTER than baseline by {:.0} rec/s ({:.1}x)",
-                 throughput - baseline_throughput,
-                 throughput / baseline_throughput);
+        println!(
+            "✅ FASTER than baseline by {:.0} rec/s ({:.1}x)",
+            throughput - baseline_throughput,
+            throughput / baseline_throughput
+        );
     } else {
-        println!("≈  SIMILAR to baseline ({:.1}x)", throughput / baseline_throughput);
+        println!(
+            "≈  SIMILAR to baseline ({:.1}x)",
+            throughput / baseline_throughput
+        );
     }
 
     println!("\n🔬 HYPOTHESIS TEST RESULTS:");
@@ -186,13 +244,22 @@ async fn profile_tumbling_emit_changes_financial_analytics() {
 
             if growth > 10.0 {
                 println!("❌ HYPOTHESIS CONFIRMED: EMIT CHANGES causes severe O(N²) behavior");
-                println!("   Growth ratio: {:.2}x indicates O(N) per-record cost", growth);
+                println!(
+                    "   Growth ratio: {:.2}x indicates O(N) per-record cost",
+                    growth
+                );
             } else if growth > 2.0 {
                 println!("⚠️  HYPOTHESIS PARTIALLY CONFIRMED: EMIT CHANGES contributes to O(N²)");
-                println!("   Growth ratio: {:.2}x indicates some state accumulation", growth);
+                println!(
+                    "   Growth ratio: {:.2}x indicates some state accumulation",
+                    growth
+                );
             } else {
                 println!("✅ HYPOTHESIS REJECTED: EMIT CHANGES is NOT the primary cause");
-                println!("   Growth ratio: {:.2}x indicates O(1) or near-constant behavior", growth);
+                println!(
+                    "   Growth ratio: {:.2}x indicates O(1) or near-constant behavior",
+                    growth
+                );
                 println!("   Root cause must be elsewhere in the code path");
             }
         }

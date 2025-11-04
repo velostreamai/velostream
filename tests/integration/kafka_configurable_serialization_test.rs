@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use velostream::ProducerBuilder;
 use velostream::velostream::kafka::{
-    configurable_consumer::ConfigurableKafkaConsumerBuilder,
+    configurable_consumer::ConfigurableFastConsumerBuilder,
     configurable_producer::ConfigurableKafkaProducerBuilder,
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
 };
@@ -60,7 +60,7 @@ mod phase2_integration_tests {
 
         // Create consumer builder from SQL config
         let consumer_builder =
-            ConfigurableKafkaConsumerBuilder::<String, CustomerSpendingEvent>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, CustomerSpendingEvent>::from_sql_config(
                 "localhost:9092",
                 "customer-spending-group",
                 &sql_with_params,
@@ -161,7 +161,7 @@ mod phase2_integration_tests {
 
         // Test with consumer
         let consumer_builder =
-            ConfigurableKafkaConsumerBuilder::<String, serde_json::Value>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, serde_json::Value>::from_sql_config(
                 "localhost:9092",
                 "avro-consumer-group",
                 &sql_with_params,
@@ -217,7 +217,7 @@ mod phase2_integration_tests {
         source_sql_params.insert("auto.offset.reset".to_string(), "earliest".to_string());
 
         let source_consumer =
-            ConfigurableKafkaConsumerBuilder::<String, TransactionEvent>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, TransactionEvent>::from_sql_config(
                 "localhost:9092",
                 "transaction-processor",
                 &source_sql_params,
@@ -304,7 +304,7 @@ mod phase2_integration_tests {
             );
 
             // Test that both consumer and producer can be created
-            let _consumer = ConfigurableKafkaConsumerBuilder::<serde_json::Value, serde_json::Value>::from_sql_config(
+            let _consumer = ConfigurableFastConsumerBuilder::<serde_json::Value, serde_json::Value>::from_sql_config(
                 "localhost:9092",
                 "test-group",
                 &sql_params,
@@ -349,7 +349,7 @@ mod phase2_integration_tests {
         }
 
         let financial_consumer =
-            ConfigurableKafkaConsumerBuilder::<String, FinancialEvent>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, FinancialEvent>::from_sql_config(
                 "financial-kafka:9092",
                 "financial-processor",
                 &financial_params,
@@ -468,7 +468,7 @@ mod phase2_integration_tests {
         invalid_params.insert("key.serializer".to_string(), "unsupported".to_string());
 
         let consumer_result =
-            ConfigurableKafkaConsumerBuilder::<String, TransactionEvent>::from_sql_config(
+            ConfigurableFastConsumerBuilder::<String, TransactionEvent>::from_sql_config(
                 "localhost:9092",
                 "test-group",
                 &invalid_params,

@@ -21,6 +21,10 @@ fn create_test_record(id: i64, amount: f64, timestamp: i64) -> StreamRecord {
     fields.insert("id".to_string(), FieldValue::Integer(id));
     fields.insert("amount".to_string(), FieldValue::Float(amount));
     fields.insert("customer_id".to_string(), FieldValue::Integer(id));
+    // FR-081 Phase 2A+: window_v2 requires timestamp field for time-based windows
+    fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp));
+    // Also include event_time for backward compatibility
+    fields.insert("event_time".to_string(), FieldValue::Integer(timestamp));
 
     StreamRecord {
         fields,
@@ -81,7 +85,8 @@ async fn execute_windowed_test(
     // Find the maximum timestamp and add a large buffer
     let max_timestamp = records.iter().map(|r| r.timestamp).max().unwrap_or(0);
     let flush_timestamp = max_timestamp + 30000; // 30 seconds past the last record
-    let flush_record = create_test_record(999, 0.0, flush_timestamp);
+    // Use a very large amount (1e9) to ensure flush record passes any WHERE clause filters
+    let flush_record = create_test_record(999, 1e9, flush_timestamp);
     match engine.process_stream_record("orders", flush_record).await {
         Ok(_) => {}
         Err(e) => {
@@ -353,7 +358,8 @@ async fn test_session_window() {
 #[tokio::test]
 async fn test_window_with_where_clause() {
     // Test windowed query with WHERE filtering
-    let query = "SELECT COUNT(*) as high_value_orders FROM orders WHERE amount > 250.0 WINDOW TUMBLING(5s)";
+    let query =
+        "SELECT COUNT(*) as high_value_orders FROM orders WHERE amount > 250.0 WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Filtered out (amount <= 250)
@@ -387,7 +393,8 @@ async fn test_window_with_where_clause() {
 #[tokio::test]
 async fn test_window_with_having_clause() {
     // Test windowed query with HAVING filtering
-    let query = "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(5s) HAVING COUNT(*) >= 2";
+    let query =
+        "SELECT COUNT(*) as order_count FROM orders WINDOW TUMBLING(5s) HAVING COUNT(*) >= 2";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // Window 1: 3 records (passes HAVING)
@@ -412,7 +419,8 @@ async fn test_window_with_having_clause() {
 #[tokio::test]
 async fn test_empty_window() {
     // Test window behavior with no matching records
-    let query = "SELECT COUNT(*) as order_count FROM orders WHERE amount > 1000.0 WINDOW TUMBLING(5s)";
+    let query =
+        "SELECT COUNT(*) as order_count FROM orders WHERE amount > 1000.0 WINDOW TUMBLING(5s)";
 
     let records = vec![
         create_test_record(1, 100.0, 1000), // All amounts < 1000, so no matches
@@ -467,7 +475,8 @@ async fn test_window_boundary_alignment() {
 async fn test_window_with_multiple_aggregations() {
     // Test window query with multiple aggregation functions
     // This demonstrates advanced window processing patterns similar to subquery behavior
-    let query = "SELECT COUNT(*) as order_count, SUM(amount) as total FROM orders WINDOW TUMBLING(10s)";
+    let query =
+        "SELECT COUNT(*) as order_count, SUM(amount) as total FROM orders WINDOW TUMBLING(10s)";
 
     // Create test records with varying amounts
     let records = vec![

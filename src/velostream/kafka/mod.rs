@@ -2,11 +2,14 @@
 pub mod admin_client;
 pub mod configurable_consumer;
 pub mod configurable_producer;
-pub mod kafka_consumer;
+pub mod consumer_adapters;
+pub mod consumer_factory;
+// FR-081 Phase 2D: kafka_consumer.rs removed - use FastConsumer
 mod kafka_producer;
 mod kafka_producer_def_context;
 pub mod serialization;
 pub mod serialization_format;
+pub mod unified_consumer;
 mod utils;
 
 // Common types
@@ -24,9 +27,13 @@ pub mod kafka_error;
 pub mod kafka_fast_consumer;
 pub mod performance_presets;
 
-// Re-export main API
-pub use kafka_consumer::{ConsumerBuilder, KafkaConsumer};
+// Re-export main API (FR-081 Phase 2D: FastConsumer is the primary consumer)
+pub use kafka_fast_consumer::Consumer as FastConsumer;
 pub use kafka_producer::{KafkaProducer, ProducerBuilder};
+
+// FR-081 Phase 2B+2D: Re-export tier-based consumer system
+pub use consumer_factory::ConsumerFactory;
+pub use unified_consumer::KafkaStreamConsumer;
 
 // Re-export Phase 2 Enhanced APIs
 pub use serialization::JsonSerializer;

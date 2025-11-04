@@ -1,5 +1,5 @@
 use super::*;
-use velostream::{ConsumerBuilder, ProducerBuilder};
+use velostream::ProducerBuilder;
 
 #[tokio::test]
 async fn test_producer_builder_basic() {
@@ -163,27 +163,29 @@ async fn test_consumer_builder_basic() {
     if !is_kafka_running() {
         return;
     }
-    // Test basic consumer builder functionality
-    let consumer_result = ConsumerBuilder::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        "builder-consumer-group",
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .build();
+    // Test basic FastConsumer creation (FR-081 Phase 2D: replaced ConsumerBuilder)
+    let consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            "builder-consumer-group",
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     match consumer_result {
         Ok(consumer) => {
             // Verify we can use the consumer
             let _ = consumer.subscribe(&["builder-consumer-test-topic"]);
 
-            // Try to poll (might timeout if no messages)
-            let _ = consumer.poll(Duration::from_millis(100)).await;
+            // FastConsumer uses streaming API
+            use futures::StreamExt;
+            let mut stream = consumer.stream();
+            let _ = tokio::time::timeout(Duration::from_millis(100), stream.next()).await;
         }
         Err(err) => {
             // Consumer might fail if Kafka is not available - that's acceptable
             println!(
-                "Consumer builder failed (Kafka might not be available): {:?}",
+                "FastConsumer creation failed (Kafka might not be available): {:?}",
                 err
             );
         }
@@ -195,16 +197,17 @@ async fn test_consumer_builder_with_presets() {
     if !is_kafka_running() {
         return;
     }
-    // Test consumer builder with performance presets using ConsumerConfig
+    // Test FastConsumer with performance presets using ConsumerConfig
     let high_throughput_config = ConsumerConfig::new("localhost:9092", "ht-consumer-group")
         .client_id("ht-consumer")
         .high_throughput();
 
-    let ht_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
-        high_throughput_config,
-        JsonSerializer,
-        JsonSerializer,
-    );
+    let ht_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            high_throughput_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         ht_consumer_result.is_ok(),
@@ -215,11 +218,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("ll-consumer")
         .low_latency();
 
-    let ll_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
-        low_latency_config,
-        JsonSerializer,
-        JsonSerializer,
-    );
+    let ll_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            low_latency_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         ll_consumer_result.is_ok(),
@@ -230,11 +234,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("dev-consumer")
         .development();
 
-    let dev_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
-        development_config,
-        JsonSerializer,
-        JsonSerializer,
-    );
+    let dev_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            development_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         dev_consumer_result.is_ok(),
@@ -245,11 +250,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("stream-consumer")
         .streaming();
 
-    let stream_consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
-        streaming_config,
-        JsonSerializer,
-        JsonSerializer,
-    );
+    let stream_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            streaming_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         stream_consumer_result.is_ok(),
@@ -348,30 +354,10 @@ async fn test_consumer_builder_with_custom_context() {
     if !is_kafka_running() {
         return;
     }
-    // Test consumer builder with custom context
-    use rdkafka::consumer::DefaultConsumerContext;
-
-    let context = DefaultConsumerContext;
-    let consumer_result = ConsumerBuilder::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        "context-test-group",
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .with_context(context)
-    .build();
-
-    // This test verifies the with_context method compiles and works
-    // The actual functionality depends on rdkafka internals
-    match consumer_result {
-        Ok(_) => {
-            // Custom context consumer created successfully
-        }
-        Err(err) => {
-            // Might fail if Kafka is not available
-            println!("Consumer with custom context failed: {:?}", err);
-        }
-    }
+    // FR-081 Phase 2D: FastConsumer doesn't support custom context via builder
+    // This functionality is available through ConsumerConfig if needed
+    // Skipping this test as it tested the old ConsumerBuilder API
+    println!("Note: Custom context support removed with ConsumerBuilder in Phase 2D");
 }
 
 #[tokio::test]
@@ -424,11 +410,12 @@ async fn test_kafka_workflow() {
         .auto_offset_reset(OffsetReset::Latest)
         .development();
 
-    let consumer_result = KafkaConsumer::<String, TestMessage, _, _>::with_config(
-        consumer_config,
-        JsonSerializer,
-        JsonSerializer,
-    );
+    let consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            consumer_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     if let (Ok(producer), Ok(consumer)) = (producer_result, consumer_result) {
         // Subscribe consumer
@@ -484,14 +471,16 @@ mod builder_unit_tests {
 
     #[test]
     fn test_consumer_builder_creation() {
-        // Test that consumer builder can be created without errors
-        let _builder = ConsumerBuilder::<String, TestMessage, _, _>::new(
-            "localhost:9092",
-            "unit-test-group",
-            JsonSerializer,
-            JsonSerializer,
-        );
-        // If we get here, the builder was created successfully
+        // FR-081 Phase 2D: Test FastConsumer creation (replaced ConsumerBuilder)
+        let _consumer =
+            FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+                "localhost:9092",
+                "unit-test-group",
+                JsonSerializer,
+                JsonSerializer,
+            );
+        // If we get here, the FastConsumer was created successfully
+        // Note: This might return an error if rdkafka initialization fails
     }
 
     #[test]

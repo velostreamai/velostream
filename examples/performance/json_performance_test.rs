@@ -35,7 +35,7 @@ use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use velostream::{Headers, JsonSerializer, KafkaConsumer, Message, ProducerBuilder}; // Add this import for stream extension traits
+use velostream::{FastConsumer, Headers, JsonSerializer, Message, ProducerBuilder}; // Add this import for stream extension traits
 
 // Performance test configuration
 const MESSAGE_COUNT: u64 = 10_000;
@@ -231,7 +231,7 @@ async fn run_performance_test(
         .fetch_max_wait(Duration::from_millis(500))
         .high_throughput(); // Apply high-throughput preset
 
-    let consumer = KafkaConsumer::<String, PerformanceTestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, PerformanceTestMessage, JsonSerializer, JsonSerializer>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,

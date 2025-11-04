@@ -71,6 +71,194 @@ window_state.add_record(record.clone()); // ← O(N×M) memory allocations
 
 ---
 
+### Time Semantics and Watermarks (Stream Processing Fundamentals)
+
+#### Event-Time vs Processing-Time
+
+Stream processing systems distinguish between two fundamental notions of time:
+
+**Event-Time** (`StreamRecord.event_time`):
+- **Definition**: The timestamp when an event actually occurred in the real world
+- **Semantics**: Provides deterministic, reproducible results regardless of processing speed or arrival order
+- **Use Case**: Financial transactions, IoT sensor readings, user actions - any scenario where "when it happened" matters
+- **Industry Standard**: Default in ksqlDB, primary mode in Flink SQL
+
+**Processing-Time** (`StreamRecord.timestamp`):
+- **Definition**: The timestamp when a record arrives at the processing system (wall-clock time)
+- **Semantics**: Non-deterministic results that depend on system load, network latency, processing speed
+- **Use Case**: Monitoring dashboards, operational metrics - scenarios where "when we saw it" is sufficient
+- **Industry Standard**: Available in Flink SQL via `PROCTIME()`, not directly supported in ksqlDB
+
+#### Velostream's Three-Level Timestamp Architecture
+
+Velostream implements a **flexible three-level timestamp architecture** to support both event-time and processing-time semantics:
+
+```rust
+pub struct StreamRecord {
+    /// Level 1: User Data Fields (Payload Timestamps)
+    /// - Can contain fields named "timestamp", "event_time", "ts", etc.
+    /// - Extracted from Kafka message payload (JSON, Avro, Protobuf)
+    /// - Examples: {"timestamp": 1609459200000, "event_time": 1609459199500}
+    pub fields: HashMap<String, FieldValue>,
+
+    /// Level 2: Processing-Time Metadata (System Timestamp)
+    /// - When Velostream received/processed this record
+    /// - Similar to Kafka's CreateTime or LogAppendTime
+    /// - Used for processing-time windows and system metrics
+    pub timestamp: i64,  // milliseconds since epoch
+
+    /// Level 3: Event-Time Metadata (Optional)
+    /// - Designated event-time field extracted from payload or Kafka metadata
+    /// - Used for event-time windows and watermark generation
+    /// - None = fall back to processing-time semantics
+    pub event_time: Option<DateTime<Utc>>,
+
+    // ... other metadata ...
+}
+```
+
+**Comparison with Industry Standards**:
+
+| System | Event-Time | Processing-Time | User Timestamp Fields |
+|--------|------------|-----------------|----------------------|
+| **Flink SQL** | WATERMARK clause in DDL | `PROCTIME()` function | Via TIMESTAMP columns |
+| **ksqlDB** | ROWTIME (default) | Not directly supported | WITH(TIMESTAMP='field') |
+| **Velostream** | `event_time` metadata | `timestamp` metadata | `fields` HashMap |
+
+#### Window Time Field Resolution
+
+When a windowing operation executes, Velostream resolves the time field using this priority order:
+
+**Window Strategies** (tumbling.rs, sliding.rs, session.rs):
+```rust
+// Configured via WindowSpec.time_column (default: "timestamp")
+let time_column = window_spec.time_column
+    .unwrap_or_else(|| "timestamp".to_string());
+
+// Looks up field in record.fields HashMap
+let event_time = record.fields.get(time_column)?;
+```
+
+**Emission Strategies** (emit_final.rs):
+```rust
+// Fallback order when time_column not specified
+let field_names = vec!["event_time", "timestamp", "ts", "time"];
+for field_name in field_names {
+    if let Some(value) = record.fields.get(field_name) {
+        return Ok(extract_timestamp(value));
+    }
+}
+```
+
+**System Columns** (types.rs):
+```rust
+// Access metadata via system columns (prefixed with _)
+_EVENT_TIME   →  record.event_time  (event-time metadata)
+_TIMESTAMP    →  record.timestamp   (processing-time metadata)
+```
+
+#### Watermarks for Out-of-Order Data
+
+**Current State**: Partial watermark support (processing-time based)
+
+**Industry Approach** (Flink SQL):
+```sql
+CREATE TABLE orders (
+    order_id BIGINT,
+    order_time TIMESTAMP(3),
+    WATERMARK FOR order_time AS order_time - INTERVAL '5' SECOND
+) WITH (...);
+```
+
+This declares: "Expect events up to 5 seconds late. When watermark reaches T, all events with `order_time < T` have arrived."
+
+**Proposed Velostream Enhancement** (FR-081 Phase 3+):
+```rust
+pub struct WatermarkStrategy {
+    /// Maximum allowed lateness
+    max_out_of_orderness: Duration,
+
+    /// Idle timeout (emit watermark even if no data)
+    idle_timeout: Option<Duration>,
+
+    /// Time field to extract from records
+    timestamp_field: String,
+}
+
+impl WatermarkStrategy {
+    fn generate_watermark(&self, max_timestamp: i64) -> i64 {
+        max_timestamp - self.max_out_of_orderness.as_millis()
+    }
+}
+```
+
+**Watermark Semantics**:
+1. **Monotonic**: Watermarks never decrease (time always moves forward)
+2. **Conservative**: `watermark(T)` means "no more events with `timestamp < T`"
+3. **Late Data Handling**: Records arriving after watermark can be:
+   - Dropped (default in most systems)
+   - Sent to side output/dead letter queue (Flink)
+   - Included in next window (lenient mode)
+
+**Example Scenario**:
+```
+Events arrive:    t=100, t=103, t=101, t=105, t=102
+Watermark lag:    5ms
+Window:           TUMBLING(10ms)
+
+Processing:
+1. t=100 arrives → watermark=0 (no history yet)
+2. t=103 arrives → watermark=98 (103-5)
+3. t=101 arrives → in-order (101 > 98), added to window
+4. t=105 arrives → watermark=100 (105-5), triggers window [100-110)
+5. t=102 arrives → late data (102 < 100), dropped or side output
+```
+
+#### Design Decision: User Data vs Metadata
+
+**Why both `fields["timestamp"]` AND `StreamRecord.timestamp`?**
+
+1. **Flexibility**: Users can have ANY timestamp field names in their data
+2. **Compatibility**: Kafka provides both message timestamp AND payload timestamps
+3. **Multi-Source**: Different data sources use different timestamp conventions
+4. **SQL Standard**: SQL queries reference payload fields, not metadata
+
+**Best Practice** (aligned with Flink/ksqlDB):
+```sql
+-- Velostream (current)
+SELECT COUNT(*) FROM orders
+WINDOW TUMBLING(5m)  -- Uses fields["timestamp"] by default
+
+-- Velostream (with explicit time column)
+SELECT COUNT(*) FROM orders
+WINDOW TUMBLING(5m) ON event_time  -- Uses fields["event_time"]
+
+-- Flink SQL (for comparison)
+SELECT COUNT(*) FROM orders
+GROUP BY TUMBLE(event_time, INTERVAL '5' MINUTE)
+
+-- ksqlDB (for comparison)
+SELECT COUNT(*) FROM orders
+WINDOW TUMBLING (SIZE 5 MINUTES)  -- Uses ROWTIME by default
+```
+
+#### Implementation Status
+
+- [x] **Level 1**: User data fields - Fully supported
+- [x] **Level 2**: Processing-time metadata - Implemented (`StreamRecord.timestamp`)
+- [x] **Level 3**: Event-time metadata - Partially implemented (`StreamRecord.event_time`)
+- [ ] **Watermark Generation**: Basic support in FR-081 Phase 2, comprehensive in Phase 3+
+- [ ] **Late Data Handling**: Planned for FR-081 Phase 3+
+- [ ] **SQL DDL** for time attributes: Planned for future enhancement
+
+**References**:
+- Flink SQL Time Attributes: https://nightlies.apache.org/flink/flink-docs-master/docs/dev/table/concepts/time_attributes/
+- ksqlDB Time and Windows: https://docs.ksqldb.io/en/latest/concepts/time-and-windows-in-ksqldb-queries/
+- Velostream Types: `src/velostream/sql/execution/types.rs` (lines 963-978)
+- Window v2 Strategies: `src/velostream/sql/execution/window_v2/strategies/`
+
+---
+
 ### Code Organization Issues
 
 #### Issue #1: Monolithic Window.rs (2,793 Lines)
@@ -533,6 +721,153 @@ impl GroupByStrategy for MultiGroupStrategy {
 **Source References**:
 - Current GROUP BY routing: `window.rs:203-334`
 - Single vs multi-group paths: scattered throughout `window.rs`
+
+---
+
+### 3.1 HAVING Clause Implementation (FR-081 Phase 6)
+
+**Status**: ✅ Implemented (2025-11-03)
+**File**: `src/velostream/sql/execution/window_v2/adapter.rs`
+
+#### Architecture
+
+The HAVING clause is implemented using a **shared accumulator pattern** for efficient single-pass processing:
+
+```rust
+/// Execution Pipeline: Accumulation → HAVING Filter → SELECT Projection → ORDER BY
+fn compute_aggregations_over_window(
+    window_records: Vec<SharedRecord>,
+    fields: &[SelectField],
+    group_by: &Option<Vec<Expr>>,
+    having: &Option<Expr>,  // HAVING clause parameter
+) -> Result<Vec<StreamRecord>, SqlError> {
+    // 1. Accumulate aggregates per GROUP BY key
+    for record in &window_records {
+        let group_key = compute_group_key(group_by, record)?;
+        let accumulator = group_state.get_or_create(group_key);
+        accumulator.accumulate(record);  // Shared accumulation
+    }
+
+    // 2. Filter groups using HAVING (evaluates against accumulators)
+    let mut results = Vec::new();
+    for (group_key, accumulator) in &group_state.groups {
+        // Evaluate HAVING using THIS group's accumulator
+        if let Some(having_expr) = having {
+            let passes = evaluate_having_with_accumulator(having_expr, accumulator)?;
+            if !passes {
+                continue;  // Skip groups that don't pass HAVING filter
+            }
+        }
+
+        // 3. Build SELECT result (reuses SAME accumulator)
+        let result = build_result_record(fields, accumulator)?;
+        results.push(result);
+    }
+
+    Ok(results)
+}
+```
+
+#### Key Design Decisions
+
+1. **Shared Accumulators**: SELECT and HAVING use the **same** aggregation state
+   - ✅ Single-pass accumulation (no redundant computation)
+   - ✅ Consistent aggregate values between SELECT and HAVING
+   - ✅ Memory efficient (one accumulator per group)
+
+2. **HAVING Evaluates Before SELECT**: Filter groups BEFORE projecting SELECT fields
+   - ✅ Efficient (skip result construction for filtered groups)
+   - ✅ SQL standard compliant
+   - ✅ Prevents "field not found" errors (HAVING doesn't look up SELECT aliases)
+
+3. **Direct Accumulator Access**: HAVING evaluates aggregates directly from accumulators
+   ```rust
+   // CORRECT: Evaluates COUNT(*) using accumulator
+   evaluate_having_with_accumulator("COUNT(*) >= 2", accumulator)
+
+   // WRONG (previous approach): Would look for field 'cnt' in SELECT result
+   // evaluate_having_with_result("COUNT(*) >= 2", result_record)
+   ```
+
+#### Execution Order
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Window Processing with GROUP BY + HAVING + ORDER BY         │
+└──────────────────────────────────────────────────────────────┘
+
+1. ACCUMULATION (Single Pass)
+   ┌─────────────────────────────────────────┐
+   │ For each record in window:              │
+   │   group_key = GROUP BY expression       │
+   │   accumulator[group_key].add(record)    │
+   │ Result: Map<GroupKey, Accumulator>      │
+   └─────────────────────────────────────────┘
+                     ↓
+2. HAVING FILTER (Per Group)
+   ┌─────────────────────────────────────────┐
+   │ For each (group_key, accumulator):      │
+   │   if !HAVING.evaluate(accumulator):     │
+   │     skip this group                     │
+   │ Result: Filtered accumulators           │
+   └─────────────────────────────────────────┘
+                     ↓
+3. SELECT PROJECTION (Reuses Accumulators)
+   ┌─────────────────────────────────────────┐
+   │ For each surviving accumulator:         │
+   │   result = build_select_fields(         │
+   │     SELECT fields, accumulator)         │
+   │ Result: Vec<StreamRecord>               │
+   └─────────────────────────────────────────┘
+                     ↓
+4. ORDER BY (Optional)
+   ┌─────────────────────────────────────────┐
+   │ Sort results by ORDER BY expression     │
+   └─────────────────────────────────────────┘
+```
+
+#### Example Query
+
+```sql
+SELECT
+    customer_id,
+    COUNT(*) as session_actions,
+    SUM(amount) as session_value,
+    CASE
+        WHEN SUM(amount) > 500 THEN 'HIGH_VALUE'
+        ELSE 'LOW_VALUE'
+    END as customer_segment
+FROM orders
+GROUP BY customer_id
+WINDOW SESSION(10m)
+HAVING COUNT(*) >= 2        -- Filter: Only sessions with 2+ actions
+ORDER BY SUM(amount) DESC;  -- Sort: Highest value first
+```
+
+**Execution**:
+1. Accumulate: Create accumulator per customer_id with COUNT and SUM
+2. HAVING Filter: Skip customer_id groups with COUNT < 2
+3. SELECT Projection: Build result records with all SELECT fields
+4. ORDER BY: Sort by SUM(amount) descending
+
+#### Performance Characteristics
+
+- **Time Complexity**: O(N + G log G) where N = records, G = groups
+  - Accumulation: O(N) - single pass through records
+  - HAVING Filter: O(G) - evaluate per group
+  - SELECT Projection: O(G) - build results for surviving groups
+  - ORDER BY: O(G log G) - sort results
+
+- **Space Complexity**: O(G) - one accumulator per group
+  - No duplicate accumulators for HAVING vs SELECT
+  - Filtered groups release memory immediately
+
+#### Implementation References
+
+- **HAVING Evaluation**: `adapter.rs:662-783` (`evaluate_having_with_accumulator`)
+- **GROUP BY Aggregation**: `adapter.rs:412-507` (`compute_aggregations_over_window`)
+- **Multi-Result Emission**: `adapter.rs:233-247` (queues results for multiple groups)
+- **Tests**: `tests/unit/sql/execution/processors/window/group_by_window_having_order_sql_test.rs`
 
 ---
 

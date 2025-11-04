@@ -93,6 +93,9 @@ tokio-stream = "0.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.12.0"
 futures = "0.3"
+# Phase 2B: Integration testing with real Kafka
+testcontainers = "0.25"
+testcontainers-modules = { version = "0.13", features = ["kafka"] }
 
 
 # Performance examples - organized in subfolder

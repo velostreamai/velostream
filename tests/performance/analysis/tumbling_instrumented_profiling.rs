@@ -57,7 +57,11 @@ async fn profile_tumbling_instrumented_standard_path() {
         records.push(StreamRecord::new(fields));
     }
     let phase1_duration = phase1_start.elapsed();
-    println!("✅ Phase 1: Record generation ({} records): {:?}", records.len(), phase1_duration);
+    println!(
+        "✅ Phase 1: Record generation ({} records): {:?}",
+        records.len(),
+        phase1_duration
+    );
 
     // Phase 2: Engine Setup
     let phase2_start = Instant::now();
@@ -73,13 +77,18 @@ async fn profile_tumbling_instrumented_standard_path() {
         }
     };
     let phase2_duration = phase2_start.elapsed();
-    println!("✅ Phase 2: Engine setup + SQL parsing: {:?}", phase2_duration);
+    println!(
+        "✅ Phase 2: Engine setup + SQL parsing: {:?}",
+        phase2_duration
+    );
 
     // Phase 3: INSTRUMENTED Record Execution
     println!("\n🔬 DETAILED INSTRUMENTATION:");
     println!("{}", "─".repeat(70));
-    println!("{:>6} | {:>10} | {:>10} | {:>10} | {:>8} | {:>10}",
-             "Record", "Total", "Parse", "Execute", "Emit?", "Growth");
+    println!(
+        "{:>6} | {:>10} | {:>10} | {:>10} | {:>8} | {:>10}",
+        "Record", "Total", "Parse", "Execute", "Emit?", "Growth"
+    );
     println!("{}", "─".repeat(70));
 
     let phase3_start = Instant::now();
@@ -111,20 +120,29 @@ async fn profile_tumbling_instrumented_standard_path() {
                 1.0
             };
 
-            println!("{:6} | {:10.3?} | {:>10} | {:>10} | {:>8} | {:>9.2}x",
-                     idx,
-                     total_time,
-                     "-", // Can't measure parse separately in this test
-                     "-", // Can't measure execute separately
-                     "-", // Can't detect emission
-                     growth);
+            println!(
+                "{:6} | {:10.3?} | {:>10} | {:>10} | {:>8} | {:>9.2}x",
+                idx,
+                total_time,
+                "-", // Can't measure parse separately in this test
+                "-", // Can't measure execute separately
+                "-", // Can't detect emission
+                growth
+            );
         }
     }
 
     let phase3_duration = phase3_start.elapsed();
     println!("{}", "─".repeat(70));
-    println!("✅ Phase 3: Execute {} records: {:?}", records.len(), phase3_duration);
-    println!("   Average per record: {:?}", phase3_duration / records.len() as u32);
+    println!(
+        "✅ Phase 3: Execute {} records: {:?}",
+        records.len(),
+        phase3_duration
+    );
+    println!(
+        "   Average per record: {:?}",
+        phase3_duration / records.len() as u32
+    );
 
     // Analyze timing patterns
     println!("\n📊 TIMING ANALYSIS:");
@@ -148,7 +166,10 @@ async fn profile_tumbling_instrumented_standard_path() {
             if checkpoint < execution_times.len() {
                 let (idx, time) = execution_times[checkpoint];
                 let growth = time.as_micros() as f64 / baseline.as_micros() as f64;
-                println!("Record {:5}: {:10.3?} ({:6.2}x baseline)", idx, time, growth);
+                println!(
+                    "Record {:5}: {:10.3?} ({:6.2}x baseline)",
+                    idx, time, growth
+                );
             }
         }
 
@@ -176,18 +197,23 @@ async fn profile_tumbling_instrumented_standard_path() {
         let times: Vec<u128> = execution_times.iter().map(|(_, d)| d.as_micros()).collect();
         let mean = times.iter().sum::<u128>() as f64 / times.len() as f64;
 
-        let variance = times.iter()
+        let variance = times
+            .iter()
             .map(|&t| {
                 let diff = t as f64 - mean;
                 diff * diff
             })
-            .sum::<f64>() / times.len() as f64;
+            .sum::<f64>()
+            / times.len() as f64;
 
         let std_dev = variance.sqrt();
 
         println!("Mean:   {:.2}µs", mean);
         println!("StdDev: {:.2}µs", std_dev);
-        println!("CoV:    {:.2}% (coefficient of variation)", (std_dev / mean) * 100.0);
+        println!(
+            "CoV:    {:.2}% (coefficient of variation)",
+            (std_dev / mean) * 100.0
+        );
 
         if (std_dev / mean) > 1.0 {
             println!("⚠️  High variance indicates inconsistent performance");
@@ -209,17 +235,21 @@ async fn profile_tumbling_instrumented_standard_path() {
     let throughput = records.len() as f64 / total_duration.as_secs_f64();
 
     println!("Total time:    {:?}", total_duration);
-    println!("Execution:     {:?} ({:.1}%)",
-             phase3_duration,
-             100.0 * phase3_duration.as_secs_f64() / total_duration.as_secs_f64());
+    println!(
+        "Execution:     {:?} ({:.1}%)",
+        phase3_duration,
+        100.0 * phase3_duration.as_secs_f64() / total_duration.as_secs_f64()
+    );
     println!("Results:       {} collected", results.len());
     println!("Throughput:    {:.0} rec/sec", throughput);
     println!("Target:        20,000 rec/sec");
 
     if throughput < 20000.0 {
-        println!("Gap:           {:.0} rec/sec ({:.1}x slower)",
-                 20000.0 - throughput,
-                 20000.0 / throughput);
+        println!(
+            "Gap:           {:.0} rec/sec ({:.1}x slower)",
+            20000.0 - throughput,
+            20000.0 / throughput
+        );
     }
 
     println!("\n🔍 BOTTLENECK IDENTIFICATION:");
@@ -231,7 +261,10 @@ async fn profile_tumbling_instrumented_standard_path() {
     let growth = last_time.as_micros() as f64 / first_time.as_micros() as f64;
 
     if growth > 5.0 {
-        println!("✓ Growth ratio {:.2}x indicates O(N) cost per record", growth);
+        println!(
+            "✓ Growth ratio {:.2}x indicates O(N) cost per record",
+            growth
+        );
         println!("✓ Total complexity is O(N²)");
         println!("\nMost likely causes:");
         println!("  1. Buffer scanning on every record insertion");

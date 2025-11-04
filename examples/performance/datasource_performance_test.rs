@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use velostream::velostream::datasource::config::ConnectionString;
 use velostream::velostream::datasource::create_source;
-use velostream::velostream::kafka::{JsonSerializer, KafkaConsumer};
+use velostream::velostream::kafka::{FastConsumer, JsonSerializer};
 use velostream::velostream::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata};
 use velostream::velostream::sql::ast::DataType;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
@@ -156,12 +156,13 @@ async fn benchmark_kafka_direct() -> PerformanceStats {
         let start = Instant::now();
 
         // Simulate direct Kafka consumer creation
-        let _consumer_result = KafkaConsumer::<String, String, JsonSerializer, JsonSerializer>::new(
-            "localhost:9092",
-            &format!("test-group-{}", i % 10),
-            JsonSerializer,
-            JsonSerializer,
-        );
+        let _consumer_result =
+            FastConsumer::<String, String, JsonSerializer, JsonSerializer>::from_brokers(
+                "localhost:9092",
+                &format!("test-group-{}", i % 10),
+                JsonSerializer,
+                JsonSerializer,
+            );
 
         let duration = start.elapsed();
         metrics.record_operation(duration);
