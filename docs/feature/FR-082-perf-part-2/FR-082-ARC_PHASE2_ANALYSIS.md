@@ -30,15 +30,17 @@
 | - | Task 10: Run test suite | ⏸️ Not Started | Est. 2h | 2471 tests |
 | - | Task 11: Run benchmark validation | ⏸️ Not Started | Est. 2h | Target: 2000K rec/s |
 | - | Task 12: Production profiling | ⏸️ Not Started | Est. 2h | Real workloads |
-| - | **Phase 2E: Documentation** | ⏸️ Not Started | Est. 4h | Migration guide |
+| - | **Phase 2E: Documentation** | ⏸️ Not Started | Est. 2h | CHANGELOG + docs |
 | - | Task 13: Update CLAUDE.md | ⏸️ Not Started | Est. 1h | Phase 2 completion |
-| - | Task 14: Write migration guide | ⏸️ Not Started | Est. 2h | Downstream users |
-| - | Task 15: Code review & merge | ⏸️ Not Started | Est. 1h | Final approval |
+| - | Task 14: Add CHANGELOG entry | ⏸️ Not Started | Est. 0.5h | Breaking change note |
+| - | Task 15: Code review & merge | ⏸️ Not Started | Est. 0.5h | Final approval |
 
 **Legend**: ✅ Complete | 🔄 In Progress | ⏸️ Not Started | ❌ Blocked
 
-**Total Progress**: 3/21 tasks complete (14%)
-**Estimated Remaining**: 26 hours
+**Total Progress**: 3/18 tasks complete (17%)
+**Estimated Remaining**: 24 hours
+
+**Note**: Migration guide removed - all DataWriter implementations are internal, atomic switch is sufficient.
 
 ---
 
@@ -535,8 +537,8 @@ If Phase 2 causes issues:
 17. ✅ Measure Arc::make_mut() COW frequency
 
 **Phase 2E: Documentation & Merge (Day 3.5)**
-18. ✅ Update architecture docs
-19. ✅ Write migration guide for downstream users
+18. ✅ Update CLAUDE.md with Phase 2 completion
+19. ✅ Add CHANGELOG entry for breaking change
 20. ✅ Code review
 21. ✅ Merge to master
 
@@ -661,12 +663,14 @@ Clone overhead: 0.0s
 - ✅ Framework overhead ≤ 0.6s
 - ✅ Zero clone overhead in profiling
 
-#### Task 11: Documentation (2 hours)
+#### Task 11: Documentation (1 hour)
 
 1. Update `CLAUDE.md` with Phase 2 completion
-2. Create migration guide for downstream users
-3. Document Arc::make_mut() patterns
-4. Update performance benchmarks
+2. Add CHANGELOG entry for breaking change
+3. Document Arc::make_mut() patterns in code comments
+4. Update performance benchmark results
+
+**Note**: No migration guide needed - all implementations are internal, atomic switch is sufficient.
 
 ---
 
@@ -680,8 +684,8 @@ Clone overhead: 0.0s
 | **2B: Observability** | 6-9 | 4h | Arc::make_mut + metrics |
 | **2C: Clone Removal** | 10-13 | 4h | Remove 14 clone sites |
 | **2D: Validation** | 14-17 | 6h | Testing + benchmarking |
-| **2E: Documentation** | 18-21 | 4h | Docs + migration guide |
-| **TOTAL** | | **26h** | **~3.5 days** |
+| **2E: Documentation** | 18-21 | 2h | CHANGELOG + docs (no migration guide) |
+| **TOTAL** | | **24h** | **~3 days** |
 
 ### Resource Requirements
 
