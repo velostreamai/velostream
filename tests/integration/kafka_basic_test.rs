@@ -280,14 +280,13 @@ async fn test_builder_pattern() {
     .build()
     .expect("Failed to build producer");
 
-    let consumer = ConsumerBuilder::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &group_id,
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )
-    .build()
-    .expect("Failed to build consumer");
+    .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 

@@ -34,6 +34,44 @@
 
 ---
 
+## ⚠️ Known API Limitations
+
+### FastConsumer group_id Requirement for Transactions
+
+**Issue**: The `FastConsumer::new()` constructor (which takes a raw `BaseConsumer`) cannot extract the `group_id` from the underlying consumer, so it initializes `group_id` to an empty string.
+
+**Impact**: Transaction support and manual offset commits require a valid `group_id`. Using `FastConsumer::new()` directly will result in empty group_id.
+
+**Workaround**: Always use one of these factory methods which properly store the `group_id`:
+- `FastConsumer::from_brokers()` - Creates consumer from broker list and group_id
+- `FastConsumer::with_config()` - Creates consumer from `ConsumerConfig` (includes group_id)
+- `ConsumerFactory::create()` - Uses `ConsumerConfig` internally
+
+**Example**:
+```rust
+// ❌ DON'T: Direct construction loses group_id
+let base_consumer = BaseConsumer::from_config(&client_config)?;
+let consumer = FastConsumer::new(base_consumer, key_ser, val_ser);
+// consumer.group_id() returns "" - transactions won't work!
+
+// ✅ DO: Use factory methods that preserve group_id
+let consumer = FastConsumer::from_brokers(
+    "localhost:9092",
+    "my-consumer-group",
+    Box::new(JsonSerializer),
+    Box::new(JsonSerializer),
+)?;
+// consumer.group_id() returns "my-consumer-group" - transactions work correctly!
+```
+
+**Root Cause**: The `BaseConsumer` from rdkafka doesn't expose a `group_id()` accessor method, so we can't retrieve it after construction. This is an API design constraint, not a bug.
+
+**Status**: ⚠️ DOCUMENTED - API limitation accepted, users should follow recommended factory patterns
+
+**Phase**: Phase 2D (Legacy KafkaConsumer Removal) - Identified during test compilation fixes
+
+---
+
 ## 📋 Detailed Phase 2B Progress Tracking
 
 ### Completion Status by Week

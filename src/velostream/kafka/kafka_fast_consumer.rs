@@ -403,6 +403,7 @@ pub struct Consumer<K, V> {
     consumer: BaseConsumer,
     value_serializer: Box<dyn Serde<V> + Send + Sync>,
     key_serializer: Box<dyn Serde<K> + Send + Sync>,
+    group_id: String,
 }
 
 impl<K, V> Consumer<K, V> {
@@ -428,10 +429,13 @@ impl<K, V> Consumer<K, V> {
         value_serializer: Box<dyn Serde<V> + Send + Sync>,
         key_serializer: Box<dyn Serde<K> + Send + Sync>,
     ) -> Self {
+        // Note: group_id is not available when constructing directly from BaseConsumer
+        // Use with_config() or from_brokers() if you need group_id for transactions
         Self {
             consumer,
             value_serializer,
             key_serializer,
+            group_id: String::new(),
         }
     }
 
@@ -513,6 +517,7 @@ impl<K, V> Consumer<K, V> {
             consumer: base_consumer,
             key_serializer,
             value_serializer,
+            group_id: config.group_id.clone(),
         })
     }
 
@@ -977,6 +982,13 @@ where
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
         self.consumer
             .commit_consumer_state(rdkafka::consumer::CommitMode::Sync)
+    }
+
+    /// Returns the consumer group ID.
+    ///
+    /// Used for transaction management and offset committing.
+    pub fn group_id(&self) -> &str {
+        &self.group_id
     }
 
     /// Returns the current offset positions for assigned partitions.
