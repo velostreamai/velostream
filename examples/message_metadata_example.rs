@@ -12,11 +12,11 @@ struct MyMessage {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a consumer
-    let consumer = FastConsumer::<String, MyMessage>::new(
+    let consumer = FastConsumer::<String, MyMessage>::from_brokers(
         "localhost:9092",
         "metadata-example-group",
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
 
     consumer.subscribe(&["test-topic"])?;

@@ -29,8 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let producer = match KafkaProducer::<String, User, _, _>::new(
         "localhost:9092",
         "users",
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     ) {
         Ok(p) => {
             println!("✅ Producer created successfully");
@@ -44,11 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create consumer for User messages
-    let consumer = match FastConsumer::<String, User>::new(
+    let consumer = match FastConsumer::<String, User>::from_brokers(
         "localhost:9092",
         "user-processor",
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     ) {
         Ok(c) => c,
         Err(e) => {

@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )?;
 
-    let consumer = FastConsumer::<String, ProductEvent>::new(
+    let consumer = FastConsumer::<String, ProductEvent>::from_brokers(
         broker,
         &group_id,
         JsonSerializer,

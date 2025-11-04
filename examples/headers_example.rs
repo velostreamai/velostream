@@ -61,11 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // Create consumer with key/value serializers
-    let consumer = FastConsumer::<String, OrderEvent>::new(
+    let consumer = FastConsumer::<String, OrderEvent>::from_brokers(
         broker,
         group_id,
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
 
     consumer.subscribe(&[topic])?;

@@ -158,11 +158,11 @@ async fn benchmark_kafka_direct() -> PerformanceStats {
         let start = Instant::now();
 
         // Simulate direct Kafka consumer creation
-        let _consumer_result = FastConsumer::<String, String>::new(
+        let _consumer_result = FastConsumer::<String, String>::from_brokers(
             "localhost:9092",
             &format!("test-group-{}", i % 10),
-            JsonSerializer,
-            JsonSerializer,
+            Box::new(JsonSerializer),
+            Box::new(JsonSerializer),
         );
 
         let duration = start.elapsed();

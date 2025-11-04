@@ -156,8 +156,8 @@ async fn run_simple_zero_copy_test() -> Result<(u64, u64, u64, f64), Box<dyn std
 
     let consumer = FastConsumer::<String, Vec<u8>>::with_config(
         consumer_config,
-        StringSerializer,
-        BytesSerializer,
+        Box::new(StringSerializer),
+        Box::new(BytesSerializer),
     )?;
 
     consumer.subscribe(&[&topic])?;

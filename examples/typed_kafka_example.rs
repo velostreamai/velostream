@@ -75,8 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let producer = KafkaProducer::<String, OrderEvent, _, _>::new(
         "localhost:9092",
         "order-events",
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
 
     let order = OrderEvent::new("order-123", "customer-456", 99.99, OrderStatus::Created);
@@ -92,11 +92,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 2: Type-safe consumer with automatic deserialization
     println!("\n=== Type-Safe Consumer Example ===");
 
-    let consumer = FastConsumer::<String, OrderEvent>::new(
+    let consumer = FastConsumer::<String, OrderEvent>::from_brokers(
         "localhost:9092",
         "order-processor-group",
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
 
     consumer.subscribe(&["order-events"])?;

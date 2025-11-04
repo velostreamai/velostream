@@ -133,11 +133,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("6. Consumer Configurations:");
 
     // Basic consumer
-    let _basic_consumer = FastConsumer::<String, OrderEvent>::new(
+    let _basic_consumer = FastConsumer::<String, OrderEvent>::from_brokers(
         "localhost:9092",
         "order-processors",
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
     println!("✅ Created basic consumer with defaults");
 
@@ -148,8 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _ht_consumer = FastConsumer::<String, OrderEvent>::with_config(
         _ht_consumer_config,
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
     println!("✅ Created high-throughput consumer");
 
@@ -161,8 +161,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _streaming_consumer = FastConsumer::<String, OrderEvent>::with_config(
         _streaming_config,
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
     println!("✅ Created streaming consumer");
 
@@ -174,8 +174,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _dev_consumer = FastConsumer::<String, OrderEvent>::with_config(
         _dev_config,
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
     println!("✅ Created development consumer\n");
 
