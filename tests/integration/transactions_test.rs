@@ -74,7 +74,7 @@ async fn test_transactional_producer_commit() {
 
     // Verify messages are available after commit
     let group_id = format!("tx-consumer-{}", Uuid::new_v4());
-    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -162,7 +162,7 @@ async fn test_transactional_producer_abort() {
 
     // Verify messages are NOT available after abort
     let group_id = format!("abort-consumer-{}", Uuid::new_v4());
-    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -294,7 +294,7 @@ async fn test_exactly_once_semantics() {
 
     // Verify all messages are received exactly once
     let group_id = format!("eos-consumer-{}", Uuid::new_v4());
-    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &group_id,
         JsonSerializer,
@@ -466,7 +466,7 @@ async fn test_exactly_once_consumer_producer_coordination() {
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(2));
 
-    let consumer = FastConsumer::<String, TestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, TestMessage>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -547,7 +547,7 @@ async fn test_exactly_once_consumer_producer_coordination() {
 
     // Verify output messages with exactly-once guarantee
     let output_group_id = format!("eos-output-consumer-{}", Uuid::new_v4());
-    let output_consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let output_consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &output_group_id,
         JsonSerializer,
@@ -641,7 +641,7 @@ async fn test_exactly_once_with_failure_recovery() {
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(2));
 
-    let consumer = FastConsumer::<String, TestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, TestMessage>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -745,7 +745,7 @@ async fn test_exactly_once_with_failure_recovery() {
 
     // Verify only one output message exists (exactly-once despite retry)
     let output_group_id = format!("eos-recovery-output-{}", Uuid::new_v4());
-    let output_consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let output_consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &output_group_id,
         JsonSerializer,
@@ -832,7 +832,7 @@ async fn test_exactly_once_with_consumer_stream() {
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(2));
 
-    let consumer = FastConsumer::<String, TestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, TestMessage>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -931,7 +931,7 @@ async fn test_exactly_once_with_consumer_stream() {
 
     // Verify output messages
     let output_group_id = format!("eos-stream-output-{}", Uuid::new_v4());
-    let output_consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let output_consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &output_group_id,
         JsonSerializer,
@@ -1033,7 +1033,7 @@ async fn test_exactly_once_stream_with_error_handling() {
         .isolation_level(IsolationLevel::ReadCommitted)
         .auto_commit(false, Duration::from_secs(2));
 
-    let consumer = FastConsumer::<String, TestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, TestMessage>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -1136,7 +1136,7 @@ async fn test_exactly_once_stream_with_error_handling() {
 
     // Verify only good messages were committed
     let output_group_id = format!("eos-stream-error-output-{}", Uuid::new_v4());
-    let output_consumer = FastConsumer::<String, TestMessage, _, _>::new(
+    let output_consumer = FastConsumer::<String, TestMessage>::from_brokers(
         "localhost:9092",
         &output_group_id,
         JsonSerializer,

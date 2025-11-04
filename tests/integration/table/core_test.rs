@@ -69,7 +69,7 @@ async fn test_table_from_consumer() {
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let consumer_result = FastConsumer::<String, Vec<u8>, _, _>::with_config(
+    let consumer_result = FastConsumer::<String, Vec<u8>>::with_config(
         consumer_config,
         StringSerializer,
         BytesSerializer,
@@ -77,7 +77,12 @@ async fn test_table_from_consumer() {
 
     match consumer_result {
         Ok(consumer) => {
-            let table = Table::from_consumer(consumer, "user-profiles".to_string(), JsonFormat);
+            let table = Table::from_consumer(
+                consumer,
+                "user-profiles".to_string(),
+                "table-consumer-group".to_string(),
+                JsonFormat,
+            );
 
             assert_eq!(table.topic(), "user-profiles");
             assert_eq!(table.group_id(), "table-consumer-group");

@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
-use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::serialization::{JsonSerializer, Serde, StringSerializer};
 use velostream::velostream::sql::execution::types::FieldValue;
 
@@ -194,15 +193,20 @@ async fn benchmark_stream_consumer(
     topic: &str,
     message_count: usize,
 ) -> PerformanceMetrics {
-    println!("\n>>> Benchmarking: StreamConsumer (Legacy)");
+    println!("\n>>> Benchmarking: FastConsumer (BaseConsumer-based)");
 
-    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
-        &env.bootstrap_servers,
-        "benchmark-stream-consumer",
-        StringSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create StreamConsumer");
+    let base_consumer = rdkafka::config::ClientConfig::new()
+        .set("bootstrap.servers", &env.bootstrap_servers)
+        .set("group.id", "benchmark-stream-consumer")
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("Failed to create BaseConsumer");
+
+    let consumer = FastConsumer::<String, TestMessage>::new(
+        base_consumer,
+        Box::new(JsonSerializer),
+        Box::new(StringSerializer),
+    );
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
 

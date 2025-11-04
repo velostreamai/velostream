@@ -208,11 +208,11 @@ async fn test_consumer_deserialization_error() {
 
 async fn test_consumer_deserialization_workflow() {
     // Create a consumer with a deserializer that always fails
-    let consumer_result = FastConsumer::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        "error-test-group",
-        FailingSerializer, // Key deserializer fails
-        FailingSerializer, // Value deserializer fails
+    let config = ConsumerConfig::new("localhost:9092", "error-test-group");
+    let consumer_result = FastConsumer::<String, TestMessage>::with_config(
+        config,
+        Box::new(FailingSerializer), // Key deserializer fails
+        Box::new(FailingSerializer), // Value deserializer fails
     );
 
     let consumer = match consumer_result {
@@ -284,11 +284,11 @@ async fn test_consumer_deserialization_workflow() {
 
 #[tokio::test]
 async fn test_consumer_invalid_topic_subscription() {
-    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        "error-test-group",
-        JsonSerializer,
-        JsonSerializer,
+    let config = ConsumerConfig::new("localhost:9092", "error-test-group");
+    let consumer = FastConsumer::<String, TestMessage>::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )
     .expect("Failed to create consumer");
 
@@ -309,11 +309,11 @@ async fn test_consumer_invalid_topic_subscription() {
 
 #[tokio::test]
 async fn test_consumer_poll_timeout() {
-    let consumer = FastConsumer::<String, TestMessage, _, _>::new(
-        "localhost:9092",
-        "timeout-test-group",
-        JsonSerializer,
-        JsonSerializer,
+    let config = ConsumerConfig::new("localhost:9092", "timeout-test-group");
+    let consumer = FastConsumer::<String, TestMessage>::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )
     .expect("Failed to create consumer");
 

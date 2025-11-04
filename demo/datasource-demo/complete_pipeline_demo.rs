@@ -30,7 +30,7 @@ use velostream::velostream::datasource::file::{
 use velostream::velostream::datasource::traits::{DataSink, DataSource};
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::producer_config::{AckMode, ProducerConfig};
-use velostream::velostream::kafka::{JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::velostream::kafka::{FastConsumer, JsonSerializer, KafkaProducer};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 use futures::StreamExt;
@@ -341,10 +341,10 @@ async fn run_kafka_to_file_pipeline(
         .auto_offset_reset(OffsetReset::Earliest)
         .auto_commit(false, Duration::from_millis(1000));
 
-    let consumer = KafkaConsumer::<String, serde_json::Value, _, _>::with_config(
+    let consumer = FastConsumer::<String, serde_json::Value>::with_config(
         consumer_config,
-        JsonSerializer,
-        JsonSerializer,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?;
 
     consumer.subscribe(&[KAFKA_TOPIC])?;

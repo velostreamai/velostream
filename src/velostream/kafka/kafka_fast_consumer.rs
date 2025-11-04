@@ -516,6 +516,39 @@ impl<K, V> Consumer<K, V> {
         })
     }
 
+    /// Convenience constructor for simple use cases (FR-081 Phase 2D migration helper).
+    ///
+    /// Creates a FastConsumer with default configuration. For production use,
+    /// prefer `with_config()` for full control over consumer configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `brokers` - Comma-separated list of Kafka brokers (e.g., "localhost:9092")
+    /// * `group_id` - Consumer group ID
+    /// * `key_serializer` - Serializer for message keys
+    /// * `value_serializer` - Serializer for message values
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let consumer = FastConsumer::from_brokers(
+    ///     "localhost:9092",
+    ///     "my-group",
+    ///     Box::new(JsonSerializer),
+    ///     Box::new(JsonSerializer),
+    /// )?;
+    /// ```
+    pub fn from_brokers(
+        brokers: &str,
+        group_id: &str,
+        key_serializer: Box<dyn Serde<K> + Send + Sync>,
+        value_serializer: Box<dyn Serde<V> + Send + Sync>,
+    ) -> Result<Self, rdkafka::error::KafkaError> {
+        let config =
+            crate::velostream::kafka::consumer_config::ConsumerConfig::new(brokers, group_id);
+        Self::with_config(config, key_serializer, value_serializer)
+    }
+
     /// Polls for a message with blocking timeout (fastest synchronous method).
     ///
     /// This is the fastest way to consume messages in synchronous code. It blocks
@@ -598,6 +631,36 @@ impl<K, V> Consumer<K, V> {
             )?)),
             Some(Err(e)) => Err(ConsumerError::KafkaError(e)),
             None => Ok(None),
+        }
+    }
+
+    /// Async poll with timeout (convenience method for migration from old KafkaConsumer).
+    ///
+    /// This is a convenience wrapper around stream().next() with timeout, provided for
+    /// API compatibility with the old KafkaConsumer. For production use, prefer using
+    /// `stream()`, `buffered_stream()`, or `dedicated_stream()` for better performance.
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - Maximum time to wait for a message
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Message<K, V>)` - Successfully received message
+    /// * `Err(ConsumerError::Timeout)` - No message within timeout
+    /// * `Err(ConsumerError::NoMessage)` - Stream ended
+    /// * `Err(ConsumerError::...)` - Other errors
+    pub async fn poll(&self, timeout: Duration) -> Result<Message<K, V>, ConsumerError> {
+        use futures::StreamExt;
+        use tokio::time::timeout as tokio_timeout;
+
+        let mut stream = self.stream();
+
+        match tokio_timeout(timeout, stream.next()).await {
+            Ok(Some(Ok(message))) => Ok(message),
+            Ok(Some(Err(e))) => Err(e),
+            Ok(None) => Err(ConsumerError::NoMessage),
+            Err(_) => Err(ConsumerError::Timeout),
         }
     }
 

@@ -4,7 +4,7 @@ use std::net::TcpStream;
 use std::time::Duration;
 use uuid::Uuid;
 use velostream::velostream::kafka::serialization::Serde;
-use velostream::velostream::kafka::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::velostream::kafka::{FastConsumer, Headers, JsonSerializer, KafkaProducer};
 
 /// Helper functions
 pub(crate) fn is_kafka_running() -> bool {
@@ -79,37 +79,40 @@ pub(crate) fn create_order_producer(
     )?)
 }
 
-// Consumer creation helpers
+// Consumer creation helpers (FR-081 Phase 2D: Updated for FastConsumer)
 pub(crate) fn create_test_message_consumer(
     group_id: &str,
 ) -> Result<FastConsumer<String, TestMessage>, Box<dyn std::error::Error>> {
-    Ok(FastConsumer::new(
-        "localhost:9092",
-        group_id,
-        JsonSerializer,
-        JsonSerializer,
+    use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    let config = ConsumerConfig::new("localhost:9092", group_id);
+    Ok(FastConsumer::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?)
 }
 
 pub(crate) fn create_user_consumer(
     group_id: &str,
 ) -> Result<FastConsumer<String, User>, Box<dyn std::error::Error>> {
-    Ok(FastConsumer::new(
-        "localhost:9092",
-        group_id,
-        JsonSerializer,
-        JsonSerializer,
+    use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    let config = ConsumerConfig::new("localhost:9092", group_id);
+    Ok(FastConsumer::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?)
 }
 
 pub(crate) fn create_order_consumer(
     group_id: &str,
 ) -> Result<FastConsumer<String, OrderEvent>, Box<dyn std::error::Error>> {
-    Ok(FastConsumer::new(
-        "localhost:9092",
-        group_id,
-        JsonSerializer,
-        JsonSerializer,
+    use velostream::velostream::kafka::consumer_config::ConsumerConfig;
+    let config = ConsumerConfig::new("localhost:9092", group_id);
+    Ok(FastConsumer::with_config(
+        config,
+        Box::new(JsonSerializer),
+        Box::new(JsonSerializer),
     )?)
 }
 
@@ -198,13 +201,7 @@ impl TestSetup<OrderEvent> {
 }
 
 // Safe commit helper
-pub(crate) fn safe_commit<K, V, KS, VS>(
-    consumer: &FastConsumer<K, V, KS, VS>,
-    received_count: usize,
-) where
-    KS: Serde<K>,
-    VS: Serde<V>,
-{
+pub(crate) fn safe_commit<K, V>(consumer: &FastConsumer<K, V>, received_count: usize) {
     if received_count > 0 {
         let _ = consumer.commit(); // Make commit optional
     }
