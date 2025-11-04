@@ -489,12 +489,8 @@ impl TransactionalJobProcessor {
         );
 
         // Inject trace context into output records for downstream propagation
-        // PERF: Unwrap Arc to owned records for trace injection and metrics
-        let mut output_owned: Vec<_> = batch_result
-            .output_records
-            .iter()
-            .map(|arc| (**arc).clone())
-            .collect();
+        // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
+        let mut output_owned: Vec<Arc<StreamRecord>> = batch_result.output_records;
         ObservabilityHelper::inject_trace_context_into_records(
             &batch_span_guard,
             &mut output_owned,
@@ -529,13 +525,8 @@ impl TransactionalJobProcessor {
                 );
                 let ser_start = Instant::now();
                 let record_count = batch_result.output_records.len();
-                // PERF: Unwrap Arc for trait compatibility
-                let unwrapped: Vec<_> = batch_result
-                    .output_records
-                    .iter()
-                    .map(|arc| (**arc).clone())
-                    .collect();
-                match w.write_batch(unwrapped).await {
+                // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
+                match w.write_batch(batch_result.output_records).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -1057,11 +1048,8 @@ impl TransactionalJobProcessor {
 
         // Write output records to all sinks within the transaction
         if processing_successful && !all_output_records.is_empty() && !sink_names.is_empty() {
-            // PERF: Unwrap Arc to owned records for trace injection
-            let mut output_owned: Vec<_> = all_output_records
-                .iter()
-                .map(|arc| (**arc).clone())
-                .collect();
+            // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
+            let mut output_owned: Vec<Arc<StreamRecord>> = all_output_records;
 
             // Inject trace context into all output records for downstream propagation
             ObservabilityHelper::inject_trace_context_into_records(
