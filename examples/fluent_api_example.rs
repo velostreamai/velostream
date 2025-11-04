@@ -62,7 +62,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use uuid::Uuid;
-use velostream::{Headers, JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::{Headers, JsonSerializer, FastConsumer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {
@@ -124,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )?;
 
-    let consumer = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer = FastConsumer::<String, OrderEvent>::new(
         broker,
         &group_id,
         JsonSerializer,
@@ -259,7 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Example 3: Transform to Business Objects");
 
     // Create new consumer for fresh stream
-    let consumer2 = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer2 = FastConsumer::<String, OrderEvent>::new(
         broker,
         &format!("fluent-group2-{}", Uuid::new_v4()),
         JsonSerializer,
@@ -305,7 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 4: Complex filtering and grouping
     println!("📊 Example 4: Complex Stream Processing - Web API Orders Only");
 
-    let consumer3 = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer3 = FastConsumer::<String, OrderEvent>::new(
         broker,
         &format!("fluent-group3-{}", Uuid::new_v4()),
         JsonSerializer,
@@ -350,7 +350,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 5: Asynchronous processing with for_each
     println!("⚡ Example 5: Async Processing Pipeline");
 
-    let consumer4 = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer4 = FastConsumer::<String, OrderEvent>::new(
         broker,
         &format!("fluent-group4-{}", Uuid::new_v4()),
         JsonSerializer,
@@ -386,7 +386,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 6: Error handling in streams
     println!("🛡️  Example 6: Stream Error Handling");
 
-    let consumer5 = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer5 = FastConsumer::<String, OrderEvent>::new(
         broker,
         &format!("fluent-group5-{}", Uuid::new_v4()),
         JsonSerializer,
@@ -436,7 +436,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 7: Chain multiple stream operations
     println!("🔗 Example 7: Chained Stream Operations");
 
-    let consumer6 = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer6 = FastConsumer::<String, OrderEvent>::new(
         broker,
         &format!("fluent-group6-{}", Uuid::new_v4()),
         JsonSerializer,

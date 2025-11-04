@@ -44,7 +44,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use velostream::KafkaConsumer;
+use velostream::FastConsumer;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
@@ -133,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("6. Consumer Configurations:");
 
     // Basic consumer
-    let _basic_consumer = FastConsumer::<String, OrderEvent, _, _>::new(
+    let _basic_consumer = FastConsumer::<String, OrderEvent>::new(
         "localhost:9092",
         "order-processors",
         JsonSerializer,
@@ -146,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .client_id("ht-consumer")
         .high_throughput();
 
-    let _ht_consumer = FastConsumer::<String, OrderEvent, _, _>::with_config(
+    let _ht_consumer = FastConsumer::<String, OrderEvent>::with_config(
         _ht_consumer_config,
         JsonSerializer,
         JsonSerializer,
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .auto_offset_reset(OffsetReset::Latest)
         .streaming(); // Optimized for continuous processing
 
-    let _streaming_consumer = FastConsumer::<String, OrderEvent, _, _>::with_config(
+    let _streaming_consumer = FastConsumer::<String, OrderEvent>::with_config(
         _streaming_config,
         JsonSerializer,
         JsonSerializer,
@@ -172,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .development() // Development-friendly settings
         .auto_commit(true, Duration::from_secs(1));
 
-    let _dev_consumer = FastConsumer::<String, OrderEvent, _, _>::with_config(
+    let _dev_consumer = FastConsumer::<String, OrderEvent>::with_config(
         _dev_config,
         JsonSerializer,
         JsonSerializer,

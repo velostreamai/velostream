@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tokio::time;
 use velostream::velostream::kafka::Headers;
-use velostream::{JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::{JsonSerializer, FastConsumer, KafkaProducer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct OrderEvent {
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 2: Type-safe consumer with automatic deserialization
     println!("\n=== Type-Safe Consumer Example ===");
 
-    let consumer = FastConsumer::<String, OrderEvent, _, _>::new(
+    let consumer = FastConsumer::<String, OrderEvent>::new(
         "localhost:9092",
         "order-processor-group",
         JsonSerializer,

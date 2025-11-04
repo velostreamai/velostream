@@ -1,7 +1,7 @@
 use futures::StreamExt; // Add this import
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use velostream::{JsonSerializer, kafka_fast_consumer::Consumer as FastConsumer};
+use velostream::{JsonSerializer, FastConsumer};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MyMessage {
@@ -12,7 +12,7 @@ struct MyMessage {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a consumer
-    let consumer = FastConsumer::<String, MyMessage, _, _>::new(
+    let consumer = FastConsumer::<String, MyMessage>::new(
         "localhost:9092",
         "metadata-example-group",
         JsonSerializer,

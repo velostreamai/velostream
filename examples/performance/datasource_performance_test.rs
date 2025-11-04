@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use velostream::velostream::datasource::config::ConnectionString;
 use velostream::velostream::datasource::create_source;
 use velostream::velostream::kafka::{
-    JsonSerializer, kafka_fast_consumer::Consumer as FastConsumer,
+    JsonSerializer, FastConsumer,
 };
 use velostream::velostream::schema::{CompatibilityMode, FieldDefinition, Schema, SchemaMetadata};
 use velostream::velostream::sql::ast::DataType;
@@ -158,7 +158,7 @@ async fn benchmark_kafka_direct() -> PerformanceStats {
         let start = Instant::now();
 
         // Simulate direct Kafka consumer creation
-        let _consumer_result = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::new(
+        let _consumer_result = FastConsumer::<String, String>::new(
             "localhost:9092",
             &format!("test-group-{}", i % 10),
             JsonSerializer,

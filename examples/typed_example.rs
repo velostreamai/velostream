@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use velostream::velostream::kafka::Headers;
-use velostream::{JsonSerializer, KafkaConsumer, KafkaProducer};
+use velostream::{JsonSerializer, FastConsumer, KafkaProducer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct User {
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create consumer for User messages
-    let consumer = match FastConsumer::<String, User, _, _>::new(
+    let consumer = match FastConsumer::<String, User>::new(
         "localhost:9092",
         "user-processor",
         JsonSerializer,

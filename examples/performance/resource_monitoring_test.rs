@@ -16,7 +16,7 @@ use tokio::time::interval;
 use velostream::velostream::kafka::consumer_config::ConsumerConfig;
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::ProducerConfig;
-use velostream::{JsonSerializer, KafkaConsumer, ProducerBuilder};
+use velostream::{JsonSerializer, FastConsumer, ProducerBuilder};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct ResourceTestMessage {
@@ -160,7 +160,7 @@ async fn run_monitored_test() -> Result<u64, Box<dyn std::error::Error>> {
         .client_id("resource-test-consumer")
         .high_throughput();
 
-    let consumer = FastConsumer::<String, ResourceTestMessage, _, _>::with_config(
+    let consumer = FastConsumer::<String, ResourceTestMessage>::with_config(
         consumer_config,
         JsonSerializer,
         JsonSerializer,
