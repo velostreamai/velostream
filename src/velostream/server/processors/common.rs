@@ -1043,11 +1043,12 @@ pub fn should_commit_batch(
 /// Write batch to sink with error handling and retry logic
 pub async fn write_batch_to_sink(
     writer: &mut dyn DataWriter,
-    output_records: &[StreamRecord],
+    output_records: &[std::sync::Arc<StreamRecord>],
     job_name: &str,
     failure_strategy: FailureStrategy,
     retry_backoff: Duration,
 ) -> DataSourceResult<()> {
+    // Pass Arc slice directly - write_batch now accepts Vec<Arc<StreamRecord>>
     match writer.write_batch(output_records.to_vec()).await {
         Ok(()) => {
             debug!(
