@@ -10,6 +10,7 @@ use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
+use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -977,22 +978,16 @@ impl TransactionalJobProcessor {
                 sql_duration,
             );
 
-            // PERF: Unwrap Arc to owned records for metrics
-            let output_owned: Vec<_> = batch_result
-                .output_records
-                .iter()
-                .map(|arc| (**arc).clone())
-                .collect();
-
+            // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Emit SQL-annotated metrics for output records from this source
             self.metrics_helper
-                .emit_counter_metrics(query, &output_owned, &self.observability, job_name)
+                .emit_counter_metrics(query, &batch_result.output_records, &self.observability, job_name)
                 .await;
             self.metrics_helper
-                .emit_gauge_metrics(query, &output_owned, &self.observability, job_name)
+                .emit_gauge_metrics(query, &batch_result.output_records, &self.observability, job_name)
                 .await;
             self.metrics_helper
-                .emit_histogram_metrics(query, &output_owned, &self.observability, job_name)
+                .emit_histogram_metrics(query, &batch_result.output_records, &self.observability, job_name)
                 .await;
 
             total_records_processed += batch_result.records_processed;

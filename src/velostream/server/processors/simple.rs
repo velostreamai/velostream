@@ -9,6 +9,7 @@ use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
+use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -944,17 +945,12 @@ impl SimpleJobProcessor {
             all_output_records.extend(batch_result.output_records.iter().cloned());
 
             // FR-073: Emit SQL-native metrics for processed records from this source
-            // PERF: Unwrap Arc to owned records for metrics
-            let output_owned: Vec<_> = batch_result
-                .output_records
-                .iter()
-                .map(|arc| (**arc).clone())
-                .collect();
-            self.emit_counter_metrics(query, &output_owned, job_name)
+            // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
+            self.emit_counter_metrics(query, &batch_result.output_records, job_name)
                 .await;
-            self.emit_gauge_metrics(query, &output_owned, job_name)
+            self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
                 .await;
-            self.emit_histogram_metrics(query, &output_owned, job_name)
+            self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
                 .await;
 
             // Handle failures according to strategy
