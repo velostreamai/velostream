@@ -77,11 +77,11 @@
 //!     producer.send(Some(&"key-1".to_string()), &message, headers, None).await?;
 //!
 //!     // Consumer with headers
-//!     let consumer = FastConsumer::<String, MyMessage>::new(
+//!     let consumer = FastConsumer::<String, MyMessage, JsonSerializer, JsonSerializer>::from_brokers(
 //!         "localhost:9092",
 //!         "my-group",
-//!         Box::new(JsonSerializer),
-//!         Box::new(JsonSerializer),
+//!         JsonSerializer,
+//!         JsonSerializer,
 //!     )?;
 //!
 //!     consumer.subscribe(&["my-topic"])?;
