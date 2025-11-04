@@ -62,7 +62,7 @@ use std::sync::{
 };
 use std::time::Duration;
 use uuid::Uuid;
-use velostream::{Headers, JsonSerializer, FastConsumer, KafkaProducer};
+use velostream::{FastConsumer, Headers, JsonSerializer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct OrderEvent {
@@ -124,12 +124,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )?;
 
-    let consumer = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
 
     consumer.subscribe(&[&topic])?;
 
@@ -259,12 +260,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🔄 Example 3: Transform to Business Objects");
 
     // Create new consumer for fresh stream
-    let consumer2 = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &format!("fluent-group2-{}", Uuid::new_v4()),
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer2 =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &format!("fluent-group2-{}", Uuid::new_v4()),
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     consumer2.subscribe(&[&topic])?;
 
     let processed_orders: Vec<ProcessedOrder> = consumer2
@@ -305,12 +307,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 4: Complex filtering and grouping
     println!("📊 Example 4: Complex Stream Processing - Web API Orders Only");
 
-    let consumer3 = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &format!("fluent-group3-{}", Uuid::new_v4()),
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer3 =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &format!("fluent-group3-{}", Uuid::new_v4()),
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     consumer3.subscribe(&[&topic])?;
 
     let web_orders: Vec<_> = consumer3
@@ -350,12 +353,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 5: Asynchronous processing with for_each
     println!("⚡ Example 5: Async Processing Pipeline");
 
-    let consumer4 = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &format!("fluent-group4-{}", Uuid::new_v4()),
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer4 =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &format!("fluent-group4-{}", Uuid::new_v4()),
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     consumer4.subscribe(&[&topic])?;
 
     consumer4
@@ -386,12 +390,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 6: Error handling in streams
     println!("🛡️  Example 6: Stream Error Handling");
 
-    let consumer5 = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &format!("fluent-group5-{}", Uuid::new_v4()),
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer5 =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &format!("fluent-group5-{}", Uuid::new_v4()),
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     consumer5.subscribe(&[&topic])?;
 
     // Use atomic counters for thread-safe counting across async boundaries
@@ -436,12 +441,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 7: Chain multiple stream operations
     println!("🔗 Example 7: Chained Stream Operations");
 
-    let consumer6 = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &format!("fluent-group6-{}", Uuid::new_v4()),
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer6 =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &format!("fluent-group6-{}", Uuid::new_v4()),
+            JsonSerializer,
+            JsonSerializer,
+        )?;
     consumer6.subscribe(&[&topic])?;
 
     let summary = consumer6

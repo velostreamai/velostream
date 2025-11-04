@@ -184,11 +184,12 @@ async fn process_order_stream(
         .auto_offset_reset(OffsetReset::Latest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let order_consumer = FastConsumer::<String, Order>::with_config(
-        order_config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    )?;
+    let order_consumer =
+        FastConsumer::<String, Order, JsonSerializer, JsonSerializer>::with_config(
+            order_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
 
     order_consumer.subscribe(&[ORDERS_TOPIC])?;
 

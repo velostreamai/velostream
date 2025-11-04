@@ -39,7 +39,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use uuid::Uuid;
-use velostream::{Headers, JsonSerializer, FastConsumer, KafkaProducer};
+use velostream::{FastConsumer, Headers, JsonSerializer, KafkaProducer};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 struct ProductEvent {
@@ -65,12 +65,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         JsonSerializer,
     )?;
 
-    let consumer = FastConsumer::<String, ProductEvent>::from_brokers(
-        broker,
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer =
+        FastConsumer::<String, ProductEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
 
     consumer.subscribe(&[&topic])?;
 

@@ -29,7 +29,7 @@ use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
-use velostream::{Headers, FastConsumer, ProducerBuilder};
+use velostream::{FastConsumer, Headers, ProducerBuilder};
 
 use futures::StreamExt;
 use std::sync::Arc;
@@ -224,7 +224,7 @@ async fn run_raw_performance_test(
         .fetch_max_wait(Duration::from_millis(100))
         .high_throughput(); // Apply high-throughput preset with consolidated settings
 
-    let consumer = FastConsumer::<String, Vec<u8>>::with_config(
+    let consumer = FastConsumer::<String, Vec<u8>, StringSerializer, BytesSerializer>::with_config(
         consumer_config,
         key_serializer.clone(),
         value_serializer.clone(),

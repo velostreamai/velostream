@@ -28,13 +28,14 @@ async fn test_basic_producer_consumer() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -87,13 +88,14 @@ async fn test_multiple_messages() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -173,21 +175,23 @@ async fn test_different_message_types() {
     )
     .expect("Failed to create simple producer");
 
-    let test_consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create test consumer");
+    let test_consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create test consumer");
 
-    let simple_consumer = FastConsumer::<String, SimpleMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create simple consumer");
+    let simple_consumer =
+        FastConsumer::<String, SimpleMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create simple consumer");
 
     test_consumer
         .subscribe(&[&test_topic])
@@ -280,13 +284,14 @@ async fn test_builder_pattern() {
     .build()
     .expect("Failed to build producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -325,13 +330,14 @@ async fn test_convenience_trait() {
     let group_id = format!("trait-group-{}", Uuid::new_v4());
 
     // Test KafkaConsumable trait
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer via trait");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer via trait");
 
     let trait_topic = format!("trait-test-topic-{}", Uuid::new_v4());
     let result = consumer.subscribe(&[&trait_topic]);
@@ -388,13 +394,14 @@ async fn test_error_handling() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -415,13 +422,14 @@ async fn test_error_handling() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Test timeout behavior
-    let empty_consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &format!("empty-{}", Uuid::new_v4()),
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create empty consumer");
+    let empty_consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &format!("empty-{}", Uuid::new_v4()),
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create empty consumer");
 
     let empty_topic = format!("empty-topic-{}", Uuid::new_v4());
     empty_consumer
@@ -456,13 +464,14 @@ async fn test_message_with_timestamp() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -561,13 +570,14 @@ async fn test_consumer_stream() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -653,13 +663,14 @@ async fn test_fluent_consumer_style() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -730,13 +741,14 @@ async fn test_fluent_api_patterns() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -778,13 +790,14 @@ async fn test_fluent_api_patterns() {
     );
 
     // Pattern 2: Take only first N messages using take()
-    let consumer2 = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &format!("{}-2", group_id),
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer2");
+    let consumer2 =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &format!("{}-2", group_id),
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer2");
     consumer2.subscribe(&[&topic]).expect("Failed to subscribe");
 
     let first_three = consumer2
@@ -800,13 +813,14 @@ async fn test_fluent_api_patterns() {
     assert_eq!(first_three.len(), 3, "Should take exactly 3 messages");
 
     // Pattern 3: Filter by content and map to different type
-    let consumer3 = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &format!("{}-3", group_id),
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer3");
+    let consumer3 =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &format!("{}-3", group_id),
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer3");
     consumer3.subscribe(&[&topic]).expect("Failed to subscribe");
 
     let filtered_ids = consumer3
@@ -857,13 +871,14 @@ async fn test_implicit_deserialization() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -925,13 +940,14 @@ async fn test_headers_functionality() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 

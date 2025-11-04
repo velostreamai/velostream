@@ -69,11 +69,12 @@ async fn test_table_from_consumer() {
         .auto_offset_reset(OffsetReset::Earliest)
         .isolation_level(IsolationLevel::ReadCommitted);
 
-    let consumer_result = FastConsumer::<String, Vec<u8>>::with_config(
-        consumer_config,
-        StringSerializer,
-        BytesSerializer,
-    );
+    let consumer_result =
+        FastConsumer::<String, Vec<u8>, StringSerializer, BytesSerializer>::with_config(
+            consumer_config,
+            StringSerializer,
+            BytesSerializer,
+        );
 
     match consumer_result {
         Ok(consumer) => {

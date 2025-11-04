@@ -399,14 +399,24 @@ impl<'a, K: Unpin, V: Unpin> Stream for BufferedKafkaStream<'a, K, V> {
 /// // Choose consumption pattern based on your needs
 /// let stream = consumer.stream(); // or buffered_stream(32), etc.
 /// ```
-pub struct Consumer<K, V> {
+pub struct Consumer<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync,
+    VSer: Serde<V> + Send + Sync,
+{
     consumer: BaseConsumer,
-    value_serializer: Box<dyn Serde<V> + Send + Sync>,
-    key_serializer: Box<dyn Serde<K> + Send + Sync>,
+    key_serializer: KSer,
+    value_serializer: VSer,
     group_id: String,
+    _phantom_key: std::marker::PhantomData<K>,
+    _phantom_value: std::marker::PhantomData<V>,
 }
 
-impl<K, V> Consumer<K, V> {
+impl<K, V, KSer, VSer> Consumer<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
     /// Creates a new high-performance consumer.
     ///
     /// # Arguments
@@ -424,18 +434,16 @@ impl<K, V> Consumer<K, V> {
     ///     Box::new(StringKeySerializer),
     /// );
     /// ```
-    pub fn new(
-        consumer: BaseConsumer,
-        value_serializer: Box<dyn Serde<V> + Send + Sync>,
-        key_serializer: Box<dyn Serde<K> + Send + Sync>,
-    ) -> Self {
+    pub fn new(consumer: BaseConsumer, key_serializer: KSer, value_serializer: VSer) -> Self {
         // Note: group_id is not available when constructing directly from BaseConsumer
         // Use with_config() or from_brokers() if you need group_id for transactions
         Self {
             consumer,
-            value_serializer,
             key_serializer,
+            value_serializer,
             group_id: String::new(),
+            _phantom_key: std::marker::PhantomData,
+            _phantom_value: std::marker::PhantomData,
         }
     }
 
@@ -471,8 +479,8 @@ impl<K, V> Consumer<K, V> {
     /// ```
     pub fn with_config(
         config: crate::velostream::kafka::consumer_config::ConsumerConfig,
-        key_serializer: Box<dyn Serde<K> + Send + Sync>,
-        value_serializer: Box<dyn Serde<V> + Send + Sync>,
+        key_serializer: KSer,
+        value_serializer: VSer,
     ) -> Result<Self, rdkafka::error::KafkaError> {
         use crate::velostream::kafka::client_config_builder::ClientConfigBuilder;
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
@@ -518,6 +526,8 @@ impl<K, V> Consumer<K, V> {
             key_serializer,
             value_serializer,
             group_id: config.group_id.clone(),
+            _phantom_key: std::marker::PhantomData,
+            _phantom_value: std::marker::PhantomData,
         })
     }
 
@@ -546,8 +556,8 @@ impl<K, V> Consumer<K, V> {
     pub fn from_brokers(
         brokers: &str,
         group_id: &str,
-        key_serializer: Box<dyn Serde<K> + Send + Sync>,
-        value_serializer: Box<dyn Serde<V> + Send + Sync>,
+        key_serializer: KSer,
+        value_serializer: VSer,
     ) -> Result<Self, rdkafka::error::KafkaError> {
         let config =
             crate::velostream::kafka::consumer_config::ConsumerConfig::new(brokers, group_id);
@@ -594,7 +604,7 @@ impl<K, V> Consumer<K, V> {
     pub fn poll_blocking(&self, timeout: Duration) -> Result<Message<K, V>, ConsumerError> {
         match self.consumer.poll(timeout) {
             Some(Ok(msg)) => {
-                process_kafka_message(msg, &*self.key_serializer, &*self.value_serializer)
+                process_kafka_message(msg, &self.key_serializer, &self.value_serializer)
             }
             Some(Err(e)) => Err(ConsumerError::KafkaError(e)),
             None => Err(ConsumerError::Timeout),
@@ -631,8 +641,8 @@ impl<K, V> Consumer<K, V> {
         match self.consumer.poll(Duration::from_millis(0)) {
             Some(Ok(msg)) => Ok(Some(process_kafka_message(
                 msg,
-                &*self.key_serializer,
-                &*self.value_serializer,
+                &self.key_serializer,
+                &self.value_serializer,
             )?)),
             Some(Err(e)) => Err(ConsumerError::KafkaError(e)),
             None => Ok(None),
@@ -701,8 +711,8 @@ impl<K, V> Consumer<K, V> {
     pub fn stream(&self) -> impl Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
         KafkaStream {
             consumer: &self.consumer, // BaseConsumer reference
-            value_serializer: &*self.value_serializer,
-            key_serializer: &*self.key_serializer,
+            value_serializer: &self.value_serializer,
+            key_serializer: &self.key_serializer,
         }
     }
 
@@ -757,8 +767,8 @@ impl<K, V> Consumer<K, V> {
     {
         BufferedKafkaStream {
             consumer: &self.consumer,
-            value_serializer: &*self.value_serializer,
-            key_serializer: &*self.key_serializer,
+            value_serializer: &self.value_serializer,
+            key_serializer: &self.key_serializer,
             buffer: std::collections::VecDeque::with_capacity(batch_size),
             batch_size,
         }
@@ -833,10 +843,12 @@ impl<K, V> DedicatedKafkaStream<K, V> {
     }
 }
 
-impl<K, V> Consumer<K, V>
+impl<K, V, KSer, VSer> Consumer<K, V, KSer, VSer>
 where
-    K: Send + 'static,
-    V: Send + 'static,
+    K: Send + Sync + 'static,
+    V: Send + Sync + 'static,
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
 {
     /// Creates a maximum-performance stream using a dedicated blocking thread.
     ///
@@ -912,8 +924,8 @@ where
                     Some(Ok(msg)) => {
                         match process_kafka_message(
                             msg,
-                            &*consumer.key_serializer,
-                            &*consumer.value_serializer,
+                            &consumer.key_serializer,
+                            &consumer.value_serializer,
                         ) {
                             Ok(processed) => {
                                 if tx.send(Ok(processed)).is_err() {
@@ -1125,10 +1137,12 @@ use crate::velostream::kafka::unified_consumer::KafkaStreamConsumer;
 /// This enables the BaseConsumer-based fast consumer to be used through the unified
 /// consumer interface, allowing applications to switch between StreamConsumer and
 /// BaseConsumer implementations without code changes.
-impl<K, V> KafkaStreamConsumer<K, V> for Consumer<K, V>
+impl<K, V, KSer, VSer> KafkaStreamConsumer<K, V> for Consumer<K, V, KSer, VSer>
 where
     K: Send + Sync + 'static,
     V: Send + Sync + 'static,
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
 {
     fn stream(
         &self,

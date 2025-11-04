@@ -16,7 +16,7 @@ use velostream::velostream::kafka::admin_client::KafkaAdminClient;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset};
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
-use velostream::{Headers, JsonSerializer, FastConsumer, ProducerBuilder};
+use velostream::{FastConsumer, Headers, JsonSerializer, ProducerBuilder};
 
 // Latency test configuration
 const MESSAGE_COUNT: u64 = 1_000; // Smaller count for latency focus
@@ -257,11 +257,12 @@ async fn run_latency_test(
     .build()?;
 
     // Create consumer
-    let consumer = FastConsumer::<String, LatencyTestMessage>::with_config(
-        consumer_config,
-        JsonSerializer,
-        JsonSerializer,
-    )?;
+    let consumer =
+        FastConsumer::<String, LatencyTestMessage, JsonSerializer, JsonSerializer>::with_config(
+            consumer_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
 
     consumer.subscribe(&[&topic])?;
 

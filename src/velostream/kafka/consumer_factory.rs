@@ -126,30 +126,30 @@ impl ConsumerFactory {
         match config.performance_tier {
             // Standard tier (default): Direct polling with BaseConsumer via StandardAdapter
             None | Some(ConsumerTier::Standard) => {
-                let consumer = FastConsumer::<K, V>::with_config(
+                let consumer = FastConsumer::<K, V, KS, VS>::with_config(
                     config,
-                    Box::new(key_serializer),
-                    Box::new(value_serializer),
+                    key_serializer,
+                    value_serializer,
                 )?;
                 Ok(Box::new(StandardAdapter::new(consumer)))
             }
 
             // Buffered tier: Batched polling via BufferedAdapter
             Some(ConsumerTier::Buffered { batch_size }) => {
-                let consumer = FastConsumer::<K, V>::with_config(
+                let consumer = FastConsumer::<K, V, KS, VS>::with_config(
                     config,
-                    Box::new(key_serializer),
-                    Box::new(value_serializer),
+                    key_serializer,
+                    value_serializer,
                 )?;
                 Ok(Box::new(BufferedAdapter::new(consumer, batch_size)))
             }
 
             // Dedicated tier: Dedicated thread via DedicatedAdapter
             Some(ConsumerTier::Dedicated) => {
-                let consumer = FastConsumer::<K, V>::with_config(
+                let consumer = FastConsumer::<K, V, KS, VS>::with_config(
                     config,
-                    Box::new(key_serializer),
-                    Box::new(value_serializer),
+                    key_serializer,
+                    value_serializer,
                 )?;
                 Ok(Box::new(DedicatedAdapter::new(Arc::new(consumer))))
             }
@@ -198,21 +198,36 @@ impl ConsumerFactory {
             // Standard tier (default): Direct polling with BaseConsumer
             None | Some(ConsumerTier::Standard) => {
                 let consumer =
-                    FastConsumer::<K, V>::with_config(config, key_serializer, value_serializer)?;
+                    FastConsumer::<
+                        K,
+                        V,
+                        Box<dyn Serde<K> + Send + Sync>,
+                        Box<dyn Serde<V> + Send + Sync>,
+                    >::with_config(config, key_serializer, value_serializer)?;
                 Ok(Box::new(StandardAdapter::new(consumer)))
             }
 
             // Buffered tier: Batched polling adapter
             Some(ConsumerTier::Buffered { batch_size }) => {
                 let consumer =
-                    FastConsumer::<K, V>::with_config(config, key_serializer, value_serializer)?;
+                    FastConsumer::<
+                        K,
+                        V,
+                        Box<dyn Serde<K> + Send + Sync>,
+                        Box<dyn Serde<V> + Send + Sync>,
+                    >::with_config(config, key_serializer, value_serializer)?;
                 Ok(Box::new(BufferedAdapter::new(consumer, batch_size)))
             }
 
             // Dedicated tier: Dedicated thread adapter
             Some(ConsumerTier::Dedicated) => {
                 let consumer =
-                    FastConsumer::<K, V>::with_config(config, key_serializer, value_serializer)?;
+                    FastConsumer::<
+                        K,
+                        V,
+                        Box<dyn Serde<K> + Send + Sync>,
+                        Box<dyn Serde<V> + Send + Sync>,
+                    >::with_config(config, key_serializer, value_serializer)?;
                 Ok(Box::new(DedicatedAdapter::new(Arc::new(consumer))))
             }
         }

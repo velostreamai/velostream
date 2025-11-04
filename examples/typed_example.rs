@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use velostream::velostream::kafka::Headers;
-use velostream::{JsonSerializer, FastConsumer, KafkaProducer};
+use velostream::{FastConsumer, JsonSerializer, KafkaProducer};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 struct User {
@@ -29,8 +29,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let producer = match KafkaProducer::<String, User, _, _>::new(
         "localhost:9092",
         "users",
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
+        JsonSerializer,
+        JsonSerializer,
     ) {
         Ok(p) => {
             println!("✅ Producer created successfully");
@@ -44,11 +44,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create consumer for User messages
-    let consumer = match FastConsumer::<String, User>::from_brokers(
+    let consumer = match FastConsumer::<String, User, JsonSerializer, JsonSerializer>::from_brokers(
         "localhost:9092",
         "user-processor",
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
+        JsonSerializer,
+        JsonSerializer,
     ) {
         Ok(c) => c,
         Err(e) => {

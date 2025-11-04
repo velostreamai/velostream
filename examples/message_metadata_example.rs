@@ -1,7 +1,7 @@
 use futures::StreamExt; // Add this import
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use velostream::{JsonSerializer, FastConsumer};
+use velostream::{FastConsumer, JsonSerializer};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct MyMessage {
@@ -12,11 +12,11 @@ struct MyMessage {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a consumer
-    let consumer = FastConsumer::<String, MyMessage>::from_brokers(
+    let consumer = FastConsumer::<String, MyMessage, JsonSerializer, JsonSerializer>::from_brokers(
         "localhost:9092",
         "metadata-example-group",
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
+        JsonSerializer,
+        JsonSerializer,
     )?;
 
     consumer.subscribe(&["test-topic"])?;

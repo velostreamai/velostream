@@ -35,6 +35,20 @@ pub trait Serde<T>: Send + Sync {
     fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError>;
 }
 
+/// Blanket implementation of Serde for Box<dyn Serde<T>>
+///
+/// This allows boxed serializers to be used where Serde<T> is required,
+/// which is necessary for dynamic dispatch in the consumer factory.
+impl<T> Serde<T> for Box<dyn Serde<T> + Send + Sync> {
+    fn serialize(&self, value: &T) -> Result<Vec<u8>, SerializationError> {
+        (**self).serialize(value)
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<T, SerializationError> {
+        (**self).deserialize(bytes)
+    }
+}
+
 /// Modern async serialization trait using Rust 2024 edition features
 pub trait AsyncSerializer<T: Send + Sync> {
     /// Async serialize an object to bytes (useful for large objects or I/O-heavy serialization)

@@ -27,7 +27,9 @@ pub use crate::velostream::kafka::serialization_format::SerializationFormat;
 /// Unified Kafka DataReader that handles all serialization formats
 /// FR-081 Phase 2B: Now uses BaseConsumer-based fast consumer with configurable performance tiers
 pub struct KafkaDataReader {
-    consumer: Arc<FastConsumer<String, HashMap<String, FieldValue>>>,
+    consumer: Arc<
+        FastConsumer<String, HashMap<String, FieldValue>, StringSerializer, SerializationCodec>,
+    >,
     tier: ConsumerTier,
     batch_config: BatchConfig,
     event_time_config: Option<EventTimeConfig>,
@@ -362,13 +364,14 @@ impl KafkaDataReader {
         Self::log_consumer_config(&consumer_config, &batch_config);
 
         // FR-081 Phase 2B: Create fast consumer (BaseConsumer-based, low overhead)
-        let consumer = Arc::new(
-            FastConsumer::<String, HashMap<String, FieldValue>>::with_config(
-                consumer_config,
-                Box::new(StringSerializer),
-                Box::new(codec),
-            )?,
-        );
+        let consumer = Arc::new(FastConsumer::<
+            String,
+            HashMap<String, FieldValue>,
+            StringSerializer,
+            SerializationCodec,
+        >::with_config(
+            consumer_config, StringSerializer, codec
+        )?);
 
         consumer
             .subscribe(&[topic.as_str()])

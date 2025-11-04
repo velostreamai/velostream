@@ -202,10 +202,10 @@ async fn benchmark_stream_consumer(
         .create()
         .expect("Failed to create BaseConsumer");
 
-    let consumer = FastConsumer::<String, TestMessage>::new(
+    let consumer = FastConsumer::<String, TestMessage, StringSerializer, JsonSerializer>::new(
         base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
+        StringSerializer,
+        JsonSerializer,
     );
 
     consumer.subscribe(&[topic]).expect("Failed to subscribe");
@@ -278,11 +278,8 @@ async fn benchmark_standard_consumer(
         .subscribe(&[topic])
         .expect("Failed to subscribe");
 
-    let consumer: FastConsumer<String, TestMessage> = FastConsumer::new(
-        base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
-    );
+    let consumer: FastConsumer<String, TestMessage, StringSerializer, JsonSerializer> =
+        FastConsumer::new(base_consumer, StringSerializer, JsonSerializer);
 
     // Warmup
     println!("Warming up...");
@@ -356,11 +353,8 @@ async fn benchmark_buffered_consumer(
         .subscribe(&[topic])
         .expect("Failed to subscribe");
 
-    let consumer: FastConsumer<String, TestMessage> = FastConsumer::new(
-        base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
-    );
+    let consumer: FastConsumer<String, TestMessage, StringSerializer, JsonSerializer> =
+        FastConsumer::new(base_consumer, StringSerializer, JsonSerializer);
 
     // Warmup
     println!("Warming up...");
@@ -430,11 +424,12 @@ fn benchmark_dedicated_consumer(
         .subscribe(&[topic])
         .expect("Failed to subscribe");
 
-    let consumer = Arc::new(FastConsumer::<String, TestMessage>::new(
-        base_consumer,
-        Box::new(JsonSerializer),
-        Box::new(StringSerializer),
-    ));
+    let consumer = Arc::new(FastConsumer::<
+        String,
+        TestMessage,
+        JsonSerializer,
+        JsonSerializer,
+    >::new(base_consumer, JsonSerializer, JsonSerializer));
 
     // Warmup
     println!("Warming up...");

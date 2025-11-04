@@ -1,14 +1,14 @@
 //! Kafka Consumer Performance Tier Adapters
 //!
 //! This module provides adapter implementations for different Kafka consumer performance tiers.
-//! Each adapter wraps the base `Consumer<K, V>` (BaseConsumer-based) and provides tier-specific
+//! Each adapter wraps the base `Consumer<K, V, KSer, VSer>` (BaseConsumer-based) and provides tier-specific
 //! performance characteristics by delegating to the appropriate stream method.
 //!
 //! # Architecture
 //!
 //! ```text
 //! ┌─────────────────────────────────────┐
-//! │   KafkaStreamConsumer<K, V>        │  ← Unified trait
+//! │   KafkaStreamConsumer<K, V, KSer, VSer>        │  ← Unified trait
 //! └─────────────────────────────────────┘
 //!            ▲          ▲          ▲
 //!            │          │          │
@@ -20,7 +20,7 @@
 //!         └──────────────┴──────────────┘
 //!                        │
 //!              ┌─────────▼─────────┐
-//!              │ Consumer<K, V>    │  ← BaseConsumer wrapper
+//!              │ Consumer<K, V, KSer, VSer>    │  ← BaseConsumer wrapper
 //!              │ (fast consumer)   │
 //!              └───────────────────┘
 //! ```
@@ -65,6 +65,7 @@
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::kafka_fast_consumer::Consumer;
 use crate::velostream::kafka::message::Message;
+use crate::velostream::kafka::serialization::Serde;
 use crate::velostream::kafka::unified_consumer::KafkaStreamConsumer;
 use futures::Stream;
 use rdkafka::TopicPartitionList;
@@ -101,21 +102,31 @@ use std::sync::Arc;
 /// adapter.subscribe(&["my-topic"])?;
 /// let mut stream = adapter.stream();
 /// ```
-pub struct StandardAdapter<K, V> {
-    consumer: Consumer<K, V>,
+pub struct StandardAdapter<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
+    consumer: Consumer<K, V, KSer, VSer>,
 }
 
-impl<K, V> StandardAdapter<K, V> {
+impl<K, V, KSer, VSer> StandardAdapter<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
     /// Create a new Standard tier adapter wrapping the given consumer.
-    pub fn new(consumer: Consumer<K, V>) -> Self {
+    pub fn new(consumer: Consumer<K, V, KSer, VSer>) -> Self {
         Self { consumer }
     }
 }
 
-impl<K, V> KafkaStreamConsumer<K, V> for StandardAdapter<K, V>
+impl<K, V, KSer, VSer> KafkaStreamConsumer<K, V> for StandardAdapter<K, V, KSer, VSer>
 where
     K: Send + Sync + 'static,
     V: Send + Sync + 'static,
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
 {
     fn stream(
         &self,
@@ -178,19 +189,27 @@ where
 /// adapter.subscribe(&["my-topic"])?;
 /// let mut stream = adapter.stream();
 /// ```
-pub struct BufferedAdapter<K, V> {
-    consumer: Consumer<K, V>,
+pub struct BufferedAdapter<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
+    consumer: Consumer<K, V, KSer, VSer>,
     batch_size: usize,
 }
 
-impl<K, V> BufferedAdapter<K, V> {
+impl<K, V, KSer, VSer> BufferedAdapter<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
     /// Create a new Buffered tier adapter with specified batch size.
     ///
     /// # Arguments
     ///
     /// * `consumer` - The base consumer to wrap
     /// * `batch_size` - Number of messages to buffer (recommended: 32)
-    pub fn new(consumer: Consumer<K, V>, batch_size: usize) -> Self {
+    pub fn new(consumer: Consumer<K, V, KSer, VSer>, batch_size: usize) -> Self {
         Self {
             consumer,
             batch_size,
@@ -203,10 +222,12 @@ impl<K, V> BufferedAdapter<K, V> {
     }
 }
 
-impl<K, V> KafkaStreamConsumer<K, V> for BufferedAdapter<K, V>
+impl<K, V, KSer, VSer> KafkaStreamConsumer<K, V> for BufferedAdapter<K, V, KSer, VSer>
 where
     K: Send + Sync + Unpin + 'static,
     V: Send + Sync + Unpin + 'static,
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
 {
     fn stream(
         &self,
@@ -293,30 +314,40 @@ where
 /// adapter.subscribe(&["my-topic"])?;
 /// let mut stream = adapter.stream();
 /// ```
-pub struct DedicatedAdapter<K, V> {
-    consumer: Arc<Consumer<K, V>>,
+pub struct DedicatedAdapter<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
+    consumer: Arc<Consumer<K, V, KSer, VSer>>,
 }
 
-impl<K, V> DedicatedAdapter<K, V> {
+impl<K, V, KSer, VSer> DedicatedAdapter<K, V, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
+{
     /// Create a new Dedicated tier adapter.
     ///
     /// # Arguments
     ///
     /// * `consumer` - Arc-wrapped consumer for shared ownership with dedicated thread
-    pub fn new(consumer: Arc<Consumer<K, V>>) -> Self {
+    pub fn new(consumer: Arc<Consumer<K, V, KSer, VSer>>) -> Self {
         Self { consumer }
     }
 
     /// Get a reference to the underlying Arc-wrapped consumer.
-    pub fn consumer(&self) -> &Arc<Consumer<K, V>> {
+    pub fn consumer(&self) -> &Arc<Consumer<K, V, KSer, VSer>> {
         &self.consumer
     }
 }
 
-impl<K, V> KafkaStreamConsumer<K, V> for DedicatedAdapter<K, V>
+impl<K, V, KSer, VSer> KafkaStreamConsumer<K, V> for DedicatedAdapter<K, V, KSer, VSer>
 where
     K: Send + Sync + 'static,
     V: Send + Sync + 'static,
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<V> + Send + Sync + 'static,
 {
     fn stream(
         &self,
@@ -359,10 +390,10 @@ mod tests {
     #[test]
     fn test_standard_adapter_creation() {
         let config = ConsumerConfig::new("localhost:9092", "test-group");
-        let consumer = Consumer::<String, String>::with_config(
+        let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config,
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer");
 
@@ -375,10 +406,10 @@ mod tests {
     #[test]
     fn test_buffered_adapter_creation() {
         let config = ConsumerConfig::new("localhost:9092", "test-group");
-        let consumer = Consumer::<String, String>::with_config(
+        let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config,
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer");
 
@@ -397,10 +428,10 @@ mod tests {
 
         // Test various batch sizes
         for batch_size in [16, 32, 64, 128] {
-            let consumer = Consumer::<String, String>::with_config(
+            let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
                 config.clone(),
-                Box::new(JsonSerializer),
-                Box::new(JsonSerializer),
+                JsonSerializer,
+                JsonSerializer,
             )
             .expect("Failed to create consumer");
 
@@ -412,10 +443,10 @@ mod tests {
     #[test]
     fn test_dedicated_adapter_creation() {
         let config = ConsumerConfig::new("localhost:9092", "test-group");
-        let consumer = Consumer::<String, String>::with_config(
+        let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config,
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer");
 
@@ -433,10 +464,10 @@ mod tests {
         let config = ConsumerConfig::new("localhost:9092", "test-group");
 
         // Test Standard adapter
-        let consumer = Consumer::<String, String>::with_config(
+        let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config.clone(),
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer");
 
@@ -445,10 +476,10 @@ mod tests {
         let _stream = standard.stream();
 
         // Test Buffered adapter
-        let consumer = Consumer::<String, String>::with_config(
+        let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config.clone(),
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer");
 
@@ -457,10 +488,10 @@ mod tests {
         let _stream = buffered.stream();
 
         // Test Dedicated adapter
-        let consumer = Consumer::<String, String>::with_config(
+        let consumer = Consumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config,
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer");
 

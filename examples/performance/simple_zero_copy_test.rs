@@ -14,7 +14,7 @@ use velostream::velostream::kafka::consumer_config::{ConsumerConfig, OffsetReset
 use velostream::velostream::kafka::performance_presets::PerformancePresets;
 use velostream::velostream::kafka::producer_config::{AckMode, CompressionType, ProducerConfig};
 use velostream::velostream::kafka::serialization::{BytesSerializer, StringSerializer};
-use velostream::{ProducerBuilder, FastConsumer};
+use velostream::{FastConsumer, ProducerBuilder};
 
 // Test configuration
 const MESSAGE_COUNT: u64 = 10_000;
@@ -154,10 +154,10 @@ async fn run_simple_zero_copy_test() -> Result<(u64, u64, u64, f64), Box<dyn std
         .fetch_max_wait(Duration::from_millis(100))
         .high_throughput();
 
-    let consumer = FastConsumer::<String, Vec<u8>>::with_config(
+    let consumer = FastConsumer::<String, Vec<u8>, StringSerializer, BytesSerializer>::with_config(
         consumer_config,
-        Box::new(StringSerializer),
-        Box::new(BytesSerializer),
+        StringSerializer,
+        BytesSerializer,
     )?;
 
     consumer.subscribe(&[&topic])?;

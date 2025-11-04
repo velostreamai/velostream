@@ -162,10 +162,10 @@ async fn test_kafka_consumer_basic_consumption() {
 
     // Create consumer (FR-081 Phase 2D: Using FastConsumer)
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-1");
-    let consumer = FastConsumer::<String, String>::with_config(
+    let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
         config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
+        JsonSerializer,
+        JsonSerializer,
     )
     .expect("Failed to create consumer");
 
@@ -221,10 +221,10 @@ async fn test_fast_consumer_with_config() {
 
     // Create fast consumer using with_config()
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-2");
-    let consumer = FastConsumer::<String, String>::with_config(
+    let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
         config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
+        JsonSerializer,
+        JsonSerializer,
     )
     .expect("Failed to create fast consumer");
 
@@ -277,10 +277,10 @@ async fn test_unified_consumer_trait() {
     // Test via trait interface (FR-081 Phase 2D: Using FastConsumer)
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-3");
     let consumer: Box<dyn KafkaStreamConsumer<String, String>> = Box::new(
-        FastConsumer::<String, String>::with_config(
+        FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
             config,
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
+            JsonSerializer,
+            JsonSerializer,
         )
         .expect("Failed to create consumer"),
     );
@@ -368,10 +368,10 @@ async fn test_consumer_commit() {
     let config = ConsumerConfig::new(env.bootstrap_servers(), "test-group-7")
         .auto_commit(false, Duration::from_secs(5));
 
-    let consumer = FastConsumer::<String, String>::with_config(
+    let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
         config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
+        JsonSerializer,
+        JsonSerializer,
     )
     .expect("Failed to create consumer");
 

@@ -164,12 +164,13 @@ async fn test_consumer_builder_basic() {
         return;
     }
     // Test basic FastConsumer creation (FR-081 Phase 2D: replaced ConsumerBuilder)
-    let consumer_result = FastConsumer::<String, TestMessage>::from_brokers(
-        "localhost:9092",
-        "builder-consumer-group",
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    );
+    let consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+            "localhost:9092",
+            "builder-consumer-group",
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     match consumer_result {
         Ok(consumer) => {
@@ -201,11 +202,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("ht-consumer")
         .high_throughput();
 
-    let ht_consumer_result = FastConsumer::<String, TestMessage>::with_config(
-        high_throughput_config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    );
+    let ht_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            high_throughput_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         ht_consumer_result.is_ok(),
@@ -216,11 +218,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("ll-consumer")
         .low_latency();
 
-    let ll_consumer_result = FastConsumer::<String, TestMessage>::with_config(
-        low_latency_config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    );
+    let ll_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            low_latency_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         ll_consumer_result.is_ok(),
@@ -231,11 +234,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("dev-consumer")
         .development();
 
-    let dev_consumer_result = FastConsumer::<String, TestMessage>::with_config(
-        development_config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    );
+    let dev_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            development_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         dev_consumer_result.is_ok(),
@@ -246,11 +250,12 @@ async fn test_consumer_builder_with_presets() {
         .client_id("stream-consumer")
         .streaming();
 
-    let stream_consumer_result = FastConsumer::<String, TestMessage>::with_config(
-        streaming_config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    );
+    let stream_consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            streaming_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     assert!(
         stream_consumer_result.is_ok(),
@@ -405,11 +410,12 @@ async fn test_kafka_workflow() {
         .auto_offset_reset(OffsetReset::Latest)
         .development();
 
-    let consumer_result = FastConsumer::<String, TestMessage>::with_config(
-        consumer_config,
-        JsonSerializer,
-        JsonSerializer,
-    );
+    let consumer_result =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            consumer_config,
+            JsonSerializer,
+            JsonSerializer,
+        );
 
     if let (Ok(producer), Ok(consumer)) = (producer_result, consumer_result) {
         // Subscribe consumer
@@ -466,12 +472,13 @@ mod builder_unit_tests {
     #[test]
     fn test_consumer_builder_creation() {
         // FR-081 Phase 2D: Test FastConsumer creation (replaced ConsumerBuilder)
-        let _consumer = FastConsumer::<String, TestMessage>::from_brokers(
-            "localhost:9092",
-            "unit-test-group",
-            Box::new(JsonSerializer),
-            Box::new(JsonSerializer),
-        );
+        let _consumer =
+            FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::from_brokers(
+                "localhost:9092",
+                "unit-test-group",
+                JsonSerializer,
+                JsonSerializer,
+            );
         // If we get here, the FastConsumer was created successfully
         // Note: This might return an error if rdkafka initialization fails
     }

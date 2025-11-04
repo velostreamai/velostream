@@ -341,11 +341,12 @@ async fn run_kafka_to_file_pipeline(
         .auto_offset_reset(OffsetReset::Earliest)
         .auto_commit(false, Duration::from_millis(1000));
 
-    let consumer = FastConsumer::<String, serde_json::Value>::with_config(
-        consumer_config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    )?;
+    let consumer =
+        FastConsumer::<String, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(
+            consumer_config,
+            JsonSerializer,
+            JsonSerializer,
+        )?;
 
     consumer.subscribe(&[KAFKA_TOPIC])?;
 

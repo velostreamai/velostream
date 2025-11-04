@@ -1,6 +1,6 @@
 use crate::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
 use crate::velostream::kafka::kafka_error::ConsumerError;
-use crate::velostream::kafka::serialization::Serde;
+use crate::velostream::kafka::serialization::{BytesSerializer, Serde};
 use crate::velostream::kafka::{Message, kafka_fast_consumer::Consumer as FastConsumer};
 use crate::velostream::serialization::{FieldValue, SerializationFormat};
 use crate::velostream::table::retry_utils::{
@@ -73,7 +73,7 @@ where
     VS: SerializationFormat + Send + Sync + 'static,
 {
     // FR-081 Phase 2D: Migrated to FastConsumer (BaseConsumer-based)
-    consumer: Arc<FastConsumer<K, Vec<u8>>>,
+    consumer: Arc<FastConsumer<K, Vec<u8>, KS, BytesSerializer>>,
     value_format: Arc<VS>,
     state: Arc<RwLock<HashMap<K, HashMap<String, FieldValue>>>>,
     topic: String,
@@ -361,10 +361,10 @@ where
 
         // FR-081 Phase 2D: Use FastConsumer (BaseConsumer-based, high-performance)
         // Use BytesSerializer for values since we'll handle deserialization ourselves
-        let consumer = FastConsumer::<K, Vec<u8>>::with_config(
+        let consumer = FastConsumer::<K, Vec<u8>, KS, BytesSerializer>::with_config(
             consumer_config,
-            Box::new(key_serializer),
-            Box::new(crate::velostream::kafka::serialization::BytesSerializer),
+            key_serializer,
+            BytesSerializer,
         )?;
 
         // This is where the error occurs if topic doesn't exist
@@ -390,7 +390,12 @@ where
     /// * `group_id` - Consumer group ID
     /// * `value_format` - Serialization format for values
     pub fn from_consumer(
-        consumer: FastConsumer<K, Vec<u8>>,
+        consumer: FastConsumer<
+            K,
+            Vec<u8>,
+            KS,
+            crate::velostream::kafka::serialization::BytesSerializer,
+        >,
         topic: String,
         group_id: String,
         value_format: VS,

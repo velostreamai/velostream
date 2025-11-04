@@ -209,11 +209,12 @@ async fn test_consumer_deserialization_error() {
 async fn test_consumer_deserialization_workflow() {
     // Create a consumer with a deserializer that always fails
     let config = ConsumerConfig::new("localhost:9092", "error-test-group");
-    let consumer_result = FastConsumer::<String, TestMessage>::with_config(
-        config,
-        Box::new(FailingSerializer), // Key deserializer fails
-        Box::new(FailingSerializer), // Value deserializer fails
-    );
+    let consumer_result =
+        FastConsumer::<String, TestMessage, FailingSerializer, FailingSerializer>::with_config(
+            config,
+            FailingSerializer, // Key deserializer fails
+            FailingSerializer, // Value deserializer fails
+        );
 
     let consumer = match consumer_result {
         Ok(c) => c,
@@ -285,12 +286,13 @@ async fn test_consumer_deserialization_workflow() {
 #[tokio::test]
 async fn test_consumer_invalid_topic_subscription() {
     let config = ConsumerConfig::new("localhost:9092", "error-test-group");
-    let consumer = FastConsumer::<String, TestMessage>::with_config(
-        config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            config,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     // Try to subscribe to a topic with invalid characters
     let subscribe_result = consumer.subscribe(&["invalid/topic/name", "another$invalid%topic"]);
@@ -310,12 +312,13 @@ async fn test_consumer_invalid_topic_subscription() {
 #[tokio::test]
 async fn test_consumer_poll_timeout() {
     let config = ConsumerConfig::new("localhost:9092", "timeout-test-group");
-    let consumer = FastConsumer::<String, TestMessage>::with_config(
-        config,
-        Box::new(JsonSerializer),
-        Box::new(JsonSerializer),
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, TestMessage, JsonSerializer, JsonSerializer>::with_config(
+            config,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     // Subscribe to a topic that likely has no messages
     if let Err(_) = consumer.subscribe(&["non-existent-topic-for-timeout-test"]) {

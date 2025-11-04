@@ -15,7 +15,7 @@ async fn test_multiple_user_workflow() {
         KafkaProducer::<String, User, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
             .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, User>::from_brokers(
+    let consumer = FastConsumer::<String, User, JsonSerializer, JsonSerializer>::from_brokers(
         broker,
         &group_id,
         JsonSerializer,
@@ -196,7 +196,7 @@ async fn test_cross_topic_messaging() {
     .expect("Failed to create order producer");
 
     // Create consumers
-    let user_consumer = FastConsumer::<String, User>::from_brokers(
+    let user_consumer = FastConsumer::<String, User, JsonSerializer, JsonSerializer>::from_brokers(
         broker,
         &group_id,
         JsonSerializer,
@@ -204,21 +204,23 @@ async fn test_cross_topic_messaging() {
     )
     .expect("Failed to create user consumer");
 
-    let product_consumer = FastConsumer::<String, Product>::from_brokers(
-        broker,
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create product consumer");
+    let product_consumer =
+        FastConsumer::<String, Product, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create product consumer");
 
-    let order_consumer = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create order consumer");
+    let order_consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create order consumer");
 
     user_consumer
         .subscribe(&[&user_topic])
@@ -343,13 +345,14 @@ async fn test_high_throughput_scenario() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -459,13 +462,14 @@ async fn test_complex_enum_serialization() {
     )
     .expect("Failed to create producer");
 
-    let consumer = FastConsumer::<String, OrderEvent>::from_brokers(
-        broker,
-        &group_id,
-        JsonSerializer,
-        JsonSerializer,
-    )
-    .expect("Failed to create consumer");
+    let consumer =
+        FastConsumer::<String, OrderEvent, JsonSerializer, JsonSerializer>::from_brokers(
+            broker,
+            &group_id,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer");
 
     consumer.subscribe(&[&topic]).expect("Failed to subscribe");
 
@@ -558,7 +562,7 @@ async fn test_concurrent_producers() {
         KafkaProducer::<String, User, _, _>::new(broker, &topic, JsonSerializer, JsonSerializer)
             .expect("Failed to create producer2");
 
-    let consumer = FastConsumer::<String, User>::from_brokers(
+    let consumer = FastConsumer::<String, User, JsonSerializer, JsonSerializer>::from_brokers(
         broker,
         &group_id,
         JsonSerializer,

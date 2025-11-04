@@ -244,18 +244,18 @@ where
 
         // Create a basic JSON consumer
         let json_consumer = if let Some(config) = self.consumer_config {
-            FastConsumer::<serde_json::Value, serde_json::Value>::with_config(
+            FastConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(
                 config,
-                Box::new(JsonSerializer),
-                Box::new(JsonSerializer),
+                JsonSerializer,
+                JsonSerializer,
             )?
         } else {
             // Create default config from brokers and group_id
             let config = ConsumerConfig::new(&self.brokers, &self.group_id);
-            FastConsumer::<serde_json::Value, serde_json::Value>::with_config(
+            FastConsumer::<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>::with_config(
                 config,
-                Box::new(JsonSerializer),
-                Box::new(JsonSerializer),
+                JsonSerializer,
+                JsonSerializer,
             )?
         };
 
@@ -279,7 +279,8 @@ where
     K: for<'de> Deserialize<'de> + Serialize + 'static,
     V: for<'de> Deserialize<'de> + Serialize + 'static,
 {
-    inner_consumer: FastConsumer<serde_json::Value, serde_json::Value>,
+    inner_consumer:
+        FastConsumer<serde_json::Value, serde_json::Value, JsonSerializer, JsonSerializer>,
     key_format: SerializationFormat,
     value_format: SerializationFormat,
     _phantom_key: PhantomData<K>,
