@@ -462,7 +462,7 @@ impl ProcessorContext {
     pub async fn write_batch_to(
         &mut self,
         sink_name: &str,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), SqlError> {
         let writer =
             self.data_writers
@@ -488,7 +488,7 @@ impl ProcessorContext {
     pub async fn write_batch_to_shared(
         &mut self,
         sink_name: &str,
-        records: &[StreamRecord],
+        records: &[std::sync::Arc<StreamRecord>],
     ) -> Result<(), SqlError> {
         let writer =
             self.data_writers
