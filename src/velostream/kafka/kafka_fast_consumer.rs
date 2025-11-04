@@ -121,7 +121,7 @@ use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::serialization::Serde;
 use rdkafka::Message as RdKafkaMessage;
-use rdkafka::consumer::BaseConsumer;
+use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -987,8 +987,86 @@ where
     /// Returns the consumer group ID.
     ///
     /// Used for transaction management and offset committing.
+    ///
+    /// # Note
+    ///
+    /// The group_id is stored when creating the consumer via `with_config()` or
+    /// `from_brokers()`. If the consumer was created via `new()` with a raw
+    /// BaseConsumer, the group_id will be empty. Use the factory methods for
+    /// transaction support.
     pub fn group_id(&self) -> &str {
         &self.group_id
+    }
+
+    /// Returns the consumer group metadata for transaction support.
+    ///
+    /// This is required for exactly-once semantics when using transactional producers.
+    /// The metadata includes group_id, member_id, and generation_id needed for
+    /// `Producer::send_offsets_to_transaction()`.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(ConsumerGroupMetadata)` if the consumer is part of a consumer group
+    /// - `None` if the consumer is not subscribed or not part of a group
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use rdkafka::producer::FutureProducer;
+    ///
+    /// // In a transactional producer workflow:
+    /// let consumer = FastConsumer::from_brokers(...)?;
+    /// let producer: FutureProducer = ...;
+    ///
+    /// // Begin transaction
+    /// producer.begin_transaction()?;
+    ///
+    /// // Consume and process messages
+    /// let msg = consumer.recv().await?;
+    /// let result = process_message(msg);
+    ///
+    /// // Produce result
+    /// producer.send(...).await?;
+    ///
+    /// // Commit offsets within transaction (exactly-once semantics)
+    /// if let Some(metadata) = consumer.group_metadata() {
+    ///     let offsets = consumer.position()?;
+    ///     producer.send_offsets_to_transaction(&offsets, &metadata, ...)?;
+    /// }
+    ///
+    /// // Commit transaction
+    /// producer.commit_transaction()?;
+    /// ```
+    pub fn group_metadata(&self) -> Option<rdkafka::consumer::ConsumerGroupMetadata> {
+        self.consumer.group_metadata()
+    }
+
+    /// Returns the current position (next fetch offset) for all assigned partitions.
+    ///
+    /// This is used for exactly-once semantics when committing offsets within transactions.
+    /// The returned TopicPartitionList contains the offset that will be consumed next
+    /// for each partition.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(TopicPartitionList)` with current positions for all assigned partitions
+    /// - `Err(KafkaError)` if query failed or no partitions are assigned
+    ///
+    /// # Transaction Support
+    ///
+    /// Use this with `group_metadata()` to commit offsets within a transaction:
+    ///
+    /// ```ignore
+    /// // Get current positions and metadata
+    /// let offsets = consumer.position()?;
+    /// let metadata = consumer.group_metadata().ok_or(...)?;
+    ///
+    /// // Send to transaction
+    /// producer.send_offsets_to_transaction(&offsets, &metadata, timeout)?;
+    /// ```
+    pub fn position(&self) -> Result<rdkafka::TopicPartitionList, rdkafka::error::KafkaError> {
+        // Delegate to BaseConsumer's position() method
+        self.consumer.position()
     }
 
     /// Returns the current offset positions for assigned partitions.

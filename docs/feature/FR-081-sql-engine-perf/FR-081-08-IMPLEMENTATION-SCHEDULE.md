@@ -34,41 +34,70 @@
 
 ---
 
-## ⚠️ Known API Limitations
+## ✅ Transaction & Exactly-Once Semantics Support
 
-### FastConsumer group_id Requirement for Transactions
+### FastConsumer Transaction API (Phase 2E Enhancement)
 
-**Issue**: The `FastConsumer::new()` constructor (which takes a raw `BaseConsumer`) cannot extract the `group_id` from the underlying consumer, so it initializes `group_id` to an empty string.
+**Feature**: Full support for Kafka transactions and exactly-once semantics (EOS)
 
-**Impact**: Transaction support and manual offset commits require a valid `group_id`. Using `FastConsumer::new()` directly will result in empty group_id.
+**API Methods**:
+- `group_metadata()` → `Option<ConsumerGroupMetadata>` - Full metadata for `send_offsets_to_transaction()`
+- `position()` → `Result<TopicPartitionList>` - Partition-level offset positions
+- `group_id()` → `&str` - Consumer group ID for convenience
 
-**Workaround**: Always use one of these factory methods which properly store the `group_id`:
-- `FastConsumer::from_brokers()` - Creates consumer from broker list and group_id
-- `FastConsumer::with_config()` - Creates consumer from `ConsumerConfig` (includes group_id)
-- `ConsumerFactory::create()` - Uses `ConsumerConfig` internally
-
-**Example**:
+**Transaction Workflow**:
 ```rust
-// ❌ DON'T: Direct construction loses group_id
-let base_consumer = BaseConsumer::from_config(&client_config)?;
-let consumer = FastConsumer::new(base_consumer, key_ser, val_ser);
-// consumer.group_id() returns "" - transactions won't work!
+use rdkafka::producer::FutureProducer;
 
-// ✅ DO: Use factory methods that preserve group_id
+// Create consumer with factory method (required for transactions)
 let consumer = FastConsumer::from_brokers(
     "localhost:9092",
     "my-consumer-group",
     Box::new(JsonSerializer),
     Box::new(JsonSerializer),
 )?;
-// consumer.group_id() returns "my-consumer-group" - transactions work correctly!
+
+// Create transactional producer
+let producer: FutureProducer = ClientConfig::new()
+    .set("bootstrap.servers", "localhost:9092")
+    .set("transactional.id", "my-transactional-id")
+    .create()?;
+
+producer.init_transactions(Duration::from_secs(30))?;
+
+// Exactly-once processing loop
+loop {
+    // Begin transaction
+    producer.begin_transaction()?;
+
+    // Consume message
+    let msg = consumer.recv().await?;
+
+    // Process and produce result
+    let result = process_message(msg);
+    producer.send(result, ...).await?;
+
+    // Commit offsets within transaction (exactly-once guarantee)
+    let offsets = consumer.position()?;
+    let metadata = consumer.group_metadata().ok_or(...)?;
+    producer.send_offsets_to_transaction(&offsets, &metadata, Duration::from_secs(30))?;
+
+    // Commit transaction
+    producer.commit_transaction(Duration::from_secs(30))?;
+}
 ```
 
-**Root Cause**: The `BaseConsumer` from rdkafka doesn't expose a `group_id()` accessor method, so we can't retrieve it after construction. This is an API design constraint, not a bug.
+**Key Benefits**:
+- ✅ **Exactly-Once Semantics** - Full EOS support via transactional offset commits
+- ✅ **Partition-Level Offsets** - `position()` returns all partition offsets for `send_offsets_to_transaction()`
+- ✅ **Group Metadata** - `group_metadata()` provides member_id, generation_id for transactions
+- ✅ **Simple API** - Direct delegation to rdkafka's BaseConsumer methods
 
-**Status**: ⚠️ DOCUMENTED - API limitation accepted, users should follow recommended factory patterns
+**Note**: Transaction support requires using factory methods (`from_brokers()`, `with_config()`) to properly initialize the consumer group. Using `new()` with a raw `BaseConsumer` is supported but not recommended for transactional workflows.
 
-**Phase**: Phase 2D (Legacy KafkaConsumer Removal) - Identified during test compilation fixes
+**Status**: ✅ IMPLEMENTED - Full transaction support available in Phase 2E
+
+**Phase**: Phase 2E (Legacy Window Code Removal) - Enhanced with proper transaction API
 
 ---
 
