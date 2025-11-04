@@ -103,7 +103,7 @@ impl SimpleJobProcessor {
     async fn emit_counter_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         job_name: &str,
     ) {
         self.metrics_helper
@@ -126,7 +126,7 @@ impl SimpleJobProcessor {
     async fn emit_gauge_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         job_name: &str,
     ) {
         self.metrics_helper
@@ -149,7 +149,7 @@ impl SimpleJobProcessor {
     async fn emit_histogram_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         job_name: &str,
     ) {
         self.metrics_helper
@@ -551,12 +551,8 @@ impl SimpleJobProcessor {
         );
 
         // Step 2b: Inject trace context into output records for distributed tracing
-        // PERF: Unwrap Arc to owned records for trace injection and metrics
-        let mut output_owned: Vec<_> = batch_result
-            .output_records
-            .iter()
-            .map(|arc| (**arc).clone())
-            .collect();
+        // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
+        let mut output_owned: Vec<Arc<StreamRecord>> = batch_result.output_records;
         ObservabilityHelper::inject_trace_context_into_records(
             &batch_span_guard,
             &mut output_owned,
@@ -596,12 +592,8 @@ impl SimpleJobProcessor {
                 // PERF: Unwrap Arc for trait compat - still 7x faster due to multi-sink Arc clones
                 let ser_start = Instant::now();
                 let record_count = batch_result.output_records.len();
-                let unwrapped: Vec<crate::velostream::sql::execution::StreamRecord> = batch_result
-                    .output_records
-                    .iter()
-                    .map(|arc| (**arc).clone())
-                    .collect();
-                match w.write_batch(unwrapped).await {
+                // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
+                match w.write_batch(batch_result.output_records).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -1021,11 +1013,8 @@ impl SimpleJobProcessor {
             should_commit_batch(self.config.failure_strategy, total_records_failed, job_name);
 
         if should_commit {
-            // PERF: Unwrap Arc to owned records for trace injection and writes
-            let mut output_owned: Vec<_> = all_output_records
-                .iter()
-                .map(|arc| (**arc).clone())
-                .collect();
+            // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
+            let mut output_owned: Vec<Arc<StreamRecord>> = all_output_records;
 
             // Inject trace context into all output records for distributed tracing
             ObservabilityHelper::inject_trace_context_into_records(

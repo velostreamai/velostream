@@ -604,7 +604,7 @@ impl ProcessorMetricsHelper {
     async fn emit_metrics_generic<F>(
         &self,
         annotations: Vec<&MetricAnnotation>,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
         batch_fn: F,
@@ -631,7 +631,9 @@ impl ProcessorMetricsHelper {
                         batch_capacity,
                     );
 
-                for record in output_records {
+                for record_arc in output_records {
+                    // Dereference Arc for field access
+                    let record = &**record_arc;
                     let record_start = Instant::now();
                     for annotation in &annotations {
                         // Check if metric should be emitted based on condition
@@ -728,7 +730,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_counter_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
@@ -814,7 +816,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_gauge_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
@@ -912,7 +914,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_histogram_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
