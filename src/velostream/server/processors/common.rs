@@ -241,7 +241,7 @@ pub async fn process_batch_with_output(
     // Previous implementation cloned state per-record (1M clones for 1M records)
     // New implementation reuses context - state mutates in place
     let mut context = ProcessorContext::new(&query_id);
-    context.group_by_states = group_states;  // Move ownership (not clone)
+    context.group_by_states = group_states; // Move ownership (not clone)
     context.persistent_window_states = window_states;
 
     // Process batch WITHOUT holding engine lock (high performance)

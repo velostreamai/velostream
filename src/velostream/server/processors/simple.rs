@@ -552,7 +552,11 @@ impl SimpleJobProcessor {
 
         // Step 2b: Inject trace context into output records for distributed tracing
         // PERF: Unwrap Arc to owned records for trace injection and metrics
-        let mut output_owned: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
+        let mut output_owned: Vec<_> = batch_result
+            .output_records
+            .iter()
+            .map(|arc| (**arc).clone())
+            .collect();
         ObservabilityHelper::inject_trace_context_into_records(
             &batch_span_guard,
             &mut output_owned,
@@ -843,8 +847,9 @@ impl SimpleJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
-        let mut all_output_records: Vec<std::sync::Arc<crate::velostream::sql::execution::StreamRecord>> =
-            Vec::new();
+        let mut all_output_records: Vec<
+            std::sync::Arc<crate::velostream::sql::execution::StreamRecord>,
+        > = Vec::new();
 
         // Start batch timing
         let batch_start = Instant::now();
@@ -948,7 +953,11 @@ impl SimpleJobProcessor {
 
             // FR-073: Emit SQL-native metrics for processed records from this source
             // PERF: Unwrap Arc to owned records for metrics
-            let output_owned: Vec<_> = batch_result.output_records.iter().map(|arc| (**arc).clone()).collect();
+            let output_owned: Vec<_> = batch_result
+                .output_records
+                .iter()
+                .map(|arc| (**arc).clone())
+                .collect();
             self.emit_counter_metrics(query, &output_owned, job_name)
                 .await;
             self.emit_gauge_metrics(query, &output_owned, job_name)
@@ -1013,7 +1022,10 @@ impl SimpleJobProcessor {
 
         if should_commit {
             // PERF: Unwrap Arc to owned records for trace injection and writes
-            let mut output_owned: Vec<_> = all_output_records.iter().map(|arc| (**arc).clone()).collect();
+            let mut output_owned: Vec<_> = all_output_records
+                .iter()
+                .map(|arc| (**arc).clone())
+                .collect();
 
             // Inject trace context into all output records for distributed tracing
             ObservabilityHelper::inject_trace_context_into_records(
@@ -1036,10 +1048,7 @@ impl SimpleJobProcessor {
                     // Single sink: use move semantics (no clone)
                     let ser_start = Instant::now();
                     let record_count = output_owned.len();
-                    match context
-                        .write_batch_to(&sink_names[0], output_owned)
-                        .await
-                    {
+                    match context.write_batch_to(&sink_names[0], output_owned).await {
                         Ok(()) => {
                             let ser_duration = ser_start.elapsed().as_millis() as u64;
 
@@ -1055,17 +1064,13 @@ impl SimpleJobProcessor {
 
                             debug!(
                                 "Job '{}': Successfully wrote {} records to sink '{}'",
-                                job_name,
-                                record_count,
-                                &sink_names[0]
+                                job_name, record_count, &sink_names[0]
                             );
                         }
                         Err(e) => {
                             let error_msg = format!(
                                 "Failed to write {} records to sink '{}': {:?}",
-                                record_count,
-                                &sink_names[0],
-                                e
+                                record_count, &sink_names[0], e
                             );
                             warn!("Job '{}': {}", job_name, error_msg);
                             ErrorTracker::record_error(&self.observability, job_name, error_msg);

@@ -506,7 +506,8 @@ async fn profile_realistic_1m_records() {
     if core_execution_time > 0.001 {
         let core_throughput = 1_000_000.0 / core_execution_time / 1000.0;
         let measured_throughput = 1_000_000.0 / overall_duration.as_secs_f64() / 1000.0;
-        let overhead_impact = ((core_throughput - measured_throughput) / measured_throughput) * 100.0;
+        let overhead_impact =
+            ((core_throughput - measured_throughput) / measured_throughput) * 100.0;
 
         println!("\n╔════════════════════════════════════════════════════════╗");
         println!("║           FRAMEWORK OVERHEAD IMPACT                    ║");
@@ -525,7 +526,10 @@ async fn profile_realistic_1m_records() {
         );
         println!("╚════════════════════════════════════════════════════════╝");
 
-        println!("\n🎯 Removing tokio async overhead would improve throughput by {:.1}%", overhead_impact);
+        println!(
+            "\n🎯 Removing tokio async overhead would improve throughput by {:.1}%",
+            overhead_impact
+        );
     }
 
     assert!(result.is_ok(), "Job should complete successfully");
