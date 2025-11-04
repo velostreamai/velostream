@@ -551,6 +551,9 @@ impl SimpleJobProcessor {
             job_name, batch_result.records_processed, batch_result.records_failed
         );
 
+        // Update stats from batch result BEFORE moving output_records
+        update_stats_from_batch_result(stats, &batch_result);
+
         // Step 2b: Inject trace context into output records for distributed tracing
         // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
         let mut output_owned: Vec<Arc<StreamRecord>> = batch_result.output_records;
@@ -667,9 +670,6 @@ impl SimpleJobProcessor {
         // Step 5: Commit with simple semantics (no rollback if sink fails)
         if should_commit && !sink_write_failed {
             self.commit_simple(reader, writer, job_name).await?;
-
-            // Update stats from batch result
-            update_stats_from_batch_result(stats, &batch_result);
 
             if batch_result.records_failed > 0 {
                 debug!(
@@ -1010,6 +1010,7 @@ impl SimpleJobProcessor {
         if should_commit {
             // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
             let mut output_owned: Vec<Arc<StreamRecord>> = all_output_records;
+            let output_record_count = output_owned.len(); // Save count before potential move
 
             // Inject trace context into all output records for distributed tracing
             ObservabilityHelper::inject_trace_context_into_records(
@@ -1190,7 +1191,7 @@ impl SimpleJobProcessor {
                 job_name,
                 total_records_processed,
                 total_records_failed,
-                output_owned.len()
+                output_record_count
             );
 
             // Complete batch span with success
