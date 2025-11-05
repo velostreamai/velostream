@@ -112,7 +112,7 @@ async fn profile_tumbling_instrumented_standard_path() {
             first_exec_time = Some(total_time);
         }
 
-        // Print detailed output at sample intervals
+        // Print detailed output a"Phase 4C: t sample intervals
         if idx % sample_interval == 0 || idx < 10 {
             let growth = if let Some(first_time) = first_exec_time {
                 total_time.as_micros() as f64 / first_time.as_micros() as f64

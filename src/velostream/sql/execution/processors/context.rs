@@ -5,7 +5,7 @@ use crate::velostream::schema::{Schema, StreamHandle};
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::RowsEmitMode;
 use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::execution::internal::{RowsWindowState, WindowState};
+use crate::velostream::sql::execution::internal::{GroupByState, RowsWindowState, WindowState};
 use crate::velostream::sql::execution::performance::PerformanceMonitor;
 use crate::velostream::sql::execution::watermarks::WatermarkManager;
 use crate::velostream::table::unified_table::UnifiedTable;
@@ -31,9 +31,9 @@ pub struct ProcessorContext {
     /// JOIN processing utilities
     pub join_context: JoinContext,
     /// GROUP BY processing state
-    /// Phase 4C: Wrapped in Arc to eliminate deep cloning overhead
+    /// FR-082 Phase 4C: Wrapped in Arc to eliminate deep cloning overhead
     /// Cloning the HashMap now just bumps Arc refcounts instead of deep-cloning GroupByState
-    pub group_by_states: HashMap<String, Arc<crate::velostream::sql::execution::internal::GroupByState>>,
+    pub group_by_states: HashMap<String, Arc<GroupByState>>,
     /// Schema registry for introspection (SHOW/DESCRIBE operations)
     pub schemas: HashMap<String, Schema>,
     /// Stream handles registry
