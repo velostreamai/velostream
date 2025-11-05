@@ -251,7 +251,7 @@ loop {
 
 ## 5. Cumulative Performance Journey
 
-### Evolution
+### Evolution (Passthrough Queries)
 
 | Phase | Optimization | Throughput | Improvement | Bottleneck |
 |-------|-------------|------------|-------------|------------|
@@ -260,8 +260,18 @@ loop {
 | **Phase 2** | **Zero-copy Arc** | **368.89 K rec/s** | **+28.5%** | **Async framework** |
 | **Phase 3** | **has_more() removal** | **399.97 K rec/s** | **+8.4%** | **Async framework** |
 | Phase 3B* | Batch tuning (user config) | ~800K-2,000K rec/s* | Variable* | Async framework |
+| Phase 4* | SQL engine optimization | 400 K rec/s (maintained) | - | - |
 
-*Projected based on analysis; requires user configuration of batch size
+*Projected
+
+### GROUP BY Query Performance Tracking
+
+| Phase | Query Type | Throughput | Overhead vs Passthrough | Status |
+|-------|-----------|-----------|------------------------|---------|
+| **Phase 3** | **GROUP BY + 5 Aggs** | **3.58 K rec/s** | **99.1% (111x slowdown)** | ✅ **Measured** |
+| Phase 4* | GROUP BY + 5 Aggs | >200 K rec/s* | <50%* | 📋 Planned |
+
+*Phase 4 target: Optimize hash table and aggregation state management
 
 ### Bottleneck Shift (Success!)
 
@@ -374,6 +384,128 @@ All identified risks were successfully mitigated:
 
 ---
 
+## 6. Phase 4 Plan: SQL Engine Optimization (Next Phase)
+
+### Critical Finding from Comprehensive Benchmarks
+
+After completing Phase 2 & 3 framework optimizations, comprehensive SQL benchmarks revealed a **critical bottleneck in the SQL engine layer**.
+
+**Benchmark Results** (1M records):
+
+| Query Type | Throughput | Duration | Overhead vs Baseline |
+|-----------|-----------|----------|----------------------|
+| **Passthrough** (`SELECT *`) | 400 K rec/s | 2.5s | Baseline (Phase 3) |
+| **GROUP BY + 5 Aggregations** | **3.58 K rec/s** | **279.5s** | **99.1% slower (111x slowdown)** |
+
+**Query tested:**
+```sql
+SELECT category,
+       COUNT(*) as cnt,
+       SUM(amount) as total,
+       AVG(amount) as avg_amt,
+       MIN(amount) as min_amt,
+       MAX(amount) as max_amt
+FROM test_stream
+GROUP BY category
+```
+
+### Root Cause Analysis
+
+**Framework vs SQL Engine Performance:**
+- ✅ **Framework layer**: Optimized to 400K rec/s (Phase 2 & 3)
+- ❌ **SQL engine layer**: GROUP BY operations cause 111x slowdown
+
+**Likely Bottlenecks:**
+1. **Hash table operations** for GROUP BY:
+   - Key extraction from records
+   - Hash function performance
+   - Hash table collision handling
+   - Memory allocation patterns
+
+2. **Aggregation state management**:
+   - Accumulator updates (COUNT, SUM, AVG, MIN, MAX)
+   - State serialization/deserialization
+   - Memory overhead per group
+
+3. **Arc cloning in SQL engine**:
+   - May be cloning records during GROUP BY processing
+   - Aggregator state may not use Arc<StreamRecord> efficiently
+
+4. **Profiling gap**:
+   - SQL engine PROCESS time shows 0.000s, but total time is 279.5s
+   - GROUP BY overhead not captured in current metrics
+
+### Phase 4 Objectives
+
+**Goal**: Achieve <50% overhead for GROUP BY operations (target: >200K rec/s)
+
+**Phase 4A - Profiling & Analysis** (4 hours):
+- Add detailed profiling inside SQL execution engine
+- Measure hash table operation times
+- Measure aggregation accumulator update times
+- Identify specific hot spots in GROUP BY code path
+
+**Phase 4B - Hash Table Optimization** (8 hours):
+- Optimize hash function for group keys
+- Pre-allocate hash table with estimated capacity
+- Use FxHashMap or ahash for better performance
+- Reduce memory allocations during hash operations
+
+**Phase 4C - Aggregation State Optimization** (8 hours):
+- Ensure aggregators use Arc<StreamRecord> without cloning
+- Optimize accumulator state updates
+- Use stack allocation for small group counts
+- Implement fast-path for common aggregations (COUNT, SUM)
+
+**Phase 4D - Validation** (2 hours):
+- Run comprehensive SQL benchmarks
+- Validate window function performance
+- Ensure no regression in passthrough queries
+- Document performance characteristics
+
+### Expected Impact
+
+**Conservative estimates:**
+- GROUP BY performance: 3.58K → 200K rec/s (+5,500% improvement)
+- Window functions: Similar improvement expected
+- Overhead vs passthrough: 99.1% → <50%
+
+**Success criteria:**
+- GROUP BY + aggregations: >200K rec/s (50% of passthrough baseline)
+- Tumbling window + GROUP BY: >150K rec/s
+- No regression in passthrough performance (maintain 400K rec/s)
+
+### Files to Investigate
+
+**SQL Engine Core:**
+- `src/velostream/sql/execution/query_processor.rs` - Main query processing
+- `src/velostream/sql/execution/aggregation/` - Aggregation logic
+- `src/velostream/sql/execution/group_by.rs` - GROUP BY implementation
+
+**Hash Table Usage:**
+- Search for `HashMap::new()`, `insert()`, `entry()` patterns
+- Identify hash table allocation hot spots
+- Check for inefficient key extraction
+
+**Aggregation State:**
+- `src/velostream/sql/execution/aggregation/accumulator.rs`
+- Check if Arc<StreamRecord> is being cloned during aggregation
+- Verify aggregator state management efficiency
+
+### Comprehensive Benchmarks Added
+
+**New test file**: `tests/performance/microbench_job_server_profiling_comprehensive.rs`
+
+**Benchmarks included:**
+1. ✅ `profile_group_by_aggregations_1m_records` - GROUP BY + 5 aggregations
+2. ✅ `profile_tumbling_window_group_by_1m_records` - Window + GROUP BY
+
+**Purpose**: Validate that framework optimizations (Phase 2 & 3) benefit all SQL operations, not just passthrough queries.
+
+**Key insight**: These benchmarks expose SQL engine bottlenecks that were hidden when testing only passthrough queries.
+
+---
+
 ## Recommendations
 
 ### Immediate Actions
@@ -386,20 +518,31 @@ All identified risks were successfully mitigated:
    - Zero compilation errors
    - No behavioral regressions
 
-### Next Steps (Optional Phase 3B)
+### Critical Next Step: Phase 4 (SQL Engine Optimization)
 
-If additional performance gains are required:
+**IMPORTANT**: Comprehensive benchmarks reveal that while framework overhead is optimized (+39.3% improvement), **real-world SQL queries with GROUP BY suffer a 111x slowdown**.
+
+**Priority**: **HIGH** - Framework optimizations are meaningless if GROUP BY queries run at 3.58K rec/s vs 400K rec/s for passthrough.
+
+**Recommended action**:
+1. ✅ **Merge Phase 2 & 3** - Framework optimizations validated
+2. **Begin Phase 4 immediately** - SQL engine GROUP BY optimization
+3. **Expected outcome**: GROUP BY performance from 3.58K → 200K rec/s (+5,500%)
+
+### Optional Enhancements (Phase 3B)
+
+If additional framework-level gains are needed:
 
 1. **User tuning**: Document batch size recommendations for different use cases (2-10x potential)
 2. **Advanced**: Evaluate architectural changes (sync hot path, custom allocators, SIMD)
 
-**Current recommendation**: **Merge Phase 2 & 3 now**. The +39.3% cumulative improvement is significant, and the code is at theoretical optimal for the current async architecture with minimal async boundaries. Further gains require either:
-- User configuration (batch size tuning)
-- Architectural changes with diminishing returns
+**Note**: These are lower priority than Phase 4, which addresses the critical GROUP BY bottleneck.
 
 ---
 
-**Document Version**: 3.0 (Phase 3 Complete)
+**Document Version**: 4.0 (Phase 4 Planned)
 **Last Updated**: November 5, 2025
-**Phase 2 & 3 Status**: ✅ Complete and validated
+**Status**:
+- Phase 2 & 3: ✅ Complete and validated (+39.3% framework improvement)
+- Phase 4: 📋 Planned (SQL engine optimization for GROUP BY)
 **Branch**: `perf/arc-phase2-datawriter-trait`

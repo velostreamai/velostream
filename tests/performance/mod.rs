@@ -27,6 +27,7 @@ pub mod where_clause_performance_test;
 pub mod avro_decimal_roundtrip_test;
 pub mod kafka_consumer_benchmark;
 pub mod microbench_job_server_profiling;
+pub mod microbench_job_server_profiling_comprehensive; // Phase 3 validation: window + GROUP BY
 pub mod microbench_multi_sink_write;
 pub mod performance_optimization_verification;
 pub mod performance_regression_test;
