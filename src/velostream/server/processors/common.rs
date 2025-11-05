@@ -225,7 +225,7 @@ pub async fn process_batch_with_output(
     let query_id = generate_query_id(query);
 
     // Lock 1: Get state once at batch start (minimal lock time)
-    let (mut group_states, mut window_states) = {
+    let (group_states, window_states) = {
         let engine_lock = engine.lock().await;
         (
             engine_lock.get_group_states().clone(),
