@@ -83,6 +83,9 @@ opentelemetry-otlp = { version = "0.14", features = ["tokio", "trace"] }
 opentelemetry-semantic-conventions = "0.13"
 sysinfo = "0.32"
 
+# Phase 4B: Fast hash map for GROUP BY optimization
+rustc-hash = "2.0"
+
 [build-dependencies]
 prost-build = { version = "0.14.1" }
 

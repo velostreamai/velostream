@@ -3,6 +3,7 @@
 //! This module provides utilities for managing GROUP BY state across streaming
 //! records, including group key generation and state lifecycle management.
 
+use super::super::internal::GroupKey;
 use super::super::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
@@ -12,20 +13,25 @@ use crate::velostream::sql::execution::expression::ExpressionEvaluator;
 pub struct GroupByStateManager;
 
 impl GroupByStateManager {
-    /// Generate group key values for a record based on GROUP BY expressions
+    /// Generate group key for a record based on GROUP BY expressions
+    ///
+    /// Phase 4B Optimization:
+    /// - Returns GroupKey instead of Vec<String>
+    /// - Uses FieldValue directly instead of converting to String
+    /// - Eliminates 1M+ Vec<String> allocations for 1M records
     #[doc(hidden)]
     pub fn generate_group_key(
         expressions: &[Expr],
         record: &StreamRecord,
-    ) -> Result<Vec<String>, SqlError> {
-        let mut key_values = Vec::new();
+    ) -> Result<GroupKey, SqlError> {
+        let mut key_values = Vec::with_capacity(expressions.len());
 
         for expr in expressions {
             let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
-            key_values.push(Self::field_value_to_group_key(&value));
+            key_values.push(value);
         }
 
-        Ok(key_values)
+        Ok(GroupKey::new(key_values))
     }
 
     /// Convert a FieldValue to a string representation for group key
@@ -90,22 +96,26 @@ impl GroupByStateManager {
     }
 
     /// Check if a record matches the GROUP BY key
+    ///
+    /// Phase 4B: Works with GroupKey instead of Vec<String>
     #[doc(hidden)]
     pub fn record_matches_group_key(
         expressions: &[Expr],
         record: &StreamRecord,
-        target_key: &[String],
+        target_key: &GroupKey,
     ) -> Result<bool, SqlError> {
         let record_key = Self::generate_group_key(expressions, record)?;
-        Ok(record_key == target_key)
+        Ok(record_key == *target_key)
     }
 
     /// Get all records that belong to a specific group from a buffer
+    ///
+    /// Phase 4B: Works with GroupKey instead of Vec<String>
     #[doc(hidden)]
     pub fn get_group_records<'a>(
         expressions: &[Expr],
         records: &'a [StreamRecord],
-        target_key: &[String],
+        target_key: &GroupKey,
     ) -> Result<Vec<&'a StreamRecord>, SqlError> {
         let mut group_records = Vec::new();
 
@@ -119,11 +129,13 @@ impl GroupByStateManager {
     }
 
     /// Extract all unique group keys from a collection of records
+    ///
+    /// Phase 4B: Returns Vec<GroupKey> instead of Vec<Vec<String>>
     #[doc(hidden)]
     pub fn extract_group_keys(
         expressions: &[Expr],
         records: &[StreamRecord],
-    ) -> Result<Vec<Vec<String>>, SqlError> {
+    ) -> Result<Vec<GroupKey>, SqlError> {
         let mut keys = Vec::new();
 
         for record in records {

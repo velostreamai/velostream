@@ -1180,46 +1180,29 @@ impl SelectProcessor {
         let query_key = format!("{:p}", query as *const _);
 
         // Initialize GROUP BY state if not exists
+        // Phase 4B: Use GroupByState::new() which uses FxHashMap
         if !context.group_by_states.contains_key(&query_key) {
             context.group_by_states.insert(
                 query_key.clone(),
-                GroupByState {
-                    groups: HashMap::new(),
-                    group_expressions: group_exprs.to_vec(),
-                    select_fields: fields.to_vec(),
-                    having_clause: having.clone(),
-                },
+                GroupByState::new(
+                    group_exprs.to_vec(),
+                    fields.to_vec(),
+                    having.clone(),
+                ),
             );
         }
 
-        // Generate group key for this record
-        let mut group_key = Vec::new();
-        for group_expr in group_exprs {
-            let key_value = Self::evaluate_group_key_expression(group_expr, record)?;
-            group_key.push(key_value);
-        }
+        // Phase 4B: Generate optimized group key for this record
+        // Uses GroupKey with Arc<[FieldValue]> instead of Vec<String>
+        let group_key = GroupByStateManager::generate_group_key(group_exprs, record)?;
 
         // Get mutable reference to the GROUP BY state
         let group_state = context.group_by_states.get_mut(&query_key).unwrap();
 
-        // Initialize or update the accumulator for this group
+        // Phase 4B: Initialize or update the accumulator for this group
+        // Uses get_or_create_group which works with GroupKey
         let accumulator = group_state
-            .groups
-            .entry(group_key.clone())
-            .or_insert_with(|| GroupAccumulator {
-                count: 0,
-                non_null_counts: HashMap::new(),
-                sums: HashMap::new(),
-                mins: HashMap::new(),
-                maxs: HashMap::new(),
-                numeric_values: HashMap::new(),
-                first_values: HashMap::new(),
-                last_values: HashMap::new(),
-                string_values: HashMap::new(),
-                distinct_values: HashMap::new(),
-                approx_distinct_values: HashMap::new(),
-                sample_record: Some(record.clone()),
-            });
+            .get_or_create_group(group_key.clone());
 
         // Note: accumulator.count will be incremented in AccumulatorManager::process_record_into_accumulator
         // Do NOT increment it here to avoid double-counting

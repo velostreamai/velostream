@@ -6,9 +6,10 @@
 
 use crate::velostream::sql::ast::TimeUnit;
 use crate::velostream::sql::error::SqlError;
-use chrono::{DateTime, NaiveDate, NaiveDateTime};
+use chrono::{Datelike, DateTime, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 
 /// A value in a SQL record field
@@ -44,6 +45,79 @@ pub enum FieldValue {
     Struct(HashMap<String, FieldValue>),
     /// Time interval (value, unit)
     Interval { value: i64, unit: TimeUnit },
+}
+
+/// Phase 4B: Hash implementation for FieldValue to support GroupKey optimization
+///
+/// This enables zero-allocation group keys using Arc<[FieldValue]> instead of Vec<String>.
+/// Special handling for f64 (Float) using bit representation to make it hashable.
+impl Hash for FieldValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash discriminant first to distinguish variants
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            FieldValue::Integer(i) => i.hash(state),
+            FieldValue::Float(f) => {
+                // Use bit representation for f64 to make it hashable
+                // This handles NaN, infinity, and -0.0 correctly
+                f.to_bits().hash(state);
+            }
+            FieldValue::String(s) => s.hash(state),
+            FieldValue::Boolean(b) => b.hash(state),
+            FieldValue::Null => {}
+            FieldValue::Date(d) => {
+                // Hash date components
+                d.year().hash(state);
+                d.month().hash(state);
+                d.day().hash(state);
+            }
+            FieldValue::Timestamp(ts) => {
+                // Hash timestamp as i64 milliseconds
+                ts.and_utc().timestamp_millis().hash(state);
+            }
+            FieldValue::Decimal(dec) => {
+                // Hash decimal as string representation (deterministic)
+                dec.to_string().hash(state);
+            }
+            FieldValue::ScaledInteger(value, scale) => {
+                value.hash(state);
+                scale.hash(state);
+            }
+            FieldValue::Array(arr) => {
+                // Hash length and each element
+                arr.len().hash(state);
+                for elem in arr {
+                    elem.hash(state);
+                }
+            }
+            FieldValue::Map(map) => {
+                // Sort keys for deterministic hashing
+                let mut sorted_keys: Vec<&String> = map.keys().collect();
+                sorted_keys.sort();
+                sorted_keys.len().hash(state);
+                for key in sorted_keys {
+                    key.hash(state);
+                    map.get(key).unwrap().hash(state);
+                }
+            }
+            FieldValue::Struct(fields) => {
+                // Sort keys for deterministic hashing
+                let mut sorted_keys: Vec<&String> = fields.keys().collect();
+                sorted_keys.sort();
+                sorted_keys.len().hash(state);
+                for key in sorted_keys {
+                    key.hash(state);
+                    fields.get(key).unwrap().hash(state);
+                }
+            }
+            FieldValue::Interval { value, unit } => {
+                value.hash(state);
+                // Hash unit as discriminant
+                std::mem::discriminant(unit).hash(state);
+            }
+        }
+    }
 }
 
 /// System column names in Velostream

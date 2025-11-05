@@ -7,13 +7,14 @@ These tests verify that GROUP BY and Window states can be safely accessed and mo
 by external processors without holding engine locks during batch processing.
 */
 
+use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::ast::WindowSpec;
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::internal::{
-    GroupAccumulator, GroupByState, WindowState,
+    GroupAccumulator, GroupByState, GroupKey, WindowState,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -40,8 +41,9 @@ fn test_set_and_get_group_states() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     // Create test GROUP BY state
+    // Phase 4B: Use FxHashMap and GroupKey instead of HashMap and Vec<String>
     let mut test_states = HashMap::new();
-    let mut groups = HashMap::new();
+    let mut groups = FxHashMap::default();
 
     // Add a sample group accumulator
     let mut accumulator = GroupAccumulator {
@@ -60,7 +62,8 @@ fn test_set_and_get_group_states() {
     };
     accumulator.sums.insert("amount".to_string(), 1000.0);
 
-    groups.insert(vec!["group1".to_string()], accumulator);
+    let group_key = GroupKey::new(vec![FieldValue::String("group1".to_string())]);
+    groups.insert(group_key, accumulator);
 
     let group_state = GroupByState {
         groups,
@@ -97,7 +100,7 @@ fn test_group_states_clone_pattern() {
     test_states.insert(
         "query1".to_string(),
         GroupByState {
-            groups: HashMap::new(),
+            groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
@@ -113,7 +116,7 @@ fn test_group_states_clone_pattern() {
     cloned_states.insert(
         "query2".to_string(),
         GroupByState {
-            groups: HashMap::new(),
+            groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
@@ -224,7 +227,7 @@ fn test_state_accessors_thread_safety_simulation() {
     initial_states.insert(
         "query1".to_string(),
         GroupByState {
-            groups: HashMap::new(),
+            groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
@@ -237,8 +240,10 @@ fn test_state_accessors_thread_safety_simulation() {
     let mut batch_states = engine.get_group_states().clone();
 
     // Process batch (no lock held)
+    // Phase 4B: Use GroupKey instead of Vec<String>
+    let group_key = GroupKey::new(vec![FieldValue::String("1".to_string())]);
     batch_states.get_mut("query1").unwrap().groups.insert(
-        vec!["1".to_string()],
+        group_key,
         GroupAccumulator {
             count: 10,
             non_null_counts: HashMap::new(),
@@ -280,7 +285,7 @@ fn test_multiple_state_updates() {
         states.insert(
             format!("query_{}", i),
             GroupByState {
-                groups: HashMap::new(),
+                groups: FxHashMap::default(),
                 group_expressions: vec![],
                 select_fields: vec![],
                 having_clause: None,
@@ -313,7 +318,7 @@ fn test_state_independence() {
     group_states.insert(
         "group_query".to_string(),
         GroupByState {
-            groups: HashMap::new(),
+            groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,

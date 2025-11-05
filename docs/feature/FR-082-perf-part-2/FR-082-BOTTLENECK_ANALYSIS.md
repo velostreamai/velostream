@@ -7,7 +7,6 @@
 ---
 
 ## Executive Summary
-
 After eliminating all clone overhead via Arc<StreamRecord>, the **bottleneck is now 100% in the async framework** (tokio runtime). Core READ/WRITE/PROCESS operations measure as **0.000s** - essentially zero overhead!
 
 **Current Performance**: 397.13 K records/sec  

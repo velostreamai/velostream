@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use velostream::velostream::sql::ast::Expr;
 use velostream::velostream::sql::execution::aggregation::state::GroupByStateManager;
+use velostream::velostream::sql::execution::internal::GroupKey;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 fn create_test_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
@@ -57,10 +58,15 @@ fn test_generate_group_key_simple() {
         Expr::Column("priority".to_string()),
     ];
 
+    // Phase 4B: generate_group_key now returns GroupKey instead of Vec<String>
     let result = GroupByStateManager::generate_group_key(&expressions, &record);
     assert!(result.is_ok());
     let key = result.unwrap();
-    assert_eq!(key, vec!["electronics".to_string(), "1".to_string()]);
+
+    // Verify the key contains the expected values
+    assert_eq!(key.values().len(), 2);
+    assert_eq!(key.values()[0], FieldValue::String("electronics".to_string()));
+    assert_eq!(key.values()[1], FieldValue::Integer(1));
 }
 
 #[test]
@@ -71,13 +77,16 @@ fn test_record_matches_group_key() {
     )]);
 
     let expressions = vec![Expr::Column("category".to_string())];
-    let target_key = vec!["electronics".to_string()];
+
+    // Phase 4B: Create GroupKey instead of Vec<String>
+    let target_key = GroupKey::new(vec![FieldValue::String("electronics".to_string())]);
 
     let result = GroupByStateManager::record_matches_group_key(&expressions, &record, &target_key);
     assert!(result.is_ok());
     assert!(result.unwrap());
 
-    let wrong_key = vec!["books".to_string()];
+    // Phase 4B: Create wrong key as GroupKey
+    let wrong_key = GroupKey::new(vec![FieldValue::String("books".to_string())]);
     let result2 = GroupByStateManager::record_matches_group_key(&expressions, &record, &wrong_key);
     assert!(result2.is_ok());
     assert!(!result2.unwrap());
@@ -99,11 +108,17 @@ fn test_extract_group_keys() {
 
     let expressions = vec![Expr::Column("category".to_string())];
 
+    // Phase 4B: extract_group_keys now returns Vec<GroupKey> instead of Vec<Vec<String>>
     let result = GroupByStateManager::extract_group_keys(&expressions, &records);
     assert!(result.is_ok());
     let keys = result.unwrap();
 
     assert_eq!(keys.len(), 2);
-    assert!(keys.contains(&vec!["electronics".to_string()]));
-    assert!(keys.contains(&vec!["books".to_string()]));
+
+    // Verify the keys contain the expected values
+    let electronics_key = GroupKey::new(vec![FieldValue::String("electronics".to_string())]);
+    let books_key = GroupKey::new(vec![FieldValue::String("books".to_string())]);
+
+    assert!(keys.contains(&electronics_key));
+    assert!(keys.contains(&books_key));
 }
