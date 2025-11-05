@@ -315,30 +315,15 @@ impl TransactionalJobProcessor {
             );
         }
 
+        // Track consecutive empty batches for end-of-stream detection
+        let mut consecutive_empty_batches = 0;
+        const MAX_CONSECUTIVE_EMPTY: u32 = 3;
+
         loop {
             // Check for shutdown signal
             if shutdown_rx.try_recv().is_ok() {
                 info!("Job '{}' received shutdown signal", job_name);
                 break;
-            }
-
-            // Check if there's more data to process
-            match reader.has_more().await {
-                Ok(false) => {
-                    info!("Job '{}' completed - no more data available", job_name);
-                    break;
-                }
-                Ok(true) => {
-                    // Continue processing
-                }
-                Err(e) => {
-                    let error_msg = format!("Error checking for more data: {:?}", e);
-                    warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
-                    stats.batches_failed += 1;
-                    tokio::time::sleep(self.config.retry_backoff).await;
-                    continue;
-                }
             }
 
             // Process one transactional batch
@@ -355,12 +340,34 @@ impl TransactionalJobProcessor {
                 )
                 .await
             {
-                Ok(()) => {
-                    // Successful batch processing
-                    if self.config.log_progress
-                        && stats.batches_processed % self.config.progress_interval == 0
-                    {
-                        log_job_progress(&job_name, &stats);
+                Ok(batch_was_empty) => {
+                    if batch_was_empty {
+                        consecutive_empty_batches += 1;
+                        debug!(
+                            "Job '{}': Empty batch #{} of {}",
+                            job_name, consecutive_empty_batches, MAX_CONSECUTIVE_EMPTY
+                        );
+
+                        if consecutive_empty_batches >= MAX_CONSECUTIVE_EMPTY {
+                            info!(
+                                "Job '{}': {} consecutive empty batches, assuming end of stream",
+                                job_name, MAX_CONSECUTIVE_EMPTY
+                            );
+                            break;
+                        }
+
+                        // Wait briefly before next read
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    } else {
+                        // Reset counter on non-empty batch
+                        consecutive_empty_batches = 0;
+
+                        // Successful batch processing
+                        if self.config.log_progress
+                            && stats.batches_processed % self.config.progress_interval == 0
+                        {
+                            log_job_progress(&job_name, &stats);
+                        }
                     }
                 }
                 Err(e) => {
@@ -392,6 +399,8 @@ impl TransactionalJobProcessor {
     /// This method processes one batch with ACID transaction boundaries but does not
     /// prevent duplicate processing on retry. If sink commits but source commit fails,
     /// data may be duplicated on the next retry attempt.
+    /// Process a single batch with transactional semantics
+    /// Returns Ok(true) if batch was empty, Ok(false) if batch had data
     async fn process_transactional_batch(
         &self,
         reader: &mut dyn DataReader,
@@ -402,7 +411,7 @@ impl TransactionalJobProcessor {
         reader_supports_tx: bool,
         writer_supports_tx: bool,
         stats: &mut JobExecutionStats,
-    ) -> DataSourceResult<()> {
+    ) -> DataSourceResult<bool> {
         // Step 1: Begin transactions if supported
         let reader_tx_active = if reader_supports_tx {
             match reader.begin_transaction().await? {
@@ -454,7 +463,7 @@ impl TransactionalJobProcessor {
             // No data available - abort any active transactions and return
             self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
-            return Ok(());
+            return Ok(true); // Signal empty batch to caller
         }
 
         // Create batch span with trace extraction from first record
@@ -654,7 +663,7 @@ impl TransactionalJobProcessor {
             }
         }
 
-        Ok(())
+        Ok(false) // Non-empty batch was processed (with or without failures)
     }
 
     /// Commit all active transactions with proper ordering (at-least-once semantics)

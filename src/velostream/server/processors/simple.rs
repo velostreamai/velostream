@@ -410,16 +410,14 @@ impl SimpleJobProcessor {
             );
         }
 
+        // Track consecutive empty batches for end-of-stream detection
+        let mut consecutive_empty_batches = 0;
+        const MAX_CONSECUTIVE_EMPTY: u32 = 3;
+
         loop {
             // Check for shutdown signal
             if shutdown_rx.try_recv().is_ok() {
                 info!("Job '{}' received shutdown signal", job_name);
-                break;
-            }
-
-            // Check if there are more records to process
-            if !reader.has_more().await? {
-                info!("Job '{}' no more records to process", job_name);
                 break;
             }
 
@@ -435,12 +433,34 @@ impl SimpleJobProcessor {
                 )
                 .await
             {
-                Ok(()) => {
-                    // Successful batch processing
-                    if self.config.log_progress
-                        && stats.batches_processed % self.config.progress_interval == 0
-                    {
-                        log_job_progress(&job_name, &stats);
+                Ok(batch_was_empty) => {
+                    if batch_was_empty {
+                        consecutive_empty_batches += 1;
+                        debug!(
+                            "Job '{}': Empty batch #{} of {}",
+                            job_name, consecutive_empty_batches, MAX_CONSECUTIVE_EMPTY
+                        );
+
+                        if consecutive_empty_batches >= MAX_CONSECUTIVE_EMPTY {
+                            info!(
+                                "Job '{}': {} consecutive empty batches, assuming end of stream",
+                                job_name, MAX_CONSECUTIVE_EMPTY
+                            );
+                            break;
+                        }
+
+                        // Wait briefly before next read
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                    } else {
+                        // Reset counter on non-empty batch
+                        consecutive_empty_batches = 0;
+
+                        // Successful batch processing
+                        if self.config.log_progress
+                            && stats.batches_processed % self.config.progress_interval == 0
+                        {
+                            log_job_progress(&job_name, &stats);
+                        }
                     }
                 }
                 Err(e) => {
@@ -466,6 +486,7 @@ impl SimpleJobProcessor {
     }
 
     /// Process a single batch with simple (non-transactional) semantics
+    /// Returns Ok(true) if batch was empty, Ok(false) if batch had data
     async fn process_simple_batch(
         &self,
         reader: &mut dyn DataReader,
@@ -474,7 +495,7 @@ impl SimpleJobProcessor {
         query: &StreamingQuery,
         job_name: &str,
         stats: &mut JobExecutionStats,
-    ) -> DataSourceResult<()> {
+    ) -> DataSourceResult<bool> {
         debug!("Job '{}': Starting batch processing cycle", job_name);
 
         // Step 1: Read batch from datasource (with telemetry)
@@ -504,26 +525,10 @@ impl SimpleJobProcessor {
 
         if batch.is_empty() {
             debug!(
-                "Job '{}': No data available, checking if more data exists",
+                "Job '{}': Empty batch received, will be tracked by main loop",
                 job_name
             );
-
-            // If no data and no more data expected, don't wait - let the main loop check has_more() and exit
-            if !reader.has_more().await? {
-                debug!(
-                    "Job '{}': No data available and no more expected, batch processing complete",
-                    job_name
-                );
-                return Ok(());
-            }
-
-            // Otherwise wait briefly and try again
-            debug!(
-                "Job '{}': No data available but more expected, waiting 100ms",
-                job_name
-            );
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            return Ok(());
+            return Ok(true); // Signal empty batch to caller
         }
 
         debug!(
@@ -761,7 +766,7 @@ impl SimpleJobProcessor {
             }
         }
 
-        Ok(())
+        Ok(false) // Non-empty batch was processed
     }
 
     /// Simple commit operation - flush sink first, then commit source
