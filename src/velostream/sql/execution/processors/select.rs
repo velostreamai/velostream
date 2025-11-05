@@ -18,6 +18,7 @@ use crate::velostream::sql::execution::{
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Parameter binding for SQL queries to prevent injection
 #[derive(Debug, Clone)]
@@ -1181,14 +1182,15 @@ impl SelectProcessor {
 
         // Initialize GROUP BY state if not exists
         // Phase 4B: Use GroupByState::new() which uses FxHashMap
+        // Phase 4C: Wrap in Arc to eliminate cloning overhead
         if !context.group_by_states.contains_key(&query_key) {
             context.group_by_states.insert(
                 query_key.clone(),
-                GroupByState::new(
+                Arc::new(GroupByState::new(
                     group_exprs.to_vec(),
                     fields.to_vec(),
                     having.clone(),
-                ),
+                )),
             );
         }
 
@@ -1196,8 +1198,9 @@ impl SelectProcessor {
         // Uses GroupKey with Arc<[FieldValue]> instead of Vec<String>
         let group_key = GroupByStateManager::generate_group_key(group_exprs, record)?;
 
-        // Get mutable reference to the GROUP BY state
-        let group_state = context.group_by_states.get_mut(&query_key).unwrap();
+        // Phase 4C: Get mutable reference using Arc::make_mut (copy-on-write)
+        // This clones the GroupByState only if there are multiple Arc references
+        let group_state = Arc::make_mut(context.group_by_states.get_mut(&query_key).unwrap());
 
         // Phase 4B: Initialize or update the accumulator for this group
         // Uses get_or_create_group which works with GroupKey

@@ -9,6 +9,7 @@ by external processors without holding engine locks during batch processing.
 
 use rustc_hash::FxHashMap;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::ast::WindowSpec;
@@ -72,7 +73,7 @@ fn test_set_and_get_group_states() {
         having_clause: None,
     };
 
-    test_states.insert("test_query".to_string(), group_state);
+    test_states.insert("test_query".to_string(), Arc::new(group_state));
 
     // When: Setting GROUP BY states
     engine.set_group_states(test_states.clone());
@@ -99,12 +100,12 @@ fn test_group_states_clone_pattern() {
     let mut test_states = HashMap::new();
     test_states.insert(
         "query1".to_string(),
-        GroupByState {
+        Arc::new(GroupByState {
             groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
-        },
+        }),
     );
     engine.set_group_states(test_states);
 
@@ -115,12 +116,12 @@ fn test_group_states_clone_pattern() {
     // 2. Modify cloned state (outside lock)
     cloned_states.insert(
         "query2".to_string(),
-        GroupByState {
+        Arc::new(GroupByState {
             groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
-        },
+        }),
     );
 
     // 3. Sync back
@@ -226,12 +227,12 @@ fn test_state_accessors_thread_safety_simulation() {
     let mut initial_states = HashMap::new();
     initial_states.insert(
         "query1".to_string(),
-        GroupByState {
+        Arc::new(GroupByState {
             groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
-        },
+        }),
     );
     engine.set_group_states(initial_states);
 
@@ -241,8 +242,10 @@ fn test_state_accessors_thread_safety_simulation() {
 
     // Process batch (no lock held)
     // Phase 4B: Use GroupKey instead of Vec<String>
+    // Phase 4C: Use Arc::make_mut for copy-on-write semantics
     let group_key = GroupKey::new(vec![FieldValue::String("1".to_string())]);
-    batch_states.get_mut("query1").unwrap().groups.insert(
+    let group_state = Arc::make_mut(batch_states.get_mut("query1").unwrap());
+    group_state.groups.insert(
         group_key,
         GroupAccumulator {
             count: 10,
@@ -284,12 +287,12 @@ fn test_multiple_state_updates() {
         let mut states = HashMap::new();
         states.insert(
             format!("query_{}", i),
-            GroupByState {
+            Arc::new(GroupByState {
                 groups: FxHashMap::default(),
                 group_expressions: vec![],
                 select_fields: vec![],
                 having_clause: None,
-            },
+            }),
         );
         engine.set_group_states(states);
 
@@ -317,12 +320,12 @@ fn test_state_independence() {
     let mut group_states = HashMap::new();
     group_states.insert(
         "group_query".to_string(),
-        GroupByState {
+        Arc::new(GroupByState {
             groups: FxHashMap::default(),
             group_expressions: vec![],
             select_fields: vec![],
             having_clause: None,
-        },
+        }),
     );
     engine.set_group_states(group_states);
 

@@ -327,6 +327,7 @@ pub async fn process_batch_with_output(
     }
 
     // Lock 2: Sync state back once at batch end (minimal lock time)
+    // Phase 4C: Use group_states already extracted at line 305
     {
         let mut engine_lock = engine.lock().await;
         engine_lock.set_group_states(group_states);

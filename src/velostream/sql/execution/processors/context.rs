@@ -31,7 +31,9 @@ pub struct ProcessorContext {
     /// JOIN processing utilities
     pub join_context: JoinContext,
     /// GROUP BY processing state
-    pub group_by_states: HashMap<String, crate::velostream::sql::execution::internal::GroupByState>,
+    /// Phase 4C: Wrapped in Arc to eliminate deep cloning overhead
+    /// Cloning the HashMap now just bumps Arc refcounts instead of deep-cloning GroupByState
+    pub group_by_states: HashMap<String, Arc<crate::velostream::sql::execution::internal::GroupByState>>,
     /// Schema registry for introspection (SHOW/DESCRIBE operations)
     pub schemas: HashMap<String, Schema>,
     /// Stream handles registry

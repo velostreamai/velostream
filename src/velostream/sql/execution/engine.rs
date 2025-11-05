@@ -153,7 +153,8 @@ pub struct StreamExecutionEngine {
     output_sender: mpsc::UnboundedSender<StreamRecord>,
     record_count: u64,
     // Stateful GROUP BY support
-    group_states: HashMap<String, GroupByState>,
+    // Phase 4C: Wrapped in Arc to eliminate deep cloning overhead (30% expected improvement)
+    group_states: HashMap<String, Arc<GroupByState>>,
     // FR-081 Phase 2A+: Window V2 state persistence
     window_v2_states: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
     // Performance monitoring
@@ -272,7 +273,8 @@ impl StreamExecutionEngine {
     /// # Thread Safety
     /// Caller must hold the engine lock. The returned reference is only valid
     /// while the lock is held.
-    pub fn get_group_states(&self) -> &HashMap<String, GroupByState> {
+    /// Phase 4C: Returns Arc-wrapped GroupByState for cheap cloning
+    pub fn get_group_states(&self) -> &HashMap<String, Arc<GroupByState>> {
         &self.group_states
     }
 
@@ -283,7 +285,8 @@ impl StreamExecutionEngine {
     ///
     /// # Thread Safety
     /// Caller must hold the engine lock.
-    pub fn set_group_states(&mut self, states: HashMap<String, GroupByState>) {
+    /// Phase 4C: Takes Arc-wrapped GroupByState for cheap cloning
+    pub fn set_group_states(&mut self, states: HashMap<String, Arc<GroupByState>>) {
         self.group_states = states;
     }
 
