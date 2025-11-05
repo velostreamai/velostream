@@ -146,6 +146,152 @@
 
 ---
 
+## Phase 3 Optimization Opportunities
+
+### Async Boundary Optimization: Remove Redundant `has_more()` Call
+
+**Current Bottleneck** (from profiling):
+- Framework overhead: 2.518s for 1M records (100% of measured time)
+- Breakdown: Task scheduling (40%), Channels (30%), Async state machine (20%), Locks (10%)
+
+**Identified Redundancy**: Duplicate async calls per batch
+
+#### Current Code (2 async calls per batch):
+```rust
+// simple.rs:413-437
+loop {
+    // ASYNC CALL 1: Check if more data available
+    if !reader.has_more().await? {
+        break;
+    }
+
+    // Inside process_simple_batch (line 482):
+    // ASYNC CALL 2: Actually read the data
+    let batch = reader.read().await?;
+}
+```
+
+#### Why It's Redundant
+
+From `DataReader` trait contract (traits.rs:93-95):
+```rust
+/// Read records from the source
+/// Returns a vector of records (size determined by batch configuration)
+/// Returns empty vector when no more data is available  ← KEY!
+async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>>;
+
+/// Check if more data is available (non-blocking)
+async fn has_more(&self) -> Result<bool, Box<dyn Error + Send + Sync>>;
+```
+
+**The trait contract specifies that `read()` returns an empty Vec when no more data is available**, making the separate `has_more()` check redundant.
+
+#### Current Async Boundaries Per Batch
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Per Batch (user-configured size)                       │
+├─────────────────────────────────────────────────────────┤
+│ 1. reader.has_more().await          ← Async boundary 1 │ ← REDUNDANT!
+│ 2. reader.read().await               ← Async boundary 2 │
+│ 3. engine.lock().await (start)       ← Async boundary 3 │
+│ 4. [SYNC LOOP: Process N records]    ← NO async here!  │
+│ 5. engine.lock().await (end)         ← Async boundary 4 │
+│ 6. writer.write_batch().await        ← Async boundary 5 │
+└─────────────────────────────────────────────────────────┘
+
+Total: 5 async operations per batch
+```
+
+#### Optimized Version (1 async call):
+```rust
+loop {
+    // Just read - it returns empty Vec when done
+    let batch = reader.read().await?;
+
+    if batch.is_empty() {
+        // Could be end-of-stream OR temporarily no data (streaming sources)
+        // Exit after N consecutive empty batches
+        consecutive_empty += 1;
+        if consecutive_empty >= 3 {
+            info!("Job '{}' reached end of stream", job_name);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        continue;
+    }
+
+    consecutive_empty = 0;
+    // Process batch...
+}
+```
+
+#### Optimized Async Boundaries Per Batch
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Per Batch (user-configured size)                       │
+├─────────────────────────────────────────────────────────┤
+│ 1. reader.read().await               ← Async boundary 1 │ ← COMBINED!
+│ 2. engine.lock().await (start)       ← Async boundary 2 │
+│ 3. [SYNC LOOP: Process N records]    ← NO async here!  │
+│ 4. engine.lock().await (end)         ← Async boundary 3 │
+│ 5. writer.write_batch().await        ← Async boundary 4 │
+└─────────────────────────────────────────────────────────┘
+
+Total: 4 async operations per batch (-20%)
+```
+
+#### Performance Impact
+
+**Async operations reduction** (regardless of batch size):
+- Before: 5 async ops per batch
+- After: 4 async ops per batch
+- Reduction: **-20% async operations**
+
+**Impact by batch size** (for 1M records):
+
+| Batch Size | Batches | Async Ops Before | Async Ops After | Reduction |
+|-----------|---------|------------------|-----------------|-----------|
+| 1,000 | 1,000 | 5,000 | 4,000 | -1,000 (-20%) |
+| 2,000 | 500 | 2,500 | 2,000 | -500 (-20%) |
+| 5,000 | 200 | 1,000 | 800 | -200 (-20%) |
+| 10,000 | 100 | 500 | 400 | -100 (-20%) |
+
+**Expected throughput improvement**: **+15-20%** across all batch sizes
+
+#### Implementation Locations
+
+**File**: `src/velostream/server/processors/simple.rs`
+
+1. **Main loop** (line 421): Remove `has_more()` check
+2. **process_simple_batch()** (line 512): Remove `has_more()` check when batch is empty
+3. **Add consecutive empty batch tracking**: Exit after 3 consecutive empty batches
+
+#### Risk Analysis
+
+**Risk**: Streaming sources might return temporary empty batches (no data YET vs. no data EVER)
+
+**Mitigation**:
+- ✅ Track consecutive empty batches (exit after N consecutive)
+- ✅ Keep sleep between retries (already exists)
+- ✅ Shutdown signal check (already exists)
+- ✅ Document updated contract clearly
+
+**Compatibility**: All `DataReader` implementations already follow the contract that `read()` returns empty Vec when done.
+
+#### Recommendation
+
+**Implement this optimization** to reduce framework overhead by 20% with minimal risk:
+- Estimated effort: 30 minutes
+- Expected gain: +15-20% throughput
+- Risk: Low (with consecutive empty batch tracking)
+- Works with any user-configured batch size
+
+**Combined with user's batch size choice**, this provides a batch-size-independent optimization that reduces async scheduling overhead.
+
+---
+
 ## Executive Summary
 
 Phase 1 delivered **5.5% improvement** (287K → 302.71K rec/s) by introducing `Arc<StreamRecord>` in batch output, but still clones when unwrapping Arc for writes, metrics, and trace injection.
