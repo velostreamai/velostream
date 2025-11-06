@@ -1782,6 +1782,312 @@ impl PartitionStateManager {
 
 ---
 
+## Part 13: Future State Considerations - Join Congestion and Mitigation
+
+### Overview
+
+While the hash-partitioned architecture provides excellent performance for pure GROUP BY aggregations, **stream-stream joins introduce potential congestion risks** when partition keys are skewed or temporal hotspots occur.
+
+This section documents architectural limitations, congestion scenarios, and mitigation strategies for future phases.
+
+---
+
+### Congestion Scenario 1: Skewed Join Keys
+
+**Problem**: Co-partitioned stream-stream joins where a small number of keys dominate traffic
+
+```sql
+SELECT o.order_id, c.customer_name, o.amount
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+GROUP BY o.customer_id
+```
+
+**Example: Enterprise Customer Skew**
+```
+Real-world distribution:
+  - customer_id=1001 (Amazon corporate): 1M orders/day (80% of traffic)
+  - customer_id=1002-9999: 250K orders/day (20% of traffic)
+
+Hash-partitioned routing (N=8 partitions):
+  Partition 3 (gets customer_id=1001): 800K rec/sec ⚠️ OVERLOADED
+  Other 7 partitions:                   35K rec/sec each ✅ IDLE
+```
+
+**Impact**:
+- Single partition becomes bottleneck
+- Overall throughput limited to slowest partition
+- 7/8 cores underutilized (87.5% waste)
+- Backpressure propagates to upstream sources
+
+**Current Status**: ⚠️ **NOT ADDRESSED IN PHASES 1-2**
+
+---
+
+### Congestion Scenario 2: Temporal Hotspots
+
+**Problem**: Burst traffic affecting all partitions simultaneously
+
+```sql
+-- Trading volume spike on market open (9:30 AM)
+SELECT symbol, COUNT(*), AVG(price)
+FROM trades
+WHERE event_time BETWEEN '09:30:00' AND '09:30:01'
+GROUP BY symbol
+WINDOW TUMBLING (event_time, INTERVAL '1' SECOND)
+```
+
+**Example: Market Open Spike**
+```
+Normal trading hours:
+  - 200K trades/sec → 25K rec/sec per partition (8 cores) ✅
+
+Market open (9:30-9:31 AM):
+  - 2M trades/sec → 250K rec/sec per partition ⚠️ 10x OVERLOAD
+
+Result:
+  - All 8 partitions simultaneously overloaded
+  - Backpressure triggers across entire system
+  - Messages queue upstream (Kafka consumer lag increases)
+  - Recovery takes 5-10 minutes after spike ends
+```
+
+**Impact**:
+- System-wide congestion (not isolated to single partition)
+- Increased latency during burst periods
+- Potential message loss if buffers overflow
+
+**Current Status**: ⚠️ **PARTIALLY ADDRESSED IN PHASE 3** (backpressure detection only)
+
+---
+
+### Congestion Scenario 3: Repartition Join Overhead
+
+**Problem**: Multi-stage joins requiring shuffle between stages
+
+```sql
+-- Product co-purchase recommendations
+SELECT o1.customer_id, COUNT(DISTINCT o2.customer_id) as co_buyers
+FROM orders o1
+JOIN orders o2 ON o1.product_id = o2.product_id  -- Different partition key!
+WHERE o1.customer_id != o2.customer_id
+GROUP BY o1.customer_id
+```
+
+**Multi-Stage Execution Required**:
+```
+Stage 1: Initial partitioning by customer_id
+  → Process orders, but cannot perform join (partitioned by wrong key)
+
+Stage 2: Repartition by product_id (SHUFFLE REQUIRED)
+  → All partitions send data to router
+  → Router redistributes by Hash(product_id) % N
+  → Network overhead: 1.5M rec/sec × record_size (e.g., 200 bytes = 300 MB/sec)
+
+Stage 3: Perform join locally per partition
+  → Join orders by product_id
+  → Buffer both sides of join (memory intensive)
+
+Stage 4: Repartition by customer_id for GROUP BY (SECOND SHUFFLE)
+  → Another network overhead cycle
+  → Aggregate co-buyer counts per customer
+```
+
+**Impact**:
+- **Throughput**: 500-800K rec/sec (50-60% degradation from 1.5M baseline)
+- **Network**: 600 MB/sec shuffle traffic (2 stages × 300 MB/sec)
+- **Memory**: 2x state size (buffer both join sides)
+- **Latency**: +50-100ms per shuffle stage
+
+**Current Status**: ❌ **NOT IMPLEMENTED** (deferred post-Phase 5)
+
+---
+
+### Mitigation Strategy 1: Salted Key Distribution (Future Enhancement)
+
+**Goal**: Split hot keys across multiple partitions to balance load
+
+```rust
+// Detect hot key and split across sub-partitions
+pub struct SaltedPartitionStrategy {
+    hot_keys: HashSet<GroupKey>,        // Keys exceeding threshold
+    salt_factor: usize,                  // Sub-partition count (e.g., 4)
+}
+
+impl SaltedPartitionStrategy {
+    pub fn route(&self, record: &StreamRecord, base_partitions: usize) -> usize {
+        let key = record.extract_group_key();
+
+        if self.hot_keys.contains(&key) {
+            // Split hot key across salt_factor sub-partitions
+            let salt = record.get_random_salt(self.salt_factor);
+            let virtual_key = format!("{}:{}", key, salt);
+            hash(virtual_key) % (base_partitions * self.salt_factor)
+        } else {
+            // Normal hashing for non-hot keys
+            hash(key) % base_partitions
+        }
+    }
+}
+```
+
+**Example: Amazon Corporate Account Split**
+```
+Before salting (customer_id=1001 → Partition 3):
+  Partition 3: 800K rec/sec ⚠️ OVERLOADED
+
+After salting (customer_id=1001 → Partitions 3, 11, 19, 27):
+  Partition 3:  200K rec/sec ✅
+  Partition 11: 200K rec/sec ✅
+  Partition 19: 200K rec/sec ✅
+  Partition 27: 200K rec/sec ✅
+```
+
+**Challenges**:
+- **Aggregation Complexity**: Final aggregation requires merge across salted partitions
+- **Hot Key Detection**: Need runtime profiling to identify skewed keys (99th percentile threshold)
+- **Dynamic Adjustment**: Salting must adapt to changing traffic patterns
+
+**Phasing**: Post-Phase 5 enhancement (requires query planner changes)
+
+---
+
+### Mitigation Strategy 2: Adaptive Backpressure (Phase 3)
+
+**Goal**: Detect partition overload and throttle upstream sources
+
+```rust
+pub struct PartitionMetrics {
+    records_per_second: AtomicUsize,
+    queue_depth: AtomicUsize,
+    processing_latency_p99: AtomicU64,
+}
+
+impl PartitionStateManager {
+    fn check_backpressure(&self) -> BackpressureSignal {
+        let metrics = &self.metrics;
+
+        // Detect overload conditions
+        let overloaded =
+            metrics.queue_depth.load(Ordering::Relaxed) > 10_000 ||
+            metrics.processing_latency_p99.load(Ordering::Relaxed) > 100; // ms
+
+        if overloaded {
+            BackpressureSignal::Throttle {
+                target_rate: self.capacity * 0.8,  // 80% capacity
+                reason: "Partition overload detected".to_string(),
+            }
+        } else {
+            BackpressureSignal::None
+        }
+    }
+}
+```
+
+**Behavior**:
+- Monitor per-partition queue depth and latency
+- Signal router to reduce ingestion rate for overloaded partitions
+- Gradual throttling (80% → 60% → 40% capacity) to prevent cascading failures
+- Automatic recovery when metrics return to normal
+
+**Limitations**:
+- Does not fix root cause (skewed keys still overload partition)
+- Upstream Kafka lag increases during throttling
+- Reduces overall system throughput to slowest partition
+
+**Phasing**: ✅ **Phase 3** (backpressure detection + throttling)
+
+---
+
+### Mitigation Strategy 3: Partition Splitting (Post-Phase 5)
+
+**Goal**: Dynamically increase partition count for hot keys
+
+```rust
+// Detect hot partition and split it into sub-partitions
+pub struct AdaptivePartitionManager {
+    partition_metrics: Vec<PartitionMetrics>,
+    split_threshold: f64,  // e.g., 2x average throughput
+}
+
+impl AdaptivePartitionManager {
+    async fn detect_and_split_hot_partitions(&mut self) {
+        let avg_throughput = self.calculate_average_throughput();
+
+        for (partition_id, metrics) in self.partition_metrics.iter().enumerate() {
+            if metrics.throughput() > avg_throughput * self.split_threshold {
+                // Partition overloaded - trigger split
+                self.split_partition(partition_id, 2).await;
+            }
+        }
+    }
+
+    async fn split_partition(&mut self, partition_id: usize, split_factor: usize) {
+        // 1. Create split_factor new partitions
+        // 2. Reroute future records to new partitions
+        // 3. Migrate existing state (gradual, background)
+        // 4. Remove old partition once migration complete
+    }
+}
+```
+
+**Complexity**: High (requires state migration, query plan rewriting)
+
+**Phasing**: Post-Phase 5 (research project)
+
+---
+
+### Architectural Trade-offs: Join Type Comparison
+
+| Join Type | Partitionability | Congestion Risk | Throughput | Memory | Phasing |
+|-----------|-----------------|-----------------|-----------|---------|---------|
+| **Broadcast JOIN** (small table) | ✅ Fully parallel | ❌ None (local lookups) | 1.5M rec/sec | High (replicated) | Phase 2 ✅ |
+| **Co-partitioned JOIN** (same key) | ✅ Fully parallel | ⚠️ If skewed keys | 1.2M rec/sec | Medium | Phase 4 |
+| **Co-partitioned + Salting** | ✅ Fully parallel | ✅ Mitigated | 1.2M rec/sec | Medium | Post-Phase 5 |
+| **Repartition JOIN** (different keys) | ⚠️ Multi-stage | ⚠️ Shuffle overhead | 500-800K rec/sec | High (2x buffers) | Post-Phase 5 |
+| **No correlation** | ❌ Requires broadcast | ❌ Memory limits | Variable | Very high | Not planned |
+
+---
+
+### Recommendations for Phase 1-2 Implementation
+
+**✅ Include in Phase 1-2**:
+1. **Pure GROUP BY aggregations** (28% of workload, fully partitionable)
+2. **Broadcast JOINs with small lookup tables** (<10MB, no congestion risk)
+3. **Basic backpressure detection** (queue depth monitoring)
+
+**⚠️ Defer to Phase 3-4**:
+1. **Co-partitioned stream-stream joins** (requires backpressure + monitoring)
+2. **Temporal window joins** (buffer management complexity)
+3. **Hot key detection** (runtime profiling infrastructure)
+
+**❌ Defer to Post-Phase 5 (Research)**:
+1. **Salted key distribution** (requires query planner changes)
+2. **Repartition joins** (multi-stage pipeline complexity)
+3. **Adaptive partition splitting** (state migration complexity)
+
+---
+
+### Open Questions for Future Phases
+
+1. **Hot Key Detection**:
+   - What threshold defines a "hot key"? (e.g., >2x average, >100K rec/sec)
+   - How often to profile key distribution? (every 10 seconds, 1 minute?)
+
+2. **Salting Strategy**:
+   - Static salt factor or dynamic based on skew severity?
+   - How to merge salted aggregations efficiently?
+
+3. **State Migration**:
+   - Gradual migration (process new records on new partition, drain old partition)?
+   - Snapshot-based migration (pause, transfer, resume)?
+
+4. **Performance Impact**:
+   - What is acceptable throughput degradation for skewed workloads? (20%? 50%?)
+   - Should system reject queries that cannot be efficiently partitioned?
+
+---
+
 ## Conclusion
 
 ### Summary
@@ -1795,6 +2101,11 @@ impl PartitionStateManager {
 5. **Fine-Grained Backpressure**: Per-partition monitoring and throttling
 6. **CPU Efficiency**: Core pinning + cache locality
 7. **Fault Isolation**: Partition failures don't affect others
+
+**⚠️ Known Limitations** (to be addressed post-Phase 5):
+- Skewed join keys can cause partition congestion
+- Repartition joins require multi-stage pipeline (not yet implemented)
+- Hot key detection and mitigation deferred to future enhancement
 
 ### Next Steps
 
