@@ -10,6 +10,8 @@
 
 All benchmarks run in `--release` mode on standard test dataset (5,000 records).
 
+⚠️ **IMPORTANT NOTE**: These baselines are from **Job Server V1** (`SimpleJobProcessor`), NOT the new V2 hash-partitioned architecture. The V2 results would likely be significantly different (and potentially faster with proper partitioning). V2-specific baselines need to be created from `PartitionedJobCoordinator` integration tests.
+
 ### Summary Table
 
 | Scenario | Query Type | SQL Engine | Job Server | Ratio | Notes |
