@@ -13,10 +13,10 @@
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::FieldValue;
-use velostream::velostream::sql::{StreamExecutionEngine};
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::execution::types::StreamRecord;
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 /// Detailed timing breakdown for a single phase
 #[derive(Debug, Clone)]
@@ -114,7 +114,10 @@ async fn phase5_week8_baseline_profiling() {
     let records = generate_emit_changes_records(10_000);
     println!("✓ Generated {} test records", records.len());
     println!("  • 20 traders × 10 symbols = 200 groups");
-    println!("  • Expected emissions: ~{:.0} (19.96x amplification)\n", records.len() as f64 * 19.96);
+    println!(
+        "  • Expected emissions: ~{:.0} (19.96x amplification)\n",
+        records.len() as f64 * 19.96
+    );
 
     // Measure SQL Engine with EMIT CHANGES
     measure_sql_engine_emit_changes(&records, query).await;
@@ -123,17 +126,12 @@ async fn phase5_week8_baseline_profiling() {
 }
 
 /// Measure SQL Engine performance with EMIT CHANGES
-async fn measure_sql_engine_emit_changes(
-    records: &[StreamRecord],
-    query: &str,
-) {
+async fn measure_sql_engine_emit_changes(records: &[StreamRecord], query: &str) {
     println!("Test: SQL Engine EMIT CHANGES Baseline");
     println!("─────────────────────────────────────");
 
     let mut parser = StreamingSqlParser::new();
-    let parsed_query = parser
-        .parse(query)
-        .expect("Failed to parse SQL");
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
@@ -174,13 +172,26 @@ async fn measure_sql_engine_emit_changes(
     println!("  Processing Time:      {:.2}ms", elapsed_ms);
     println!("  Input Throughput:     {:.0} rec/sec", input_throughput);
     println!("  Emission Throughput:  {:.0} rec/sec", emission_throughput);
-    println!("  Per-Record Latency:   {:.3}µs", (elapsed_ms * 1000.0) / records.len() as f64);
+    println!(
+        "  Per-Record Latency:   {:.3}µs",
+        (elapsed_ms * 1000.0) / records.len() as f64
+    );
 
     // Bottleneck analysis
     println!("\nBottleneck Analysis:");
-    println!("  • Input throughput {:.0} rec/sec shows EMIT CHANGES overhead", input_throughput);
-    println!("  • {}x amplification creates {:.0} output records", amplification as i64, emission_count as f64);
-    println!("  • Each of {} input triggers ~{:.0} emissions", records.len(), amplification);
+    println!(
+        "  • Input throughput {:.0} rec/sec shows EMIT CHANGES overhead",
+        input_throughput
+    );
+    println!(
+        "  • {}x amplification creates {:.0} output records",
+        amplification as i64, emission_count as f64
+    );
+    println!(
+        "  • Each of {} input triggers ~{:.0} emissions",
+        records.len(),
+        amplification
+    );
     println!("  • Current design processes sequentially with per-record locks");
 }
 

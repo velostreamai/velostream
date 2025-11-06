@@ -228,37 +228,46 @@ pub async fn process_batch_with_output(
     let uses_emit_changes = is_emit_changes_query(query);
 
     if uses_emit_changes {
-        // EMIT CHANGES Path: Use engine.execute_with_record() to properly emit through channel
-        // Then collect results by temporarily taking the receiver
+        // FR-082 Week 8 Optimization 2: Lock-free batch processing for EMIT CHANGES
+        // Previous: Per-record locking (1,000 locks per 1,000 records)
+        // New: 2 locks total (batch start + batch end), process without lock
+        // Expected improvement: 2-3x from reduced lock contention
         debug!(
-            "Job '{}': Using EMIT CHANGES path for {} records",
+            "Job '{}': Using lock-free EMIT CHANGES path for {} records (Optimization 2)",
             job_name, batch_size
         );
 
-        // Temporarily take the receiver to drain emitted results
-        let mut temp_receiver = {
+        // Lock 1: Get state and output channel ONCE at batch start
+        let (mut temp_receiver, group_states, window_states) = {
             let mut engine_lock = engine.lock().await;
-            engine_lock.take_output_receiver()
+            (
+                engine_lock.take_output_receiver(),
+                engine_lock.get_group_states().clone(),
+                engine_lock.get_window_states(),
+            )
         };
 
-        // FR-082 Week 8 Optimization: Batch channel draining to reduce frequency
-        // Instead of draining after every record, drain every 100 records
-        // This reduces channel operations from O(batch_size) to O(batch_size/100)
-        const CHANNEL_DRAIN_FREQUENCY: usize = 100;
+        // Get output sender (cheap clone operation, minimal lock time)
+        let output_sender = {
+            let engine_lock = engine.lock().await;
+            engine_lock.get_output_sender_for_batch()
+        };
 
+        // Create context for batch processing (reused across all records)
+        let mut context = ProcessorContext::new(&query_id);
+        context.group_by_states = group_states;
+        context.persistent_window_states = window_states;
+
+        // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
+        // Process all records WITHOUT holding engine lock
         for (index, record) in batch.into_iter().enumerate() {
-            match engine.lock().await.execute_with_record(query, record).await {
-                Ok(_) => {
+            match QueryProcessor::process_query(query, &record, &mut context) {
+                Ok(result) => {
                     records_processed += 1;
 
-                    // Optimization: Batch drain every N records (not after every record)
-                    // This reduces lock contention and channel operations
-                    if (index + 1) % CHANNEL_DRAIN_FREQUENCY == 0 {
-                        if let Some(ref mut rx) = temp_receiver {
-                            while let Ok(emitted_record) = rx.try_recv() {
-                                output_records.push(Arc::new(emitted_record));
-                            }
-                        }
+                    // For EMIT CHANGES: emit each output record through the channel
+                    if let Some(output) = result.record {
+                        let _ = output_sender.send(output);
                     }
                 }
                 Err(e) => {
@@ -274,7 +283,7 @@ pub async fn process_batch_with_output(
                     });
 
                     warn!(
-                        "Job '{}' EMIT CHANGES failed to process record {}: {} [Recoverable: {}]",
+                        "Job '{}' EMIT CHANGES (lock-free) failed to process record {}: {} [Recoverable: {}]",
                         job_name, index, detailed_msg, recoverable
                     );
                     debug!("Full error details: {:?}", e);
@@ -282,17 +291,21 @@ pub async fn process_batch_with_output(
             }
         }
 
-        // Do a final drain after all records processed
+        // Collect any emitted results from receiver if still available
         if let Some(ref mut rx) = temp_receiver {
             while let Ok(emitted_record) = rx.try_recv() {
                 output_records.push(Arc::new(emitted_record));
             }
         }
 
-        // Return the receiver to the engine
-        if let Some(rx) = temp_receiver {
+        // Lock 2: Return state and receiver at batch end
+        {
             let mut engine_lock = engine.lock().await;
-            engine_lock.return_output_receiver(rx);
+            engine_lock.set_group_states(context.group_by_states);
+            engine_lock.set_window_states(context.persistent_window_states);
+            if let Some(rx) = temp_receiver {
+                engine_lock.return_output_receiver(rx);
+            }
         }
     } else {
         // Standard Path: Batch optimization for non-EMIT queries (high performance)

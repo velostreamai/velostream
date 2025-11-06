@@ -396,6 +396,14 @@ impl StreamExecutionEngine {
         self.output_receiver = Some(receiver);
     }
 
+    /// FR-082 Week 8 Optimization 2: Get a clone of the output sender for lock-free batch processing
+    ///
+    /// This enables batch processing to emit results without holding the engine lock.
+    /// The sender is cloned (cheap operation) and used outside the lock for emitting.
+    pub fn get_output_sender_for_batch(&self) -> tokio::sync::mpsc::UnboundedSender<StreamRecord> {
+        self.output_sender.clone()
+    }
+
     /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
