@@ -4,10 +4,8 @@
 
 use std::collections::HashMap;
 use velostream::velostream::server::v2::{
-    BackpressureConfig, PartitionStrategy, PartitionedJobConfig, PartitionedJobCoordinator,
-    ProcessingMode,
+    BackpressureConfig, PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
 };
-use velostream::velostream::sql::ast::Expr;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 #[test]
@@ -105,7 +103,7 @@ fn test_coordinator_metrics_collection() {
     let metrics = coordinator.collect_metrics(&managers);
 
     assert_eq!(metrics.num_partitions, 2);
-    assert!(metrics.total_records_processed >= 0);
+    assert!(metrics.total_records_processed > 0);
 }
 
 #[test]
@@ -352,7 +350,9 @@ fn test_calculate_throttle_delay_saturated() {
 #[test]
 fn test_calculate_throttle_delay_disabled() {
     use std::sync::Arc;
-    use velostream::velostream::server::v2::{BackpressureConfig, PartitionMetrics, ThrottleConfig};
+    use velostream::velostream::server::v2::{
+        BackpressureConfig, PartitionMetrics, ThrottleConfig,
+    };
 
     let config = PartitionedJobConfig {
         partition_buffer_size: 1000,
@@ -390,10 +390,7 @@ async fn test_process_batch_with_throttling() {
     let (managers, senders) = coordinator.initialize_partitions();
 
     // Create test records
-    let records = vec![
-        create_test_record("TRADER1"),
-        create_test_record("TRADER2"),
-    ];
+    let records = vec![create_test_record("TRADER1"), create_test_record("TRADER2")];
 
     // Collect partition metrics
     let partition_metrics: Vec<_> = managers.iter().map(|m| m.metrics()).collect();
