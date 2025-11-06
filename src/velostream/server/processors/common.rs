@@ -422,7 +422,10 @@ pub async fn process_batch_with_output(
 fn is_emit_changes_query(query: &StreamingQuery) -> bool {
     match query {
         StreamingQuery::Select { emit_mode, .. } => {
-            matches!(emit_mode, Some(crate::velostream::sql::ast::EmitMode::Changes))
+            matches!(
+                emit_mode,
+                Some(crate::velostream::sql::ast::EmitMode::Changes)
+            )
         }
         _ => false,
     }

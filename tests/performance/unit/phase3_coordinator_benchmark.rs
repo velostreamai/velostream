@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use velostream::velostream::server::v2::{
-    HashRouter, PartitionMetrics, PartitionStateManager, PartitionStrategy,
-    PartitionedJobConfig, PartitionedJobCoordinator, PartitionPrometheusExporter,
+    HashRouter, PartitionMetrics, PartitionPrometheusExporter, PartitionStateManager,
+    PartitionStrategy, PartitionedJobConfig, PartitionedJobCoordinator,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -20,7 +20,10 @@ fn create_test_record(trader_id: usize) -> StreamRecord {
         "trader_id".to_string(),
         FieldValue::Integer(trader_id as i64),
     );
-    fields.insert("price".to_string(), FieldValue::Float(100.0 + trader_id as f64));
+    fields.insert(
+        "price".to_string(),
+        FieldValue::Float(100.0 + trader_id as f64),
+    );
     fields.insert(
         "symbol".to_string(),
         FieldValue::String(format!("STOCK{}", trader_id % 100)),
@@ -94,9 +97,17 @@ async fn phase3_4partition_baseline_throughput() {
 
     // Target: 800K rec/sec on 4 cores
     println!("\nTarget: 800,000 rec/sec (4 cores)");
-    println!("Achievement: {:.0} rec/sec ({:.1}%)", throughput, (throughput / 800_000.0) * 100.0);
+    println!(
+        "Achievement: {:.0} rec/sec ({:.1}%)",
+        throughput,
+        (throughput / 800_000.0) * 100.0
+    );
 
-    assert!(throughput > 500_000.0, "Throughput too low: {} rec/sec", throughput);
+    assert!(
+        throughput > 500_000.0,
+        "Throughput too low: {} rec/sec",
+        throughput
+    );
 }
 
 /// Benchmark: Backpressure detection latency
@@ -136,13 +147,20 @@ async fn phase3_backpressure_detection_lag() {
 
     println!("Backpressure checks: {}", iterations);
     println!("Total time: {:?}", elapsed);
-    println!("Avg latency per check: {:.3}μs ({} ns)", avg_latency_micros, avg_latency_nanos);
+    println!(
+        "Avg latency per check: {:.3}μs ({} ns)",
+        avg_latency_micros, avg_latency_nanos
+    );
 
     // Target: <1ms lag (<1000μs)
     println!("\nTarget: <1ms per check");
     println!("Achievement: {:.3}μs", avg_latency_micros);
 
-    assert!(avg_latency_micros < 1000.0, "Backpressure detection too slow: {:.3}μs", avg_latency_micros);
+    assert!(
+        avg_latency_micros < 1000.0,
+        "Backpressure detection too slow: {:.3}μs",
+        avg_latency_micros
+    );
 }
 
 /// Benchmark: Hot partition detection performance
@@ -195,7 +213,11 @@ async fn phase3_hot_partition_detection() {
     println!("\nTarget: <10μs per check");
     println!("Achievement: {:.3}μs", avg_latency_micros);
 
-    assert!(avg_latency_micros < 10.0, "Hot partition detection too slow: {:.3}μs", avg_latency_micros);
+    assert!(
+        avg_latency_micros < 10.0,
+        "Hot partition detection too slow: {:.3}μs",
+        avg_latency_micros
+    );
 }
 
 /// Benchmark: Throttle delay calculation overhead
@@ -238,12 +260,19 @@ async fn phase3_throttle_calculation_overhead() {
 
     println!("Throttle calculations: {}", iterations);
     println!("Total time: {:?}", elapsed);
-    println!("Avg latency per calc: {:.3}μs ({} ns)", avg_latency_micros, avg_latency_nanos);
+    println!(
+        "Avg latency per calc: {:.3}μs ({} ns)",
+        avg_latency_micros, avg_latency_nanos
+    );
 
     println!("\nTarget: <1μs per calculation");
     println!("Achievement: {:.3}μs", avg_latency_micros);
 
-    assert!(avg_latency_micros < 1.0, "Throttle calculation too slow: {:.3}μs", avg_latency_micros);
+    assert!(
+        avg_latency_micros < 1.0,
+        "Throttle calculation too slow: {:.3}μs",
+        avg_latency_micros
+    );
 }
 
 /// Benchmark: Prometheus metrics export overhead
@@ -291,10 +320,21 @@ async fn phase3_prometheus_export_overhead() {
     println!("Output size: {} bytes", output.len());
 
     println!("\nTarget: <10μs update, <1ms export");
-    println!("Achievement: {:.3}μs update, {:?} export", avg_latency_micros, export_elapsed);
+    println!(
+        "Achievement: {:.3}μs update, {:?} export",
+        avg_latency_micros, export_elapsed
+    );
 
-    assert!(avg_latency_micros < 10.0, "Metrics update too slow: {:.3}μs", avg_latency_micros);
-    assert!(export_elapsed < Duration::from_millis(1), "Export too slow: {:?}", export_elapsed);
+    assert!(
+        avg_latency_micros < 10.0,
+        "Metrics update too slow: {:.3}μs",
+        avg_latency_micros
+    );
+    assert!(
+        export_elapsed < Duration::from_millis(1),
+        "Export too slow: {:?}",
+        export_elapsed
+    );
 }
 
 // Note: To run all Phase 3 benchmarks together, use:

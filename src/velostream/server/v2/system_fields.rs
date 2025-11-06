@@ -7,8 +7,8 @@
 //! These fields are injected by window processors and consumed by the SQL engine
 //! for SELECT, WHERE, GROUP BY, and ORDER BY clauses.
 
-use chrono::{DateTime, Utc};
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use chrono::{DateTime, Utc};
 
 /// System field names (uppercase, with leading underscore)
 pub const WINDOW_START: &str = "_WINDOW_START";
@@ -116,21 +116,15 @@ pub fn inject_window_end_field(record: &mut StreamRecord, window_end: DateTime<U
 pub fn extract_window_fields(
     record: &StreamRecord,
 ) -> (Option<DateTime<Utc>>, Option<DateTime<Utc>>) {
-    let window_start = record
-        .fields
-        .get(WINDOW_START)
-        .and_then(|v| match v {
-            FieldValue::Integer(millis) => DateTime::from_timestamp_millis(*millis),
-            _ => None,
-        });
+    let window_start = record.fields.get(WINDOW_START).and_then(|v| match v {
+        FieldValue::Integer(millis) => DateTime::from_timestamp_millis(*millis),
+        _ => None,
+    });
 
-    let window_end = record
-        .fields
-        .get(WINDOW_END)
-        .and_then(|v| match v {
-            FieldValue::Integer(millis) => DateTime::from_timestamp_millis(*millis),
-            _ => None,
-        });
+    let window_end = record.fields.get(WINDOW_END).and_then(|v| match v {
+        FieldValue::Integer(millis) => DateTime::from_timestamp_millis(*millis),
+        _ => None,
+    });
 
     (window_start, window_end)
 }
@@ -203,11 +197,19 @@ mod tests {
         assert!(extracted_start.is_some());
         assert!(extracted_end.is_some());
 
-        let start_diff = (extracted_start.unwrap().timestamp_millis() - window_start.timestamp_millis()).abs();
-        let end_diff = (extracted_end.unwrap().timestamp_millis() - window_end.timestamp_millis()).abs();
+        let start_diff =
+            (extracted_start.unwrap().timestamp_millis() - window_start.timestamp_millis()).abs();
+        let end_diff =
+            (extracted_end.unwrap().timestamp_millis() - window_end.timestamp_millis()).abs();
 
-        assert_eq!(start_diff, 0, "Window start should match with millisecond precision");
-        assert_eq!(end_diff, 0, "Window end should match with millisecond precision");
+        assert_eq!(
+            start_diff, 0,
+            "Window start should match with millisecond precision"
+        );
+        assert_eq!(
+            end_diff, 0,
+            "Window end should match with millisecond precision"
+        );
     }
 
     #[test]

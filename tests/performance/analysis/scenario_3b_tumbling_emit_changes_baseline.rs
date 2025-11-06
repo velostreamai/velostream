@@ -418,7 +418,10 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             println!("📋 VERIFICATION:");
             println!("  ✅ EMIT CHANGES works correctly with SQL Engine API");
             println!("  ✅ EMIT CHANGES now supported by Job Server (FR-082 Phase 5)");
-            println!("  ✅ All {} emitted results collected successfully", job_emit_count);
+            println!(
+                "  ✅ All {} emitted results collected successfully",
+                job_emit_count
+            );
             println!();
             println!("📈 THROUGHPUT COMPARISON (Input Processing Only):");
             println!(

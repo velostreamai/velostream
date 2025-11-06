@@ -7,6 +7,7 @@ use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::server::v2::watermark::WatermarkManager;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
+use log;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -44,17 +45,23 @@ use std::time::Instant;
 /// - **Output Emission**: Channel for emitting processed records
 /// - **State TTL**: Automatic cleanup of expired state
 ///
-/// ## Phase 4 Implementation
+/// ## Phase 4 Implementation (COMPLETED)
 ///
-/// - **Watermark Tracking**: Per-partition watermark management (COMPLETED)
+/// - **Watermark Tracking**: Per-partition watermark management
+/// - **Late Record Handling**: Drop/ProcessWithWarning/ProcessAll strategies
+///
+/// ## Phase 5 Implementation (ARCHITECTURE)
+///
+/// - **Window Integration**: Routes to window_v2 engine (not per-partition)
+/// - **EMIT CHANGES Support**: Handled in batch processor (common.rs)
+/// - **Note**: Window processing delegated to window_v2 engine
+///   (NOT replicated in PartitionStateManager)
 pub struct PartitionStateManager {
     partition_id: usize,
     metrics: Arc<PartitionMetrics>,
     watermark_manager: Arc<WatermarkManager>,
-    // TODO Phase 5+: Add query state fields
-    // - window_manager: Option<WindowManager>
+    // TODO Phase 5+: Add additional query state fields
     // - group_by_state: Option<GroupByStateManager>
-    // - output_sender: mpsc::UnboundedSender<StreamRecord>
 }
 
 impl PartitionStateManager {
@@ -174,11 +181,10 @@ impl PartitionStateManager {
             }
         }
 
-        // TODO Phase 5+: Execute query processing
-        // - Extract group key
+        // Phase 5+: TODO: Query processing integration
+        // - Extract group key (for GROUP BY support)
         // - Update aggregation state
-        // - Check window emission conditions
-        // - Emit results to output channel
+        // (Window processing delegated to window_v2 engine)
 
         // Track metrics
         self.metrics.record_batch_processed(1);
@@ -226,8 +232,7 @@ impl PartitionStateManager {
         // - Emit results in batch
 
         // Track metrics (only for successfully processed records)
-        self.metrics
-            .record_batch_processed(processed_count as u64);
+        self.metrics.record_batch_processed(processed_count as u64);
         self.metrics.record_latency(start.elapsed());
 
         Ok(processed_count)

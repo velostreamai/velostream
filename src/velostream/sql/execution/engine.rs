@@ -368,7 +368,9 @@ impl StreamExecutionEngine {
     /// - `Ok(StreamRecord)` - A record was available and received
     /// - `Err(TryRecvError::Empty)` - No messages available (expected after draining)
     /// - `Err(TryRecvError::Disconnected)` - Channel closed (error condition)
-    pub fn try_receive_output(&mut self) -> Result<StreamRecord, tokio::sync::mpsc::error::TryRecvError> {
+    pub fn try_receive_output(
+        &mut self,
+    ) -> Result<StreamRecord, tokio::sync::mpsc::error::TryRecvError> {
         if let Some(receiver) = &mut self.output_receiver {
             receiver.try_recv()
         } else {
@@ -380,12 +382,17 @@ impl StreamExecutionEngine {
     ///
     /// This allows batch processing to temporarily own the receiver, drain all
     /// emitted results, and then return it via `return_output_receiver()`.
-    pub fn take_output_receiver(&mut self) -> Option<tokio::sync::mpsc::UnboundedReceiver<StreamRecord>> {
+    pub fn take_output_receiver(
+        &mut self,
+    ) -> Option<tokio::sync::mpsc::UnboundedReceiver<StreamRecord>> {
         self.output_receiver.take()
     }
 
     /// FR-082 Phase 5: Return ownership of the output receiver (after batch draining)
-    pub fn return_output_receiver(&mut self, receiver: tokio::sync::mpsc::UnboundedReceiver<StreamRecord>) {
+    pub fn return_output_receiver(
+        &mut self,
+        receiver: tokio::sync::mpsc::UnboundedReceiver<StreamRecord>,
+    ) {
         self.output_receiver = Some(receiver);
     }
 

@@ -67,7 +67,7 @@ pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot}
 pub use partition_manager::PartitionStateManager;
 pub use prometheus_exporter::PartitionPrometheusExporter;
 pub use system_fields::{
-    extract_window_fields, has_window_fields, inject_window_end_field, inject_window_fields,
-    inject_window_start_field, WINDOW_END, WINDOW_START,
+    WINDOW_END, WINDOW_START, extract_window_fields, has_window_fields, inject_window_end_field,
+    inject_window_fields, inject_window_start_field,
 };
 pub use watermark::{WatermarkConfig, WatermarkManager, WatermarkMetrics, WatermarkStrategy};

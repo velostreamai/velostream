@@ -10,8 +10,8 @@ use chrono::{Duration, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use velostream::velostream::server::v2::{
-    extract_window_fields, has_window_fields, inject_window_fields, PartitionStateManager,
-    WatermarkConfig, WatermarkManager, WatermarkStrategy,
+    PartitionStateManager, WatermarkConfig, WatermarkManager, WatermarkStrategy,
+    extract_window_fields, has_window_fields, inject_window_fields,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -68,7 +68,10 @@ fn test_late_record_process_with_warning() {
 
     // Should process with warning (not dropped)
     let result = manager.process_record(&late_record);
-    assert!(result.is_ok(), "Late record should be processed with warning");
+    assert!(
+        result.is_ok(),
+        "Late record should be processed with warning"
+    );
 
     // Verify late record was counted
     let metrics = watermark_mgr.metrics();
@@ -323,5 +326,8 @@ fn test_custom_watermark_configuration() {
     almost_late_record.event_time = Some(now - Duration::seconds(90));
 
     let result = manager.process_record(&almost_late_record);
-    assert!(result.is_ok(), "Record within 2 minute window should not be late");
+    assert!(
+        result.is_ok(),
+        "Record within 2 minute window should not be late"
+    );
 }

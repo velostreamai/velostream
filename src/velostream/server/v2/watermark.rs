@@ -106,7 +106,8 @@ impl WatermarkManager {
         let event_time_millis = event_time.timestamp_millis();
 
         // Update last event time
-        self.last_event_time.store(event_time_millis, Ordering::Relaxed);
+        self.last_event_time
+            .store(event_time_millis, Ordering::Relaxed);
 
         // Calculate new watermark (event_time - max_lateness)
         let max_lateness_millis = self.config.max_lateness.as_millis() as i64;
@@ -119,13 +120,15 @@ impl WatermarkManager {
         // 1. No watermark set yet (current == -1), OR
         // 2. New watermark is significantly ahead (respects min_advance)
         if current == -1 {
-            self.current_watermark.store(new_watermark, Ordering::Relaxed);
+            self.current_watermark
+                .store(new_watermark, Ordering::Relaxed);
             return true;
         }
 
         let min_advance_millis = self.config.min_advance.as_millis() as i64;
         if new_watermark > current + min_advance_millis {
-            self.current_watermark.store(new_watermark, Ordering::Relaxed);
+            self.current_watermark
+                .store(new_watermark, Ordering::Relaxed);
             return true;
         }
 
@@ -165,13 +168,9 @@ impl WatermarkManager {
                 WatermarkStrategy::Drop => {
                     self.dropped_records_count.fetch_add(1, Ordering::Relaxed);
                     (true, true)
-                },
-                WatermarkStrategy::ProcessWithWarning => {
-                    (true, false)
-                },
-                WatermarkStrategy::ProcessAll => {
-                    (false, false)
-                },
+                }
+                WatermarkStrategy::ProcessWithWarning => (true, false),
+                WatermarkStrategy::ProcessAll => (false, false),
             }
         } else {
             (false, false)
@@ -183,7 +182,8 @@ impl WatermarkManager {
     /// Used for handling idle partitions or administrative operations
     pub fn advance_to(&self, watermark: DateTime<Utc>) {
         let watermark_millis = watermark.timestamp_millis();
-        self.current_watermark.store(watermark_millis, Ordering::Relaxed);
+        self.current_watermark
+            .store(watermark_millis, Ordering::Relaxed);
     }
 
     /// Get metrics snapshot
