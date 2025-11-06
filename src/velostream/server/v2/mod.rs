@@ -54,6 +54,7 @@ pub mod hash_router;
 pub mod metrics;
 pub mod partition_manager;
 pub mod prometheus_exporter;
+pub mod watermark;
 
 // Re-exports for convenience
 pub use coordinator::{
@@ -64,3 +65,4 @@ pub use hash_router::{HashRouter, PartitionStrategy};
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
 pub use prometheus_exporter::PartitionPrometheusExporter;
+pub use watermark::{WatermarkConfig, WatermarkManager, WatermarkMetrics, WatermarkStrategy};
