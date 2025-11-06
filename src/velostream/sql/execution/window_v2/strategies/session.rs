@@ -62,9 +62,50 @@ impl SessionWindowStrategy {
     /// let strategy = SessionWindowStrategy::new(300000, "_TIMESTAMP".to_string());
     /// ```
     pub fn new(gap_duration_ms: i64, time_field: String) -> Self {
+        Self::with_estimated_capacity(gap_duration_ms, time_field, 10_000)
+    }
+
+    /// Create a new session window strategy with pre-allocated capacity hint.
+    ///
+    /// FR-082 Week 8 Optimization 3: Window Buffer Pre-allocation
+    ///
+    /// Pre-allocates buffer capacity using a conservative estimate since session
+    /// windows are unbounded by design (variable session duration).
+    ///
+    /// Allocation strategy:
+    /// - If typical_session_size is provided, use as initial capacity
+    /// - Default assumption: ~10K events per session (configurable)
+    /// - Sessions exceeding this size will still reallocate, but typical sessions
+    ///   within estimate will have 0 reallocations
+    ///
+    /// # Arguments
+    /// * `gap_duration_ms` - Maximum gap between events in milliseconds
+    /// * `time_field` - Field name containing event time
+    /// * `typical_session_size` - Conservative estimate of typical session size
+    ///   (used for pre-allocation, not a hard limit)
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // 5-minute session gap, expecting ~10K events per session
+    /// let strategy = SessionWindowStrategy::with_estimated_capacity(
+    ///     300000,    // 5 minute gap
+    ///     "_TIMESTAMP".to_string(),
+    ///     10_000     // 10K events typical
+    /// );
+    /// ```
+    pub fn with_estimated_capacity(
+        gap_duration_ms: i64,
+        time_field: String,
+        typical_session_size: usize,
+    ) -> Self {
+        // Conservative: Use typical_session_size as capacity
+        // Sessions smaller than this size avoid reallocations
+        // Sessions larger may reallocate (acceptable - designed for unbounded sessions)
+        let capacity = (typical_session_size as f64 * 1.1).ceil() as usize;
+
         Self {
             gap_duration_ms,
-            buffer: VecDeque::new(),
+            buffer: VecDeque::with_capacity(capacity),
             last_event_time: None,
             session_start_time: None,
             session_end_time: None,
