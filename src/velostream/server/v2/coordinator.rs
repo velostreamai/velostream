@@ -63,6 +63,9 @@ pub struct BackpressureConfig {
 
     /// Enable automatic backpressure handling
     pub enabled: bool,
+
+    /// Throttling configuration for adaptive backpressure response
+    pub throttle_config: ThrottleConfig,
 }
 
 impl Default for BackpressureConfig {
@@ -71,6 +74,37 @@ impl Default for BackpressureConfig {
             queue_threshold: 1000,
             latency_threshold: Duration::from_millis(100),
             enabled: true,
+            throttle_config: ThrottleConfig::default(),
+        }
+    }
+}
+
+/// Throttle configuration for adaptive backpressure response
+///
+/// ## Phase 3 Implementation
+///
+/// Controls how aggressively the system throttles when backpressure is detected:
+/// - **Warning**: Light throttling (min_delay)
+/// - **Critical**: Moderate throttling (min_delay * 2)
+/// - **Saturated**: Aggressive throttling (max_delay)
+#[derive(Debug, Clone)]
+pub struct ThrottleConfig {
+    /// Minimum throttle delay for Warning state
+    pub min_delay: Duration,
+
+    /// Maximum throttle delay for Saturated state
+    pub max_delay: Duration,
+
+    /// Exponential backoff multiplier for Critical state
+    pub backoff_multiplier: f64,
+}
+
+impl Default for ThrottleConfig {
+    fn default() -> Self {
+        Self {
+            min_delay: Duration::from_micros(100),  // 0.1ms for Warning
+            max_delay: Duration::from_millis(10),   // 10ms for Saturated
+            backoff_multiplier: 2.0,                // 2x for Critical
         }
     }
 }
@@ -145,7 +179,11 @@ impl PartitionedJobCoordinator {
     /// Initialize partitions with managers and channels
     ///
     /// Returns partition managers and input channel senders
-    fn initialize_partitions(
+    ///
+    /// ## Phase 3 Implementation
+    ///
+    /// Made public for testing purposes
+    pub fn initialize_partitions(
         &self,
     ) -> (
         Vec<Arc<PartitionStateManager>>,
@@ -196,14 +234,124 @@ impl PartitionedJobCoordinator {
     ///
     /// ## Phase 3 Implementation
     ///
-    /// Currently placeholder for Phase 2. Will be implemented in Phase 3 with:
-    /// - Real-time throughput monitoring
-    /// - Automatic throttling on backpressure
-    /// - Hot partition detection
-    pub fn check_backpressure(&self, _partition_metrics: &[Arc<PartitionMetrics>]) -> bool {
-        // Phase 2: No backpressure handling yet
-        // Phase 3: Implement real backpressure detection
-        false
+    /// Real-time backpressure detection:
+    /// - Checks all partition channel utilization
+    /// - Classifies each partition: Healthy/Warning/Critical/Saturated
+    /// - Returns true if ANY partition requires throttling
+    /// - Logs backpressure events for monitoring
+    ///
+    /// ## Usage
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, PartitionMetrics};
+    ///
+    /// let config = PartitionedJobConfig::default();
+    /// let coordinator = PartitionedJobCoordinator::new(config);
+    ///
+    /// let metrics: Vec<Arc<PartitionMetrics>> = vec![
+    ///     Arc::new(PartitionMetrics::new(0)),
+    ///     Arc::new(PartitionMetrics::new(1)),
+    /// ];
+    ///
+    /// if coordinator.check_backpressure(&metrics) {
+    ///     println!("Backpressure detected - throttling required");
+    /// }
+    /// ```
+    pub fn check_backpressure(&self, partition_metrics: &[Arc<PartitionMetrics>]) -> bool {
+        use crate::velostream::server::v2::BackpressureState;
+
+        let buffer_size = self.config.partition_buffer_size;
+        let mut has_backpressure = false;
+
+        for metrics in partition_metrics {
+            let state = metrics.backpressure_state(buffer_size);
+
+            match state {
+                BackpressureState::Healthy => {
+                    // Normal operation - no action needed
+                }
+                BackpressureState::Warning {
+                    severity,
+                    partition,
+                } => {
+                    log::warn!(
+                        "Partition {} experiencing backpressure ({}% utilization)",
+                        partition,
+                        (severity * 100.0) as u32
+                    );
+                }
+                BackpressureState::Critical {
+                    severity,
+                    partition,
+                } => {
+                    log::error!(
+                        "Partition {} CRITICAL backpressure ({}% utilization) - throttling required",
+                        partition,
+                        (severity * 100.0) as u32
+                    );
+                    has_backpressure = true;
+                }
+                BackpressureState::Saturated { partition } => {
+                    log::error!(
+                        "Partition {} SATURATED (>95% utilization) - immediate throttling required",
+                        partition
+                    );
+                    has_backpressure = true;
+                }
+            }
+        }
+
+        has_backpressure
+    }
+
+    /// Detect hot partitions (load imbalance)
+    ///
+    /// ## Phase 3 Implementation
+    ///
+    /// Identifies partitions processing significantly more records than average:
+    /// - Calculates average throughput across all partitions
+    /// - Flags partitions exceeding threshold (e.g., 2x average)
+    /// - Useful for detecting skewed GROUP BY keys
+    ///
+    /// ## Returns
+    ///
+    /// Vec of (partition_id, throughput) for hot partitions
+    pub fn detect_hot_partitions(
+        &self,
+        partition_metrics: &[Arc<PartitionMetrics>],
+        threshold_multiplier: f64,
+    ) -> Vec<(usize, u64)> {
+        if partition_metrics.is_empty() {
+            return Vec::new();
+        }
+
+        // Calculate average throughput
+        let total_throughput: u64 = partition_metrics
+            .iter()
+            .map(|m| m.throughput_per_sec())
+            .sum();
+
+        let avg_throughput = total_throughput / partition_metrics.len() as u64;
+
+        if avg_throughput == 0 {
+            return Vec::new(); // No throughput yet
+        }
+
+        // Identify hot partitions
+        let threshold = (avg_throughput as f64 * threshold_multiplier) as u64;
+
+        partition_metrics
+            .iter()
+            .filter_map(|metrics| {
+                let throughput = metrics.throughput_per_sec();
+                if throughput > threshold {
+                    Some((metrics.partition_id(), throughput))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Collect aggregated metrics from all partitions
@@ -233,6 +381,146 @@ impl PartitionedJobCoordinator {
             max_queue_depth,
             max_latency_micros,
         }
+    }
+
+    /// Calculate appropriate throttle delay based on backpressure severity
+    ///
+    /// ## Phase 3 Implementation
+    ///
+    /// Adaptive throttling strategy:
+    /// - **Healthy**: No delay (0ms)
+    /// - **Warning**: Light throttling (min_delay, typically 0.1ms)
+    /// - **Critical**: Moderate throttling (min_delay * backoff_multiplier, typically 0.2ms)
+    /// - **Saturated**: Aggressive throttling (max_delay, typically 10ms)
+    ///
+    /// ## Usage
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, PartitionMetrics};
+    ///
+    /// let config = PartitionedJobConfig::default();
+    /// let coordinator = PartitionedJobCoordinator::new(config);
+    ///
+    /// let metrics: Vec<Arc<PartitionMetrics>> = vec![
+    ///     Arc::new(PartitionMetrics::new(0)),
+    /// ];
+    ///
+    /// let delay = coordinator.calculate_throttle_delay(&metrics);
+    /// // Returns Duration based on worst partition state
+    /// ```
+    pub fn calculate_throttle_delay(&self, partition_metrics: &[Arc<PartitionMetrics>]) -> Duration {
+        use crate::velostream::server::v2::BackpressureState;
+
+        if !self.config.backpressure_config.enabled {
+            return Duration::from_secs(0);
+        }
+
+        let buffer_size = self.config.partition_buffer_size;
+        let throttle_config = &self.config.backpressure_config.throttle_config;
+
+        // Find worst backpressure state across all partitions
+        let mut max_severity = 0.0;
+        let mut worst_state = BackpressureState::Healthy;
+
+        for metrics in partition_metrics {
+            let state = metrics.backpressure_state(buffer_size);
+            let severity = state.severity();
+
+            if severity > max_severity {
+                max_severity = severity;
+                worst_state = state;
+            }
+        }
+
+        // Calculate delay based on worst state
+        match worst_state {
+            BackpressureState::Healthy => Duration::from_secs(0),
+            BackpressureState::Warning { .. } => throttle_config.min_delay,
+            BackpressureState::Critical { .. } => {
+                // Exponential backoff for critical state
+                let delay_micros = throttle_config.min_delay.as_micros() as f64
+                    * throttle_config.backoff_multiplier;
+                Duration::from_micros(delay_micros as u64)
+            }
+            BackpressureState::Saturated { .. } => throttle_config.max_delay,
+        }
+    }
+
+    /// Process batch with automatic throttling based on backpressure
+    ///
+    /// ## Phase 3 Implementation
+    ///
+    /// Enhanced version of process_batch() that applies adaptive throttling:
+    /// - Monitors partition metrics continuously
+    /// - Calculates appropriate throttle delay
+    /// - Applies delay between record sends when backpressure detected
+    /// - Logs throttling events for observability
+    ///
+    /// ## Usage
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, HashRouter, PartitionStrategy};
+    /// use velostream::velostream::sql::execution::types::StreamRecord;
+    /// use std::collections::HashMap;
+    ///
+    /// # async fn example() {
+    /// let config = PartitionedJobConfig::default();
+    /// let coordinator = PartitionedJobCoordinator::new(config);
+    ///
+    /// let router = HashRouter::new(PartitionStrategy::Hash, 4, vec!["key".to_string()]);
+    /// let (managers, senders) = coordinator.initialize_partitions();
+    ///
+    /// let records = vec![StreamRecord::new(HashMap::new())];
+    /// let partition_metrics: Vec<Arc<_>> = managers.iter().map(|m| m.metrics()).collect();
+    ///
+    /// let processed = coordinator.process_batch_with_throttling(
+    ///     records,
+    ///     &router,
+    ///     &senders,
+    ///     &partition_metrics,
+    /// ).await;
+    /// # }
+    /// ```
+    pub async fn process_batch_with_throttling(
+        &self,
+        records: Vec<StreamRecord>,
+        router: &HashRouter,
+        partition_senders: &[mpsc::Sender<StreamRecord>],
+        partition_metrics: &[Arc<PartitionMetrics>],
+    ) -> Result<usize, SqlError> {
+        let mut processed = 0;
+        let mut last_throttle_log = std::time::Instant::now();
+
+        for record in records {
+            let partition_id = router.route_record(&record)?;
+            let sender = &partition_senders[partition_id];
+
+            // Calculate throttle delay based on current backpressure
+            let throttle_delay = self.calculate_throttle_delay(partition_metrics);
+
+            // Apply throttling if needed
+            if throttle_delay > Duration::from_secs(0) {
+                // Log throttling events (rate-limited to once per second)
+                if last_throttle_log.elapsed() >= Duration::from_secs(1) {
+                    log::warn!(
+                        "Applying throttle delay: {:?} due to backpressure",
+                        throttle_delay
+                    );
+                    last_throttle_log = std::time::Instant::now();
+                }
+
+                tokio::time::sleep(throttle_delay).await;
+            }
+
+            // Send to partition
+            if sender.send(record).await.is_ok() {
+                processed += 1;
+            }
+        }
+
+        Ok(processed)
     }
 }
 

@@ -57,8 +57,8 @@ pub mod partition_manager;
 // Re-exports for convenience
 pub use coordinator::{
     BackpressureConfig, CoordinatorMetrics, PartitionedJobConfig, PartitionedJobCoordinator,
-    ProcessingMode,
+    ProcessingMode, ThrottleConfig,
 };
 pub use hash_router::{HashRouter, PartitionStrategy};
-pub use metrics::{PartitionMetrics, PartitionMetricsSnapshot};
+pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
