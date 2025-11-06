@@ -15,6 +15,7 @@ pub mod time_window_sql_benchmarks;
 // Specialized benchmarks
 pub mod financial_precision;
 pub mod kafka_configurations;
+pub mod phase3_coordinator_benchmark;
 pub mod query_processing;
 pub mod serialization_formats;
 pub mod sql_execution;
