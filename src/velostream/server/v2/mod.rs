@@ -49,11 +49,16 @@
 //!
 //! See `docs/feature/FR-082-perf-part-2/FR-082-JOB-SERVER-V2-PARTITIONED-PIPELINE.md`
 
+pub mod coordinator;
 pub mod hash_router;
 pub mod metrics;
 pub mod partition_manager;
 
 // Re-exports for convenience
+pub use coordinator::{
+    BackpressureConfig, CoordinatorMetrics, PartitionedJobConfig, PartitionedJobCoordinator,
+    ProcessingMode,
+};
 pub use hash_router::{HashRouter, PartitionStrategy};
 pub use metrics::{PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
