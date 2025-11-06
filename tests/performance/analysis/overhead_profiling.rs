@@ -22,13 +22,13 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::common::{
-    BatchProcessingResult, JobProcessingConfig, FailureStrategy,
+    BatchProcessingResult, FailureStrategy, JobProcessingConfig,
 };
 use velostream::velostream::server::processors::simple::SimpleJobProcessor;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use velostream::velostream::sql::execution::StreamExecutionEngine;
-use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::sql::StreamingQuery;
+use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 
 /// FR-082 Overhead Analysis: Component-by-component profiling
 ///
@@ -88,15 +88,23 @@ async fn profile_overhead_components() {
     println!("📈 OVERHEAD BREAKDOWN SUMMARY");
     println!("═══════════════════════════════════════════════════════════");
     println!("Baseline (Pure Engine):        {:.0} rec/sec", baseline);
-    println!("+ Batch Coordination:          {:.0} rec/sec ({:.1}% overhead)",
-             with_batching, batch_overhead);
-    println!("+ Lock Contention:             {:.0} rec/sec ({:.1}% overhead)",
-             with_locks, lock_overhead);
-    println!("+ Metrics Collection:          {:.0} rec/sec ({:.1}% overhead)",
-             with_metrics, metrics_overhead);
+    println!(
+        "+ Batch Coordination:          {:.0} rec/sec ({:.1}% overhead)",
+        with_batching, batch_overhead
+    );
+    println!(
+        "+ Lock Contention:             {:.0} rec/sec ({:.1}% overhead)",
+        with_locks, lock_overhead
+    );
+    println!(
+        "+ Metrics Collection:          {:.0} rec/sec ({:.1}% overhead)",
+        with_metrics, metrics_overhead
+    );
     println!();
-    println!("Expected Production (~28K):    ~{:.0} rec/sec",
-             baseline * 0.22); // 78% overhead
+    println!(
+        "Expected Production (~28K):    ~{:.0} rec/sec",
+        baseline * 0.22
+    ); // 78% overhead
     println!("═══════════════════════════════════════════════════════════\n");
 
     // Identify top contributor
@@ -105,7 +113,10 @@ async fn profile_overhead_components() {
         ("Lock Contention", lock_overhead),
         ("Metrics Collection", metrics_overhead),
     ];
-    let max = overheads.iter().max_by(|a, b| a.1.partial_cmp(&b.1).unwrap()).unwrap();
+    let max = overheads
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap();
 
     println!("🎯 PRIMARY BOTTLENECK: {} ({:.1}% overhead)", max.0, max.1);
     println!("   Recommendation: Focus optimization efforts here\n");
@@ -115,9 +126,15 @@ fn generate_records(count: usize) -> Vec<StreamRecord> {
     let mut records = Vec::with_capacity(count);
     for i in 0..count {
         let mut fields = HashMap::new();
-        fields.insert("category".to_string(), FieldValue::String(format!("CAT{}", i % 50)));
+        fields.insert(
+            "category".to_string(),
+            FieldValue::String(format!("CAT{}", i % 50)),
+        );
         fields.insert("amount".to_string(), FieldValue::Float((i % 1000) as f64));
-        fields.insert("price".to_string(), FieldValue::Float(100.0 + (i % 500) as f64));
+        fields.insert(
+            "price".to_string(),
+            FieldValue::Float(100.0 + (i % 500) as f64),
+        );
         records.push(StreamRecord::new(fields));
     }
     records

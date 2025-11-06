@@ -6,7 +6,7 @@
 
 use crate::velostream::sql::ast::TimeUnit;
 use crate::velostream::sql::error::SqlError;
-use chrono::{Datelike, DateTime, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};

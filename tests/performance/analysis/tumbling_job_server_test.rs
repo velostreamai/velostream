@@ -12,16 +12,16 @@ infrastructure to measure actual overhead vs pure SQL engine execution.
 use async_trait::async_trait;
 use serial_test::serial;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig};
 use velostream::velostream::server::processors::SimpleJobProcessor;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Same query as tumbling_instrumented_profiling.rs
@@ -103,7 +103,10 @@ impl DataReader for MockDataSource {
         Ok(())
     }
 
-    async fn seek(&mut self, _offset: SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        _offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -240,7 +243,10 @@ async fn job_server_tumbling_window_performance() {
             println!();
             println!("📈 COMPARISON:");
             println!("  Pure SQL Engine:     790,399 rec/sec (baseline)");
-            println!("  Job Server:          {:.0} rec/sec (this test)", throughput);
+            println!(
+                "  Job Server:          {:.0} rec/sec (this test)",
+                throughput
+            );
             println!();
 
             let slowdown_factor = 790399.0 / throughput;

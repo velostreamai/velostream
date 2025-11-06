@@ -17,8 +17,8 @@ GROUP BY performance.
 use std::collections::HashMap;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 /// FR-082 Phase 4 Validation: Pure GROUP BY performance without server overhead
@@ -130,7 +130,10 @@ async fn profile_pure_group_by_direct_execution() {
     println!();
     println!("📈 COMPARISON:");
     println!("  Tumbling + GROUP BY: ~127,000 rec/sec (with window overhead)");
-    println!("  Pure GROUP BY:       {:.0} rec/sec (this test)", records_per_sec);
+    println!(
+        "  Pure GROUP BY:       {:.0} rec/sec (this test)",
+        records_per_sec
+    );
     println!("  Job Server:          ~28,000 rec/sec (with infrastructure)");
     println!();
 
@@ -193,8 +196,12 @@ async fn profile_group_by_high_cardinality() {
 
         records.push(StreamRecord::new(fields));
     }
-    println!("✅ Generated {} records with ~{} distinct groups: {:?}",
-             num_records, num_groups, gen_start.elapsed());
+    println!(
+        "✅ Generated {} records with ~{} distinct groups: {:?}",
+        num_records,
+        num_groups,
+        gen_start.elapsed()
+    );
 
     // Engine Setup
     let (tx, mut rx) = mpsc::unbounded_channel();

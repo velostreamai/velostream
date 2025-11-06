@@ -1204,8 +1204,7 @@ impl SelectProcessor {
 
         // Phase 4B: Initialize or update the accumulator for this group
         // Uses get_or_create_group which works with GroupKey
-        let accumulator = group_state
-            .get_or_create_group(group_key.clone());
+        let accumulator = group_state.get_or_create_group(group_key.clone());
 
         // Note: accumulator.count will be incremented in AccumulatorManager::process_record_into_accumulator
         // Do NOT increment it here to avoid double-counting

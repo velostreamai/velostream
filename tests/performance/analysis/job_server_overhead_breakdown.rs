@@ -15,16 +15,16 @@ Instruments EACH component of job server overhead to identify where the 97% cost
 use async_trait::async_trait;
 use serial_test::serial;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig};
 use velostream::velostream::server::processors::SimpleJobProcessor;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 const TEST_SQL: &str = r#"
@@ -147,10 +147,7 @@ impl DataWriter for InstrumentedDataWriter {
         Ok(())
     }
 
-    async fn delete(
-        &mut self,
-        _key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn delete(&mut self, _key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -181,7 +178,10 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
             "symbol".to_string(),
             FieldValue::String(format!("SYM{}", i % 10)),
         );
-        fields.insert("price".to_string(), FieldValue::Float(100.0 + (i as f64 % 50.0)));
+        fields.insert(
+            "price".to_string(),
+            FieldValue::Float(100.0 + (i as f64 % 50.0)),
+        );
         fields.insert(
             "quantity".to_string(),
             FieldValue::Integer((100 + (i % 1000)) as i64),
@@ -206,8 +206,14 @@ async fn job_server_overhead_breakdown() {
     let num_records = 5000;
     let batch_size = 1000;
 
-    println!("Testing with {} records, batch size {}", num_records, batch_size);
-    println!("Expected {} batches\n", (num_records + batch_size - 1) / batch_size);
+    println!(
+        "Testing with {} records, batch size {}",
+        num_records, batch_size
+    );
+    println!(
+        "Expected {} batches\n",
+        (num_records + batch_size - 1) / batch_size
+    );
 
     // Generate test data
     let records = generate_test_records(num_records);
@@ -262,7 +268,9 @@ async fn job_server_overhead_breakdown() {
             let mut pure_engine = StreamExecutionEngine::new(tx2);
 
             for record in records.iter() {
-                let _ = pure_engine.execute_with_record(&query, record.clone()).await;
+                let _ = pure_engine
+                    .execute_with_record(&query, record.clone())
+                    .await;
             }
             let pure_duration = pure_start.elapsed();
 
@@ -286,21 +294,27 @@ async fn job_server_overhead_breakdown() {
             println!("  Throughput:  {:.0} rec/sec", throughput_job_server);
             println!();
             println!("Overhead Breakdown:");
-            println!("  Total overhead:      {:.2} ms ({:.1}%)",
+            println!(
+                "  Total overhead:      {:.2} ms ({:.1}%)",
                 total_overhead_ms,
                 (total_overhead_ms / total_duration.as_millis() as f64) * 100.0
             );
-            println!("  1. Record cloning:   {:.2} ms ({:.1}%)",
+            println!(
+                "  1. Record cloning:   {:.2} ms ({:.1}%)",
                 clone_overhead_ms,
                 (clone_overhead_ms / total_overhead_ms) * 100.0
             );
             println!("  2. Other (locks, coordination, metrics):");
-            println!("                       {:.2} ms ({:.1}%)",
+            println!(
+                "                       {:.2} ms ({:.1}%)",
                 other_overhead_ms,
                 (other_overhead_ms / total_overhead_ms) * 100.0
             );
             println!();
-            println!("Slowdown Factor:     {:.2}x", throughput_pure / throughput_job_server);
+            println!(
+                "Slowdown Factor:     {:.2}x",
+                throughput_pure / throughput_job_server
+            );
             println!("═══════════════════════════════════════════════════════════\n");
         }
         Err(e) => {

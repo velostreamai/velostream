@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
@@ -163,18 +163,20 @@ impl ProfilingDataReader {
 
         StreamRecord {
             fields,
-            timestamp: 0,  // Not used in profiling
+            timestamp: 0, // Not used in profiling
             offset: id as i64,
             partition: 0,
             headers: HashMap::new(),
-            event_time: None,  // Not used in profiling
+            event_time: None, // Not used in profiling
         }
     }
 }
 
 #[async_trait]
 impl DataReader for ProfilingDataReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
 
         let sent = self.records_sent.load(Ordering::SeqCst);
@@ -217,7 +219,9 @@ impl DataReader for ProfilingDataReader {
         false
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
@@ -307,7 +311,9 @@ impl DataWriter for ProfilingDataWriter {
         false
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
@@ -357,8 +363,7 @@ async fn profile_tumbling_window_group_by_1m_records() {
     let mut readers = HashMap::new();
     readers.insert(
         "source_0".to_string(),
-        Box::new(ProfilingDataReader::new(1_000_000, 1000, metrics.clone()))
-            as Box<dyn DataReader>,
+        Box::new(ProfilingDataReader::new(1_000_000, 1000, metrics.clone())) as Box<dyn DataReader>,
     );
 
     let mut writers = HashMap::new();
@@ -479,8 +484,7 @@ async fn profile_group_by_aggregations_1m_records() {
     let mut readers = HashMap::new();
     readers.insert(
         "source_0".to_string(),
-        Box::new(ProfilingDataReader::new(1_000_000, 1000, metrics.clone()))
-            as Box<dyn DataReader>,
+        Box::new(ProfilingDataReader::new(1_000_000, 1000, metrics.clone())) as Box<dyn DataReader>,
     );
 
     let mut writers = HashMap::new();

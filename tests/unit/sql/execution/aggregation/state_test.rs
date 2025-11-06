@@ -65,7 +65,10 @@ fn test_generate_group_key_simple() {
 
     // Verify the key contains the expected values
     assert_eq!(key.values().len(), 2);
-    assert_eq!(key.values()[0], FieldValue::String("electronics".to_string()));
+    assert_eq!(
+        key.values()[0],
+        FieldValue::String("electronics".to_string())
+    );
     assert_eq!(key.values()[1], FieldValue::Integer(1));
 }
 

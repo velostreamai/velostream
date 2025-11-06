@@ -60,7 +60,7 @@ impl PerfTestConfig {
     /// Create configuration from specific mode
     pub fn from_mode(mode: TestMode, verbose_output: bool) -> Self {
         let (num_records, batch_size) = match mode {
-            TestMode::CI => (1_000, 100),           // Fast: 1K records, 100 batch
+            TestMode::CI => (1_000, 100), // Fast: 1K records, 100 batch
             TestMode::Performance => (100_000, 1_000), // Full: 100K records, 1K batch
             TestMode::Custom(count) => {
                 let batch = (count / 100).max(100).min(1000);

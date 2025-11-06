@@ -4,8 +4,8 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
@@ -107,10 +107,7 @@ impl DataWriter for MockDataWriter {
         Ok(())
     }
 
-    async fn delete(
-        &mut self,
-        _key: &str,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn delete(&mut self, _key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -146,10 +143,7 @@ pub fn generate_tumbling_window_records(count: usize) -> Vec<StreamRecord> {
         fields.insert("trader_id".to_string(), FieldValue::String(trader_id));
         fields.insert("symbol".to_string(), FieldValue::String(symbol));
         fields.insert("price".to_string(), FieldValue::Float(price));
-        fields.insert(
-            "quantity".to_string(),
-            FieldValue::Integer(quantity as i64),
-        );
+        fields.insert("quantity".to_string(), FieldValue::Integer(quantity as i64));
         fields.insert("trade_time".to_string(), FieldValue::Integer(timestamp));
 
         records.push(StreamRecord::new(fields));
@@ -195,7 +189,8 @@ pub fn print_performance_comparison(
     println!();
 
     let slowdown_factor = baseline_throughput / measured_throughput;
-    let overhead_percent = ((baseline_throughput - measured_throughput) / baseline_throughput) * 100.0;
+    let overhead_percent =
+        ((baseline_throughput - measured_throughput) / baseline_throughput) * 100.0;
 
     println!("Slowdown Factor:     {:.2}x", slowdown_factor);
     println!("Overhead:            {:.1}%", overhead_percent);
