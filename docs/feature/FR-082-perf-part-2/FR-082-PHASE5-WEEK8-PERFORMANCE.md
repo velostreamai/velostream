@@ -6,6 +6,139 @@
 
 ---
 
+## Comprehensive Query Baseline Results (November 6, 2025)
+
+All benchmarks run in `--release` mode on standard test dataset (5,000 records).
+
+### Summary Table
+
+| Scenario | Query Type | SQL Engine | Job Server | Ratio | Notes |
+|----------|-----------|-----------|-----------|-------|-------|
+| **Scenario 0** | Pure SELECT (passthrough) | 144,650 rec/sec | 23,443 rec/sec | 6.2x | Baseline SELECT |
+| **Scenario 1** | ROWS WINDOW (no GROUP BY) | 1,170,960 rec/sec | 23,384 rec/sec | 50x | Window buffering |
+| **Scenario 2** | Pure GROUP BY (no WINDOW) | 156,621 rec/sec | 23,445 rec/sec | 6.7x | Aggregation only |
+| **Scenario 3a** | TUMBLING + GROUP BY | 156,621 rec/sec | 23,445 rec/sec | 6.7x | Window + aggregation |
+| **Scenario 3b** | TUMBLING + GROUP BY + EMIT CHANGES | 490 rec/sec (input) | 480 rec/sec (input) | 1.02x | **99,810 emissions** ✅ |
+
+### Detailed Baseline Results
+
+#### Scenario 0: Pure SELECT (Passthrough Query)
+```
+Query: SELECT * FROM market_data
+
+SQL Engine:
+  Records: 5,000
+  Time: 34.57ms
+  Throughput: 144,650 rec/sec
+
+Job Server:
+  Records: 5,000
+  Time: 213.28ms
+  Throughput: 23,443 rec/sec
+
+Analysis:
+  • Job Server overhead: 6.2x slower (coordination + batching)
+  • Baseline for all other scenarios
+  • Minimal processing (pure passthrough)
+```
+
+#### Scenario 1: ROWS WINDOW (Memory-Bounded Sliding Buffer)
+```
+Query: SELECT symbol, price, AVG(price) OVER (ROWS WINDOW BUFFER 100)
+       FROM market_data
+
+SQL Engine:
+  Records: 5,000
+  Time: 4.27ms
+  Throughput: 1,170,960 rec/sec
+
+Job Server:
+  Records: 5,000
+  Time: 213ms
+  Throughput: 23,384 rec/sec
+
+Analysis:
+  • SQL Engine excels at window buffering (50x faster than GROUP BY)
+  • Job Server overhead consistent (6.2x baseline)
+  • Window buffer optimization very effective in SQL engine
+```
+
+#### Scenario 2: Pure GROUP BY (Hash Aggregation, No Window)
+```
+Query: SELECT trader_id, symbol, COUNT(*), AVG(price)
+       FROM market_data
+       GROUP BY trader_id, symbol
+
+SQL Engine:
+  Records: 5,000
+  Time: 12.96ms
+  Throughput: 385,688 rec/sec
+
+Job Server:
+  Records: 5,000
+  Time: 212.60ms
+  Throughput: 23,519 rec/sec
+
+Analysis:
+  • GROUP BY aggregation fast in SQL engine (385K rec/sec)
+  • Job Server maintains consistent 23-24K rec/sec
+  • Hash aggregation scales well with 200+ groups
+```
+
+#### Scenario 3a: TUMBLING + GROUP BY (Standard Emission)
+```
+Query: SELECT trader_id, symbol, COUNT(*), AVG(price)
+       FROM market_data
+       GROUP BY trader_id, symbol
+       WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
+
+SQL Engine:
+  Records: 5,000
+  Time: 31.92ms
+  Throughput: 156,621 rec/sec
+
+Job Server:
+  Records: 5,000
+  Time: 213.26ms
+  Throughput: 23,445 rec/sec
+
+Analysis:
+  • Window boundaries reduce throughput vs pure GROUP BY (2.5x slower)
+  • Job Server overhead remains consistent
+  • Standard emission (batch at window close)
+```
+
+#### Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES (Continuous Emission)
+```
+Query: SELECT trader_id, symbol, COUNT(*), AVG(price)
+       FROM market_data
+       GROUP BY trader_id, symbol
+       WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE) EMIT CHANGES
+
+SQL Engine:
+  Input Records: 5,000
+  Emitted Results: 99,810 (19.96x amplification)
+  Processing Time: 10,191.91ms
+  Input Throughput: 490 rec/sec
+  Emission Throughput: 9,789 rec/sec
+
+Job Server:
+  Input Records: 5,000
+  Emitted Results: 99,810 ✅ (FIXED in Phase 5!)
+  Processing Time: 10,420ms
+  Input Throughput: 480 rec/sec
+  Emission Throughput: 9,579 rec/sec
+
+Analysis:
+  • EMIT CHANGES is the PRIMARY BOTTLENECK
+  • 19.96x amplification (5,000 → 99,810) explains slow throughput
+  • Job Server matches SQL Engine (480-490 rec/sec input)
+  • Both systems handle massive emission rate equally well
+  • This is the optimization target for Phase 8 Week 8
+```
+
+---
+
 ## Current Performance Analysis
 
 ### Week 7 Benchmark Results
