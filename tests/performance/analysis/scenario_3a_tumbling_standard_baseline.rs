@@ -94,7 +94,9 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
 
     let start = Instant::now();
     for record in records.iter() {
-        let _ = engine.execute_with_record(&parsed_query, record.clone()).await;
+        let _ = engine
+            .execute_with_record(&parsed_query, record.clone())
+            .await;
     }
     let elapsed = start.elapsed();
 
@@ -239,7 +241,8 @@ async fn scenario_3a_tumbling_standard_baseline() {
         0
     };
 
-    println!("   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
+    println!(
+        "   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
         num_records,
         sql_time_us as f64 / 1000.0,
         sql_throughput
@@ -289,7 +292,8 @@ async fn scenario_3a_tumbling_standard_baseline() {
         Ok(stats) => {
             let job_throughput = num_records as f64 / duration.as_secs_f64();
 
-            println!("   ✅ Job Server: {} records in {:.2}ms ({:.0} rec/sec)\n",
+            println!(
+                "   ✅ Job Server: {} records in {:.2}ms ({:.0} rec/sec)\n",
                 num_records,
                 duration.as_millis(),
                 job_throughput
@@ -326,7 +330,10 @@ async fn scenario_3a_tumbling_standard_baseline() {
             println!();
             println!("📋 Comparison to Other Scenarios:");
             println!("  Scenario 2 (GROUP BY):  95.8% overhead (23.4x slowdown)");
-            println!("  Scenario 3a (TUMBLING): {:.1}% overhead ({:.1}x slowdown)", overhead_pct, slowdown_factor);
+            println!(
+                "  Scenario 3a (TUMBLING): {:.1}% overhead ({:.1}x slowdown)",
+                overhead_pct, slowdown_factor
+            );
             println!();
 
             if overhead_pct < 10.0 {

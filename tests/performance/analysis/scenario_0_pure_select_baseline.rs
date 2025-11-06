@@ -66,9 +66,18 @@ impl PassthroughDataSource {
             .map(|i| {
                 let mut fields = HashMap::new();
                 fields.insert("order_id".to_string(), FieldValue::Integer(i as i64));
-                fields.insert("customer_id".to_string(), FieldValue::Integer((i % 1000) as i64));
-                fields.insert("order_date".to_string(), FieldValue::String("2024-01-15".to_string()));
-                fields.insert("total_amount".to_string(), FieldValue::Float(150.0 + (i % 100) as f64));
+                fields.insert(
+                    "customer_id".to_string(),
+                    FieldValue::Integer((i % 1000) as i64),
+                );
+                fields.insert(
+                    "order_date".to_string(),
+                    FieldValue::String("2024-01-15".to_string()),
+                );
+                fields.insert(
+                    "total_amount".to_string(),
+                    FieldValue::Float(150.0 + (i % 100) as f64),
+                );
                 StreamRecord::new(fields)
             })
             .collect();
@@ -82,7 +91,9 @@ impl PassthroughDataSource {
 
 #[async_trait]
 impl DataReader for PassthroughDataSource {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         if self.read_count > 0 {
             return Ok(vec![]);
         }
@@ -94,7 +105,10 @@ impl DataReader for PassthroughDataSource {
         Ok(())
     }
 
-    async fn seek(&mut self, _offset: SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        _offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -116,17 +130,27 @@ impl PassthroughDataWriter {
 
 #[async_trait]
 impl DataWriter for PassthroughDataWriter {
-    async fn write(&mut self, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write(
+        &mut self,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written += 1;
         Ok(())
     }
 
-    async fn write_batch(&mut self, records: Vec<Arc<StreamRecord>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write_batch(
+        &mut self,
+        records: Vec<Arc<StreamRecord>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written += records.len();
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -156,7 +180,9 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
 
     let start = Instant::now();
     for record in records.iter() {
-        let _ = engine.execute_with_record(&parsed_query, record.clone()).await;
+        let _ = engine
+            .execute_with_record(&parsed_query, record.clone())
+            .await;
     }
     let elapsed = start.elapsed();
 
@@ -228,9 +254,18 @@ async fn scenario_0_pure_select_baseline() {
         .map(|i| {
             let mut fields = HashMap::new();
             fields.insert("order_id".to_string(), FieldValue::Integer(i as i64));
-            fields.insert("customer_id".to_string(), FieldValue::Integer((i % 1000) as i64));
-            fields.insert("order_date".to_string(), FieldValue::String("2024-01-15".to_string()));
-            fields.insert("total_amount".to_string(), FieldValue::Float(150.0 + (i % 100) as f64));
+            fields.insert(
+                "customer_id".to_string(),
+                FieldValue::Integer((i % 1000) as i64),
+            );
+            fields.insert(
+                "order_date".to_string(),
+                FieldValue::String("2024-01-15".to_string()),
+            );
+            fields.insert(
+                "total_amount".to_string(),
+                FieldValue::Float(150.0 + (i % 100) as f64),
+            );
             StreamRecord::new(fields)
         })
         .collect();
@@ -244,7 +279,8 @@ async fn scenario_0_pure_select_baseline() {
         0
     };
 
-    println!("   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
+    println!(
+        "   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
         sql_result_count,
         sql_time_us as f64 / 1000.0,
         sql_throughput
@@ -259,7 +295,8 @@ async fn scenario_0_pure_select_baseline() {
         0
     };
 
-    println!("   ✅ Job Server: {} records in {:.2}ms ({} rec/sec)\n",
+    println!(
+        "   ✅ Job Server: {} records in {:.2}ms ({} rec/sec)\n",
         job_result_count,
         job_time_us as f64 / 1000.0,
         job_throughput
@@ -296,7 +333,10 @@ async fn scenario_0_pure_select_baseline() {
     println!("📋 Comparison to Aggregation Scenarios:");
     println!("  Scenario 2 (GROUP BY):  95.8% overhead (23.4x slowdown)");
     println!("  Scenario 3a (TUMBLING): 97.0% overhead (33.5x slowdown)");
-    println!("  Scenario 0 (SELECT):    {:.1}% overhead ({:.1}x slowdown)", overhead_pct, slowdown_factor);
+    println!(
+        "  Scenario 0 (SELECT):    {:.1}% overhead ({:.1}x slowdown)",
+        overhead_pct, slowdown_factor
+    );
     println!();
     println!("✅ Pure SELECT has LOWER overhead than aggregation queries");
     println!("   (I/O-bound, not CPU-bound like GROUP BY)");

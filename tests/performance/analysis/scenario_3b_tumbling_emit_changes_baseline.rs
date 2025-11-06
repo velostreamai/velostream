@@ -123,7 +123,9 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
 
     let start = Instant::now();
     for record in records.iter() {
-        let _ = engine.execute_with_record(&parsed_query, record.clone()).await;
+        let _ = engine
+            .execute_with_record(&parsed_query, record.clone())
+            .await;
     }
     let elapsed = start.elapsed();
 
@@ -277,7 +279,8 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
         0
     };
 
-    println!("   ✅ SQL Engine: {} input records → {} emitted results in {:.2}ms ({} rec/sec)\n",
+    println!(
+        "   ✅ SQL Engine: {} input records → {} emitted results in {:.2}ms ({} rec/sec)\n",
         num_records,
         sql_emit_count,
         sql_time_us as f64 / 1000.0,
@@ -348,7 +351,8 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             let job_throughput = num_records as f64 / duration.as_secs_f64();
             let job_emit_count = output_counter.load(Ordering::SeqCst);
 
-            println!("   ✅ Job Server: {} input records → {} emitted results in {:.2}ms ({:.0} rec/sec)\n",
+            println!(
+                "   ✅ Job Server: {} input records → {} emitted results in {:.2}ms ({:.0} rec/sec)\n",
                 num_records,
                 job_emit_count,
                 duration.as_millis(),
@@ -379,7 +383,10 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             println!();
             println!("Job Server (EMIT CHANGES):");
             println!("  Time:           {:.2}ms", duration.as_millis());
-            println!("  Throughput:     {:.0} rec/sec (input processing)", job_throughput);
+            println!(
+                "  Throughput:     {:.0} rec/sec (input processing)",
+                job_throughput
+            );
             println!("  Emissions:      {} results ❌", job_emit_count);
             println!("  Status:         ⚠️ ARCHITECTURAL LIMITATION");
             println!("  Batches:        {}", stats.batches_processed);
@@ -395,9 +402,18 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             println!("channel instead - so emissions are lost.");
             println!();
             println!("Evidence:");
-            println!("  • SQL Engine: {} emissions (using execute_with_record())", sql_emit_count);
-            println!("  • Job Server: {} emissions (using process_query())", job_emit_count);
-            println!("  • Amplification: ~{}x output vs input", sql_emit_count / num_records);
+            println!(
+                "  • SQL Engine: {} emissions (using execute_with_record())",
+                sql_emit_count
+            );
+            println!(
+                "  • Job Server: {} emissions (using process_query())",
+                job_emit_count
+            );
+            println!(
+                "  • Amplification: ~{}x output vs input",
+                sql_emit_count / num_records
+            );
             println!();
             println!("📋 IMPLICATIONS:");
             println!("  ✅ EMIT CHANGES works correctly with SQL Engine API");
@@ -406,16 +422,34 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             println!("     for EMIT CHANGES queries, or drain output_sender channel");
             println!();
             println!("📈 THROUGHPUT COMPARISON (Input Processing Only):");
-            println!("  Pure SQL Engine:  {} rec/sec (sequential per-record)", sql_throughput);
-            println!("  Job Server:       {:.0} rec/sec (batched processing)", job_throughput);
-            println!("  Speedup:          {:.1}x faster", job_throughput / sql_throughput as f64);
+            println!(
+                "  Pure SQL Engine:  {} rec/sec (sequential per-record)",
+                sql_throughput
+            );
+            println!(
+                "  Job Server:       {:.0} rec/sec (batched processing)",
+                job_throughput
+            );
+            println!(
+                "  Speedup:          {:.1}x faster",
+                job_throughput / sql_throughput as f64
+            );
             println!("═══════════════════════════════════════════════════════════\n");
 
             // Assert expected behavior
             assert!(sql_throughput > 0, "SQL engine should process records");
-            assert_eq!(sql_emit_count, 99810, "SQL engine should emit ~20x amplification (5000 * 20 groups)");
-            assert!(job_throughput > 0.0, "Job server should process input records");
-            assert_eq!(job_emit_count, 0, "Job server should emit 0 (architectural limitation)");
+            assert_eq!(
+                sql_emit_count, 99810,
+                "SQL engine should emit ~20x amplification (5000 * 20 groups)"
+            );
+            assert!(
+                job_throughput > 0.0,
+                "Job server should process input records"
+            );
+            assert_eq!(
+                job_emit_count, 0,
+                "Job server should emit 0 (architectural limitation)"
+            );
         }
         Err(e) => {
             eprintln!("❌ Job server processing failed: {:?}", e);

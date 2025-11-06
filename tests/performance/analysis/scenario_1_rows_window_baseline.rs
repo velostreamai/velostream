@@ -531,7 +531,9 @@ async fn measure_rows_window_sql_engine(records: Vec<StreamRecord>, query: &str)
 
     let start = Instant::now();
     for record in records.iter() {
-        let _ = engine.execute_with_record(&parsed_query, record.clone()).await;
+        let _ = engine
+            .execute_with_record(&parsed_query, record.clone())
+            .await;
     }
     let elapsed = start.elapsed();
 
@@ -555,7 +557,9 @@ impl RowsWindowDataSource {
 
 #[async_trait]
 impl DataReader for RowsWindowDataSource {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         if self.read_count > 0 {
             return Ok(vec![]);
         }
@@ -567,7 +571,10 @@ impl DataReader for RowsWindowDataSource {
         Ok(())
     }
 
-    async fn seek(&mut self, _offset: SourceOffset) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn seek(
+        &mut self,
+        _offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -591,17 +598,28 @@ impl RowsWindowDataWriter {
 
 #[async_trait]
 impl DataWriter for RowsWindowDataWriter {
-    async fn write(&mut self, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write(
+        &mut self,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
-    async fn write_batch(&mut self, records: Vec<Arc<StreamRecord>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.records_written.fetch_add(records.len(), Ordering::SeqCst);
+    async fn write_batch(
+        &mut self,
+        records: Vec<Arc<StreamRecord>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.records_written
+            .fetch_add(records.len(), Ordering::SeqCst);
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -686,14 +704,16 @@ async fn scenario_1_rows_window_with_job_server() {
 
     // Measure pure SQL engine
     println!("🚀 Measuring pure SQL engine (no job server)...");
-    let (_sql_result_count, sql_time_us) = measure_rows_window_sql_engine(records.clone(), BASELINE_SQL).await;
+    let (_sql_result_count, sql_time_us) =
+        measure_rows_window_sql_engine(records.clone(), BASELINE_SQL).await;
     let sql_throughput = if sql_time_us > 0 {
         (num_records as f64 / (sql_time_us as f64 / 1_000_000.0)) as usize
     } else {
         0
     };
 
-    println!("   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
+    println!(
+        "   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
         num_records,
         sql_time_us as f64 / 1000.0,
         sql_throughput
@@ -701,14 +721,16 @@ async fn scenario_1_rows_window_with_job_server() {
 
     // Measure job server
     println!("🚀 Measuring job server (full pipeline)...");
-    let (_job_result_count, job_time_us) = measure_rows_window_job_server(num_records, BASELINE_SQL).await;
+    let (_job_result_count, job_time_us) =
+        measure_rows_window_job_server(num_records, BASELINE_SQL).await;
     let job_throughput = if job_time_us > 0 {
         (num_records as f64 / (job_time_us as f64 / 1_000_000.0)) as usize
     } else {
         0
     };
 
-    println!("   ✅ Job Server: {} records in {:.2}ms ({} rec/sec)\n",
+    println!(
+        "   ✅ Job Server: {} records in {:.2}ms ({} rec/sec)\n",
         num_records,
         job_time_us as f64 / 1000.0,
         job_throughput
@@ -744,7 +766,10 @@ async fn scenario_1_rows_window_with_job_server() {
     println!();
     println!("📋 Comparison to Other Scenarios:");
     println!("  Scenario 0 (SELECT):    62% overhead (2.6x slowdown)");
-    println!("  Scenario 1 (ROWS WINDOW): {:.1}% overhead ({:.1}x slowdown)", overhead_pct, slowdown_factor);
+    println!(
+        "  Scenario 1 (ROWS WINDOW): {:.1}% overhead ({:.1}x slowdown)",
+        overhead_pct, slowdown_factor
+    );
     println!("  Scenario 2 (GROUP BY):  80% overhead (4.9x slowdown)");
     println!();
     println!("📋 ROWS WINDOW Characteristics:");
