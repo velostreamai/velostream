@@ -102,9 +102,9 @@ pub struct ThrottleConfig {
 impl Default for ThrottleConfig {
     fn default() -> Self {
         Self {
-            min_delay: Duration::from_micros(100),  // 0.1ms for Warning
-            max_delay: Duration::from_millis(10),   // 10ms for Saturated
-            backoff_multiplier: 2.0,                // 2x for Critical
+            min_delay: Duration::from_micros(100), // 0.1ms for Warning
+            max_delay: Duration::from_millis(10),  // 10ms for Saturated
+            backoff_multiplier: 2.0,               // 2x for Critical
         }
     }
 }
@@ -409,7 +409,10 @@ impl PartitionedJobCoordinator {
     /// let delay = coordinator.calculate_throttle_delay(&metrics);
     /// // Returns Duration based on worst partition state
     /// ```
-    pub fn calculate_throttle_delay(&self, partition_metrics: &[Arc<PartitionMetrics>]) -> Duration {
+    pub fn calculate_throttle_delay(
+        &self,
+        partition_metrics: &[Arc<PartitionMetrics>],
+    ) -> Duration {
         use crate::velostream::server::v2::BackpressureState;
 
         if !self.config.backpressure_config.enabled {

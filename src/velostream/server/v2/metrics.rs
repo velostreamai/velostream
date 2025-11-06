@@ -196,3 +196,149 @@ impl PartitionMetricsSnapshot {
         )
     }
 }
+
+/// Backpressure state classification based on metrics
+///
+/// ## Phase 3 Implementation
+///
+/// Classifies partition health based on channel utilization:
+/// - **Healthy**: <70% utilization, normal operation
+/// - **Warning**: 70-85% utilization, approaching capacity
+/// - **Critical**: 85-95% utilization, needs throttling
+/// - **Saturated**: >95% utilization, requires immediate action
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BackpressureState {
+    /// Normal operation (<70% channel utilization)
+    Healthy,
+
+    /// Approaching capacity (70-85% utilization)
+    Warning { severity: f64, partition: usize },
+
+    /// Critical load (85-95% utilization)
+    Critical { severity: f64, partition: usize },
+
+    /// Saturated (>95% utilization)
+    Saturated { partition: usize },
+}
+
+impl BackpressureState {
+    /// Check if backpressure requires action
+    pub fn requires_throttling(&self) -> bool {
+        matches!(
+            self,
+            BackpressureState::Critical { .. } | BackpressureState::Saturated { .. }
+        )
+    }
+
+    /// Get severity level (0.0 - 1.0)
+    pub fn severity(&self) -> f64 {
+        match self {
+            BackpressureState::Healthy => 0.0,
+            BackpressureState::Warning { severity, .. } => *severity,
+            BackpressureState::Critical { severity, .. } => *severity,
+            BackpressureState::Saturated { .. } => 1.0,
+        }
+    }
+
+    /// Format for logging
+    pub fn format_state(&self) -> String {
+        match self {
+            BackpressureState::Healthy => "HEALTHY".to_string(),
+            BackpressureState::Warning {
+                severity,
+                partition,
+            } => {
+                format!(
+                    "WARNING (partition {}, {}% util)",
+                    partition,
+                    (severity * 100.0) as u32
+                )
+            }
+            BackpressureState::Critical {
+                severity,
+                partition,
+            } => {
+                format!(
+                    "CRITICAL (partition {}, {}% util)",
+                    partition,
+                    (severity * 100.0) as u32
+                )
+            }
+            BackpressureState::Saturated { partition } => {
+                format!("SATURATED (partition {})", partition)
+            }
+        }
+    }
+}
+
+impl PartitionMetrics {
+    /// Calculate channel utilization (0.0 - 1.0)
+    ///
+    /// ## Phase 3 Implementation
+    ///
+    /// Channel utilization is the primary backpressure indicator:
+    /// - Uses queue_depth vs configured buffer size
+    /// - Returns fraction: queue_depth / buffer_size
+    ///
+    /// ## Usage
+    ///
+    /// ```rust
+    /// use velostream::velostream::server::v2::PartitionMetrics;
+    ///
+    /// let metrics = PartitionMetrics::new(0);
+    /// metrics.update_queue_depth(700);
+    ///
+    /// let utilization = metrics.channel_utilization(1000);
+    /// assert_eq!(utilization, 0.7); // 70% utilization
+    /// ```
+    pub fn channel_utilization(&self, buffer_size: usize) -> f64 {
+        if buffer_size == 0 {
+            return 0.0;
+        }
+
+        let depth = self.queue_depth() as f64;
+        let capacity = buffer_size as f64;
+
+        (depth / capacity).min(1.0) // Cap at 1.0
+    }
+
+    /// Get backpressure state based on channel utilization
+    ///
+    /// ## Phase 3 Implementation
+    ///
+    /// Classifies partition health into 4 states:
+    /// - **Healthy**: <70% utilization
+    /// - **Warning**: 70-85% utilization
+    /// - **Critical**: 85-95% utilization
+    /// - **Saturated**: >95% utilization
+    ///
+    /// ## Usage
+    ///
+    /// ```rust
+    /// use velostream::velostream::server::v2::{PartitionMetrics, BackpressureState};
+    ///
+    /// let metrics = PartitionMetrics::new(0);
+    /// metrics.update_queue_depth(850);
+    ///
+    /// let state = metrics.backpressure_state(1000);
+    /// assert!(matches!(state, BackpressureState::Critical { .. }));
+    /// ```
+    pub fn backpressure_state(&self, buffer_size: usize) -> BackpressureState {
+        let utilization = self.channel_utilization(buffer_size);
+
+        match utilization {
+            u if u < 0.7 => BackpressureState::Healthy,
+            u if u < 0.85 => BackpressureState::Warning {
+                severity: u,
+                partition: self.partition_id,
+            },
+            u if u < 0.95 => BackpressureState::Critical {
+                severity: u,
+                partition: self.partition_id,
+            },
+            _ => BackpressureState::Saturated {
+                partition: self.partition_id,
+            },
+        }
+    }
+}

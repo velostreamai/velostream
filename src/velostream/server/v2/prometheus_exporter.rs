@@ -4,8 +4,8 @@
 
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use prometheus::{
-    core::{AtomicU64, GenericCounter, GenericGauge},
     Counter, Gauge, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry,
+    core::{AtomicU64, GenericCounter, GenericGauge},
 };
 use std::sync::Arc;
 
