@@ -241,15 +241,23 @@ pub async fn process_batch_with_output(
             engine_lock.take_output_receiver()
         };
 
+        // FR-082 Week 8 Optimization: Batch channel draining to reduce frequency
+        // Instead of draining after every record, drain every 100 records
+        // This reduces channel operations from O(batch_size) to O(batch_size/100)
+        const CHANNEL_DRAIN_FREQUENCY: usize = 100;
+
         for (index, record) in batch.into_iter().enumerate() {
             match engine.lock().await.execute_with_record(query, record).await {
                 Ok(_) => {
                     records_processed += 1;
 
-                    // Drain any emitted results from the channel
-                    if let Some(ref mut rx) = temp_receiver {
-                        while let Ok(emitted_record) = rx.try_recv() {
-                            output_records.push(Arc::new(emitted_record));
+                    // Optimization: Batch drain every N records (not after every record)
+                    // This reduces lock contention and channel operations
+                    if (index + 1) % CHANNEL_DRAIN_FREQUENCY == 0 {
+                        if let Some(ref mut rx) = temp_receiver {
+                            while let Ok(emitted_record) = rx.try_recv() {
+                                output_records.push(Arc::new(emitted_record));
+                            }
                         }
                     }
                 }

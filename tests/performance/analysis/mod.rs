@@ -119,3 +119,6 @@ pub mod scenario_3a_tumbling_standard_baseline;
 
 /// Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES - ✅ Measures both SQL + Job Server (22.5K rec/sec, only 4.6% slower!)
 pub mod scenario_3b_tumbling_emit_changes_baseline;
+
+/// Phase 5 Week 8: Performance Profiling & Bottleneck Analysis
+pub mod phase5_week8_profiling;
