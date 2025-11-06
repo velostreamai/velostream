@@ -1,5 +1,17 @@
 # Job Server V2: Clean-Slate Architecture Blueprint
 
+> **⚠️ ARCHITECTURE SUPERSEDED**
+>
+> This document describes a single-actor V2 architecture that has been superseded by the **Hash-Partitioned Pipeline** design.
+>
+> **See Instead**: `FR-082-job-server-v2-PARTITIONED-PIPELINE.md`
+>
+> **Why Changed**: The single StateManagerActor design creates a serialization bottleneck (200K rec/sec max), while hash-partitioned design scales linearly (1.5M rec/sec on 8 cores).
+>
+> **This document is retained for historical reference only.**
+
+---
+
 ## Executive Summary
 
 **Current Performance**: 23K rec/sec (23x slower than pure SQL)
@@ -7,6 +19,306 @@
 **Decision**: Should we fix incrementally (Option 5: 8x improvement) or redesign from scratch?
 
 This document provides a **greenfield architecture** designed from requirements, then compares it to incremental fixes.
+
+---
+
+## Part 0: Performance Foundation - SQL Engine Optimization (CRITICAL)
+
+### 🚨 BLOCKING ISSUE: GROUP BY Performance Gap
+
+**Problem**: V2 architecture assumes 200K rec/sec GROUP BY throughput, but **actual SQL engine baseline is 3.58K rec/sec** (FR-082 Phase 4A findings).
+
+**Impact**: Without fixing the SQL engine itself, V2 cannot achieve stated targets:
+
+| Metric | V2 Assumes | Actual Baseline | Gap |
+|--------|-----------|----------------|-----|
+| GROUP BY single-source | 200K rec/sec | 3.58K rec/sec | **56x shortfall** |
+| GROUP BY multi-source (8 cores) | 1.6M rec/sec | 28.6K rec/sec | **56x shortfall** |
+| Horizontal scaling (160 sources) | 32M rec/sec | 574K rec/sec | **56x shortfall** |
+
+**Root Cause**: SQL engine GROUP BY implementation has fundamental performance bottlenecks (from FR-082-PHASE4-BOTTLENECK_FINDINGS.md):
+
+1. **Vec&lt;String&gt; hash keys** (~40% overhead): Every group key requires Vec + String allocations
+2. **Group state cloning** (~30% overhead): Full HashMap clone per batch (1000+ times)
+3. **String allocations in accumulators** (~15% overhead): 10+ HashMaps with String keys per accumulator
+4. **generate_group_key allocations** (~20% overhead): 1M Vec + 1M String allocations for key extraction
+5. **Record cloning** (~10% overhead): Should use Arc&lt;StreamRecord&gt;
+
+**Conclusion**: V2 architecture is **blocked** until SQL engine GROUP BY is optimized via FR-082 Phase 4B + 4C.
+
+---
+
+### FR-082 Phase 4B: Hash Table Optimization (Week 1)
+
+**Goal**: Replace Vec&lt;String&gt; keys with optimized GroupKey + FxHashMap
+
+#### Changes Required
+
+```rust
+// Before (current):
+pub struct GroupByState {
+    pub groups: HashMap<Vec<String>, GroupAccumulator>,  // ← SLOW!
+}
+
+// After (Phase 4B):
+use rustc_hash::FxHashMap;  // 2-3x faster than std HashMap
+
+pub struct GroupByState {
+    pub groups: FxHashMap<GroupKey, GroupAccumulator>,  // ← FAST!
+}
+
+// Optimized GroupKey with pre-computed hash
+#[derive(Clone, PartialEq, Eq)]
+pub struct GroupKey {
+    hash: u64,                      // Pre-computed hash (avoid re-hashing)
+    values: Arc<[FieldValue]>,      // Arc to avoid Vec allocation
+}
+
+impl Hash for GroupKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);  // Use pre-computed hash
+    }
+}
+
+impl GroupKey {
+    pub fn new(values: Vec<FieldValue>) -> Self {
+        // Pre-compute hash once
+        let mut hasher = FxHasher::default();
+        for value in &values {
+            value.hash(&mut hasher);
+        }
+        let hash = hasher.finish();
+
+        Self {
+            hash,
+            values: Arc::from(values.as_slice()),
+        }
+    }
+}
+```
+
+**Expected Improvement**: 3.58K → 15-20K rec/sec (+400-500%)
+
+---
+
+### FR-082 Phase 4C: Arc-based State Sharing (Week 2)
+
+**Goal**: Eliminate HashMap cloning via Arc + copy-on-write pattern
+
+#### Changes Required
+
+```rust
+// 1. Wrap group states in Arc for cheap cloning
+pub struct GroupByState {
+    pub groups: Arc<FxHashMap<GroupKey, GroupAccumulator>>,
+}
+
+impl StreamExecutionEngine {
+    // Cheap Arc clone instead of full HashMap clone
+    pub fn get_group_state_ref(&self) -> Arc<FxHashMap<GroupKey, GroupAccumulator>> {
+        Arc::clone(&self.group_states.groups)
+    }
+
+    // Efficient batch merge with copy-on-write
+    pub fn merge_batch_state(&mut self, batch_state: FxHashMap<GroupKey, GroupAccumulator>) {
+        // Arc::make_mut() only clones if ref count > 1
+        let groups = Arc::make_mut(&mut self.group_states.groups);
+
+        for (key, batch_acc) in batch_state {
+            groups.entry(key)
+                .and_modify(|acc| acc.merge(&batch_acc))
+                .or_insert(batch_acc);
+        }
+    }
+}
+
+// 2. Use Arc<StreamRecord> in sample_record
+pub struct GroupAccumulator {
+    pub sample_record: Option<Arc<StreamRecord>>,  // ← Arc instead of clone
+    // ...
+}
+
+// 3. String interning for field names
+pub struct StringInterner {
+    pool: HashMap<String, &'static str>,
+}
+
+impl StringInterner {
+    pub fn intern(&mut self, s: &str) -> &'static str {
+        if let Some(interned) = self.pool.get(s) {
+            return *interned;
+        }
+        let leaked: &'static str = Box::leak(s.to_string().into_boxed_str());
+        self.pool.insert(s.to_string(), leaked);
+        leaked
+    }
+}
+
+// 4. Group key caching
+pub struct GroupKeyCache {
+    cache: LruCache<u64, GroupKey>,  // record_hash -> GroupKey
+}
+
+impl StreamExecutionEngine {
+    fn generate_group_key_cached(
+        &mut self,
+        expressions: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<GroupKey, SqlError> {
+        let record_hash = record.compute_hash();
+
+        // Check cache first
+        if let Some(cached) = self.key_cache.get(&record_hash) {
+            return Ok(cached.clone());  // Cheap Arc clone
+        }
+
+        // Generate key (reuse buffer from pool)
+        let mut values = self.value_buffer_pool.acquire();
+        values.clear();
+
+        for expr in expressions {
+            let value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
+            values.push(value);
+        }
+
+        let key = GroupKey::new(values);
+
+        // Cache for future lookups
+        self.key_cache.insert(record_hash, key.clone());
+
+        Ok(key)
+    }
+}
+```
+
+**Expected Improvement**: 15-20K → 200K rec/sec (+750-1000%)
+
+---
+
+### Combined Phase 4B + 4C Results
+
+| Phase | Optimization | Throughput | Improvement | Status |
+|-------|------------|-----------|-------------|--------|
+| Baseline | - | 3.58 K rec/s | - | ✅ Measured |
+| **Phase 4B** | **FxHashMap + GroupKey** | **15-20 K rec/s** | **+400-500%** | 📋 Required for V2 |
+| **Phase 4C** | **Arc state + Interning** | **200 K rec/s** | **+750-1000%** | 📋 Required for V2 |
+| **V2 Assumed** | **V2 architecture** | **200 K rec/s** | - | ✅ Now achievable |
+
+**Success Criteria**: GROUP BY at 200K rec/sec enables V2 targets:
+- Single-source: 200K rec/sec ✅
+- Multi-source (8 cores): 1.6M rec/sec ✅
+- Horizontal scaling (160 sources): 32M rec/sec ✅
+
+---
+
+### Integration into V2 StateManagerActor
+
+The V2 StateManagerActor MUST use Phase 4B/4C optimizations:
+
+```rust
+use rustc_hash::FxHashMap;
+
+/// Actor that owns ALL query state (with Phase 4B/4C optimizations)
+struct StateManagerActor {
+    receiver: mpsc::UnboundedReceiver<StateMessage>,
+
+    // Phase 4B: FxHashMap instead of HashMap
+    states: HashMap<String, QueryState>,  // query_id -> state
+
+    // Phase 4C: String interning pool
+    string_interner: StringInterner,
+
+    // Phase 4C: Group key cache
+    key_cache: LruCache<u64, GroupKey>,
+}
+
+struct QueryState {
+    // GROUP BY state (Phase 4B: FxHashMap with GroupKey; Phase 4C: Arc wrapper)
+    group_by: Arc<FxHashMap<GroupKey, GroupAccumulator>>,
+
+    // Time-based window state (TUMBLING, SLIDING, SESSION)
+    window_states: Vec<WindowState>,
+
+    // ROWS WINDOW buffers (memory-bounded sliding buffers)
+    rows_window_buffers: HashMap<PartitionKey, Arc<VecDeque<Arc<StreamRecord>>>>,
+}
+
+enum StateMessage {
+    /// Update local batch state into global state
+    MergeBatchState {
+        query_id: String,
+        // Phase 4B: Uses GroupKey instead of Vec<String>
+        batch_state: FxHashMap<GroupKey, GroupAccumulator>,
+        response: oneshot::Sender<()>,
+    },
+    // ...
+}
+
+impl StateManagerActor {
+    async fn run(mut self) {
+        while let Some(msg) = self.receiver.recv().await {
+            match msg {
+                StateMessage::MergeBatchState { query_id, batch_state, response } => {
+                    let state = self.states.entry(query_id).or_default();
+
+                    // Phase 4C: Arc::make_mut() for copy-on-write
+                    let groups = Arc::make_mut(&mut state.group_by);
+
+                    // Phase 4B: FxHashMap merge (2-3x faster than std HashMap)
+                    for (key, agg) in batch_state {
+                        groups.entry(key)
+                            .and_modify(|existing| existing.merge(&agg))
+                            .or_insert(agg);
+                    }
+                    response.send(()).ok();
+                }
+                // ...
+            }
+        }
+    }
+}
+```
+
+---
+
+### Phase 0 Timeline & Deliverables
+
+**Duration**: 2 weeks (blocking work before V2 implementation)
+
+**Week 1: Phase 4B (Hash Table Optimization)**
+- Files to modify:
+  - `src/velostream/sql/execution/internal.rs` - Change GroupByState key type
+  - `src/velostream/sql/execution/aggregation/state.rs` - Update generate_group_key
+  - `Cargo.toml` - Add `rustc-hash = "1.1"` dependency
+- Tests to create:
+  - `tests/unit/sql/execution/group_key_test.rs` - GroupKey behavior
+  - `tests/performance/analysis/phase4b_hash_optimization_test.rs` - Benchmark
+- **Expected result**: 3.58K → 15-20K rec/sec
+
+**Week 2: Phase 4C (Arc State Sharing)**
+- Files to modify:
+  - `src/velostream/sql/execution/internal.rs` - Use Arc&lt;FxHashMap&gt;
+  - `src/velostream/sql/execution/aggregation/accumulator.rs` - Use Arc&lt;StreamRecord&gt;
+  - `src/velostream/sql/execution/engine.rs` - Remove cloning, use Arc::make_mut()
+- Tests to create:
+  - `tests/unit/sql/execution/arc_state_test.rs` - Arc state sharing
+  - `tests/performance/analysis/phase4c_arc_optimization_test.rs` - Benchmark
+- **Expected result**: 15-20K → 200K rec/sec
+
+**Deliverable**: SQL engine GROUP BY at 200K rec/sec baseline ✅ Unblocks V2 implementation
+
+---
+
+### ⚠️ CRITICAL PATH: Phase 0 is Non-Negotiable
+
+**V2 implementation CANNOT proceed until Phase 0 is complete** because:
+
+1. **Performance targets are impossible**: Without Phase 4B/4C, SQL engine runs at 3.58K rec/sec (not 200K)
+2. **Architecture assumptions invalid**: V2 design assumes fast GROUP BY operations
+3. **Scaling projections wrong**: Multi-source/horizontal scaling calculations based on 200K baseline
+4. **Competitive positioning false**: Cannot be "better than Flink" with 3.58K GROUP BY performance
+
+**Recommendation**: Complete Phase 0 (2 weeks) before ANY V2 architectural work.
 
 ---
 
@@ -87,17 +399,22 @@ trait QueryProcessor {
 
 struct ProcessorContext {
     group_by_states: HashMap<GroupKey, AggregateState>,
-    persistent_window_states: Vec<WindowState>,
+    persistent_window_states: Vec<WindowState>,     // Time-based windows (TUMBLING, SLIDING, SESSION)
+    rows_window_buffers: HashMap<PartitionKey, RowsWindowBuffer>,  // ROWS WINDOW buffers
     // ... other state
 }
 ```
 
 **Capabilities needed**:
 - GROUP BY with aggregation
-- WINDOW functions (Tumbling, Sliding, Session)
+- WINDOW functions:
+  - **ROWS WINDOW**: Memory-bounded sliding buffers (e.g., `AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)`)
+  - **TUMBLING**: Fixed-size time windows
+  - **SLIDING**: Overlapping time windows
+  - **SESSION**: Gap-based time windows
 - JOIN operations
 - WHERE/HAVING filtering
-- State management across batches
+- State management across batches (GROUP BY hash tables, window buffers, window metadata)
 
 #### 5. Observability & Metrics
 ```rust
@@ -1096,7 +1413,415 @@ impl WindowProcessor {
 
 ---
 
-### 9.3 Job Observability & Metrics
+### 9.3 System Fields & StreamRecord Metadata
+
+#### Built-in System Columns
+
+Velostream provides **6 built-in system columns** that expose record metadata from `StreamRecord` properties. These fields are **NOT** stored in `record.fields` but are accessed via record properties.
+
+**System Column Definition** (from `src/velostream/sql/execution/types.rs`):
+
+```rust
+/// System column names in Velostream (UPPERCASE internal form)
+/// These are special columns from StreamRecord properties, not from field data
+pub mod system_columns {
+    /// Processing time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const TIMESTAMP: &str = "_TIMESTAMP";
+
+    /// Kafka partition offset for the record (UPPERCASE internal form)
+    pub const OFFSET: &str = "_OFFSET";
+
+    /// Kafka partition number (UPPERCASE internal form)
+    pub const PARTITION: &str = "_PARTITION";
+
+    /// Event time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const EVENT_TIME: &str = "_EVENT_TIME";
+
+    /// Window start time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const WINDOW_START: &str = "_WINDOW_START";
+
+    /// Window end time in milliseconds since Unix epoch (UPPERCASE internal form)
+    pub const WINDOW_END: &str = "_WINDOW_END";
+}
+```
+
+#### Performance Optimization: UPPERCASE Normalization
+
+**CRITICAL**: System column names are stored in **UPPERCASE** internally to eliminate repeated string allocations during query execution.
+
+```rust
+/// Normalize column name to UPPERCASE if it's a system column
+/// This should be called ONCE at parse/validation time.
+/// Internally, all system column references use UPPERCASE to avoid repeated allocations.
+#[inline]
+pub fn normalize_if_system_column(name: &str) -> Option<&'static str> {
+    let upper = name.to_uppercase();
+    get_system_columns_set().get(upper.as_str()).copied()
+}
+
+/// Check if a name (UPPERCASE) is a system column - O(1) lookup
+#[inline]
+pub fn is_system_column_upper(name_upper: &str) -> bool {
+    get_system_columns_set().contains(name_upper)
+}
+```
+
+**Best Practice**: Normalize column names at **parse time**, not at execution time:
+
+```rust
+// ✅ CORRECT: Normalize at parse time (once)
+let parsed_query = parser.parse(sql)?;
+// Parser calls normalize_if_system_column() during AST construction
+
+// ❌ INCORRECT: Normalize at execution time (1M+ times)
+for record in stream {
+    let col_name = normalize_if_system_column("_timestamp");  // Repeated allocation!
+}
+```
+
+#### System Field Access Patterns in V2
+
+**1. ProcessingWorker - Query Execution**
+
+Workers must access system fields via `StreamRecord` properties, not `fields` HashMap:
+
+```rust
+impl ProcessingWorker {
+    async fn process_batch(&self, batch: Vec<StreamRecord>) -> ProcessedBatch {
+        let mut local_context = ProcessorContext::new(&self.query);
+
+        for record in batch {
+            // Access system fields from record properties
+            let timestamp = record.timestamp;           // _TIMESTAMP
+            let offset = record.offset;                 // _OFFSET
+            let partition = record.partition;           // _PARTITION
+            let event_time = record.get_event_time();   // _EVENT_TIME
+
+            // Regular fields from HashMap
+            let user_field = record.fields.get("price");
+
+            // Execute query with both system and user fields
+            let result = self.execute_query(&record, &mut local_context).await?;
+        }
+
+        ProcessedBatch { /* ... */ }
+    }
+}
+```
+
+**2. StateManagerActor - Window Metadata**
+
+System fields `_WINDOW_START` and `_WINDOW_END` are managed by `StateManagerActor`:
+
+```rust
+struct QueryState {
+    // Time-based window state (TUMBLING, SLIDING, SESSION)
+    window_states: Vec<WindowState>,
+}
+
+struct WindowState {
+    pub window_id: WindowId,
+    pub window_start: i64,    // ← _WINDOW_START value
+    pub window_end: i64,      // ← _WINDOW_END value
+    pub group_by_state: Arc<FxHashMap<GroupKey, GroupAccumulator>>,
+}
+
+impl StateManagerActor {
+    async fn handle_merge_window_state(
+        &mut self,
+        query_id: &str,
+        window_state: WindowState,
+    ) {
+        let state = self.states.get_mut(query_id).unwrap();
+
+        // When emitting window results, inject _WINDOW_START and _WINDOW_END
+        for (group_key, accumulator) in window_state.group_by_state.iter() {
+            let mut output_record = accumulator.to_record();
+
+            // Inject system fields for window boundaries
+            output_record.fields.insert(
+                "_WINDOW_START".to_string(),
+                FieldValue::Integer(window_state.window_start),
+            );
+            output_record.fields.insert(
+                "_WINDOW_END".to_string(),
+                FieldValue::Integer(window_state.window_end),
+            );
+
+            self.emit_record(output_record).await;
+        }
+    }
+}
+```
+
+**3. Backpressure Monitoring with System Fields**
+
+Leverage system fields for monitoring and diagnostics:
+
+```rust
+impl BackpressureDetector {
+    /// Track processing lag using _TIMESTAMP and _EVENT_TIME
+    pub fn calculate_lag(&self, record: &StreamRecord) -> Duration {
+        let processing_time = record.timestamp;  // _TIMESTAMP (processing time)
+        let event_time = record.get_event_time().timestamp_millis();  // _EVENT_TIME
+
+        let lag_ms = processing_time - event_time;
+        Duration::from_millis(lag_ms as u64)
+    }
+
+    /// Monitor partition skew using _PARTITION
+    pub fn track_partition_distribution(&self, batch: &[StreamRecord]) {
+        let mut partition_counts: HashMap<i32, usize> = HashMap::new();
+
+        for record in batch {
+            *partition_counts.entry(record.partition).or_insert(0) += 1;
+        }
+
+        // Detect skewed partitions for load balancing
+        let max_count = partition_counts.values().max().unwrap_or(&0);
+        let min_count = partition_counts.values().min().unwrap_or(&0);
+        let skew_ratio = *max_count as f64 / (*min_count as f64).max(1.0);
+
+        if skew_ratio > 3.0 {
+            warn!("Partition skew detected: max={}, min={}, ratio={:.2}",
+                  max_count, min_count, skew_ratio);
+        }
+    }
+}
+```
+
+#### StreamRecord Structure
+
+```rust
+/// A record in a streaming data source
+#[derive(Debug, Clone, Default)]
+pub struct StreamRecord {
+    /// The actual field data for this record (user fields)
+    pub fields: HashMap<String, FieldValue>,
+
+    /// Timestamp when this record was created (milliseconds since epoch)
+    /// Exposed as _TIMESTAMP system column
+    pub timestamp: i64,
+
+    /// Offset of this record within its partition
+    /// Exposed as _OFFSET system column
+    pub offset: i64,
+
+    /// Partition number this record came from
+    /// Exposed as _PARTITION system column
+    pub partition: i32,
+
+    /// Message headers (key-value pairs) associated with this record
+    pub headers: HashMap<String, String>,
+
+    /// Event-time timestamp for watermark-based processing (optional)
+    /// When None, processing-time (timestamp field) is used
+    /// When Some, this timestamp is used for event-time windowing and watermarks
+    /// Exposed as _EVENT_TIME system column
+    pub event_time: Option<DateTime<Utc>>,
+}
+
+impl StreamRecord {
+    /// Get the effective timestamp for time-based processing
+    /// Returns the event-time if set, otherwise falls back to processing-time.
+    pub fn get_event_time(&self) -> DateTime<Utc> {
+        match self.event_time {
+            Some(event_time) => event_time,
+            None => {
+                // Convert processing-time timestamp to DateTime
+                DateTime::from_timestamp(
+                    self.timestamp / 1000,
+                    ((self.timestamp % 1000) * 1_000_000) as u32,
+                )
+                .unwrap_or_else(Utc::now)
+            }
+        }
+    }
+
+    /// Extract event-time from a field if present
+    /// Useful for parsing event-time from record data
+    pub fn extract_event_time_from_field(
+        &mut self,
+        field_name: &str,
+    ) -> Option<DateTime<Utc>> {
+        match self.fields.get(field_name) {
+            Some(FieldValue::Integer(timestamp_ms)) => {
+                let datetime = DateTime::from_timestamp(
+                    *timestamp_ms / 1000,
+                    ((*timestamp_ms % 1000) * 1_000_000) as u32,
+                );
+                if let Some(dt) = datetime {
+                    self.event_time = Some(dt);
+                    Some(dt)
+                } else {
+                    None
+                }
+            }
+            Some(FieldValue::Timestamp(naive_dt)) => {
+                let dt = DateTime::from_naive_utc_and_offset(*naive_dt, Utc);
+                self.event_time = Some(dt);
+                Some(dt)
+            }
+            _ => None,
+        }
+    }
+}
+```
+
+#### V2 Architecture Implications
+
+**1. State Keying**: System fields can be used in GROUP BY clauses
+
+```sql
+-- Valid query using system fields
+SELECT
+    _PARTITION,
+    _WINDOW_START,
+    _WINDOW_END,
+    COUNT(*) as record_count,
+    AVG(price) as avg_price
+FROM market_data
+GROUP BY _PARTITION
+WINDOW TUMBLING (_EVENT_TIME, INTERVAL '1' MINUTE);
+```
+
+**GroupKey construction** must handle system fields:
+
+```rust
+impl ProcessorContext {
+    fn generate_group_key(
+        &mut self,
+        expressions: &[Expr],
+        record: &StreamRecord,
+    ) -> Result<GroupKey, SqlError> {
+        let mut values = Vec::with_capacity(expressions.len());
+
+        for expr in expressions {
+            match expr {
+                Expr::Column(col_name) if col_name == "_TIMESTAMP" => {
+                    values.push(FieldValue::Integer(record.timestamp));
+                }
+                Expr::Column(col_name) if col_name == "_OFFSET" => {
+                    values.push(FieldValue::Integer(record.offset));
+                }
+                Expr::Column(col_name) if col_name == "_PARTITION" => {
+                    values.push(FieldValue::Integer(record.partition as i64));
+                }
+                Expr::Column(col_name) if col_name == "_EVENT_TIME" => {
+                    values.push(FieldValue::Integer(
+                        record.get_event_time().timestamp_millis()
+                    ));
+                }
+                Expr::Column(col_name) => {
+                    // User field from HashMap
+                    let value = record.fields.get(col_name)
+                        .cloned()
+                        .unwrap_or(FieldValue::Null);
+                    values.push(value);
+                }
+                _ => { /* expression evaluation */ }
+            }
+        }
+
+        Ok(GroupKey::new(values))
+    }
+}
+```
+
+**2. Prometheus Metrics**: Use system fields for cardinality control
+
+```rust
+impl JobMetricsCollector {
+    /// Record throughput per partition (using _PARTITION)
+    pub fn record_partition_throughput(&self, batch: &[StreamRecord]) {
+        for record in batch {
+            self.partition_throughput
+                .with_label_values(&[&record.partition.to_string()])
+                .inc();
+        }
+    }
+
+    /// Track event-time lag distribution (using _EVENT_TIME and _TIMESTAMP)
+    pub fn record_event_time_lag(&self, record: &StreamRecord) {
+        let processing_time = record.timestamp;
+        let event_time = record.get_event_time().timestamp_millis();
+        let lag_ms = processing_time - event_time;
+
+        self.event_time_lag_histogram.observe(lag_ms as f64 / 1000.0);
+    }
+}
+```
+
+**3. Watermark Generation**: `_EVENT_TIME` drives watermark calculation
+
+```rust
+impl WatermarkManager {
+    /// Update watermark based on _EVENT_TIME system field
+    pub async fn update_watermark(
+        &self,
+        partition: PartitionId,
+        record: &StreamRecord,
+    ) -> Option<Watermark> {
+        // Use _EVENT_TIME system field
+        let record_event_time = record.get_event_time().timestamp_millis();
+
+        let mut watermarks = self.watermarks.write().await;
+
+        // Calculate new watermark (max event time - allowed lateness)
+        let new_watermark_ts = record_event_time
+            - self.max_out_of_orderness.as_millis() as i64;
+
+        // Watermarks can only advance (monotonicity guarantee)
+        let current = watermarks.get(&partition).copied();
+        match current {
+            Some(wm) if new_watermark_ts > wm.timestamp => {
+                let updated = Watermark {
+                    timestamp: new_watermark_ts,
+                    processing_time: Instant::now(),
+                };
+                watermarks.insert(partition, updated);
+                Some(updated)
+            }
+            None => {
+                let new_wm = Watermark {
+                    timestamp: new_watermark_ts,
+                    processing_time: Instant::now(),
+                };
+                watermarks.insert(partition, new_wm);
+                Some(new_wm)
+            }
+            _ => None,  // Watermark did not advance
+        }
+    }
+}
+```
+
+#### Testing System Fields
+
+```rust
+#[tokio::test]
+async fn test_system_fields_in_group_by() {
+    let mut record = StreamRecord::new(HashMap::new());
+    record.timestamp = 1700000000000;  // _TIMESTAMP
+    record.offset = 42;                // _OFFSET
+    record.partition = 3;              // _PARTITION
+    record.event_time = Some(DateTime::from_timestamp(1700000000, 0).unwrap());
+
+    // Query using system fields
+    let sql = "SELECT _PARTITION, COUNT(*) FROM stream GROUP BY _PARTITION";
+    let query = parser.parse(sql)?;
+
+    // Execute with system field access
+    let result = engine.execute_with_record(&query, record).await?;
+
+    // Verify system field values
+    assert_eq!(result.fields.get("_PARTITION"), Some(&FieldValue::Integer(3)));
+}
+```
+
+---
+
+### 9.4 Job Observability & Metrics
 
 #### Comprehensive Metrics System
 
@@ -1132,6 +1857,15 @@ pub struct JobMetricsCollector {
     // Window metrics
     windows_emitted: Counter,
     window_firing_delay: Histogram,
+
+    // Backpressure metrics
+    backpressure_events: CounterVec,           // Total backpressure events per component
+    backpressure_ratio: GaugeVec,              // Current backpressure ratio (0.0-1.0) per worker
+    channel_utilization: GaugeVec,             // Channel buffer utilization per stage
+    worker_queue_depth: GaugeVec,              // Current queue depth per worker
+    state_merge_wait_time: Histogram,          // Time spent waiting for state merges
+    source_throttle_events: Counter,           // Times source was throttled due to backpressure
+    downstream_blocking_time: HistogramVec,    // Time blocked by downstream components
 }
 
 impl JobMetricsCollector {
@@ -1149,6 +1883,77 @@ impl JobMetricsCollector {
         // Calculate throughput
         let throughput = batch_size as f64 / processing_duration.as_secs_f64();
         self.records_per_second.set(throughput);
+    }
+
+    /// Record backpressure event when worker or channel is saturated
+    pub fn record_backpressure_event(
+        &self,
+        component: &str,      // "worker", "state_manager", "source", "sink"
+        worker_id: usize,
+        severity: f64,        // 0.0 (no pressure) to 1.0 (fully saturated)
+    ) {
+        self.backpressure_events
+            .with_label_values(&[component, &worker_id.to_string()])
+            .inc();
+
+        self.backpressure_ratio
+            .with_label_values(&[component, &worker_id.to_string()])
+            .set(severity);
+    }
+
+    /// Record channel buffer utilization (critical for detecting bottlenecks)
+    pub fn record_channel_utilization(
+        &self,
+        stage: &str,          // "reader_to_workers", "workers_to_state", "state_to_writer"
+        current_depth: usize,
+        max_capacity: usize,
+    ) {
+        let utilization = current_depth as f64 / max_capacity as f64;
+        self.channel_utilization
+            .with_label_values(&[stage])
+            .set(utilization);
+
+        // Automatic backpressure detection
+        if utilization > 0.8 {
+            self.backpressure_events
+                .with_label_values(&["channel", stage])
+                .inc();
+        }
+    }
+
+    /// Record worker queue depth (for work-stealing and load balancing)
+    pub fn record_worker_queue_depth(&self, worker_id: usize, queue_depth: usize) {
+        self.worker_queue_depth
+            .with_label_values(&[&worker_id.to_string()])
+            .set(queue_depth as f64);
+    }
+
+    /// Record state merge wait time (critical for identifying state bottlenecks)
+    pub fn record_state_merge_wait(&self, wait_duration: Duration) {
+        self.state_merge_wait_time.observe(wait_duration.as_secs_f64());
+
+        // If state merge takes > 100ms, it's a backpressure indicator
+        if wait_duration.as_millis() > 100 {
+            self.backpressure_events
+                .with_label_values(&["state_manager", "merge"])
+                .inc();
+        }
+    }
+
+    /// Record source throttling due to downstream backpressure
+    pub fn record_source_throttle(&self) {
+        self.source_throttle_events.inc();
+    }
+
+    /// Record time spent blocked by downstream component
+    pub fn record_downstream_blocking(
+        &self,
+        component: &str,      // "state_manager", "sink", "network"
+        blocking_duration: Duration,
+    ) {
+        self.downstream_blocking_time
+            .with_label_values(&[component])
+            .observe(blocking_duration.as_secs_f64());
     }
 
     /// Record watermark lag (event time vs processing time)
@@ -1206,6 +2011,276 @@ impl TracingContext {
             .start(&*self.tracer)
     }
 }
+```
+
+#### Backpressure Detection & Automatic Throttling
+
+```rust
+/// Backpressure detector monitors system health and triggers throttling
+pub struct BackpressureDetector {
+    metrics: Arc<JobMetricsCollector>,
+    thresholds: BackpressureThresholds,
+    current_state: Arc<RwLock<BackpressureState>>,
+}
+
+pub struct BackpressureThresholds {
+    channel_utilization_warning: f64,    // 0.7 (70% full)
+    channel_utilization_critical: f64,   // 0.9 (90% full)
+    state_merge_latency_ms: u64,         // 100ms
+    worker_queue_depth_warning: usize,   // 1000 records
+    memory_pressure_threshold: f64,      // 0.85 (85% of max)
+}
+
+#[derive(Debug, Clone)]
+pub enum BackpressureState {
+    Healthy,
+    Warning { component: String, severity: f64 },
+    Critical { component: String, severity: f64 },
+    Saturated { component: String },
+}
+
+impl BackpressureDetector {
+    /// Check all components and detect backpressure conditions
+    pub async fn check_system_health(&self) -> BackpressureState {
+        // 1. Check channel utilization across all stages
+        let channel_pressure = self.check_channel_pressure().await;
+
+        // 2. Check worker queue depths
+        let worker_pressure = self.check_worker_queues().await;
+
+        // 3. Check state manager merge latency
+        let state_pressure = self.check_state_merge_pressure().await;
+
+        // 4. Check memory pressure
+        let memory_pressure = self.check_memory_pressure().await;
+
+        // Determine overall system state
+        let max_pressure = [
+            channel_pressure,
+            worker_pressure,
+            state_pressure,
+            memory_pressure,
+        ].iter().max_by(|a, b| {
+            self.severity_score(a).partial_cmp(&self.severity_score(b)).unwrap()
+        }).unwrap();
+
+        max_pressure.clone()
+    }
+
+    /// Monitor channel utilization and detect bottlenecks
+    async fn check_channel_pressure(&self) -> BackpressureState {
+        // Channels to monitor:
+        // - reader_to_workers: Source -> Workers
+        // - workers_to_state: Workers -> StateManager
+        // - state_to_writer: StateManager -> Sink
+
+        let stages = ["reader_to_workers", "workers_to_state", "state_to_writer"];
+
+        for stage in stages {
+            let utilization = self.get_channel_utilization(stage).await;
+
+            if utilization > self.thresholds.channel_utilization_critical {
+                // CRITICAL: Channel is 90%+ full - apply aggressive backpressure
+                self.metrics.record_backpressure_event(
+                    "channel",
+                    0,
+                    1.0,  // Maximum severity
+                );
+
+                return BackpressureState::Critical {
+                    component: format!("channel:{}", stage),
+                    severity: utilization,
+                };
+            } else if utilization > self.thresholds.channel_utilization_warning {
+                // WARNING: Channel is 70%+ full - start throttling
+                self.metrics.record_backpressure_event(
+                    "channel",
+                    0,
+                    utilization,
+                );
+
+                return BackpressureState::Warning {
+                    component: format!("channel:{}", stage),
+                    severity: utilization,
+                };
+            }
+        }
+
+        BackpressureState::Healthy
+    }
+
+    /// Automatic source throttling based on backpressure state
+    pub async fn apply_backpressure(&self, state: &BackpressureState) -> ThrottleAction {
+        match state {
+            BackpressureState::Healthy => {
+                ThrottleAction::NoThrottle
+            }
+            BackpressureState::Warning { severity, .. } => {
+                // Linear throttling: reduce throughput proportionally
+                let throttle_factor = (severity - 0.7) / 0.2;  // 0.0 at 70%, 1.0 at 90%
+                ThrottleAction::Throttle {
+                    delay_ms: (throttle_factor * 100.0) as u64,
+                }
+            }
+            BackpressureState::Critical { .. } => {
+                // Aggressive throttling: pause source reads
+                self.metrics.record_source_throttle();
+                ThrottleAction::Pause {
+                    duration: Duration::from_millis(500),
+                }
+            }
+            BackpressureState::Saturated { .. } => {
+                // System saturated: stop all reads until pressure drops
+                self.metrics.record_source_throttle();
+                ThrottleAction::Stop {
+                    reason: "System saturated - backpressure critical".to_string(),
+                }
+            }
+        }
+    }
+}
+
+pub enum ThrottleAction {
+    NoThrottle,
+    Throttle { delay_ms: u64 },
+    Pause { duration: Duration },
+    Stop { reason: String },
+}
+
+/// Example: Integration in JobServer main loop
+async fn process_with_backpressure_monitoring(
+    reader: &mut impl DataReader,
+    metrics: Arc<JobMetricsCollector>,
+) {
+    let detector = BackpressureDetector::new(metrics.clone());
+
+    loop {
+        // Check system health before reading next batch
+        let pressure_state = detector.check_system_health().await;
+
+        // Apply automatic throttling
+        match detector.apply_backpressure(&pressure_state).await {
+            ThrottleAction::NoThrottle => {
+                // System healthy - read at full speed
+            }
+            ThrottleAction::Throttle { delay_ms } => {
+                // Inject delay to reduce throughput
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
+            ThrottleAction::Pause { duration } => {
+                // Pause reads to let system catch up
+                warn!("Backpressure detected - pausing reads for {:?}", duration);
+                tokio::time::sleep(duration).await;
+                continue;
+            }
+            ThrottleAction::Stop { reason } => {
+                // Critical backpressure - stop processing
+                error!("Stopping job due to backpressure: {}", reason);
+                return;
+            }
+        }
+
+        // Read next batch
+        let batch = reader.read().await?;
+
+        // Record channel utilization after read
+        metrics.record_channel_utilization(
+            "reader_to_workers",
+            batch.len(),
+            1000,  // max capacity
+        );
+
+        // ... continue processing
+    }
+}
+```
+
+#### Prometheus Metrics Exposure
+
+```text
+# HELP velostream_backpressure_events_total Total backpressure events by component
+# TYPE velostream_backpressure_events_total counter
+velostream_backpressure_events_total{component="channel",stage="workers_to_state"} 42
+velostream_backpressure_events_total{component="state_manager",worker_id="0"} 15
+velostream_backpressure_events_total{component="worker",worker_id="3"} 8
+
+# HELP velostream_backpressure_ratio Current backpressure severity ratio (0.0-1.0)
+# TYPE velostream_backpressure_ratio gauge
+velostream_backpressure_ratio{component="channel",stage="workers_to_state"} 0.87
+velostream_backpressure_ratio{component="worker",worker_id="0"} 0.23
+velostream_backpressure_ratio{component="worker",worker_id="1"} 0.91
+
+# HELP velostream_channel_utilization Channel buffer utilization percentage
+# TYPE velostream_channel_utilization gauge
+velostream_channel_utilization{stage="reader_to_workers"} 0.42
+velostream_channel_utilization{stage="workers_to_state"} 0.89
+velostream_channel_utilization{stage="state_to_writer"} 0.15
+
+# HELP velostream_worker_queue_depth Current queue depth per worker
+# TYPE velostream_worker_queue_depth gauge
+velostream_worker_queue_depth{worker_id="0"} 234
+velostream_worker_queue_depth{worker_id="1"} 892
+velostream_worker_queue_depth{worker_id="2"} 145
+
+# HELP velostream_state_merge_wait_time_seconds Time spent waiting for state merges
+# TYPE velostream_state_merge_wait_time_seconds histogram
+velostream_state_merge_wait_time_seconds_bucket{le="0.01"} 1523
+velostream_state_merge_wait_time_seconds_bucket{le="0.05"} 2891
+velostream_state_merge_wait_time_seconds_bucket{le="0.1"} 3456
+velostream_state_merge_wait_time_seconds_bucket{le="+Inf"} 3502
+
+# HELP velostream_source_throttle_events_total Times source was throttled
+# TYPE velostream_source_throttle_events_total counter
+velostream_source_throttle_events_total 127
+
+# HELP velostream_downstream_blocking_time_seconds Time blocked by downstream
+# TYPE velostream_downstream_blocking_time_seconds histogram
+velostream_downstream_blocking_time_seconds_bucket{component="state_manager",le="0.01"} 892
+velostream_downstream_blocking_time_seconds_bucket{component="sink",le="0.05"} 234
+```
+
+#### Grafana Dashboard Alerts
+
+```yaml
+# Alert when channel utilization is high
+- alert: HighChannelUtilization
+  expr: velostream_channel_utilization > 0.85
+  for: 1m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Channel {{ $labels.stage }} is {{ $value | humanizePercentage }} full"
+    description: "Backpressure detected - channel near capacity"
+
+# Alert when workers are severely backpressured
+- alert: WorkerBackpressure
+  expr: velostream_backpressure_ratio{component="worker"} > 0.9
+  for: 2m
+  labels:
+    severity: critical
+  annotations:
+    summary: "Worker {{ $labels.worker_id }} is critically backpressured"
+    description: "Worker queue is saturated - consider scaling up"
+
+# Alert when state merge is slow
+- alert: SlowStateMerge
+  expr: histogram_quantile(0.95, velostream_state_merge_wait_time_seconds_bucket) > 0.1
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "State merge p95 latency is {{ $value }}s"
+    description: "State manager is bottleneck - Phase 4B/4C optimization needed"
+
+# Alert when source throttling is frequent
+- alert: FrequentSourceThrottling
+  expr: rate(velostream_source_throttle_events_total[5m]) > 0.1
+  for: 5m
+  labels:
+    severity: warning
+  annotations:
+    summary: "Source throttled {{ $value }} times/sec"
+    description: "Downstream cannot keep up - investigate bottlenecks"
 ```
 
 ---
@@ -1743,35 +2818,251 @@ impl Default for JobConfig {
 
 ## Part 10: Implementation Roadmap with Enterprise Features
 
-### Phase 1: Core V2 (Weeks 1-3)
-- ✅ State manager actor
-- ✅ Worker pool with parallelism
-- ✅ Pipeline coordinators
-- ✅ Basic metrics
+**⚠️ CRITICAL**: Phase 0 is **BLOCKING** - V2 cannot proceed until SQL engine GROUP BY is optimized.
 
-### Phase 2: Production Features (Weeks 4-6)
-- ✅ Job management system
-- ✅ Health checking
-- ✅ Watermark management
-- ✅ Comprehensive observability
+### Phase 0: Performance Foundation (Weeks 1-2) ⚠️ **BLOCKING**
 
-### Phase 3: Scaling & Performance (Weeks 7-9)
-- ✅ Vertical scaling (NUMA, CPU pinning)
-- ✅ Horizontal scaling (Kafka consumer groups)
-- ✅ Distributed state backends
-- ✅ Low-latency optimizations
+**Goal**: Fix SQL engine GROUP BY performance from 3.58K → 200K rec/sec
 
-### Phase 4: Reliability (Weeks 10-12)
-- ✅ Exactly-once semantics
-- ✅ Two-phase commit
-- ✅ Transaction log
-- ✅ Failure recovery
+**Week 1: FR-082 Phase 4B - Hash Table Optimization**
+- 📦 Add `rustc-hash` dependency to Cargo.toml
+- 🔧 Implement GroupKey with pre-computed hash
+- 🔧 Replace HashMap with FxHashMap in GroupByState
+- 🔧 Update generate_group_key to return GroupKey
+- ✅ Test: `tests/unit/sql/execution/group_key_test.rs`
+- ⚡ Benchmark: `tests/performance/analysis/phase4b_hash_optimization_test.rs`
+- **Expected result**: 3.58K → 15-20K rec/sec (+400-500%)
 
-### Phase 5: Extensibility (Weeks 13-14)
-- ✅ Plugin architecture
-- ✅ State versioning
-- ✅ Backward compatibility
-- ✅ Dynamic configuration
+**Week 2: FR-082 Phase 4C - Arc State Sharing**
+- 🔧 Wrap GroupByState in Arc&lt;FxHashMap&gt;
+- 🔧 Implement Arc::make_mut() merge pattern
+- 🔧 Use Arc&lt;StreamRecord&gt; in GroupAccumulator
+- 🔧 Implement StringInterner for field names
+- 🔧 Add GroupKeyCache with LRU eviction
+- ✅ Test: `tests/unit/sql/execution/arc_state_test.rs`
+- ⚡ Benchmark: `tests/performance/analysis/phase4c_arc_optimization_test.rs`
+- **Expected result**: 15-20K → 200K rec/sec (+750-1000%)
+
+**Deliverables**:
+- ✅ SQL engine GROUP BY at 200K rec/sec baseline
+- ✅ V2 performance targets now achievable
+- ✅ Unblocks Phase 1 V2 implementation
+
+**Success Criteria**:
+```bash
+# Run Phase 4B/4C benchmarks
+cargo test --tests --no-default-features --release phase4b_hash_optimization -- --nocapture
+cargo test --tests --no-default-features --release phase4c_arc_optimization -- --nocapture
+
+# Must achieve:
+# - Phase 4B: 15-20K rec/sec GROUP BY throughput
+# - Phase 4C: 200K rec/sec GROUP BY throughput
+# - Zero compilation errors
+# - All existing tests pass
+```
+
+---
+
+### Phase 1: Core V2 Architecture (Weeks 3-5)
+
+**Prerequisites**: ✅ Phase 0 complete (200K rec/sec GROUP BY baseline)
+
+**Week 3: State Manager Actor**
+- 🔧 Implement StateManagerActor with FxHashMap (from Phase 0)
+- 🔧 StateMessage enum with MergeBatchState, GetSnapshot
+- 🔧 Actor run loop with message handling
+- 🔧 Integration with StreamExecutionEngine
+- ✅ Test: `tests/unit/server/state_manager_actor_test.rs`
+
+**Week 4: Processing Workers**
+- 🔧 ProcessingWorker with local context building
+- 🔧 Worker pool with configurable parallelism
+- 🔧 Batch distribution via round-robin
+- ✅ Test: `tests/unit/server/processing_worker_test.rs`
+
+**Week 5: Source/Sink Pipelines**
+- 🔧 SourcePipeline with async stream
+- 🔧 SinkPipeline with batching + backpressure
+- 🔧 JobCoordinator orchestration
+- ✅ Test: `tests/integration/server/v2_pipeline_test.rs`
+- ⚡ Benchmark: `tests/performance/v2_architecture_benchmark.rs`
+
+**Deliverables**:
+- ✅ V2 architecture with 200K rec/sec single-source
+- ✅ 8x improvement over V1 job server
+- ✅ Parallel batch processing
+
+---
+
+### Phase 2: P1 Enterprise Features (Weeks 6-11)
+
+**Week 6: State TTL**
+- 🔧 StateTTLConfig with ttl, update_type, cleanup_strategy
+- 🔧 TTL enforcement in StateManagerActor
+- 🔧 Background cleanup task
+- ✅ Test: `tests/unit/server/state_ttl_test.rs`
+
+**Week 7: State Rescaling**
+- 🔧 State redistribution on partition count change
+- 🔧 Consistent hashing for key assignment
+- 🔧 State transfer protocol
+- ✅ Test: `tests/integration/server/state_rescaling_test.rs`
+
+**Week 8-9: Checkpoint Alignment + Savepoints**
+- 🔧 CheckpointCoordinator with barrier alignment
+- 🔧 CheckpointBarrier propagation across sources
+- 🔧 Savepoint creation with versioning
+- 🔧 Savepoint restore with compatibility check
+- ✅ Test: `tests/integration/server/checkpoint_alignment_test.rs`
+- ✅ Test: `tests/integration/server/savepoint_test.rs`
+
+**Week 10-11: Kubernetes Support**
+- 🔧 StreamingJob CRD definition
+- 🔧 Kubernetes operator for job lifecycle
+- 🔧 ConfigMap/Secret integration
+- 🔧 Service mesh compatibility
+- ✅ Test: `tests/integration/deployment/kubernetes_test.rs`
+- 📄 Doc: `docs/deployment/kubernetes-operator.md`
+
+**Deliverables**:
+- ✅ State TTL for long-running jobs
+- ✅ State rescaling for dynamic partitions
+- ✅ Exactly-once with checkpoint alignment
+- ✅ Zero-downtime upgrades via savepoints
+- ✅ Cloud-native Kubernetes deployment
+
+---
+
+### Phase 3: P1 SQL & Watermark Features (Weeks 12-13)
+
+**Week 12: User-Defined Functions**
+- 🔧 ScalarFunction, TableFunction, AggregateFunction traits
+- 🔧 UDF registration in StreamExecutionEngine
+- 🔧 Dynamic function dispatch in expression evaluator
+- ✅ Test: `tests/unit/sql/udf_test.rs`
+- 📄 Doc: `docs/sql/user-defined-functions.md`
+
+**Week 13: Watermark Alignment**
+- 🔧 Per-source watermark tracking
+- 🔧 Max drift enforcement
+- 🔧 Throttling for fast sources
+- ✅ Test: `tests/unit/server/watermark_alignment_test.rs`
+
+**Deliverables**:
+- ✅ UDFs for custom business logic
+- ✅ Watermark alignment for multi-source correctness
+
+---
+
+### Phase 4: P2 Production Features (Weeks 14-17)
+
+**Week 14-15: Advanced Windowing**
+- 🔧 WindowTrigger (EventTime, ProcessingTime, Count, Custom)
+- 🔧 Side outputs for late data
+- 🔧 Custom window assigners
+- ✅ Test: `tests/unit/sql/advanced_windowing_test.rs`
+
+**Week 16-17: File Sources/Sinks**
+- 🔧 Parquet reader/writer
+- 🔧 CSV reader/writer
+- 🔧 File batching and bucketing
+- ✅ Test: `tests/integration/sources/file_source_test.rs`
+- ✅ Test: `tests/integration/sinks/file_sink_test.rs`
+
+**Deliverables**:
+- ✅ Advanced windowing for complex event processing
+- ✅ File sources/sinks for batch-streaming unification
+
+---
+
+### Phase 5: Scaling & Performance (Weeks 18-20)
+
+**Week 18: Vertical Scaling**
+- ✅ NUMA awareness (already in V2 blueprint)
+- ✅ CPU pinning (already in V2 blueprint)
+- ⚡ Benchmark: Verify 100+ core scaling
+
+**Week 19: Horizontal Scaling**
+- ✅ Kafka consumer groups (already in V2 blueprint)
+- 🔧 State sharding across instances
+- ⚡ Benchmark: 32M rec/sec with 160 sources
+
+**Week 20: Low-Latency Optimizations**
+- ✅ Object pooling (already in V2 blueprint)
+- ✅ Lock-free queues (already in V2 blueprint)
+- ⚡ Benchmark: <1ms p95 latency
+
+**Deliverables**:
+- ✅ Vertical scaling to 100+ cores
+- ✅ Horizontal scaling to 32M rec/sec
+- ✅ Sub-millisecond latency mode
+
+---
+
+### Phase 6: Reliability (Weeks 21-23)
+
+**Week 21-22: Exactly-Once Semantics**
+- ✅ Two-phase commit (already in V2 blueprint)
+- ✅ Transaction log (already in V2 blueprint)
+- ✅ Test: Verify exactly-once guarantees
+
+**Week 23: Failure Recovery**
+- 🔧 Partial recovery (restart failed tasks only)
+- 🔧 Recovery strategies (RestartAll, RestartFailed, FailoverRegion)
+- ✅ Test: `tests/integration/reliability/failure_recovery_test.rs`
+
+**Deliverables**:
+- ✅ Exactly-once semantics end-to-end
+- ✅ Partial recovery for fault isolation
+
+---
+
+### Phase 7: Extensibility & Polish (Weeks 24-26)
+
+**Week 24: Query Optimization**
+- 🔧 Predicate pushdown
+- 🔧 Projection pushdown
+- 🔧 Constant folding
+- ✅ Test: `tests/unit/sql/query_optimizer_test.rs`
+
+**Week 25: Security**
+- 🔧 SSL/TLS for internal communication
+- 🔧 API authentication
+- 📄 Doc: `docs/security/ssl-configuration.md`
+
+**Week 26: Documentation & Polish**
+- 📄 Comprehensive user guide
+- 📄 API reference docs
+- 📄 Deployment best practices
+- 🎨 Examples and tutorials
+
+**Deliverables**:
+- ✅ Query optimization for performance
+- ✅ Security for production deployments
+- ✅ Complete documentation
+
+---
+
+### Total Timeline: 26 Weeks (6 Months)
+
+**Critical Path**:
+1. **Phase 0 (Weeks 1-2)**: ⚠️ BLOCKING - SQL engine optimization
+2. **Phase 1 (Weeks 3-5)**: Core V2 architecture
+3. **Phase 2 (Weeks 6-11)**: P1 enterprise features
+4. **Phase 3 (Weeks 12-13)**: P1 SQL & watermarks
+5. **Phase 4-7 (Weeks 14-26)**: P2 features + polish
+
+**Minimum Viable Product (MVP)**: Weeks 1-13 (3 months)
+- Phase 0: SQL engine at 200K rec/sec
+- Phase 1: V2 architecture
+- Phase 2: State TTL, rescaling, checkpoints, savepoints, Kubernetes
+- Phase 3: UDFs, watermark alignment
+
+**Production Ready**: Weeks 1-23 (5.5 months)
+- MVP + Phase 4-6 (advanced windowing, file sources, scaling, reliability)
+
+**Feature Complete**: Weeks 1-26 (6 months)
+- Production Ready + Phase 7 (optimization, security, docs)
 
 ---
 

@@ -1,12 +1,36 @@
 /*!
-# FR-082 Phase 4E: Job Server Tumbling Window EMIT CHANGES Performance Test
+# FR-082 Scenario 3a: TUMBLING + GROUP BY (Standard Emission) Baseline Test
 
-Tests the same query but with EMIT CHANGES mode to measure how much slower
-it is compared to standard mode.
+**Purpose**: Measure baseline performance for TUMBLING window with GROUP BY (standard emission).
 
-## Comparison Expected
-- Standard Mode: 23,591 rec/sec
-- EMIT CHANGES Mode: ? rec/sec (this test)
+## Scenario Classification
+- **Pattern**: Window aggregation with batch emission
+- **State Management**: Hash table per window
+- **Query Category**: Category 3a - TUMBLING + GROUP BY (28% of workload)
+- **Phase 0 Target**: ✅ Primary optimization target
+- **V2 Routing**: Hash by GROUP BY columns
+
+## Example Query
+```sql
+SELECT
+    trader_id, symbol,
+    COUNT(*) as trade_count,
+    AVG(price) as avg_price,
+    SUM(quantity) as total_quantity
+FROM market_data
+GROUP BY trader_id, symbol
+WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
+```
+
+## Performance Expectations
+- **SQL Engine**: 790K+ rec/sec (windowing provides natural batching)
+- **Job Server V1**: ~23.6K rec/sec (97% overhead from coordination)
+- **V2 Target**: 1.5M rec/sec on 8 cores (200K per partition)
+
+## Key Insights
+- **Emission Pattern**: Batch emission on window close (efficient)
+- **State Efficiency**: Fixed window boundaries reduce state complexity
+- **Comparison to 3b**: Standard emission is baseline for EMIT CHANGES comparison
 */
 
 use async_trait::async_trait;
@@ -24,7 +48,7 @@ use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
-// Query with EMIT CHANGES
+// Same query as tumbling_instrumented_profiling.rs
 const TEST_SQL: &str = r#"
     SELECT
         trader_id,
@@ -35,7 +59,7 @@ const TEST_SQL: &str = r#"
         SUM(price * quantity) as total_value
     FROM market_data
     GROUP BY trader_id, symbol
-    WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE) EMIT CHANGES
+    WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
 "#;
 
 fn generate_test_records(count: usize) -> Vec<StreamRecord> {
@@ -59,6 +83,24 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
         records.push(StreamRecord::new(fields));
     }
     records
+}
+
+/// Measure pure SQL engine performance (without job server)
+async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (usize, u128) {
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+
+    let start = Instant::now();
+    for record in records.iter() {
+        let _ = engine.execute_with_record(&parsed_query, record.clone()).await;
+    }
+    let elapsed = start.elapsed();
+
+    // For windowed queries, result count may differ from input count
+    // We'll return elapsed time for throughput calculation
+    (0, elapsed.as_micros())
 }
 
 /// Mock data source for job server testing
@@ -171,15 +213,15 @@ impl DataWriter for MockDataWriter {
     }
 }
 
-/// FR-082 Phase 4E: Job Server Tumbling Window EMIT CHANGES Performance Test
+/// FR-082 Scenario 3a: TUMBLING + GROUP BY (Standard Emission) Baseline Test
 #[tokio::test]
 #[serial]
-async fn job_server_tumbling_emit_changes_performance() {
+async fn scenario_3a_tumbling_standard_baseline() {
     println!("\n═══════════════════════════════════════════════════════════");
-    println!("🔬 FR-082 PHASE 4E: Job Server EMIT CHANGES Test");
+    println!("🔬 FR-082 Scenario 3a: TUMBLING + GROUP BY (Standard)");
     println!("═══════════════════════════════════════════════════════════\n");
-    println!("Goal: Measure EMIT CHANGES overhead");
-    println!("Query: {}", TEST_SQL);
+    println!("Goal: Measure baseline performance for TUMBLING WINDOW query");
+    println!("Query: {}\n", TEST_SQL);
     println!("═══════════════════════════════════════════════════════════\n");
 
     let num_records = 5000;
@@ -187,6 +229,21 @@ async fn job_server_tumbling_emit_changes_performance() {
 
     let records = generate_test_records(num_records);
     println!("✅ Generated {} test records\n", num_records);
+
+    // Measure pure SQL engine
+    println!("🚀 Measuring pure SQL engine (no job server)...");
+    let (_sql_result_count, sql_time_us) = measure_sql_engine_only(records.clone(), TEST_SQL).await;
+    let sql_throughput = if sql_time_us > 0 {
+        (num_records as f64 / (sql_time_us as f64 / 1_000_000.0)) as usize
+    } else {
+        0
+    };
+
+    println!("   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
+        num_records,
+        sql_time_us as f64 / 1000.0,
+        sql_throughput
+    );
 
     let data_source = MockDataSource::new(records, batch_size);
     let data_writer = MockDataWriter::new();
@@ -212,7 +269,7 @@ async fn job_server_tumbling_emit_changes_performance() {
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    println!("🚀 Starting job server processing with EMIT CHANGES...");
+    println!("🚀 Measuring job server (full pipeline)...");
     let start = Instant::now();
 
     let result = processor
@@ -221,7 +278,7 @@ async fn job_server_tumbling_emit_changes_performance() {
             Some(Box::new(data_writer)),
             engine,
             query,
-            "tumbling_emit_changes_test".to_string(),
+            "tumbling_perf_test".to_string(),
             shutdown_rx,
         )
         .await;
@@ -230,51 +287,67 @@ async fn job_server_tumbling_emit_changes_performance() {
 
     match result {
         Ok(stats) => {
-            let throughput = num_records as f64 / duration.as_secs_f64();
+            let job_throughput = num_records as f64 / duration.as_secs_f64();
 
-            println!("\n═══════════════════════════════════════════════════════════");
-            println!("📊 EMIT CHANGES PERFORMANCE RESULTS");
-            println!("═══════════════════════════════════════════════════════════");
-            println!("Total records:         {}", num_records);
-            println!("Processing time:       {:?}", duration);
-            println!("Throughput:            {:.0} rec/sec", throughput);
-            println!("Batches processed:     {}", stats.batches_processed);
-            println!("Records processed:     {}", stats.records_processed);
-            println!();
-            println!("📈 COMPARISON:");
-            println!("  Standard Mode:       23,591 rec/sec (baseline)");
-            println!(
-                "  EMIT CHANGES Mode:   {:.0} rec/sec (this test)",
-                throughput
+            println!("   ✅ Job Server: {} records in {:.2}ms ({:.0} rec/sec)\n",
+                num_records,
+                duration.as_millis(),
+                job_throughput
             );
-            println!();
 
-            let slowdown_vs_standard = 23591.0 / throughput;
-            let overhead_vs_standard = ((23591.0 - throughput) / 23591.0) * 100.0;
-
-            println!("  vs Standard:");
-            println!("    Slowdown Factor:   {:.2}x", slowdown_vs_standard);
-            println!("    Overhead:          {:.1}%", overhead_vs_standard);
-            println!();
-
-            let slowdown_vs_pure = 790399.0 / throughput;
-            let overhead_vs_pure = ((790399.0 - throughput) / 790399.0) * 100.0;
-
-            println!("  vs Pure SQL Engine:");
-            println!("    Slowdown Factor:   {:.2}x", slowdown_vs_pure);
-            println!("    Overhead:          {:.1}%", overhead_vs_pure);
-            println!();
-
-            if overhead_vs_standard < 10.0 {
-                println!("  ✅ Minimal EMIT CHANGES overhead");
-            } else if overhead_vs_standard < 30.0 {
-                println!("  ⚡ Moderate EMIT CHANGES overhead");
+            // Calculate overhead
+            let overhead_pct = if sql_throughput > 0 {
+                ((sql_throughput as f64 - job_throughput) / sql_throughput as f64) * 100.0
             } else {
-                println!("  ❌ Significant EMIT CHANGES overhead detected");
-                println!("      EMIT CHANGES emits every state update, creating much more output");
-            }
+                0.0
+            };
 
+            let slowdown_factor = if job_throughput > 0.0 {
+                sql_throughput as f64 / job_throughput
+            } else {
+                0.0
+            };
+
+            println!("═══════════════════════════════════════════════════════════");
+            println!("📊 SCENARIO 3a BASELINE RESULTS");
+            println!("═══════════════════════════════════════════════════════════");
+            println!("Pure SQL Engine:");
+            println!("  Time:        {:.2}ms", sql_time_us as f64 / 1000.0);
+            println!("  Throughput:  {} rec/sec", sql_throughput);
+            println!();
+            println!("Job Server:");
+            println!("  Time:        {:.2}ms", duration.as_millis());
+            println!("  Throughput:  {:.0} rec/sec", job_throughput);
+            println!("  Batches:     {}", stats.batches_processed);
+            println!();
+            println!("Overhead Analysis:");
+            println!("  Job Server overhead: {:.1}%", overhead_pct);
+            println!("  Slowdown factor:     {:.2}x", slowdown_factor);
+            println!();
+            println!("📋 Comparison to Other Scenarios:");
+            println!("  Scenario 2 (GROUP BY):  95.8% overhead (23.4x slowdown)");
+            println!("  Scenario 3a (TUMBLING): {:.1}% overhead ({:.1}x slowdown)", overhead_pct, slowdown_factor);
+            println!();
+
+            if overhead_pct < 10.0 {
+                println!("✅ Excellent: Minimal job server overhead");
+            } else if overhead_pct < 50.0 {
+                println!("⚡ Good: Acceptable overhead for production");
+            } else if overhead_pct > 90.0 {
+                println!("❌ Job server coordination is primary bottleneck");
+                println!("   Primary suspects:");
+                println!("   - Arc<Mutex> contention");
+                println!("   - Metrics collection overhead");
+                println!("   - Channel communication");
+                println!("   - Batch allocation and cloning");
+            } else {
+                println!("⚠️ Moderate overhead detected - investigate optimization opportunities");
+            }
             println!("═══════════════════════════════════════════════════════════\n");
+
+            // Assert reasonable performance
+            assert!(sql_throughput > 0, "SQL engine should process records");
+            assert!(job_throughput > 0.0, "Job server should process records");
         }
         Err(e) => {
             eprintln!("❌ Job server processing failed: {:?}", e);

@@ -1246,6 +1246,31 @@ The test suite has been consolidated to eliminate duplication:
 - **Common Imports**: `tests/unit/common.rs` - Single import module
 - **35+ Tests**: Covering builder patterns, error handling, serialization, and integration scenarios
 
+### Baseline Performance Tests (FR-082)
+
+Comprehensive baseline measurements for SQL query performance patterns:
+
+```bash
+# Run all baseline scenarios
+cargo test --tests --no-default-features analysis:: -- --nocapture
+
+# Run individual scenarios
+cargo test --tests --no-default-features scenario_0_pure_select_baseline -- --nocapture
+cargo test --tests --no-default-features scenario_1_rows_window_baseline -- --nocapture
+cargo test --tests --no-default-features scenario_2_pure_group_by_baseline -- --nocapture
+cargo test --tests --no-default-features scenario_3a_tumbling_standard_baseline -- --nocapture
+cargo test --tests --no-default-features scenario_3b_tumbling_emit_changes_baseline -- --nocapture
+```
+
+**Scenario Coverage**:
+- **Scenario 0**: Pure SELECT (passthrough, 17% of workload) - Reference baseline
+- **Scenario 1**: ROWS WINDOW (memory-bounded buffers) - Sliding window analytics
+- **Scenario 2**: Pure GROUP BY (hash aggregation, 44% of workload) - Primary optimization target
+- **Scenario 3a**: TUMBLING + GROUP BY (standard emission, 28% of workload) - Batch windowing
+- **Scenario 3b**: TUMBLING + EMIT CHANGES (continuous emission) - Real-time dashboards
+
+Each scenario measures both SQL Engine (direct execution) and Job Server (full pipeline) performance for accurate overhead calculation. See [FR-082 Baseline Measurements](docs/feature/FR-082-perf-part-2/FR-082-BASELINE-MEASUREMENTS.md) for detailed results.
+
 ### Current Test Status ✅
 - Builder Pattern: 16/16 tests passing
 - Error Handling: 12/12 tests passing  
