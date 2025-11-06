@@ -602,6 +602,10 @@ impl StreamJobServer {
         let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
+        // FR-082 Phase 5: Set output receiver for EMIT CHANGES support
+        // This allows batch processing to drain emitted results for EMIT CHANGES queries
+        execution_engine.set_output_receiver(output_receiver);
+
         // Apply StreamingConfig to execution engine (Phase 1B-4 wiring)
         execution_engine.set_streaming_config(streaming_config.clone());
 
@@ -710,32 +714,16 @@ impl StreamJobServer {
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
 
-        // Spawn output handler task to consume from SQL engine output channel
-        let output_job_name = job_name.clone();
-        tokio::spawn(async move {
-            debug!(
-                "Job '{}': Starting output handler task for SQL engine output channel",
-                output_job_name
-            );
-            let mut stdout_writer = crate::velostream::datasource::StdoutWriter::new_pretty();
+        // FR-082 Phase 5: Output handler task no longer needed
+        // The engine now owns the output_receiver for EMIT CHANGES support.
+        // Batch processing drains the receiver synchronously and collects results
+        // for sink writing. This provides correct EMIT CHANGES semantics.
+        //
+        // Previously, this task consumed from the output channel asynchronously,
+        // but that architecture didn't work for EMIT CHANGES queries which need
+        // synchronous result collection during batch processing.
 
-            while let Some(record) = output_receiver.recv().await {
-                debug!(
-                    "Job '{}': SQL engine output channel received record, writing to stdout",
-                    output_job_name
-                );
-                if let Err(e) = stdout_writer.write(record).await {
-                    warn!(
-                        "Job '{}': Failed to write SQL engine output to stdout: {:?}",
-                        output_job_name, e
-                    );
-                }
-            }
-            debug!(
-                "Job '{}': Output handler task completed (channel closed)",
-                output_job_name
-            );
-        });
+        // Removed: tokio::spawn output handler task (receiver now owned by engine)
 
         // Spawn the job execution task using modern datasource approach
         let execution_handle = tokio::spawn(async move {

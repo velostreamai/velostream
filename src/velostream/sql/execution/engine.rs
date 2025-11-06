@@ -151,6 +151,8 @@ pub struct StreamExecutionEngine {
     message_sender: mpsc::UnboundedSender<ExecutionMessage>,
     message_receiver: Option<mpsc::UnboundedReceiver<ExecutionMessage>>,
     output_sender: mpsc::UnboundedSender<StreamRecord>,
+    // FR-082 Phase 5: Optional receiver for draining output in EMIT CHANGES mode
+    output_receiver: Option<mpsc::UnboundedReceiver<StreamRecord>>,
     record_count: u64,
     // Stateful GROUP BY support
     // Phase 4C: Wrapped in Arc to eliminate deep cloning overhead (30% expected improvement)
@@ -197,6 +199,7 @@ impl StreamExecutionEngine {
             message_sender,
             message_receiver: Some(receiver),
             output_sender,
+            output_receiver: None, // FR-082 Phase 5: Set via set_output_receiver() if needed
             record_count: 0,
             group_states: HashMap::new(),
             window_v2_states: HashMap::new(),
@@ -327,6 +330,63 @@ impl StreamExecutionEngine {
                 execution.window_state = Some(window_state);
             }
         }
+    }
+
+    /// FR-082 Phase 5: Set output receiver for EMIT CHANGES support
+    ///
+    /// This allows the engine to own the output receiver, enabling batch processing
+    /// to drain emitted results directly. Required for EMIT CHANGES queries where
+    /// results are sent through the output_sender channel rather than returned directly.
+    ///
+    /// ## Usage
+    ///
+    /// ```no_run
+    /// use tokio::sync::mpsc;
+    /// use velostream::velostream::sql::execution::engine::StreamExecutionEngine;
+    ///
+    /// let (output_sender, output_receiver) = mpsc::unbounded_channel();
+    /// let mut engine = StreamExecutionEngine::new(output_sender);
+    /// engine.set_output_receiver(output_receiver);
+    /// ```
+    pub fn set_output_receiver(&mut self, receiver: mpsc::UnboundedReceiver<StreamRecord>) {
+        self.output_receiver = Some(receiver);
+    }
+
+    /// FR-082 Phase 5: Try to receive output from the output channel
+    ///
+    /// Drains all available messages from the output_receiver without blocking.
+    /// Returns `Ok(record)` if a message is available, `Err(TryRecvError)` otherwise.
+    ///
+    /// ## Use Case
+    ///
+    /// EMIT CHANGES queries emit results through the output_sender channel.
+    /// Batch processing uses this method to collect all emitted results after
+    /// calling `execute_with_record()`.
+    ///
+    /// ## Returns
+    ///
+    /// - `Ok(StreamRecord)` - A record was available and received
+    /// - `Err(TryRecvError::Empty)` - No messages available (expected after draining)
+    /// - `Err(TryRecvError::Disconnected)` - Channel closed (error condition)
+    pub fn try_receive_output(&mut self) -> Result<StreamRecord, tokio::sync::mpsc::error::TryRecvError> {
+        if let Some(receiver) = &mut self.output_receiver {
+            receiver.try_recv()
+        } else {
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)
+        }
+    }
+
+    /// FR-082 Phase 5: Take ownership of the output receiver (for batch draining)
+    ///
+    /// This allows batch processing to temporarily own the receiver, drain all
+    /// emitted results, and then return it via `return_output_receiver()`.
+    pub fn take_output_receiver(&mut self) -> Option<tokio::sync::mpsc::UnboundedReceiver<StreamRecord>> {
+        self.output_receiver.take()
+    }
+
+    /// FR-082 Phase 5: Return ownership of the output receiver (after batch draining)
+    pub fn return_output_receiver(&mut self, receiver: tokio::sync::mpsc::UnboundedReceiver<StreamRecord>) {
+        self.output_receiver = Some(receiver);
     }
 
     /// Create processor context for new processor-based execution

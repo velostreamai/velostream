@@ -373,7 +373,7 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             };
 
             println!("═══════════════════════════════════════════════════════════");
-            println!("📊 SCENARIO 3b RESULTS - ARCHITECTURAL LIMITATION DISCOVERED");
+            println!("📊 SCENARIO 3b RESULTS - FR-082 PHASE 5 EMIT CHANGES FIX VALIDATED");
             println!("═══════════════════════════════════════════════════════════");
             println!("Pure SQL Engine (EMIT CHANGES):");
             println!("  Time:           {:.2}ms", sql_time_us as f64 / 1000.0);
@@ -387,39 +387,38 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
                 "  Throughput:     {:.0} rec/sec (input processing)",
                 job_throughput
             );
-            println!("  Emissions:      {} results ❌", job_emit_count);
-            println!("  Status:         ⚠️ ARCHITECTURAL LIMITATION");
+            println!("  Emissions:      {} results ✅", job_emit_count);
+            println!("  Status:         ✅ FIXED IN FR-082 PHASE 5");
             println!("  Batches:        {}", stats.batches_processed);
             println!();
-            println!("🔍 ROOT CAUSE ANALYSIS:");
+            println!("🔍 PHASE 5 FIX ANALYSIS:");
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            println!("The Job Server uses QueryProcessor::process_query() for batch");
-            println!("processing, which bypasses the engine's output_sender channel");
-            println!("as a performance optimization.");
+            println!("FR-082 Phase 5 implemented hybrid routing for EMIT CHANGES queries:");
             println!();
-            println!("This optimization works for standard queries where result.record");
-            println!("contains the output, but EMIT CHANGES queries emit through the");
-            println!("channel instead - so emissions are lost.");
+            println!("  1. is_emit_changes_query() detects EMIT CHANGES mode");
+            println!("  2. Uses engine.execute_with_record() instead of process_query()");
+            println!("  3. Temporarily takes ownership of output_receiver");
+            println!("  4. Drains channel after each record and at batch end");
+            println!("  5. Returns receiver to engine for next batch");
             println!();
-            println!("Evidence:");
+            println!("Result Comparison:");
             println!(
-                "  • SQL Engine: {} emissions (using execute_with_record())",
+                "  • SQL Engine: {} emissions (sequential execution)",
                 sql_emit_count
             );
             println!(
-                "  • Job Server: {} emissions (using process_query())",
+                "  • Job Server: {} emissions (batched with channel draining)",
                 job_emit_count
             );
             println!(
-                "  • Amplification: ~{}x output vs input",
+                "  • Amplification: ~{}x output vs input (tumbling window)",
                 sql_emit_count / num_records
             );
             println!();
-            println!("📋 IMPLICATIONS:");
+            println!("📋 VERIFICATION:");
             println!("  ✅ EMIT CHANGES works correctly with SQL Engine API");
-            println!("  ❌ EMIT CHANGES not supported by current Job Server architecture");
-            println!("  🔧 Fix requires: Job Server to use engine.execute_with_record()");
-            println!("     for EMIT CHANGES queries, or drain output_sender channel");
+            println!("  ✅ EMIT CHANGES now supported by Job Server (FR-082 Phase 5)");
+            println!("  ✅ All {} emitted results collected successfully", job_emit_count);
             println!();
             println!("📈 THROUGHPUT COMPARISON (Input Processing Only):");
             println!(
@@ -447,8 +446,8 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
                 "Job server should process input records"
             );
             assert_eq!(
-                job_emit_count, 0,
-                "Job server should emit 0 (architectural limitation)"
+                job_emit_count, 99810,
+                "Job server should emit ~20x amplification (5000 * 20 groups) - FR-082 Phase 5 FIX APPLIED"
             );
         }
         Err(e) => {

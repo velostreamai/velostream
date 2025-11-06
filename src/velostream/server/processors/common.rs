@@ -224,114 +224,178 @@ pub async fn process_batch_with_output(
     // Generate query ID for state management
     let query_id = generate_query_id(query);
 
-    // Lock 1: Get state once at batch start (minimal lock time)
-    let (group_states, window_states) = {
-        let engine_lock = engine.lock().await;
-        (
-            engine_lock.get_group_states().clone(),
-            engine_lock.get_window_states(),
-        )
-    };
+    // FR-082 Phase 5: Detect EMIT CHANGES mode for hybrid routing
+    let uses_emit_changes = is_emit_changes_query(query);
 
-    // Track null output records for debugging
-    let mut null_output_count = 0;
-    let mut null_output_example_idx = None;
+    if uses_emit_changes {
+        // EMIT CHANGES Path: Use engine.execute_with_record() to properly emit through channel
+        // Then collect results by temporarily taking the receiver
+        debug!(
+            "Job '{}': Using EMIT CHANGES path for {} records",
+            job_name, batch_size
+        );
 
-    // PERF OPTIMIZATION: Create context ONCE for entire batch (92% faster)
-    // Previous implementation cloned state per-record (1M clones for 1M records)
-    // New implementation reuses context - state mutates in place
-    let mut context = ProcessorContext::new(&query_id);
-    context.group_by_states = group_states; // Move ownership (not clone)
-    context.persistent_window_states = window_states;
+        // Temporarily take the receiver to drain emitted results
+        let mut temp_receiver = {
+            let mut engine_lock = engine.lock().await;
+            engine_lock.take_output_receiver()
+        };
 
-    // Process batch WITHOUT holding engine lock (high performance)
-    for (index, record) in batch.into_iter().enumerate() {
-        // CRITICAL: Reuse same context across all records in batch
-        // GROUP BY state accumulates in context.group_by_states HashMap (in-place mutation)
-        // Window state grows in context.persistent_window_states Vec (in-place mutation)
-        // Zero per-record allocation overhead - state management is O(1) amortized
+        for (index, record) in batch.into_iter().enumerate() {
+            match engine.lock().await.execute_with_record(query, record).await {
+                Ok(_) => {
+                    records_processed += 1;
 
-        // Direct processing (no engine lock, no output_sender channel overhead)
-        match QueryProcessor::process_query(query, &record, &mut context) {
-            Ok(result) => {
-                records_processed += 1;
+                    // Drain any emitted results from the channel
+                    if let Some(ref mut rx) = temp_receiver {
+                        while let Ok(emitted_record) = rx.try_recv() {
+                            output_records.push(Arc::new(emitted_record));
+                        }
+                    }
+                }
+                Err(e) => {
+                    records_failed += 1;
 
-                // Collect ACTUAL SQL query results for sink writing
-                // (not input passthrough - this is the critical fix!)
-                // PERF: Wrap in Arc for zero-copy multi-sink writes (7x faster)
-                if let Some(output) = result.record {
-                    output_records.push(Arc::new(output));
-                } else {
-                    // DIAGNOSTIC: Record when result.record is None
-                    // This indicates the query executed but produced no output for this record
-                    null_output_count += 1;
-                    if null_output_example_idx.is_none() {
-                        null_output_example_idx = Some(index);
+                    let detailed_msg = extract_error_context(&e);
+                    let recoverable = is_recoverable_error(&e);
+
+                    error_details.push(ProcessingError {
+                        record_index: index,
+                        error_message: detailed_msg.clone(),
+                        recoverable,
+                    });
+
+                    warn!(
+                        "Job '{}' EMIT CHANGES failed to process record {}: {} [Recoverable: {}]",
+                        job_name, index, detailed_msg, recoverable
+                    );
+                    debug!("Full error details: {:?}", e);
+                }
+            }
+        }
+
+        // Do a final drain after all records processed
+        if let Some(ref mut rx) = temp_receiver {
+            while let Ok(emitted_record) = rx.try_recv() {
+                output_records.push(Arc::new(emitted_record));
+            }
+        }
+
+        // Return the receiver to the engine
+        if let Some(rx) = temp_receiver {
+            let mut engine_lock = engine.lock().await;
+            engine_lock.return_output_receiver(rx);
+        }
+    } else {
+        // Standard Path: Batch optimization for non-EMIT queries (high performance)
+        // Lock 1: Get state once at batch start (minimal lock time)
+        let (group_states, window_states) = {
+            let engine_lock = engine.lock().await;
+            (
+                engine_lock.get_group_states().clone(),
+                engine_lock.get_window_states(),
+            )
+        };
+
+        // Track null output records for debugging
+        let mut null_output_count = 0;
+        let mut null_output_example_idx = None;
+
+        // PERF OPTIMIZATION: Create context ONCE for entire batch (92% faster)
+        // Previous implementation cloned state per-record (1M clones for 1M records)
+        // New implementation reuses context - state mutates in place
+        let mut context = ProcessorContext::new(&query_id);
+        context.group_by_states = group_states; // Move ownership (not clone)
+        context.persistent_window_states = window_states;
+
+        // Process batch WITHOUT holding engine lock (high performance)
+        for (index, record) in batch.into_iter().enumerate() {
+            // CRITICAL: Reuse same context across all records in batch
+            // GROUP BY state accumulates in context.group_by_states HashMap (in-place mutation)
+            // Window state grows in context.persistent_window_states Vec (in-place mutation)
+            // Zero per-record allocation overhead - state management is O(1) amortized
+
+            // Direct processing (no engine lock, no output_sender channel overhead)
+            match QueryProcessor::process_query(query, &record, &mut context) {
+                Ok(result) => {
+                    records_processed += 1;
+
+                    // Collect ACTUAL SQL query results for sink writing
+                    // (not input passthrough - this is the critical fix!)
+                    // PERF: Wrap in Arc for zero-copy multi-sink writes (7x faster)
+                    if let Some(output) = result.record {
+                        output_records.push(Arc::new(output));
+                    } else {
+                        // DIAGNOSTIC: Record when result.record is None
+                        // This indicates the query executed but produced no output for this record
+                        null_output_count += 1;
+                        if null_output_example_idx.is_none() {
+                            null_output_example_idx = Some(index);
+                        }
+
+                        debug!(
+                            "Job '{}' record {} processed successfully but produced no output (result.record is None)",
+                            job_name, index
+                        );
                     }
 
-                    debug!(
-                        "Job '{}' record {} processed successfully but produced no output (result.record is None)",
-                        job_name, index
-                    );
+                    // NOTE: State accumulation happens automatically in context
+                    // No need to copy state back - it's already mutated in place
                 }
+                Err(e) => {
+                    records_failed += 1;
 
-                // NOTE: State accumulation happens automatically in context
-                // No need to copy state back - it's already mutated in place
+                    // Extract and log detailed error context
+                    let detailed_msg = extract_error_context(&e);
+                    let recoverable = is_recoverable_error(&e);
+
+                    error_details.push(ProcessingError {
+                        record_index: index,
+                        error_message: detailed_msg.clone(),
+                        recoverable,
+                    });
+
+                    // Log with human-readable context and full debug info
+                    warn!(
+                        "Job '{}' failed to process record {}: {} [Recoverable: {}]",
+                        job_name, index, detailed_msg, recoverable
+                    );
+                    debug!("Full error details: {:?}", e);
+                }
             }
-            Err(e) => {
-                records_failed += 1;
+        }
 
-                // Extract and log detailed error context
-                let detailed_msg = extract_error_context(&e);
-                let recoverable = is_recoverable_error(&e);
+        // Extract accumulated state from context (move ownership back)
+        let group_states = context.group_by_states;
+        let window_states = context.persistent_window_states;
 
-                error_details.push(ProcessingError {
-                    record_index: index,
-                    error_message: detailed_msg.clone(),
-                    recoverable,
-                });
-
-                // Log with human-readable context and full debug info
+        // DIAGNOSTIC: Log summary of null output records
+        if null_output_count > 0 {
+            warn!(
+                "Job '{}': ⚠️  DIAGNOSTIC: {} out of {} processed records produced no output (result.record was None)",
+                job_name, null_output_count, records_processed
+            );
+            if let Some(idx) = null_output_example_idx {
                 warn!(
-                    "Job '{}' failed to process record {}: {} [Recoverable: {}]",
-                    job_name, index, detailed_msg, recoverable
+                    "Job '{}': First example of null output at record index {}",
+                    job_name, idx
                 );
-                debug!("Full error details: {:?}", e);
+                warn!("Job '{}': Possible causes:", job_name);
+                warn!(
+                    "   1. Query produces no output (e.g., no rows match filters, window not complete)"
+                );
+                warn!("   2. Stream/JOIN produces no output by design");
+                warn!("   3. Aggregation hasn't collected enough records to emit");
+                warn!("   4. Record is filtered out (WHERE/HAVING clauses exclude it)");
             }
         }
-    }
 
-    // Extract accumulated state from context (move ownership back)
-    let group_states = context.group_by_states;
-    let window_states = context.persistent_window_states;
-
-    // DIAGNOSTIC: Log summary of null output records
-    if null_output_count > 0 {
-        warn!(
-            "Job '{}': ⚠️  DIAGNOSTIC: {} out of {} processed records produced no output (result.record was None)",
-            job_name, null_output_count, records_processed
-        );
-        if let Some(idx) = null_output_example_idx {
-            warn!(
-                "Job '{}': First example of null output at record index {}",
-                job_name, idx
-            );
-            warn!("Job '{}': Possible causes:", job_name);
-            warn!(
-                "   1. Query produces no output (e.g., no rows match filters, window not complete)"
-            );
-            warn!("   2. Stream/JOIN produces no output by design");
-            warn!("   3. Aggregation hasn't collected enough records to emit");
-            warn!("   4. Record is filtered out (WHERE/HAVING clauses exclude it)");
+        // Lock 2: Sync state back once at batch end (minimal lock time)
+        {
+            let mut engine_lock = engine.lock().await;
+            engine_lock.set_group_states(group_states);
+            engine_lock.set_window_states(window_states);
         }
-    }
-
-    // Lock 2: Sync state back once at batch end (minimal lock time)
-    // Phase 4C: Use group_states already extracted at line 305
-    {
-        let mut engine_lock = engine.lock().await;
-        engine_lock.set_group_states(group_states);
-        engine_lock.set_window_states(window_states);
     }
 
     BatchProcessingResultWithOutput {
@@ -341,6 +405,26 @@ pub async fn process_batch_with_output(
         batch_size,
         error_details,
         output_records,
+    }
+}
+
+/// Check if a query uses EMIT CHANGES mode
+///
+/// EMIT CHANGES queries require special handling because they emit results
+/// through the output_sender channel rather than returning them directly.
+/// This is critical for streaming semantics where each input record can
+/// trigger multiple output emissions.
+///
+/// ## FR-082 Phase 5: EMIT CHANGES Architectural Fix
+///
+/// Queries with EMIT CHANGES must use `engine.execute_with_record()` instead
+/// of `QueryProcessor::process_query()` to properly drain the output_sender channel.
+fn is_emit_changes_query(query: &StreamingQuery) -> bool {
+    match query {
+        StreamingQuery::Select { emit_mode, .. } => {
+            matches!(emit_mode, Some(crate::velostream::sql::ast::EmitMode::Changes))
+        }
+        _ => false,
     }
 }
 
