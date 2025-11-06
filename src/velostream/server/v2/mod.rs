@@ -54,6 +54,7 @@ pub mod hash_router;
 pub mod metrics;
 pub mod partition_manager;
 pub mod prometheus_exporter;
+pub mod system_fields;
 pub mod watermark;
 
 // Re-exports for convenience
@@ -65,4 +66,8 @@ pub use hash_router::{HashRouter, PartitionStrategy};
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
 pub use prometheus_exporter::PartitionPrometheusExporter;
+pub use system_fields::{
+    extract_window_fields, has_window_fields, inject_window_end_field, inject_window_fields,
+    inject_window_start_field, WINDOW_END, WINDOW_START,
+};
 pub use watermark::{WatermarkConfig, WatermarkManager, WatermarkMetrics, WatermarkStrategy};

@@ -4,6 +4,7 @@
 //! for a single partition without Arc<Mutex> contention.
 
 use crate::velostream::server::v2::metrics::PartitionMetrics;
+use crate::velostream::server::v2::watermark::WatermarkManager;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use std::sync::Arc;
@@ -41,32 +42,66 @@ use std::time::Instant;
 ///
 /// - **Query State**: WindowManager, GroupByStateManager integration
 /// - **Output Emission**: Channel for emitting processed records
-/// - **Watermark Tracking**: Per-partition watermark management
 /// - **State TTL**: Automatic cleanup of expired state
+///
+/// ## Phase 4 Implementation
+///
+/// - **Watermark Tracking**: Per-partition watermark management (COMPLETED)
 pub struct PartitionStateManager {
     partition_id: usize,
     metrics: Arc<PartitionMetrics>,
-    // TODO Phase 2: Add query state fields
+    watermark_manager: Arc<WatermarkManager>,
+    // TODO Phase 5+: Add query state fields
     // - window_manager: Option<WindowManager>
     // - group_by_state: Option<GroupByStateManager>
     // - output_sender: mpsc::UnboundedSender<StreamRecord>
 }
 
 impl PartitionStateManager {
-    /// Create new partition state manager with integrated metrics
+    /// Create new partition state manager with integrated metrics and watermark manager
     pub fn new(partition_id: usize) -> Self {
         let metrics = Arc::new(PartitionMetrics::new(partition_id));
+        let watermark_manager = Arc::new(WatermarkManager::with_defaults(partition_id));
         Self {
             partition_id,
             metrics,
+            watermark_manager,
         }
     }
 
     /// Create with existing metrics (useful for testing)
     pub fn with_metrics(partition_id: usize, metrics: Arc<PartitionMetrics>) -> Self {
+        let watermark_manager = Arc::new(WatermarkManager::with_defaults(partition_id));
         Self {
             partition_id,
             metrics,
+            watermark_manager,
+        }
+    }
+
+    /// Create with custom watermark manager (useful for testing and custom configurations)
+    pub fn with_watermark_manager(
+        partition_id: usize,
+        watermark_manager: Arc<WatermarkManager>,
+    ) -> Self {
+        let metrics = Arc::new(PartitionMetrics::new(partition_id));
+        Self {
+            partition_id,
+            metrics,
+            watermark_manager,
+        }
+    }
+
+    /// Create with both custom metrics and watermark manager
+    pub fn with_metrics_and_watermark(
+        partition_id: usize,
+        metrics: Arc<PartitionMetrics>,
+        watermark_manager: Arc<WatermarkManager>,
+    ) -> Self {
+        Self {
+            partition_id,
+            metrics,
+            watermark_manager,
         }
     }
 
@@ -80,20 +115,66 @@ impl PartitionStateManager {
         Arc::clone(&self.metrics)
     }
 
+    /// Get watermark manager reference
+    pub fn watermark_manager(&self) -> Arc<WatermarkManager> {
+        Arc::clone(&self.watermark_manager)
+    }
+
     /// Process a single record through partition
     ///
-    /// ## Phase 1 Implementation
+    /// ## Phase 4 Implementation
     ///
-    /// Currently tracks metrics only. Phase 2+ will add full query execution.
+    /// - Tracks metrics
+    /// - Updates watermark based on event_time
+    /// - Detects and handles late records
+    ///
+    /// ## Phase 5+ Enhancements
+    ///
+    /// - Extract group key
+    /// - Update aggregation state
+    /// - Check window emission conditions
+    /// - Emit results to output channel
     ///
     /// ## Returns
     ///
-    /// - `Ok(())` if record processed successfully
-    /// - `Err(SqlError)` if processing failed
-    pub fn process_record(&self, _record: &StreamRecord) -> Result<(), SqlError> {
+    /// - `Ok(())` if record processed successfully (including late records with ProcessWithWarning strategy)
+    /// - `Err(SqlError)` if record should be dropped (late records with Drop strategy)
+    pub fn process_record(&self, record: &StreamRecord) -> Result<(), SqlError> {
         let start = Instant::now();
 
-        // TODO Phase 2: Execute query processing
+        // Phase 4: Watermark management for event-time processing
+        if let Some(event_time) = record.event_time {
+            // Update watermark based on event time
+            self.watermark_manager.update(event_time);
+
+            // Check if record is late (arrives after watermark)
+            let (is_late, should_drop) = self.watermark_manager.is_late(event_time);
+
+            if should_drop {
+                // Drop strategy: reject late records
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Late record dropped (event_time: {}, watermark: {:?})",
+                        event_time,
+                        self.watermark_manager.current_watermark()
+                    ),
+                    query: None,
+                });
+            }
+
+            // ProcessWithWarning strategy logs warning but continues processing
+            // ProcessAll strategy silently processes late records
+            if is_late {
+                log::warn!(
+                    "Partition {}: Processing late record (event_time: {}, watermark: {:?})",
+                    self.partition_id,
+                    event_time,
+                    self.watermark_manager.current_watermark()
+                );
+            }
+        }
+
+        // TODO Phase 5+: Execute query processing
         // - Extract group key
         // - Update aggregation state
         // - Check window emission conditions
@@ -108,29 +189,48 @@ impl PartitionStateManager {
 
     /// Process a batch of records (optimized path)
     ///
-    /// ## Phase 1 Implementation
+    /// ## Phase 4 Implementation
     ///
-    /// Batch processing reduces per-record overhead. Phase 2+ will add
-    /// vectorized query execution.
+    /// Batch processing with watermark tracking. Late records are handled
+    /// according to the watermark strategy.
+    ///
+    /// ## Phase 5+ Enhancements
+    ///
+    /// - Vectorized group key extraction
+    /// - Batch aggregation state updates
+    /// - Batch window emission checks
     ///
     /// ## Returns
     ///
-    /// - Number of records successfully processed
+    /// - Number of records successfully processed (excludes dropped late records)
     pub fn process_batch(&self, records: &[StreamRecord]) -> Result<usize, SqlError> {
         let start = Instant::now();
-        let batch_size = records.len();
+        let mut processed_count = 0;
 
-        // TODO Phase 2: Vectorized batch processing
+        // Phase 4: Process each record with watermark tracking
+        for record in records {
+            match self.process_record(record) {
+                Ok(()) => processed_count += 1,
+                Err(_) => {
+                    // Record was dropped due to late arrival
+                    // Continue processing remaining records
+                    continue;
+                }
+            }
+        }
+
+        // TODO Phase 5+: Vectorized batch processing
         // - Extract all group keys in batch
         // - Update aggregation states in batch
         // - Check window emission conditions
         // - Emit results in batch
 
-        // Track metrics
-        self.metrics.record_batch_processed(batch_size as u64);
+        // Track metrics (only for successfully processed records)
+        self.metrics
+            .record_batch_processed(processed_count as u64);
         self.metrics.record_latency(start.elapsed());
 
-        Ok(batch_size)
+        Ok(processed_count)
     }
 
     /// Check if partition is experiencing backpressure
