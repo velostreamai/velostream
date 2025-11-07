@@ -3,7 +3,8 @@
 //! Coordinates execution across N partitions for linear scaling performance.
 
 use crate::velostream::server::v2::{
-    HashRouter, PartitionMetrics, PartitionStateManager, PartitionStrategy,
+    AlwaysHashStrategy, HashRouter, PartitionMetrics, PartitionStateManager, PartitionStrategy,
+    PartitioningStrategy, QueryMetadata, RoutingContext,
 };
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
@@ -109,38 +110,42 @@ impl Default for ThrottleConfig {
     }
 }
 
-/// Coordinates multi-partition job execution
+/// Coordinates multi-partition job execution with pluggable routing strategies
 ///
-/// ## Phase 2 Implementation
+/// ## Phase 2+ Implementation
 ///
 /// Orchestrates N partitions running in parallel with:
-/// - Hash-based record routing to partitions
+/// - Pluggable partitioning strategies (AlwaysHash, SmartRepartition, RoundRobin)
 /// - Independent partition execution (no cross-partition locks)
 /// - Per-partition metrics and monitoring
 /// - Backpressure detection (Phase 3)
+/// - State consistency guarantees (same GROUP BY key → same partition)
 ///
 /// ## Usage
 ///
 /// ```rust,no_run
-/// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig};
+/// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, AlwaysHashStrategy};
 ///
 /// let config = PartitionedJobConfig::default();
-/// let coordinator = PartitionedJobCoordinator::new(config);
+/// let coordinator = PartitionedJobCoordinator::new(config)
+///     .with_group_by_columns(vec!["trader_id".to_string()])
+///     .with_strategy(std::sync::Arc::new(AlwaysHashStrategy::new()));
 ///
-/// // Phase 2: Basic partition orchestration
+/// // Phase 2: Basic partition orchestration with strategies
 /// // Phase 3+: Full SQL execution integration
 /// ```
 ///
 /// ## Architecture
 ///
 /// ```text
-///                 ┌─────────────────┐
-/// Records ───► Router (Hash-Based) │
-///                 └─────────────────┘
+///                 ┌──────────────────────────┐
+/// Records ───► Router (Strategy-Based)      │
+///                 └──────────────────────────┘
 ///                         │
 ///           ┌─────────────┼─────────────┐
 ///           ▼             ▼             ▼
 ///     Partition 0    Partition 1   Partition N
+///     [State Mgr]    [State Mgr]    [State Mgr]
 ///     [200K r/s]     [200K r/s]    [200K r/s]
 ///           │             │             │
 ///           └─────────────┼─────────────┘
@@ -151,6 +156,12 @@ impl Default for ThrottleConfig {
 pub struct PartitionedJobCoordinator {
     config: PartitionedJobConfig,
     num_partitions: usize,
+    /// Pluggable routing strategy for record distribution
+    strategy: Arc<dyn PartitioningStrategy>,
+    /// GROUP BY columns for state consistency
+    group_by_columns: Vec<String>,
+    /// Number of available CPU slots
+    num_cpu_slots: usize,
 }
 
 impl PartitionedJobCoordinator {
@@ -160,10 +171,34 @@ impl PartitionedJobCoordinator {
             .num_partitions
             .unwrap_or_else(|| num_cpus::get().max(1));
 
+        let num_cpu_slots = num_cpus::get().max(1);
+
         Self {
             config,
             num_partitions,
+            // Default to AlwaysHashStrategy for safety
+            strategy: Arc::new(AlwaysHashStrategy::new()),
+            group_by_columns: Vec::new(),
+            num_cpu_slots,
         }
+    }
+
+    /// Configure GROUP BY columns for routing decisions
+    ///
+    /// Required for strategies that depend on GROUP BY key routing.
+    /// Enables state consistency: records with same GROUP BY key route to same partition.
+    pub fn with_group_by_columns(mut self, columns: Vec<String>) -> Self {
+        self.group_by_columns = columns;
+        self
+    }
+
+    /// Set custom partitioning strategy
+    ///
+    /// Allows switching between strategies (AlwaysHash, SmartRepartition, RoundRobin)
+    /// based on workload characteristics.
+    pub fn with_strategy(mut self, strategy: Arc<dyn PartitioningStrategy>) -> Self {
+        self.strategy = strategy;
+        self
     }
 
     /// Get number of partitions
@@ -203,12 +238,74 @@ impl PartitionedJobCoordinator {
         (managers, senders)
     }
 
-    /// Route and process a batch of records across partitions
+    /// Route and process a batch of records across partitions using pluggable strategy
+    ///
+    /// ## Phase 2+ Implementation (Strategy-Based)
+    ///
+    /// Routes each record to its target partition using the configured partitioning strategy.
+    /// This enables state consistency: records with same GROUP BY key always go to same partition.
+    ///
+    /// ## Strategy Validation
+    ///
+    /// Validates that the configured strategy is compatible with the query metadata
+    /// (GROUP BY columns, window configuration, etc.) before routing any records.
+    pub async fn process_batch_with_strategy(
+        &self,
+        records: Vec<StreamRecord>,
+        partition_senders: &[mpsc::Sender<StreamRecord>],
+    ) -> Result<usize, SqlError> {
+        // Validate strategy compatibility with query
+        let query_metadata = QueryMetadata {
+            group_by_columns: self.group_by_columns.clone(),
+            has_window: false,
+            num_partitions: self.num_partitions,
+            num_cpu_slots: self.num_cpu_slots,
+        };
+
+        self.strategy
+            .validate(&query_metadata)
+            .map_err(|err| SqlError::ExecutionError {
+                message: format!("Strategy validation failed: {}", err),
+                query: None,
+            })?;
+
+        let mut processed = 0;
+
+        for record in records {
+            // Create routing context for this record
+            let routing_context = RoutingContext {
+                source_partition: None, // Will be enhanced in Phase 2b with source metadata
+                source_partition_key: None,
+                group_by_columns: self.group_by_columns.clone(),
+                num_partitions: self.num_partitions,
+                num_cpu_slots: self.num_cpu_slots,
+            };
+
+            // Route record using strategy
+            let partition_id = self
+                .strategy
+                .route_record(&record, &routing_context)
+                .await?;
+            let sender = &partition_senders[partition_id];
+
+            // Send to partition (non-blocking)
+            if sender.send(record).await.is_ok() {
+                processed += 1;
+            }
+        }
+
+        Ok(processed)
+    }
+
+    /// Route and process a batch of records across partitions (Legacy HashRouter method)
     ///
     /// ## Phase 2 Implementation
     ///
     /// Routes each record to its target partition and processes them in parallel.
     /// Phase 3+ will add full SQL execution integration.
+    ///
+    /// Deprecated: Use `process_batch_with_strategy()` for strategy-based routing
+    #[deprecated(since = "0.9.0", note = "Use process_batch_with_strategy() instead")]
     pub async fn process_batch(
         &self,
         records: Vec<StreamRecord>,
@@ -450,7 +547,111 @@ impl PartitionedJobCoordinator {
         }
     }
 
-    /// Process batch with automatic throttling based on backpressure
+    /// Process batch with strategy-based routing and automatic throttling
+    ///
+    /// ## Phase 3 Implementation (Strategy-Enhanced)
+    ///
+    /// Enhanced version of process_batch_with_strategy() that applies adaptive throttling:
+    /// - Uses pluggable partitioning strategy for routing
+    /// - Monitors partition metrics continuously
+    /// - Calculates appropriate throttle delay
+    /// - Applies delay between record sends when backpressure detected
+    /// - Logs throttling events for observability
+    ///
+    /// ## Usage
+    ///
+    /// ```rust,no_run
+    /// use std::sync::Arc;
+    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, AlwaysHashStrategy};
+    /// use velostream::velostream::sql::execution::types::StreamRecord;
+    /// use std::collections::HashMap;
+    ///
+    /// # async fn example() {
+    /// let config = PartitionedJobConfig::default();
+    /// let coordinator = PartitionedJobCoordinator::new(config)
+    ///     .with_group_by_columns(vec!["key".to_string()])
+    ///     .with_strategy(Arc::new(AlwaysHashStrategy::new()));
+    ///
+    /// let (managers, senders) = coordinator.initialize_partitions();
+    ///
+    /// let records = vec![StreamRecord::new(HashMap::new())];
+    /// let partition_metrics: Vec<Arc<_>> = managers.iter().map(|m| m.metrics()).collect();
+    ///
+    /// let processed = coordinator.process_batch_with_strategy_and_throttling(
+    ///     records,
+    ///     &senders,
+    ///     &partition_metrics,
+    /// ).await;
+    /// # }
+    /// ```
+    pub async fn process_batch_with_strategy_and_throttling(
+        &self,
+        records: Vec<StreamRecord>,
+        partition_senders: &[mpsc::Sender<StreamRecord>],
+        partition_metrics: &[Arc<PartitionMetrics>],
+    ) -> Result<usize, SqlError> {
+        // Validate strategy compatibility with query
+        let query_metadata = QueryMetadata {
+            group_by_columns: self.group_by_columns.clone(),
+            has_window: false,
+            num_partitions: self.num_partitions,
+            num_cpu_slots: self.num_cpu_slots,
+        };
+
+        self.strategy
+            .validate(&query_metadata)
+            .map_err(|err| SqlError::ExecutionError {
+                message: format!("Strategy validation failed: {}", err),
+                query: None,
+            })?;
+
+        let mut processed = 0;
+        let mut last_throttle_log = std::time::Instant::now();
+
+        for record in records {
+            // Create routing context for this record
+            let routing_context = RoutingContext {
+                source_partition: None,
+                source_partition_key: None,
+                group_by_columns: self.group_by_columns.clone(),
+                num_partitions: self.num_partitions,
+                num_cpu_slots: self.num_cpu_slots,
+            };
+
+            // Route record using strategy
+            let partition_id = self
+                .strategy
+                .route_record(&record, &routing_context)
+                .await?;
+            let sender = &partition_senders[partition_id];
+
+            // Calculate throttle delay based on current backpressure
+            let throttle_delay = self.calculate_throttle_delay(partition_metrics);
+
+            // Apply throttling if needed
+            if throttle_delay > Duration::from_secs(0) {
+                // Log throttling events (rate-limited to once per second)
+                if last_throttle_log.elapsed() >= Duration::from_secs(1) {
+                    log::warn!(
+                        "Applying throttle delay: {:?} due to backpressure",
+                        throttle_delay
+                    );
+                    last_throttle_log = std::time::Instant::now();
+                }
+
+                tokio::time::sleep(throttle_delay).await;
+            }
+
+            // Send to partition
+            if sender.send(record).await.is_ok() {
+                processed += 1;
+            }
+        }
+
+        Ok(processed)
+    }
+
+    /// Process batch with automatic throttling based on backpressure (Legacy HashRouter method)
     ///
     /// ## Phase 3 Implementation
     ///
@@ -459,6 +660,8 @@ impl PartitionedJobCoordinator {
     /// - Calculates appropriate throttle delay
     /// - Applies delay between record sends when backpressure detected
     /// - Logs throttling events for observability
+    ///
+    /// Deprecated: Use `process_batch_with_strategy_and_throttling()` instead
     ///
     /// ## Usage
     ///
@@ -486,6 +689,10 @@ impl PartitionedJobCoordinator {
     /// ).await;
     /// # }
     /// ```
+    #[deprecated(
+        since = "0.9.0",
+        note = "Use process_batch_with_strategy_and_throttling() instead"
+    )]
     pub async fn process_batch_with_throttling(
         &self,
         records: Vec<StreamRecord>,
