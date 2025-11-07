@@ -28,12 +28,13 @@
 | Phase 5.1 | Trait-Based Architecture Switching | ✅ **COMPLETED** | - | 100% | Interface baseline |
 | Phase 5.2 | Baseline Benchmarking Infrastructure | ✅ **COMPLETED** | - | 100% | 678K-716K rec/sec |
 | Phase 5.3 | JobProcessor Integration with StreamJobServer | ✅ **COMPLETED** | - | 100% | V1/V2 selection ready |
-| Phase 6 | Lock-Free Optimization & Real SQL Baselines | 📅 **NEXT** | - | 0% | 23.7K-190K rec/sec (8x) |
+| Phase 6 | Lock-Free Optimization & Real SQL Baselines | 🔄 **IN PROGRESS** | - | 33% | 23.7K-190K rec/sec (8x) |
+| Phase 6.1 | Real SQL Execution Routing | ✅ **COMPLETED** | Nov 7, 2025 | 100% | Multi-partition architecture |
 | Phase 7 | Vectorization & SIMD | 📅 **PLANNED** | - | 0% | 1.5M-2.0M rec/sec |
 | Phase 8 | Distributed Processing | 📅 **PLANNED** | - | 0% | 2.0M-3.0M+ rec/sec |
 
-**Overall Completion**: Phase 5.3 COMPLETE (100%) - JobProcessor integration ready, Phase 6 planned
-**Next Phase**: Phase 6 (Lock-Free Optimization & Real SQL Baselines) → Phase 7 (Vectorization) → Phase 8 (Distributed Processing)
+**Overall Completion**: Phase 6.1 COMPLETE (100%) - Real SQL Execution Routing implemented, Phase 6.2 (Lock-Free) in progress
+**Next Phase**: Phase 6.1a (Full SQL with GroupBy routing) → Phase 6.2 (Lock-Free optimization) → Phase 7 (Vectorization)
 
 ---
 
