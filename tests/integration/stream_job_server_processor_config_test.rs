@@ -3,8 +3,8 @@
 //! Tests the V1/V2 processor architecture selection at the StreamJobServer level.
 //! This demonstrates the integration of JobProcessorConfig with the job server.
 
-use velostream::velostream::server::stream_job_server::StreamJobServer;
 use velostream::velostream::server::processors::JobProcessorConfig;
+use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::test]
 async fn test_stream_job_server_default_processor_config() {
@@ -53,10 +53,12 @@ async fn test_stream_job_server_processor_config_description() {
     assert!(desc.contains("V1"));
 
     // Test V2 description with partitions
-    let server_v2_8 = server.clone().with_processor_config(JobProcessorConfig::V2 {
-        num_partitions: Some(8),
-        enable_core_affinity: false,
-    });
+    let server_v2_8 = server
+        .clone()
+        .with_processor_config(JobProcessorConfig::V2 {
+            num_partitions: Some(8),
+            enable_core_affinity: false,
+        });
     let desc_v2 = server_v2_8.processor_config().description();
     assert!(desc_v2.contains("V2"));
     assert!(desc_v2.contains("8"));
@@ -94,6 +96,9 @@ async fn test_stream_job_server_processor_config_clone() {
 
     let cloned = original.clone();
 
-    assert!(matches!(original.processor_config(), JobProcessorConfig::V1));
+    assert!(matches!(
+        original.processor_config(),
+        JobProcessorConfig::V1
+    ));
     assert!(matches!(cloned.processor_config(), JobProcessorConfig::V1));
 }

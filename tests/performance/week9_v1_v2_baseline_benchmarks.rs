@@ -27,7 +27,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use velostream::velostream::server::processors::{JobProcessor, JobProcessorConfig, JobProcessorFactory};
+use velostream::velostream::server::processors::{
+    JobProcessor, JobProcessorConfig, JobProcessorFactory,
+};
 use velostream::velostream::sql::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -39,10 +41,7 @@ fn create_test_record(group_id: u32, value: f64) -> StreamRecord {
         FieldValue::String(format!("GROUP{:05}", group_id)),
     );
     fields.insert("value".to_string(), FieldValue::Float(value));
-    fields.insert(
-        "sequence".to_string(),
-        FieldValue::Integer(group_id as i64),
-    );
+    fields.insert("sequence".to_string(), FieldValue::Integer(group_id as i64));
     StreamRecord::new(fields)
 }
 
@@ -86,7 +85,10 @@ async fn week9_v1_baseline_throughput_100_records() {
 
     for batch_num in 0..num_batches {
         let batch = create_test_batch(batch_size, num_groups);
-        match v1_processor.process_batch(batch.clone(), engine.clone()).await {
+        match v1_processor
+            .process_batch(batch.clone(), engine.clone())
+            .await
+        {
             Ok(results) => {
                 total_records += results.len();
                 if batch_num == 0 {
@@ -108,8 +110,15 @@ async fn week9_v1_baseline_throughput_100_records() {
     println!("  Throughput: {} rec/sec", throughput);
     println!("  Expected: ~23.7K rec/sec");
 
-    assert_eq!(total_records, batch_size * num_batches, "Record count mismatch");
-    assert!(elapsed < Duration::from_secs(5), "V1 processing took too long");
+    assert_eq!(
+        total_records,
+        batch_size * num_batches,
+        "Record count mismatch"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "V1 processing took too long"
+    );
 }
 
 #[tokio::test]
@@ -134,7 +143,10 @@ async fn week9_v1_baseline_throughput_1000_records() {
 
     for batch_num in 0..num_batches {
         let batch = create_test_batch(batch_size, num_groups);
-        match v1_processor.process_batch(batch.clone(), engine.clone()).await {
+        match v1_processor
+            .process_batch(batch.clone(), engine.clone())
+            .await
+        {
             Ok(results) => {
                 total_records += results.len();
                 if batch_num == 0 {
@@ -156,8 +168,15 @@ async fn week9_v1_baseline_throughput_1000_records() {
     println!("  Throughput: {} rec/sec", throughput);
     println!("  Expected: ~23.7K rec/sec");
 
-    assert_eq!(total_records, batch_size * num_batches, "Record count mismatch");
-    assert!(elapsed < Duration::from_secs(10), "V1 processing took too long");
+    assert_eq!(
+        total_records,
+        batch_size * num_batches,
+        "Record count mismatch"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "V1 processing took too long"
+    );
 }
 
 #[tokio::test]
@@ -186,7 +205,10 @@ async fn week9_v2_baseline_throughput_100_records() {
 
     for batch_num in 0..num_batches {
         let batch = create_test_batch(batch_size, num_groups);
-        match v2_processor.process_batch(batch.clone(), engine.clone()).await {
+        match v2_processor
+            .process_batch(batch.clone(), engine.clone())
+            .await
+        {
             Ok(results) => {
                 total_records += results.len();
                 if batch_num == 0 {
@@ -208,8 +230,15 @@ async fn week9_v2_baseline_throughput_100_records() {
     println!("  Throughput: {} rec/sec", throughput);
     println!("  Expected: ~191K rec/sec (8x from V1)");
 
-    assert_eq!(total_records, batch_size * num_batches, "Record count mismatch");
-    assert!(elapsed < Duration::from_secs(5), "V2 processing took too long");
+    assert_eq!(
+        total_records,
+        batch_size * num_batches,
+        "Record count mismatch"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "V2 processing took too long"
+    );
 }
 
 #[tokio::test]
@@ -238,7 +267,10 @@ async fn week9_v2_baseline_throughput_1000_records() {
 
     for batch_num in 0..num_batches {
         let batch = create_test_batch(batch_size, num_groups);
-        match v2_processor.process_batch(batch.clone(), engine.clone()).await {
+        match v2_processor
+            .process_batch(batch.clone(), engine.clone())
+            .await
+        {
             Ok(results) => {
                 total_records += results.len();
                 if batch_num == 0 {
@@ -254,14 +286,24 @@ async fn week9_v2_baseline_throughput_1000_records() {
     let elapsed = start.elapsed();
     let throughput = (total_records as f64 / elapsed.as_secs_f64()) as u32;
 
-    println!("\nV2 Results (1000 records, {} partitions):", num_partitions);
+    println!(
+        "\nV2 Results (1000 records, {} partitions):",
+        num_partitions
+    );
     println!("  Total records: {}", total_records);
     println!("  Elapsed time: {:.3}ms", elapsed.as_secs_f64() * 1000.0);
     println!("  Throughput: {} rec/sec", throughput);
     println!("  Expected: ~191K rec/sec (8x from V1)");
 
-    assert_eq!(total_records, batch_size * num_batches, "Record count mismatch");
-    assert!(elapsed < Duration::from_secs(10), "V2 processing took too long");
+    assert_eq!(
+        total_records,
+        batch_size * num_batches,
+        "Record count mismatch"
+    );
+    assert!(
+        elapsed < Duration::from_secs(10),
+        "V2 processing took too long"
+    );
 }
 
 #[tokio::test]
@@ -318,11 +360,13 @@ async fn week9_v1_v2_comparison_4_partitions() {
     println!("Expected speedup: ~4.0x (linear scaling)");
 
     assert_eq!(
-        v1_records, batch_size * num_batches,
+        v1_records,
+        batch_size * num_batches,
         "V1 record count mismatch"
     );
     assert_eq!(
-        v2_records, batch_size * num_batches,
+        v2_records,
+        batch_size * num_batches,
         "V2 record count mismatch"
     );
 }
@@ -381,11 +425,13 @@ async fn week9_v1_v2_comparison_8_partitions() {
     println!("Expected speedup: ~8.0x (linear scaling)");
 
     assert_eq!(
-        v1_records, batch_size * num_batches,
+        v1_records,
+        batch_size * num_batches,
         "V1 record count mismatch"
     );
     assert_eq!(
-        v2_records, batch_size * num_batches,
+        v2_records,
+        batch_size * num_batches,
         "V2 record count mismatch"
     );
 }

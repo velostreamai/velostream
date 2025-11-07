@@ -28,12 +28,12 @@ pub mod avro_decimal_roundtrip_test;
 pub mod fr082_phase1_partitioned_routing_benchmark; // FR-082 Phase 1: Hash routing + partition manager
 pub mod fr082_strategy_comparison_benchmark; // FR-082 Phase 2-3: Strategy comparison (V1 vs V2)
 pub mod kafka_consumer_benchmark;
-pub mod week9_v1_v2_baseline_benchmarks; // Week 9 Part B: V1 vs V2 architecture baseline testing
 pub mod microbench_job_server_profiling;
 pub mod microbench_job_server_profiling_comprehensive; // Phase 3 validation: window + GROUP BY
 pub mod microbench_multi_sink_write;
 pub mod performance_optimization_verification;
 pub mod performance_regression_test;
+pub mod week9_v1_v2_baseline_benchmarks; // Week 9 Part B: V1 vs V2 architecture baseline testing
 
 // Re-export organized structure for easier access
 pub use consolidated_mod::*;

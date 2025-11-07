@@ -12,8 +12,8 @@
 //! The actual execution happens in StreamJobServer::deploy_job() where the configured
 //! processor architecture is logged and used for job execution.
 
-use velostream::velostream::server::stream_job_server::StreamJobServer;
 use velostream::velostream::server::processors::JobProcessorConfig;
+use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::main]
 async fn main() {
@@ -28,8 +28,11 @@ async fn main() {
     println!("📋 Example 1: Default Configuration (V2)");
     println!("{}", divider);
     {
-        let server =
-            StreamJobServer::new("localhost:9092".to_string(), "demo-group-default".to_string(), 10);
+        let server = StreamJobServer::new(
+            "localhost:9092".to_string(),
+            "demo-group-default".to_string(),
+            10,
+        );
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
         println!("  • Processor: V2 (Multi-partition)");
@@ -41,8 +44,12 @@ async fn main() {
     println!("📋 Example 2: V1 Single-Threaded Baseline");
     println!("{}", divider);
     {
-        let server = StreamJobServer::new("localhost:9092".to_string(), "demo-group-v1".to_string(), 10)
-            .with_processor_config(JobProcessorConfig::V1);
+        let server = StreamJobServer::new(
+            "localhost:9092".to_string(),
+            "demo-group-v1".to_string(),
+            10,
+        )
+        .with_processor_config(JobProcessorConfig::V1);
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
@@ -56,11 +63,15 @@ async fn main() {
     println!("📋 Example 3: V2 Multi-Partition (8 cores)");
     println!("{}", divider);
     {
-        let server = StreamJobServer::new("localhost:9092".to_string(), "demo-group-v2-8".to_string(), 10)
-            .with_processor_config(JobProcessorConfig::V2 {
-                num_partitions: Some(8),
-                enable_core_affinity: false,
-            });
+        let server = StreamJobServer::new(
+            "localhost:9092".to_string(),
+            "demo-group-v2-8".to_string(),
+            10,
+        )
+        .with_processor_config(JobProcessorConfig::V2 {
+            num_partitions: Some(8),
+            enable_core_affinity: false,
+        });
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
@@ -75,12 +86,15 @@ async fn main() {
     println!("📋 Example 4: V2 Multi-Partition with Core Affinity");
     println!("{}", divider);
     {
-        let server =
-            StreamJobServer::new("localhost:9092".to_string(), "demo-group-v2-affinity".to_string(), 10)
-                .with_processor_config(JobProcessorConfig::V2 {
-                    num_partitions: Some(8),
-                    enable_core_affinity: true,
-                });
+        let server = StreamJobServer::new(
+            "localhost:9092".to_string(),
+            "demo-group-v2-affinity".to_string(),
+            10,
+        )
+        .with_processor_config(JobProcessorConfig::V2 {
+            num_partitions: Some(8),
+            enable_core_affinity: true,
+        });
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
@@ -106,8 +120,14 @@ async fn main() {
                     enable_core_affinity: false,
                 });
 
-        println!("V1 Configuration: {}", v1_server.processor_config().description());
-        println!("V2 Configuration: {}", v2_server.processor_config().description());
+        println!(
+            "V1 Configuration: {}",
+            v1_server.processor_config().description()
+        );
+        println!(
+            "V2 Configuration: {}",
+            v2_server.processor_config().description()
+        );
 
         println!("\nPhase 5.2 Baseline Results (Interface-Level, Pass-Through):");
         println!("  • V1 throughput:      ~678K rec/sec (interface overhead)");

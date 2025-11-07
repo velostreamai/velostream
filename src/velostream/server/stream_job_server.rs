@@ -331,7 +331,10 @@ impl StreamJobServer {
     pub fn with_processor_config(mut self, config: JobProcessorConfig) -> Self {
         let description = config.description();
         self.processor_config = config;
-        info!("StreamJobServer processor configuration set to: {}", description);
+        info!(
+            "StreamJobServer processor configuration set to: {}",
+            description
+        );
         self
     }
 
