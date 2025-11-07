@@ -691,11 +691,49 @@ pub trait JobProcessor: Send + Sync {
 - [ ] Ensure V2 uses Phase 5 optimizations (already in code)
 - [ ] Validate coordinator initialization with 8 partitions
 
-**Task 7: Run Baseline Benchmarks**
-- [ ] Run test with V1: should get 23.7K rec/sec
-- [ ] Run test with V2 (8 cores): should get ~191K rec/sec
+**Task 7: Run Comprehensive Baseline Benchmarks (Three-Way Comparison)**
+
+**Benchmark A: SQL Engine Direct (Pure Query Execution)**
+- [ ] Run SQL engine without Job Server wrapper
+- [ ] Measure baseline throughput (no coordination overhead)
+- [ ] Expected results (by scenario):
+  - Scenario 0 (Pure SELECT): ~500K+ rec/sec
+  - Scenario 2 (GROUP BY): ~439K rec/sec
+  - Scenario 3a (TUMBLING): ~1.6M rec/sec
+  - Scenario 3b (EMIT CHANGES): ~473 rec/sec (sequential, 99,810 emissions)
+- [ ] This shows the theoretical maximum without Job Server overhead
+
+**Benchmark B: V1 Architecture (SimpleJobProcessor)**
+- [ ] Run Job Server with V1 (single partition, single-threaded)
+- [ ] Apply Phase 5 optimizations (already in code)
+- [ ] Measure throughput across all scenarios
+- [ ] Expected: ~23.7K rec/sec (consistent across all scenarios)
+- [ ] Overhead: 95-98% coordination (vs SQL Engine direct)
+- [ ] Test Scenario 3b: validate 99,810 emissions
+
+**Benchmark C: V2 Architecture (PartitionedJobCoordinator)**
+- [ ] Run Job Server with V2 (8 partitions, parallel execution)
+- [ ] Apply Phase 5 optimizations (already in code)
+- [ ] Measure throughput across all scenarios
+- [ ] Expected: ~191K rec/sec (8x from V1, ~8 partitions)
 - [ ] Measure scaling efficiency: (191K / (23.7K × 8)) = expected ~100%
-- [ ] Test Scenario 3b (EMIT CHANGES): validate 99,810 emissions
+- [ ] Test Scenario 3b: validate correctness (99,810 emissions × 8 partitions merged correctly)
+
+**Comparison Matrix** (Expected Results):
+```
+| Scenario | SQL Direct | V1 | V2 (8-core) | V1→V2 Speedup |
+|----------|-----------|-----|-----------|---------------|
+| 0: SELECT | 500K+ | 23.7K | 190K | 8.0x |
+| 2: GROUP BY | 439K | 23.6K | 189K | 8.0x |
+| 3a: TUMBLING | 1.6M | 23.6K | 189K | 8.0x |
+| 3b: EMIT CHANGES | 473 | 23.7K | 190K | 8.0x |
+| AVG | ~630K | ~23.6K | ~189K | ~8.0x |
+
+Key Insight: V1→V2 speedup is consistent at 8.0x across all scenarios
+- Proves: Each core in V2 has same throughput as V1 (23.7K rec/sec)
+- Proves: V2 scales linearly with core count (100% efficiency)
+- Proves: Bottleneck is coordination layer (same per core)
+```
 
 **Task 8: Profile Coordination Overhead**
 - [ ] Profile both architectures to find remaining 95-98% overhead
@@ -704,10 +742,16 @@ pub trait JobProcessor: Send + Sync {
 - [ ] Profile metrics collection efficiency
 
 **Task 9: Document & Finalize**
-- [ ] Create `WEEK9-V1-V2-BASELINE-COMPARISON.md`
-- [ ] Show side-by-side: V1 (23.7K) vs V2 (191K)
-- [ ] Show scaling efficiency metrics
-- [ ] Identify Phase 6 targets
+- [ ] Create `WEEK9-SQL-V1-V2-BENCHMARK-COMPARISON.md`
+- [ ] Show three-way comparison table:
+  - **SQL Engine Direct**: 500K-1.6M rec/sec (theoretical maximum, baseline)
+  - **V1 (SimpleJobProcessor)**: 23.7K rec/sec (coordination overhead: 95-98%)
+  - **V2 (PartitionedJobCoordinator)**: 191K rec/sec (8x scaling, 100% efficiency)
+- [ ] Show per-scenario breakdown (0, 2, 3a, 3b)
+- [ ] Visualize overhead: SQL → V1 → V2 progression
+- [ ] Prove V2 scales linearly (8.0x consistent across scenarios)
+- [ ] Identify bottleneck locations (where the 95-98% overhead comes from)
+- [ ] Set targets for Phase 6 (lock-free optimization should reduce overhead to ~40-50%)
 
 #### What is V2?
 ```
