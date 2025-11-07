@@ -1,10 +1,17 @@
 # FR-082: Job Server V2 Implementation Schedule
 
 **Project**: Hash-Partitioned Pipeline Architecture for "Better than Flink" Performance
-**Total Duration**: 8 weeks (2 weeks Phase 0 + 6 weeks V2 core)
+**Total Duration**: 16+ weeks (Phase 0-5 complete, Week 9 integration, Phase 6-7: 6 weeks, Phase 8: open-ended)
+**Timeline**:
+  - Phases 0-5: Complete (November 1-7, 2025) ✅
+  - Week 9: V1/V2 Switching (December 15-21, 2025) 📅
+  - Phase 6: Weeks 10-12 (Dec 22 - Jan 12, 2026) 📅
+  - Phase 7: Weeks 13-15 (Jan 13 - Feb 2, 2026) 📅
+  - Phase 8: Weeks 16+ (Feb 3+, 2026) 📅
 **Start Date**: November 1, 2025
-**Target Completion**: December 27, 2025
-**Last Updated**: November 6, 2025
+**Phase 5 Complete**: November 7, 2025
+**Phase 7 Target Completion**: February 2, 2026
+**Last Updated**: November 7, 2025
 
 ---
 
