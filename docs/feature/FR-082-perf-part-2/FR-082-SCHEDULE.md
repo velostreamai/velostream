@@ -624,17 +624,83 @@ Improvement Factor:           50.2x ✅ EXCEEDS TARGET (30-50x)
 
 ---
 
-### Week 9: V2 Baseline Testing (Before Phase 6)
+### Week 9: V1/V2 Switching + Baseline Testing (Before Phase 6)
 **Dates**: December 15-21, 2025
 **Status**: 📅 **PLANNED**
 
-#### Planned Tasks
-- [ ] Set up V2 with PartitionedJobCoordinator (already exists from Phase 2)
-- [ ] Run 8-core baseline benchmarks with Phase 5 optimizations
-- [ ] Validate 191K rec/sec target (8x from V1 23.7K single-core)
-- [ ] Measure scaling efficiency (should be ~100% linear)
-- [ ] Profile remaining 95-98% coordination overhead
-- [ ] Identify bottlenecks preventing better scaling on 8 cores
+#### Part A: Trait-Based Architecture Switching (12 hours, enables flexible testing)
+
+**Task 1: Design JobProcessor Trait**
+- [ ] Create `JobProcessor` trait in `src/velostream/server/processors/mod.rs`
+- [ ] Define interface: `process_batch()`, `num_partitions()`, `metrics()`
+- [ ] Trait must be `Send + Sync` for Arc usage
+
+```rust
+pub trait JobProcessor: Send + Sync {
+    async fn process_batch(
+        &self,
+        records: Vec<StreamRecord>,
+        engine: Arc<StreamExecutionEngine>,
+    ) -> Result<Vec<StreamRecord>, SqlError>;
+
+    fn num_partitions(&self) -> usize;
+    fn metrics(&self) -> Arc<ProcessorMetrics>;
+}
+```
+
+**Task 2: Implement V1 Adapter (SimpleJobProcessor)**
+- [ ] Implement `JobProcessor` trait for `SimpleJobProcessor`
+- [ ] Wrap existing `process_batch()` logic
+- [ ] Return `num_partitions() = 1` (single-core)
+
+**Task 3: Implement V2 Adapter (PartitionedJobCoordinator)**
+- [ ] Create new `src/velostream/server/v2/job_processor.rs`
+- [ ] Implement `JobProcessor` trait for `PartitionedJobCoordinator`
+- [ ] Implement `process_batch()` that:
+  - Routes records by GROUP BY key via HashRouter
+  - Distributes to N partitions
+  - Processes in parallel (tokio::spawn per partition)
+  - Collects results from all partitions
+  - Merges and returns combined output
+- [ ] Return `num_partitions()` = coordinator's partition count
+
+**Task 4: Update StreamJobServer**
+- [ ] Add config option: `processor_architecture: v1|v2`
+- [ ] Create `JobProcessorConfig` enum with V1/V2 variants
+- [ ] Update `StreamJobServer::new()` to accept `JobProcessorConfig`
+- [ ] Store processor as `Arc<dyn JobProcessor>`
+- [ ] Update job execution to use `processor.process_batch()`
+
+**Task 5: Config & Testing**
+- [ ] Add YAML config support for architecture selection
+- [ ] Create test: `test_v1_processor_baseline()`
+- [ ] Create test: `test_v2_processor_baseline()`
+- [ ] Create test: `test_v1_v2_same_output()` (correctness validation)
+
+#### Part B: V2 Baseline Testing with Phase 5 Optimizations
+
+**Task 6: Set up V2 with PartitionedJobCoordinator**
+- [ ] Enable V2 architecture via config
+- [ ] Ensure V2 uses Phase 5 optimizations (already in code)
+- [ ] Validate coordinator initialization with 8 partitions
+
+**Task 7: Run Baseline Benchmarks**
+- [ ] Run test with V1: should get 23.7K rec/sec
+- [ ] Run test with V2 (8 cores): should get ~191K rec/sec
+- [ ] Measure scaling efficiency: (191K / (23.7K × 8)) = expected ~100%
+- [ ] Test Scenario 3b (EMIT CHANGES): validate 99,810 emissions
+
+**Task 8: Profile Coordination Overhead**
+- [ ] Profile both architectures to find remaining 95-98% overhead
+- [ ] Identify if V2 scaling is truly linear or hitting new bottleneck
+- [ ] Profile output channel coordination
+- [ ] Profile metrics collection efficiency
+
+**Task 9: Document & Finalize**
+- [ ] Create `WEEK9-V1-V2-BASELINE-COMPARISON.md`
+- [ ] Show side-by-side: V1 (23.7K) vs V2 (191K)
+- [ ] Show scaling efficiency metrics
+- [ ] Identify Phase 6 targets
 
 #### What is V2?
 ```
