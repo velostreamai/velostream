@@ -297,36 +297,6 @@ impl PartitionedJobCoordinator {
         Ok(processed)
     }
 
-    /// Route and process a batch of records across partitions (Legacy HashRouter method)
-    ///
-    /// ## Phase 2 Implementation
-    ///
-    /// Routes each record to its target partition and processes them in parallel.
-    /// Phase 3+ will add full SQL execution integration.
-    ///
-    /// Deprecated: Use `process_batch_with_strategy()` for strategy-based routing
-    #[deprecated(since = "0.9.0", note = "Use process_batch_with_strategy() instead")]
-    pub async fn process_batch(
-        &self,
-        records: Vec<StreamRecord>,
-        router: &HashRouter,
-        partition_senders: &[mpsc::Sender<StreamRecord>],
-    ) -> Result<usize, SqlError> {
-        let mut processed = 0;
-
-        for record in records {
-            let partition_id = router.route_record(&record)?;
-            let sender = &partition_senders[partition_id];
-
-            // Send to partition (non-blocking in Phase 2)
-            if sender.send(record).await.is_ok() {
-                processed += 1;
-            }
-        }
-
-        Ok(processed)
-    }
-
     /// Monitor partition metrics and detect backpressure
     ///
     /// ## Phase 3 Implementation
@@ -623,88 +593,6 @@ impl PartitionedJobCoordinator {
                 .strategy
                 .route_record(&record, &routing_context)
                 .await?;
-            let sender = &partition_senders[partition_id];
-
-            // Calculate throttle delay based on current backpressure
-            let throttle_delay = self.calculate_throttle_delay(partition_metrics);
-
-            // Apply throttling if needed
-            if throttle_delay > Duration::from_secs(0) {
-                // Log throttling events (rate-limited to once per second)
-                if last_throttle_log.elapsed() >= Duration::from_secs(1) {
-                    log::warn!(
-                        "Applying throttle delay: {:?} due to backpressure",
-                        throttle_delay
-                    );
-                    last_throttle_log = std::time::Instant::now();
-                }
-
-                tokio::time::sleep(throttle_delay).await;
-            }
-
-            // Send to partition
-            if sender.send(record).await.is_ok() {
-                processed += 1;
-            }
-        }
-
-        Ok(processed)
-    }
-
-    /// Process batch with automatic throttling based on backpressure (Legacy HashRouter method)
-    ///
-    /// ## Phase 3 Implementation
-    ///
-    /// Enhanced version of process_batch() that applies adaptive throttling:
-    /// - Monitors partition metrics continuously
-    /// - Calculates appropriate throttle delay
-    /// - Applies delay between record sends when backpressure detected
-    /// - Logs throttling events for observability
-    ///
-    /// Deprecated: Use `process_batch_with_strategy_and_throttling()` instead
-    ///
-    /// ## Usage
-    ///
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, HashRouter, PartitionStrategy};
-    /// use velostream::velostream::sql::execution::types::StreamRecord;
-    /// use std::collections::HashMap;
-    ///
-    /// # async fn example() {
-    /// let config = PartitionedJobConfig::default();
-    /// let coordinator = PartitionedJobCoordinator::new(config);
-    ///
-    /// let router = HashRouter::new(PartitionStrategy::Hash, 4, vec!["key".to_string()]);
-    /// let (managers, senders) = coordinator.initialize_partitions();
-    ///
-    /// let records = vec![StreamRecord::new(HashMap::new())];
-    /// let partition_metrics: Vec<Arc<_>> = managers.iter().map(|m| m.metrics()).collect();
-    ///
-    /// let processed = coordinator.process_batch_with_throttling(
-    ///     records,
-    ///     &router,
-    ///     &senders,
-    ///     &partition_metrics,
-    /// ).await;
-    /// # }
-    /// ```
-    #[deprecated(
-        since = "0.9.0",
-        note = "Use process_batch_with_strategy_and_throttling() instead"
-    )]
-    pub async fn process_batch_with_throttling(
-        &self,
-        records: Vec<StreamRecord>,
-        router: &HashRouter,
-        partition_senders: &[mpsc::Sender<StreamRecord>],
-        partition_metrics: &[Arc<PartitionMetrics>],
-    ) -> Result<usize, SqlError> {
-        let mut processed = 0;
-        let mut last_throttle_log = std::time::Instant::now();
-
-        for record in records {
-            let partition_id = router.route_record(&record)?;
             let sender = &partition_senders[partition_id];
 
             // Calculate throttle delay based on current backpressure
