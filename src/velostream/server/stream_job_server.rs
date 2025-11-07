@@ -16,6 +16,7 @@ use crate::velostream::server::processors::{
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
+use crate::velostream::server::v2::{PartitionedJobConfig, PartitionedJobCoordinator};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
@@ -822,74 +823,133 @@ impl StreamJobServer {
                                 processor_config_for_spawn.description()
                             );
 
-                            if use_transactions {
-                                info!(
-                                    "Job '{}' using transactional processor for multi-source processing",
-                                    job_name
-                                );
-                                let processor = TransactionalJobProcessor::with_observability(
-                                    config,
-                                    observability_for_spawn.clone(),
-                                );
+                            // Route to appropriate processor based on configuration
+                            match &processor_config_for_spawn {
+                                JobProcessorConfig::V2 {
+                                    num_partitions,
+                                    enable_core_affinity,
+                                } => {
+                                    info!(
+                                        "Job '{}' using V2 (PartitionedJobCoordinator) processor with {} partitions",
+                                        job_name,
+                                        num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
+                                    );
 
-                                match processor
-                                    .process_multi_job(
-                                        readers,
-                                        writers,
-                                        execution_engine,
-                                        parsed_query,
-                                        job_name.clone(),
-                                        shutdown_receiver,
-                                    )
-                                    .await
-                                {
-                                    Ok(stats) => {
-                                        info!(
-                                            "Job '{}' completed successfully (transactional): {:?}",
-                                            job_name, stats
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "Job '{}' failed (transactional): {:?}",
-                                            job_name, e
-                                        );
+                                    let v2_config = PartitionedJobConfig {
+                                        num_partitions: *num_partitions,
+                                        processing_mode:
+                                            crate::velostream::server::v2::ProcessingMode::Batch {
+                                                size: 1000,
+                                            },
+                                        partition_buffer_size: 1000,
+                                        enable_core_affinity: *enable_core_affinity,
+                                        backpressure_config: Default::default(),
+                                    };
+
+                                    let coordinator = PartitionedJobCoordinator::new(v2_config);
+
+                                    match coordinator
+                                        .process_multi_job(
+                                            readers,
+                                            writers,
+                                            execution_engine.clone(),
+                                            parsed_query,
+                                            job_name.clone(),
+                                            shutdown_receiver,
+                                        )
+                                        .await
+                                    {
+                                        Ok(stats) => {
+                                            info!(
+                                                "Job '{}' completed successfully (V2): {:?}",
+                                                job_name, stats
+                                            );
+                                        }
+                                        Err(e) => {
+                                            error!("Job '{}' failed (V2): {:?}", job_name, e);
+                                        }
                                     }
                                 }
-                            } else {
-                                info!(
-                                    "Job '{}' using simple processor for multi-source processing",
-                                    job_name
-                                );
-                                let processor = SimpleJobProcessor::with_observability(
-                                    config,
-                                    observability_for_spawn.clone(),
-                                );
-                                info!(
-                                    "Job '{}': Created processor with observability: {}",
-                                    job_name,
-                                    observability_for_spawn.is_some()
-                                );
+                                JobProcessorConfig::V1 => {
+                                    info!(
+                                        "Job '{}' using V1 (SimpleJobProcessor) architecture",
+                                        job_name
+                                    );
 
-                                match processor
-                                    .process_multi_job(
-                                        readers,
-                                        writers,
-                                        execution_engine,
-                                        parsed_query,
-                                        job_name.clone(),
-                                        shutdown_receiver,
-                                    )
-                                    .await
-                                {
-                                    Ok(stats) => {
+                                    if use_transactions {
                                         info!(
-                                            "Job '{}' completed successfully (simple): {:?}",
-                                            job_name, stats
+                                            "Job '{}' using transactional processor for multi-source processing",
+                                            job_name
                                         );
-                                    }
-                                    Err(e) => {
-                                        error!("Job '{}' failed (simple): {:?}", job_name, e);
+                                        let processor =
+                                            TransactionalJobProcessor::with_observability(
+                                                config,
+                                                observability_for_spawn.clone(),
+                                            );
+
+                                        match processor
+                                            .process_multi_job(
+                                                readers,
+                                                writers,
+                                                execution_engine,
+                                                parsed_query,
+                                                job_name.clone(),
+                                                shutdown_receiver,
+                                            )
+                                            .await
+                                        {
+                                            Ok(stats) => {
+                                                info!(
+                                                    "Job '{}' completed successfully (transactional): {:?}",
+                                                    job_name, stats
+                                                );
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    "Job '{}' failed (transactional): {:?}",
+                                                    job_name, e
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        info!(
+                                            "Job '{}' using simple processor for multi-source processing",
+                                            job_name
+                                        );
+                                        let processor = SimpleJobProcessor::with_observability(
+                                            config,
+                                            observability_for_spawn.clone(),
+                                        );
+                                        info!(
+                                            "Job '{}': Created processor with observability: {}",
+                                            job_name,
+                                            observability_for_spawn.is_some()
+                                        );
+
+                                        match processor
+                                            .process_multi_job(
+                                                readers,
+                                                writers,
+                                                execution_engine,
+                                                parsed_query,
+                                                job_name.clone(),
+                                                shutdown_receiver,
+                                            )
+                                            .await
+                                        {
+                                            Ok(stats) => {
+                                                info!(
+                                                    "Job '{}' completed successfully (simple): {:?}",
+                                                    job_name, stats
+                                                );
+                                            }
+                                            Err(e) => {
+                                                error!(
+                                                    "Job '{}' failed (simple): {:?}",
+                                                    job_name, e
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
