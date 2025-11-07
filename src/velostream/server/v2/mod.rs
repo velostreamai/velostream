@@ -51,6 +51,7 @@
 
 pub mod coordinator;
 pub mod hash_router;
+pub mod job_processor_v2;
 pub mod metrics;
 pub mod partition_manager;
 pub mod prometheus_exporter;

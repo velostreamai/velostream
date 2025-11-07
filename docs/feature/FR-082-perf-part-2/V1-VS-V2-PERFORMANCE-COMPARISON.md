@@ -1,4 +1,4 @@
-# V1 vs V2 Performance Comparison: All Scenarios
+what i# V1 vs V2 Performance Comparison: All Scenarios
 
 **Date**: November 6, 2025
 **Focus**: Complete performance analysis across all 5 query patterns

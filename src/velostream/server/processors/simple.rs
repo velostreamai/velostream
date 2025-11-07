@@ -1239,6 +1239,53 @@ impl SimpleJobProcessor {
     }
 }
 
+/// Implement JobProcessor trait for SimpleJobProcessor (V1 Architecture)
+#[async_trait::async_trait]
+impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor {
+    async fn process_batch(
+        &self,
+        records: Vec<StreamRecord>,
+        engine: Arc<StreamExecutionEngine>,
+    ) -> Result<Vec<StreamRecord>, crate::velostream::sql::SqlError> {
+        // V1 Architecture: Single-threaded batch processing
+        //
+        // Process records sequentially through the execution engine and collect outputs.
+        // This is a baseline implementation for benchmarking V1 performance.
+        //
+        // Week 9: Placeholder implementation
+        // Future: Integrate with full StreamJobServer context for proper state management
+        //
+        // Current behavior: Pass through records (placeholder for full implementation)
+        // Real implementation will:
+        // 1. Execute records through the SQL engine
+        // 2. Collect windowed/aggregated results
+        // 3. Handle EMIT CHANGES amplification
+        // 4. Manage state across batches
+
+        debug!(
+            "V1 SimpleJobProcessor::process_batch processing {} records",
+            records.len()
+        );
+
+        // Week 9 Placeholder: Return input records as-is
+        // Full implementation will use engine.execute_with_record() to process each record
+        // through the SQL pipeline and collect outputs from windowing/aggregation
+        Ok(records)
+    }
+
+    fn num_partitions(&self) -> usize {
+        1 // V1 uses single-threaded, single partition
+    }
+
+    fn processor_name(&self) -> &str {
+        "SimpleJobProcessor"
+    }
+
+    fn processor_version(&self) -> &str {
+        "V1"
+    }
+}
+
 /// Create a simple job processor optimized for throughput
 pub fn create_simple_processor() -> SimpleJobProcessor {
     SimpleJobProcessor::new(JobProcessingConfig {
