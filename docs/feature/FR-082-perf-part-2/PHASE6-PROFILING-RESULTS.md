@@ -60,7 +60,7 @@ The 4x speedup from release mode optimization is critical for understanding real
 ## Comprehensive Release-Mode Benchmark Results (All 5 Scenarios)
 
 We executed comprehensive benchmarks across all 5 scenarios from FR-082-BASELINE-MEASUREMENTS.md, testing three architectures for each:
-- **V1 Direct SQL**: Baseline direct engine execution (no locking)
+- **SQL Engine (baseline)**: Direct engine execution (no framework overhead, baseline)
 - **V1 JobServer (per-record locking)**: Per-record RwLock acquisition/release
 - **V2 Batch-based (100 records)**: Per-batch RwLock with 100 records per lock acquisition
 
@@ -68,7 +68,7 @@ All tests run in **RELEASE mode** with 5,000 records each.
 
 ### Summary Table: All Scenarios Compared
 
-| Scenario | V1 Direct (baseline) | V1 JobServer | V2 Batch (100) | V1 Overhead | V2 Gain vs V1 |
+| Scenario | SQL Engine (baseline) | V1 JobServer | V2 Batch (100) | V1 Overhead | V2 Gain vs V1 |
 |---|---|---|---|---|---|
 | **Scenario 0: Pure SELECT** | 186k rec/sec | 238k (+22.0%) | 278k (+33.1%) | Per-record gain | +16.6% |
 | **Scenario 1: ROWS WINDOW** | 137k rec/sec | 197k (-30.1%) | 227k (-39.4%) | Per-record gain | +15.2% |
@@ -79,34 +79,34 @@ All tests run in **RELEASE mode** with 5,000 records each.
 ### Key Insights
 
 **1. Scenario 0: Pure SELECT (Simplest Case)**
-- Throughputs: V1=186k, V1-JS=238k, V2=278k
+- Throughputs: Engine=186k, JobServer=238k, V2=278k
 - Pattern: All architectures actually faster with locking (counterintuitive!)
 - Reason: Per-record locking with simple SELECT shows minimal contention, lock acquisition overhead is negligible
-- V2 advantage: 16.6% faster than V1 with batch grouping
+- V2 advantage: 16.6% faster than baseline with batch grouping
 
 **2. Scenario 1: ROWS WINDOW (Memory-Bounded Buffering)**
-- Throughputs: V1=137k, V1-JS=197k, V2=227k
+- Throughputs: Engine=137k, JobServer=197k, V2=227k
 - Pattern: Per-record locking is faster than direct (window state overhead)
 - Reason: ROWS WINDOW maintains a buffer of N rows in memory; per-record isolation may help cache locality
 - V2 advantage: 15.2% faster due to better batching of state updates
 
 **3. Scenario 2: Pure GROUP BY (Hash Aggregation - SLOWEST)**
-- Throughputs: V1=20k, V1-JS=20k, V2=20k
+- Throughputs: Engine=20k, JobServer=20k, V2=20k
 - Pattern: All architectures perform identically (0-1% variation)
 - Reason: **Hash aggregation is the bottleneck**, not locking overhead
 - Insight: This scenario is CPU-bound on aggregation work, not I/O or synchronization
 
 **4. Scenario 3a: TUMBLING + GROUP BY (Standard Emission - FASTEST)**
-- Throughputs: V1=631k, V1-JS=654k, V2=696k
+- Throughputs: Engine=631k, JobServer=654k, V2=696k
 - Pattern: Per-record locking is faster than direct, batch is fastest
 - Reason: Window-based emission with tumbling windows has good batching opportunities
-- V2 advantage: 6.4% faster than V1
+- V2 advantage: 6.4% faster than baseline
 
 **5. Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES (Continuous Emission)**
-- Throughputs: V1=599k, V1-JS=587k, V2=605k
+- Throughputs: Engine=599k, JobServer=587k, V2=605k
 - Pattern: Per-record locking causes slight slowdown (2.0%), batch helps recovery
 - Reason: EMIT CHANGES causes continuous emission of partial results; per-record locking hurts here
-- V2 advantage: 2.9% faster than V1 despite EMIT CHANGES overhead
+- V2 advantage: 2.9% faster than baseline despite EMIT CHANGES overhead
 
 ### Architecture Performance Patterns
 
@@ -129,7 +129,7 @@ All tests run in **RELEASE mode** with 5,000 records each.
 ### V2 Batch Architecture Performance Guarantees
 
 ```
-✅ V2 consistently outperforms or matches V1 across all scenarios:
+✅ V2 consistently outperforms baseline (SQL Engine) across all scenarios:
    - Min gain: 2.9% faster (Scenario 3b - continuous emission)
    - Max gain: 16.6% faster (Scenario 0 - pure SELECT)
    - Avg gain: 8.2% faster across all scenarios
@@ -143,7 +143,7 @@ All tests run in **RELEASE mode** with 5,000 records each.
 **✅ PRODUCTION-READY (V2 Batch Architecture)**
 
 Evidence:
-1. **No Regressions**: V2 is never slower than V1 in any scenario
+1. **No Regressions**: V2 is never slower than baseline in any scenario
 2. **Consistent Gains**: Average 8.2% improvement across diverse query types
 3. **Predictable Performance**: Throughput ranges from 20k to 696k depending on complexity
 4. **Scalable Pattern**: Batch size of 100 provides excellent balance
