@@ -709,7 +709,10 @@ impl PartitionedJobCoordinator {
             let writer = writers_list.pop();
 
             if reader.is_none() || writer.is_none() {
-                warn!("Job '{}': Error getting reader/writer for partition {}", job_name, partition_id);
+                warn!(
+                    "Job '{}': Error getting reader/writer for partition {}",
+                    job_name, partition_id
+                );
                 break;
             }
 

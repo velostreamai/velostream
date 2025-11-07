@@ -423,7 +423,9 @@ async fn profile_realistic_1m_records() {
     );
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();

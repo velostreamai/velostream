@@ -29,7 +29,9 @@ async fn test_transactional_processor_sink_failure() {
     // Create processor and engine
     let processor = create_transactional_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_test_query();
 
     // Create shutdown channel
@@ -95,7 +97,9 @@ async fn test_conservative_simple_processor_failure_handling() {
     // Use conservative processor that fails entire batch on any failure
     let processor = create_conservative_simple_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -144,7 +148,9 @@ async fn test_transactional_processor_writer_commit_tx_failure() {
 
     let processor = create_transactional_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -193,7 +199,9 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
 
     let processor = create_transactional_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -240,7 +248,9 @@ async fn test_simple_processor_sink_failure_continues_processing() {
 
     let processor = create_simple_processor(); // Uses LogAndContinue strategy
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);

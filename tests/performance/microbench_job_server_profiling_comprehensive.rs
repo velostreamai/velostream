@@ -373,7 +373,9 @@ async fn profile_tumbling_window_group_by_1m_records() {
     );
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
 
     let parser = StreamingSqlParser::new();
 
@@ -494,7 +496,9 @@ async fn profile_group_by_aggregations_1m_records() {
     );
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
 
     let parser = StreamingSqlParser::new();
 

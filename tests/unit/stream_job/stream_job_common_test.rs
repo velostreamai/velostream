@@ -181,7 +181,9 @@ async fn test_process_batch_common_success() {
     ];
 
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_simple_query();
     let job_name = "test_batch_processing";
 

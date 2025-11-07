@@ -19,7 +19,7 @@ use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
 };
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionedJobCoordinator, PartitionedJobConfig, ProcessingMode,
+    AlwaysHashStrategy, PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
 };
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
@@ -50,8 +50,14 @@ impl PerformanceTestReader {
     fn create_record(&self, index: u64) -> StreamRecord {
         let mut fields = HashMap::new();
         fields.insert("id".to_string(), FieldValue::Integer(index as i64));
-        fields.insert("group_id".to_string(), FieldValue::Integer((index % 10) as i64));
-        fields.insert("value".to_string(), FieldValue::Integer((index % 100) as i64));
+        fields.insert(
+            "group_id".to_string(),
+            FieldValue::Integer((index % 10) as i64),
+        );
+        fields.insert(
+            "value".to_string(),
+            FieldValue::Integer((index % 100) as i64),
+        );
         fields.insert("source".to_string(), FieldValue::String(self.name.clone()));
 
         StreamRecord {
@@ -67,16 +73,15 @@ impl PerformanceTestReader {
 
 #[async_trait]
 impl DataReader for PerformanceTestReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let yielded = self.records_yielded.load(Ordering::Relaxed);
         if yielded >= self.total_records {
             return Ok(vec![]); // End of stream
         }
 
-        let batch_end = std::cmp::min(
-            yielded + self.batch_size as u64,
-            self.total_records,
-        );
+        let batch_end = std::cmp::min(yielded + self.batch_size as u64, self.total_records);
         let batch_size = (batch_end - yielded) as usize;
 
         let batch: Vec<StreamRecord> = (yielded..batch_end)
@@ -107,7 +112,9 @@ impl DataReader for PerformanceTestReader {
         false
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
@@ -187,7 +194,9 @@ impl DataWriter for PerformanceTestWriter {
         false
     }
 
-    async fn begin_transaction(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    async fn begin_transaction(
+        &mut self,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         Ok(false)
     }
 
@@ -208,7 +217,7 @@ impl DataWriter for PerformanceTestWriter {
 ///
 /// Expected: ~23.7K rec/sec with GROUP BY and SUM aggregations
 #[tokio::test]
-#[ignore]  // Long-running benchmark test - run with --ignored flag
+#[ignore] // Long-running benchmark test - run with --ignored flag
 async fn test_v1_baseline_groupby_sum_100k_records() {
     let config = JobProcessingConfig {
         use_transactions: false,
@@ -227,8 +236,7 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
     let mut readers = HashMap::new();
     readers.insert(
         "input".to_string(),
-        Box::new(PerformanceTestReader::new("input", 100_000, 1000))
-            as Box<dyn DataReader>,
+        Box::new(PerformanceTestReader::new("input", 100_000, 1000)) as Box<dyn DataReader>,
     );
 
     let writer = PerformanceTestWriter::new("output");
@@ -255,7 +263,14 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
 
     let job_handle = tokio::spawn(async move {
         processor
-            .process_multi_job(readers, writers, engine, query, "v1-perf-test".to_string(), shutdown_rx)
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "v1-perf-test".to_string(),
+                shutdown_rx,
+            )
             .await
     });
 
@@ -288,8 +303,7 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
     );
     println!(
         "   Batches: {}, Written: {}, Expected: ~23.7K rec/sec",
-        stats.batches_processed,
-        records_written
+        stats.batches_processed, records_written
     );
 
     // Sanity checks
@@ -301,7 +315,7 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
 ///
 /// Expected: ~95% of V1 with 1 partition (minimal overhead)
 #[tokio::test]
-#[ignore]  // Long-running benchmark test - run with --ignored flag
+#[ignore] // Long-running benchmark test - run with --ignored flag
 async fn test_v2_single_partition_groupby_sum_100k_records() {
     let config = PartitionedJobConfig {
         num_partitions: Some(1),
@@ -311,15 +325,14 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
         backpressure_config: Default::default(),
     };
 
-    let coordinator = PartitionedJobCoordinator::new(config)
-        .with_strategy(Arc::new(AlwaysHashStrategy::new()));
+    let coordinator =
+        PartitionedJobCoordinator::new(config).with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
     // Create readers with 100K records
     let mut readers = HashMap::new();
     readers.insert(
         "input".to_string(),
-        Box::new(PerformanceTestReader::new("input", 100_000, 1000))
-            as Box<dyn DataReader>,
+        Box::new(PerformanceTestReader::new("input", 100_000, 1000)) as Box<dyn DataReader>,
     );
 
     let writer = PerformanceTestWriter::new("output");
@@ -346,7 +359,14 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
 
     let job_handle = tokio::spawn(async move {
         coordinator
-            .process_multi_job(readers, writers, engine, query, "v2-1p-perf-test".to_string(), shutdown_rx)
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "v2-1p-perf-test".to_string(),
+                shutdown_rx,
+            )
             .await
     });
 
@@ -379,8 +399,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
     );
     println!(
         "   Batches: {}, Written: {}, Expected: ~22.5K-23.7K rec/sec (95% of V1)",
-        stats.batches_processed,
-        records_written
+        stats.batches_processed, records_written
     );
 
     // Sanity checks
@@ -392,7 +411,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
 ///
 /// Expected: ~190K rec/sec (8x improvement over V1 baseline)
 #[tokio::test]
-#[ignore]  // Long-running benchmark test - run with --ignored flag
+#[ignore] // Long-running benchmark test - run with --ignored flag
 async fn test_v2_8partition_groupby_sum_100k_records() {
     let config = PartitionedJobConfig {
         num_partitions: Some(8),
@@ -402,15 +421,14 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
         backpressure_config: Default::default(),
     };
 
-    let coordinator = PartitionedJobCoordinator::new(config)
-        .with_strategy(Arc::new(AlwaysHashStrategy::new()));
+    let coordinator =
+        PartitionedJobCoordinator::new(config).with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
     // Create readers with 100K records
     let mut readers = HashMap::new();
     readers.insert(
         "input".to_string(),
-        Box::new(PerformanceTestReader::new("input", 100_000, 1000))
-            as Box<dyn DataReader>,
+        Box::new(PerformanceTestReader::new("input", 100_000, 1000)) as Box<dyn DataReader>,
     );
 
     let writer = PerformanceTestWriter::new("output");
@@ -437,7 +455,14 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
 
     let job_handle = tokio::spawn(async move {
         coordinator
-            .process_multi_job(readers, writers, engine, query, "v2-8p-perf-test".to_string(), shutdown_rx)
+            .process_multi_job(
+                readers,
+                writers,
+                engine,
+                query,
+                "v2-8p-perf-test".to_string(),
+                shutdown_rx,
+            )
             .await
     });
 
@@ -470,8 +495,7 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
     );
     println!(
         "   Batches: {}, Written: {}, Expected: ~190K rec/sec (8x from 23.7K baseline)",
-        stats.batches_processed,
-        records_written
+        stats.batches_processed, records_written
     );
 
     // Sanity checks
