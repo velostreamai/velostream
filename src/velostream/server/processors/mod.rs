@@ -6,6 +6,8 @@
 
 pub mod common;
 pub mod error_tracking_helper;
+pub mod job_processor_config;
+pub mod job_processor_factory;
 pub mod job_processor_trait;
 pub mod metrics_helper;
 pub mod observability_helper;
@@ -16,6 +18,8 @@ pub mod transactional;
 // Re-exports
 pub use common::*;
 pub use error_tracking_helper::ErrorTracker;
+pub use job_processor_config::JobProcessorConfig;
+pub use job_processor_factory::JobProcessorFactory;
 pub use job_processor_trait::JobProcessor;
 pub use metrics_helper::{
     LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,
