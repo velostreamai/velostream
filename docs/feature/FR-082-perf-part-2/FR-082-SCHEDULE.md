@@ -624,9 +624,56 @@ Improvement Factor:           50.2x ✅ EXCEEDS TARGET (30-50x)
 
 ---
 
-### Week 9: State TTL + Recovery (Future)
+### Week 9: V2 Baseline Testing (Before Phase 6)
+**Dates**: December 15-21, 2025
+**Status**: 📅 **PLANNED**
+
+#### Planned Tasks
+- [ ] Set up V2 with PartitionedJobCoordinator (already exists from Phase 2)
+- [ ] Run 8-core baseline benchmarks with Phase 5 optimizations
+- [ ] Validate 191K rec/sec target (8x from V1 23.7K single-core)
+- [ ] Measure scaling efficiency (should be ~100% linear)
+- [ ] Profile remaining 95-98% coordination overhead
+- [ ] Identify bottlenecks preventing better scaling on 8 cores
+
+#### What is V2?
+```
+V1 SimpleJobProcessor (current):
+├─ Single partition
+└─ All records processed sequentially
+   └─ Max: 23.7K rec/sec
+
+V2 PartitionedJobCoordinator (already exists):
+├─ 8 partitions (one per core)
+├─ HashRouter: Distribute by GROUP BY key
+└─ Each partition independent
+   └─ 8 × 23.7K = ~190K rec/sec (if no cross-partition overhead)
+```
+
+#### Expected Results
+- **V2 Single Partition**: 23.7K rec/sec (same as V1, same code)
+- **V2 8-Core**: 191K rec/sec (linear 8x scaling)
+- **Scaling Efficiency**: ~100% (each core independent)
+- **Overhead**: Still 95-98% per core (coordination layer remains)
+
+#### Acceptance Criteria
+- [ ] V2 baseline test passes with 191K rec/sec target
+- [ ] All 460 unit tests passing
+- [ ] 8-core scaling validated
+- [ ] Coordinator output merging working correctly
+- [ ] Ready to start Phase 6 optimizations
+
+#### Key Finding
+**V2 alone does NOT improve single-core performance** (still 23.7K). V2's value is:
+- Parallelization across cores
+- 8x speedup from parallelization alone
+- Foundation for Phase 6-7 single-core optimizations
+
+---
+
+### Week 9.5: State TTL + Recovery (Future)
 **Dates**: December 21-27, 2025
-**Status**: 📅 **PLANNED** (After Phase 8 optimizations complete)
+**Status**: 📅 **PLANNED** (After Phase 7 vectorization complete)
 
 #### Planned Tasks
 - [ ] Add per-partition state TTL cleanup
