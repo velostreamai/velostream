@@ -56,6 +56,8 @@ pub mod metrics;
 pub mod partition_manager;
 pub mod partitioning_strategy;
 pub mod prometheus_exporter;
+pub mod strategy_config;
+pub mod strategy_factory;
 pub mod system_fields;
 pub mod watermark;
 
@@ -71,6 +73,8 @@ pub use partitioning_strategy::{
     AlwaysHashStrategy, PartitioningStrategy, QueryMetadata, RoutingContext,
 };
 pub use prometheus_exporter::PartitionPrometheusExporter;
+pub use strategy_config::{StrategyConfig, StrategyConfigBuilder};
+pub use strategy_factory::StrategyFactory;
 pub use system_fields::{
     WINDOW_END, WINDOW_START, extract_window_fields, has_window_fields, inject_window_end_field,
     inject_window_fields, inject_window_start_field,
