@@ -10,8 +10,8 @@ use crate::velostream::observability::{
 };
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor,
-    create_multi_sink_writers, create_multi_source_readers,
+    FailureStrategy, JobProcessingConfig, JobProcessorConfig, SimpleJobProcessor,
+    TransactionalJobProcessor, create_multi_sink_writers, create_multi_source_readers,
 };
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
@@ -40,6 +40,8 @@ pub struct StreamJobServer {
     table_registry: TableRegistry,
     /// Observability manager for distributed tracing, metrics, and profiling
     observability: Option<SharedObservabilityManager>,
+    /// Job processor architecture configuration (V1 or V2)
+    processor_config: JobProcessorConfig,
 }
 
 pub struct RunningJob {
@@ -114,6 +116,7 @@ impl StreamJobServer {
             performance_monitor: None,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: None,
+            processor_config: JobProcessorConfig::default(),
         }
     }
 
@@ -172,6 +175,7 @@ impl StreamJobServer {
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability,
+            processor_config: JobProcessorConfig::default(),
         }
     }
 
@@ -241,6 +245,7 @@ impl StreamJobServer {
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: observability.clone(),
+            processor_config: JobProcessorConfig::default(),
         };
 
         // Initialize server-level deployment context for system metrics
@@ -320,6 +325,19 @@ impl StreamJobServer {
         }
 
         server
+    }
+
+    /// Set the job processor configuration (V1 or V2)
+    pub fn with_processor_config(mut self, config: JobProcessorConfig) -> Self {
+        let description = config.description();
+        self.processor_config = config;
+        info!("StreamJobServer processor configuration set to: {}", description);
+        self
+    }
+
+    /// Get the current job processor configuration
+    pub fn processor_config(&self) -> &JobProcessorConfig {
+        &self.processor_config
     }
 
     /// Get performance metrics (if monitoring is enabled)
@@ -713,6 +731,7 @@ impl StreamJobServer {
         let topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
+        let processor_config_for_spawn = self.processor_config.clone();
 
         // FR-082 Phase 5: Output handler task no longer needed
         // The engine now owns the output_receiver for EMIT CHANGES support.
@@ -792,6 +811,12 @@ impl StreamJobServer {
                                 config.max_retries,
                                 config.retry_backoff.as_millis(),
                                 config.log_progress
+                            );
+
+                            info!(
+                                "Job '{}' using JobProcessor architecture: {}",
+                                job_name,
+                                processor_config_for_spawn.description()
                             );
 
                             if use_transactions {

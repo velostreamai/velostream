@@ -16,6 +16,7 @@ pub mod sql;
 pub mod sql_integration_test;
 pub mod sql_metrics_integration_test;
 pub mod sql_parser_comprehensive_test;
+pub mod stream_job_server_processor_config_test;
 pub mod table;
 pub mod timeout_config_test;
 pub mod transactions_test;
