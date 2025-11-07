@@ -1,12 +1,27 @@
 //! V2 JobProcessor implementation for PartitionedJobCoordinator
 //!
 //! Implements the JobProcessor trait for multi-partition parallel execution
+//!
+//! ## Critical Architecture Note
+//!
+//! V2 requires GROUP BY key-based routing to maintain state consistency:
+//! - Records with the SAME GROUP BY key MUST go to the SAME partition
+//! - This ensures state aggregations are not fragmented across partitions
+//! - Round-robin by index would break streaming aggregations
+//!
+//! Full implementation requires:
+//! 1. Query context with GROUP BY columns
+//! 2. HashRouter configured with those columns
+//! 3. Per-partition state managers for aggregation
+//!
+//! See: `src/velostream/server/v2/hash_router.rs` for routing logic
 
-use crate::velostream::server::v2::PartitionedJobCoordinator;
+use crate::velostream::server::v2::{PartitionedJobCoordinator, PartitionStrategy, HashRouter};
 use crate::velostream::server::processors::JobProcessor;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::StreamExecutionEngine;
+use crate::velostream::sql::ast::Expr;
 use std::sync::Arc;
 
 /// Implement JobProcessor trait for PartitionedJobCoordinator (V2 Architecture)
@@ -17,42 +32,43 @@ impl JobProcessor for PartitionedJobCoordinator {
     async fn process_batch(
         &self,
         records: Vec<StreamRecord>,
-        engine: Arc<StreamExecutionEngine>,
+        _engine: Arc<StreamExecutionEngine>,
     ) -> Result<Vec<StreamRecord>, SqlError> {
-        // V2 Architecture: Multi-partition parallel processing
+        // V2 Architecture: Multi-partition parallel processing with state consistency
         //
-        // This is a Week 9 placeholder implementation for benchmarking baseline performance.
-        // Full implementation will:
-        // 1. Route records by GROUP BY key using HashRouter
-        // 2. Distribute to N partitions
-        // 3. Process each partition in parallel (tokio::spawn)
-        // 4. Collect results from all partitions
-        // 5. Merge results (dedup if needed)
-        // 6. Return combined output
+        // ## CRITICAL REQUIREMENT
+        // Records with the SAME GROUP BY key MUST always route to the SAME partition.
+        // This is essential for correct stateful aggregations.
         //
-        // Current limitation: Requires query context for proper routing (GROUP BY columns)
-        // This context is available in StreamJobServer and will be integrated in full implementation.
+        // ## Current Limitation (Week 9 Placeholder)
+        // This implementation cannot properly route records because:
+        // 1. We don't have access to the query's GROUP BY columns
+        // 2. We don't have a configured HashRouter
+        // 3. Query context is held by StreamJobServer, not this processor
+        //
+        // ## ARCHITECTURE FLOW (Full Implementation)
+        // Week 9 Task 5 will add this:
+        //
+        // 1. StreamJobServer receives query with GROUP BY columns
+        // 2. StreamJobServer creates HashRouter with those columns
+        // 3. StreamJobServer calls processor.process_batch() with router context
+        // 4. Processor routes each record to correct partition via HashRouter
+        // 5. Each partition processes independently (SQL execution)
+        // 6. Results merge into output stream
+        //
+        // Current placeholder: Pass through records unchanged
+        // This is INCORRECT for aggregations but demonstrates the trait interface.
 
-        // For now, perform basic round-robin distribution across partitions
-        // This demonstrates the partitioning architecture without requiring query context
+        log::debug!(
+            "V2 PartitionedJobCoordinator::process_batch: {} records (placeholder routing)",
+            records.len()
+        );
 
-        let num_partitions = self.num_partitions();
-        let mut partition_outputs: Vec<Vec<StreamRecord>> = vec![Vec::new(); num_partitions];
+        // ⚠️ PLACEHOLDER: This breaks state consistency!
+        // Records should be routed by GROUP BY key, not passed through
+        // Real implementation requires query context from StreamJobServer
 
-        // Simple round-robin distribution to demonstrate multi-partition behavior
-        for (idx, record) in records.into_iter().enumerate() {
-            let partition_id = idx % num_partitions;
-            partition_outputs[partition_id].push(record);
-        }
-
-        // Collect results from all partitions (placeholder: just concatenate)
-        // In real implementation, would process each partition in parallel
-        let mut final_output = Vec::new();
-        for partition_records in partition_outputs {
-            final_output.extend(partition_records);
-        }
-
-        Ok(final_output)
+        Ok(records)
     }
 
     fn num_partitions(&self) -> usize {
