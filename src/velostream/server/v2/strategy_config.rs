@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 /// Strategy selection configuration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StrategyConfig {
     /// Always hash GROUP BY columns to distribute across partitions

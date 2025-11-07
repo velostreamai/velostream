@@ -11,9 +11,9 @@ use std::sync::Arc;
 use velostream::velostream::serialization::FieldValue;
 use velostream::velostream::server::v2::{
     AlwaysHashStrategy, PartitionedJobConfig, PartitionedJobCoordinator, PartitioningStrategy,
-    QueryMetadata, RoutingContext,
+    QueryMetadata, RoundRobinStrategy, RoutingContext, SmartRepartitionStrategy,
+    StickyPartitionStrategy, StrategyFactory, StrategyConfig,
 };
-use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::types::StreamRecord;
 
 /// Test basic strategy configuration with coordinator
@@ -65,7 +65,7 @@ async fn test_deterministic_routing_same_key() {
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
-    let (managers, senders) = coordinator.initialize_partitions();
+    let (_managers, senders) = coordinator.initialize_partitions();
 
     // Create records with same GROUP BY key
     let mut record1 = HashMap::new();
@@ -103,7 +103,7 @@ async fn test_multiple_keys_distribute_across_partitions() {
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
-    let (managers, senders) = coordinator.initialize_partitions();
+    let (_managers, senders) = coordinator.initialize_partitions();
 
     // Create records with different GROUP BY keys
     let records: Vec<StreamRecord> = (0..100)
@@ -177,10 +177,10 @@ async fn test_routing_with_missing_group_by_column_fails() {
 /// Test strategy consistency: multiple keys produce different partitions
 #[test]
 fn test_strategy_distributes_keys_differently() {
-    let strategy = AlwaysHashStrategy::new();
+    let _strategy = AlwaysHashStrategy::new();
 
     // Same key should always hash to same value
-    let routing_context = RoutingContext {
+    let _routing_context = RoutingContext {
         source_partition: None,
         source_partition_key: None,
         group_by_columns: vec!["trader_id".to_string()],
@@ -317,4 +317,237 @@ async fn test_strategy_with_throttling() {
         .await;
 
     assert!(result.is_ok());
+}
+
+/// Test SmartRepartitionStrategy with aligned source partition
+#[tokio::test]
+async fn test_smart_repartition_with_aligned_source() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec!["trader_id".to_string()])
+        .with_strategy(Arc::new(SmartRepartitionStrategy::new()));
+
+    let (_managers, senders) = coordinator.initialize_partitions();
+
+    // Create record
+    let mut record = HashMap::new();
+    record.insert(
+        "trader_id".to_string(),
+        FieldValue::String("trader_1".to_string()),
+    );
+    let records = vec![StreamRecord::new(record)];
+
+    let result = coordinator
+        .process_batch_with_strategy(records, &senders)
+        .await;
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 1);
+}
+
+/// Test RoundRobinStrategy distributes records evenly
+#[tokio::test]
+async fn test_round_robin_even_distribution() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec![]) // RoundRobin works without GROUP BY
+        .with_strategy(Arc::new(RoundRobinStrategy::new()));
+
+    let (_managers, senders) = coordinator.initialize_partitions();
+
+    // Create batch of records for round-robin
+    let records: Vec<StreamRecord> = (0..16)
+        .map(|i| {
+            let mut record = HashMap::new();
+            record.insert("id".to_string(), FieldValue::String(format!("record_{}", i)));
+            StreamRecord::new(record)
+        })
+        .collect();
+
+    let result = coordinator
+        .process_batch_with_strategy(records, &senders)
+        .await;
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 16);
+}
+
+/// Test StickyPartitionStrategy maintains record affinity
+#[tokio::test]
+async fn test_sticky_partition_maintains_affinity() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec!["trader_id".to_string()])
+        .with_strategy(Arc::new(StickyPartitionStrategy::new()));
+
+    let (_managers, senders) = coordinator.initialize_partitions();
+
+    // Create records with same GROUP BY key (should maintain affinity)
+    let records: Vec<StreamRecord> = (1..=5)
+        .map(|i| {
+            let mut record = HashMap::new();
+            record.insert(
+                "trader_id".to_string(),
+                FieldValue::String("trader_1".to_string()),
+            );
+            record.insert("order_id".to_string(), FieldValue::String(format!("order_{}", i)));
+            StreamRecord::new(record)
+        })
+        .collect();
+
+    let result = coordinator
+        .process_batch_with_strategy(records, &senders)
+        .await;
+
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 5);
+}
+
+/// Test all strategies can be created from factory
+#[test]
+fn test_factory_creates_all_strategies() {
+    let test_configs = vec![
+        StrategyConfig::AlwaysHash,
+        StrategyConfig::SmartRepartition,
+        StrategyConfig::RoundRobin,
+        StrategyConfig::StickyPartition,
+    ];
+
+    for config in test_configs {
+        let strategy = StrategyFactory::create(config);
+        assert!(
+            strategy.is_ok(),
+            "Failed to create strategy: {:?}",
+            config
+        );
+        assert!(!strategy.unwrap().name().is_empty());
+    }
+}
+
+/// Test factory string parsing for all strategies
+#[test]
+fn test_factory_string_parsing() {
+    let test_cases = vec![
+        ("always_hash", "AlwaysHash"),
+        ("smart_repartition", "SmartRepartition"),
+        ("round_robin", "RoundRobin"),
+        ("sticky_partition", "StickyPartition"),
+    ];
+
+    for (input, expected_name) in test_cases {
+        let strategy = StrategyFactory::create_from_str(input);
+        assert!(strategy.is_ok(), "Failed to parse '{}'", input);
+        assert_eq!(strategy.unwrap().name(), expected_name);
+    }
+}
+
+/// Test all strategies handle missing required columns gracefully
+#[tokio::test]
+async fn test_all_strategies_fail_on_missing_column() {
+    let strategies: Vec<(&str, Arc<dyn PartitioningStrategy>)> = vec![
+        ("AlwaysHash", Arc::new(AlwaysHashStrategy::new())),
+        ("SmartRepartition", Arc::new(SmartRepartitionStrategy::new())),
+        ("StickyPartition", Arc::new(StickyPartitionStrategy::new())),
+    ];
+
+    for (name, strategy) in strategies {
+        let config = PartitionedJobConfig::default();
+        let coordinator = PartitionedJobCoordinator::new(config)
+            .with_group_by_columns(vec!["trader_id".to_string()])
+            .with_strategy(strategy);
+
+        let (_managers, senders) = coordinator.initialize_partitions();
+
+        // Record missing required GROUP BY column
+        let mut record = HashMap::new();
+        record.insert("price".to_string(), FieldValue::String("100.0".to_string()));
+        let records = vec![StreamRecord::new(record)];
+
+        let result = coordinator
+            .process_batch_with_strategy(records, &senders)
+            .await;
+
+        assert!(result.is_err(), "Strategy {} should fail on missing column", name);
+    }
+}
+
+/// Test strategy consistency across multiple batch operations
+#[tokio::test]
+async fn test_strategy_consistency_across_batches() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec!["trader_id".to_string()])
+        .with_strategy(Arc::new(AlwaysHashStrategy::new()));
+
+    let (_managers, senders) = coordinator.initialize_partitions();
+
+    // Process multiple batches
+    for batch_num in 0..3 {
+        let records: Vec<StreamRecord> = (0..10)
+            .map(|i| {
+                let mut record = HashMap::new();
+                record.insert(
+                    "trader_id".to_string(),
+                    FieldValue::String(format!("trader_{}", (batch_num * 10 + i) % 5)),
+                );
+                record.insert("batch".to_string(), FieldValue::String(format!("{}", batch_num)));
+                StreamRecord::new(record)
+            })
+            .collect();
+
+        let result = coordinator
+            .process_batch_with_strategy(records, &senders)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 10);
+    }
+}
+
+/// Test coordinator with SmartRepartitionStrategy builder
+#[test]
+fn test_coordinator_builder_with_smart_repartition() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec!["trader_id".to_string()])
+        .with_strategy(Arc::new(SmartRepartitionStrategy::new()));
+
+    assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
+}
+
+/// Test coordinator with StickyPartitionStrategy builder
+#[test]
+fn test_coordinator_builder_with_sticky_partition() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec!["trader_id".to_string()])
+        .with_strategy(Arc::new(StickyPartitionStrategy::new()));
+
+    assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
+}
+
+/// Test RoundRobinStrategy validation
+#[test]
+fn test_round_robin_validation_rejects_group_by() {
+    let strategy = RoundRobinStrategy::new();
+
+    let metadata_with_group_by = QueryMetadata {
+        group_by_columns: vec!["trader_id".to_string()],
+        has_window: false,
+        num_partitions: 8,
+        num_cpu_slots: 8,
+    };
+
+    // RoundRobin should reject GROUP BY (breaks aggregations)
+    assert!(strategy.validate(&metadata_with_group_by).is_err());
+
+    // But it should accept no GROUP BY (pass-through)
+    let metadata_no_group_by = QueryMetadata {
+        group_by_columns: vec![],
+        has_window: false,
+        num_partitions: 8,
+        num_cpu_slots: 8,
+    };
+
+    assert!(strategy.validate(&metadata_no_group_by).is_ok());
 }

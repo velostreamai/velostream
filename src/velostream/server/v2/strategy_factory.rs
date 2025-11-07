@@ -5,7 +5,7 @@
 use crate::velostream::sql::error::SqlError;
 use std::sync::Arc;
 
-use super::{AlwaysHashStrategy, PartitioningStrategy, SmartRepartitionStrategy, StrategyConfig};
+use super::{AlwaysHashStrategy, PartitioningStrategy, RoundRobinStrategy, SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig};
 
 /// Factory for creating strategies from configuration
 pub struct StrategyFactory;
@@ -28,12 +28,8 @@ impl StrategyFactory {
         match config {
             StrategyConfig::AlwaysHash => Ok(Arc::new(AlwaysHashStrategy::new())),
             StrategyConfig::SmartRepartition => Ok(Arc::new(SmartRepartitionStrategy::new())),
-            StrategyConfig::RoundRobin => Err(SqlError::ConfigurationError {
-                message: "RoundRobinStrategy - coming in Phase 3".to_string(),
-            }),
-            StrategyConfig::StickyPartition => Err(SqlError::ConfigurationError {
-                message: "StickyPartitionStrategy - coming in Phase 3".to_string(),
-            }),
+            StrategyConfig::RoundRobin => Ok(Arc::new(RoundRobinStrategy::new())),
+            StrategyConfig::StickyPartition => Ok(Arc::new(StickyPartitionStrategy::new())),
         }
     }
 
@@ -92,8 +88,18 @@ mod tests {
     }
 
     #[test]
-    fn test_factory_unimplemented_strategies() {
-        assert!(StrategyFactory::create(StrategyConfig::RoundRobin).is_err());
-        assert!(StrategyFactory::create(StrategyConfig::StickyPartition).is_err());
+    fn test_factory_create_round_robin() {
+        let strategy = StrategyFactory::create(StrategyConfig::RoundRobin);
+        assert!(strategy.is_ok());
+        let strategy = strategy.unwrap();
+        assert_eq!(strategy.name(), "RoundRobin");
+    }
+
+    #[test]
+    fn test_factory_create_sticky_partition() {
+        let strategy = StrategyFactory::create(StrategyConfig::StickyPartition);
+        assert!(strategy.is_ok());
+        let strategy = strategy.unwrap();
+        assert_eq!(strategy.name(), "StickyPartition");
     }
 }
