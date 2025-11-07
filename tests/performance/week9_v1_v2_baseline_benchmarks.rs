@@ -64,7 +64,6 @@ fn create_test_engine() -> Arc<StreamExecutionEngine> {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v1_baseline_throughput_100_records() {
     println!("\n=== WEEK 9: V1 BASELINE THROUGHPUT (100 records) ===\n");
 
@@ -114,7 +113,6 @@ async fn week9_v1_baseline_throughput_100_records() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v1_baseline_throughput_1000_records() {
     println!("\n=== WEEK 9: V1 BASELINE THROUGHPUT (1000 records) ===\n");
 
@@ -163,7 +161,6 @@ async fn week9_v1_baseline_throughput_1000_records() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v2_baseline_throughput_100_records() {
     println!("\n=== WEEK 9: V2 BASELINE THROUGHPUT (100 records) ===\n");
 
@@ -216,7 +213,6 @@ async fn week9_v2_baseline_throughput_100_records() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v2_baseline_throughput_1000_records() {
     println!("\n=== WEEK 9: V2 BASELINE THROUGHPUT (1000 records) ===\n");
 
@@ -269,7 +265,6 @@ async fn week9_v2_baseline_throughput_1000_records() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v1_v2_comparison_4_partitions() {
     println!("\n=== WEEK 9: V1 vs V2 COMPARISON (4 partitions) ===\n");
 
@@ -333,7 +328,6 @@ async fn week9_v1_v2_comparison_4_partitions() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v1_v2_comparison_8_partitions() {
     println!("\n=== WEEK 9: V1 vs V2 COMPARISON (8 partitions) ===\n");
 
@@ -397,7 +391,6 @@ async fn week9_v1_v2_comparison_8_partitions() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "comprehensive-tests"), ignore)]
 async fn week9_v2_scaling_efficiency_across_partitions() {
     println!("\n=== WEEK 9: V2 SCALING EFFICIENCY ACROSS PARTITIONS ===\n");
 
