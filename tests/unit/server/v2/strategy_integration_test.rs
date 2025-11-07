@@ -12,7 +12,7 @@ use velostream::velostream::serialization::FieldValue;
 use velostream::velostream::server::v2::{
     AlwaysHashStrategy, PartitionedJobConfig, PartitionedJobCoordinator, PartitioningStrategy,
     QueryMetadata, RoundRobinStrategy, RoutingContext, SmartRepartitionStrategy,
-    StickyPartitionStrategy, StrategyFactory, StrategyConfig,
+    StickyPartitionStrategy, StrategyConfig, StrategyFactory,
 };
 use velostream::velostream::sql::execution::types::StreamRecord;
 
@@ -329,8 +329,12 @@ async fn test_smart_repartition_with_aligned_source() {
 
     let (_managers, senders) = coordinator.initialize_partitions();
 
-    // Create record
+    // Create record with __partition__ field (for aligned data detection)
     let mut record = HashMap::new();
+    record.insert(
+        "__partition__".to_string(),
+        FieldValue::Integer(2), // Partition field for natural partitioning
+    );
     record.insert(
         "trader_id".to_string(),
         FieldValue::String("trader_1".to_string()),
@@ -359,7 +363,10 @@ async fn test_round_robin_even_distribution() {
     let records: Vec<StreamRecord> = (0..16)
         .map(|i| {
             let mut record = HashMap::new();
-            record.insert("id".to_string(), FieldValue::String(format!("record_{}", i)));
+            record.insert(
+                "id".to_string(),
+                FieldValue::String(format!("record_{}", i)),
+            );
             StreamRecord::new(record)
         })
         .collect();
@@ -382,15 +389,22 @@ async fn test_sticky_partition_maintains_affinity() {
 
     let (_managers, senders) = coordinator.initialize_partitions();
 
-    // Create records with same GROUP BY key (should maintain affinity)
+    // Create records with same GROUP BY key (should maintain affinity via __partition__ field)
     let records: Vec<StreamRecord> = (1..=5)
         .map(|i| {
             let mut record = HashMap::new();
             record.insert(
+                "__partition__".to_string(),
+                FieldValue::Integer((i as i64) % 8), // Use partition field for affinity
+            );
+            record.insert(
                 "trader_id".to_string(),
                 FieldValue::String("trader_1".to_string()),
             );
-            record.insert("order_id".to_string(), FieldValue::String(format!("order_{}", i)));
+            record.insert(
+                "order_id".to_string(),
+                FieldValue::String(format!("order_{}", i)),
+            );
             StreamRecord::new(record)
         })
         .collect();
@@ -415,11 +429,7 @@ fn test_factory_creates_all_strategies() {
 
     for config in test_configs {
         let strategy = StrategyFactory::create(config);
-        assert!(
-            strategy.is_ok(),
-            "Failed to create strategy: {:?}",
-            config
-        );
+        assert!(strategy.is_ok(), "Failed to create strategy: {:?}", config);
         assert!(!strategy.unwrap().name().is_empty());
     }
 }
@@ -446,7 +456,10 @@ fn test_factory_string_parsing() {
 async fn test_all_strategies_fail_on_missing_column() {
     let strategies: Vec<(&str, Arc<dyn PartitioningStrategy>)> = vec![
         ("AlwaysHash", Arc::new(AlwaysHashStrategy::new())),
-        ("SmartRepartition", Arc::new(SmartRepartitionStrategy::new())),
+        (
+            "SmartRepartition",
+            Arc::new(SmartRepartitionStrategy::new()),
+        ),
         ("StickyPartition", Arc::new(StickyPartitionStrategy::new())),
     ];
 
@@ -467,7 +480,11 @@ async fn test_all_strategies_fail_on_missing_column() {
             .process_batch_with_strategy(records, &senders)
             .await;
 
-        assert!(result.is_err(), "Strategy {} should fail on missing column", name);
+        assert!(
+            result.is_err(),
+            "Strategy {} should fail on missing column",
+            name
+        );
     }
 }
 
@@ -490,7 +507,10 @@ async fn test_strategy_consistency_across_batches() {
                     "trader_id".to_string(),
                     FieldValue::String(format!("trader_{}", (batch_num * 10 + i) % 5)),
                 );
-                record.insert("batch".to_string(), FieldValue::String(format!("{}", batch_num)));
+                record.insert(
+                    "batch".to_string(),
+                    FieldValue::String(format!("{}", batch_num)),
+                );
                 StreamRecord::new(record)
             })
             .collect();

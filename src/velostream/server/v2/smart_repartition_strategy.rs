@@ -28,7 +28,7 @@
 //! Result: 100% repartitioning (source key ≠ GROUP BY key, falls back to hashing)
 
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -102,41 +102,46 @@ impl PartitioningStrategy for SmartRepartitionStrategy {
         record: &StreamRecord,
         context: &RoutingContext,
     ) -> Result<usize, SqlError> {
-        // Strategy: Check if source partition key matches GROUP BY columns
-        // If yes, use source partition (no repartitioning)
-        // If no, fall back to hashing GROUP BY columns
+        // Strategy: Check if source partition key matches GROUP BY columns (alignment detection)
+        // If aligned: use __partition__ field directly from record (0% overhead!)
+        // If misaligned: fall back to hashing GROUP BY columns (8% overhead)
 
-        match &context.source_partition_key {
-            Some(source_key) if source_key == &context.group_by_columns.join(",") => {
-                // Perfect alignment! Use source partition directly
-                self.natural_partition_hits.fetch_add(1, Ordering::Relaxed);
-                Ok(context.source_partition.unwrap_or(0) % context.num_partitions)
-            }
-            _ => {
-                // Misaligned or no source partition info
-                // Fall back to hashing GROUP BY columns
-                self.repartition_hits.fetch_add(1, Ordering::Relaxed);
+        let is_aligned = match &context.source_partition_key {
+            Some(source_key) => source_key == &context.group_by_columns.join(","),
+            None => false,
+        };
 
-                let mut key_values = Vec::with_capacity(context.group_by_columns.len());
-                for column in &context.group_by_columns {
-                    let value = record
-                        .get_field(column)
-                        .ok_or_else(|| SqlError::ExecutionError {
-                            message: format!(
-                                "SmartRepartitionStrategy: Column '{}' not found in record",
-                                column
-                            ),
-                            query: None,
-                        })?
-                        .to_display_string();
-                    key_values.push(value);
+        // Primary path: If aligned, use __partition__ field directly (zero overhead!)
+        if is_aligned {
+            if let Some(partition_value) = record.get_field("__partition__") {
+                if let FieldValue::Integer(partition_id) = partition_value {
+                    self.natural_partition_hits.fetch_add(1, Ordering::Relaxed);
+                    return Ok((*partition_id as usize) % context.num_partitions);
                 }
-
-                let key_refs: Vec<&str> = key_values.iter().map(|s| s.as_str()).collect();
-                let hash = self.hash_group_key(&key_refs);
-                Ok((hash as usize) % context.num_partitions)
             }
         }
+
+        // Fallback path: If misaligned or __partition__ field missing, hash GROUP BY columns
+        self.repartition_hits.fetch_add(1, Ordering::Relaxed);
+
+        let mut key_values = Vec::with_capacity(context.group_by_columns.len());
+        for column in &context.group_by_columns {
+            let value = record
+                .get_field(column)
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!(
+                        "SmartRepartitionStrategy: Column '{}' not found in record",
+                        column
+                    ),
+                    query: None,
+                })?
+                .to_display_string();
+            key_values.push(value);
+        }
+
+        let key_refs: Vec<&str> = key_values.iter().map(|s| s.as_str()).collect();
+        let hash = self.hash_group_key(&key_refs);
+        Ok((hash as usize) % context.num_partitions)
     }
 
     fn name(&self) -> &str {
@@ -220,6 +225,7 @@ mod tests {
         let strategy = SmartRepartitionStrategy::new();
 
         let mut record = HashMap::new();
+        record.insert("__partition__".to_string(), FieldValue::Integer(2));
         record.insert(
             "trader_id".to_string(),
             FieldValue::String("trader_1".to_string()),
@@ -239,7 +245,7 @@ mod tests {
             .await
             .unwrap();
 
-        // With alignment, should use source partition (2 % 8 = 2)
+        // With alignment, should use __partition__ field directly (0% overhead!)
         assert_eq!(partition, 2);
         assert_eq!(strategy.natural_partition_hits(), 1);
         assert_eq!(strategy.repartition_hits(), 0);

@@ -17,8 +17,8 @@
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{PartitioningStrategy, QueryMetadata, RoutingContext};
 
@@ -56,7 +56,8 @@ impl PartitioningStrategy for RoundRobinStrategy {
         context: &RoutingContext,
     ) -> Result<usize, SqlError> {
         // Simple round-robin: use atomic counter modulo partition count
-        let partition_id = self.next_partition.fetch_add(1, Ordering::Relaxed) % context.num_partitions;
+        let partition_id =
+            self.next_partition.fetch_add(1, Ordering::Relaxed) % context.num_partitions;
         Ok(partition_id)
     }
 
@@ -124,8 +125,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_round_robin_distribution() {
-        use std::collections::HashMap;
         use crate::velostream::sql::execution::types::StreamRecord;
+        use std::collections::HashMap;
 
         let strategy = RoundRobinStrategy::new();
 
@@ -141,7 +142,10 @@ mod tests {
         let mut partitions = vec![];
         for _ in 0..8 {
             let record = StreamRecord::new(HashMap::new());
-            let partition = strategy.route_record(&record, &routing_context).await.unwrap();
+            let partition = strategy
+                .route_record(&record, &routing_context)
+                .await
+                .unwrap();
             partitions.push(partition);
         }
 
@@ -151,8 +155,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_round_robin_wraps_around() {
-        use std::collections::HashMap;
         use crate::velostream::sql::execution::types::StreamRecord;
+        use std::collections::HashMap;
 
         let strategy = RoundRobinStrategy::new();
 
@@ -168,7 +172,10 @@ mod tests {
         let mut partitions = vec![];
         for _ in 0..10 {
             let record = StreamRecord::new(HashMap::new());
-            let partition = strategy.route_record(&record, &routing_context).await.unwrap();
+            let partition = strategy
+                .route_record(&record, &routing_context)
+                .await
+                .unwrap();
             partitions.push(partition);
         }
 

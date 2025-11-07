@@ -5,7 +5,10 @@
 use crate::velostream::sql::error::SqlError;
 use std::sync::Arc;
 
-use super::{AlwaysHashStrategy, PartitioningStrategy, RoundRobinStrategy, SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig};
+use super::{
+    AlwaysHashStrategy, PartitioningStrategy, RoundRobinStrategy, SmartRepartitionStrategy,
+    StickyPartitionStrategy, StrategyConfig,
+};
 
 /// Factory for creating strategies from configuration
 pub struct StrategyFactory;

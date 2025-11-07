@@ -18,11 +18,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::server::v2::{
     AlwaysHashStrategy, PartitioningStrategy, RoundRobinStrategy, RoutingContext,
     SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig, StrategyFactory,
 };
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Generate test records for benchmark
 fn generate_benchmark_records(count: usize) -> Vec<StreamRecord> {
@@ -370,18 +370,26 @@ fn fr082_v1_v2_architecture_comparison() {
     println!("{}", "─".repeat(80));
 
     let strategies = vec![
-        ("AlwaysHash",
-         "Mixed workloads, guaranteed consistency",
-         "100% state consistency, 5-10% overhead"),
-        ("SmartRepartition",
-         "Pre-partitioned Kafka topics",
-         "30-50% improvement on aligned data"),
-        ("StickyPartition",
-         "Latency-sensitive pipelines",
-         "40-60% latency improvement"),
-        ("RoundRobin",
-         "Non-aggregated pass-through",
-         "Maximum throughput, no aggregations"),
+        (
+            "AlwaysHash",
+            "Mixed workloads, guaranteed consistency",
+            "100% state consistency, 5-10% overhead",
+        ),
+        (
+            "SmartRepartition",
+            "Pre-partitioned Kafka topics",
+            "30-50% improvement on aligned data",
+        ),
+        (
+            "StickyPartition",
+            "Latency-sensitive pipelines",
+            "40-60% latency improvement",
+        ),
+        (
+            "RoundRobin",
+            "Non-aggregated pass-through",
+            "Maximum throughput, no aggregations",
+        ),
     ];
 
     for (strategy, use_case, benefit) in strategies {

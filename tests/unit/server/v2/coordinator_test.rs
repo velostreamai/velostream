@@ -376,33 +376,5 @@ fn test_calculate_throttle_delay_disabled() {
     assert_eq!(delay.as_nanos(), 0);
 }
 
-#[tokio::test]
-async fn test_process_batch_with_throttling() {
-    use velostream::velostream::server::v2::{HashRouter, PartitionStrategy};
-
-    let config = PartitionedJobConfig {
-        num_partitions: Some(2),
-        ..Default::default()
-    };
-    let coordinator = PartitionedJobCoordinator::new(config);
-
-    let router = HashRouter::new(2, PartitionStrategy::RoundRobin);
-    let (managers, senders) = coordinator.initialize_partitions();
-
-    // Create test records
-    let records = vec![create_test_record("TRADER1"), create_test_record("TRADER2")];
-
-    // Collect partition metrics
-    let partition_metrics: Vec<_> = managers.iter().map(|m| m.metrics()).collect();
-
-    // Process batch with throttling
-    // Note: Channels have no receivers (dropped in initialize_partitions),
-    // so records won't actually be sent, but method should complete without error
-    let result = coordinator
-        .process_batch_with_throttling(records, &router, &senders, &partition_metrics)
-        .await;
-
-    // Verify no errors during processing
-    // (Record count will be 0 since channels have no receivers)
-    assert!(result.is_ok());
-}
+// Test removed: process_batch_with_throttling was replaced with process_batch_with_strategy_and_throttling
+// Use strategy integration tests instead (tests/unit/server/v2/strategy_integration_test.rs)
