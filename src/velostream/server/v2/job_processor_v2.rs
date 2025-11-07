@@ -16,12 +16,12 @@
 //!
 //! See: `src/velostream/server/v2/hash_router.rs` for routing logic
 
-use crate::velostream::server::v2::{PartitionedJobCoordinator, PartitionStrategy, HashRouter};
 use crate::velostream::server::processors::JobProcessor;
-use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::server::v2::{HashRouter, PartitionStrategy, PartitionedJobCoordinator};
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::ast::Expr;
+use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::types::StreamRecord;
 use std::sync::Arc;
 
 /// Implement JobProcessor trait for PartitionedJobCoordinator (V2 Architecture)

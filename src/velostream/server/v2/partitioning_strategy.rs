@@ -127,14 +127,12 @@ impl PartitioningStrategy for AlwaysHashStrategy {
         for column in &context.group_by_columns {
             let value = record
                 .get_field(column)
-                .ok_or_else(|| {
-                    SqlError::ExecutionError {
-                        message: format!(
-                            "AlwaysHashStrategy: Column '{}' not found in record",
-                            column
-                        ),
-                        query: None,
-                    }
+                .ok_or_else(|| SqlError::ExecutionError {
+                    message: format!(
+                        "AlwaysHashStrategy: Column '{}' not found in record",
+                        column
+                    ),
+                    query: None,
                 })?
                 .to_display_string();
 
@@ -217,7 +215,10 @@ mod tests {
         let hash3 = strategy.hash_group_key(&key3);
 
         assert_eq!(hash1, hash2, "Same key should produce same hash");
-        assert_ne!(hash1, hash3, "Different keys should produce different hashes");
+        assert_ne!(
+            hash1, hash3,
+            "Different keys should produce different hashes"
+        );
 
         // Verify modulo consistency
         assert_eq!(hash1 as usize % 8, hash2 as usize % 8);

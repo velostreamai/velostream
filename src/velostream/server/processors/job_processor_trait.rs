@@ -3,10 +3,10 @@
 //! This trait allows swapping between different job processing architectures (V1, V2, etc.)
 //! at runtime based on configuration, enabling easy A/B testing and gradual migration.
 
-use async_trait::async_trait;
+use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
-use crate::velostream::sql::StreamExecutionEngine;
+use async_trait::async_trait;
 use std::sync::Arc;
 
 /// Trait for flexible job processing architectures
