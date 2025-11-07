@@ -835,6 +835,12 @@ impl StreamJobServer {
                                         num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
                                     );
 
+                                    // Extract partitioning strategy from query properties if specified
+                                    let partitioning_strategy =
+                                        Self::extract_partitioning_strategy_from_query(
+                                            &parsed_query,
+                                        );
+
                                     let v2_config = PartitionedJobConfig {
                                         num_partitions: *num_partitions,
                                         processing_mode:
@@ -844,6 +850,7 @@ impl StreamJobServer {
                                         partition_buffer_size: 1000,
                                         enable_core_affinity: *enable_core_affinity,
                                         backpressure_config: Default::default(),
+                                        partitioning_strategy,
                                     };
 
                                     let coordinator = PartitionedJobCoordinator::new(v2_config);
@@ -1538,6 +1545,26 @@ impl StreamJobServer {
         }
 
         config
+    }
+
+    /// Extract partitioning strategy from SQL query properties
+    ///
+    /// Supports specifying the partitioning strategy via SQL annotations:
+    ///
+    /// Example:
+    /// ```sql
+    /// -- partitioning_strategy: smart_repartition
+    /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
+    /// ```
+    ///
+    /// Supported strategies:
+    /// - "always_hash" (default): Hashes GROUP BY columns, guarantees correctness
+    /// - "smart_repartition": Detects if source partition key matches GROUP BY key
+    /// - "sticky_partition": Uses source partition affinity, zero data movement
+    /// - "round_robin": Distributes evenly, only for non-aggregated queries
+    fn extract_partitioning_strategy_from_query(query: &StreamingQuery) -> Option<String> {
+        let properties = Self::get_query_properties(query);
+        properties.get("partitioning_strategy").cloned()
     }
 
     /// Extract properties from different query types

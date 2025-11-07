@@ -34,6 +34,10 @@ pub struct PartitionedJobConfig {
 
     /// Backpressure configuration
     pub backpressure_config: BackpressureConfig,
+
+    /// Partitioning strategy name (e.g., "always_hash", "smart_repartition", "sticky_partition", "round_robin")
+    /// If None, defaults to AlwaysHashStrategy (safest default)
+    pub partitioning_strategy: Option<String>,
 }
 
 impl Default for PartitionedJobConfig {
@@ -44,6 +48,7 @@ impl Default for PartitionedJobConfig {
             partition_buffer_size: 1000,
             enable_core_affinity: false,
             backpressure_config: BackpressureConfig::default(),
+            partitioning_strategy: None, // Will default to AlwaysHashStrategy
         }
     }
 }
@@ -178,11 +183,29 @@ impl PartitionedJobCoordinator {
 
         let num_cpu_slots = num_cpus::get().max(1);
 
+        // Use configured strategy if provided, otherwise default to AlwaysHashStrategy
+        let strategy = if let Some(strategy_name) = &config.partitioning_strategy {
+            match crate::velostream::server::v2::StrategyFactory::create_from_str(strategy_name) {
+                Ok(s) => {
+                    info!("Using partitioning strategy: {}", strategy_name);
+                    s
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to load strategy '{}': {}. Falling back to AlwaysHashStrategy",
+                        strategy_name, e
+                    );
+                    Arc::new(AlwaysHashStrategy::new())
+                }
+            }
+        } else {
+            Arc::new(AlwaysHashStrategy::new())
+        };
+
         Self {
             config,
             num_partitions,
-            // Default to AlwaysHashStrategy for safety
-            strategy: Arc::new(AlwaysHashStrategy::new()),
+            strategy,
             group_by_columns: Vec::new(),
             num_cpu_slots,
         }

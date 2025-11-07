@@ -78,7 +78,7 @@ async fn profile_v2_1p_breakdown() {
 
         // Phase 2b: Route simulation (local hash)
         let route_start = Instant::now();
-        let _target = idx % 1; // Always partition 0 for 1 partition
+        let _target = 0; // Always partition 0 for 1 partition
         total_route_time += route_start.elapsed();
 
         // Phase 2c: RwLock write for state mutation (execute_with_record requires &mut self)
