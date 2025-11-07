@@ -10,6 +10,7 @@ pub mod phase5_window_integration_test;
 pub mod phase6_all_scenarios_release_benchmark;
 pub mod phase6_batch_profiling;
 pub mod phase6_lockless_stp;
+pub mod phase6_output_overhead_analysis;
 pub mod phase6_profiling_breakdown;
 pub mod phase6_raw_engine_performance;
 pub mod phase6_stp_bottleneck_analysis;
