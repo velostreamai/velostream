@@ -1248,33 +1248,45 @@ impl SimpleJobProcessor {
 impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor {
     async fn process_batch(
         &self,
-        records: Vec<StreamRecord>,
-        engine: Arc<StreamExecutionEngine>,
+        _records: Vec<StreamRecord>,
+        _engine: Arc<StreamExecutionEngine>,
     ) -> Result<Vec<StreamRecord>, crate::velostream::sql::SqlError> {
         // V1 Architecture: Single-threaded batch processing
         //
-        // Process records sequentially through the execution engine and collect outputs.
-        // This is a baseline implementation for benchmarking V1 performance.
+        // Week 9 Baseline Implementation Notes:
         //
-        // Week 9: Placeholder implementation
-        // Future: Integrate with full StreamJobServer context for proper state management
+        // The JobProcessor trait's process_batch() method provides a simplified interface
+        // for batch processing. However, full implementation requires query context
+        // (GROUP BY columns, etc.) which is not passed via this trait method.
         //
-        // Current behavior: Pass through records (placeholder for full implementation)
-        // Real implementation will:
-        // 1. Execute records through the SQL engine
-        // 2. Collect windowed/aggregated results
-        // 3. Handle EMIT CHANGES amplification
-        // 4. Manage state across batches
+        // Current Architecture:
+        // - Full processing happens in process_multi_job() with complete query context
+        // - process_batch() serves as a lightweight interface for:
+        //   * Testing and benchmarking the processor trait
+        //   * Future integration with alternate architectures
+        //
+        // V1 Baseline Characteristics:
+        // - Single-threaded processing
+        // - Single partition (num_partitions = 1)
+        // - Sequential record processing
+        // - State aggregation happens in QueryProcessor (via process_multi_job)
+        //
+        // To properly implement process_batch() with full SQL execution:
+        // 1. Extend JobProcessor trait to pass query context
+        // 2. Create HashRouter for GROUP BY key extraction
+        // 3. Call engine.execute_with_record() for each record
+        // 4. Collect results from output channel
+        //
+        // This will be completed in Week 9 Part B after V2 integration is validated.
 
         debug!(
-            "V1 SimpleJobProcessor::process_batch processing {} records",
-            records.len()
+            "V1 SimpleJobProcessor::process_batch (Week 9 baseline) - {} records",
+            _records.len()
         );
 
-        // Week 9 Placeholder: Return input records as-is
-        // Full implementation will use engine.execute_with_record() to process each record
-        // through the SQL pipeline and collect outputs from windowing/aggregation
-        Ok(records)
+        // For now, return records as-is (pass-through for interface validation)
+        // Real implementation will execute through engine
+        Ok(_records)
     }
 
     fn num_partitions(&self) -> usize {

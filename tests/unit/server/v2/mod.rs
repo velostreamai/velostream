@@ -7,3 +7,4 @@ pub mod partition_manager_test;
 pub mod phase4_system_fields_test;
 pub mod phase5_window_integration_test;
 pub mod strategy_integration_test;
+pub mod week9_v1_v2_comparison_test;
