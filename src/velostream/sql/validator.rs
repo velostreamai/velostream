@@ -342,7 +342,7 @@ impl SqlValidator {
         }
 
         // Check if name starts with a number
-        if name.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        if name.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             self.add_warning(format!(
                 "{} name '{}' starts with a number - this may cause parsing issues",
                 entity_type, name
@@ -423,7 +423,7 @@ impl SqlValidator {
         // Check for long retention without compact model
         if let Some(retention_str) = retention {
             if let Some(days) = self.parse_retention_days(retention_str) {
-                if days > 30 && table_model.map_or(true, |m| m == "normal") {
+                if days > 30 && table_model.is_none_or(|m| m == "normal") {
                     self.add_warning(
                         format!(
                             "Long retention ({}) with 'normal' table model may cause high memory usage. Consider using 'table_model' = 'compact'",
@@ -1823,9 +1823,9 @@ impl SubqueryAnalyzer {
                 when_clauses.iter().any(|(condition, result)| {
                     self.has_correlation_in_expr(condition, local_tables)
                         || self.has_correlation_in_expr(result, local_tables)
-                }) || else_clause.as_ref().map_or(false, |expr| {
-                    self.has_correlation_in_expr(expr, local_tables)
-                })
+                }) || else_clause
+                    .as_ref()
+                    .is_some_and(|expr| self.has_correlation_in_expr(expr, local_tables))
             }
             Expr::Subquery { query, .. } => self.has_correlation_patterns(query),
             _ => false,

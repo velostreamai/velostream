@@ -784,11 +784,8 @@ impl RowsWindowState {
         self.record_count += 1;
 
         // Update ranking index
-        let index = (self.row_buffer.len() - 1) as usize;
-        self.ranking_index
-            .entry(timestamp)
-            .or_insert_with(Vec::new)
-            .push(index);
+        let index = self.row_buffer.len() - 1;
+        self.ranking_index.entry(timestamp).or_default().push(index);
 
         // Check if buffer is full
         self.row_buffer.len() >= self.buffer_size as usize

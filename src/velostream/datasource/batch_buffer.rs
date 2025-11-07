@@ -170,12 +170,14 @@ impl ParallelBatchProcessor {
         F: Fn(&[Arc<StreamRecord>]) + Send + Sync,
     {
         if self.enabled && batches.len() > 1 {
+            #[allow(unexpected_cfgs)]
             #[cfg(feature = "parallel")]
             {
                 use rayon::prelude::*;
                 batches.par_iter().for_each(|batch| f(batch));
             }
 
+            #[allow(unexpected_cfgs)]
             #[cfg(not(feature = "parallel"))]
             {
                 // Fallback to sequential processing if parallel feature not enabled

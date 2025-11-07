@@ -256,7 +256,7 @@ async fn run_raw_performance_test(
                             // Log progress every 5000 messages
                             let count =
                                 metrics.messages_received.fetch_add(1, Ordering::Relaxed) + 1;
-                            if count % 5000 == 0 {
+                            if count.is_multiple_of(5000) {
                                 let stats = metrics.get_throughput_stats();
                                 println!(
                                     "🔥 Raw Progress: {}/{} msgs ({:.1} msg/s, {:.1} MB/s)",

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::time::Instant;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::unified_table::{OptimizedTableImpl, UnifiedTable};
 

@@ -599,7 +599,7 @@ impl StreamJobServer {
         let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
 
         // Create execution engine for this job with query-driven format
-        let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
+        let (output_sender, output_receiver) = mpsc::unbounded_channel();
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
 
         // FR-082 Phase 5: Set output receiver for EMIT CHANGES support

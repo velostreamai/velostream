@@ -12,7 +12,14 @@
 - Always check the code for correctness.
 - Never assume that it is ok to perform a 'workaround' with consent first
 - Always look for opportunities to improve the code. (refactoring, code restructuring, etc.)
-
+- NEVER use Mocks in the codebase - only in Tests where it is needed
+- Always fix ALL compilation errors before marking any task as complete.
+- Always fix ALL test failures before marking any task as complete.
+- Always ensure that the code compiles and passes all tests before marking any task as complete.
+- Always ensure that the code passes all pre-commit checks before marking any task as complete.
+- Always ensure that the code passes all CI/CD checks before marking any task as complete.
+- Always check CLIPPY errors and fix them before marking any task as complete.
+- Look at run-commit.sh for pre-commit checks and ensure that all checks pass before marking any task as complete.
 
 ## Project Overview
 

@@ -364,6 +364,7 @@ async fn main() -> velostream::velostream::error::VeloResult<()> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn deploy_sql_application_from_file(
     file_path: String,
     brokers: String,
@@ -573,8 +574,10 @@ async fn deploy_sql_application_from_file(
         let mut tracing_config = TracingConfig::development();
 
         // Override with custom values from CLI
-        tracing_config.service_name =
-            format!("velo-sql-{}", file_path.split('/').last().unwrap_or("app"));
+        tracing_config.service_name = format!(
+            "velo-sql-{}",
+            file_path.split('/').next_back().unwrap_or("app")
+        );
         tracing_config.sampling_ratio = sampling_ratio.unwrap_or(1.0); // Dev default: 100%, Prod: use --sampling-ratio 0.01
 
         if let Some(endpoint) = otlp_endpoint.clone() {

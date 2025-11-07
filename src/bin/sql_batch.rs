@@ -9,7 +9,7 @@
 //! ```
 
 use clap::Parser;
-use log::{error, info, warn};
+use log::{error, info};
 use std::{collections::HashMap, fs, sync::Arc};
 use tokio::sync::mpsc;
 use velostream::velostream::{

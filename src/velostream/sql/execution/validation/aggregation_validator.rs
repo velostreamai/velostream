@@ -4,6 +4,7 @@
 //! - Aggregate functions only in SELECT and HAVING clauses
 //! - GROUP BY completeness (non-aggregated columns must be in GROUP BY)
 //! - No mixed aggregates and non-aggregates in the same context
+//!
 //! This is Phase 7 of the correctness work.
 
 use crate::velostream::sql::SqlError;

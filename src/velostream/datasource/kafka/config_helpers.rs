@@ -266,7 +266,7 @@ mod tests {
         props.insert("format".to_string(), "avro".to_string());
         let format = extract_format_from_properties(&props);
         // Should default to JSON, NOT recognize "format" key
-        assert!(matches!(format, SerializationFormat::Json { .. }));
+        assert!(matches!(format, SerializationFormat::Json));
     }
 
     #[test]
@@ -282,7 +282,7 @@ mod tests {
     fn test_extract_format_default() {
         let props = HashMap::new();
         let format = extract_format_from_properties(&props);
-        assert!(matches!(format, SerializationFormat::Json { .. }));
+        assert!(matches!(format, SerializationFormat::Json));
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_extract_key_no_inline_schema() {
-        let mut props = HashMap::new();
+        let props = HashMap::new();
         // Try to provide inline schema for key (should be ignored)
         // Keys only support file-based schemas
         assert_eq!(

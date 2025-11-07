@@ -35,7 +35,8 @@ pub mod loading_helpers;
 pub mod retry_utils;
 pub mod sql;
 pub mod streaming;
-pub mod table;
+#[allow(clippy::module_inception)]
+mod table;
 pub mod unified_table;
 
 // Re-export public types

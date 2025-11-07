@@ -162,8 +162,7 @@ impl SelectProcessor {
                     let escaped = s
                         .replace('\\', "\\\\")
                         .replace('\'', "''")
-                        .replace('\0', "")
-                        .replace('\x1a', "")
+                        .replace(['\0', '\x1a'], "")
                         .chars()
                         .filter(|c| !c.is_control() || c == &'\t' || c == &'\n' || c == &'\r')
                         .collect::<String>();
@@ -401,7 +400,7 @@ impl SelectProcessor {
                 // Phase 3: Validate WHERE clause fields exist in the joined record
                 FieldValidator::validate_expressions_with_aliases(
                     &joined_record,
-                    &[where_expr.clone()],
+                    std::slice::from_ref(where_expr),
                     ValidationContext::WhereClause,
                     &from_join_aliases,
                 )
@@ -683,7 +682,7 @@ impl SelectProcessor {
                 // Phase 3: Validate HAVING clause fields exist in combined scope
                 FieldValidator::validate_expressions_with_aliases(
                     &result_record,
-                    &[having_expr.clone()],
+                    std::slice::from_ref(having_expr),
                     ValidationContext::HavingClause,
                     &from_join_aliases,
                 )
@@ -1277,14 +1276,14 @@ impl SelectProcessor {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(*f);
                     }
                     FieldValue::Integer(i) => {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(*i as f64);
                     }
                     FieldValue::ScaledInteger(scaled, scale) => {
@@ -1292,7 +1291,7 @@ impl SelectProcessor {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(f);
                     }
                     FieldValue::Decimal(d) => {
@@ -1301,7 +1300,7 @@ impl SelectProcessor {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(f_val);
                     }
                     _ => {}
@@ -1709,10 +1708,9 @@ impl SelectProcessor {
         }
 
         let mean = values.iter().sum::<f64>() / values.len() as f64;
-        let variance =
-            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64; // Sample variance uses n-1
+        // Sample variance uses n-1
 
-        variance
+        values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
     }
 
     /// Evaluate expression with window and subquery support
@@ -2801,6 +2799,7 @@ impl SelectProcessor {
 ///
 /// # Returns
 /// * The WHERE clause with correlation variables substituted with actual values
+///
 /// Convert a FieldValue to its SQL string representation
 /// Convert a FieldValue to a SQL string literal with comprehensive SQL injection protection
 ///
@@ -2826,8 +2825,7 @@ fn field_value_to_sql_string(field_value: &FieldValue) -> String {
             let escaped = s
                 .replace('\\', "\\\\") // Escape backslashes first
                 .replace('\'', "''") // Escape single quotes (SQL standard)
-                .replace('\0', "") // Remove null bytes
-                .replace('\x1a', "") // Remove SUB character (can terminate strings in some DBs)
+                .replace(['\0', '\x1a'], "") // Remove SUB character (can terminate strings in some DBs)
                 .chars()
                 .filter(|c| !c.is_control() || c == &'\t' || c == &'\n' || c == &'\r')
                 .collect::<String>();
@@ -2872,7 +2870,7 @@ impl TableReference {
             || self
                 .alias
                 .as_ref()
-                .map_or(false, |alias| identifier.eq_ignore_ascii_case(alias))
+                .is_some_and(|alias| identifier.eq_ignore_ascii_case(alias))
     }
 }
 

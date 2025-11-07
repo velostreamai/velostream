@@ -161,10 +161,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test direct field access (no full record conversion)
     for i in 0..1000 {
         let key = format!("trade_{}", i);
-        if let Some(price) = compact_table.get_field_by_path(&key, "price") {
-            if let FieldValue::ScaledInteger(value, _scale) = price {
-                price_sum += value;
-            }
+        if let Some(price) = compact_table.get_field_by_path(&key, "price")
+            && let FieldValue::ScaledInteger(value, _scale) = price
+        {
+            price_sum += value;
         }
     }
 
@@ -237,16 +237,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let field_path = format!("positions.{}.shares", symbol);
         if let Some(shares) =
             portfolio_table.get_field_by_path(&"portfolio-001".to_string(), &field_path)
+            && let FieldValue::Integer(share_count) = shares
         {
-            if let FieldValue::Integer(share_count) = shares {
-                if share_count > 100 {
-                    println!(
-                        "      {}: {} shares (matches criteria)",
-                        symbol, share_count
-                    );
-                } else {
-                    println!("      {}: {} shares", symbol, share_count);
-                }
+            if share_count > 100 {
+                println!(
+                    "      {}: {} shares (matches criteria)",
+                    symbol, share_count
+                );
+            } else {
+                println!("      {}: {} shares", symbol, share_count);
             }
         }
     }

@@ -24,6 +24,16 @@ use std::time::{Duration, Instant};
 // Import the unified SerializationFormat from the main module
 pub use crate::velostream::kafka::serialization_format::SerializationFormat;
 
+// Type alias to reduce complexity warnings
+type MessageStream<'a> = std::pin::Pin<
+    Box<
+        dyn futures::Stream<
+                Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
+            > + Send
+            + 'a,
+    >,
+>;
+
 /// Unified Kafka DataReader that handles all serialization formats
 /// FR-081 Phase 2B: Now uses BaseConsumer-based fast consumer with configurable performance tiers
 pub struct KafkaDataReader {
@@ -908,13 +918,7 @@ impl KafkaDataReader {
         let timeout_duration = self.batch_config.batch_timeout;
 
         // FR-081: Use appropriate streaming method based on tier for optimal CPU/memory
-        let mut stream: std::pin::Pin<
-            Box<
-                dyn futures::Stream<
-                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
-                    > + Send,
-            >,
-        > = match &self.tier {
+        let mut stream: MessageStream<'_> = match &self.tier {
             ConsumerTier::Standard => {
                 // Direct polling - lowest CPU overhead (~2-5%)
                 Box::pin(self.consumer.stream())
@@ -963,13 +967,7 @@ impl KafkaDataReader {
         );
 
         // FR-081: Use buffered streaming for batch reads (memory efficient)
-        let mut stream: std::pin::Pin<
-            Box<
-                dyn futures::Stream<
-                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
-                    > + Send,
-            >,
-        > = match &self.tier {
+        let mut stream: MessageStream<'_> = match &self.tier {
             ConsumerTier::Buffered { batch_size } => {
                 // Already optimized for batching - use native batch size
                 Box::pin(self.consumer.buffered_stream(*batch_size))
@@ -1058,13 +1056,7 @@ impl KafkaDataReader {
         }
 
         // FR-081: Use standard streaming for time windows (low CPU, predictable latency)
-        let mut stream: std::pin::Pin<
-            Box<
-                dyn futures::Stream<
-                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
-                    > + Send,
-            >,
-        > = Box::pin(self.consumer.stream());
+        let mut stream: MessageStream<'_> = Box::pin(self.consumer.stream());
 
         while start_time.elapsed() < duration && records.len() < self.batch_config.max_batch_size {
             match timeout(poll_timeout, stream.next()).await {
@@ -1143,13 +1135,7 @@ impl KafkaDataReader {
         let timeout_duration = Duration::from_millis(1000);
 
         // FR-081: Use buffered streaming for memory-based batching (better throughput)
-        let mut stream: std::pin::Pin<
-            Box<
-                dyn futures::Stream<
-                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
-                    > + Send,
-            >,
-        > = Box::pin(self.consumer.buffered_stream(100));
+        let mut stream: MessageStream<'_> = Box::pin(self.consumer.buffered_stream(100));
 
         while estimated_size < max_bytes && records.len() < self.batch_config.max_batch_size {
             match timeout(timeout_duration, stream.next()).await {
@@ -1199,13 +1185,7 @@ impl KafkaDataReader {
         let start_time = Instant::now();
 
         // FR-081: Use standard streaming for low-latency (minimal overhead, predictable timing)
-        let mut stream: std::pin::Pin<
-            Box<
-                dyn futures::Stream<
-                        Item = Result<Message<String, HashMap<String, FieldValue>>, ConsumerError>,
-                    > + Send,
-            >,
-        > = Box::pin(self.consumer.stream());
+        let mut stream: MessageStream<'_> = Box::pin(self.consumer.stream());
 
         // Low-latency strategy: prioritize immediate processing over batch completeness
         while records.len() < max_batch_size && start_time.elapsed() < max_wait_time {

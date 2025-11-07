@@ -19,6 +19,12 @@ pub struct JoinProcessor {
     stream_table_processor: StreamTableJoinProcessor,
 }
 
+impl Default for JoinProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JoinProcessor {
     /// Create a new JOIN processor
     pub fn new() -> Self {

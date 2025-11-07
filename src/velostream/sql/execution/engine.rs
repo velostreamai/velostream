@@ -146,6 +146,9 @@ use super::processors::{
     SelectProcessor, WindowContext, WindowProcessor,
 };
 
+/// Type alias for context customizer function
+type ContextCustomizer = Arc<dyn Fn(&mut ProcessorContext) + Send + Sync>;
+
 pub struct StreamExecutionEngine {
     active_queries: HashMap<String, QueryExecution>,
     message_sender: mpsc::UnboundedSender<ExecutionMessage>,
@@ -166,7 +169,7 @@ pub struct StreamExecutionEngine {
     config: StreamingConfig,
     // Optional context customizer for tests
     #[doc(hidden)]
-    pub context_customizer: Option<Arc<dyn Fn(&mut ProcessorContext) + Send + Sync>>,
+    pub context_customizer: Option<ContextCustomizer>,
 }
 
 // =============================================================================

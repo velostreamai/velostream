@@ -78,6 +78,7 @@ pub enum MetricType {
 
 impl MetricType {
     /// Parse metric type from string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, SqlError> {
         match s.to_lowercase().trim() {
             "counter" => Ok(MetricType::Counter),
@@ -224,8 +225,10 @@ pub fn parse_metric_annotations(comments: &[String]) -> Result<Vec<MetricAnnotat
                         validate_annotation(&annotation)?;
                         annotations.push(annotation);
                     }
-                    let mut new_annotation = MetricAnnotation::default();
-                    new_annotation.name = value.trim().to_string();
+                    let new_annotation = MetricAnnotation {
+                        name: value.trim().to_string(),
+                        ..MetricAnnotation::default()
+                    };
                     current_annotation = Some(new_annotation);
                 }
                 "metric_type" => {

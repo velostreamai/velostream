@@ -359,7 +359,8 @@ fn test_partition_manager_does_not_duplicate_window_logic() {
     );
 
     let throughput = manager.throughput_per_sec();
-    assert!(throughput >= 0, "Should track throughput correctly");
+    // Throughput tracking is working (u64 type ensures non-negative)
+    let _ = throughput; // Use the value to avoid unused variable warning
 }
 
 /// Test: Phase 5 Architecture Separation

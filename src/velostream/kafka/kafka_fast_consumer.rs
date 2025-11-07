@@ -838,6 +838,7 @@ pub struct DedicatedKafkaStream<K, V> {
 }
 
 impl<K, V> DedicatedKafkaStream<K, V> {
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Result<Message<K, V>, ConsumerError>> {
         self.receiver.recv().ok()
     }

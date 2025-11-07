@@ -84,6 +84,12 @@ pub struct CompactTable<K> {
     group_id: String,
 }
 
+impl Default for StringPool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StringPool {
     pub fn new() -> Self {
         Self {
@@ -423,7 +429,7 @@ impl UnifiedTable for CompactTable<String> {
     fn contains_key(&self, key: &str) -> bool {
         self.state
             .read()
-            .map_or(false, |state| state.contains_key(&key.to_string()))
+            .is_ok_and(|state| state.contains_key(&key.to_string()))
     }
 
     fn record_count(&self) -> usize {

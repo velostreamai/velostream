@@ -178,11 +178,8 @@ impl HealthDashboard {
             let total_remaining: usize = progress
                 .values()
                 .filter_map(|p| {
-                    if let Some(total) = p.total_records_expected {
-                        Some(total.saturating_sub(p.records_loaded))
-                    } else {
-                        None
-                    }
+                    p.total_records_expected
+                        .map(|total| total.saturating_sub(p.records_loaded))
                 })
                 .sum();
 
@@ -262,11 +259,10 @@ impl HealthDashboard {
         }
 
         // Connection stats if available
-        let connection_stats = if let Some(streaming) = self.progress_streaming.as_ref() {
-            Some(streaming.get_connection_stats())
-        } else {
-            None
-        };
+        let connection_stats = self
+            .progress_streaming
+            .as_ref()
+            .map(|streaming| streaming.get_connection_stats());
 
         Ok(HealthMetricsResponse {
             loading_summary: summary,

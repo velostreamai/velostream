@@ -263,7 +263,7 @@ async fn run_performance_test(
                                 .messages_received
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                                 + 1;
-                            if count % 1000 == 0 {
+                            if count.is_multiple_of(1000) {
                                 let stats = metrics.get_throughput_stats();
                                 println!(
                                     "📈 Progress: {}/{} msgs ({:.1} msg/s)",

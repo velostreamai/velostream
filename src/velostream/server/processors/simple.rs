@@ -292,7 +292,9 @@ impl SimpleJobProcessor {
                     }
 
                     if self.config.log_progress
-                        && stats.batches_processed % self.config.progress_interval == 0
+                        && stats
+                            .batches_processed
+                            .is_multiple_of(self.config.progress_interval)
                     {
                         log_job_progress(&job_name, &stats);
                     }
@@ -457,7 +459,9 @@ impl SimpleJobProcessor {
 
                         // Successful batch processing
                         if self.config.log_progress
-                            && stats.batches_processed % self.config.progress_interval == 0
+                            && stats
+                                .batches_processed
+                                .is_multiple_of(self.config.progress_interval)
                         {
                             log_job_progress(&job_name, &stats);
                         }
@@ -539,7 +543,7 @@ impl SimpleJobProcessor {
 
         // Step 2: Process batch through SQL engine and capture output (with telemetry)
         let sql_start = Instant::now();
-        let mut batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+        let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
         let sql_duration = sql_start.elapsed().as_millis() as u64;
 
         // Record SQL processing telemetry and metrics
@@ -868,7 +872,7 @@ impl SimpleJobProcessor {
             .map(|(_, batch, _, _)| batch.as_slice())
             .unwrap_or(&[]);
 
-        let mut parent_batch_span_guard = ObservabilityHelper::start_batch_span(
+        let parent_batch_span_guard = ObservabilityHelper::start_batch_span(
             &self.observability,
             job_name,
             stats.batches_processed,
@@ -883,7 +887,7 @@ impl SimpleJobProcessor {
                 "🔗 Creating per-source batch span for source '{}' linked to parent batch span",
                 source_name
             );
-            let mut source_batch_span_guard = ObservabilityHelper::start_batch_span(
+            let source_batch_span_guard = ObservabilityHelper::start_batch_span(
                 &self.observability,
                 &format!("{} (source: {})", job_name, source_name),
                 stats.batches_processed,

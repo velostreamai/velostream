@@ -199,30 +199,30 @@ fn validate_sections(
 fn validate_global_config(global: &Value, _strict: bool) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(obj) = global.as_object() {
         // Check environment values
-        if let Some(env) = obj.get("environment") {
-            if let Some(env_str) = env.as_str() {
-                let valid_envs = ["development", "staging", "production"];
-                if !valid_envs.contains(&env_str) {
-                    return Err(format!(
-                        "Invalid environment: {}. Must be one of: {:?}",
-                        env_str, valid_envs
-                    )
-                    .into());
-                }
+        if let Some(env) = obj.get("environment")
+            && let Some(env_str) = env.as_str()
+        {
+            let valid_envs = ["development", "staging", "production"];
+            if !valid_envs.contains(&env_str) {
+                return Err(format!(
+                    "Invalid environment: {}. Must be one of: {:?}",
+                    env_str, valid_envs
+                )
+                .into());
             }
         }
 
         // Check log_level values
-        if let Some(log_level) = obj.get("log_level") {
-            if let Some(level_str) = log_level.as_str() {
-                let valid_levels = ["error", "warn", "info", "debug", "trace"];
-                if !valid_levels.contains(&level_str) {
-                    return Err(format!(
-                        "Invalid log_level: {}. Must be one of: {:?}",
-                        level_str, valid_levels
-                    )
-                    .into());
-                }
+        if let Some(log_level) = obj.get("log_level")
+            && let Some(level_str) = log_level.as_str()
+        {
+            let valid_levels = ["error", "warn", "info", "debug", "trace"];
+            if !valid_levels.contains(&level_str) {
+                return Err(format!(
+                    "Invalid log_level: {}. Must be one of: {:?}",
+                    level_str, valid_levels
+                )
+                .into());
             }
         }
     }
@@ -285,16 +285,16 @@ fn validate_file_source_config(config: &Value) -> Result<(), Box<dyn std::error:
         }
 
         // Validate format if present
-        if let Some(format) = obj.get("format") {
-            if let Some(format_str) = format.as_str() {
-                let valid_formats = ["csv", "json", "jsonlines"];
-                if !valid_formats.contains(&format_str) {
-                    return Err(format!(
-                        "Invalid file format: {}. Must be one of: {:?}",
-                        format_str, valid_formats
-                    )
-                    .into());
-                }
+        if let Some(format) = obj.get("format")
+            && let Some(format_str) = format.as_str()
+        {
+            let valid_formats = ["csv", "json", "jsonlines"];
+            if !valid_formats.contains(&format_str) {
+                return Err(format!(
+                    "Invalid file format: {}. Must be one of: {:?}",
+                    format_str, valid_formats
+                )
+                .into());
             }
         }
     }
@@ -325,16 +325,16 @@ fn validate_file_sink_config(config: &Value) -> Result<(), Box<dyn std::error::E
         }
 
         // Validate format if present
-        if let Some(format) = obj.get("format") {
-            if let Some(format_str) = format.as_str() {
-                let valid_formats = ["csv", "json", "jsonlines"];
-                if !valid_formats.contains(&format_str) {
-                    return Err(format!(
-                        "Invalid file format: {}. Must be one of: {:?}",
-                        format_str, valid_formats
-                    )
-                    .into());
-                }
+        if let Some(format) = obj.get("format")
+            && let Some(format_str) = format.as_str()
+        {
+            let valid_formats = ["csv", "json", "jsonlines"];
+            if !valid_formats.contains(&format_str) {
+                return Err(format!(
+                    "Invalid file format: {}. Must be one of: {:?}",
+                    format_str, valid_formats
+                )
+                .into());
             }
         }
     }

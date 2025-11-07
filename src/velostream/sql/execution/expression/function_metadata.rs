@@ -51,7 +51,7 @@ pub enum FunctionCategory {
     Scalar,
 }
 
-/// Distributed registration storage for SQL functions
+// Distributed registration storage for SQL functions
 inventory::collect!(SqlFunctionDef);
 
 /// Macro to register a SQL function with metadata

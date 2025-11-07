@@ -1242,7 +1242,11 @@ where
         match process_batch_fn().await {
             Ok(()) => {
                 // Successful batch processing
-                if config.log_progress && stats.batches_processed % config.progress_interval == 0 {
+                if config.log_progress
+                    && stats
+                        .batches_processed
+                        .is_multiple_of(config.progress_interval)
+                {
                     log_job_progress(job_name, &stats);
                 }
             }

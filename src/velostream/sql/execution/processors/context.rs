@@ -943,7 +943,7 @@ impl ProcessorContext {
     pub fn queue_result(&mut self, query_id: &str, result: StreamRecord) {
         self.pending_results
             .entry(query_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(result);
     }
 
@@ -957,7 +957,7 @@ impl ProcessorContext {
     pub fn queue_results(&mut self, query_id: &str, results: Vec<StreamRecord>) {
         self.pending_results
             .entry(query_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .extend(results);
     }
 
@@ -981,14 +981,13 @@ impl ProcessorContext {
                     Some(queue.remove(0))
                 }
             })
-            .and_then(|result| {
+            .inspect(|result| {
                 // Clean up empty queues
                 if let Some(queue) = self.pending_results.get(query_id) {
                     if queue.is_empty() {
                         self.pending_results.remove(query_id);
                     }
                 }
-                Some(result)
             })
     }
 

@@ -387,13 +387,10 @@ impl VelostreamMonitor {
                                     job_count = jobs.len();
                                     for job in jobs {
                                         if let Some(name) = job.get("name").and_then(|n| n.as_str())
-                                        {
-                                            if let Some(status) =
+                                            && let Some(status) =
                                                 job.get("status").and_then(|s| s.as_str())
-                                            {
-                                                job_details
-                                                    .push(format!("Job '{}': {}", name, status));
-                                            }
+                                        {
+                                            job_details.push(format!("Job '{}': {}", name, status));
                                         }
                                     }
                                 } else if let Some(job_count_val) = jobs_data.get("count") {
@@ -465,10 +462,10 @@ impl VelostreamMonitor {
 
                             // Extract process details
                             let parts: Vec<&str> = line.split_whitespace().collect();
-                            if let Some(pid) = parts.get(1) {
-                                if let Some(time) = parts.get(9) {
-                                    job_details.push(format!("  PID: {}, Runtime: {}", pid, time));
-                                }
+                            if let Some(pid) = parts.get(1)
+                                && let Some(time) = parts.get(9)
+                            {
+                                job_details.push(format!("  PID: {}, Runtime: {}", pid, time));
                             }
                         } else if line.contains("velo-sql") && line.contains("server") {
                             job_details.push("Single-Job SQL Server: Running".to_string());
@@ -476,10 +473,10 @@ impl VelostreamMonitor {
 
                             // Extract process details
                             let parts: Vec<&str> = line.split_whitespace().collect();
-                            if let Some(pid) = parts.get(1) {
-                                if let Some(time) = parts.get(9) {
-                                    job_details.push(format!("  PID: {}, Runtime: {}", pid, time));
-                                }
+                            if let Some(pid) = parts.get(1)
+                                && let Some(time) = parts.get(9)
+                            {
+                                job_details.push(format!("  PID: {}, Runtime: {}", pid, time));
                             }
                         }
                     }
@@ -524,10 +521,10 @@ impl VelostreamMonitor {
 
             if let Ok(output) = output {
                 let stdout = String::from_utf8_lossy(&output.stdout);
-                if let Some(name) = stdout.lines().next().map(|s| s.to_string()) {
-                    if !name.trim().is_empty() {
-                        return Some(name);
-                    }
+                if let Some(name) = stdout.lines().next().map(|s| s.to_string())
+                    && !name.trim().is_empty()
+                {
+                    return Some(name);
                 }
             }
         }
@@ -776,24 +773,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ])
                         .output();
 
-                    if let Ok(output) = output {
-                        if output.status.success() {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            let topics: Vec<&str> = stdout
-                                .lines()
-                                .filter(|line| !line.is_empty() && !line.starts_with("__"))
-                                .collect();
+                    if let Ok(output) = output
+                        && output.status.success()
+                    {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let topics: Vec<&str> = stdout
+                            .lines()
+                            .filter(|line| !line.is_empty() && !line.starts_with("__"))
+                            .collect();
 
-                            if topics.is_empty() {
-                                println!("   📊 No user topics found");
-                            } else {
-                                println!("   📊 {} topics available", topics.len());
-                                for topic in topics.iter().take(5) {
-                                    println!("     • {}", topic);
-                                }
-                                if topics.len() > 5 {
-                                    println!("     • ... and {} more", topics.len() - 5);
-                                }
+                        if topics.is_empty() {
+                            println!("   📊 No user topics found");
+                        } else {
+                            println!("   📊 {} topics available", topics.len());
+                            for topic in topics.iter().take(5) {
+                                println!("     • {}", topic);
+                            }
+                            if topics.len() > 5 {
+                                println!("     • ... and {} more", topics.len() - 5);
                             }
                         }
                     }
@@ -975,10 +972,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Print system columns reference from first result if available
-                if let Some(result) = results.first() {
-                    if let Some(ref reference_output) = result.reference_output {
-                        println!("{}", reference_output);
-                    }
+                if let Some(result) = results.first()
+                    && let Some(ref reference_output) = result.reference_output
+                {
+                    println!("{}", reference_output);
                 }
 
                 // Exit with error code if validation failed and strict mode
@@ -1097,17 +1094,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         for line in producer_lines {
                             let parts: Vec<&str> = line.split_whitespace().collect();
-                            if let Some(pid) = parts.get(1) {
-                                if let Some(cmd) = parts.get(10..) {
-                                    let cmd_str = cmd.join(" ");
-                                    println!("   ✅ Producer (PID: {})", pid);
-                                    println!(
-                                        "      Command: {}",
-                                        cmd_str.chars().take(60).collect::<String>()
-                                    );
-                                    if let Some(time) = parts.get(9) {
-                                        println!("      Runtime: {}", time);
-                                    }
+                            if let Some(pid) = parts.get(1)
+                                && let Some(cmd) = parts.get(10..)
+                            {
+                                let cmd_str = cmd.join(" ");
+                                println!("   ✅ Producer (PID: {})", pid);
+                                println!(
+                                    "      Command: {}",
+                                    cmd_str.chars().take(60).collect::<String>()
+                                );
+                                if let Some(time) = parts.get(9) {
+                                    println!("      Runtime: {}", time);
                                 }
                             }
                         }
@@ -1124,7 +1121,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let topics_output = Command::new("docker")
                         .args([
                             "exec",
-                            &container_name,
+                            container_name,
                             "kafka-topics",
                             "--bootstrap-server",
                             "localhost:9092",
@@ -1132,67 +1129,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ])
                         .output();
 
-                    if let Ok(topics_output) = topics_output {
-                        if topics_output.status.success() {
-                            let topics_stdout = String::from_utf8_lossy(&topics_output.stdout);
-                            let topics: Vec<&str> = topics_stdout
-                                .lines()
-                                .filter(|line| !line.is_empty() && !line.starts_with("__"))
-                                .collect();
+                    if let Ok(topics_output) = topics_output
+                        && topics_output.status.success()
+                    {
+                        let topics_stdout = String::from_utf8_lossy(&topics_output.stdout);
+                        let topics: Vec<&str> = topics_stdout
+                            .lines()
+                            .filter(|line| !line.is_empty() && !line.starts_with("__"))
+                            .collect();
 
-                            if topics.is_empty() {
-                                println!("   📊 No user topics found");
-                            } else {
-                                for topic in topics.iter().take(10) {
-                                    // Show first 10 topics
-                                    let output = Command::new("docker")
-                                        .args([
-                                            "exec",
-                                            &container_name,
-                                            "kafka-run-class",
-                                            "kafka.tools.GetOffsetShell",
-                                            "--bootstrap-server",
-                                            "localhost:9092",
-                                            "--topic",
-                                            topic,
-                                            "--time",
-                                            "-1",
-                                        ])
-                                        .output();
+                        if topics.is_empty() {
+                            println!("   📊 No user topics found");
+                        } else {
+                            for topic in topics.iter().take(10) {
+                                // Show first 10 topics
+                                let output = Command::new("docker")
+                                    .args([
+                                        "exec",
+                                        container_name,
+                                        "kafka-run-class",
+                                        "kafka.tools.GetOffsetShell",
+                                        "--bootstrap-server",
+                                        "localhost:9092",
+                                        "--topic",
+                                        topic,
+                                        "--time",
+                                        "-1",
+                                    ])
+                                    .output();
 
-                                    if let Ok(output) = output {
-                                        if output.status.success() {
-                                            let stdout = String::from_utf8_lossy(&output.stdout);
-                                            if !stdout.trim().is_empty() {
-                                                // Parse partition offsets and sum them
-                                                let total_messages: i64 = stdout
-                                                    .lines()
-                                                    .filter_map(|line| {
-                                                        line.split(':')
-                                                            .next_back()?
-                                                            .parse::<i64>()
-                                                            .ok()
-                                                    })
-                                                    .sum();
+                                if let Ok(output) = output {
+                                    if output.status.success() {
+                                        let stdout = String::from_utf8_lossy(&output.stdout);
+                                        if !stdout.trim().is_empty() {
+                                            // Parse partition offsets and sum them
+                                            let total_messages: i64 = stdout
+                                                .lines()
+                                                .filter_map(|line| {
+                                                    line.split(':').next_back()?.parse::<i64>().ok()
+                                                })
+                                                .sum();
 
-                                                if total_messages > 0 {
-                                                    println!(
-                                                        "   📈 {}: {} messages",
-                                                        topic, total_messages
-                                                    );
-                                                } else {
-                                                    println!("   📊 {}: No messages", topic);
-                                                }
+                                            if total_messages > 0 {
+                                                println!(
+                                                    "   📈 {}: {} messages",
+                                                    topic, total_messages
+                                                );
+                                            } else {
+                                                println!("   📊 {}: No messages", topic);
                                             }
-                                        } else {
-                                            println!("   ❓ {}: Unable to check", topic);
                                         }
+                                    } else {
+                                        println!("   ❓ {}: Unable to check", topic);
                                     }
                                 }
+                            }
 
-                                if topics.len() > 10 {
-                                    println!("   ... and {} more topics", topics.len() - 10);
-                                }
+                            if topics.len() > 10 {
+                                println!("   ... and {} more topics", topics.len() - 10);
                             }
                         }
                     }
@@ -1214,18 +1208,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ])
                         .output();
 
-                    if let Ok(output) = output {
-                        if output.status.success() {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            let groups: Vec<&str> =
-                                stdout.lines().filter(|line| !line.is_empty()).collect();
+                    if let Ok(output) = output
+                        && output.status.success()
+                    {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let groups: Vec<&str> =
+                            stdout.lines().filter(|line| !line.is_empty()).collect();
 
-                            if groups.is_empty() {
-                                println!("   ⏸️  No active consumer groups");
-                            } else {
-                                for group in groups {
-                                    println!("   👤 {}", group);
-                                }
+                        if groups.is_empty() {
+                            println!("   ⏸️  No active consumer groups");
+                        } else {
+                            for group in groups {
+                                println!("   👤 {}", group);
                             }
                         }
                     }

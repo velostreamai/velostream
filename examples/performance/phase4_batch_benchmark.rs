@@ -368,7 +368,7 @@ async fn benchmark_batch_strategies(
     println!();
     println!("   📊 Strategy Rankings:");
 
-    let mut strategies = vec![
+    let mut strategies = [
         ("FixedSize", throughput_fixed),
         ("AdaptiveSize", throughput_adaptive),
         ("MegaBatch-50K", throughput_mega),
@@ -409,7 +409,7 @@ async fn benchmark_megabatch_throughput(
     // Simulate MegaBatch processing with ring buffer and parallel processing
     let start = Instant::now();
     let batch_size = 100_000;
-    let num_batches = (records.len() + batch_size - 1) / batch_size;
+    let num_batches = records.len().div_ceil(batch_size);
 
     let processor = ParallelBatchProcessor::default();
     let batches: Vec<Vec<Arc<StreamRecord>>> = records
@@ -580,7 +580,7 @@ async fn simulate_table_load(
     row_count: usize,
     batch_size: usize,
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let num_batches = (row_count + batch_size - 1) / batch_size;
+    let num_batches = row_count.div_ceil(batch_size);
     let mut buffer = RingBatchBuffer::new(batch_size);
     let mut loaded = 0u64;
 

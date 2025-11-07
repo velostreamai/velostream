@@ -463,7 +463,7 @@ impl ConfigurationValidator {
                 || k.contains("sink.path")
                 || k.contains("file.")
                 || (k == "format"
-                    && config.get("format").map_or(false, |v| {
+                    && config.get("format").is_some_and(|v| {
                         ["csv", "csv_no_header", "json", "jsonlines", "jsonl"].contains(&v.as_str())
                     }))
         })

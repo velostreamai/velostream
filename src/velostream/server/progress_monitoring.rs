@@ -383,8 +383,10 @@ impl ProgressMonitor {
             refs
         };
 
-        let mut summary = LoadingSummary::default();
-        summary.total_tables = tracker_refs.len();
+        let mut summary = LoadingSummary {
+            total_tables: tracker_refs.len(),
+            ..LoadingSummary::default()
+        };
 
         for tracker in tracker_refs {
             let progress = tracker.get_current_progress().await;

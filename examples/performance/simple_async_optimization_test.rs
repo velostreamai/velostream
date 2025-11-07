@@ -65,7 +65,7 @@ impl ConcurrencyController {
             self.successful_ops.load(Ordering::Relaxed) + self.failed_ops.load(Ordering::Relaxed);
 
         // Adjust every 1000 operations
-        if total_ops % 1000 == 0 && total_ops > 0 {
+        if total_ops.is_multiple_of(1000) && total_ops > 0 {
             let success_rate =
                 self.successful_ops.load(Ordering::Relaxed) as f64 / total_ops as f64;
             let current = self.current_concurrency.load(Ordering::Relaxed);
@@ -218,7 +218,7 @@ async fn run_simple_async_test() -> Result<(u64, f64), String> {
 
                             // Log progress
                             let count = metrics.processed.load(Ordering::Relaxed);
-                            if count % 500 == 0 {
+                            if count.is_multiple_of(500) {
                                 println!(
                                     "📈 Processed: {} messages (concurrency: {})",
                                     count, concurrency
