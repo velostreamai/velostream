@@ -378,9 +378,9 @@ pub fn create_test_query() -> StreamingQuery {
     }
 }
 
-pub fn create_test_engine() -> Arc<Mutex<StreamExecutionEngine>> {
+pub fn create_test_engine() -> Arc<tokio::sync::RwLock<StreamExecutionEngine>> {
     let (output_sender, _) = tokio::sync::mpsc::unbounded_channel();
-    Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)))
+    Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)))
 }
 
 // =====================================================
@@ -397,7 +397,7 @@ pub trait StreamJobProcessor {
         &self,
         reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,

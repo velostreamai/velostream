@@ -274,7 +274,7 @@ async fn test_simple_processor_multi_source_processing() {
     );
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -355,7 +355,7 @@ async fn test_transactional_processor_multi_source_processing() {
     );
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser
@@ -536,7 +536,7 @@ async fn test_error_handling_in_multi_source_processing() {
     let writers = HashMap::new(); // No writers to test fallback
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();

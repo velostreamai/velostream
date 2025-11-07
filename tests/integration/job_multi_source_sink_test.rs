@@ -167,7 +167,7 @@ async fn test_simple_processor_multi_job_interface() {
     let writers = HashMap::new(); // Empty for interface test
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -215,7 +215,7 @@ async fn test_transactional_processor_multi_job_interface() {
     let writers = HashMap::new();
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser

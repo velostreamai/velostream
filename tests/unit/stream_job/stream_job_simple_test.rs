@@ -54,7 +54,7 @@ impl StreamJobProcessor for SimpleJobProcessorWrapper {
         &self,
         reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,

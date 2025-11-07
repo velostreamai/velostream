@@ -237,7 +237,7 @@ async fn job_server_overhead_breakdown() {
     let query = parser.parse(TEST_SQL).expect("Parse failed");
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let processor = SimpleJobProcessor::new(config);
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);

@@ -349,7 +349,7 @@ async fn benchmark_simple_processor(
     }
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -451,7 +451,7 @@ async fn benchmark_transactional_processor(
     }
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();

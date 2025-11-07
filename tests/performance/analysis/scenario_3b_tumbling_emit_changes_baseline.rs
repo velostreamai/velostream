@@ -311,7 +311,7 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
     // The channel drain task below will receive 0 emissions because the
     // Job Server's batch processing doesn't use engine.execute_with_record().
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     // Clone counter for drain task
     let drain_counter = output_counter.clone();

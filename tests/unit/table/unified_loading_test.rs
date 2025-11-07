@@ -51,8 +51,8 @@ struct MockBatchDataSource {
 impl MockBatchDataSource {
     fn new(records: Vec<StreamRecord>, batch_size: usize) -> Self {
         Self {
-            records: Arc::new(RwLock::new(records)),
-            read_position: Arc::new(RwLock::new(0)),
+            records: Arc::new(tokio::sync::RwLock::new(records)),
+            read_position: Arc::new(tokio::sync::RwLock::new(0)),
             batch_size,
         }
     }
@@ -168,8 +168,8 @@ impl MockStreamingDataSource {
     fn new(initial_records: Vec<StreamRecord>) -> Self {
         Self {
             initial_records,
-            incremental_records: Arc::new(RwLock::new(Vec::new())),
-            read_position: Arc::new(RwLock::new(0)),
+            incremental_records: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            read_position: Arc::new(tokio::sync::RwLock::new(0)),
         }
     }
 

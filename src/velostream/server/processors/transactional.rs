@@ -63,7 +63,7 @@ impl TransactionalJobProcessor {
         &self,
         readers: HashMap<String, Box<dyn DataReader>>,
         writers: HashMap<String, Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
@@ -135,7 +135,7 @@ impl TransactionalJobProcessor {
 
         // Copy engine state to context
         {
-            let _engine_lock = engine.lock().await;
+            let _engine_lock = engine.read().await;
             // Context is already prepared by engine.prepare_context() above
         }
 
@@ -257,7 +257,7 @@ impl TransactionalJobProcessor {
         &self,
         mut reader: Box<dyn DataReader>,
         mut writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
@@ -409,7 +409,7 @@ impl TransactionalJobProcessor {
         &self,
         reader: &mut dyn DataReader,
         mut writer: Option<&mut dyn DataWriter>,
-        engine: &Arc<Mutex<StreamExecutionEngine>>,
+        engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: &StreamingQuery,
         job_name: &str,
         reader_supports_tx: bool,
@@ -801,7 +801,7 @@ impl TransactionalJobProcessor {
     async fn process_multi_source_transactional_batch(
         &self,
         context: &mut crate::velostream::sql::execution::processors::ProcessorContext,
-        engine: &Arc<Mutex<StreamExecutionEngine>>,
+        engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: &StreamingQuery,
         job_name: &str,
         readers_support_tx: &HashMap<String, bool>,

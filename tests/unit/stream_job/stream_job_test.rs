@@ -206,7 +206,7 @@ async fn test_process_datasource_with_shutdown() {
     // Create execution engine
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
     let engine = StreamExecutionEngine::new(output_sender);
-    let engine = Arc::new(Mutex::new(engine));
+    let engine = Arc::new(tokio::sync::RwLock::new(engine));
 
     // Parse a simple query
     let parser = StreamingSqlParser::new();

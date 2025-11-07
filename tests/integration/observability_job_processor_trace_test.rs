@@ -139,7 +139,7 @@ async fn test_job_processor_with_tracing_enabled() {
     // Step 8: Create execution engine with telemetry
     println!("\n🔧 Step 8: Creating execution engine");
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     // Note: In a real implementation, you'd pass telemetry to the engine
     // For now, this tests the job processor interface with tracing-enabled components

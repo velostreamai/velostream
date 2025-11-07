@@ -179,7 +179,7 @@ pub struct BatchProcessingResultWithOutput {
 /// Process a batch of records through the SQL execution engine
 pub async fn process_batch_common(
     batch: Vec<StreamRecord>,
-    engine: &Arc<tokio::sync::Mutex<StreamExecutionEngine>>,
+    engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
     query: &StreamingQuery,
     job_name: &str,
 ) -> BatchProcessingResult {
@@ -210,7 +210,7 @@ pub async fn process_batch_common(
 /// 3. Sync state back once at batch end (minimal lock time)
 pub async fn process_batch_with_output(
     batch: Vec<StreamRecord>,
-    engine: &Arc<tokio::sync::Mutex<StreamExecutionEngine>>,
+    engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
     query: &StreamingQuery,
     job_name: &str,
 ) -> BatchProcessingResultWithOutput {
@@ -239,7 +239,7 @@ pub async fn process_batch_with_output(
 
         // Lock 1: Get state and output channel ONCE at batch start
         let (mut temp_receiver, group_states, window_states) = {
-            let mut engine_lock = engine.lock().await;
+            let mut engine_lock = engine.write().await;
             (
                 engine_lock.take_output_receiver(),
                 engine_lock.get_group_states().clone(),
@@ -249,7 +249,7 @@ pub async fn process_batch_with_output(
 
         // Get output sender (cheap clone operation, minimal lock time)
         let output_sender = {
-            let engine_lock = engine.lock().await;
+            let engine_lock = engine.read().await;
             engine_lock.get_output_sender_for_batch()
         };
 
@@ -300,7 +300,7 @@ pub async fn process_batch_with_output(
 
         // Lock 2: Return state and receiver at batch end
         {
-            let mut engine_lock = engine.lock().await;
+            let mut engine_lock = engine.write().await;
             engine_lock.set_group_states(context.group_by_states);
             engine_lock.set_window_states(context.persistent_window_states);
             if let Some(rx) = temp_receiver {
@@ -311,7 +311,7 @@ pub async fn process_batch_with_output(
         // Standard Path: Batch optimization for non-EMIT queries (high performance)
         // Lock 1: Get state once at batch start (minimal lock time)
         let (group_states, window_states) = {
-            let engine_lock = engine.lock().await;
+            let engine_lock = engine.read().await;
             (
                 engine_lock.get_group_states().clone(),
                 engine_lock.get_window_states(),
@@ -413,7 +413,7 @@ pub async fn process_batch_with_output(
 
         // Lock 2: Sync state back once at batch end (minimal lock time)
         {
-            let mut engine_lock = engine.lock().await;
+            let mut engine_lock = engine.write().await;
             engine_lock.set_group_states(group_states);
             engine_lock.set_window_states(window_states);
         }
@@ -1278,7 +1278,7 @@ where
 pub async fn process_datasource_records(
     reader: Box<dyn DataReader>,
     writer: Option<Box<dyn DataWriter>>,
-    execution_engine: Arc<Mutex<StreamExecutionEngine>>,
+    execution_engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
     parsed_query: StreamingQuery,
     job_name: String,
     shutdown_receiver: mpsc::Receiver<()>,

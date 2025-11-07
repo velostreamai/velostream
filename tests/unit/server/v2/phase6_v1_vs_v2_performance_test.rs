@@ -241,7 +241,7 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
 
     // Create engine with SQL query (GROUP BY with SUM)
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser
@@ -332,7 +332,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
 
     // Create engine with SQL query
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser
@@ -423,7 +423,7 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
 
     // Create engine with SQL query
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser

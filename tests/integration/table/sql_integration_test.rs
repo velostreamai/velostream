@@ -67,7 +67,7 @@ async fn test_table_sql_with_real_kafka() {
             // Create mock data source for SQL operations testing
             // Using MockTableDataSource since TableDataSource::from_table signature has changed
             let datasource = MockTableDataSource {
-                data: Arc::new(RwLock::new(HashMap::new())),
+                data: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             };
 
             // Start Table consumption in background
@@ -165,7 +165,7 @@ async fn test_table_sql_with_mock_data() {
 
     // Create a mock data source
     let mock_source = MockTableDataSource {
-        data: Arc::new(RwLock::new(table_data)),
+        data: Arc::new(tokio::sync::RwLock::new(table_data)),
     };
 
     // Test SQL operations
@@ -541,7 +541,7 @@ fn create_test_reference_data() -> MockTableDataSource {
     );
 
     MockTableDataSource {
-        data: Arc::new(RwLock::new(data)),
+        data: Arc::new(tokio::sync::RwLock::new(data)),
     }
 }
 
@@ -565,7 +565,7 @@ async fn test_performance_with_large_dataset() {
     }
 
     let mock_source = MockTableDataSource {
-        data: Arc::new(RwLock::new(data)),
+        data: Arc::new(tokio::sync::RwLock::new(data)),
     };
 
     // Test filter performance

@@ -242,7 +242,7 @@ async fn test_transactional_processor_success() {
     // Create processor and engine
     let processor = create_transactional_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
     // Create shutdown channel (but don't send signal)
@@ -303,7 +303,7 @@ async fn test_simple_processor_throughput() {
     // Create high-throughput processor
     let processor = create_simple_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -363,7 +363,7 @@ async fn test_low_latency_processor() {
     // Use low-latency processor
     let processor = create_low_latency_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -420,7 +420,7 @@ async fn test_simple_processor_with_transaction_capable_sources() {
 
     let processor = create_simple_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -468,7 +468,7 @@ async fn test_transactional_processor_mixed_transaction_support() {
 
     let processor = create_transactional_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
