@@ -58,8 +58,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::SimpleJobProcessor;
-use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig};
+use velostream::velostream::server::processors::{JobProcessor, JobProcessorConfig, JobProcessorFactory};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -307,17 +306,6 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
     let (mut data_writer, output_counter) = MockDataWriter::new();
     let samples_ref = data_writer.samples.clone();
 
-    let config = JobProcessingConfig {
-        max_batch_size: batch_size,
-        batch_timeout: Duration::from_millis(100),
-        use_transactions: false,
-        failure_strategy: FailureStrategy::LogAndContinue,
-        max_retries: 3,
-        retry_backoff: Duration::from_millis(100),
-        log_progress: false,
-        progress_interval: 100,
-    };
-
     let parser = StreamingSqlParser::new();
     let query = parser.parse(TEST_SQL).expect("Parse failed");
 
@@ -340,7 +328,7 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
         }
     });
 
-    let processor = SimpleJobProcessor::new(config);
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V1);
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 

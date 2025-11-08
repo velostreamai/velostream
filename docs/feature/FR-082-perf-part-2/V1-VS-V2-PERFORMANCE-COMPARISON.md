@@ -1,4 +1,4 @@
-what i# V1 vs V2 Performance Comparison: All Scenarios
+# V1 vs V2 Performance Comparison: All Scenarios
 
 **Date**: November 6, 2025
 **Focus**: Complete performance analysis across all 5 query patterns
@@ -22,12 +22,12 @@ All scenarios show **consistent performance patterns**:
 
 | Scenario | Query Pattern | V1 Throughput | V1 Overhead | V2 (8-Core) | V2 Speedup | Bottleneck | Key Optimization |
 |---|---|---|---|---|---|---|---|
-| **Scenario 0** | Pure SELECT (Passthrough) | ~25K rec/sec | ~90% | ~200K rec/sec | **8x** | Record streaming overhead | Channel draining (Opt 1) |
-| **Scenario 1** | ROWS WINDOW (No GROUP) | ~24K rec/sec | ~92% | ~192K rec/sec | **8x** | Window buffer management | Buffer pre-alloc (Opt 3) |
-| **Scenario 2** | Pure GROUP BY | 23,564 rec/sec | 94.8% | ~188.5K rec/sec | **8x** | Lock contention | Lock-free batch (Opt 2) |
-| **Scenario 3a** | TUMBLING + GROUP BY | 23,611 rec/sec | 98.5% | ~188.9K rec/sec | **8x** | Window + aggregation sync | Lock-free + pre-alloc |
-| **Scenario 3b** | EMIT CHANGES | 23,757 rec/sec | 98% | ~190K rec/sec | **8x** | Result emission overhead | All 4 optimizations |
-| **AVERAGE** | All Patterns | **23,897 rec/sec** | **94.7%** | **191,080 rec/sec** | **8x** | Coordination layer | Batch processing |
+| **Scenario 0** | Pure SELECT (Passthrough) | 20,183 rec/sec | N/A | TBD | TBD | Record streaming overhead | Channel draining (Opt 1) |
+| **Scenario 1** | ROWS WINDOW (No GROUP) | 19,941 rec/sec | 57.8% | TBD | TBD | Window buffer management | Buffer pre-alloc (Opt 3) |
+| **Scenario 2** | Pure GROUP BY | 22,830 rec/sec | N/A | TBD | TBD | Lock contention | Lock-free batch (Opt 2) |
+| **Scenario 3a** | TUMBLING + GROUP BY | 23,045 rec/sec | 92.6% | TBD | TBD | Window + aggregation sync | Lock-free + pre-alloc |
+| **Scenario 3b** | EMIT CHANGES | 23,132 rec/sec | N/A | TBD | TBD | Result emission overhead | All 4 optimizations |
+| **AVERAGE** | All Patterns | **21,826 rec/sec** | **75.2%** | **TBD** | **TBD** | Coordination layer | Batch processing |
 
 ---
 

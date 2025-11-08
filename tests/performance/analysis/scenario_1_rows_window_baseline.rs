@@ -47,8 +47,7 @@ use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::SimpleJobProcessor;
-use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig};
+use velostream::velostream::server::processors::{JobProcessor, JobProcessorConfig, JobProcessorFactory};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, parser::StreamingSqlParser};
 
@@ -655,50 +654,6 @@ impl DataWriter for RowsWindowDataWriter {
     }
 }
 
-/// Measure job server performance (full pipeline)
-async fn measure_rows_window_job_server(num_records: usize, query: &str) -> (usize, u128) {
-    let records = generate_rows_window_records(num_records);
-    let data_source = RowsWindowDataSource::new(records);
-    let data_writer = RowsWindowDataWriter::new();
-
-    let config = JobProcessingConfig {
-        max_batch_size: num_records,
-        batch_timeout: std::time::Duration::from_millis(100),
-        use_transactions: false,
-        failure_strategy: FailureStrategy::LogAndContinue,
-        max_retries: 3,
-        retry_backoff: std::time::Duration::from_millis(100),
-        log_progress: false,
-        progress_interval: 100,
-    };
-
-    let parser = StreamingSqlParser::new();
-    let parsed_query = parser.parse(query).expect("Parse failed");
-
-    let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
-
-    let processor = SimpleJobProcessor::new(config);
-
-    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
-
-    let start = Instant::now();
-    let result = processor
-        .process_job(
-            Box::new(data_source),
-            Some(Box::new(data_writer)),
-            engine,
-            parsed_query,
-            "rows_window_baseline".to_string(),
-            shutdown_rx,
-        )
-        .await;
-
-    let elapsed = start.elapsed();
-
-    result.expect("Job server execution failed");
-    (num_records, elapsed.as_micros())
-}
 
 #[tokio::test]
 #[serial]
@@ -742,24 +697,13 @@ async fn scenario_1_rows_window_with_job_server() {
     let mut data_writer = RowsWindowDataWriter::new();
     let samples_ref = data_writer.samples.clone();
 
-    let config = JobProcessingConfig {
-        max_batch_size: num_records,
-        batch_timeout: std::time::Duration::from_millis(100),
-        use_transactions: false,
-        failure_strategy: FailureStrategy::LogAndContinue,
-        max_retries: 3,
-        retry_backoff: std::time::Duration::from_millis(100),
-        log_progress: false,
-        progress_interval: 100,
-    };
-
     let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(BASELINE_SQL).expect("Parse failed");
 
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
-    let processor = SimpleJobProcessor::new(config);
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V1);
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let job_start = Instant::now();

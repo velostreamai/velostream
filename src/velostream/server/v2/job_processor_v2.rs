@@ -25,6 +25,7 @@ use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use log::info;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -108,34 +109,123 @@ impl JobProcessor for PartitionedJobCoordinator {
 
     async fn process_job(
         &self,
-        _reader: Box<dyn DataReader>,
-        _writer: Option<Box<dyn DataWriter>>,
-        _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
-        _query: StreamingQuery,
+        mut reader: Box<dyn DataReader>,
+        mut writer: Option<Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
         job_name: String,
         _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        // Phase 6.2 Note: V2 full job processing integration
+        // Phase 6.3: V2 Unified DataReader/DataWriter Pipeline (Simplified)
         //
-        // For now, V2 is primarily tested through:
-        // 1. Unit tests (partition isolation, watermarks, metrics)
-        // 2. Scenario tests with JobProcessorFactory::create(JobProcessorConfig::V2)
+        // V2 now implements complete job processing with a SINGLE reader/writer
+        // using inline routing and processing for testing purposes.
         //
-        // Full end-to-end job processing would require:
-        // - Integration with DataReader/DataWriter lifecycle
-        // - Partition-level coordination of batch reads
-        // - Output channel management across partitions
+        // This simplified version routes records to partitions inline without
+        // spawning separate async tasks, making it compatible with scenario tests.
         //
-        // This is planned for Phase 6.3+ when full job server integration is needed.
+        // Production V2 would use process_multi_job() for true parallel execution
+        // with N separate readers/writers per partition.
 
         info!(
-            "V2 PartitionedJobCoordinator::process_job: {} (phase 6.2 foundation)",
+            "V2 PartitionedJobCoordinator::process_job: {} (Phase 6.3 - Simplified routing)",
             job_name
         );
 
-        // Return empty stats for now - the actual processing happens through
-        // initialize_partitions() and process_batch_with_strategy() in the coordinator
-        let stats = JobExecutionStats::new();
-        Ok(stats)
+        let start_time = std::time::Instant::now();
+        use crate::velostream::sql::execution::processors::{QueryProcessor, ProcessorContext};
+
+        let mut aggregated_stats = JobExecutionStats::new();
+
+        // Read batches and process with partitioned routing
+        let mut consecutive_empty = 0;
+        loop {
+            if !reader.has_more().await.unwrap_or(false) && consecutive_empty >= 3 {
+                break;
+            }
+
+            match reader.read().await {
+                Ok(batch) => {
+                    if batch.is_empty() {
+                        consecutive_empty += 1;
+                        continue;
+                    }
+
+                    consecutive_empty = 0;
+
+                    // Get state from engine for this batch
+                    let (group_states, window_states) = {
+                        let engine_read = engine.read().await;
+                        (
+                            engine_read.get_group_states().clone(),
+                            engine_read.get_window_states(),
+                        )
+                    };
+
+                    // Create processing context
+                    let mut context = ProcessorContext::new("v2_coordinator");
+                    context.group_by_states = group_states;
+                    context.persistent_window_states = window_states;
+
+                    let batch_size = batch.len();
+
+                    // Process records from batch
+                    let mut output_records = Vec::new();
+                    for record in batch {
+                        // In production, would route by GROUP BY key to appropriate partition
+                        // For now, process all records in context
+                        match QueryProcessor::process_query(&query, &record, &mut context) {
+                            Ok(result) => {
+                                if let Some(output) = result.record {
+                                    output_records.push(output);
+                                }
+                            }
+                            Err(_) => {
+                                aggregated_stats.records_failed += 1;
+                            }
+                        }
+                    }
+
+                    // Write results
+                    if let Some(ref mut w) = writer {
+                        for output in output_records {
+                            let _ = w.write(output).await;
+                        }
+                    }
+
+                    aggregated_stats.records_processed += batch_size as u64;
+                    aggregated_stats.batches_processed += 1;
+
+                    // Update engine state after batch
+                    {
+                        let mut engine_write = engine.write().await;
+                        engine_write.set_group_states(context.group_by_states);
+                        engine_write.set_window_states(context.persistent_window_states);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Error reading batch: {:?}", e);
+                    consecutive_empty += 1;
+                }
+            }
+        }
+
+        // Finalize writer
+        if let Some(mut w) = writer {
+            let _ = w.flush().await;
+            let _ = w.commit().await;
+        }
+
+        // Finalize reader
+        let _ = reader.commit().await;
+
+        aggregated_stats.total_processing_time = start_time.elapsed();
+
+        info!(
+            "V2 PartitionedJobCoordinator::process_job: {} completed with {} records in {:?}",
+            job_name, aggregated_stats.records_processed, aggregated_stats.total_processing_time
+        );
+
+        Ok(aggregated_stats)
     }
 }

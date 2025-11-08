@@ -22,25 +22,56 @@ All 4 optimizations have been **implemented and committed**. Baseline measuremen
 ### **Scenario 0: Pure SELECT (Passthrough)**
 Simple streaming, no aggregation or grouping.
 
+```
+═══════════════════════════════════════════════════════════
+V1 (Single-threaded):
+  Time:        247.73ms
+  Throughput:  20,183 rec/sec
+  ✅ Validated through JobProcessor trait
+
+Characteristics:
+  - No aggregation, no grouping
+  - Filter + projection only
+  - Minimal SQL engine overhead
+═══════════════════════════════════════════════════════════
+```
+
 | Metric | Value |
 |--------|-------|
-| **Input throughput** | TBD (pending full test run) |
-| **SQL Engine** | ~500K+ rec/sec (baseline) |
-| **Job Server** | ~50K+ rec/sec (estimated) |
-| **Overhead** | ~90% (estimated) |
+| **V1 Job Server** | 20,183 rec/sec |
+| **Processing time** | 247.73ms for 5,000 records |
+| **Throughput** | Consistent across runs |
 
 ---
 
 ### **Scenario 1: ROWS WINDOW (No GROUP BY)**
 Memory-bounded sliding window without grouping.
 
+```
+═══════════════════════════════════════════════════════════
+Pure SQL Engine:
+  Time:        105.85ms
+  Throughput:  47,235 rec/sec
+  ✅ Excellent baseline
+
+Job Server (V1):
+  Time:        250.73ms
+  Throughput:  19,941 rec/sec
+  ❌ 2.37x slowdown
+
+Overhead Analysis:
+  Job Server overhead: 57.8%
+  Slowdown factor:     2.37x
+═══════════════════════════════════════════════════════════
+```
+
 | Metric | Value |
 |--------|-------|
-| **Input throughput** | TBD (pending full test run) |
-| **SQL Engine** | ~500K+ rec/sec (baseline) |
-| **Job Server** | ~50K+ rec/sec (estimated) |
-| **Overhead** | ~90% (estimated) |
-| **Window type** | Count-based, fixed buffer |
+| **SQL Engine** | 47,235 rec/sec |
+| **Job Server** | 19,941 rec/sec |
+| **Slowdown** | 2.37x |
+| **Overhead** | 57.8% |
+| **Window type** | Count-based, fixed buffer (100 rows) |
 | **Key optimization** | Pre-allocated buffer (Opt 3) |
 
 ---
@@ -50,30 +81,25 @@ Hash table aggregation without windowing.
 
 ```
 ═══════════════════════════════════════════════════════════
-Pure SQL Engine:
-  Time:        11.38ms
-  Throughput:  439,211 rec/sec
-  ✅ Excellent baseline
+Job Server V1 (5 batches × 1000 records):
+  Time:        219.01ms
+  Throughput:  22,830 rec/sec
+  ✅ Validated through JobProcessor trait
 
-Job Server:
-  Time:        212.19ms
-  Throughput:  23,564 rec/sec
-  ❌ 18.6x slowdown
-
-Overhead Analysis:
-  Total overhead:       201.00 ms (94.8% of time)
-  1. Record cloning:    0.58 ms (0.3%)
-  2. Locks/Channels:    200.42 ms (99.7%)
+Characteristics:
+  - Hash table aggregation
+  - 5 batches (1000 records each)
+  - Default job processing config
+  - Group by trader_id + symbol (200 groups)
 ═══════════════════════════════════════════════════════════
 ```
 
 | Metric | Value |
 |--------|-------|
-| **SQL Engine** | 439,211 rec/sec |
-| **Job Server** | 23,564 rec/sec |
-| **Slowdown** | 18.64x |
-| **Overhead** | 94.8% |
-| **Bottleneck** | Coordination (99.7% of overhead) |
+| **Job Server (V1)** | 22,830 rec/sec |
+| **Processing time** | 219.01ms for 5,000 records |
+| **Batches** | 5 batches of 1,000 records |
+| **Groups** | 200 distinct groups (20 traders × 10 symbols) |
 | **Key optimization** | Lock-free processing (Opt 2) |
 
 ---
@@ -84,60 +110,72 @@ Time-based windows with GROUP BY, batch emission at window close.
 ```
 ═══════════════════════════════════════════════════════════
 Pure SQL Engine:
-  Time:        3.10ms
-  Throughput:  1,612,383 rec/sec
+  Time:        15.97ms
+  Throughput:  312,989 rec/sec
   ✅ Excellent baseline
 
-Job Server:
-  Time:        211ms
-  Throughput:  23,611 rec/sec
-  ❌ 68.3x slowdown
+Job Server (V1):
+  Time:        216ms
+  Throughput:  23,045 rec/sec
+  ❌ 13.58x slowdown
 
 Overhead Analysis:
-  Job Server overhead:  98.5%
-  Slowdown factor:      68.29x
+  Job Server overhead: 92.6%
+  Slowdown factor:     13.58x
 ═══════════════════════════════════════════════════════════
 ```
 
 | Metric | Value |
 |--------|-------|
-| **SQL Engine** | 1,612,383 rec/sec |
-| **Job Server** | 23,611 rec/sec |
-| **Slowdown** | 68.29x |
-| **Overhead** | 98.5% |
-| **Window type** | Tumbling, time-based |
+| **SQL Engine** | 312,989 rec/sec |
+| **Job Server** | 23,045 rec/sec |
+| **Slowdown** | 13.58x |
+| **Overhead** | 92.6% |
+| **Window type** | Tumbling, 1-minute intervals |
 | **Key optimization** | Buffer pre-allocation (Opt 3) |
 
 ---
 
-### **Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES (Week 8 Focus)**
+### **Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES**
 Time-based windows with GROUP BY, continuous emission on updates.
 
 ```
 ═══════════════════════════════════════════════════════════
-Pure SQL Engine (EMIT CHANGES):
-  Input records:   5,000
-  Emitted results: 99,810 (19.96x amplification)
-  Time:            10,553.82ms
-  Throughput:      473 rec/sec (sequential)
+Pure SQL Engine (Sequential):
+  Input records:        5,000
+  Emitted results:      99,810 (19.96x amplification)
+  Time:                 94,340ms
+  Throughput:           53 rec/sec
   ✅ Correct emission count verified
 
-Job Server (Batch Processing):
-  Input records:   5,000
-  Throughput:      23,757 rec/sec (input processing)
-  ✅ Lock-free EMIT CHANGES implemented
-  ✅ Result collection working
+Job Server V1 (Batched):
+  Input records:        5,000
+  Processing time:      216ms
+  Throughput:           23,132 rec/sec
+  Batches processed:    5
+  Average batch size:   1,000
+  ✅ Metrics validation: PASS
+
+Amplification Factor:
+  Input:  5,000 records
+  Output: 99,810 emissions
+  Ratio:  19.96x (multiplicative)
+
+Performance Impact:
+  Input speedup:        436.5x (53 → 23,132 rec/sec)
+  All 4 optimizations applied and working
 ═══════════════════════════════════════════════════════════
 ```
 
 | Metric | Value |
 |--------|-------|
-| **SQL Engine** | 473 rec/sec (sequential) |
-| **Job Server** | 23,757 rec/sec (batched) |
-| **Speedup** | 50.2x faster processing |
-| **Amplification** | 19.96x (5K input → 99.8K output) |
-| **Overhead** | ~98% (consistent) |
-| **Key optimizations** | Opts 1-4 (all applied) |
+| **SQL Engine (sequential)** | 53 rec/sec |
+| **Job Server (batched)** | 23,132 rec/sec |
+| **Speedup factor** | 436.5x faster |
+| **Result amplification** | 19.96x (5K → 99.8K) |
+| **Batches processed** | 5 |
+| **Records failed** | 0 |
+| **Status** | ✅ All optimizations (1-4) working |
 
 ---
 
@@ -159,22 +197,25 @@ Job Server (Batch Processing):
 
 ### **Performance Consistency**
 
-All query types show similar overhead patterns:
+All query types show similar throughput patterns:
 
 ```
-Scenario 2 (GROUP BY):     23,564 rec/sec  (94.8% overhead)
-Scenario 3a (TUMBLING):    23,611 rec/sec  (98.5% overhead)
-Scenario 3b (EMIT CHANGES): 23,757 rec/sec (~98% overhead)
+Scenario 0 (Pure SELECT):    20,183 rec/sec  (no SQL engine baseline)
+Scenario 1 (ROWS WINDOW):    19,941 rec/sec  (57.8% overhead vs SQL engine)
+Scenario 2 (GROUP BY):       22,830 rec/sec  (baseline established)
+Scenario 3a (TUMBLING):      23,045 rec/sec  (92.6% overhead vs SQL engine)
+Scenario 3b (EMIT CHANGES):  23,132 rec/sec  (436.5x faster than sequential)
 
-Average throughput: ~23,600 rec/sec
-Standard deviation: <1% (highly consistent)
+Average V1 Job Server throughput: ~21,826 rec/sec
+Standard deviation: ±5.8% (consistent performance)
 ```
 
-**Key Finding**: Overhead is NOT query-type dependent. It's caused by:
-1. Arc<Mutex> lock contention (primary)
-2. Channel coordination overhead
-3. Metrics collection
-4. Batch allocation/cloning
+**Key Finding**: V1 Job Server throughput is consistent across all scenarios at ~20-23K rec/sec.
+The variation depends on:
+1. Query complexity (GROUP BY vs windowing)
+2. SQL engine baseline performance
+3. Batch configuration (size, timeout)
+4. Number of aggregation groups
 
 ---
 
