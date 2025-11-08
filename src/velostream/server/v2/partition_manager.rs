@@ -7,9 +7,12 @@ use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::server::v2::watermark::WatermarkManager;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::RwLock;
+use std::sync::RwLock as StdRwLock;
 
 /// Manages query state for a single partition (lock-free design)
 ///
@@ -60,8 +63,13 @@ pub struct PartitionStateManager {
     partition_id: usize,
     metrics: Arc<PartitionMetrics>,
     watermark_manager: Arc<WatermarkManager>,
-    // TODO Phase 5+: Add additional query state fields
-    // - group_by_state: Option<GroupByStateManager>
+    // Phase 6.1: SQL execution engine for per-partition query processing
+    // Uses RwLock for async-safe concurrent access from partition receiver task
+    // Interior mutability allows setting after Arc creation
+    execution_engine: StdRwLock<Option<Arc<RwLock<StreamExecutionEngine>>>>,
+    // Phase 6.1: Query to execute (stored for repeated execution per record)
+    // Interior mutability allows setting after Arc creation
+    query: StdRwLock<Option<Arc<StreamingQuery>>>,
 }
 
 impl PartitionStateManager {
@@ -73,6 +81,8 @@ impl PartitionStateManager {
             partition_id,
             metrics,
             watermark_manager,
+            execution_engine: StdRwLock::new(None),
+            query: StdRwLock::new(None),
         }
     }
 
@@ -83,6 +93,8 @@ impl PartitionStateManager {
             partition_id,
             metrics,
             watermark_manager,
+            execution_engine: StdRwLock::new(None),
+            query: StdRwLock::new(None),
         }
     }
 
@@ -96,6 +108,8 @@ impl PartitionStateManager {
             partition_id,
             metrics,
             watermark_manager,
+            execution_engine: StdRwLock::new(None),
+            query: StdRwLock::new(None),
         }
     }
 
@@ -109,6 +123,8 @@ impl PartitionStateManager {
             partition_id,
             metrics,
             watermark_manager,
+            execution_engine: StdRwLock::new(None),
+            query: StdRwLock::new(None),
         }
     }
 
@@ -125,6 +141,99 @@ impl PartitionStateManager {
     /// Get watermark manager reference
     pub fn watermark_manager(&self) -> Arc<WatermarkManager> {
         Arc::clone(&self.watermark_manager)
+    }
+
+    /// Set execution engine for SQL processing (Phase 6.1)
+    ///
+    /// ## Phase 6.1 Implementation
+    ///
+    /// Configures the partition to execute SQL queries on records.
+    /// The engine is shared via Arc<RwLock<>> for thread-safe async access.
+    /// Uses interior mutability to allow setting after Arc creation.
+    pub fn set_execution_engine(&self, engine: Arc<RwLock<StreamExecutionEngine>>) {
+        *self.execution_engine.write().unwrap() = Some(engine);
+    }
+
+    /// Set query to execute (Phase 6.1)
+    pub fn set_query(&self, query: Arc<StreamingQuery>) {
+        *self.query.write().unwrap() = Some(query);
+    }
+
+    /// Process a single record with SQL execution (Phase 6.1)
+    ///
+    /// ## Phase 6.1 Implementation
+    ///
+    /// Async method that:
+    /// 1. Updates watermark based on event_time
+    /// 2. Checks for late records and drops/warns as configured
+    /// 3. Executes SQL query on the record via engine
+    /// 4. Returns the processed record (or None if dropped)
+    /// 5. Tracks metrics
+    ///
+    /// ## Usage
+    ///
+    /// This is called from the partition receiver task in the coordinator.
+    pub async fn process_record_with_sql(
+        &self,
+        record: StreamRecord,
+    ) -> Result<Option<Arc<StreamRecord>>, SqlError> {
+        let start = Instant::now();
+
+        // Phase 4: Watermark management for event-time processing
+        if let Some(event_time) = record.event_time {
+            // Update watermark based on event time
+            self.watermark_manager.update(event_time);
+
+            // Check if record is late (arrives after watermark)
+            let (is_late, should_drop) = self.watermark_manager.is_late(event_time);
+
+            if should_drop {
+                // Drop strategy: reject late records
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Late record dropped (event_time: {}, watermark: {:?})",
+                        event_time,
+                        self.watermark_manager.current_watermark()
+                    ),
+                    query: None,
+                });
+            }
+
+            // ProcessWithWarning strategy logs warning but continues processing
+            if is_late {
+                log::warn!(
+                    "Partition {}: Processing late record (event_time: {}, watermark: {:?})",
+                    self.partition_id,
+                    event_time,
+                    self.watermark_manager.current_watermark()
+                );
+            }
+        }
+
+        // Phase 6.1: SQL query execution per partition
+        let engine_opt = self.execution_engine.read().unwrap().clone();
+        let query_opt = self.query.read().unwrap().clone();
+
+        if let (Some(engine), Some(query)) = (engine_opt, query_opt) {
+            // Acquire write lock on engine and execute query on this record
+            let mut engine_guard = engine.write().await;
+            engine_guard.execute_with_record(&query, record.clone()).await?;
+
+            // Note: Results are sent to output channel configured in engine
+            // For now, we return the record that was processed
+            let processed_record = Arc::new(record);
+
+            // Track metrics
+            self.metrics.record_batch_processed(1);
+            self.metrics.record_latency(start.elapsed());
+
+            Ok(Some(processed_record))
+        } else {
+            // No engine/query configured - just track metrics and return record
+            self.metrics.record_batch_processed(1);
+            self.metrics.record_latency(start.elapsed());
+            Ok(Some(Arc::new(record)))
+        }
     }
 
     /// Process a single record through partition
