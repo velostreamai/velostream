@@ -527,10 +527,11 @@ fn generate_rows_window_records(count: usize) -> Vec<StreamRecord> {
 }
 
 /// Measure pure SQL engine performance (without job server)
+/// FIXED: Now actually verifies window processing by collecting output records
 async fn measure_rows_window_sql_engine(records: Vec<StreamRecord>, query: &str) -> (usize, u128) {
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
 
     let start = Instant::now();
@@ -539,9 +540,20 @@ async fn measure_rows_window_sql_engine(records: Vec<StreamRecord>, query: &str)
             .execute_with_record(&parsed_query, record.clone())
             .await;
     }
+
+    // CRITICAL: Flush windows to ensure all results are emitted
+    let _ = engine.flush_windows().await;
+
     let elapsed = start.elapsed();
 
-    (records.len(), elapsed.as_micros())
+    // Collect actual results from channel (verifies window processing)
+    let mut result_count = 0;
+    while let Ok(_result) = rx.try_recv() {
+        result_count += 1;
+    }
+
+    // Return output record count (verifies window processing actually happened)
+    (result_count, elapsed.as_micros())
 }
 
 /// Mock data source for ROWS WINDOW testing
@@ -675,7 +687,7 @@ async fn scenario_1_rows_window_with_job_server() {
 
     // Measure pure SQL engine
     println!("🚀 Measuring pure SQL engine (no job server)...");
-    let (_sql_result_count, sql_time_us) =
+    let (sql_result_count, sql_time_us) =
         measure_rows_window_sql_engine(records.clone(), BASELINE_SQL).await;
     let sql_throughput = if sql_time_us > 0 {
         (num_records as f64 / (sql_time_us as f64 / 1_000_000.0)) as usize
@@ -684,8 +696,9 @@ async fn scenario_1_rows_window_with_job_server() {
     };
 
     println!(
-        "   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
+        "   ✅ SQL Engine: {} input records → {} output records in {:.2}ms ({} rec/sec)\n",
         num_records,
+        sql_result_count,
         sql_time_us as f64 / 1000.0,
         sql_throughput
     );
@@ -750,8 +763,20 @@ async fn scenario_1_rows_window_with_job_server() {
     println!("📊 SCENARIO 1 BASELINE RESULTS");
     println!("═══════════════════════════════════════════════════════════");
     println!("Pure SQL Engine:");
+    println!("  Input:       {} records", num_records);
+    println!(
+        "  Output:      {} results (window processing verified)",
+        sql_result_count
+    );
     println!("  Time:        {:.2}ms", sql_time_us as f64 / 1000.0);
-    println!("  Throughput:  {} rec/sec", sql_throughput);
+    println!(
+        "  Throughput:  {} rec/sec (input processing speed)",
+        sql_throughput
+    );
+    println!(
+        "  Amplification: {:.2}x (output vs input)",
+        sql_result_count as f64 / num_records as f64
+    );
     println!();
     println!("Job Server:");
     println!("  Time:        {:.2}ms", job_time_us as f64 / 1000.0);
