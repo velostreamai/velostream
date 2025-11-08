@@ -1312,6 +1312,23 @@ impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor 
     fn processor_version(&self) -> &str {
         "V1"
     }
+
+    async fn process_job(
+        &self,
+        reader: Box<dyn crate::velostream::datasource::DataReader>,
+        writer: Option<Box<dyn crate::velostream::datasource::DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: crate::velostream::sql::StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<
+        crate::velostream::server::processors::common::JobExecutionStats,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        // Delegate to the existing process_job implementation
+        self.process_job(reader, writer, engine, query, job_name, shutdown_rx)
+            .await
+    }
 }
 
 /// Create a simple job processor optimized for throughput

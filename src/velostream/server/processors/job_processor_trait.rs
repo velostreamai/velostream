@@ -3,11 +3,15 @@
 //! This trait allows swapping between different job processing architectures (V1, V2, etc.)
 //! at runtime based on configuration, enabling easy A/B testing and gradual migration.
 
+use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::sql::StreamExecutionEngine;
+use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// Trait for flexible job processing architectures
 ///
@@ -46,6 +50,31 @@ pub trait JobProcessor: Send + Sync {
 
     /// Get processor version for metrics and dashboards
     fn processor_version(&self) -> &str;
+
+    /// Process a complete job from data source to sink
+    ///
+    /// Handles end-to-end job execution including reading from source,
+    /// executing SQL queries, and writing to destination sink.
+    ///
+    /// # Arguments
+    /// * `reader` - Data source to read records from
+    /// * `writer` - Optional sink to write results to
+    /// * `engine` - Shared StreamExecutionEngine for query execution
+    /// * `query` - Streaming query to execute
+    /// * `job_name` - Name of the job for logging and metrics
+    /// * `shutdown_rx` - Channel to receive shutdown signal
+    ///
+    /// # Returns
+    /// Job execution statistics or error
+    async fn process_job(
+        &self,
+        reader: Box<dyn DataReader>,
+        writer: Option<Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 #[cfg(test)]

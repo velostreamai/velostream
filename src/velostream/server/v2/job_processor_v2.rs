@@ -16,13 +16,17 @@
 //!
 //! See: `src/velostream/server/v2/hash_router.rs` for routing logic
 
-use crate::velostream::server::processors::JobProcessor;
+use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::server::processors::{JobProcessor, common::JobExecutionStats};
 use crate::velostream::server::v2::PartitionedJobCoordinator;
 use crate::velostream::sql::StreamExecutionEngine;
+use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
+use log::info;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// Implement JobProcessor trait for PartitionedJobCoordinator (V2 Architecture)
 ///
@@ -100,5 +104,38 @@ impl JobProcessor for PartitionedJobCoordinator {
 
     fn processor_version(&self) -> &str {
         "V2"
+    }
+
+    async fn process_job(
+        &self,
+        _reader: Box<dyn DataReader>,
+        _writer: Option<Box<dyn DataWriter>>,
+        _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        _query: StreamingQuery,
+        job_name: String,
+        _shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+        // Phase 6.2 Note: V2 full job processing integration
+        //
+        // For now, V2 is primarily tested through:
+        // 1. Unit tests (partition isolation, watermarks, metrics)
+        // 2. Scenario tests with JobProcessorFactory::create(JobProcessorConfig::V2)
+        //
+        // Full end-to-end job processing would require:
+        // - Integration with DataReader/DataWriter lifecycle
+        // - Partition-level coordination of batch reads
+        // - Output channel management across partitions
+        //
+        // This is planned for Phase 6.3+ when full job server integration is needed.
+
+        info!(
+            "V2 PartitionedJobCoordinator::process_job: {} (phase 6.2 foundation)",
+            job_name
+        );
+
+        // Return empty stats for now - the actual processing happens through
+        // initialize_partitions() and process_batch_with_strategy() in the coordinator
+        let stats = JobExecutionStats::new();
+        Ok(stats)
     }
 }
