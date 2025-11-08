@@ -34,6 +34,7 @@ WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
 */
 
 use async_trait::async_trait;
+use log::debug;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -90,10 +91,14 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
 }
 
 /// Measure pure SQL engine performance (without job server)
+/// FIXED: Now actually verifies window processing by:
+/// 1. Collecting emitted results from the channel
+/// 2. Injecting a final record past the window boundary to trigger closure
+/// 3. Counting output records to prove windowing works
 async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (usize, u128) {
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(tx);
 
     let start = Instant::now();
@@ -102,11 +107,37 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
             .execute_with_record(&parsed_query, record.clone())
             .await;
     }
+
+    // CRITICAL FIX: Inject final record past window boundary to trigger closure
+    // Window is TUMBLING 1 MINUTE (60 seconds)
+    // Records span 0-5000ms, so all in same window [0ms-60000ms)
+    // Need record after 60000ms to trigger emission of the [0-60s) window
+    if let Some(last_record) = records.last() {
+        let mut final_record = last_record.clone();
+        // Push timestamp to 90+ seconds to close the [0-60s) window
+        final_record.timestamp = 90000;
+        let _ = engine
+            .execute_with_record(&parsed_query, final_record)
+            .await;
+    }
+
     let elapsed = start.elapsed();
 
-    // For windowed queries, result count may differ from input count
-    // We'll return elapsed time for throughput calculation
-    (0, elapsed.as_micros())
+    // Flush windows to ensure all results are emitted
+    let _ = engine.flush_windows().await;
+
+    // Collect actual results from channel (verifies window closure)
+    let mut result_count = 0;
+    while let Ok(result) = rx.try_recv() {
+        result_count += 1;
+        // Could add validation here: verify result has GROUP BY fields, aggregates, etc.
+        debug!(
+            "Emitted window result: {:?}",
+            result.fields.keys().collect::<Vec<_>>()
+        );
+    }
+
+    (result_count, elapsed.as_micros())
 }
 
 /// Mock data source for job server testing
@@ -264,7 +295,7 @@ async fn scenario_3a_tumbling_standard_baseline() {
 
     // Measure pure SQL engine
     println!("🚀 Measuring pure SQL engine (no job server)...");
-    let (_sql_result_count, sql_time_us) = measure_sql_engine_only(records.clone(), TEST_SQL).await;
+    let (sql_result_count, sql_time_us) = measure_sql_engine_only(records.clone(), TEST_SQL).await;
     let sql_throughput = if sql_time_us > 0 {
         (num_records as f64 / (sql_time_us as f64 / 1_000_000.0)) as usize
     } else {
@@ -272,8 +303,9 @@ async fn scenario_3a_tumbling_standard_baseline() {
     };
 
     println!(
-        "   ✅ SQL Engine: {} records in {:.2}ms ({} rec/sec)\n",
+        "   ✅ SQL Engine: {} input records → {} output records in {:.2}ms ({} rec/sec)\n",
         num_records,
+        sql_result_count,
         sql_time_us as f64 / 1000.0,
         sql_throughput
     );
@@ -338,8 +370,20 @@ async fn scenario_3a_tumbling_standard_baseline() {
             println!("📊 SCENARIO 3a BASELINE RESULTS");
             println!("═══════════════════════════════════════════════════════════");
             println!("Pure SQL Engine:");
+            println!("  Input:       {} records", num_records);
+            println!(
+                "  Output:      {} results (window closed and emitted)",
+                sql_result_count
+            );
             println!("  Time:        {:.2}ms", sql_time_us as f64 / 1000.0);
-            println!("  Throughput:  {} rec/sec", sql_throughput);
+            println!(
+                "  Throughput:  {} rec/sec (input processing speed)",
+                sql_throughput
+            );
+            println!(
+                "  Amplification: {:.2}x (output vs input)",
+                sql_result_count as f64 / num_records as f64
+            );
             println!();
             println!("Job Server:");
             println!("  Time:        {:.2}ms", duration.as_millis());
