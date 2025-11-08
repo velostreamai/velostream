@@ -1472,6 +1472,7 @@ impl StreamExecutionEngine {
         context.record_count = self.record_count;
         context.group_by_states = self.group_states.clone();
         context.performance_monitor = self.performance_monitor.as_ref().map(Arc::clone);
+        context.streaming_config = Some(self.config.clone());
 
         // Process records from all sources
         let source_names: Vec<String> = context.list_sources();

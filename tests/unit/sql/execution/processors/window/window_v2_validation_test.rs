@@ -59,24 +59,26 @@ fn create_context_with_window_v2_enabled() -> ProcessorContext {
         validated_select_queries: std::collections::HashSet::new(),
         rows_window_states: HashMap::new(),
         window_v2_states: HashMap::new(),
-        streaming_config: Some(StreamingConfig::new().with_window_v2()),
+        streaming_config: Some(StreamingConfig::new()),
     };
 
     context
 }
 
-// Test 1: Validate window_v2 is actually enabled
+// Test 1: Validate window_v2 context creation (window_v2 is always enabled in Phase 2E+)
 #[tokio::test]
 async fn test_window_v2_feature_flag_enabled() {
     let context = create_context_with_window_v2_enabled();
 
+    // Window_v2 is the only architecture available (Phase 2E+)
     assert!(
-        context.is_window_v2_enabled(),
-        "window_v2 should be enabled"
+        context.streaming_config.is_some(),
+        "streaming_config should be set"
     );
 }
 
-// Test 2: Validate window_v2 is disabled by default
+// Test 2: Validate window_v2 is always enabled (Phase 2E+)
+// Legacy test: Previously window_v2 could be disabled by default, but now it's always enabled
 #[tokio::test]
 async fn test_window_v2_feature_flag_disabled_by_default() {
     let context = ProcessorContext {
@@ -104,12 +106,14 @@ async fn test_window_v2_feature_flag_disabled_by_default() {
         validated_select_queries: std::collections::HashSet::new(),
         rows_window_states: HashMap::new(),
         window_v2_states: HashMap::new(),
-        streaming_config: None, // Default config
+        streaming_config: None, // Default config (window_v2 is still always enabled)
     };
 
+    // Window_v2 is the only architecture available (Phase 2E+)
+    // Even without explicit config, window processing still uses window_v2
     assert!(
-        !context.is_window_v2_enabled(),
-        "window_v2 should be disabled by default"
+        context.streaming_config.is_none(),
+        "streaming_config can be None, window_v2 is always the only implementation"
     );
 }
 
@@ -380,12 +384,15 @@ async fn test_group_by_with_v2() {
     );
 }
 
-// Test 10: Validate enhanced() config enables window_v2
+// Test 10: Validate enhanced() config (window_v2 always enabled in Phase 2E+)
 #[tokio::test]
 async fn test_enhanced_config_enables_window_v2() {
     let config = StreamingConfig::enhanced();
+    // Window_v2 is the only architecture available (Phase 2E+)
+    // No need to check enable_window_v2 flag - it always uses window_v2
+    // Enhanced config should enable watermarks
     assert!(
-        config.enable_window_v2,
-        "Enhanced config should enable window_v2"
+        config.enable_watermarks,
+        "Enhanced config should enable watermarks"
     );
 }

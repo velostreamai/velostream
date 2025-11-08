@@ -239,9 +239,8 @@ impl SqlExecutor {
     /// Execute SQL query and return results as StreamRecords
     pub async fn execute_query(sql: &str, records: Vec<StreamRecord>) -> Vec<StreamRecord> {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        // FR-081: Enable window_v2 for proper GROUP BY + WINDOW + HAVING execution
-        let config =
-            velostream::velostream::sql::execution::config::StreamingConfig::new().with_window_v2();
+        // Window_v2 is the only architecture available (Phase 2E+)
+        let config = velostream::velostream::sql::execution::config::StreamingConfig::new();
         let mut engine = StreamExecutionEngine::new_with_config(tx, config);
 
         let parser = StreamingSqlParser::new();

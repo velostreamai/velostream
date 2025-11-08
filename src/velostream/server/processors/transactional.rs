@@ -11,6 +11,7 @@ use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::sql::execution::StreamRecord;
+use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -132,6 +133,9 @@ impl TransactionalJobProcessor {
             crate::velostream::sql::execution::processors::ProcessorContext::new_with_sources(
                 &job_name, readers, writers,
             );
+
+        // FR-081 Phase 2A: Enable window_v2 architecture for high-performance window processing
+        context.streaming_config = Some(StreamingConfig::default());
 
         // Copy engine state to context
         {

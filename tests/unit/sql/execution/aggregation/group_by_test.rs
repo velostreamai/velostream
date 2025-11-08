@@ -15,8 +15,8 @@ mod tests {
     fn create_test_engine() -> (StreamExecutionEngine, mpsc::UnboundedReceiver<StreamRecord>) {
         let (sender, receiver) = mpsc::unbounded_channel();
         let format: Arc<dyn SerializationFormat> = Arc::new(JsonFormat);
-        // FR-081 Phase 2A+: Enable window_v2 with aggregation support
-        let config = StreamingConfig::new().with_window_v2();
+        // Window_v2 is the only architecture available (Phase 2E+)
+        let config = StreamingConfig::new();
         let engine = StreamExecutionEngine::new_with_config(sender, config);
         (engine, receiver)
     }

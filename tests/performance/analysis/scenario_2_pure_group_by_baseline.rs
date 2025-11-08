@@ -186,7 +186,9 @@ impl DataWriter for InstrumentedDataWriter {
 
 fn generate_test_records(count: usize) -> Vec<StreamRecord> {
     let mut records = Vec::with_capacity(count);
-    let base_time = 1700000000i64;
+    // Use millisecond-based timestamps for proper 1-minute tumbling window
+    let base_time = 1700000000000i64; // milliseconds
+    let minute_ms = 60000i64; // 1 minute in milliseconds
 
     for i in 0..count {
         let mut fields = HashMap::new();
@@ -206,9 +208,16 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
             "quantity".to_string(),
             FieldValue::Integer((100 + (i % 1000)) as i64),
         );
+        // Distribute records across multiple minute-windows for proper aggregation
+        // First 4000 records in window 1, last 1000 in window 2 to trigger close
+        let offset_ms = if i < 4000 {
+            (i as i64 * 900) // 900ms apart = 3600 records per minute
+        } else {
+            minute_ms + ((i as i64 - 4000) * 900) // Next window
+        };
         fields.insert(
             "trade_time".to_string(),
-            FieldValue::Integer(base_time + (i as i64)),
+            FieldValue::Integer(base_time + offset_ms),
         );
 
         records.push(StreamRecord::new(fields));

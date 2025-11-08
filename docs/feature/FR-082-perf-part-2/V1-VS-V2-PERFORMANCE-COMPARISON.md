@@ -23,7 +23,8 @@
 
 ## Historical Reference (For Comparison)
 
-The information below is preserved for reference but **should not be used for decisions**. Use the consolidated document instead.
+The information below is preserved for reference but **
+should not be used for decisions**. Use the consolidated document instead.
 
 ---
 

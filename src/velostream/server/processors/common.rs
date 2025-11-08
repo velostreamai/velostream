@@ -12,6 +12,7 @@ use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
     execution::{
+        config::StreamingConfig,
         processors::{QueryProcessor, context::ProcessorContext},
         types::StreamRecord,
     },
@@ -41,6 +42,103 @@ pub struct ProcessingError {
     pub recoverable: bool,
 }
 
+/// Dead Letter Queue entry - records that failed processing with error details
+#[derive(Debug, Clone)]
+pub struct DLQEntry {
+    pub record: StreamRecord,
+    pub error_message: String,
+    pub record_index: usize,
+    pub recoverable: bool,
+    pub timestamp: Instant,
+}
+
+/// Dead Letter Queue - collects failed records for inspection and debugging
+#[derive(Debug, Clone)]
+pub struct DeadLetterQueue {
+    pub entries: Arc<Mutex<Vec<DLQEntry>>>,
+}
+
+impl DeadLetterQueue {
+    /// Create a new DLQ
+    pub fn new() -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Add a failed record to the DLQ
+    pub async fn add_entry(
+        &self,
+        record: StreamRecord,
+        error_message: String,
+        record_index: usize,
+        recoverable: bool,
+    ) {
+        let entry = DLQEntry {
+            record,
+            error_message,
+            record_index,
+            recoverable,
+            timestamp: Instant::now(),
+        };
+        self.entries.lock().await.push(entry);
+    }
+
+    /// Get all DLQ entries
+    pub async fn get_entries(&self) -> Vec<DLQEntry> {
+        self.entries.lock().await.clone()
+    }
+
+    /// Get count of DLQ entries
+    pub async fn len(&self) -> usize {
+        self.entries.lock().await.len()
+    }
+
+    /// Check if DLQ is empty
+    pub async fn is_empty(&self) -> bool {
+        self.entries.lock().await.is_empty()
+    }
+
+    /// Clear the DLQ
+    pub async fn clear(&self) {
+        self.entries.lock().await.clear();
+    }
+
+    /// Print all DLQ entries for debugging
+    pub async fn print_entries(&self) {
+        let entries = self.entries.lock().await;
+        if entries.is_empty() {
+            println!("DLQ is empty");
+            return;
+        }
+
+        println!("\n╔════════════════════════════════════════════════════════════╗");
+        println!(
+            "║ DEAD LETTER QUEUE - {} failed records                 ║",
+            entries.len()
+        );
+        println!("╚════════════════════════════════════════════════════════════╝\n");
+
+        for (i, entry) in entries.iter().enumerate() {
+            println!("DLQ Entry {}:", i + 1);
+            println!("  Record Index:     {}", entry.record_index);
+            println!("  Error Message:    {}", entry.error_message);
+            println!("  Recoverable:      {}", entry.recoverable);
+            println!(
+                "  Record Fields:    {:?}",
+                entry.record.fields.keys().collect::<Vec<_>>()
+            );
+            println!();
+        }
+    }
+}
+
+impl Default for DeadLetterQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Statistics for job execution
 #[derive(Debug, Clone, Default)]
 pub struct JobExecutionStats {
@@ -53,6 +151,8 @@ pub struct JobExecutionStats {
     pub avg_batch_size: f64,
     pub avg_processing_time_ms: f64,
     pub total_processing_time: Duration,
+    /// Detailed error information for debugging
+    pub error_details: Vec<ProcessingError>,
 }
 
 impl JobExecutionStats {
@@ -76,6 +176,9 @@ impl JobExecutionStats {
 
         self.last_record_time = Some(Instant::now());
         self.total_processing_time += result.processing_time;
+
+        // Accumulate error details
+        self.error_details.extend(result.error_details.clone());
 
         // Update moving averages
         let total_batches = (self.batches_processed + self.batches_failed) as f64;
@@ -257,6 +360,10 @@ pub async fn process_batch_with_output(
         let mut context = ProcessorContext::new(&query_id);
         context.group_by_states = group_states;
         context.persistent_window_states = window_states;
+        // Set streaming configuration from engine
+        let engine_lock = engine.read().await;
+        context.streaming_config = Some(engine_lock.streaming_config().clone());
+        drop(engine_lock);
 
         // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
         // Process all records WITHOUT holding engine lock
@@ -328,6 +435,10 @@ pub async fn process_batch_with_output(
         let mut context = ProcessorContext::new(&query_id);
         context.group_by_states = group_states; // Move ownership (not clone)
         context.persistent_window_states = window_states;
+        // Set streaming configuration from engine
+        let engine_lock = engine.read().await;
+        context.streaming_config = Some(engine_lock.streaming_config().clone());
+        drop(engine_lock);
 
         // Process batch WITHOUT holding engine lock (high performance)
         for (index, record) in batch.into_iter().enumerate() {

@@ -374,6 +374,23 @@ async fn scenario_3a_tumbling_standard_baseline() {
             }
             println!("═══════════════════════════════════════════════════════════\n");
 
+            // Print error details if records failed
+            if stats.records_failed > 0 && !stats.error_details.is_empty() {
+                println!("❌ ERROR DETAILS - First 5 Failures:");
+                println!("═══════════════════════════════════════════════════════════");
+                for (i, error) in stats.error_details.iter().take(5).enumerate() {
+                    println!("Error {}:", i + 1);
+                    println!("  Record Index: {}", error.record_index);
+                    println!("  Message: {}", error.error_message);
+                    println!("  Recoverable: {}", error.recoverable);
+                    println!();
+                }
+                if stats.error_details.len() > 5 {
+                    println!("... and {} more errors", stats.error_details.len() - 5);
+                }
+                println!("═══════════════════════════════════════════════════════════\n");
+            }
+
             // Validate server metrics and record samples
             println!("📊 VALIDATION: Server Metrics & Record Sampling");
             println!("═══════════════════════════════════════════════════════════");

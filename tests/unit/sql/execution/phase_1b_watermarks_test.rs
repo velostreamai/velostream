@@ -264,8 +264,8 @@ async fn test_processor_context_watermark_integration() {
 async fn test_window_processor_watermark_aware_processing() {
     let mut context = ProcessorContext::new("test_windowed_query");
 
-    // FR-081: Enable window_v2 for watermark-aware processing
-    context.streaming_config = Some(StreamingConfig::new().with_window_v2());
+    // Window_v2 is the only architecture available (Phase 2E+)
+    context.streaming_config = Some(StreamingConfig::new());
 
     // Enable watermarks
     let manager = Arc::new({

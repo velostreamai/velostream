@@ -1034,20 +1034,9 @@ impl ProcessorContext {
         self.pending_results.clear();
     }
 
-    // === FR-081 PHASE 2A: WINDOW V2 CONFIGURATION ===
+    // === STREAMING CONFIGURATION ===
 
-    /// Check if window_v2 architecture is enabled (FR-081 Phase 2A)
-    ///
-    /// Returns true if the streaming config has window_v2 enabled.
-    /// When enabled, window processing uses the high-performance trait-based architecture.
-    pub fn is_window_v2_enabled(&self) -> bool {
-        self.streaming_config
-            .as_ref()
-            .map(|config| config.enable_window_v2)
-            .unwrap_or(false) // Default to false (legacy behavior)
-    }
-
-    /// Set the streaming configuration (FR-081 Phase 2A)
+    /// Set the streaming configuration
     ///
     /// Allows runtime configuration of streaming engine features.
     pub fn set_streaming_config(
