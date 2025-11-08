@@ -74,6 +74,7 @@ inventory = "0.3"
 apache-avro = { version = "0.20.0" }
 prost = { version = "0.14.1" }
 bincode = { version = "1.3.3", optional = true }
+rayon = { version = "1.8", optional = true }
 base64 = "0.21"
 
 # Phase 4: Observability Dependencies
@@ -199,4 +200,4 @@ default = ["telemetry"]  # Enable telemetry by default
 comprehensive-tests = []  # Enable comprehensive/slow tests that take 40+ seconds
 telemetry = []  # Phase 3.2: Optional telemetry feature flag for zero-cost observation
                  # When disabled, all telemetry recording overhead is eliminated via dead code elimination
-parallel = []  # Optional parallel processing feature for batch operations
+parallel = ["rayon"]  # Optional parallel processing feature for batch operations (requires rayon)

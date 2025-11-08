@@ -6,6 +6,32 @@
 
 ---
 
+## 📊 Progress Status Table
+
+| Phase | Name | Status | Effort | Target | Current |
+|-------|------|--------|--------|--------|---------|
+| **Phase 0-5** | Architecture & Baseline | ✅ Complete | (Done) | 56x improvement | 3.58K → 200K rec/sec |
+| **Phase 6.0** | Fix Partition Receiver | 🔴 BLOCKING | **XS** | Silent drain fix | Not started |
+| **Phase 6.1** | SQL Execution in Partitions | ⏳ Pending | **S** | 200K rec/sec/partition | Not started |
+| **Phase 6.2** | Baseline Validation | ⏳ Pending | **M** | V1 vs V2 comparison | Not started |
+| **Phase 7** | Vectorization & SIMD | 📋 Planning | **L** | 2.2M-3.0M rec/sec | - |
+| **Phase 8** | Distributed Processing | 📋 Planning | **XXL** | 2.0M-3.0M+ multi-machine | - |
+
+### Key Metrics
+- **V1 Baseline**: 200K rec/sec (single partition, established ✅)
+- **V2 Target**: 1.5M rec/sec (8 partitions, 7.5x scaling)
+- **Scaling Efficiency Target**: >90%
+- **Phase 6 Completion**: Nov 19, 2025 (CRITICAL)
+
+### Critical Blocker
+🔴 **Phase 6.0**: Partition receivers silently drain messages instead of processing them
+- Location: `src/velostream/server/v2/coordinator.rs:263-270`
+- Impact: No V2 processing happens currently
+- Fix Time: 2-3 hours
+- Priority: BLOCKING
+
+---
+
 ## Executive Summary
 
 ### What's Working
@@ -65,9 +91,9 @@ tokio::spawn(async move {
 
 ### Phase 6.0: CRITICAL FIX - Partition Receiver Processing
 
-**Timeline**: IMMEDIATE (Nov 8-10, 2025)
-**Priority**: BLOCKING
-**Effort**: 2-3 hours
+**Effort**: **XS** (2-3 hours)
+**Priority**: 🔴 BLOCKING
+**Status**: Not started
 
 #### Task 6.0.1: Fix Coordinator Receiver Logic
 **File**: `src/velostream/server/v2/coordinator.rs` (lines 263-270)
@@ -134,9 +160,9 @@ pub struct PartitionedJobCoordinator {
 
 ### Phase 6.1: Real SQL Execution Routing
 
-**Timeline**: Nov 10-14, 2025
-**Effort**: 2-3 days
+**Effort**: **S** (2-3 days)
 **Target**: 200K rec/sec per partition (baseline = 200K × N partitions)
+**Status**: Pending (after Phase 6.0 complete)
 
 #### Task 6.1.1: Integrate StreamExecutionEngine in Partitions
 
@@ -205,9 +231,9 @@ Expected: 0 errors (same results as V1, just distributed across partitions)
 
 ### Phase 6.2: Baseline Validation
 
-**Timeline**: Nov 14-19, 2025
-**Effort**: 1-2 days
+**Effort**: **M** (1-2 days)
 **Goal**: Measure actual V2 throughput vs V1
+**Status**: Pending (after Phase 6.1 complete)
 
 #### Task 6.2.1: Run Baseline Benchmarks
 
@@ -238,7 +264,7 @@ If V2 throughput < 1.5M:
 
 #### Task 6.2.3: Document Results
 
-Create: `docs/feature/FR-082-perf-part-2/FR-082-WEEK-11-BASELINE.md`
+Create: `docs/feature/FR-082-perf-part-2/FR-082-BASELINE-VALIDATION.md`
 - V1 vs V2 throughput comparison
 - Scaling efficiency calculation
 - Bottleneck analysis (if not meeting targets)
@@ -248,9 +274,10 @@ Create: `docs/feature/FR-082-perf-part-2/FR-082-WEEK-11-BASELINE.md`
 
 ## Phase 7: Vectorization & SIMD Optimization
 
-**Timeline**: Weeks 13-15 (Dec 23 - Jan 12, 2026)
+**Effort**: **L** (3-4 weeks)
 **Starting Point**: 1.5M rec/sec (8 partitions × 200K)
 **Target**: 2.2M-3.0M rec/sec
+**Status**: 📋 Planning
 
 ### Phase 7.1: SIMD Aggregation
 - Vectorize GROUP BY key extraction
@@ -270,8 +297,9 @@ Create: `docs/feature/FR-082-perf-part-2/FR-082-WEEK-11-BASELINE.md`
 
 ## Phase 8: Distributed Processing
 
-**Timeline**: Weeks 16+ (Feb 3+, 2026)
+**Effort**: **XXL** (6+ weeks)
 **Target**: 2.0M-3.0M+ rec/sec across multiple machines
+**Status**: 📋 Planning
 
 ---
 
@@ -294,33 +322,35 @@ Create: `docs/feature/FR-082-perf-part-2/FR-082-WEEK-11-BASELINE.md`
 
 ### Documentation Requirements
 - [ ] FR-082-SCHEDULE.md updated (this file) ✓
-- [ ] FR-082-WEEK-11-BASELINE.md created (after Phase 6.2)
+- [ ] FR-082-BASELINE-VALIDATION.md created (after Phase 6.2)
 - [ ] Coordinator's partition receiver documented with comments
 - [ ] V1 vs V2 performance comparison documented
 
 ---
 
-## Implementation Priority (Starting Nov 8, 2025)
+## Implementation Priority (Immediate)
 
-### Week of Nov 8-10 (IMMEDIATE)
-**Task**: Fix critical partition receiver bug (Phase 6.0)
+### Phase 6.0: XS Effort - IMMEDIATE
+**Task**: Fix critical partition receiver bug
 - 🔴 BLOCKING: Partition receiver silently drains messages
 - Impact: No V2 processing happens currently
-- Time: 2-3 hours
+- Effort: **XS** (2-3 hours)
 - Files: `src/velostream/server/v2/coordinator.rs` (lines 263-270)
 
-### Week of Nov 10-14 (CRITICAL)
-**Task**: Integrate SQL execution in partitions (Phase 6.1)
+### Phase 6.1: S Effort - CRITICAL (after Phase 6.0)
+**Task**: Integrate SQL execution in partitions
 - Implement `process_record_with_engine()` in PartitionStateManager
 - Update partition receiver to call engine
 - Validate GROUP BY state isolation
 - Run scenario tests
+- Effort: **S** (2-3 days)
 
-### Week of Nov 14-19
-**Task**: Baseline validation (Phase 6.2)
+### Phase 6.2: M Effort - VALIDATION (after Phase 6.1)
+**Task**: Baseline validation & documentation
 - Measure V1 vs V2 throughput
 - Profile bottlenecks if needed
 - Document results
+- Effort: **M** (1-2 days)
 
 ---
 
@@ -359,7 +389,7 @@ Create: `docs/feature/FR-082-perf-part-2/FR-082-WEEK-11-BASELINE.md`
 
 ### Phase 6.2 (Validation)
 - `tests/performance/analysis/scenario_*.rs` (run with V2)
-- Create: `docs/feature/FR-082-perf-part-2/FR-082-WEEK-11-BASELINE.md`
+- Create: `docs/feature/FR-082-perf-part-2/FR-082-BASELINE-VALIDATION.md`
 
 ### Cleanup (Done)
 - ✅ Deleted: `FR-082-CORRECTED-ARCHITECTURE.md` (theoretical)
@@ -387,12 +417,14 @@ Once fixed, V2 will scale to 1.5M+ rec/sec (7.5x improvement over V1).
 
 ## Timeline Summary
 
-| Week | Phase | Task | Target |
-|------|-------|------|--------|
-| Nov 8-10 | Phase 6.0 | Fix partition receiver | BLOCKING |
-| Nov 10-14 | Phase 6.1 | Integrate SQL execution | 200K rec/sec per partition |
-| Nov 14-19 | Phase 6.2 | Baseline validation | 1.5M rec/sec aggregate |
-| Dec 23-Jan 12 | Phase 7 | Vectorization & SIMD | 2.2M-3.0M rec/sec |
-| Feb 3+ | Phase 8 | Distributed processing | 2.0M-3.0M+ rec/sec |
+| Effort | Phase | Task | Target | Status |
+|--------|-------|------|--------|--------|
+| **XS** | Phase 6.0 | Fix partition receiver | BLOCKING | 🔴 Not started |
+| **S** | Phase 6.1 | Integrate SQL execution | 200K rec/sec per partition | ⏳ Pending |
+| **M** | Phase 6.2 | Baseline validation | 1.5M rec/sec aggregate | ⏳ Pending |
+| **L** | Phase 7 | Vectorization & SIMD | 2.2M-3.0M rec/sec | 📋 Planning |
+| **XXL** | Phase 8 | Distributed processing | 2.0M-3.0M+ rec/sec | 📋 Planning |
 
-**Goal**: Phase 6 complete by Nov 19, 2025 → Foundation for Phase 7 optimization
+**Critical Path**: XS → S → M (estimated total: ~6 days to Phase 6.2 complete)
+
+**Goal**: Phase 6 complete → Foundation for Phase 7 optimization
