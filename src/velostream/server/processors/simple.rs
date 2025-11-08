@@ -704,6 +704,9 @@ impl SimpleJobProcessor {
         if should_commit && !sink_write_failed {
             self.commit_simple(reader, writer, job_name).await?;
 
+            // INCREMENT BATCHES_PROCESSED for successful batch
+            stats.batches_processed += 1;
+
             if batch_result.records_failed > 0 {
                 debug!(
                     "Job '{}': Committed batch with {} failures",

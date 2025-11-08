@@ -441,6 +441,10 @@ pub async fn process_batch_with_output(
         drop(engine_lock);
 
         // Process batch WITHOUT holding engine lock (high performance)
+        debug!(
+            "Job '{}': Standard path processing {} records (uses_emit_changes = false)",
+            job_name, batch_size
+        );
         for (index, record) in batch.into_iter().enumerate() {
             // CRITICAL: Reuse same context across all records in batch
             // GROUP BY state accumulates in context.group_by_states HashMap (in-place mutation)
@@ -488,14 +492,26 @@ pub async fn process_batch_with_output(
                     });
 
                     // Log with human-readable context and full debug info
-                    warn!(
-                        "Job '{}' failed to process record {}: {} [Recoverable: {}]",
-                        job_name, index, detailed_msg, recoverable
-                    );
-                    debug!("Full error details: {:?}", e);
+                    if index < 3 {
+                        // Log first 3 errors to avoid log spam
+                        warn!(
+                            "Job '{}' failed to process record {}: {} [Recoverable: {}]",
+                            job_name, index, detailed_msg, recoverable
+                        );
+                        debug!("Full error details: {:?}", e);
+                    } else if index == 3 {
+                        warn!(
+                            "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                            job_name, batch_size
+                        );
+                    }
                 }
             }
         }
+        debug!(
+            "Job '{}': Standard path completed: {} processed, {} failed",
+            job_name, records_processed, records_failed
+        );
 
         // Extract accumulated state from context (move ownership back)
         let group_states = context.group_by_states;
