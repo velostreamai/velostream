@@ -1,4 +1,4 @@
-# Single-Core Performance Analysis: V1 vs V2 + Remaining Optimizations
+    # Single-Core Performance Analysis: V1 vs V2 + Remaining Optimizations
 
 **Date**: November 7, 2025
 **Analysis**: Critical performance gap and optimization roadmap

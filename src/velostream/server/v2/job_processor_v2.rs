@@ -133,7 +133,7 @@ impl JobProcessor for PartitionedJobCoordinator {
         );
 
         let start_time = std::time::Instant::now();
-        use crate::velostream::sql::execution::processors::{QueryProcessor, ProcessorContext};
+        use crate::velostream::sql::execution::processors::{ProcessorContext, QueryProcessor};
 
         let mut aggregated_stats = JobExecutionStats::new();
 

@@ -38,7 +38,9 @@ use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::{JobProcessor, JobProcessorConfig, JobProcessorFactory};
+use velostream::velostream::server::processors::{
+    JobProcessor, JobProcessorConfig, JobProcessorFactory,
+};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -188,7 +190,6 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
     (records.len(), elapsed.as_micros())
 }
 
-
 #[tokio::test]
 #[serial]
 async fn scenario_0_pure_select_baseline() {
@@ -251,7 +252,10 @@ async fn scenario_0_pure_select_baseline() {
     let v1_duration = v1_start.elapsed();
 
     let v1_throughput = num_records as f64 / v1_duration.as_secs_f64();
-    println!("✓ V1 completed: {:.2?} ({:.0} rec/sec)\n", v1_duration, v1_throughput);
+    println!(
+        "✓ V1 completed: {:.2?} ({:.0} rec/sec)\n",
+        v1_duration, v1_throughput
+    );
 
     // ========================================================================
     // TEST V2 (Multi-partition parallel via JobProcessor trait)
@@ -317,16 +321,12 @@ async fn scenario_0_pure_select_baseline() {
                 scaling_efficiency
             );
 
-            println!(
-                "╔════════════════════════════════════════════════════════════╗"
-            );
+            println!("╔════════════════════════════════════════════════════════════╗");
             println!("║ ✅ VALIDATION COMPLETE                                   ║");
             println!("║ ✓ V1 and V2 both tested through JobProcessor trait      ║");
             println!("║ ✓ Records flow through V2 partition pipeline            ║");
             println!("║ ✓ Scenario 0 validates both architectures               ║");
-            println!(
-                "╚════════════════════════════════════════════════════════════╝\n"
-            );
+            println!("╚════════════════════════════════════════════════════════════╝\n");
 
             // Validate metrics from both processors
             println!("📊 VALIDATION: Execution Metrics");

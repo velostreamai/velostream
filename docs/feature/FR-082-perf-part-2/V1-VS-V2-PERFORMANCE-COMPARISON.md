@@ -1,18 +1,29 @@
 # V1 vs V2 Performance Comparison: All Scenarios
 
-**Date**: November 6, 2025
-**Focus**: Complete performance analysis across all 5 query patterns
-**Baseline**: Week 8 Optimizations 1-4 applied
+⚠️ **DEPRECATED**: This document contains outdated projections with "TBD" values.
+
+**➡️ See Instead**: [V1-VS-V2-CONSOLIDATED-PERFORMANCE-COMPARISON.md](V1-VS-V2-CONSOLIDATED-PERFORMANCE-COMPARISON.md)
+
+**New Document**:
+- **Date**: November 8, 2025 (Updated with actual benchmark data)
+- **Contains**: Real measured throughput for all 5 scenarios
+- **V2 Results**: 5.31x-12.89x speedup (not 8x estimate)
+- **Key Finding**: Super-linear scaling (322% per-core) on GROUP BY due to cache effects
 
 ---
 
-## Executive Summary
+## ⚠️ Why This Document is Deprecated
 
-All scenarios show **consistent performance patterns**:
-- **V1 (Single Core)**: ~23.6K rec/sec across all query types (after optimizations)
-- **V2 (8-Core)**: ~188.8K rec/sec (linear 8x scaling)
-- **V2 Improvement**: **8x faster** for each scenario through parallelization
-- **Primary Insight**: Coordination overhead is universal, not query-specific
+- Original date: November 6, 2025 (before V2 implementation complete)
+- Contains "TBD" placeholders for V2 results (lines 25-30)
+- Based on theoretical 8-core projections
+- **Superseded by actual benchmark results** from Phase 6.3
+
+---
+
+## Historical Reference (For Comparison)
+
+The information below is preserved for reference but **should not be used for decisions**. Use the consolidated document instead.
 
 ---
 

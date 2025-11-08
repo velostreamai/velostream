@@ -47,7 +47,9 @@ use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::{JobProcessor, JobProcessorConfig, JobProcessorFactory};
+use velostream::velostream::server::processors::{
+    JobProcessor, JobProcessorConfig, JobProcessorFactory,
+};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, parser::StreamingSqlParser};
 
@@ -653,7 +655,6 @@ impl DataWriter for RowsWindowDataWriter {
         Ok(())
     }
 }
-
 
 #[tokio::test]
 #[serial]

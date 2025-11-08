@@ -21,8 +21,12 @@ use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::{JobProcessor, JobProcessorConfig, JobProcessorFactory};
-use velostream::velostream::server::processors::common::{FailureStrategy, JobProcessingConfig as SimpleJobProcessingConfig};
+use velostream::velostream::server::processors::common::{
+    FailureStrategy, JobProcessingConfig as SimpleJobProcessingConfig,
+};
+use velostream::velostream::server::processors::{
+    JobProcessor, JobProcessorConfig, JobProcessorFactory,
+};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -215,14 +219,10 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
 #[tokio::test]
 #[serial]
 async fn job_server_overhead_breakdown() {
-    println!(
-        "\n╔════════════════════════════════════════════════════════════╗"
-    );
+    println!("\n╔════════════════════════════════════════════════════════════╗");
     println!("║ FR-082 Phase 6: Scenario 2 - GROUP BY (V1 vs V2)        ║");
     println!("║ Testing through unified JobProcessor trait              ║");
-    println!(
-        "╚════════════════════════════════════════════════════════════╝\n"
-    );
+    println!("╚════════════════════════════════════════════════════════════╝\n");
 
     let num_records = 5000;
     let batch_size = 1000;
@@ -249,8 +249,7 @@ async fn job_server_overhead_breakdown() {
     let data_writer_v1 = InstrumentedDataWriter::new();
 
     let (tx_v1, _rx_v1) = mpsc::unbounded_channel();
-    let engine_v1 =
-        Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v1)));
+    let engine_v1 = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v1)));
 
     let processor_v1 = JobProcessorFactory::create(JobProcessorConfig::V1);
     let (_shutdown_tx_v1, shutdown_rx_v1) = mpsc::channel(1);
@@ -269,7 +268,10 @@ async fn job_server_overhead_breakdown() {
     let v1_duration = v1_start.elapsed();
 
     let v1_throughput = num_records as f64 / v1_duration.as_secs_f64();
-    println!("✓ V1 completed: {:.2?} ({:.0} rec/sec)\n", v1_duration, v1_throughput);
+    println!(
+        "✓ V1 completed: {:.2?} ({:.0} rec/sec)\n",
+        v1_duration, v1_throughput
+    );
 
     // ========================================================================
     // TEST V2 (Multi-partition parallel via JobProcessor trait)
@@ -280,8 +282,7 @@ async fn job_server_overhead_breakdown() {
     let data_writer_v2 = InstrumentedDataWriter::new();
 
     let (tx_v2, _rx_v2) = mpsc::unbounded_channel();
-    let engine_v2 =
-        Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v2)));
+    let engine_v2 = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v2)));
 
     let processor_v2 = JobProcessorFactory::create(JobProcessorConfig::V2 {
         num_partitions: Some(num_v2_partitions),
@@ -311,13 +312,9 @@ async fn job_server_overhead_breakdown() {
     // ========================================================================
     // RESULTS COMPARISON
     // ========================================================================
-    println!(
-        "╔════════════════════════════════════════════════════════════╗"
-    );
+    println!("╔════════════════════════════════════════════════════════════╗");
     println!("║ RESULTS: V1 vs V2 (Scenario 2: GROUP BY)                ║");
-    println!(
-        "╚════════════════════════════════════════════════════════════╝\n"
-    );
+    println!("╚════════════════════════════════════════════════════════════╝\n");
 
     match (v1_result, v2_result) {
         (Ok(_v1_stats), Ok(_v2_stats)) => {
@@ -340,16 +337,12 @@ async fn job_server_overhead_breakdown() {
                 scaling_efficiency
             );
 
-            println!(
-                "╔════════════════════════════════════════════════════════════╗"
-            );
+            println!("╔════════════════════════════════════════════════════════════╗");
             println!("║ ✅ PHASE 6 VALIDATION COMPLETE                           ║");
             println!("║ ✓ V1 and V2 both tested through JobProcessor trait      ║");
             println!("║ ✓ Records flow through V2 partition pipeline            ║");
             println!("║ ✓ Scenario 2 validates both architectures               ║");
-            println!(
-                "╚════════════════════════════════════════════════════════════╝\n"
-            );
+            println!("╚════════════════════════════════════════════════════════════╝\n");
         }
         _ => {
             eprintln!("❌ One or both processors failed");
