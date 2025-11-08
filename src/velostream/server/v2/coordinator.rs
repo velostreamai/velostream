@@ -172,6 +172,10 @@ pub struct PartitionedJobCoordinator {
     group_by_columns: Vec<String>,
     /// Number of available CPU slots
     num_cpu_slots: usize,
+    /// Phase 6.1: Streaming query to execute on each partition
+    query: Option<Arc<StreamingQuery>>,
+    /// Phase 6.1: Execution engine for SQL processing on each partition
+    execution_engine: Option<Arc<tokio::sync::RwLock<StreamExecutionEngine>>>,
 }
 
 impl PartitionedJobCoordinator {
@@ -208,6 +212,8 @@ impl PartitionedJobCoordinator {
             strategy,
             group_by_columns: Vec::new(),
             num_cpu_slots,
+            query: None,
+            execution_engine: None,
         }
     }
 
@@ -226,6 +232,27 @@ impl PartitionedJobCoordinator {
     /// based on workload characteristics.
     pub fn with_strategy(mut self, strategy: Arc<dyn PartitioningStrategy>) -> Self {
         self.strategy = strategy;
+        self
+    }
+
+    /// Set execution engine for SQL processing (Phase 6.1)
+    ///
+    /// Configures the coordinator to use this engine for executing queries on each partition.
+    /// Must be called before initialize_partitions() to be effective.
+    pub fn with_execution_engine(
+        mut self,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+    ) -> Self {
+        self.execution_engine = Some(engine);
+        self
+    }
+
+    /// Set query to execute on each partition (Phase 6.1)
+    ///
+    /// Configures the coordinator to execute this query on records in each partition.
+    /// Must be called before initialize_partitions() to be effective.
+    pub fn with_query(mut self, query: Arc<StreamingQuery>) -> Self {
+        self.query = Some(query);
         self
     }
 
@@ -259,6 +286,16 @@ impl PartitionedJobCoordinator {
             let manager = Arc::new(PartitionStateManager::new(partition_id));
             let (tx, rx) = mpsc::channel(self.config.partition_buffer_size);
 
+            // Phase 6.1: Wire up execution engine and query if configured
+            let has_sql_execution =
+                if let (Some(engine), Some(query)) = (&self.execution_engine, &self.query) {
+                    manager.set_execution_engine(Arc::clone(engine));
+                    manager.set_query(Arc::clone(query));
+                    true
+                } else {
+                    false
+                };
+
             // Phase 6.0 FIX: Spawn a background task that processes records instead of draining
             let manager_clone = Arc::clone(&manager);
             tokio::spawn(async move {
@@ -268,8 +305,29 @@ impl PartitionedJobCoordinator {
 
                 // Process each record through the partition's state manager
                 while let Some(record) = receiver.recv().await {
-                    // Process record through watermark and state management
-                    match manager_clone.process_record(&record) {
+                    // Phase 6.1: Use SQL execution if configured, otherwise use basic watermark management
+                    let result = if has_sql_execution {
+                        // Execute SQL query on record (includes watermark management)
+                        match manager_clone.process_record_with_sql(record).await {
+                            Ok(Some(_output)) => {
+                                // Record was processed successfully
+                                Ok(())
+                            }
+                            Ok(None) => {
+                                // Record was dropped (late record with Drop strategy)
+                                Err(SqlError::ExecutionError {
+                                    message: "Record dropped by late record strategy".to_string(),
+                                    query: None,
+                                })
+                            }
+                            Err(e) => Err(e),
+                        }
+                    } else {
+                        // Process record through watermark and state management only
+                        manager_clone.process_record(&record)
+                    };
+
+                    match result {
                         Ok(()) => {
                             processed += 1;
 

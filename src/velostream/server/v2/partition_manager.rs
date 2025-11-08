@@ -10,9 +10,9 @@ use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log;
 use std::sync::Arc;
+use std::sync::RwLock as StdRwLock;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use std::sync::RwLock as StdRwLock;
 
 /// Manages query state for a single partition (lock-free design)
 ///
@@ -217,7 +217,9 @@ impl PartitionStateManager {
         if let (Some(engine), Some(query)) = (engine_opt, query_opt) {
             // Acquire write lock on engine and execute query on this record
             let mut engine_guard = engine.write().await;
-            engine_guard.execute_with_record(&query, record.clone()).await?;
+            engine_guard
+                .execute_with_record(&query, record.clone())
+                .await?;
 
             // Note: Results are sent to output channel configured in engine
             // For now, we return the record that was processed

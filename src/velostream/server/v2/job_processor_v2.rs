@@ -17,7 +17,7 @@
 //! See: `src/velostream/server/v2/hash_router.rs` for routing logic
 
 use crate::velostream::server::processors::JobProcessor;
-use crate::velostream::server::v2::{PartitionedJobCoordinator};
+use crate::velostream::server::v2::PartitionedJobCoordinator;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;

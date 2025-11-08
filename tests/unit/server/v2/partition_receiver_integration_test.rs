@@ -6,7 +6,7 @@
 //! - Metrics are tracked correctly
 //! - Late records are handled per strategy
 
-use chrono::{DateTime, Utc, Duration as ChronoDuration};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
