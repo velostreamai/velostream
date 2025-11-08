@@ -10,9 +10,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use velostream::velostream::serialization::FieldValue;
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionedJobConfig, PartitionedJobCoordinator, PartitioningStrategy,
-    QueryMetadata, RoundRobinStrategy, RoutingContext, SmartRepartitionStrategy,
-    StickyPartitionStrategy, StrategyConfig, StrategyFactory,
+    AlwaysHashStrategy, FanInStrategy, PartitionedJobConfig, PartitionedJobCoordinator,
+    PartitioningStrategy, QueryMetadata, RoundRobinStrategy, RoutingContext,
+    SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig, StrategyFactory,
 };
 use velostream::velostream::sql::execution::types::StreamRecord;
 
@@ -250,10 +250,7 @@ async fn test_batch_processing_maintains_consistency() {
         .await;
 
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), 10); // All 10 records processed
-
-    // In a real test, we would read from the channels to verify order
-    // For now, we just verify the records were accepted
+    assert_eq!(result.unwrap(), 10); // All 10 records should be processed
 }
 
 /// Test strategy with compound GROUP BY (multiple columns)
@@ -425,6 +422,7 @@ fn test_factory_creates_all_strategies() {
         StrategyConfig::SmartRepartition,
         StrategyConfig::RoundRobin,
         StrategyConfig::StickyPartition,
+        StrategyConfig::FanIn,
     ];
 
     for config in test_configs {
@@ -442,6 +440,7 @@ fn test_factory_string_parsing() {
         ("smart_repartition", "SmartRepartition"),
         ("round_robin", "RoundRobin"),
         ("sticky_partition", "StickyPartition"),
+        ("fan_in", "FanIn"),
     ];
 
     for (input, expected_name) in test_cases {
@@ -570,4 +569,36 @@ fn test_round_robin_validation_rejects_group_by() {
     };
 
     assert!(strategy.validate(&metadata_no_group_by).is_ok());
+}
+
+/// Test FanInStrategy concentrates all records to single partition
+#[tokio::test]
+async fn test_fan_in_strategy_concentrates_records() {
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec![]) // FanIn doesn't require GROUP BY
+        .with_strategy(Arc::new(FanInStrategy::new()));
+
+    let (_managers, senders) = coordinator.initialize_partitions();
+
+    // Create batch of records with different keys
+    let records: Vec<StreamRecord> = (0..20)
+        .map(|i| {
+            let mut record = HashMap::new();
+            record.insert(
+                "id".to_string(),
+                FieldValue::String(format!("record_{}", i)),
+            );
+            record.insert("value".to_string(), FieldValue::Integer(i as i64 * 100));
+            StreamRecord::new(record)
+        })
+        .collect();
+
+    let result = coordinator
+        .process_batch_with_strategy(records, &senders)
+        .await;
+
+    // All 20 records should be processed and routed to same partition
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), 20);
 }

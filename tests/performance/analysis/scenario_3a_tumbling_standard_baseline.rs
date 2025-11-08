@@ -48,6 +48,9 @@ use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
+// Import validation utilities
+use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+
 // Same query as tumbling_instrumented_profiling.rs
 const TEST_SQL: &str = r#"
     SELECT
@@ -159,16 +162,28 @@ impl DataReader for MockDataSource {
     }
 }
 
-/// Mock writer for job server testing
+/// Mock writer for job server testing with record sampling
 struct MockDataWriter {
     count: Arc<AtomicUsize>,
+    samples: Arc<Mutex<Vec<StreamRecord>>>,
+    sample_rate: usize, // Sample 1 in N records
 }
 
 impl MockDataWriter {
     fn new() -> Self {
         Self {
             count: Arc::new(AtomicUsize::new(0)),
+            samples: Arc::new(Mutex::new(Vec::new())),
+            sample_rate: 10000, // Sample 1 in 10k
         }
+    }
+
+    fn get_sample_count(&self) -> usize {
+        self.count.load(Ordering::SeqCst) / self.sample_rate + 1
+    }
+
+    async fn get_samples(&self) -> Vec<StreamRecord> {
+        self.samples.lock().await.clone()
     }
 }
 
@@ -176,9 +191,14 @@ impl MockDataWriter {
 impl DataWriter for MockDataWriter {
     async fn write(
         &mut self,
-        _record: StreamRecord,
+        record: StreamRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.count.fetch_add(1, Ordering::SeqCst);
+        let count = self.count.fetch_add(1, Ordering::SeqCst);
+
+        // Sample 1 in N records
+        if count % self.sample_rate == 0 {
+            self.samples.lock().await.push(record);
+        }
         Ok(())
     }
 
@@ -186,6 +206,15 @@ impl DataWriter for MockDataWriter {
         &mut self,
         records: Vec<Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let count = self.count.load(Ordering::SeqCst);
+
+        // Sample records from batch (1 in N sampling)
+        for (i, record) in records.iter().enumerate() {
+            if (count + i) % self.sample_rate == 0 {
+                self.samples.lock().await.push(record.as_ref().clone());
+            }
+        }
+
         self.count.fetch_add(records.len(), Ordering::SeqCst);
         Ok(())
     }
@@ -250,6 +279,9 @@ async fn scenario_3a_tumbling_standard_baseline() {
 
     let data_source = MockDataSource::new(records, batch_size);
     let data_writer = MockDataWriter::new();
+
+    // Keep a reference to the samples for later validation
+    let samples_ref = data_writer.samples.clone();
 
     let config = JobProcessingConfig {
         max_batch_size: batch_size,
@@ -352,9 +384,37 @@ async fn scenario_3a_tumbling_standard_baseline() {
             }
             println!("═══════════════════════════════════════════════════════════\n");
 
-            // Assert reasonable performance
+            // Validate server metrics and record samples
+            println!("📊 VALIDATION: Server Metrics & Record Sampling");
+            println!("═══════════════════════════════════════════════════════════");
+
+            // Validate server metrics using reusable module
+            let metrics_validation = MetricsValidation::validate_metrics(
+                stats.records_processed as usize,
+                stats.batches_processed as usize,
+                stats.records_failed as usize,
+            );
+            metrics_validation.print_results();
+
+            // Get sampled records (1 in 10k sampling) from the shared reference
+            let samples = samples_ref.lock().await.clone();
+
+            // Validate sampled records using reusable module
+            let record_validation = validate_records(&samples);
+
+            // Print validation results in standard format
+            print_validation_results(&samples, &record_validation, 10000);
+
+            println!("═══════════════════════════════════════════════════════════");
+
+            // Final assertions
             assert!(sql_throughput > 0, "SQL engine should process records");
             assert!(job_throughput > 0.0, "Job server should process records");
+            assert!(
+                metrics_validation.is_valid,
+                "Metrics validation should pass"
+            );
+            assert!(record_validation.is_valid, "Record validation should pass");
         }
         Err(e) => {
             eprintln!("❌ Job server processing failed: {:?}", e);

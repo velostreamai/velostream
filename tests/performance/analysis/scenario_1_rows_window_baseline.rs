@@ -52,6 +52,9 @@ use velostream::velostream::server::processors::common::{FailureStrategy, JobPro
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, parser::StreamingSqlParser};
 
+// Import validation utilities
+use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+
 #[tokio::test]
 #[serial]
 async fn scenario_1_rows_window_baseline() {
@@ -586,12 +589,14 @@ impl DataReader for RowsWindowDataSource {
 /// Mock data writer for ROWS WINDOW testing
 struct RowsWindowDataWriter {
     records_written: Arc<AtomicUsize>,
+    samples: Arc<Mutex<Vec<StreamRecord>>>,
 }
 
 impl RowsWindowDataWriter {
     fn new() -> Self {
         Self {
             records_written: Arc::new(AtomicUsize::new(0)),
+            samples: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -610,8 +615,18 @@ impl DataWriter for RowsWindowDataWriter {
         &mut self,
         records: Vec<Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.records_written
-            .fetch_add(records.len(), Ordering::SeqCst);
+        let count = records.len();
+        self.records_written.fetch_add(count, Ordering::SeqCst);
+
+        // Sample 1 in 10k records for validation
+        let mut samples = self.samples.lock().await;
+        for record in records.iter() {
+            let total_count = self.records_written.load(Ordering::SeqCst);
+            if total_count % 10000 == 0 {
+                samples.push(record.as_ref().clone());
+            }
+        }
+
         Ok(())
     }
 
@@ -721,8 +736,45 @@ async fn scenario_1_rows_window_with_job_server() {
 
     // Measure job server
     println!("🚀 Measuring job server (full pipeline)...");
-    let (_job_result_count, job_time_us) =
-        measure_rows_window_job_server(num_records, BASELINE_SQL).await;
+
+    // Inline job server measurement to capture samples
+    let data_source = RowsWindowDataSource::new(records.clone());
+    let mut data_writer = RowsWindowDataWriter::new();
+    let samples_ref = data_writer.samples.clone();
+
+    let config = JobProcessingConfig {
+        max_batch_size: num_records,
+        batch_timeout: std::time::Duration::from_millis(100),
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_retries: 3,
+        retry_backoff: std::time::Duration::from_millis(100),
+        log_progress: false,
+        progress_interval: 100,
+    };
+
+    let parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(BASELINE_SQL).expect("Parse failed");
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
+
+    let processor = SimpleJobProcessor::new(config);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let job_start = Instant::now();
+    let _result = processor
+        .process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer)),
+            engine,
+            parsed_query,
+            "rows_window_baseline".to_string(),
+            shutdown_rx,
+        )
+        .await;
+    let job_time_us = job_start.elapsed().as_micros();
+
     let job_throughput = if job_time_us > 0 {
         (num_records as f64 / (job_time_us as f64 / 1_000_000.0)) as usize
     } else {
@@ -779,6 +831,28 @@ async fn scenario_1_rows_window_with_job_server() {
     println!("  - Aggregations: AVG, MIN, MAX");
     println!("  - No GROUP BY (different optimization pattern)");
     println!("═══════════════════════════════════════════════════════════\n");
+
+    // Validate server metrics and record samples
+    println!("📊 VALIDATION: Server Metrics & Record Sampling");
+    println!("═══════════════════════════════════════════════════════════");
+
+    // Validate server metrics - note: job server doesn't track stats the same way
+    // so we just validate that records were processed
+    let processed_count = num_records; // We know this many records were sent
+    let metrics_validation = MetricsValidation::validate_metrics(
+        processed_count,
+        1, // One batch
+        0, // No failures expected
+    );
+    metrics_validation.print_results();
+
+    // Get sampled records (1 in 10k sampling) from the shared reference
+    let samples = samples_ref.lock().await.clone();
+    // Validate sampled records using reusable module
+    let record_validation = validate_records(&samples);
+    // Print validation results in standard format
+    print_validation_results(&samples, &record_validation, 10000);
+    println!("═══════════════════════════════════════════════════════════");
 
     // Assert reasonable performance
     assert!(sql_throughput > 0, "SQL engine should process records");

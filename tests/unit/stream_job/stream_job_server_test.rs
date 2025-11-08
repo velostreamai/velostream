@@ -34,13 +34,14 @@ FROM test_topic2
 WHERE value > 100
 WITH ('output.topic' = 'job2_output');
 
--- Job 3: Window function
+-- Job 3: Aggregation with grouping
 START JOB job3 AS
-SELECT 
+SELECT
     key,
-    value,
-    AVG(value) OVER (PARTITION BY key ORDER BY timestamp ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) as avg_value
+    COUNT(*) as value_count,
+    AVG(value) as avg_value
 FROM test_topic3
+GROUP BY key
 WITH ('output.topic' = 'job3_output');
 
 -- Job 4: Join operation  

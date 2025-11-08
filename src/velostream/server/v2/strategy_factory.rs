@@ -6,8 +6,8 @@ use crate::velostream::sql::error::SqlError;
 use std::sync::Arc;
 
 use super::{
-    AlwaysHashStrategy, PartitioningStrategy, RoundRobinStrategy, SmartRepartitionStrategy,
-    StickyPartitionStrategy, StrategyConfig,
+    AlwaysHashStrategy, FanInStrategy, PartitioningStrategy, RoundRobinStrategy,
+    SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig,
 };
 
 /// Factory for creating strategies from configuration
@@ -33,6 +33,7 @@ impl StrategyFactory {
             StrategyConfig::SmartRepartition => Ok(Arc::new(SmartRepartitionStrategy::new())),
             StrategyConfig::RoundRobin => Ok(Arc::new(RoundRobinStrategy::new())),
             StrategyConfig::StickyPartition => Ok(Arc::new(StickyPartitionStrategy::new())),
+            StrategyConfig::FanIn => Ok(Arc::new(FanInStrategy::new())),
         }
     }
 
@@ -104,5 +105,21 @@ mod tests {
         assert!(strategy.is_ok());
         let strategy = strategy.unwrap();
         assert_eq!(strategy.name(), "StickyPartition");
+    }
+
+    #[test]
+    fn test_factory_create_fan_in() {
+        let strategy = StrategyFactory::create(StrategyConfig::FanIn);
+        assert!(strategy.is_ok());
+        let strategy = strategy.unwrap();
+        assert_eq!(strategy.name(), "FanIn");
+    }
+
+    #[test]
+    fn test_factory_create_from_str_fan_in() {
+        let strategy = StrategyFactory::create_from_str("fan_in");
+        assert!(strategy.is_ok());
+        let strategy = strategy.unwrap();
+        assert_eq!(strategy.name(), "FanIn");
     }
 }

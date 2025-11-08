@@ -50,7 +50,7 @@
 //! See `docs/feature/FR-082-perf-part-2/FR-082-JOB-SERVER-V2-PARTITIONED-PIPELINE.md`
 
 pub mod coordinator;
-pub mod hash_router;
+pub mod fan_in_strategy;
 pub mod job_processor_v2;
 pub mod metrics;
 pub mod partition_manager;
@@ -69,7 +69,7 @@ pub use coordinator::{
     BackpressureConfig, CoordinatorMetrics, PartitionedJobConfig, PartitionedJobCoordinator,
     ProcessingMode, ThrottleConfig,
 };
-pub use hash_router::{HashRouter, PartitionStrategy};
+pub use fan_in_strategy::FanInStrategy;
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
 pub use partitioning_strategy::{

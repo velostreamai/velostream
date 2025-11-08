@@ -83,8 +83,8 @@ fn create_test_record(trader_id: &str) -> StreamRecord {
     StreamRecord::new(fields)
 }
 
-#[test]
-fn test_coordinator_metrics_collection() {
+#[tokio::test]
+async fn test_coordinator_metrics_collection() {
     let config = PartitionedJobConfig {
         num_partitions: Some(2),
         ..Default::default()
@@ -92,6 +92,9 @@ fn test_coordinator_metrics_collection() {
     let coordinator = PartitionedJobCoordinator::new(config);
 
     let (managers, _senders) = coordinator.initialize_partitions();
+
+    // Give tokio a moment to spawn the partition receiver tasks
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
 
     // Process some records through managers
     for manager in &managers[..1] {

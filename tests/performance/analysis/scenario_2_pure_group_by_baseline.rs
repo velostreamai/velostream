@@ -27,6 +27,9 @@ use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
+// Import validation utilities
+use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+
 const TEST_SQL: &str = r#"
     SELECT
         trader_id,
@@ -111,12 +114,14 @@ impl DataReader for InstrumentedDataSource {
 
 struct InstrumentedDataWriter {
     count: Arc<AtomicUsize>,
+    samples: Arc<Mutex<Vec<StreamRecord>>>,
 }
 
 impl InstrumentedDataWriter {
     fn new() -> Self {
         Self {
             count: Arc::new(AtomicUsize::new(0)),
+            samples: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -135,7 +140,18 @@ impl DataWriter for InstrumentedDataWriter {
         &mut self,
         records: Vec<Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.count.fetch_add(records.len(), Ordering::SeqCst);
+        let count = records.len();
+        self.count.fetch_add(count, Ordering::SeqCst);
+
+        // Sample 1 in 10k records for validation
+        let mut samples = self.samples.lock().await;
+        for record in records.iter() {
+            let total_count = self.count.load(Ordering::SeqCst);
+            if total_count % 10000 == 0 {
+                samples.push(record.as_ref().clone());
+            }
+        }
+
         Ok(())
     }
 
@@ -220,7 +236,8 @@ async fn job_server_overhead_breakdown() {
 
     // Setup job server
     let (data_source, clone_tracker) = InstrumentedDataSource::new(records, batch_size);
-    let data_writer = InstrumentedDataWriter::new();
+    let mut data_writer = InstrumentedDataWriter::new();
+    let samples_ref = data_writer.samples.clone();
 
     let config = JobProcessingConfig {
         max_batch_size: batch_size,
@@ -316,6 +333,25 @@ async fn job_server_overhead_breakdown() {
                 throughput_pure / throughput_job_server
             );
             println!("═══════════════════════════════════════════════════════════\n");
+
+            // Validate server metrics and record samples
+            println!("📊 VALIDATION: Server Metrics & Record Sampling");
+            println!("═══════════════════════════════════════════════════════════");
+
+            let metrics_validation = MetricsValidation::validate_metrics(
+                num_records,
+                (num_records + batch_size - 1) / batch_size,
+                0, // No failures expected
+            );
+            metrics_validation.print_results();
+
+            // Get sampled records (1 in 10k sampling) from the shared reference
+            let samples = samples_ref.lock().await.clone();
+            // Validate sampled records using reusable module
+            let record_validation = validate_records(&samples);
+            // Print validation results in standard format
+            print_validation_results(&samples, &record_validation, 10000);
+            println!("═══════════════════════════════════════════════════════════");
         }
         Err(e) => {
             eprintln!("❌ Test failed: {:?}", e);

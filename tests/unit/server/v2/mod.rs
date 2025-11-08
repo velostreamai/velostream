@@ -1,7 +1,6 @@
 //! FR-082 Phase 1-6: Job Server V2 hash-partitioned architecture unit tests
 
 pub mod coordinator_test;
-pub mod hash_router_test;
 pub mod job_processor_v2_test;
 pub mod metrics_test;
 pub mod partition_manager_test;

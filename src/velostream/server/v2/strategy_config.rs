@@ -40,6 +40,13 @@ pub enum StrategyConfig {
     /// Best for: Sink-to-sink pipelines, minimal transformation
     /// Improvement: 40-60% for latency-sensitive workloads
     StickyPartition,
+
+    /// Fan-in strategy concentrating all records into single partition
+    /// Routes all records to partition 0 (or designated target partition)
+    /// Best for: Global aggregations, final aggregation stages
+    /// Use cases: Global COUNT(*), SUM/AVG across all partitions
+    /// Limitation: Single partition bottleneck (~200K rec/sec)
+    FanIn,
 }
 
 impl StrategyConfig {
@@ -58,6 +65,9 @@ impl StrategyConfig {
             StrategyConfig::StickyPartition => {
                 "Sticky partitioning (minimal movement, latency-optimized)"
             }
+            StrategyConfig::FanIn => {
+                "Fan-in strategy (concentrate all data into single partition for global aggregations)"
+            }
         }
     }
 
@@ -66,7 +76,8 @@ impl StrategyConfig {
         match self {
             StrategyConfig::AlwaysHash
             | StrategyConfig::SmartRepartition
-            | StrategyConfig::StickyPartition => true,
+            | StrategyConfig::StickyPartition
+            | StrategyConfig::FanIn => true,
             StrategyConfig::RoundRobin => false,
         }
     }
@@ -77,7 +88,7 @@ impl StrategyConfig {
             StrategyConfig::AlwaysHash
             | StrategyConfig::SmartRepartition
             | StrategyConfig::StickyPartition => true,
-            StrategyConfig::RoundRobin => false,
+            StrategyConfig::RoundRobin | StrategyConfig::FanIn => false,
         }
     }
 }
@@ -95,9 +106,10 @@ impl FromStr for StrategyConfig {
             "sticky_partition" | "stickypartition" | "sticky" => {
                 Ok(StrategyConfig::StickyPartition)
             }
+            "fan_in" | "fanin" | "fan-in" => Ok(StrategyConfig::FanIn),
             _ => Err(SqlError::ConfigurationError {
                 message: format!(
-                    "Unknown partitioning strategy '{}'. Valid options: always_hash, smart_repartition, round_robin, sticky_partition",
+                    "Unknown partitioning strategy '{}'. Valid options: always_hash, smart_repartition, round_robin, sticky_partition, fan_in",
                     s
                 ),
             }),
@@ -112,6 +124,7 @@ impl std::fmt::Display for StrategyConfig {
             StrategyConfig::SmartRepartition => write!(f, "smart_repartition"),
             StrategyConfig::RoundRobin => write!(f, "round_robin"),
             StrategyConfig::StickyPartition => write!(f, "sticky_partition"),
+            StrategyConfig::FanIn => write!(f, "fan_in"),
         }
     }
 }
@@ -261,5 +274,24 @@ mod tests {
     fn test_builder_default() {
         let config = StrategyConfigBuilder::default().build();
         assert_eq!(config, StrategyConfig::AlwaysHash);
+    }
+
+    #[test]
+    fn test_fan_in_strategy_config() {
+        assert_eq!(
+            "fan_in".parse::<StrategyConfig>().unwrap(),
+            StrategyConfig::FanIn
+        );
+        assert_eq!(StrategyConfig::FanIn.to_string(), "fan_in");
+    }
+
+    #[test]
+    fn test_fan_in_is_stateful() {
+        assert!(StrategyConfig::FanIn.is_stateful());
+    }
+
+    #[test]
+    fn test_fan_in_does_not_require_group_by() {
+        assert!(!StrategyConfig::FanIn.requires_group_by());
     }
 }

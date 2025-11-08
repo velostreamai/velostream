@@ -5,8 +5,8 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::v2::{
-    AlwaysHashStrategy, HashRouter, PartitionMetrics, PartitionStateManager, PartitionStrategy,
-    PartitioningStrategy, QueryMetadata, RoutingContext,
+    AlwaysHashStrategy, PartitionMetrics, PartitionStateManager, PartitioningStrategy,
+    QueryMetadata, RoutingContext,
 };
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
@@ -257,7 +257,44 @@ impl PartitionedJobCoordinator {
 
         for partition_id in 0..self.num_partitions {
             let manager = Arc::new(PartitionStateManager::new(partition_id));
-            let (tx, _rx) = mpsc::channel(self.config.partition_buffer_size);
+            let (tx, rx) = mpsc::channel(self.config.partition_buffer_size);
+
+            // Phase 6.0 FIX: Spawn a background task that processes records instead of draining
+            let manager_clone = Arc::clone(&manager);
+            tokio::spawn(async move {
+                let mut receiver = rx;
+                let mut processed = 0u64;
+                let mut dropped = 0u64;
+
+                // Process each record through the partition's state manager
+                while let Some(record) = receiver.recv().await {
+                    // Process record through watermark and state management
+                    match manager_clone.process_record(&record) {
+                        Ok(()) => {
+                            processed += 1;
+
+                            // Log progress periodically (every 10K records)
+                            if processed % 10_000 == 0 {
+                                debug!(
+                                    "Partition {}: Processed {} records, dropped {} late records",
+                                    partition_id, processed, dropped
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            // Record was dropped (late record with Drop strategy)
+                            dropped += 1;
+                            debug!("Partition {}: Dropped late record: {}", partition_id, e);
+                        }
+                    }
+                }
+
+                // Log final statistics when partition receiver shuts down
+                info!(
+                    "Partition {} receiver shutdown: {} records processed, {} dropped",
+                    partition_id, processed, dropped
+                );
+            });
 
             managers.push(manager);
             senders.push(tx);
@@ -316,7 +353,7 @@ impl PartitionedJobCoordinator {
                 .await?;
             let sender = &partition_senders[partition_id];
 
-            // Send to partition (non-blocking)
+            // Send to partition (non-blocking, async tokio mpsc channel)
             if sender.send(record).await.is_ok() {
                 processed += 1;
             }

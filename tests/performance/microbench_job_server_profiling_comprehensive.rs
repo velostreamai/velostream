@@ -384,8 +384,8 @@ async fn profile_tumbling_window_group_by_1m_records() {
         .parse(
             "SELECT category, COUNT(*) as cnt, SUM(amount) as total, AVG(value) as avg_val \
              FROM test_stream \
-             WINDOW TUMBLING (SIZE 60 SECONDS) \
-             GROUP BY category",
+             GROUP BY category \
+             WINDOW TUMBLING (event_time, INTERVAL '60' SECONDS)",
         )
         .unwrap();
 
