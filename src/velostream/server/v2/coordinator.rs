@@ -286,15 +286,21 @@ impl PartitionedJobCoordinator {
             let manager = Arc::new(PartitionStateManager::new(partition_id));
             let (tx, rx) = mpsc::channel(self.config.partition_buffer_size);
 
-            // Phase 6.1: Wire up execution engine and query if configured
-            let has_sql_execution =
-                if let (Some(engine), Some(query)) = (&self.execution_engine, &self.query) {
-                    manager.set_execution_engine(Arc::clone(engine));
-                    manager.set_query(Arc::clone(query));
-                    true
-                } else {
-                    false
-                };
+            // Phase 6.2 FIX: Create per-partition execution engine (REMOVES SHARED LOCK CONTENTION)
+            let has_sql_execution = if let Some(query) = &self.query {
+                // Create a NEW engine per partition instead of sharing one across all partitions
+                // This eliminates the exclusive write lock contention that was serializing all 8 partitions
+                let (output_tx, _output_rx) = mpsc::unbounded_channel();
+                let partition_engine = Arc::new(tokio::sync::RwLock::new(
+                    StreamExecutionEngine::new(output_tx),
+                ));
+
+                manager.set_execution_engine(partition_engine);
+                manager.set_query(Arc::clone(query));
+                true
+            } else {
+                false
+            };
 
             // Phase 6.0 FIX: Spawn a background task that processes records instead of draining
             let manager_clone = Arc::clone(&manager);
