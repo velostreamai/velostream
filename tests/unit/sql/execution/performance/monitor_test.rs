@@ -4,6 +4,7 @@
 use std::thread;
 use std::time::Duration;
 use velostream::velostream::sql::execution::performance::monitor::HealthStatus;
+use velostream::velostream::sql::execution::performance::monitor::MonitoredExecution;
 use velostream::velostream::sql::execution::performance::monitor::PerformanceMonitor;
 
 #[test]
