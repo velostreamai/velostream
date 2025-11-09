@@ -3,11 +3,16 @@
 //! Common mock implementations and utilities used across profiling tests.
 
 use async_trait::async_trait;
+use log::debug;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::sql::ast::StreamingQuery;
+use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Mock data source for job server performance testing
@@ -171,6 +176,88 @@ pub fn generate_group_by_records(count: usize) -> Vec<StreamRecord> {
         records.push(StreamRecord::new(fields));
     }
     records
+}
+
+/// Measure pure SQL engine performance without job server
+/// Returns (output_record_count, elapsed_microseconds)
+pub async fn measure_sql_engine_performance(
+    records: Vec<StreamRecord>,
+    query: &StreamingQuery,
+    optional_final_record_push_time: Option<i64>,
+) -> (usize, u128) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+
+    let start = Instant::now();
+    for record in records.iter() {
+        let _ = engine.execute_with_record(query, record).await;
+    }
+
+    // If provided, inject final record to trigger window closure
+    if let Some(final_time) = optional_final_record_push_time {
+        if let Some(last_record) = records.last() {
+            let mut final_record = last_record.clone();
+            final_record.timestamp = final_time;
+            let _ = engine.execute_with_record(query, &final_record).await;
+        }
+    }
+
+    let elapsed = start.elapsed();
+
+    // Flush windows to ensure all results are emitted
+    let _ = engine.flush_windows().await;
+
+    // Collect results from channel
+    let mut result_count = 0;
+    while let Ok(result) = rx.try_recv() {
+        result_count += 1;
+        debug!(
+            "Emitted result: {:?}",
+            result.fields.keys().collect::<Vec<_>>()
+        );
+    }
+
+    (result_count, elapsed.as_micros())
+}
+
+/// Calculate and print overhead analysis
+pub fn print_overhead_analysis(scenario_name: &str, sql_throughput: usize, job_throughput: f64) {
+    let overhead_pct = if sql_throughput > 0 {
+        ((sql_throughput as f64 - job_throughput) / sql_throughput as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let slowdown_factor = if job_throughput > 0.0 {
+        sql_throughput as f64 / job_throughput
+    } else {
+        0.0
+    };
+
+    println!("═══════════════════════════════════════════════════════════");
+    println!("📊 OVERHEAD ANALYSIS: {}", scenario_name);
+    println!("═══════════════════════════════════════════════════════════");
+    println!(
+        "SQL Engine Throughput: {:.0} rec/sec",
+        sql_throughput as f64
+    );
+    println!("Job Server Throughput: {:.0} rec/sec", job_throughput);
+    println!();
+    println!("Job Server Overhead:   {:.1}%", overhead_pct);
+    println!("Slowdown Factor:       {:.2}x", slowdown_factor);
+    println!();
+
+    if overhead_pct < 10.0 {
+        println!("✅ Excellent: Minimal job server overhead");
+    } else if overhead_pct < 30.0 {
+        println!("⚡ Good: Acceptable overhead for production");
+    } else if overhead_pct < 50.0 {
+        println!("⚠️  Moderate overhead - investigate optimization");
+    } else if overhead_pct > 90.0 {
+        println!("❌ Significant overhead detected - major bottleneck");
+    }
+
+    println!("═══════════════════════════════════════════════════════════\n");
 }
 
 /// Print performance comparison results

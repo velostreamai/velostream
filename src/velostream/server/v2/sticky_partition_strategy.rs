@@ -106,39 +106,14 @@ impl PartitioningStrategy for StickyPartitionStrategy {
         record: &StreamRecord,
         context: &RoutingContext,
     ) -> Result<usize, SqlError> {
-        // Strategy: Read __partition__ system field directly (always provided by Kafka/sources)
+        // Strategy: Use the record's source partition field for affinity preservation
+        // StreamRecord.partition is always provided by sources (Kafka, files, etc.)
         // This maintains source partition affinity with zero overhead
 
-        // Primary path: Use __partition__ field (zero overhead!)
-        if let Some(partition_value) = record.get_field("__partition__") {
-            if let FieldValue::Integer(partition_id) = partition_value {
-                self.sticky_hits.fetch_add(1, Ordering::Relaxed);
-                return Ok((*partition_id as usize) % context.num_partitions);
-            }
-        }
-
-        // Fallback (edge case): If __partition__ field is missing, hash GROUP BY columns
-        // This should be extremely rare in production (Kafka always provides partition)
-        self.fallback_hash_hits.fetch_add(1, Ordering::Relaxed);
-
-        let mut key_values = Vec::with_capacity(context.group_by_columns.len());
-        for column in &context.group_by_columns {
-            let value = record
-                .get_field(column)
-                .ok_or_else(|| SqlError::ExecutionError {
-                    message: format!(
-                        "StickyPartitionStrategy: Column '{}' not found in record",
-                        column
-                    ),
-                    query: None,
-                })?
-                .to_display_string();
-            key_values.push(value);
-        }
-
-        let key_refs: Vec<&str> = key_values.iter().map(|s| s.as_str()).collect();
-        let hash = self.hash_group_key(&key_refs);
-        Ok((hash as usize) % context.num_partitions)
+        // Primary path: Use record.partition field directly (zero overhead!)
+        // This is set by the data source and is always available
+        self.sticky_hits.fetch_add(1, Ordering::Relaxed);
+        Ok((record.partition as usize) % context.num_partitions)
     }
 
     fn name(&self) -> &str {
@@ -219,12 +194,9 @@ mod tests {
     async fn test_sticky_partition_routing_with_partition_field() {
         let strategy = StickyPartitionStrategy::new();
 
-        let mut record = HashMap::new();
-        record.insert("__partition__".to_string(), FieldValue::Integer(3));
-        record.insert(
-            "trader_id".to_string(),
-            FieldValue::String("trader_1".to_string()),
-        );
+        let record = HashMap::new();
+        let mut record_obj = StreamRecord::new(record);
+        record_obj.partition = 3; // Set the source partition field
 
         let routing_context = RoutingContext {
             source_partition: None,
@@ -234,94 +206,65 @@ mod tests {
             num_cpu_slots: 8,
         };
 
-        let record_obj = StreamRecord::new(record);
         let partition = strategy
             .route_record(&record_obj, &routing_context)
             .await
             .unwrap();
 
-        // Should use __partition__ field directly (sticky, zero overhead!)
+        // Should use record.partition field directly (sticky, zero overhead!)
         assert_eq!(partition, 3);
         assert_eq!(strategy.sticky_hits(), 1);
-        assert_eq!(strategy.fallback_hits(), 0);
     }
 
     #[tokio::test]
-    async fn test_sticky_partition_routing_without_source_partition() {
+    async fn test_sticky_partition_routing_modulo() {
         let strategy = StickyPartitionStrategy::new();
 
-        let mut record = HashMap::new();
-        record.insert(
-            "trader_id".to_string(),
-            FieldValue::String("trader_1".to_string()),
-        );
+        let record = HashMap::new();
+        let mut record_obj = StreamRecord::new(record);
+        record_obj.partition = 10; // Source partition 10, should map to 10 % 8 = 2
 
         let routing_context = RoutingContext {
-            source_partition: None, // No source partition - must hash
+            source_partition: None,
             source_partition_key: None,
-            group_by_columns: vec!["trader_id".to_string()],
+            group_by_columns: vec![],
             num_partitions: 8,
             num_cpu_slots: 8,
         };
 
-        let record_obj = StreamRecord::new(record);
         let partition = strategy
             .route_record(&record_obj, &routing_context)
             .await
             .unwrap();
 
-        // Should hash the GROUP BY columns (fallback when __partition__ field is missing)
-        assert!(partition < 8);
-        assert_eq!(strategy.sticky_hits(), 0);
-        assert_eq!(strategy.fallback_hits(), 1);
+        // Should apply modulo: 10 % 8 = 2
+        assert_eq!(partition, 2);
+        assert_eq!(strategy.sticky_hits(), 1);
     }
 
     #[tokio::test]
-    async fn test_sticky_partition_multiple_records_mixed() {
+    async fn test_sticky_partition_multiple_records() {
         let strategy = StickyPartitionStrategy::new();
 
         let routing_context = RoutingContext {
             source_partition: None,
             source_partition_key: None,
-            group_by_columns: vec!["trader_id".to_string()],
+            group_by_columns: vec![],
             num_partitions: 8,
             num_cpu_slots: 8,
         };
 
-        // 5 records with __partition__ field (sticky)
-        for i in 0..5 {
-            let mut record = HashMap::new();
-            record.insert(
-                "__partition__".to_string(),
-                FieldValue::Integer((i % 8) as i64),
-            );
-            record.insert(
-                "trader_id".to_string(),
-                FieldValue::String(format!("trader_{}", i)),
-            );
-            let record_obj = StreamRecord::new(record);
+        // 8 records with different source partitions
+        for i in 0..8 {
+            let record = HashMap::new();
+            let mut record_obj = StreamRecord::new(record);
+            record_obj.partition = i as i32;
             let _partition = strategy
                 .route_record(&record_obj, &routing_context)
                 .await
                 .unwrap();
         }
 
-        // 3 records without __partition__ field (fallback hash)
-        for i in 0..3 {
-            let mut record = HashMap::new();
-            record.insert(
-                "trader_id".to_string(),
-                FieldValue::String(format!("trader_{}", i)),
-            );
-            let record_obj = StreamRecord::new(record);
-            let _partition = strategy
-                .route_record(&record_obj, &routing_context)
-                .await
-                .unwrap();
-        }
-
-        assert_eq!(strategy.sticky_hits(), 5);
-        assert_eq!(strategy.fallback_hits(), 3);
-        assert_eq!(strategy.stickiness_percentage(), 5.0 / 8.0); // 62.5% sticky
+        assert_eq!(strategy.sticky_hits(), 8);
     }
 }

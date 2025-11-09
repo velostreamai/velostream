@@ -74,10 +74,12 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
     for i in 0..count {
         let mut fields = HashMap::new();
         let trader_id = format!("TRADER{}", i % 20);
-        let symbol = format!("SYM{}", i % 10);
-        let price = 100.0 + (i as f64 % 50.0);
+        let symbol_idx = i % 10;
+        let symbol = format!("SYM{}", symbol_idx);
+        let price = 100.0 + (i as f64 % 50.0) + ((i as f64 / 100.0).sin() * 10.0);
         let quantity = 100 + (i % 1000);
-        let timestamp = base_time + (i as i64);
+        let timestamp = base_time + (i as i64 * 1000); // Millisecond resolution
+        let partition_id = (symbol_idx / 5) as i32; // Maps 10 symbols to 2 partitions (0-4→0, 5-9→1)
 
         fields.insert("trader_id".to_string(), FieldValue::String(trader_id));
         fields.insert("symbol".to_string(), FieldValue::String(symbol));
@@ -85,7 +87,11 @@ fn generate_test_records(count: usize) -> Vec<StreamRecord> {
         fields.insert("quantity".to_string(), FieldValue::Integer(quantity as i64));
         fields.insert("trade_time".to_string(), FieldValue::Integer(timestamp));
 
-        records.push(StreamRecord::new(fields));
+        let mut record = StreamRecord::new(fields);
+        record.partition = partition_id; // Set partition directly on StreamRecord (source affinity)
+        record.offset = i as i64;
+        record.timestamp = timestamp;
+        records.push(record);
     }
     records
 }
@@ -467,4 +473,151 @@ async fn scenario_3a_tumbling_standard_baseline() {
             panic!("Test failed");
         }
     }
+}
+
+/// V2 Job Server Performance Test with StickyPartitionStrategy (1-core)
+///
+/// **Purpose**: Measure V2 Job Server performance for TUMBLING + GROUP BY scenario
+/// using StickyPartitionStrategy with 1 partition (single-core configuration).
+///
+/// **Expectation**: Should approach SQL Engine baseline performance (~95%+ efficiency)
+/// with only routing/coordination overhead.
+///
+/// This test fills the critical gap in the comprehensive benchmarks where
+/// "Scenario 3a V2@1-core" was marked as "NOT MEASURED ⚠️".
+#[tokio::test]
+#[serial]
+async fn scenario_3a_v2_sticky_partition_1core() {
+    println!("\n");
+    println!("═══════════════════════════════════════════════════════════");
+    println!("🚀 SCENARIO 3a: TUMBLING + GROUP BY - V2@1-CORE TEST");
+    println!("═══════════════════════════════════════════════════════════");
+    println!("Pattern:    TUMBLING WINDOW (1 MINUTE) + GROUP BY");
+    println!("Partitioner: StickyPartitionStrategy (uses source partition field)");
+    println!("Config:     1 partition (single-core scenario)");
+    println!("Expected:   Should approach SQL Engine baseline (~95%+)\n");
+
+    let num_records = 5000;
+    let records = generate_test_records(num_records);
+
+    // First, measure pure SQL engine as reference
+    println!("🚀 Baseline: Measuring pure SQL engine...");
+    let (sql_result_count, sql_time_us) = measure_sql_engine_only(records.clone(), TEST_SQL).await;
+    let sql_throughput = if sql_time_us > 0 {
+        (num_records as f64 / (sql_time_us as f64 / 1_000_000.0)) as usize
+    } else {
+        0
+    };
+
+    println!(
+        "   ✅ SQL Engine: {} rec/sec in {:.2}ms",
+        sql_throughput,
+        sql_time_us as f64 / 1000.0
+    );
+    println!("   📊 SQL Engine output records: {}\n", sql_result_count);
+
+    // Now measure V2 with StickyPartitionStrategy @1-core
+    println!("🚀 Measuring V2 Job Server (1 partition, StickyPartition)...");
+
+    use tokio::sync::RwLock;
+    use velostream::velostream::server::processors::JobProcessor;
+    use velostream::velostream::server::v2::{
+        PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+    };
+
+    // Configure for 1 partition (single core scenario)
+    let config = PartitionedJobConfig {
+        num_partitions: Some(1),
+        processing_mode: ProcessingMode::Batch { size: 100 },
+        ..Default::default()
+    };
+
+    let coordinator = PartitionedJobCoordinator::new(config);
+    let data_source = MockDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
+
+    let parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(TEST_SQL).expect("Parse failed");
+
+    // Create execution engine wrapped in Arc<RwLock<>>
+    let (output_tx, _output_rx) = mpsc::unbounded_channel();
+    let engine = Arc::new(RwLock::new(StreamExecutionEngine::new(output_tx)));
+
+    // Create shutdown channel
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let v2_start = Instant::now();
+    let _result = coordinator
+        .process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer)),
+            engine,
+            parsed_query,
+            "tumbling_v2_baseline".to_string(),
+            shutdown_rx,
+        )
+        .await;
+    let v2_time_us = v2_start.elapsed().as_micros();
+
+    let v2_throughput = if v2_time_us > 0 {
+        (num_records as f64 / (v2_time_us as f64 / 1_000_000.0)) as usize
+    } else {
+        0
+    };
+
+    let v2_overhead_pct = if sql_throughput > 0 {
+        ((sql_throughput as f64 - v2_throughput as f64) / sql_throughput as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let v2_slowdown = if v2_throughput > 0 {
+        sql_throughput as f64 / v2_throughput as f64
+    } else {
+        0.0
+    };
+
+    println!(
+        "   ✅ V2 (1-core): {} rec/sec in {:.2}ms\n",
+        v2_throughput,
+        v2_time_us as f64 / 1000.0
+    );
+
+    println!("═══════════════════════════════════════════════════════════");
+    println!("📊 V2@1-CORE PERFORMANCE ANALYSIS");
+    println!("═══════════════════════════════════════════════════════════");
+    println!("SQL Engine Baseline:     {} rec/sec", sql_throughput);
+    println!("V2 (1-core StickyPart):  {} rec/sec", v2_throughput);
+    println!();
+    println!("V2 Overhead:             {:.1}%", v2_overhead_pct);
+    println!("V2 Slowdown:             {:.2}x", v2_slowdown);
+    println!();
+
+    // Interpretation
+    if v2_overhead_pct < 10.0 {
+        println!("✅ EXCELLENT: V2 is within 10% of SQL Engine baseline");
+        println!("   → StickyPartitionStrategy overhead is minimal");
+    } else if v2_overhead_pct < 20.0 {
+        println!("⚡ GOOD: V2 is 10-20% slower than SQL Engine");
+        println!("   → Acceptable overhead for job server coordination");
+    } else if v2_overhead_pct < 50.0 {
+        println!("⚠️  MODERATE: V2 is 20-50% slower than SQL Engine");
+        println!("   → Consider investigation of bottlenecks");
+    } else {
+        println!("❌ HIGH OVERHEAD: V2 is >50% slower than SQL Engine");
+        println!("   → Significant issues with STP pipeline");
+    }
+    println!("═══════════════════════════════════════════════════════════\n");
+
+    // Assertions
+    assert!(v2_throughput > 0, "V2 should process records");
+    // With StickyPartitionStrategy, we expect close to baseline performance
+    // Allow up to 30% overhead for coordination layer
+    let acceptable_overhead = 30.0;
+    assert!(
+        v2_overhead_pct <= acceptable_overhead,
+        "V2@1-core overhead should be <{}% but was {:.1}%",
+        acceptable_overhead,
+        v2_overhead_pct
+    );
 }

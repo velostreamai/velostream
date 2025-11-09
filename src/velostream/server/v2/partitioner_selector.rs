@@ -66,6 +66,22 @@ impl PartitionerSelection {
 
 /// Analyzes a streaming query to select the best partitioning strategy
 ///
+/// # Strategy Selection (Revised - Sticky Default)
+///
+/// The selector now uses **StickyPartitionStrategy as the default** because:
+/// 1. Every record ALWAYS has a `record.partition` field from the data source
+/// 2. Using it is ZERO-COST (just a field read)
+/// 3. It naturally preserves source partition affinity
+/// 4. Only deviate for queries that require a different partitioning strategy
+///
+/// Selection rules (priority order):
+/// 1. **GROUP BY without ORDER BY** → Override to Hash (better aggregation locality)
+/// 2. **Window without ORDER BY** → Override to Hash (parallelization opportunity)
+/// 3. **Default (everything else)** → Use Sticky (zero-cost source partition affinity)
+///    - Pure SELECT
+///    - Window with ORDER BY (Sticky is required anyway)
+///    - Other queries
+///
 /// # Example
 ///
 /// ```rust,no_run
@@ -90,13 +106,16 @@ impl PartitionerSelection {
 /// };
 ///
 /// let selection = PartitionerSelector::select(&query);
-/// assert_eq!(selection.strategy_name, "always_hash");
+/// assert_eq!(selection.strategy_name, "always_hash"); // Override: GROUP BY needs hash
 /// assert_eq!(selection.routing_keys, vec!["symbol".to_string()]);
 /// ```
 pub struct PartitionerSelector;
 
 impl PartitionerSelector {
     /// Analyze a streaming query and select the best partitioning strategy
+    ///
+    /// DEFAULT is StickyPartitionStrategy (use record.partition field).
+    /// Only override if query pattern requires different strategy.
     pub fn select(query: &StreamingQuery) -> PartitionerSelection {
         match query {
             StreamingQuery::Select {
@@ -105,42 +124,58 @@ impl PartitionerSelector {
                 window,
                 ..
             } => {
-                // Check for window functions with ORDER BY
-                if let Some(window_spec) = window {
-                    if order_by.is_some() {
-                        // Window with ORDER BY → use Sticky by timestamp
-                        return Self::select_sticky_partition(order_by.as_ref());
-                    }
-                    // Window without ORDER BY → use Hash for parallelism
-                    return Self::select_hash_partition(group_by.as_ref());
-                }
-
-                // Check for window functions in SELECT expressions
-                if Self::has_window_functions(query) && order_by.is_some() {
-                    return Self::select_sticky_partition(order_by.as_ref());
-                }
-
-                // Check for GROUP BY without ORDER BY
+                // Check for GROUP BY without ORDER BY → override to Hash
                 if let Some(group_cols) = group_by {
-                    if !group_cols.is_empty() {
+                    if !group_cols.is_empty() && order_by.is_none() {
+                        // GROUP BY without ORDER BY needs Hash for aggregation locality
                         return Self::select_hash_partition(Some(group_cols));
                     }
                 }
 
-                // Pure SELECT (no aggregation or windowing)
-                Self::select_hash_partition(None)
+                // Check for window functions without ORDER BY → override to Hash
+                if let Some(window_spec) = window {
+                    if order_by.is_none() {
+                        // Window without ORDER BY: use Hash for parallelism opportunity
+                        return Self::select_hash_partition(group_by.as_ref());
+                    }
+                    // Window with ORDER BY: Sticky is already default, confirm explicitly
+                    if order_by.is_some() {
+                        return Self::select_sticky_partition(order_by.as_ref());
+                    }
+                }
+
+                // Check for window functions in SELECT expressions without ORDER BY
+                if Self::has_window_functions(query) && order_by.is_none() {
+                    return Self::select_hash_partition(group_by.as_ref());
+                }
+
+                // DEFAULT: StickyPartitionStrategy (use record.partition field)
+                // This applies to:
+                // - Pure SELECT (no aggregation or windowing)
+                // - Window with ORDER BY (Sticky is required)
+                // - Other queries
+                Self::select_sticky_partition_default()
             }
             _ => {
                 // For other query types (CREATE STREAM, CREATE TABLE, etc.),
-                // use smart repartition to align with source partitions
-                PartitionerSelection::new(
-                    "smart_repartition".to_string(),
-                    vec!["_partition".to_string()],
-                    "Default strategy: respect source Kafka partitions".to_string(),
-                    false,
-                )
+                // use sticky partition to align with source partitions
+                Self::select_sticky_partition_default()
             }
         }
+    }
+
+    /// Select default Sticky partition strategy (use record.partition field)
+    ///
+    /// This is the default for all queries unless explicitly overridden.
+    /// Zero-cost: just reads the partition field provided by the data source.
+    fn select_sticky_partition_default() -> PartitionerSelection {
+        PartitionerSelection::new(
+            "sticky_partition".to_string(),
+            vec!["record.partition".to_string()],
+            "Sticky partition (default): use source partition field from record (zero-cost affinity)"
+                .to_string(),
+            true,
+        )
     }
 
     /// Select Sticky partition strategy based on ORDER BY columns
@@ -275,7 +310,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn test_pure_select_uses_hash() {
+    fn test_pure_select_uses_sticky_default() {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Stream("orders".to_string()),
@@ -292,7 +327,7 @@ mod tests {
         };
 
         let selection = PartitionerSelector::select(&query);
-        assert_eq!(selection.strategy_name, "always_hash");
+        assert_eq!(selection.strategy_name, "sticky_partition"); // NEW: default is sticky
         assert!(selection.is_optimal);
     }
 
