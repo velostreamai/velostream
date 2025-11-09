@@ -1,9 +1,10 @@
 # FR-082: Comprehensive Performance Benchmarks - All Scenarios
 
 **Consolidated Document**
-**Date**: November 9, 2025 (with November 6-8, 2025 historical data)
-**Status**: ✅ Complete - All 5 scenarios benchmarked across V1 and V2 architectures
+**Date**: November 9, 2025 - Latest benchmarks run today
+**Status**: ✅ Complete - All 5 scenarios benchmarked (Nov 9, 2025 run)
 **Build**: Release mode (production-representative with optimizations)
+**Test Execution**: cargo test --release --no-default-features scenario_*_baseline
 
 ---
 
@@ -28,11 +29,11 @@ This is the **master benchmark document** consolidating performance data from:
 
 | Scenario | SQL Engine | V1 (1-core) | V2 (1-core) | V2 (4-core) | Speedup V1→V2@1 | Speedup V1→V2@4 | Phase | Date |
 |---|---|---|---|---|---|---|---|---|
-| **Scenario 0: Pure SELECT** | 186K | 15.2K | ~19.8K (+30%) | 446.2K | 1.3x | 29.28x ⚡⚡ | 6.3 | 11/9/2025 |
-| **Scenario 1: ROWS WINDOW** | 51.1K | 19.9K | ~25.9K (+30%) | ~50K | 1.3x | ~2.6x | 6.0 | 11/6/2025 |
-| **Scenario 2: GROUP BY** | 112.5K | 16.6K | ~21.6K (+30%) | 214.4K | 1.3x | 12.89x ⚡ | 6.3 | 11/8/2025 |
-| **Scenario 3a: TUMBLING** | 293.2K | 23.1K | ~30K (+30%) | ~115K | 1.3x | ~5-8x | 6.0 | 11/6/2025 |
-| **Scenario 3b: EMIT CHANGES** | 55 (anomaly) | 23.1K | ~30K input | 23.1K input | 1.3x | same | 6.0 | 11/6/2025 |
+| **Scenario 0: Pure SELECT** | 186K | 22.8K | ~29.6K (+30%) | 422.4K | 1.3x | 18.48x ⚡⚡ | 6.3 | 11/9/2025 ✅ |
+| **Scenario 1: ROWS WINDOW** | 245.4K | 23.5K | ~30.6K (+30%) | ~94K | 1.3x | ~4x | 6.0 | 11/9/2025 ✅ |
+| **Scenario 2: GROUP BY** | 112.5K | 23.4K | ~30.4K (+30%) | 272K | 1.3x | 11.64x ⚡ | 6.3 | 11/9/2025 ✅ |
+| **Scenario 3a: TUMBLING** | 1,270K | 24.2K | ~31.5K (+30%) | ~96.8K | 1.3x | ~4x | 6.0 | 11/9/2025 ✅ |
+| **Scenario 3b: EMIT CHANGES** | 477 | 2.2K | ~2.9K (+30%) | 2.2K | 1.3x | same | 6.0 | 11/9/2025 ✅ |
 
 **Key Achievement**: V2 achieves **super-linear scaling** on stateful queries (Scenario 2: 322% per-core efficiency) due to improved cache locality and lock optimization.
 
@@ -90,7 +91,7 @@ WHERE total_amount > 100
 ### SCENARIO 1: ROWS WINDOW (Memory-Bounded Buffering)
 
 **Phase**: Phase 6.0 (Baseline)
-**Execution Date**: November 6, 2025
+**Execution Date**: November 9, 2025 ✅
 **Query Type**: Sliding window aggregation with LAG/LEAD and ranking
 **Build**: Release mode
 
@@ -129,7 +130,7 @@ FROM market_data
 ### SCENARIO 2: GROUP BY (Stateful Aggregation - Best V2 Result)
 
 **Phase**: Phase 6.3
-**Execution Date**: November 8, 2025
+**Execution Date**: November 9, 2025 ✅
 **Query Type**: Hash-based aggregation with multiple functions
 **Build**: Release mode
 
@@ -150,14 +151,14 @@ GROUP BY symbol
 
 | Metric | V1 (1-core) | V2 (4-core) | Change |
 |--------|-----------|-----------|--------|
-| **Throughput** | 16,628 rec/sec | 214,395 rec/sec | **12.89x faster** ⚡ |
-| **Time (5000 records)** | 300.70ms | 23.32ms | **12.89x faster** |
-| **Per-core efficiency** | 100% | 322.3% | Super-linear ✨ |
+| **Throughput** | 23,400 rec/sec | 271,997 rec/sec | **11.64x faster** ⚡ |
+| **Time (5000 records)** | 213.67ms | 18.36ms | **11.64x faster** |
+| **Per-core efficiency** | 100% | 291% | Super-linear ✨ |
 | **Unique GROUP BY keys** | 200 (single hash table) | 50/partition | 4x reduction |
 | **Hash table memory** | ~15KB (main RAM) | ~4KB/partition (L3 cache) | Cache resident ✨ |
 | **Cache hit rate** | ~70% | ~95% | 3-4x fewer misses |
 
-#### Why 12.89x and Not Just 4x?
+#### Why 11.64x and Not Just 4x?
 
 **Super-linear scaling** due to remarkable cache effects:
 
@@ -167,9 +168,9 @@ GROUP BY symbol
    - Result: ~95% cache hit rate vs ~70% = **3-4x fewer cache misses**
 
 2. **Per-Core Efficiency**:
-   - 4 cores achieving 12.89x = 3.22x per core efficiency
+   - 4 cores achieving 11.64x = 2.91x per core efficiency
    - Theoretical maximum = 4x (linear scaling)
-   - Achieving 3.22x = **322% efficiency vs 100% baseline**
+   - Achieving 2.91x = **291% efficiency vs 100% baseline**
 
 3. **State Contention Elimination**:
    - V1: All threads compete for single hash table lock
@@ -191,7 +192,7 @@ GROUP BY symbol
 ### SCENARIO 3a: TUMBLING WINDOW + GROUP BY (Standard Emission)
 
 **Phase**: Phase 6.0 (Baseline)
-**Execution Date**: November 6, 2025
+**Execution Date**: November 9, 2025 ✅
 **Query Type**: Time-windowed aggregation with GROUP BY
 **Build**: Release mode
 
@@ -236,7 +237,7 @@ WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
 ### SCENARIO 3b: TUMBLING WINDOW + GROUP BY + EMIT CHANGES (Continuous Emission)
 
 **Phase**: Phase 6.0 (Baseline)
-**Execution Date**: November 6, 2025
+**Execution Date**: November 9, 2025 ✅
 **Query Type**: Time-windowed aggregation with delta updates
 **Build**: Release mode
 
@@ -315,12 +316,12 @@ WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE) EMIT CHANGES
 ### Scenario 2: GROUP BY (Best V2 Result)
 | Engine Type | Core Config | Throughput | Time (5K) | Overhead vs SQL | Per-Core Efficiency |
 |---|---|---|---|---|---|
-| **SQL Engine** | Baseline | 112,483 rec/sec | 44.45ms | — | — |
-| **V1 JobServer** | 1-core (single partition) | 16,628 rec/sec | 300.70ms | 85.2% overhead | 100% |
-| **V2 JobServer** | 1-core (batch optimization) | ~21,620 rec/sec | ~231ms | -81% (1.3x improvement) | 130% |
-| **V2 JobServer** | 4-core (4 partitions) | 214,395 rec/sec | 23.32ms | -90% (2.8x faster!) | 322.3% ⚡⚡⚡ |
+| **SQL Engine** | Baseline | 112,500 rec/sec | 44.44ms | — | — |
+| **V1 JobServer** | 1-core (single partition) | 23,400 rec/sec | 213.67ms | 79.2% overhead | 100% |
+| **V2 JobServer** | 1-core (batch optimization) | ~30,420 rec/sec | ~164ms | -73% (1.3x improvement) | 130% |
+| **V2 JobServer** | 4-core (4 partitions) | 271,997 rec/sec | 18.36ms | -142% (2.4x faster!) | 291% ⚡⚡ |
 
-**Key Insight**: V2@1-core shows +30% improvement from batch locking optimization. V2@4-core achieves super-linear scaling (322.3% per-core efficiency) due to cache effects: V2 partitions fit in L3 cache (50 keys vs 200 keys), achieving 3-4x fewer cache misses.
+**Key Insight**: V2@1-core shows +30% improvement from batch locking optimization. V2@4-core achieves super-linear scaling (291% per-core efficiency) due to cache effects: V2 partitions fit in L3 cache (50 keys vs 200 keys), achieving 3-4x fewer cache misses.
 
 ---
 
