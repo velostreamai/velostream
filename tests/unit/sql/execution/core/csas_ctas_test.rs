@@ -267,9 +267,7 @@ mod tests {
         );
         // Execute CREATE STREAM
         let record_obj = StreamRecord::new(record);
-        let result = engine
-            .execute_with_record(&query, &record_obj)
-            .await;
+        let result = engine.execute_with_record(&query, &record_obj).await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed
@@ -300,9 +298,7 @@ mod tests {
 
         // Execute CREATE TABLE
         let record_obj = StreamRecord::new(record);
-        let result = engine
-            .execute_with_record(&query, &record_obj)
-            .await;
+        let result = engine.execute_with_record(&query, &record_obj).await;
         assert!(result.is_ok());
 
         // Check that the underlying SELECT was executed

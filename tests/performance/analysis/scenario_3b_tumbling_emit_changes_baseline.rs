@@ -127,9 +127,7 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
 
     let start = Instant::now();
     for record in records.iter() {
-        let _ = engine
-            .execute_with_record(&parsed_query, &record)
-            .await;
+        let _ = engine.execute_with_record(&parsed_query, &record).await;
     }
     let elapsed = start.elapsed();
 

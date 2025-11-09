@@ -536,9 +536,7 @@ async fn measure_rows_window_sql_engine(records: Vec<StreamRecord>, query: &str)
 
     let start = Instant::now();
     for record in records.iter() {
-        let _ = engine
-            .execute_with_record(&parsed_query, &record)
-            .await;
+        let _ = engine.execute_with_record(&parsed_query, &record).await;
     }
 
     // CRITICAL: Flush windows to ensure all results are emitted

@@ -598,9 +598,7 @@ async fn test_in_operator_edge_cases() {
         properties: None,
     };
 
-    let result_large = engine
-        .execute_with_record(&query_large, &record)
-        .await;
+    let result_large = engine.execute_with_record(&query_large, &record).await;
     assert!(result_large.is_ok());
 
     // Should match since 5 is in 1..=100

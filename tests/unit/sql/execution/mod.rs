@@ -35,3 +35,6 @@ pub mod state_accessors_test;
 
 // Common test utilities for all SQL execution tests
 pub mod common_test_utils;
+
+// Performance monitoring tests
+pub mod performance;
