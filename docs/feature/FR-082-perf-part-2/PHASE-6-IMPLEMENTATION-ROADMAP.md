@@ -259,6 +259,7 @@ cargo test scenario_3b_tumbling_emit_changes_baseline -- --nocapture
 ```
 
 **Expected Results**:
+
 | Scenario | Current | After DashMap | After Batch Lock | After Arc | Target |
 |----------|---------|---------------|------------------|-----------|--------|
 | Scenario 2 | 16.6K | 35K | 50K | 70K | 70-142K |

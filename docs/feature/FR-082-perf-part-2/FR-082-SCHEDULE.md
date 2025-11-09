@@ -13,7 +13,10 @@
 | **Phase 0-5** | Architecture & Baseline | ✅ Complete | (Done) | 56x improvement | 3.58K → 200K rec/sec |
 | **Phase 6.0** | Fix Partition Receiver | ✅ COMPLETED | (Done) | Partition processing | Records processed ✅ |
 | **Phase 6.1** | SQL Execution in Partitions | ✅ COMPLETED | (Done) | Per-partition execution | Implemented ✅ |
-| **Phase 6.2** | ✅ CRITICAL FIX: Remove Shared Engine Lock | ✅ COMPLETED | **S** | Unlock parallelism | 12.89x speedup ✅ |
+| **Phase 6.2** | ✅ Remove Shared Engine Lock | ✅ COMPLETED | **S** | Unlock parallelism | 12.89x speedup ✅ |
+| **Phase 6.3** | DashMap Integration (State) | 📋 Planning | **M** | Per-entry locking | 35-40K rec/sec target |
+| **Phase 6.4** | Batch Locking + Arc Records | 📋 Planning | **S** | Reduce context switches | 50-85K rec/sec target |
+| **Phase 6.5** | Validation & Performance Tuning | 📋 Planning | **S** | Final optimization | 70-142K rec/sec target |
 | **Phase 7** | Vectorization & SIMD | 📋 Planning | **L** | 2.2M-3.0M rec/sec | - |
 | **Phase 8** | Distributed Processing | 📋 Planning | **XXL** | 2.0M-3.0M+ multi-machine | - |
 
@@ -170,6 +173,110 @@ let has_sql_execution = if let Some(query) = &self.query {
 - ✅ Performance test scenario_2: 12.89x speedup (4 partitions)
 - ✅ Lock contention eliminated - each partition has independent RwLock
 - ✅ State isolation verified - no cross-partition state interference
+
+---
+
+### Phase 6.3: DashMap Integration (State Lock-Free Conversion)
+
+**Effort**: **M** (1-2 weeks)
+**Status**: 📋 Planning
+**Target**: 35-40K rec/sec (2.1x improvement)
+**Priority**: High (eliminates global lock on state structures)
+
+**What Needs to Be Done**:
+
+**6.3.1 Convert group_states to DashMap**
+- File: `src/velostream/sql/execution/engine.rs:162`
+- Change: `HashMap<String, Arc<GroupByState>>` → `Arc<DashMap<String, Arc<GroupByState>>>`
+- Benefit: Per-entry locking instead of global RwLock
+- Impact: 15-20% throughput improvement
+
+**6.3.2 Convert window_v2_states to DashMap**
+- File: `src/velostream/sql/execution/engine.rs:164`
+- Change: `HashMap<String, Box<dyn Any>>` → `Arc<DashMap<String, Box<dyn Any>>>`
+- Benefit: Independent window state locks per partition
+- Impact: 5-10% throughput improvement
+
+**Baseline Benchmark**:
+```bash
+cargo test scenario_2_pure_group_by_baseline -- --nocapture
+# Expected: 16.6K → 35-40K rec/sec
+```
+
+**Dependencies**:
+- Add to Cargo.toml: `dashmap = "5.5"`
+
+---
+
+### Phase 6.4: Batch-Level Locking + Arc<StreamRecord>
+
+**Effort**: **S** (3-5 days)
+**Status**: 📋 Planning
+**Target**: 50-85K rec/sec (3.0-5.1x improvement over current)
+**Priority**: Critical (eliminates ~5000 context switches per batch)
+
+**What Needs to Be Done**:
+
+**6.4.1 Implement Batch-Level Locking**
+- Files: `src/velostream/server/processors/simple.rs`, `src/velostream/server/v2/partition_manager.rs`
+- Pattern: Move `engine.write().await` OUTSIDE the record loop
+- Before: 1000 locks per batch (1000 context switches)
+- After: 1 lock per batch (1 context switch)
+- Impact: 30% throughput improvement (eliminates context switch overhead)
+
+**6.4.2 Convert Records to Arc<StreamRecord>**
+- File: `src/velostream/sql/execution/engine.rs` (signature change)
+- Change: `execute_with_record(record: StreamRecord)` → `execute_with_record(record: Arc<StreamRecord>)`
+- Benefit: Eliminates 5000 record clones per batch (100ms overhead)
+- Impact: 15% throughput improvement
+
+**Baseline Benchmark**:
+```bash
+cargo test scenario_2_pure_group_by_baseline -- --nocapture
+# Expected: 35-40K → 50-85K rec/sec
+```
+
+**Verification**:
+- All 531 unit tests must pass
+- No performance regression in other scenarios
+
+---
+
+### Phase 6.5: Validation & Performance Tuning
+
+**Effort**: **S** (2-3 days)
+**Status**: 📋 Planning
+**Target**: 70-142K rec/sec (final Phase 6 target, 4.2-8.5x improvement)
+**Priority**: High (finalize Phase 6, prepare for Phase 7)
+
+**What Needs to Be Done**:
+
+**6.5.1 Comprehensive Testing**
+```bash
+# All scenario benchmarks
+cargo test scenario_1_rows_window_baseline -- --nocapture
+cargo test scenario_2_pure_group_by_baseline -- --nocapture
+cargo test scenario_3a_tumbling_standard_baseline -- --nocapture
+cargo test scenario_3b_tumbling_emit_changes_baseline -- --nocapture
+```
+
+**Expected Results**:
+| Scenario | Phase 6.2 | Phase 6.3 | Phase 6.4 | Phase 6.5 Target |
+|----------|-----------|-----------|-----------|------------------|
+| Scenario 1 | 19.8K | 40K | 60K | 75K+ |
+| Scenario 2 | 16.6K | 35K | 50K | 70K+ |
+| Scenario 3a | 23.1K | 45K | 65K | 90K+ |
+
+**6.5.2 Profiling & Analysis**
+- Use flamegraph to verify improvements: `cargo flamegraph --test scenario_2_pure_group_by_baseline`
+- Measure CPU utilization (expect 2% → 25-35%)
+- Verify context switch reduction (expect 30,000 → 2,000 per batch)
+
+**6.5.3 Documentation & Commit**
+- Create PHASE-6-RESULTS.md with benchmarks and analysis
+- Update FR-082-SCHEDULE.md with actual results
+- Document DashMap/Atomics integration patterns
+- Commit: "feat(FR-082 Phase 6): Lock-free structures - DashMap, batch locking, Arc records"
 
 #### Task 6.2.1: Option A (RECOMMENDED) - Per-Partition Engines
 
@@ -350,27 +457,44 @@ cargo test scenario_3b_tumbling_emit_changes_baseline -- --nocapture
 
 ## Key Insight
 
-**Phase 6.0/6.1/6.2 ALL COMPLETE - Full Parallelism Unlocked ✅**
+**Phase 6.0/6.1/6.2 COMPLETE - Phase 6.3-6.5 Planned ✅**
 
-The implementation architecture is sound and ALL phases are now complete:
-- ✅ Partition receiver processes records correctly (Phase 6.0)
-- ✅ Per-partition SQL execution implemented (Phase 6.1)
-- ✅ Watermark management per partition (Phase 6.0)
-- ✅ Pluggable routing strategies (5 implementations)
-- ✅ **Lock contention eliminated** - per-partition engines (Phase 6.2)
+The implementation is progressing systematically through lock-free optimization phases:
 
-**The Problem That Was Identified**: Shared `RwLock<StreamExecutionEngine>` serialized all partitions
-- All 8 partitions contended on single engine's exclusive write lock
-- Only 1 partition could execute at a time (other 7 waiting)
-- Result: V2 throughput = 23K rec/sec (same as V1, despite 8-way partitioning)
-- Root cause: Architecture designed for parallelism, but implementation used shared resource
+**Completed**:
+- ✅ Phase 6.0: Partition receiver processes records correctly
+- ✅ Phase 6.1: Per-partition SQL execution implemented
+- ✅ Phase 6.2: Per-partition engines eliminate inter-partition lock contention (12.89x speedup)
 
-**The Fix Applied** (Phase 6.2): Create per-partition engine instances
-- Each partition now gets its own independent StreamExecutionEngine
-- Each engine has independent RwLock - true parallel execution
-- **Actual result**: 12.89x speedup achieved on 4 cores (exceeds 7.5x target)
-- Implementation: **2-3 hours** (straightforward refactoring, ~20 lines changed)
-- Verification: All 531 unit tests pass, performance benchmarks confirmed
+**Planned** (Phase 6.3-6.5 - Lock-Free Optimization):
+- 📋 Phase 6.3 (M effort): DashMap for per-entry locking on state structures
+  - Convert group_states: HashMap → Arc<DashMap>
+  - Convert window_v2_states: HashMap → Arc<DashMap>
+  - Target: 35-40K rec/sec (2.1x improvement)
+
+- 📋 Phase 6.4 (S effort): Batch-level locking + Arc<StreamRecord>
+  - Move engine.write().await outside record loop (reduce context switches)
+  - Convert record cloning to Arc<StreamRecord> (eliminate heap allocations)
+  - Target: 50-85K rec/sec (3.0-5.1x improvement)
+
+- 📋 Phase 6.5 (S effort): Validation & tuning
+  - Comprehensive testing across all scenarios
+  - Profiling and performance verification
+  - Target: 70-142K rec/sec (4.2-8.5x improvement)
+
+**Why Phase 6 Makes Sense** (Despite Direct SQL Engine Being Faster):
+- Direct SQL Engine: 289K rec/sec (no coordination, no parallelism possible)
+- Phase 6.2 Result: 78.6K rec/sec on 4 cores (12.89x speedup via parallelism)
+- Phase 6.3-6.5 Target: 70-142K rec/sec (adds lock-free optimizations)
+- The goal is NOT to match SQL engine (impossible - no coordination), but to maximize throughput WITH coordination overhead
+- V2 8-core after Phase 6: 560-1,136K rec/sec (7-8x scaling from parallelism)
+- Combined with Phase 7 (vectorization): 4.48-27.3M rec/sec possible
+
+**The Strategy**:
+1. Phase 6.2 eliminated inter-partition contention (parallelism unlocked)
+2. Phase 6.3-6.5 eliminate per-record coordination overhead (single-core breakthrough)
+3. Phase 7 adds vectorization (batch processing breakthrough)
+4. Result: Achieves 1.5M+ rec/sec target with full coordination benefits
 
 ---
 
@@ -380,23 +504,25 @@ The implementation architecture is sound and ALL phases are now complete:
 |--------|-------|------|--------|--------|
 | **XS** | Phase 6.0 | Fix partition receiver | Records processed | ✅ **COMPLETE** |
 | **S** | Phase 6.1 | Integrate SQL execution | Per-partition execution | ✅ **COMPLETE** |
-| **S** | Phase 6.2 | **CRITICAL**: Remove shared engine lock | 1.5M+ rec/sec | ✅ **COMPLETE** |
+| **S** | Phase 6.2 | Remove shared engine lock | 12.89x speedup | ✅ **COMPLETE** |
+| **M** | Phase 6.3 | DashMap integration (state) | 35-40K rec/sec | 📋 Planned |
+| **S** | Phase 6.4 | Batch locking + Arc records | 50-85K rec/sec | 📋 Planned |
+| **S** | Phase 6.5 | Validation & tuning | 70-142K rec/sec | 📋 Planned |
 | **L** | Phase 7 | Vectorization & SIMD | 2.2M-3.0M rec/sec | 📋 Planning |
 | **XXL** | Phase 8 | Distributed processing | 2.0M-3.0M+ rec/sec | 📋 Planning |
 
 **Current State** (After Phase 6.2 Completion):
 - ✅ Phase 6.0/6.1/6.2 ALL COMPLETE
 - ✅ V2 throughput: **12.89x speedup** achieved (4 partitions)
-- ✅ Per-partition engines eliminate lock contention
-- ✅ True parallel execution unlocked - ready for Phase 7
+- ✅ Per-partition engines eliminate inter-partition lock contention
+- ✅ True parallel execution unlocked - ready for Phase 6.3
 
-**What Was Accomplished**:
-- Location: `src/velostream/server/v2/coordinator.rs:290-303`
-- Change: Create per-partition StreamExecutionEngine (not shared)
-- Result: Each partition has independent RwLock, zero contention
-- Effort: 2-3 hours (vs 2-3 days estimated) - simple refactoring
-- Verification: All 531 unit tests pass, performance tests confirm speedup
+**Phase 6.3-6.5 Roadmap** (Lock-Free Optimization):
+- **Phase 6.3** (M effort): DashMap for per-entry locking → 35-40K rec/sec
+- **Phase 6.4** (S effort): Batch locking + Arc records → 50-85K rec/sec
+- **Phase 6.5** (S effort): Validation & tuning → 70-142K rec/sec target
+- Total Phase 6: 4.2-8.5x improvement over current (16.6K → 70-142K)
 
-**Next Steps**: Phase 7 (Vectorization & SIMD)
-- Foundation established: Per-partition engines ready
-- Target: 2.2M-3.0M rec/sec (further 2-3x improvement possible)
+**After Phase 6.5**: Foundation Ready for Phase 7 (Vectorization & SIMD)
+- Phase 7 target: 2.2M-3.0M rec/sec (additional 2-3x improvement)
+- Combined with V2 8-core: 560-3,408K rec/sec achievable
