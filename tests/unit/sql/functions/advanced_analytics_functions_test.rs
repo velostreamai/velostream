@@ -80,7 +80,7 @@ async fn test_percentile_cont_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "PERCENTILE_CONT({}) execution failed",
@@ -139,7 +139,7 @@ async fn test_percentile_disc_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "PERCENTILE_DISC({}) execution failed",
@@ -199,7 +199,7 @@ async fn test_percentile_functions_validation() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_err(),
             "{}({}) should fail validation",
@@ -254,7 +254,7 @@ async fn test_corr_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "CORR({}, {}) execution failed", col1, col2);
 
         let output = rx.try_recv().unwrap();
@@ -311,7 +311,7 @@ async fn test_covar_pop_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "COVAR_POP({}, {}) execution failed",
@@ -367,7 +367,7 @@ async fn test_covar_samp_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok(), "COVAR_SAMP execution failed");
 
     let output = rx.try_recv().unwrap();
@@ -413,7 +413,7 @@ async fn test_regression_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{} execution failed", function_name);
 
         let output = rx.try_recv().unwrap();
@@ -524,7 +524,7 @@ async fn test_analytics_functions_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{} with NULL should succeed", function_name);
 
         let output = rx.try_recv().unwrap();
@@ -605,7 +605,7 @@ async fn test_analytics_functions_error_cases() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_err(),
             "{} with wrong args should fail",
@@ -681,7 +681,7 @@ async fn test_multiple_analytics_functions_in_single_query() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_ok(),
         "Multiple analytics functions failed: {:?}",
@@ -795,7 +795,7 @@ async fn test_analytics_functions_with_literal_values() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "{} with literals should succeed",

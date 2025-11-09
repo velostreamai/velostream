@@ -96,7 +96,7 @@ async fn main() {
             // Execute a few records
             for i in 1..=3 {
                 let record = create_test_record(i % 2, 100.0 * i as f64); // 2 groups: customer_id 0 and 1
-                match engine.execute_with_record(&query, record).await {
+                match engine.execute_with_record(&query, &record).await {
                     Ok(_) => {}
                     Err(e) => {
                         println!("❌ Record {} execution failed: {:?}", i, e);

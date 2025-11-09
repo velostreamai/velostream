@@ -43,7 +43,7 @@ async fn execute_query_with_window(
 
     // Process each record to simulate streaming with window buffer
     for record in records {
-        engine.execute_with_record(&parsed_query, record).await?;
+        engine.execute_with_record(&parsed_query, &record).await?;
     }
 
     let mut results = Vec::new();

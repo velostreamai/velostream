@@ -106,7 +106,7 @@ mod tests {
 
         // Execute query
         let record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Verify output
@@ -148,7 +148,7 @@ mod tests {
         ];
 
         for record in records {
-            let result = engine.execute_with_record(&query, record).await;
+            let result = engine.execute_with_record(&query, &record).await;
             assert!(result.is_ok());
         }
 
@@ -195,14 +195,14 @@ mod tests {
             .unwrap();
         let order_record = create_order_record(1, 100, 299.99, Some("pending"));
         let result = engine
-            .execute_with_record(&orders_query, order_record)
+            .execute_with_record(&orders_query, &order_record)
             .await;
         assert!(result.is_ok());
 
         // Test users query
         let users_query = parser.parse("SELECT user_id, name FROM users").unwrap();
         let user_record = create_user_record(100, "John Doe", "john@example.com", Some(30));
-        let result = engine.execute_with_record(&users_query, user_record).await;
+        let result = engine.execute_with_record(&users_query, &user_record).await;
         assert!(result.is_ok());
 
         // Verify outputs
@@ -240,7 +240,7 @@ mod tests {
 
         // Execute query
         let record = create_order_record(1, 100, 100.0, Some("pending"));
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Verify complex output
@@ -314,7 +314,7 @@ mod tests {
         // Execute with multiple records
         for i in 1..=5 {
             let record = create_order_record(i, 100 + i, 100.0 * i as f64, Some("pending"));
-            let result = engine.execute_with_record(&query, record).await;
+            let result = engine.execute_with_record(&query, &record).await;
             assert!(result.is_ok());
         }
 
@@ -351,7 +351,7 @@ mod tests {
         // Execute with multiple records to trigger session window
         // First record starts a session
         let record1 = create_order_record(1, 100, 299.99, Some("pending"));
-        let result1 = engine.execute_with_record(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, &record1).await;
         assert!(result1.is_ok());
 
         // Second record after session gap (30s + buffer) to close the session
@@ -362,7 +362,7 @@ mod tests {
             .fields
             .insert("timestamp".to_string(), FieldValue::Integer(36000)); // 36 seconds
         record2_data.timestamp = 36000; // Also update the StreamRecord timestamp
-        let result2 = engine.execute_with_record(&query, record2_data).await;
+        let result2 = engine.execute_with_record(&query, &record2_data).await;
         assert!(result2.is_ok());
 
         // Check for session window output - should have emission from first session
@@ -396,7 +396,7 @@ mod tests {
 
         // Execute with valid record - nonexistent columns should result in an error
         let record = create_order_record(1, 100, 299.99, Some("pending"));
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         // Nonexistent columns should produce an error, not NULL
         assert!(result.is_err(), "Query with nonexistent column should fail");
     }
@@ -505,7 +505,7 @@ mod tests {
         ];
 
         for record in records {
-            let result = engine.execute_with_record(&query, record).await;
+            let result = engine.execute_with_record(&query, &record).await;
             assert!(result.is_ok());
         }
 

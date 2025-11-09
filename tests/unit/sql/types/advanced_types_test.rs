@@ -66,7 +66,7 @@ async fn execute_query(
     let record = create_test_record_with_advanced_types();
 
     // Execute the query with internal record, including metadata
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

@@ -42,7 +42,7 @@ async fn execute_sql_query(sql: &str, records: Vec<StreamRecord>) -> Vec<StreamR
 
     // Execute all records through the engine
     for record in records.iter() {
-        let _ = engine.execute_with_record(&query, record.clone()).await;
+        let _ = engine.execute_with_record(&query, &record).await;
     }
 
     // Flush windows and group by results

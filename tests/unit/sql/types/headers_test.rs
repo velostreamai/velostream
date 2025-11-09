@@ -59,7 +59,7 @@ mod tests {
         };
 
         // Execute query with headers
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output contains header values
@@ -110,7 +110,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output - missing header should be null
@@ -157,7 +157,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output contains comma-separated header keys
@@ -205,7 +205,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output contains boolean values
@@ -255,7 +255,7 @@ mod tests {
         };
 
         // Execute query - should pass WHERE condition
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Should produce output since priority = 'high'
@@ -278,7 +278,7 @@ mod tests {
             event_time: None,
             headers,
         };
-        let result = engine.execute_with_record(&query, record2).await;
+        let result = engine.execute_with_record(&query, &record2).await;
         assert!(result.is_ok());
 
         // Should not produce output since priority != 'high' - check no more messages
@@ -316,7 +316,7 @@ mod tests {
         };
 
         // Execute CREATE STREAM
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check that header values are included in the output
@@ -374,7 +374,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output has regular fields, system columns, and headers
@@ -469,7 +469,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output contains header values with exact case match
@@ -516,7 +516,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output with empty headers

@@ -251,7 +251,7 @@ impl SqlExecutor {
         // Execute records
         for (i, record) in records.iter().enumerate() {
             // Convert StreamRecord to StreamRecord
-            let result = engine.execute_with_record(&query, record.clone()).await;
+            let result = engine.execute_with_record(&query, &record).await;
             if let Err(e) = result {
                 eprintln!("❌ Error executing record {}: {:?}", i + 1, e);
                 eprintln!("   Record: {:?}", record);

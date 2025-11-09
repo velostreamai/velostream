@@ -266,8 +266,9 @@ mod tests {
             FieldValue::String("pending".to_string()),
         );
         // Execute CREATE STREAM
+        let record_obj = StreamRecord::new(record);
         let result = engine
-            .execute_with_record(&query, StreamRecord::new(record))
+            .execute_with_record(&query, &record_obj)
             .await;
         assert!(result.is_ok());
 
@@ -298,8 +299,9 @@ mod tests {
         record.insert("amount".to_string(), FieldValue::Float(150.00));
 
         // Execute CREATE TABLE
+        let record_obj = StreamRecord::new(record);
         let result = engine
-            .execute_with_record(&query, StreamRecord::new(record))
+            .execute_with_record(&query, &record_obj)
             .await;
         assert!(result.is_ok());
 

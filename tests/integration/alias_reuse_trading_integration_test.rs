@@ -121,7 +121,7 @@ mod trading_integration_tests {
 
         // Test case 1: Extreme spike (volume = 10x average)
         let record1 = create_trade_record(1, "AAPL", 10000.0, 150.0, 1000.0, 150.0);
-        let result1 = engine.execute_with_record(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, &record1).await;
         assert!(
             result1.is_ok(),
             "Query should execute for extreme spike case"
@@ -153,7 +153,7 @@ mod trading_integration_tests {
 
         // Test case 2: Major spike (volume = 7x average)
         let record2 = create_trade_record(2, "MSFT", 7000.0, 300.0, 1000.0, 300.0);
-        let result2 = engine.execute_with_record(&query, record2).await;
+        let result2 = engine.execute_with_record(&query, &record2).await;
         assert!(result2.is_ok());
 
         let output2 = rx.try_recv().unwrap();
@@ -202,7 +202,7 @@ mod trading_integration_tests {
 
         // Price increased by 10%: price_change_percent should be 10.0
         let record1 = create_trade_record(1, "AAPL", 1000.0, 110.0, 1000.0, 100.0);
-        let result1 = engine.execute_with_record(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, &record1).await;
         assert!(result1.is_ok());
 
         let output1 = rx.try_recv().unwrap();
@@ -265,7 +265,7 @@ mod trading_integration_tests {
 
         // Extreme case: both volume spike AND price surge
         let record1 = create_trade_record(1, "AAPL", 8000.0, 180.0, 1000.0, 100.0);
-        let result1 = engine.execute_with_record(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, &record1).await;
         assert!(result1.is_ok());
 
         let output1 = rx.try_recv().unwrap();
@@ -282,7 +282,7 @@ mod trading_integration_tests {
 
         // Moderate case: high volume only
         let record2 = create_trade_record(2, "MSFT", 4000.0, 310.0, 1000.0, 300.0);
-        let result2 = engine.execute_with_record(&query, record2).await;
+        let result2 = engine.execute_with_record(&query, &record2).await;
         assert!(result2.is_ok());
 
         let output2 = rx.try_recv().unwrap();
@@ -303,7 +303,7 @@ mod trading_integration_tests {
 
         // Normal case
         let record3 = create_trade_record(3, "GOOGL", 1200.0, 2820.0, 1000.0, 2800.0);
-        let result3 = engine.execute_with_record(&query, record3).await;
+        let result3 = engine.execute_with_record(&query, &record3).await;
         assert!(result3.is_ok());
 
         let output3 = rx.try_recv().unwrap();
@@ -353,7 +353,7 @@ mod trading_integration_tests {
 
         // Critical: High volume + large price move
         let record1 = create_trade_record(1, "AAPL", 12000.0, 250.0, 1000.0, 100.0);
-        let result1 = engine.execute_with_record(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, &record1).await;
         assert!(result1.is_ok());
 
         let output1 = rx.try_recv().unwrap();
@@ -370,7 +370,7 @@ mod trading_integration_tests {
 
         // Major: Significant volume spike
         let record2 = create_trade_record(2, "MSFT", 6000.0, 315.0, 1000.0, 300.0);
-        let result2 = engine.execute_with_record(&query, record2).await;
+        let result2 = engine.execute_with_record(&query, &record2).await;
         assert!(result2.is_ok());
 
         let output2 = rx.try_recv().unwrap();
@@ -424,7 +424,7 @@ mod trading_integration_tests {
 
         // Highly profitable trade
         let record1 = create_trade_record(1, "AAPL", 1000.0, 130.0, 1000.0, 100.0);
-        let result1 = engine.execute_with_record(&query, record1).await;
+        let result1 = engine.execute_with_record(&query, &record1).await;
         assert!(result1.is_ok());
 
         let output1 = rx.try_recv().unwrap();
@@ -474,7 +474,7 @@ mod trading_integration_tests {
             .unwrap();
 
         let record = create_trade_record(1, "AAPL", 2000.0, 150.0, 1000.0, 150.0);
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();
@@ -534,7 +534,7 @@ mod trading_integration_tests {
         ];
 
         for record in records {
-            let result = engine.execute_with_record(&query, record).await;
+            let result = engine.execute_with_record(&query, &record).await;
             assert!(result.is_ok());
         }
 
@@ -612,7 +612,7 @@ mod trading_integration_tests {
 
         // Critical trading scenario
         let record = create_trade_record(1, "AAPL", 9000.0, 250.0, 1000.0, 100.0);
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "Query should execute successfully");
 
         let output = rx.try_recv().unwrap();

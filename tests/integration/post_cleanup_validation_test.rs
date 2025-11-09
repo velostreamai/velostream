@@ -45,7 +45,7 @@ async fn test_core_sql_engine_functionality() {
     };
 
     // Execute the query
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_ok(),
         "SQL execution should work: {:?}",
@@ -85,7 +85,7 @@ async fn test_financial_precision_maintained() {
         headers: HashMap::new(),
     };
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_ok(),
         "Financial precision calculation should work"
@@ -115,7 +115,7 @@ async fn test_window_functions_functionality() {
         headers: HashMap::new(),
     };
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_ok(),
         "Window functions should work: {:?}",
@@ -155,7 +155,7 @@ async fn test_aggregation_functionality() {
             headers: HashMap::new(),
         };
 
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "GROUP BY aggregation should work");
     }
 }
@@ -193,7 +193,7 @@ async fn test_complex_query_functionality() {
         headers: HashMap::new(),
     };
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_ok(),
         "Complex query should work: {:?}",
@@ -231,7 +231,7 @@ async fn test_error_handling_functionality() {
     };
 
     // This should handle the type error gracefully
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     // Note: depending on implementation, this might succeed with type coercion or fail gracefully
     // The important thing is it doesn't panic
 }
@@ -311,7 +311,7 @@ async fn test_performance_regression_check() {
             headers: HashMap::new(),
         };
 
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "Record processing should work");
     }
 
@@ -372,7 +372,7 @@ async fn test_end_to_end_integration() {
             headers: HashMap::new(),
         };
 
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "Query execution should succeed");
 
         // Try to receive output (with timeout to avoid hanging)

@@ -154,7 +154,7 @@ fn test_emit_final_parsing_without_window() {
         let record1 = StreamRecord::new(fields);
 
         // Execution should fail with validation error
-        let result = engine.execute_with_record(&query, record1).await;
+        let result = engine.execute_with_record(&query, &record1).await;
         assert!(result.is_err(), "Expected execution to fail");
 
         if let Err(error) = result {

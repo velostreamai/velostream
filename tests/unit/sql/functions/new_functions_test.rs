@@ -50,7 +50,7 @@ async fn execute_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::er
     let record = create_test_record();
 
     // Execute the query with StreamRecord directly
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -671,7 +671,7 @@ async fn test_having_clause_execution() {
     let test_record = create_test_record();
     // Using test_record directly now
     engine
-        .execute_with_record(&parsed_query, test_record)
+        .execute_with_record(&parsed_query, &test_record)
         .await
         .unwrap();
 
@@ -689,7 +689,7 @@ async fn test_having_clause_execution() {
     let test_record = create_test_record();
 
     // Using test_record directly now
-    let result = engine.execute_with_record(&parsed_query, test_record).await;
+    let result = engine.execute_with_record(&parsed_query, &test_record).await;
     // Should return an error or Ok(None) since quantity (42) is not > 50
     // For now, let's just check it executes without panicking
     assert!(result.is_ok());
@@ -706,7 +706,7 @@ async fn test_datediff_error_cases() {
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
     // Using test_record directly now
-    let result = engine.execute_with_record(&parsed_query, test_record).await;
+    let result = engine.execute_with_record(&parsed_query, &test_record).await;
     assert!(
         result.is_err(),
         "DATEDIFF should fail with wrong number of arguments"
@@ -717,7 +717,7 @@ async fn test_datediff_error_cases() {
     let query = "SELECT DATEDIFF('invalid_unit', 123456789, 987654321) FROM test";
     let parsed_query = parser.parse(query).unwrap();
     // Using test_record directly now
-    let result = engine.execute_with_record(&parsed_query, test_record).await;
+    let result = engine.execute_with_record(&parsed_query, &test_record).await;
     assert!(
         result.is_err(),
         "DATEDIFF should fail with invalid time unit"
@@ -735,7 +735,7 @@ async fn test_position_error_cases() {
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
     // Using test_record directly now
-    let result = engine.execute_with_record(&parsed_query, test_record).await;
+    let result = engine.execute_with_record(&parsed_query, &test_record).await;
     assert!(
         result.is_err(),
         "POSITION should fail with too few arguments"
@@ -746,7 +746,7 @@ async fn test_position_error_cases() {
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
     // Using test_record directly now
-    let result = engine.execute_with_record(&parsed_query, test_record).await;
+    let result = engine.execute_with_record(&parsed_query, &test_record).await;
     assert!(
         result.is_err(),
         "POSITION should fail with too many arguments"
@@ -764,7 +764,7 @@ async fn test_listagg_error_cases() {
     let parsed_query = parser.parse(query).unwrap();
     let test_record = create_test_record();
     // Using test_record directly now
-    let result = engine.execute_with_record(&parsed_query, test_record).await;
+    let result = engine.execute_with_record(&parsed_query, &test_record).await;
     assert!(
         result.is_err(),
         "LISTAGG should fail with wrong number of arguments"

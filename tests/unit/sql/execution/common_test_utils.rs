@@ -613,7 +613,7 @@ impl TestExecutor {
             TestDataBuilder::user_record(1, "Test User", "test@example.com", "active")
         });
 
-        engine.execute_with_record(&parsed_query, record).await?;
+        engine.execute_with_record(&parsed_query, &record).await?;
 
         let mut results = Vec::new();
         while let Ok(result) = rx.try_recv() {
@@ -641,7 +641,7 @@ impl TestExecutor {
             TestDataBuilder::user_record(1, "Test User", "test@example.com", "active")
         });
 
-        engine.execute_with_record(&parsed_query, record).await?;
+        engine.execute_with_record(&parsed_query, &record).await?;
 
         let mut results = Vec::new();
         while let Ok(result) = rx.try_recv() {

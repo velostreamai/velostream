@@ -71,7 +71,7 @@ async fn test_stddev_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{} execution failed", function_name);
 
         let output = rx.try_recv().unwrap();
@@ -117,7 +117,7 @@ async fn test_stddev_pop_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok(), "STDDEV_POP execution failed");
 
     let output = rx.try_recv().unwrap();
@@ -164,7 +164,7 @@ async fn test_variance_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{} execution failed", function_name);
 
         let output = rx.try_recv().unwrap();
@@ -210,7 +210,7 @@ async fn test_var_pop_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok(), "VAR_POP execution failed");
 
     let output = rx.try_recv().unwrap();
@@ -264,7 +264,7 @@ async fn test_median_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "MEDIAN execution failed for {}: {:?}",
@@ -336,7 +336,7 @@ async fn test_statistical_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{} with NULL should succeed", function_name);
 
         let output = rx.try_recv().unwrap();
@@ -387,7 +387,7 @@ async fn test_statistical_function_error_cases() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_err(),
             "{} with wrong args should fail",
@@ -455,7 +455,7 @@ async fn test_statistical_functions_with_non_numeric_types() {
             properties: None,
         };
 
-        let result = engine.execute_with_record(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_err(),
             "{} with non-numeric argument should fail",
@@ -507,7 +507,7 @@ async fn test_statistical_functions_with_literal_values() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "{} with literal {:?} should succeed",
@@ -586,7 +586,7 @@ async fn test_multiple_statistical_functions_in_single_query() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok(), "err:{:}", result.unwrap_err());
 
     let output = rx.try_recv().unwrap();

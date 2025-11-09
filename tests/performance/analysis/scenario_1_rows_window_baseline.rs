@@ -140,7 +140,7 @@ async fn scenario_1_rows_window_baseline() {
 
     for (idx, record) in records.iter().enumerate() {
         let record_start = Instant::now();
-        let _ = engine.execute_with_record(&query, record.clone()).await;
+        let _ = engine.execute_with_record(&query, &record).await;
         let record_duration = record_start.elapsed();
 
         if idx % sample_interval == 0 {
@@ -354,7 +354,7 @@ async fn profile_rows_window_ranking_functions() {
 
     let execution_start = Instant::now();
     for record in &records {
-        let _ = engine.execute_with_record(&query, record.clone()).await;
+        let _ = engine.execute_with_record(&query, &record).await;
     }
     let execution_duration = execution_start.elapsed();
 
@@ -443,7 +443,7 @@ async fn profile_rows_window_offset_functions() {
 
     for (idx, record) in records.iter().enumerate() {
         let record_start = Instant::now();
-        let _ = engine.execute_with_record(&query, record.clone()).await;
+        let _ = engine.execute_with_record(&query, &record).await;
         let record_duration = record_start.elapsed();
 
         if idx % 1000 == 0 {
@@ -537,7 +537,7 @@ async fn measure_rows_window_sql_engine(records: Vec<StreamRecord>, query: &str)
     let start = Instant::now();
     for record in records.iter() {
         let _ = engine
-            .execute_with_record(&parsed_query, record.clone())
+            .execute_with_record(&parsed_query, &record)
             .await;
     }
 

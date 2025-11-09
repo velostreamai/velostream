@@ -41,7 +41,7 @@ async fn execute_join_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn st
     let record = create_test_record_with_join_fields();
 
     // Execute the query with StreamRecord directly
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -300,7 +300,7 @@ async fn test_join_execution_logic() {
             let record = create_test_record_with_join_fields();
 
             // Execute the query - this tests the JOIN execution engine
-            let execution_result = engine.execute_with_record(&parsed_query, record).await;
+            let execution_result = engine.execute_with_record(&parsed_query, &record).await;
 
             // Should either succeed or fail gracefully with proper error
             assert!(

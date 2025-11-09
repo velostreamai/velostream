@@ -92,7 +92,7 @@ mod tests {
                 headers: HashMap::new(),
             };
             // Execute each record individually
-            engine.execute_with_record(&query, record).await.unwrap();
+            engine.execute_with_record(&query, &record).await.unwrap();
         }
 
         // Check results with timeout to avoid hanging
@@ -135,7 +135,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record1).await.unwrap();
+        engine.execute_with_record(&query, &record1).await.unwrap();
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
@@ -148,7 +148,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record2).await.unwrap();
+        engine.execute_with_record(&query, &record2).await.unwrap();
 
         let mut fields3 = HashMap::new();
         fields3.insert("customer_id".to_string(), FieldValue::Integer(3));
@@ -161,7 +161,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record3).await.unwrap();
+        engine.execute_with_record(&query, &record3).await.unwrap();
 
         // Should receive exactly 1 output (first record matching WHERE clause)
         if let Some(output) = rx.recv().await {
@@ -207,7 +207,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record).await.unwrap();
+        engine.execute_with_record(&query, &record).await.unwrap();
 
         // Should not receive any output due to LIMIT 0
         assert!(
@@ -240,7 +240,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record1).await.unwrap();
+        engine.execute_with_record(&query, &record1).await.unwrap();
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
@@ -253,7 +253,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record2).await.unwrap();
+        engine.execute_with_record(&query, &record2).await.unwrap();
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {
@@ -295,7 +295,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record1).await.unwrap();
+        engine.execute_with_record(&query, &record1).await.unwrap();
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
@@ -307,7 +307,7 @@ mod tests {
             event_time: None,
             headers: HashMap::new(),
         };
-        engine.execute_with_record(&query, record2).await.unwrap();
+        engine.execute_with_record(&query, &record2).await.unwrap();
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {
@@ -353,7 +353,7 @@ mod tests {
             event_time: None,
             headers: headers.clone(),
         };
-        engine.execute_with_record(&query, record1).await.unwrap();
+        engine.execute_with_record(&query, &record1).await.unwrap();
 
         let mut fields2 = HashMap::new();
         fields2.insert("customer_id".to_string(), FieldValue::Integer(2));
@@ -365,7 +365,7 @@ mod tests {
             event_time: None,
             headers,
         };
-        engine.execute_with_record(&query, record2).await.unwrap();
+        engine.execute_with_record(&query, &record2).await.unwrap();
 
         // Should receive exactly 1 output
         if let Some(output) = rx.recv().await {

@@ -48,7 +48,7 @@ async fn execute_date_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn st
     let record = create_test_record_with_timestamps();
 
     // Execute the query with StreamRecord
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -462,7 +462,7 @@ async fn test_from_unixtime_basic() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -499,7 +499,7 @@ async fn test_from_unixtime_float() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -543,7 +543,7 @@ async fn test_from_unixtime_null_handling() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -570,7 +570,7 @@ async fn test_from_unixtime_invalid_type() {
     let record = create_test_record_for_timestamp_functions();
 
     // This should result in an error
-    let result = engine.execute_with_record(&parsed_query, record).await;
+    let result = engine.execute_with_record(&parsed_query, &record).await;
     assert!(result.is_err(), "Should fail with non-numeric input");
 }
 
@@ -585,7 +585,7 @@ async fn test_unix_timestamp_no_args() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -618,7 +618,7 @@ async fn test_unix_timestamp_with_datetime() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -647,7 +647,7 @@ async fn test_unix_timestamp_null_handling() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -674,7 +674,7 @@ async fn test_unix_timestamp_invalid_type() {
     let record = create_test_record_for_timestamp_functions();
 
     // This should result in an error
-    let result = engine.execute_with_record(&parsed_query, record).await;
+    let result = engine.execute_with_record(&parsed_query, &record).await;
     assert!(result.is_err(), "Should fail with non-timestamp input");
 }
 
@@ -691,7 +691,7 @@ async fn test_roundtrip_conversion() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -721,7 +721,7 @@ async fn test_practical_usage_example() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -777,7 +777,7 @@ async fn test_multiple_timestamp_functions_in_query() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 
@@ -818,7 +818,7 @@ async fn test_from_unixtime_wrong_arg_count() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    let result = engine.execute_with_record(&parsed_query, record).await;
+    let result = engine.execute_with_record(&parsed_query, &record).await;
     assert!(result.is_err(), "Should fail with no arguments");
 }
 
@@ -833,7 +833,7 @@ async fn test_unix_timestamp_wrong_arg_count() {
     let parsed_query = parser.parse(query).unwrap();
     let record = create_test_record_for_timestamp_functions();
 
-    let result = engine.execute_with_record(&parsed_query, record).await;
+    let result = engine.execute_with_record(&parsed_query, &record).await;
     assert!(result.is_err(), "Should fail with too many arguments");
 }
 
@@ -849,7 +849,7 @@ async fn test_edge_case_timestamps() {
     let record = create_test_record_for_timestamp_functions();
 
     engine
-        .execute_with_record(&parsed_query, record)
+        .execute_with_record(&parsed_query, &record)
         .await
         .unwrap();
 

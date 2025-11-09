@@ -80,7 +80,7 @@ async fn execute_targeted_test(
     println!("🎯 Test record id: {:?}", test_record.fields.get("id"));
 
     engine
-        .execute_with_record(&parsed_query, test_record)
+        .execute_with_record(&parsed_query, &test_record)
         .await?;
 
     let mut results = Vec::new();

@@ -125,7 +125,7 @@ async fn profile_raw_engine_direct() {
             "id".to_string(),
             velostream::velostream::sql::execution::types::FieldValue::Integer(_i as i64),
         );
-        let _ = engine4.execute_with_record(&query, record).await.ok();
+        let _ = engine4.execute_with_record(&query, &record).await.ok();
     }
     let test4_elapsed = test4_start.elapsed();
     let test4_throughput = (num_records as f64 / test4_elapsed.as_secs_f64()) as u64;

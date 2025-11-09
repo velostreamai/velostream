@@ -60,7 +60,7 @@ async fn execute_sql_query(
 
     // Execute all records
     for record in records {
-        engine.execute_with_record(&query, record).await?;
+        engine.execute_with_record(&query, &record).await?;
     }
 
     // Collect all results
@@ -375,9 +375,9 @@ async fn test_streaming_behavior() {
     let query = parser.parse(sql).unwrap();
 
     // Process records individually
-    engine.execute_with_record(&query, record1).await.unwrap();
-    engine.execute_with_record(&query, record2).await.unwrap();
-    engine.execute_with_record(&query, record3).await.unwrap();
+    engine.execute_with_record(&query, &record1).await.unwrap();
+    engine.execute_with_record(&query, &record2).await.unwrap();
+    engine.execute_with_record(&query, &record3).await.unwrap();
 
     // Collect results
     let mut results = Vec::new();

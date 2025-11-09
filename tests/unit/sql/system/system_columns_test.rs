@@ -100,7 +100,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output contains system columns
@@ -150,7 +150,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output has aliased names, not original system column names
@@ -186,7 +186,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Should produce output since _partition = 0 matches
@@ -224,7 +224,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output has both regular and system columns
@@ -262,7 +262,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check that wildcard does NOT include system columns
@@ -304,7 +304,7 @@ mod tests {
             };
 
             // Execute query
-            let result = engine.execute_with_record(&query, record).await;
+            let result = engine.execute_with_record(&query, &record).await;
             assert!(result.is_ok(), "Failed to execute query: {}", query_str);
 
             // Should produce timestamp output
@@ -345,7 +345,7 @@ mod tests {
         };
 
         // Execute CREATE STREAM
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check that system columns are included in the output
@@ -444,7 +444,7 @@ mod tests {
         };
 
         // Execute query
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         // Check output
@@ -487,7 +487,7 @@ mod tests {
         };
 
         let before_exec = chrono::Utc::now();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         let after_exec = chrono::Utc::now();
 
         assert!(result.is_ok());
@@ -544,7 +544,7 @@ mod tests {
         };
 
         let before_exec = chrono::Utc::now();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         let after_exec = chrono::Utc::now();
 
         assert!(result.is_ok());
@@ -599,7 +599,7 @@ mod tests {
             headers: HashMap::new(),
         };
 
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
 
         let output = rx.try_recv().unwrap();

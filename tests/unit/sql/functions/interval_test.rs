@@ -45,7 +45,7 @@ async fn execute_query(query: &str) -> Result<Vec<StreamRecord>, Box<dyn std::er
     let record = create_test_record();
 
     // Execute the query with StreamRecord directly
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {

@@ -94,7 +94,7 @@ async fn test_like_operator() {
             properties: None,
         };
 
-        let result = engine.execute_with_record(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "LIKE operator evaluation failed for pattern: {}",
@@ -155,7 +155,7 @@ async fn test_not_like_operator() {
             properties: None,
         };
 
-        let result = engine.execute_with_record(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "NOT LIKE operator evaluation failed for pattern: {}",
@@ -218,7 +218,7 @@ async fn test_like_operator_edge_cases() {
             properties: None,
         };
 
-        let result = engine.execute_with_record(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "LIKE operator evaluation failed for pattern: {}",
@@ -259,7 +259,7 @@ async fn test_like_operator_edge_cases() {
         properties: None,
     };
 
-    let result = engine.execute_with_record(&query, record.clone()).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
     // NULL LIKE anything should return false
     let output = rx.try_recv().unwrap();
@@ -294,7 +294,7 @@ async fn test_like_operator_edge_cases() {
         properties: None,
     };
 
-    let result = engine.execute_with_record(&query, record.clone()).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
     // "123" LIKE "%3" should match
     let output = rx.try_recv().unwrap();
@@ -379,7 +379,7 @@ async fn test_in_operator_basic() {
             properties: None,
         };
 
-        let result = engine.execute_with_record(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "IN operator evaluation failed for query: {}",
@@ -449,7 +449,7 @@ async fn test_not_in_operator_basic() {
             properties: None,
         };
 
-        let result = engine.execute_with_record(&query, record.clone()).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "NOT IN operator evaluation failed for query: {}",
@@ -508,7 +508,7 @@ async fn test_in_operator_with_null_values() {
         properties: None,
     };
 
-    let result = engine.execute_with_record(&query, record.clone()).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     // NULL IN anything should not match
@@ -541,7 +541,7 @@ async fn test_in_operator_with_null_values() {
         properties: None,
     };
 
-    let result_not_in = engine.execute_with_record(&query_not_in, record).await;
+    let result_not_in = engine.execute_with_record(&query_not_in, &record).await;
     assert!(result_not_in.is_ok());
 
     // NULL NOT IN anything should also not match
@@ -599,7 +599,7 @@ async fn test_in_operator_edge_cases() {
     };
 
     let result_large = engine
-        .execute_with_record(&query_large, record.clone())
+        .execute_with_record(&query_large, &record)
         .await;
     assert!(result_large.is_ok());
 
@@ -634,7 +634,7 @@ async fn test_in_operator_edge_cases() {
         properties: None,
     };
 
-    let result_duplicates = engine.execute_with_record(&query_duplicates, record).await;
+    let result_duplicates = engine.execute_with_record(&query_duplicates, &record).await;
     assert!(result_duplicates.is_ok());
 
     // Should match

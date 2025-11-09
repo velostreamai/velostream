@@ -104,7 +104,7 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
     let start = Instant::now();
     for record in records.iter() {
         let _ = engine
-            .execute_with_record(&parsed_query, record.clone())
+            .execute_with_record(&parsed_query, &record)
             .await;
     }
 
@@ -117,7 +117,7 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
         // Push timestamp to 90+ seconds to close the [0-60s) window
         final_record.timestamp = 90000;
         let _ = engine
-            .execute_with_record(&parsed_query, final_record)
+            .execute_with_record(&parsed_query, &final_record)
             .await;
     }
 

@@ -490,9 +490,9 @@ mod tests {
         // Execute each record and collect results
         rt.block_on(async {
             // Execute all records first
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             // Then collect results from channel (Flink-style: latest per group)
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
@@ -560,9 +560,9 @@ mod tests {
 
         // Execute each record
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1); // Only customer 1 should pass HAVING clause
@@ -622,9 +622,9 @@ mod tests {
 
         // Execute each record
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -701,9 +701,9 @@ mod tests {
 
         // Execute each record
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             // Flush any remaining windows to ensure all results are emitted
             engine.flush_windows().await.unwrap();
@@ -777,8 +777,8 @@ mod tests {
 
         rt.block_on(async {
             // Execute each record
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             // Collect results from channel (Flink-style: latest per group)
             let results = collect_latest_group_results(&mut receiver, "high_value").await;
@@ -855,9 +855,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -923,9 +923,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -1001,9 +1001,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -1074,9 +1074,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -1174,10 +1174,10 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
-            engine.execute_with_record(&query, record4).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
+            engine.execute_with_record(&query, &record4).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -1251,9 +1251,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(
@@ -1443,10 +1443,10 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
-            engine.execute_with_record(&query, record4).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
+            engine.execute_with_record(&query, &record4).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 3); // Should have 3 groups: 1, NULL, 2
@@ -1576,10 +1576,10 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
-            engine.execute_with_record(&query, record4).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
+            engine.execute_with_record(&query, &record4).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
             assert_eq!(results.len(), 1);
@@ -1703,10 +1703,10 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
-            engine.execute_with_record(&query, record4).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
+            engine.execute_with_record(&query, &record4).await.unwrap();
 
             let results =
                 collect_latest_multi_group_results(&mut receiver, &["customer_id", "region"]).await;
@@ -1828,8 +1828,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
@@ -1896,9 +1896,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
@@ -1964,9 +1964,9 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "product_id").await;
 
@@ -2012,8 +2012,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "product_id").await;
 
@@ -2071,8 +2071,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "account_id").await;
 
@@ -2132,8 +2132,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "trader_id").await;
 
@@ -2200,8 +2200,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 
@@ -2255,8 +2255,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "product_id").await;
 
@@ -2315,8 +2315,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "region").await;
 
@@ -2372,8 +2372,8 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "region").await;
 
@@ -2454,10 +2454,10 @@ mod tests {
             .unwrap();
 
         rt.block_on(async {
-            engine.execute_with_record(&query, record1).await.unwrap();
-            engine.execute_with_record(&query, record2).await.unwrap();
-            engine.execute_with_record(&query, record3).await.unwrap();
-            engine.execute_with_record(&query, record4).await.unwrap();
+            engine.execute_with_record(&query, &record1).await.unwrap();
+            engine.execute_with_record(&query, &record2).await.unwrap();
+            engine.execute_with_record(&query, &record3).await.unwrap();
+            engine.execute_with_record(&query, &record4).await.unwrap();
 
             let results = collect_latest_group_results(&mut receiver, "customer_id").await;
 

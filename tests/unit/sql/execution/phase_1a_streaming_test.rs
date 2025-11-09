@@ -227,7 +227,7 @@ async fn test_backward_compatibility_guarantees() {
     let record = create_legacy_test_record(); // Record without event_time
 
     // This should work exactly as before
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     // Check that we get output

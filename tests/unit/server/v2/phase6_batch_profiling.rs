@@ -72,7 +72,7 @@ async fn profile_v2_batch_processing() {
         // Process all records in batch while holding lock
         for i in batch_start..batch_end {
             let _ = engine_lock
-                .execute_with_record(&query, records[i].clone())
+                .execute_with_record(&query, &records[i])
                 .await
                 .ok();
         }

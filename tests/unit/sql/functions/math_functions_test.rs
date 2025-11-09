@@ -74,7 +74,7 @@ async fn test_abs_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "ABS function execution failed for {}",
@@ -122,7 +122,7 @@ async fn test_abs_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
@@ -161,7 +161,7 @@ async fn test_round_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
@@ -202,7 +202,7 @@ async fn test_round_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
@@ -254,7 +254,7 @@ async fn test_ceil_floor_functions() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{}({}) execution failed", function, input);
 
         let output = rx.try_recv().unwrap();
@@ -310,7 +310,7 @@ async fn test_mod_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "MOD({}, {}) execution failed",
@@ -357,7 +357,7 @@ async fn test_mod_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_err(),
         "MOD(10, 0) should fail with division by zero"
@@ -405,7 +405,7 @@ async fn test_power_function() {
             };
 
             let record = create_test_record();
-            let result = engine.execute_with_record(&query, record).await;
+            let result = engine.execute_with_record(&query, &record).await;
             assert!(
                 result.is_ok(),
                 "{}({}, {}) execution failed",
@@ -480,7 +480,7 @@ async fn test_sqrt_function() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "SQRT({}) execution failed", input);
 
         let output = rx.try_recv().unwrap();
@@ -521,7 +521,7 @@ async fn test_sqrt_function() {
     };
 
     let record = create_test_record();
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(
         result.is_err(),
         "SQRT(-4) should fail with negative number error"
@@ -567,7 +567,7 @@ async fn test_math_function_error_cases() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_err(),
             "{} with wrong args should fail",
@@ -613,7 +613,7 @@ async fn test_math_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok(), "{} with NULL should succeed", function_name);
 
         let output = rx.try_recv().unwrap();
@@ -654,7 +654,7 @@ async fn test_math_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "{} with first arg NULL should succeed",
@@ -694,7 +694,7 @@ async fn test_math_function_null_handling() {
         };
 
         let record = create_test_record();
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(
             result.is_ok(),
             "{} with second arg NULL should succeed",

@@ -75,7 +75,7 @@ async fn test_execute_simple_select() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     // Check that result was sent to channel
@@ -114,7 +114,7 @@ async fn test_execute_specific_columns() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     // Check output contains only selected fields
@@ -155,7 +155,7 @@ async fn test_execute_with_literals() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
@@ -194,7 +194,7 @@ async fn test_missing_column_returns_error() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     // Selecting a nonexistent field should fail with an error
     assert!(result.is_err());
     let error_msg = result.unwrap_err().to_string();
@@ -224,7 +224,7 @@ async fn test_multiple_records_processing() {
     // Process multiple records
     for i in 1..=5 {
         let record = create_test_record(i, 100 + i, 100.0 * i as f64, Some("pending"));
-        let result = engine.execute_with_record(&query, record).await;
+        let result = engine.execute_with_record(&query, &record).await;
         assert!(result.is_ok());
     }
 
@@ -264,7 +264,7 @@ async fn test_null_value_handling() {
 
     let record = create_test_record(1, 100, 299.99, None); // No status (null)
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();

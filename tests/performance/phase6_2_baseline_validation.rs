@@ -64,9 +64,7 @@ async fn test_v2_baseline_group_by_with_sql_execution() {
 
     // Phase 6.1: Set up execution engine and query
     let (output_tx, mut output_rx) = mpsc::unbounded_channel::<StreamRecord>();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
-        output_tx,
-    )));
+    let engine = Arc::new(StreamExecutionEngine::new(output_tx));
 
     // Parse a simple GROUP BY query
     let sql = "SELECT group_id, COUNT(*) as count FROM stream GROUP BY group_id";
@@ -181,9 +179,7 @@ async fn test_v2_baseline_scaling_100k_records() {
 
     // Setup execution
     let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
-        output_tx,
-    )));
+    let engine = Arc::new(StreamExecutionEngine::new(output_tx));
 
     let sql = "SELECT group_id, COUNT(*) as count, SUM(value) as total_value FROM stream GROUP BY group_id";
     let parser = StreamingSqlParser::new();
@@ -266,9 +262,7 @@ async fn test_v2_partition_isolation_multi_group() {
         PartitionedJobCoordinator::new(config).with_group_by_columns(vec!["group_id".to_string()]);
 
     let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
-        output_tx,
-    )));
+    let engine = Arc::new(StreamExecutionEngine::new(output_tx));
 
     let sql = "SELECT group_id, COUNT(*) as cnt FROM stream GROUP BY group_id";
     let parser = StreamingSqlParser::new();

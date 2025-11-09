@@ -71,6 +71,6 @@ async fn test_arithmetic_error_handling() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_err()); // Should fail due to type mismatch
 }

@@ -71,7 +71,7 @@ async fn test_arithmetic_expressions() {
 
     let record = create_test_record(1, 100, 100.0, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
@@ -111,7 +111,7 @@ async fn test_boolean_expressions() {
 
     let record = create_test_record(1, 100, 299.99, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();
@@ -155,7 +155,7 @@ async fn test_complex_expression_evaluation() {
 
     let record = create_test_record(1, 100, 100.0, Some("pending"));
 
-    let result = engine.execute_with_record(&query, record).await;
+    let result = engine.execute_with_record(&query, &record).await;
     assert!(result.is_ok());
 
     let output = rx.try_recv().unwrap();

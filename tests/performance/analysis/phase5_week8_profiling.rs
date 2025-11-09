@@ -149,7 +149,7 @@ async fn measure_sql_engine_emit_changes(records: &[StreamRecord], query: &str) 
     let start = Instant::now();
     for record in records {
         let _ = engine
-            .execute_with_record(&parsed_query, record.clone())
+            .execute_with_record(&parsed_query, &record)
             .await;
     }
     let processing_time = start.elapsed();

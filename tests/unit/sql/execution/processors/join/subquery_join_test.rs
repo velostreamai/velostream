@@ -65,7 +65,7 @@ async fn execute_subquery_join_test(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_for_subquery_join();
 
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
@@ -636,7 +636,7 @@ async fn execute_subquery_join_test(
     let parsed_query = parser.parse(query)?;
     let record = create_test_record_for_subquery_join();
 
-    engine.execute_with_record(&parsed_query, record).await?;
+    engine.execute_with_record(&parsed_query, &record).await?;
 
     let mut results = Vec::new();
     while let Ok(result) = rx.try_recv() {
