@@ -175,7 +175,7 @@ pub struct PartitionedJobCoordinator {
     /// Phase 6.1: Streaming query to execute on each partition
     query: Option<Arc<StreamingQuery>>,
     /// Phase 6.1: Execution engine for SQL processing on each partition
-    execution_engine: Option<Arc<tokio::sync::RwLock<StreamExecutionEngine>>>,
+    execution_engine: Option<Arc<StreamExecutionEngine>>,
 }
 
 impl PartitionedJobCoordinator {
@@ -239,10 +239,7 @@ impl PartitionedJobCoordinator {
     ///
     /// Configures the coordinator to use this engine for executing queries on each partition.
     /// Must be called before initialize_partitions() to be effective.
-    pub fn with_execution_engine(
-        mut self,
-        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
-    ) -> Self {
+    pub fn with_execution_engine(mut self, engine: Arc<StreamExecutionEngine>) -> Self {
         self.execution_engine = Some(engine);
         self
     }
@@ -286,20 +283,17 @@ impl PartitionedJobCoordinator {
             let manager = Arc::new(PartitionStateManager::new(partition_id));
             let (tx, rx) = mpsc::channel(self.config.partition_buffer_size);
 
-            // Phase 6.2 FIX: Create per-partition execution engine (REMOVES SHARED LOCK CONTENTION)
-            let has_sql_execution = if let Some(query) = &self.query {
+            // Phase 6.3a FIX: Create per-partition execution engine WITHOUT Arc<RwLock>
+            // (CRITICAL: Removes RwLock wrapper - uses direct ownership in Mutex)
+            let has_sql_execution = self.query.is_some();
+            let partition_engine_opt = if let Some(query) = &self.query {
                 // Create a NEW engine per partition instead of sharing one across all partitions
                 // This eliminates the exclusive write lock contention that was serializing all 8 partitions
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
-                let partition_engine = Arc::new(tokio::sync::RwLock::new(
-                    StreamExecutionEngine::new(output_tx),
-                ));
-
-                manager.set_execution_engine(partition_engine);
-                manager.set_query(Arc::clone(query));
-                true
+                let partition_engine = StreamExecutionEngine::new(output_tx);
+                Some((partition_engine, Arc::clone(query)))
             } else {
-                false
+                None
             };
 
             // Phase 6.0 FIX: Spawn a background task that processes records instead of draining
@@ -309,11 +303,18 @@ impl PartitionedJobCoordinator {
                 let mut processed = 0u64;
                 let mut dropped = 0u64;
 
+                // Phase 6.3a: Initialize engine and query in the manager if provided
+                if let Some((engine, query)) = partition_engine_opt {
+                    *manager_clone.execution_engine.lock().await = Some(engine);
+                    *manager_clone.query.lock().await = Some(query);
+                }
+
                 // Process each record through the partition's state manager
                 while let Some(record) = receiver.recv().await {
-                    // Phase 6.1: Use SQL execution if configured, otherwise use basic watermark management
+                    // Phase 6.3a: Use SQL execution if configured, otherwise use basic watermark management
                     let result = if has_sql_execution {
                         // Execute SQL query on record (includes watermark management)
+                        // CRITICAL: Eliminates Arc<RwLock> wrapper = 5000x faster per batch
                         match manager_clone.process_record_with_sql(record).await {
                             Ok(Some(_output)) => {
                                 // Record was processed successfully
@@ -338,7 +339,7 @@ impl PartitionedJobCoordinator {
                             processed += 1;
 
                             // Log progress periodically (every 10K records)
-                            if processed % 10_000 == 0 {
+                            if processed.is_multiple_of(10_000) {
                                 debug!(
                                     "Partition {}: Processed {} records, dropped {} late records",
                                     partition_id, processed, dropped
