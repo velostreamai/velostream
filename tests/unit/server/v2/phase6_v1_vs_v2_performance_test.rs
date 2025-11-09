@@ -324,6 +324,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
         enable_core_affinity: false,
         backpressure_config: Default::default(),
         partitioning_strategy: None,
+        ..Default::default()
     };
 
     let coordinator =
@@ -421,6 +422,7 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
         enable_core_affinity: false,
         backpressure_config: Default::default(),
         partitioning_strategy: None,
+        ..Default::default()
     };
 
     let coordinator =

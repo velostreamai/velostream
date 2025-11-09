@@ -841,6 +841,10 @@ impl StreamJobServer {
                                             &parsed_query,
                                         );
 
+                                    // Enable auto-selection from query if no explicit strategy provided
+                                    // CRITICAL: User explicit strategy takes priority and is NEVER overridden
+                                    let auto_select = partitioning_strategy.is_none();
+
                                     let v2_config = PartitionedJobConfig {
                                         num_partitions: *num_partitions,
                                         processing_mode:
@@ -851,6 +855,11 @@ impl StreamJobServer {
                                         enable_core_affinity: *enable_core_affinity,
                                         backpressure_config: Default::default(),
                                         partitioning_strategy,
+                                        auto_select_from_query: if auto_select {
+                                            Some(Arc::new(parsed_query.clone()))
+                                        } else {
+                                            None
+                                        },
                                     };
 
                                     let coordinator = PartitionedJobCoordinator::new(v2_config);

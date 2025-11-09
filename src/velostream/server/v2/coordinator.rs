@@ -5,8 +5,8 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionMetrics, PartitionStateManager, PartitioningStrategy,
-    QueryMetadata, RoutingContext,
+    AlwaysHashStrategy, PartitionMetrics, PartitionStateManager, PartitionerSelector,
+    PartitioningStrategy, QueryMetadata, RoutingContext,
 };
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
@@ -37,7 +37,13 @@ pub struct PartitionedJobConfig {
 
     /// Partitioning strategy name (e.g., "always_hash", "smart_repartition", "sticky_partition", "round_robin")
     /// If None, defaults to AlwaysHashStrategy (safest default)
+    /// CRITICAL: User explicit configuration takes priority and is NEVER overridden by auto-selection
     pub partitioning_strategy: Option<String>,
+
+    /// Query to analyze for automatic strategy selection (only used if partitioning_strategy is None)
+    /// CRITICAL: This field is ONLY consulted if partitioning_strategy is None
+    /// User explicit partitioning_strategy configuration ALWAYS takes priority
+    pub auto_select_from_query: Option<Arc<StreamingQuery>>,
 }
 
 impl Default for PartitionedJobConfig {
@@ -49,6 +55,7 @@ impl Default for PartitionedJobConfig {
             enable_core_affinity: false,
             backpressure_config: BackpressureConfig::default(),
             partitioning_strategy: None, // Will default to AlwaysHashStrategy
+            auto_select_from_query: None, // Auto-selection disabled by default
         }
     }
 }
@@ -187,22 +194,50 @@ impl PartitionedJobCoordinator {
 
         let num_cpu_slots = num_cpus::get().max(1);
 
-        // Use configured strategy if provided, otherwise default to AlwaysHashStrategy
+        // CRITICAL: Three-level priority hierarchy for strategy selection
+        // 1. User explicit partitioning_strategy (NEVER overridden by auto-selection)
+        // 2. Auto-selection from query analysis (if auto_select_from_query provided)
+        // 3. Default to AlwaysHashStrategy (safest fallback)
         let strategy = if let Some(strategy_name) = &config.partitioning_strategy {
+            // Priority 1: User explicitly provided strategy → ALWAYS USE IT
             match crate::velostream::server::v2::StrategyFactory::create_from_str(strategy_name) {
                 Ok(s) => {
-                    info!("Using partitioning strategy: {}", strategy_name);
+                    info!(
+                        "Using user-specified partitioning strategy: {} (explicit configuration)",
+                        strategy_name
+                    );
                     s
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to load strategy '{}': {}. Falling back to AlwaysHashStrategy",
+                        "Failed to load user-specified strategy '{}': {}. Falling back to AlwaysHashStrategy",
                         strategy_name, e
                     );
                     Arc::new(AlwaysHashStrategy::new())
                 }
             }
+        } else if let Some(query) = &config.auto_select_from_query {
+            // Priority 2: Auto-select from query analysis
+            let selection = PartitionerSelector::select(query);
+            info!(
+                "Auto-selected partitioning strategy: {} (reason: {})",
+                selection.strategy_name, selection.reason
+            );
+            match crate::velostream::server::v2::StrategyFactory::create_from_str(
+                &selection.strategy_name,
+            ) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        "Failed to load auto-selected strategy '{}': {}. Falling back to AlwaysHashStrategy",
+                        selection.strategy_name, e
+                    );
+                    Arc::new(AlwaysHashStrategy::new())
+                }
+            }
         } else {
+            // Priority 3: Default fallback
+            debug!("No strategy specified: using default AlwaysHashStrategy");
             Arc::new(AlwaysHashStrategy::new())
         };
 
