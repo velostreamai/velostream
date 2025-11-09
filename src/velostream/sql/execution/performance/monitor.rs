@@ -379,8 +379,12 @@ mod tests {
         tracker.add_records_processed(500);
         let _perf = monitor.finish_query_tracking(tracker);
 
+        // Ensure some measurable time passes (avoids flakiness in fast test execution)
+        std::thread::sleep(Duration::from_millis(1));
+
         let summary = monitor.get_statistics_summary();
         assert_eq!(summary.overall_metrics.total_queries, 1);
+        // Uptime should be at least 1ms after sleep
         assert!(summary.uptime.as_millis() > 0);
     }
 
