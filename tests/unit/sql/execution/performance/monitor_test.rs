@@ -46,10 +46,10 @@ fn test_statistics_summary_contains_valid_metrics() {
         summary.overall_metrics.total_queries, 1,
         "Should track exactly one query"
     );
-    // Uptime should be non-negative (always true, not timing-dependent)
+    // Uptime should be a valid duration (non-zero means monitor is working)
     assert!(
-        summary.uptime.as_nanos() >= 0,
-        "Uptime should be a valid duration"
+        summary.uptime.as_nanos() > 0,
+        "Uptime should be a positive duration"
     );
 }
 
