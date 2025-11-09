@@ -49,10 +49,7 @@ async fn profile_lockless_stp_architecture() {
     for batch_records in all_records.chunks(100) {
         let mut engine_lock = shared_engine.write().await;
         for record in batch_records {
-            let _ = engine_lock
-                .execute_with_record(&query, record.clone())
-                .await
-                .ok();
+            let _ = engine_lock.execute_with_record(&query, &record).await.ok();
         }
         drop(engine_lock);
     }
@@ -96,10 +93,7 @@ async fn profile_lockless_stp_architecture() {
             for batch_records in partition_records.chunks(100) {
                 // ✅ NO LOCKING - Direct access to partition's own engine
                 for record in batch_records {
-                    let _ = engine
-                        .execute_with_record(&query_clone, record.clone())
-                        .await
-                        .ok();
+                    let _ = engine.execute_with_record(&query_clone, &record).await.ok();
                 }
             }
             let partition_elapsed = partition_start.elapsed();

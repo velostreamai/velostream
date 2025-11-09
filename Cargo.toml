@@ -88,6 +88,11 @@ sysinfo = "0.32"
 # Phase 4B: Fast hash map for GROUP BY optimization
 rustc-hash = "2.0"
 
+# Phase 6.5: DashMap would be beneficial for concurrent state access, but current architecture
+# uses mem::take(&mut self.group_states) which is incompatible with Arc<DashMap>.
+# Future refactoring: Convert state management to use Arc<DashMap> and streaming references
+# instead of owned HashMap moves.
+
 [build-dependencies]
 prost-build = { version = "0.14.1" }
 

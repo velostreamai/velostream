@@ -50,10 +50,7 @@ async fn analyze_pure_select_output_overhead() {
 
     let start1 = Instant::now();
     for record in &records {
-        let _ = engine1
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine1.execute_with_record(&query, &record).await.ok();
     }
     drop(engine1); // Drop engine to ensure channel closes
 
@@ -87,10 +84,7 @@ async fn analyze_pure_select_output_overhead() {
 
     let start2 = Instant::now();
     for record in &records {
-        let _ = engine2
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine2.execute_with_record(&query, &record).await.ok();
     }
     drop(engine2);
 

@@ -227,10 +227,10 @@ impl PartitionStateManager {
         let query_guard = self.query.lock().await;
 
         if let (Some(engine), Some(query)) = (engine_guard.as_mut(), query_guard.as_ref()) {
-            // CRITICAL: Executes with minimal locking overhead
+            // Phase 6.3b: Executes with minimal cloning overhead
             // This is the hot path: 5000 times per batch before optimization
-            // Now: Only one lock per batch instead of Arc<RwLock> wrapper overhead
-            engine.execute_with_record(query, record.clone()).await?;
+            // Now: Pass reference instead of clone
+            engine.execute_with_record(query, &record).await?;
 
             // Note: Results are sent to output channel configured in engine
             // For now, we return the record that was processed

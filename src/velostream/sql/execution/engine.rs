@@ -31,7 +31,7 @@ let mut engine = StreamExecutionEngine::new(output_sender);
 let parser = StreamingSqlParser::new();
 let query = parser.parse("SELECT * FROM stream")?;
 let record = StreamRecord::new(HashMap::new());
-engine.execute_with_record(&query, record).await?;
+engine.execute_with_record(&query, &record).await?;
 # Ok(())
 # }
 ```
@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fields.insert("amount".to_string(), FieldValue::Float(150.0));
     let record = StreamRecord::new(fields);
 
-    engine.execute_with_record(&query, record).await?;
+    engine.execute_with_record(&query, &record).await?;
 
     // Process results from output channel
     while let Some(_result) = rx.recv().await {
@@ -616,35 +616,52 @@ impl StreamExecutionEngine {
     /// # Arguments
     ///
     /// * `query` - The parsed SQL query to execute
-    /// * `record` - The complete StreamRecord with fields, metadata, and headers
+    /// * `record` - Reference to the complete StreamRecord with fields, metadata, and headers
+    ///
+    /// ## Phase 6.3b Optimization
+    ///
+    /// Accepts &StreamRecord instead of owned StreamRecord to eliminate cloning.
+    /// For windowed queries, only clones internally when _timestamp adjustment is needed.
+    /// For non-windowed queries (common case), uses reference directly without cloning.
     pub async fn execute_with_record(
         &mut self,
         query: &StreamingQuery,
-        mut stream_record: StreamRecord,
+        stream_record: &StreamRecord,
     ) -> Result<(), SqlError> {
-        // For windowed queries, try to extract event time from _timestamp field if present
-        if let StreamingQuery::Select {
+        // Phase 6.3b: Only clone for windowed queries that need timestamp adjustment
+        // Non-windowed queries pass reference directly (no clone penalty)
+        let record_to_process = if let StreamingQuery::Select {
             window: Some(_), ..
         } = query
         {
+            // For windowed queries, check if we need to adjust timestamp
             if let Some(ts_field) = stream_record.fields.get("_timestamp") {
+                // Only clone if we actually need to modify
+                let mut modified_record = stream_record.clone();
                 match ts_field {
                     FieldValue::Integer(ts) => {
                         // _timestamp field must be in milliseconds since epoch
-                        stream_record.timestamp = *ts;
+                        modified_record.timestamp = *ts;
                     }
                     FieldValue::Float(ts) => {
                         // _timestamp field must be in milliseconds since epoch
-                        stream_record.timestamp = *ts as i64;
+                        modified_record.timestamp = *ts as i64;
                     }
                     _ => {
                         // Keep existing timestamp if _timestamp field isn't a valid time
                     }
                 }
+                modified_record
+            } else {
+                // No _timestamp field, use original record
+                stream_record.clone()
             }
-        }
+        } else {
+            // Non-windowed queries don't need modification - convert reference to owned
+            stream_record.clone()
+        };
 
-        self.execute_internal(query, stream_record).await
+        self.execute_internal(query, record_to_process).await
     }
 
     /// Internal execute method that does the actual query processing

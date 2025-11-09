@@ -43,10 +43,7 @@ async fn profile_raw_engine_direct() {
 
     let test1_start = Instant::now();
     for record in &records {
-        let _ = engine
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine.execute_with_record(&query, &record).await.ok();
     }
     let test1_elapsed = test1_start.elapsed();
     let test1_throughput = (num_records as f64 / test1_elapsed.as_secs_f64()) as u64;
@@ -70,10 +67,7 @@ async fn profile_raw_engine_direct() {
     let test2_start = Instant::now();
     for batch in records.chunks(1000) {
         for record in batch {
-            let _ = engine2
-                .execute_with_record(&query, record.clone())
-                .await
-                .ok();
+            let _ = engine2.execute_with_record(&query, &record).await.ok();
         }
     }
     let test2_elapsed = test2_start.elapsed();
@@ -100,10 +94,7 @@ async fn profile_raw_engine_direct() {
 
     let test3_start = Instant::now();
     for record in &records_cloned {
-        let _ = engine3
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine3.execute_with_record(&query, &record).await.ok();
     }
     let test3_elapsed = test3_start.elapsed();
     let test3_throughput = (num_records as f64 / test3_elapsed.as_secs_f64()) as u64;

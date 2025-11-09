@@ -44,7 +44,7 @@ async fn profile_v2_1p_breakdown() {
         let _ = engine
             .write()
             .await
-            .execute_with_record(&query, record.clone())
+            .execute_with_record(&query, &record)
             .await
             .ok();
     }
@@ -88,10 +88,7 @@ async fn profile_v2_1p_breakdown() {
 
         // Phase 2d: Execute
         let exec_start = Instant::now();
-        let _ = write_lock
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = write_lock.execute_with_record(&query, &record).await.ok();
         total_execute_time += exec_start.elapsed();
 
         // (lock released here)

@@ -43,10 +43,7 @@ async fn profile_v2_batch_processing() {
     let v1_start = Instant::now();
     for record in &records {
         let mut engine_lock = engine.write().await;
-        let _ = engine_lock
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine_lock.execute_with_record(&query, &record).await.ok();
         drop(engine_lock);
     }
     let v1_elapsed = v1_start.elapsed();

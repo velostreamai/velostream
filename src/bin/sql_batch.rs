@@ -198,7 +198,7 @@ async fn execute_sql_file(
 
             // Execute the query with the record directly - no conversion needed!
             if let Err(e) = execution_engine
-                .execute_with_record(parsed_query, record)
+                .execute_with_record(parsed_query, &record)
                 .await
             {
                 error!("⚠️ Failed to process record: {:?}", e);

@@ -74,10 +74,7 @@ async fn benchmark_scenario_0_pure_select() {
 
     let start1 = Instant::now();
     for record in &records {
-        let _ = engine1
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine1.execute_with_record(&query, &record).await.ok();
     }
     let t1 = start1.elapsed();
     let tp1 = (num_records as f64 / t1.as_secs_f64()) as u64;
@@ -91,7 +88,7 @@ async fn benchmark_scenario_0_pure_select() {
     let start2 = Instant::now();
     for record in &records {
         let mut lock = engine2.write().await;
-        let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+        let _ = lock.execute_with_record(&query, &record).await.ok();
         drop(lock);
     }
     let t2 = start2.elapsed();
@@ -107,7 +104,7 @@ async fn benchmark_scenario_0_pure_select() {
     for batch in records.chunks(batch_size) {
         let mut lock = engine3.write().await;
         for record in batch {
-            let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+            let _ = lock.execute_with_record(&query, &record).await.ok();
         }
         drop(lock);
     }
@@ -207,10 +204,7 @@ async fn benchmark_scenario_1_rows_window() {
 
     let start1 = Instant::now();
     for record in &records {
-        let _ = engine1
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine1.execute_with_record(&query, &record).await.ok();
     }
     let t1 = start1.elapsed();
     let tp1 = (num_records as f64 / t1.as_secs_f64()) as u64;
@@ -224,7 +218,7 @@ async fn benchmark_scenario_1_rows_window() {
     let start2 = Instant::now();
     for record in &records {
         let mut lock = engine2.write().await;
-        let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+        let _ = lock.execute_with_record(&query, &record).await.ok();
         drop(lock);
     }
     let t2 = start2.elapsed();
@@ -240,7 +234,7 @@ async fn benchmark_scenario_1_rows_window() {
     for batch in records.chunks(batch_size) {
         let mut lock = engine3.write().await;
         for record in batch {
-            let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+            let _ = lock.execute_with_record(&query, &record).await.ok();
         }
         drop(lock);
     }
@@ -350,10 +344,7 @@ async fn benchmark_scenario_2_pure_group_by() {
 
     let start1 = Instant::now();
     for record in &records {
-        let _ = engine1
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine1.execute_with_record(&query, &record).await.ok();
     }
     let t1 = start1.elapsed();
     let tp1 = (num_records as f64 / t1.as_secs_f64()) as u64;
@@ -367,7 +358,7 @@ async fn benchmark_scenario_2_pure_group_by() {
     let start2 = Instant::now();
     for record in &records {
         let mut lock = engine2.write().await;
-        let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+        let _ = lock.execute_with_record(&query, &record).await.ok();
         drop(lock);
     }
     let t2 = start2.elapsed();
@@ -383,7 +374,7 @@ async fn benchmark_scenario_2_pure_group_by() {
     for batch in records.chunks(batch_size) {
         let mut lock = engine3.write().await;
         for record in batch {
-            let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+            let _ = lock.execute_with_record(&query, &record).await.ok();
         }
         drop(lock);
     }
@@ -500,10 +491,7 @@ async fn benchmark_scenario_3a_tumbling_standard() {
 
     let start1 = Instant::now();
     for record in &records {
-        let _ = engine1
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine1.execute_with_record(&query, &record).await.ok();
     }
     let t1 = start1.elapsed();
     let tp1 = (num_records as f64 / t1.as_secs_f64()) as u64;
@@ -517,7 +505,7 @@ async fn benchmark_scenario_3a_tumbling_standard() {
     let start2 = Instant::now();
     for record in &records {
         let mut lock = engine2.write().await;
-        let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+        let _ = lock.execute_with_record(&query, &record).await.ok();
         drop(lock);
     }
     let t2 = start2.elapsed();
@@ -533,7 +521,7 @@ async fn benchmark_scenario_3a_tumbling_standard() {
     for batch in records.chunks(batch_size) {
         let mut lock = engine3.write().await;
         for record in batch {
-            let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+            let _ = lock.execute_with_record(&query, &record).await.ok();
         }
         drop(lock);
     }
@@ -651,10 +639,7 @@ async fn benchmark_scenario_3b_tumbling_emit_changes() {
 
     let start1 = Instant::now();
     for record in &records {
-        let _ = engine1
-            .execute_with_record(&query, record.clone())
-            .await
-            .ok();
+        let _ = engine1.execute_with_record(&query, &record).await.ok();
     }
     let t1 = start1.elapsed();
     let tp1 = (num_records as f64 / t1.as_secs_f64()) as u64;
@@ -668,7 +653,7 @@ async fn benchmark_scenario_3b_tumbling_emit_changes() {
     let start2 = Instant::now();
     for record in &records {
         let mut lock = engine2.write().await;
-        let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+        let _ = lock.execute_with_record(&query, &record).await.ok();
         drop(lock);
     }
     let t2 = start2.elapsed();
@@ -684,7 +669,7 @@ async fn benchmark_scenario_3b_tumbling_emit_changes() {
     for batch in records.chunks(batch_size) {
         let mut lock = engine3.write().await;
         for record in batch {
-            let _ = lock.execute_with_record(&query, record.clone()).await.ok();
+            let _ = lock.execute_with_record(&query, &record).await.ok();
         }
         drop(lock);
     }

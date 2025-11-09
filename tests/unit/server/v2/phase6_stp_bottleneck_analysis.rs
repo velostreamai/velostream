@@ -49,10 +49,7 @@ async fn profile_stp_bottlenecks() {
         let end_idx = (partition_id + 1) * records_per_partition;
 
         for record in &all_records[start_idx..end_idx] {
-            let _ = engine
-                .execute_with_record(&query, record.clone())
-                .await
-                .ok();
+            let _ = engine.execute_with_record(&query, &record).await.ok();
         }
     }
     let seq_elapsed = seq_start.elapsed();
@@ -96,10 +93,7 @@ async fn profile_stp_bottlenecks() {
             for batch in partition_records.chunks(100) {
                 for record in batch {
                     // ⚠️ Still clone here, but at least we reuse the record
-                    let _ = engine
-                        .execute_with_record(&query_clone, record.clone())
-                        .await
-                        .ok();
+                    let _ = engine.execute_with_record(&query_clone, &record).await.ok();
                 }
             }
             part_start.elapsed()
