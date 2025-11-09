@@ -14,9 +14,11 @@
 | **Phase 6.0** | Fix Partition Receiver | ✅ COMPLETED | (Done) | Partition processing | Records processed ✅ |
 | **Phase 6.1** | SQL Execution in Partitions | ✅ COMPLETED | (Done) | Per-partition execution | Implemented ✅ |
 | **Phase 6.2** | ✅ Remove Shared Engine Lock | ✅ COMPLETED | **S** | Unlock parallelism | 12.89x speedup ✅ |
-| **Phase 6.3** | DashMap Integration (State) | 📋 Planning | **M** | Per-entry locking | 35-40K rec/sec target |
-| **Phase 6.4** | Batch Locking + Arc Records | 📋 Planning | **S** | Reduce context switches | 50-85K rec/sec target |
-| **Phase 6.5** | Validation & Performance Tuning | 📋 Planning | **S** | Final optimization | 70-142K rec/sec target |
+| **Phase 6.3a** | Remove RwLock from Engines | 📋 Planning | **S** | Direct ownership | 50K rec/sec target |
+| **Phase 6.3b** | Remove Record Cloning | 📋 Planning | **S** | Use references | 58K rec/sec target |
+| **Phase 6.4** | Fix DataReader/DataWriter | 📋 Planning | **M** | Remove I/O overhead | 70K rec/sec target |
+| **Phase 6.5** | DashMap for State Structures | 📋 Planning | **S** | Per-entry locking | 77K rec/sec target |
+| **Phase 6.6** | Validation & Performance Tuning | 📋 Planning | **S** | Final optimization | 70-142K rec/sec target |
 | **Phase 7** | Vectorization & SIMD | 📋 Planning | **L** | 2.2M-3.0M rec/sec | - |
 | **Phase 8** | Distributed Processing | 📋 Planning | **XXL** | 2.0M-3.0M+ multi-machine | - |
 
@@ -176,73 +178,165 @@ let has_sql_execution = if let Some(query) = &self.query {
 
 ---
 
-### Phase 6.3: DashMap Integration (State Lock-Free Conversion)
+### Phase 6.3a: Remove RwLock from Per-Partition Engines (CRITICAL)
 
-**Effort**: **M** (1-2 weeks)
+**Effort**: **S** (2-3 days)
 **Status**: 📋 Planning
-**Target**: 35-40K rec/sec (2.1x improvement)
-**Priority**: High (eliminates global lock on state structures)
+**Target**: 50K rec/sec (3.0x improvement)
+**Priority**: CRITICAL (removes 5000 lock operations per batch from hot path)
 
 **What Needs to Be Done**:
 
-**6.3.1 Convert group_states to DashMap**
+**Problem**: Each partition's engine is accessed by ONLY ONE task (partition receiver)
+- RwLock is unnecessary overhead
+- Arc cloning is unnecessary overhead
+- Only this task accesses this engine (no concurrent access)
+
+**Solution**: Use direct ownership instead of Arc<RwLock>
+
+```rust
+// BEFORE (unnecessary locking pattern)
+pub struct PartitionStateManager {
+    execution_engine: StdRwLock<Option<Arc<RwLock<StreamExecutionEngine>>>>,
+}
+
+// AFTER (direct ownership - no locks needed)
+pub struct PartitionStateManager {
+    execution_engine: Option<StreamExecutionEngine>,
+}
+
+// Processing: BEFORE
+let engine_opt = self.execution_engine.read().unwrap().clone();
+let mut engine_guard = engine.write().await;  // ← LOCK (5000 times!)
+engine_guard.execute_with_record(&query, record.clone())?;
+
+// Processing: AFTER
+if let Some(engine) = &mut self.execution_engine {
+    engine.execute_with_record(&query, &record)?;  // ← NO LOCK
+}
+```
+
+**Changes Required**:
+1. Change field in PartitionStateManager from `Arc<RwLock<>>` to direct `Option<StreamExecutionEngine>`
+2. Remove `.read()` and `.write()` calls on engine
+3. Update set_execution_engine() to take ownership (not Arc)
+4. Remove async/await on engine operations
+
+**Files to Modify**:
+- `src/velostream/server/v2/partition_manager.rs` (ownership change)
+- `src/velostream/server/v2/coordinator.rs` (pass ownership not Arc)
+- Tests: verify no cross-partition access
+
+**Impact**: Eliminates ~5000 lock operations per batch
+**Target**: 16.6K → 50K rec/sec (30-50% improvement)
+
+**Verification**: All 531 unit tests pass
+
+---
+
+### Phase 6.3b: Remove Record Cloning (Use References)
+
+**Effort**: **S** (1-2 days)
+**Status**: 📋 Planning
+**Target**: 58K rec/sec (3.5x improvement cumulative)
+**Priority**: High (eliminates 100ms allocation overhead)
+
+**What Needs to Be Done**:
+
+**Problem**: Records cloned before execution
+- 5000 records × ~20µs per clone = 100ms overhead per batch
+- Unnecessary because engine only reads record fields
+
+**Solution**: Pass records by reference
+
+```rust
+// BEFORE
+engine.execute_with_record(&query, record.clone())?;  // ← CLONE
+
+// AFTER
+engine.execute_with_record(&query, &record)?;  // ← REFERENCE
+```
+
+**Changes Required**:
+1. Update execute_with_record signature: `record: &StreamRecord` (not owned)
+2. Update all internal uses to work with references
+3. Verify no mutations of records needed
+
+**Files to Modify**:
+- `src/velostream/sql/execution/engine.rs` (signature change)
+- All callers of execute_with_record
+- Tests: verify record references work
+
+**Impact**: Eliminates record cloning overhead
+**Target**: 50K → 58K rec/sec (15% improvement)
+
+---
+
+### Phase 6.4: Fix DataReader & DataWriter (I/O Bottlenecks)
+
+**Effort**: **M** (3-5 days)
+**Status**: 📋 Planning
+**Target**: 70K rec/sec (4.2x improvement cumulative)
+**Priority**: High (may have hidden locking/cloning overhead)
+
+**What Needs to Be Done**:
+
+**Analysis Phase**:
+1. Check DataReader for batch cloning
+   - Does it clone entire batch templates?
+   - Are records copied or referenced?
+
+2. Check DataWriter for locking/cloning
+   - Does it acquire locks per record?
+   - Does it clone for serialization?
+   - Are there any Arc<Mutex<>> operations?
+
+**Optimization Based on Findings**:
+- Reuse batch buffers instead of cloning
+- Batch lock acquisitions for output
+- Serialize in-place instead of cloning records
+
+**Expected Issues**:
+- Mock readers clone batch_template
+- Mock writers might lock per record
+- Serialization (JSON/Avro/Protobuf) might clone
+
+**Impact**: Removes I/O pipeline overhead
+**Target**: 58K → 70K rec/sec (10-20% improvement)
+
+---
+
+### Phase 6.5: DashMap for State Structures (Per-Entry Locking)
+
+**Effort**: **S** (2-3 days)
+**Status**: 📋 Planning
+**Target**: 77K rec/sec (4.6x improvement cumulative)
+**Priority**: Medium (only use locks where concurrency exists)
+
+**What Needs to Be Done**:
+
+**Apply DashMap only to shared mutable state**:
+
+**6.5.1 Convert group_states to DashMap**
 - File: `src/velostream/sql/execution/engine.rs:162`
 - Change: `HashMap<String, Arc<GroupByState>>` → `Arc<DashMap<String, Arc<GroupByState>>>`
-- Benefit: Per-entry locking instead of global RwLock
-- Impact: 15-20% throughput improvement
-
-**6.3.2 Convert window_v2_states to DashMap**
-- File: `src/velostream/sql/execution/engine.rs:164`
-- Change: `HashMap<String, Box<dyn Any>>` → `Arc<DashMap<String, Box<dyn Any>>>`
-- Benefit: Independent window state locks per partition
+- Benefit: Per-key locking (different keys independent)
 - Impact: 5-10% throughput improvement
 
-**Baseline Benchmark**:
-```bash
-cargo test scenario_2_pure_group_by_baseline -- --nocapture
-# Expected: 16.6K → 35-40K rec/sec
-```
+**6.5.2 Convert window_v2_states to DashMap**
+- File: `src/velostream/sql/execution/engine.rs:164`
+- Change: `HashMap<String, Box<dyn Any>>` → `Arc<DashMap<String, Box<dyn Any>>>`
+- Benefit: Per-window locking (different windows independent)
+- Impact: 5% throughput improvement
 
 **Dependencies**:
 - Add to Cargo.toml: `dashmap = "5.5"`
 
----
-
-### Phase 6.4: Batch-Level Locking + Arc<StreamRecord>
-
-**Effort**: **S** (3-5 days)
-**Status**: 📋 Planning
-**Target**: 50-85K rec/sec (3.0-5.1x improvement over current)
-**Priority**: Critical (eliminates ~5000 context switches per batch)
-
-**What Needs to Be Done**:
-
-**6.4.1 Implement Batch-Level Locking**
-- Files: `src/velostream/server/processors/simple.rs`, `src/velostream/server/v2/partition_manager.rs`
-- Pattern: Move `engine.write().await` OUTSIDE the record loop
-- Before: 1000 locks per batch (1000 context switches)
-- After: 1 lock per batch (1 context switch)
-- Impact: 30% throughput improvement (eliminates context switch overhead)
-
-**6.4.2 Convert Records to Arc<StreamRecord>**
-- File: `src/velostream/sql/execution/engine.rs` (signature change)
-- Change: `execute_with_record(record: StreamRecord)` → `execute_with_record(record: Arc<StreamRecord>)`
-- Benefit: Eliminates 5000 record clones per batch (100ms overhead)
-- Impact: 15% throughput improvement
-
-**Baseline Benchmark**:
-```bash
-cargo test scenario_2_pure_group_by_baseline -- --nocapture
-# Expected: 35-40K → 50-85K rec/sec
-```
-
-**Verification**:
-- All 531 unit tests must pass
-- No performance regression in other scenarios
+**Target**: 70K → 77K rec/sec
 
 ---
 
-### Phase 6.5: Validation & Performance Tuning
+### Phase 6.6: Validation & Performance Tuning
 
 **Effort**: **S** (2-3 days)
 **Status**: 📋 Planning
@@ -251,7 +345,7 @@ cargo test scenario_2_pure_group_by_baseline -- --nocapture
 
 **What Needs to Be Done**:
 
-**6.5.1 Comprehensive Testing**
+**6.6.1 Comprehensive Testing**
 ```bash
 # All scenario benchmarks
 cargo test scenario_1_rows_window_baseline -- --nocapture
@@ -261,22 +355,23 @@ cargo test scenario_3b_tumbling_emit_changes_baseline -- --nocapture
 ```
 
 **Expected Results**:
-| Scenario | Phase 6.2 | Phase 6.3 | Phase 6.4 | Phase 6.5 Target |
-|----------|-----------|-----------|-----------|------------------|
-| Scenario 1 | 19.8K | 40K | 60K | 75K+ |
-| Scenario 2 | 16.6K | 35K | 50K | 70K+ |
-| Scenario 3a | 23.1K | 45K | 65K | 90K+ |
+| Phase | Change | Improvement | Target |
+|-------|--------|-------------|--------|
+| 6.3a | Remove RwLock | 30-50% | 50K |
+| 6.3b | Remove cloning | 15% | 58K |
+| 6.4 | Fix I/O | 10-20% | 70K |
+| 6.5 | DashMap | 5-10% | 77K |
+| **6.6 Target** | **Combined** | **4.2-8.5x** | **70-142K** |
 
-**6.5.2 Profiling & Analysis**
-- Use flamegraph to verify improvements: `cargo flamegraph --test scenario_2_pure_group_by_baseline`
+**6.6.2 Profiling & Analysis**
+- Use flamegraph: `cargo flamegraph --test scenario_2_pure_group_by_baseline`
 - Measure CPU utilization (expect 2% → 25-35%)
-- Verify context switch reduction (expect 30,000 → 2,000 per batch)
+- Verify no remaining lock bottlenecks
 
-**6.5.3 Documentation & Commit**
-- Create PHASE-6-RESULTS.md with benchmarks and analysis
-- Update FR-082-SCHEDULE.md with actual results
-- Document DashMap/Atomics integration patterns
-- Commit: "feat(FR-082 Phase 6): Lock-free structures - DashMap, batch locking, Arc records"
+**6.6.3 Documentation & Commit**
+- Create PHASE-6-RESULTS.md with benchmarks
+- Document lock removal patterns
+- Commit: "feat(FR-082 Phase 6): Remove unnecessary locks and cloning - 4.2-8.5x improvement"
 
 #### Task 6.2.1: Option A (RECOMMENDED) - Per-Partition Engines
 
