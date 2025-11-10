@@ -24,7 +24,7 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 // Shared test utilities
 use super::test_helpers::{MockDataSource, MockDataWriter};
 
-/// Scenario baseline measurements
+/// Scenario baseline measurements with partitioner tracking
 #[derive(Clone, Debug)]
 struct ScenarioResult {
     name: String,
@@ -32,6 +32,8 @@ struct ScenarioResult {
     v1_throughput: f64,
     v2_1core_throughput: f64,
     v2_4core_throughput: f64,
+    /// Partitioner strategy used for V2 (helps understand performance characteristics)
+    partitioner: Option<String>,
 }
 
 impl ScenarioResult {
@@ -50,6 +52,12 @@ impl ScenarioResult {
             "│  V2 @ 4-core:    {:>8.0} rec/sec",
             self.v2_4core_throughput
         );
+
+        // Show partitioner strategy if available
+        if let Some(ref partitioner) = self.partitioner {
+            println!("│");
+            println!("│  Partitioner:    {}", partitioner);
+        }
 
         // Calculate ratios vs SQL Engine
         if self.sql_engine_throughput > 0.0 {
@@ -309,6 +317,7 @@ async fn comprehensive_baseline_comparison() {
         v1_throughput,
         v2_1core_throughput,
         v2_4core_throughput,
+        partitioner: Some("always_hash".to_string()),
     });
 
     // ========================================================================
@@ -347,6 +356,7 @@ async fn comprehensive_baseline_comparison() {
         v1_throughput,
         v2_1core_throughput,
         v2_4core_throughput,
+        partitioner: Some("sticky_partition".to_string()),
     });
 
     // ========================================================================
@@ -385,6 +395,7 @@ async fn comprehensive_baseline_comparison() {
         v1_throughput,
         v2_1core_throughput,
         v2_4core_throughput,
+        partitioner: Some("always_hash".to_string()),
     });
 
     // ========================================================================
@@ -423,6 +434,7 @@ async fn comprehensive_baseline_comparison() {
         v1_throughput,
         v2_1core_throughput,
         v2_4core_throughput,
+        partitioner: Some("sticky_partition".to_string()),
     });
 
     // ========================================================================
@@ -461,6 +473,7 @@ async fn comprehensive_baseline_comparison() {
         v1_throughput,
         v2_1core_throughput,
         v2_4core_throughput,
+        partitioner: Some("sticky_partition".to_string()),
     });
 
     // ========================================================================

@@ -75,6 +75,9 @@ pub struct JobMetrics {
     pub last_record_time: Option<chrono::DateTime<chrono::Utc>>,
     pub errors: u64,
     pub memory_usage_mb: f64,
+    /// Partitioner strategy used for this job (e.g., "always_hash", "sticky_partition", "smart_repartition")
+    /// Helps understand performance characteristics
+    pub partitioner: Option<String>,
 }
 
 impl Default for JobMetrics {
@@ -85,7 +88,16 @@ impl Default for JobMetrics {
             last_record_time: None,
             errors: 0,
             memory_usage_mb: 0.0,
+            partitioner: None,
         }
+    }
+}
+
+impl JobMetrics {
+    /// Set the partitioner strategy for this job's metrics
+    pub fn with_partitioner(mut self, partitioner: String) -> Self {
+        self.partitioner = Some(partitioner);
+        self
     }
 }
 
