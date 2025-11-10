@@ -240,7 +240,12 @@ pub fn parse_partition_annotations(comments: &[String]) -> Result<PartitionAnnot
     let mut annotations = PartitionAnnotations::default();
 
     for comment in comments {
-        let trimmed = comment.trim();
+        let mut trimmed = comment.trim();
+
+        // Strip SQL comment prefix if present
+        if trimmed.starts_with("--") {
+            trimmed = trimmed.trim_start_matches("--").trim();
+        }
 
         // Skip non-annotation comments
         if !trimmed.starts_with('@') {
