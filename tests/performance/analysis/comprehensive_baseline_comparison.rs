@@ -491,23 +491,25 @@ async fn comprehensive_baseline_comparison() {
     println!("\n┌─ UNIFIED COMPARISON TABLE (for SCENARIO-BASELINE-COMPARISON.md)");
     println!("│");
     println!(
-        "│ {:24} {:>12} {:>12} {:>12} {:>12}",
-        "Scenario", "SQL Engine", "V1", "V2@1-core", "V2@4-core"
+        "│ {:24} {:>12} {:>12} {:>12} {:>12} {:>18}",
+        "Scenario", "SQL Engine", "V1", "V2@1-core", "V2@4-core", "Partitioner"
     );
     println!(
-        "│ {:24} {:>12} {:>12} {:>12} {:>12}",
+        "│ {:24} {:>12} {:>12} {:>12} {:>12} {:>18}",
         "─────────────────────────", "─────────────", "─────────────", "─────────────",
-        "─────────────"
+        "─────────────", "──────────────────"
     );
 
     for result in &results {
+        let partitioner_str = result.partitioner.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
         println!(
-            "│ {:24} {:>12.0} {:>12.0} {:>12.0} {:>12.0}",
+            "│ {:24} {:>12.0} {:>12.0} {:>12.0} {:>12.0} {:>18}",
             result.name.split(": ").nth(1).unwrap_or(&result.name),
             result.sql_engine_throughput,
             result.v1_throughput,
             result.v2_1core_throughput,
-            result.v2_4core_throughput
+            result.v2_4core_throughput,
+            partitioner_str
         );
     }
     println!("└");
