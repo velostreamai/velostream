@@ -860,6 +860,8 @@ impl StreamJobServer {
                                         } else {
                                             None
                                         },
+                                        sticky_partition_id: None,
+                                        annotation_partition_count: None,
                                     };
 
                                     let coordinator = PartitionedJobCoordinator::new(v2_config);

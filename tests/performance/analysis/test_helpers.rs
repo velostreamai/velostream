@@ -11,6 +11,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::server::processors::common::JobExecutionStats;
 use velostream::velostream::sql::ast::StreamingQuery;
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
@@ -294,4 +295,93 @@ pub fn print_performance_comparison(
     }
 
     println!("═══════════════════════════════════════════════════════════\n");
+}
+
+/// Job metrics comparable to JobServer's JobMetrics structure
+///
+/// This struct captures performance metrics extracted from JobExecutionStats,
+/// providing throughput, latency, and batch efficiency measurements similar to
+/// what the JobServer would report.
+#[derive(Debug, Clone)]
+pub struct JobServerMetrics {
+    pub records_processed: u64,
+    pub batches_processed: u64,
+    pub records_failed: u64,
+    pub batches_failed: u64,
+    pub throughput_rec_per_sec: f64,
+    pub avg_latency_micros: f64,
+    pub avg_records_per_batch: f64,
+    pub total_duration_micros: u128,
+}
+
+impl JobServerMetrics {
+    /// Create metrics from JobExecutionStats and elapsed duration
+    pub fn from_stats(stats: &JobExecutionStats, duration_micros: u128) -> Self {
+        let throughput = if duration_micros > 0 {
+            (stats.records_processed as f64 / duration_micros as f64) * 1_000_000.0
+        } else {
+            0.0
+        };
+
+        let avg_latency = if stats.records_processed > 0 {
+            duration_micros as f64 / stats.records_processed as f64
+        } else {
+            0.0
+        };
+
+        let avg_records_per_batch = if stats.batches_processed > 0 {
+            stats.records_processed as f64 / stats.batches_processed as f64
+        } else {
+            0.0
+        };
+
+        Self {
+            records_processed: stats.records_processed,
+            batches_processed: stats.batches_processed,
+            records_failed: stats.records_failed,
+            batches_failed: stats.batches_failed,
+            throughput_rec_per_sec: throughput,
+            avg_latency_micros: avg_latency,
+            avg_records_per_batch,
+            total_duration_micros: duration_micros,
+        }
+    }
+
+    /// Print metrics in a formatted table
+    pub fn print_table(&self, label: &str) {
+        println!("\n┌─ {} JobMetrics", label);
+        println!("│  Records Processed:    {}", self.records_processed);
+        println!("│  Records Failed:       {}", self.records_failed);
+        println!("│  Batches Processed:    {}", self.batches_processed);
+        println!("│  Batches Failed:       {}", self.batches_failed);
+        println!(
+            "│  Throughput:           {:.0} rec/sec",
+            self.throughput_rec_per_sec
+        );
+        println!(
+            "│  Avg Latency:          {:.3} µs/record",
+            self.avg_latency_micros
+        );
+        println!(
+            "│  Avg Batch Size:       {:.1} records/batch",
+            self.avg_records_per_batch
+        );
+        println!(
+            "│  Total Duration:       {:.2} ms",
+            self.total_duration_micros as f64 / 1000.0
+        );
+        println!("└─\n");
+    }
+
+    /// Print metrics in compact single-line format
+    pub fn print_compact(&self, label: &str) {
+        println!(
+            "{}: {:.0} rec/sec | {} records | {} batches | {:.3} µs/record",
+            label,
+            self.throughput_rec_per_sec,
+            self.records_processed,
+            self.batches_processed,
+            self.avg_latency_micros
+        );
+    }
 }

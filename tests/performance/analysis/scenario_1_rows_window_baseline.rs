@@ -55,6 +55,8 @@ use velostream::velostream::sql::{StreamExecutionEngine, parser::StreamingSqlPar
 
 // Import validation utilities
 use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+// Import shared metrics helper
+use super::test_helpers::JobServerMetrics;
 
 #[tokio::test]
 #[serial]
@@ -726,7 +728,7 @@ async fn scenario_1_rows_window_with_job_server() {
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let job_start = Instant::now();
-    let _result = processor
+    let result = processor
         .process_job(
             Box::new(data_source),
             Some(Box::new(data_writer)),
@@ -750,6 +752,41 @@ async fn scenario_1_rows_window_with_job_server() {
         job_time_us as f64 / 1000.0,
         job_throughput
     );
+
+    // Capture and display JobServer metrics
+    if let Ok(stats) = result {
+        let metrics = JobServerMetrics::from_stats(&stats, job_time_us);
+        println!("📊 JOBSERVER METRICS");
+        println!("═══════════════════════════════════════════════════════════");
+        metrics.print_table("V1 (1 partition)");
+
+        // Use JobServerMetrics to validate the processor
+        println!("✅ VALIDATING JOBSERVER METRICS");
+        println!("═══════════════════════════════════════════════════════════");
+        assert_eq!(
+            metrics.records_processed as usize, num_records,
+            "Should process exactly {} records (got {})",
+            num_records, metrics.records_processed
+        );
+        assert!(
+            metrics.throughput_rec_per_sec > 0.0,
+            "Should have valid throughput (got {:.0} rec/sec)",
+            metrics.throughput_rec_per_sec
+        );
+        assert_eq!(
+            metrics.records_failed, 0,
+            "Should not fail any records (failed: {})",
+            metrics.records_failed
+        );
+        assert_eq!(
+            metrics.batches_failed, 0,
+            "Should not fail any batches (failed: {})",
+            metrics.batches_failed
+        );
+        println!("✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
+            metrics.records_processed, metrics.throughput_rec_per_sec);
+        println!("═══════════════════════════════════════════════════════════\n");
+    }
 
     // Calculate overhead
     let overhead_pct = if sql_throughput > 0 {

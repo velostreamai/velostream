@@ -49,14 +49,11 @@ the channel - so emissions are lost.
 - **V2 Target**: Requires architectural fix before optimization
 */
 
-use async_trait::async_trait;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
-use velostream::velostream::datasource::types::SourceOffset;
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory,
@@ -67,6 +64,81 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import validation utilities
 use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+// Import shared metrics helper and mock data sources
+use super::test_helpers::{JobServerMetrics, MockDataSource};
+use async_trait::async_trait;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::Mutex;
+
+/// Scenario-specific MockDataWriter with output tracking
+struct MockDataWriter {
+    count: Arc<AtomicUsize>,
+    samples: Arc<Mutex<Vec<StreamRecord>>>,
+}
+
+impl MockDataWriter {
+    fn new() -> (Self, Arc<AtomicUsize>) {
+        let count = Arc::new(AtomicUsize::new(0));
+        (
+            Self {
+                count: count.clone(),
+                samples: Arc::new(Mutex::new(Vec::new())),
+            },
+            count,
+        )
+    }
+}
+
+#[async_trait]
+impl DataWriter for MockDataWriter {
+    async fn write(
+        &mut self,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.count.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    async fn write_batch(
+        &mut self,
+        records: Vec<Arc<StreamRecord>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let count = records.len();
+        self.count.fetch_add(count, Ordering::SeqCst);
+        let mut samples = self.samples.lock().await;
+        for record in records.iter() {
+            let total_count = self.count.load(Ordering::SeqCst);
+            if total_count % 10000 == 0 {
+                samples.push(record.as_ref().clone());
+            }
+        }
+        Ok(())
+    }
+
+    async fn update(
+        &mut self,
+        _key: &str,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn delete(&mut self, _key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+}
 
 // Query with EMIT CHANGES
 const TEST_SQL: &str = r#"
@@ -141,132 +213,6 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
     (output_count, elapsed.as_micros())
 }
 
-/// Mock data source for job server testing
-struct MockDataSource {
-    batch: Vec<StreamRecord>,
-    batch_template: Vec<StreamRecord>,
-    batches_read: usize,
-    total_batches: usize,
-}
-
-impl MockDataSource {
-    fn new(records: Vec<StreamRecord>, batch_size: usize) -> Self {
-        let batch: Vec<StreamRecord> = records.iter().take(batch_size).cloned().collect();
-        let total_batches = (records.len() + batch_size - 1) / batch_size;
-
-        Self {
-            batch: batch.clone(),
-            batch_template: batch,
-            batches_read: 0,
-            total_batches,
-        }
-    }
-}
-
-#[async_trait]
-impl DataReader for MockDataSource {
-    async fn read(
-        &mut self,
-    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.batches_read >= self.total_batches {
-            return Ok(vec![]);
-        }
-
-        let batch = std::mem::take(&mut self.batch);
-        self.batches_read += 1;
-        self.batch = self.batch_template.clone();
-
-        Ok(batch)
-    }
-
-    async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    async fn seek(
-        &mut self,
-        _offset: SourceOffset,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.batches_read < self.total_batches)
-    }
-}
-
-/// Mock writer for job server testing
-struct MockDataWriter {
-    count: Arc<AtomicUsize>,
-    samples: Arc<Mutex<Vec<StreamRecord>>>,
-}
-
-impl MockDataWriter {
-    fn new() -> (Self, Arc<AtomicUsize>) {
-        let count = Arc::new(AtomicUsize::new(0));
-        (
-            Self {
-                count: count.clone(),
-                samples: Arc::new(Mutex::new(Vec::new())),
-            },
-            count,
-        )
-    }
-}
-
-#[async_trait]
-impl DataWriter for MockDataWriter {
-    async fn write(
-        &mut self,
-        _record: StreamRecord,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    async fn write_batch(
-        &mut self,
-        records: Vec<Arc<StreamRecord>>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let count = records.len();
-        self.count.fetch_add(count, Ordering::SeqCst);
-
-        // Sample 1 in 10k records for validation
-        let mut samples = self.samples.lock().await;
-        for record in records.iter() {
-            let total_count = self.count.load(Ordering::SeqCst);
-            if total_count % 10000 == 0 {
-                samples.push(record.as_ref().clone());
-            }
-        }
-
-        Ok(())
-    }
-
-    async fn update(
-        &mut self,
-        _key: &str,
-        _record: StreamRecord,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    async fn delete(&mut self, _key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    async fn flush(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    async fn rollback(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-}
 
 /// FR-082 Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES Baseline Test
 #[tokio::test]
@@ -363,6 +309,34 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
                 duration.as_millis(),
                 job_throughput
             );
+
+            // Display JobServer metrics
+            let metrics = JobServerMetrics::from_stats(&stats, duration.as_micros());
+            println!("📊 JOBSERVER METRICS");
+            println!("═══════════════════════════════════════════════════════════");
+            metrics.print_table("V1 (1 partition)");
+
+            // Use JobServerMetrics to validate the processor
+            println!("✅ VALIDATING JOBSERVER METRICS");
+            println!("═══════════════════════════════════════════════════════════");
+            assert_eq!(
+                metrics.records_processed as usize, num_records,
+                "Should process exactly {} records (got {})",
+                num_records, metrics.records_processed
+            );
+            assert!(
+                metrics.throughput_rec_per_sec > 0.0,
+                "Should have valid throughput (got {:.0} rec/sec)",
+                metrics.throughput_rec_per_sec
+            );
+            assert_eq!(
+                metrics.records_failed, 0,
+                "Should not fail any records (failed: {})",
+                metrics.records_failed
+            );
+            println!("✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures",
+                metrics.records_processed, metrics.throughput_rec_per_sec);
+            println!("═══════════════════════════════════════════════════════════\n");
 
             // Calculate overhead vs SQL Engine
             let overhead_pct = if sql_throughput > 0 {

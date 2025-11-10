@@ -33,6 +33,8 @@ use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import validation utilities
 use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+// Import shared metrics helper
+use super::test_helpers::JobServerMetrics;
 
 const TEST_SQL: &str = r#"
     SELECT
@@ -345,6 +347,69 @@ async fn job_server_overhead_breakdown() {
                 "  Per-core efficiency:       {:.1}% (ideal = 100%)\n",
                 scaling_efficiency
             );
+
+            // Create JobServerMetrics from stats
+            let v1_metrics = JobServerMetrics::from_stats(&v1_stats, v1_duration.as_micros());
+            let v2_metrics = JobServerMetrics::from_stats(&v2_stats, v2_duration.as_micros());
+
+            // Display JobServer metrics from both processors
+            println!("📊 JOBSERVER METRICS FROM PROCESSORS");
+            println!("═══════════════════════════════════════════════════════════");
+            v1_metrics.print_table("V1");
+            v2_metrics.print_table(&format!("V2 ({} partitions)", num_v2_partitions));
+
+            // Use JobServerMetrics to validate V1 and V2 processors
+            println!("✅ VALIDATING JOBSERVER METRICS");
+            println!("═══════════════════════════════════════════════════════════");
+
+            // V1 Metrics Validation
+            assert_eq!(
+                v1_metrics.records_processed as usize, num_records,
+                "V1: Should process exactly {} records (got {})",
+                num_records, v1_metrics.records_processed
+            );
+            assert!(
+                v1_metrics.throughput_rec_per_sec > 0.0,
+                "V1: Should have valid throughput (got {:.0} rec/sec)",
+                v1_metrics.throughput_rec_per_sec
+            );
+            assert_eq!(
+                v1_metrics.records_failed, 0,
+                "V1: Should not fail any records (failed: {})",
+                v1_metrics.records_failed
+            );
+            assert_eq!(
+                v1_metrics.batches_failed, 0,
+                "V1: Should not fail any batches (failed: {})",
+                v1_metrics.batches_failed
+            );
+            println!("✓ V1 JobMetrics: {} records at {:.0} rec/sec, 0 failures, 0 batch failures\n",
+                v1_metrics.records_processed, v1_metrics.throughput_rec_per_sec);
+
+            // V2 Metrics Validation
+            assert_eq!(
+                v2_metrics.records_processed as usize, num_records,
+                "V2: Should process exactly {} records (got {})",
+                num_records, v2_metrics.records_processed
+            );
+            assert!(
+                v2_metrics.throughput_rec_per_sec > 0.0,
+                "V2: Should have valid throughput (got {:.0} rec/sec)",
+                v2_metrics.throughput_rec_per_sec
+            );
+            assert_eq!(
+                v2_metrics.records_failed, 0,
+                "V2: Should not fail any records (failed: {})",
+                v2_metrics.records_failed
+            );
+            assert_eq!(
+                v2_metrics.batches_failed, 0,
+                "V2: Should not fail any batches (failed: {})",
+                v2_metrics.batches_failed
+            );
+            println!("✓ V2 JobMetrics: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
+                v2_metrics.records_processed, v2_metrics.throughput_rec_per_sec);
+            println!("═══════════════════════════════════════════════════════════\n");
 
             // Validate server metrics
             println!("╔════════════════════════════════════════════════════════════╗");

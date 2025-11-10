@@ -44,6 +44,14 @@ pub struct PartitionedJobConfig {
     /// CRITICAL: This field is ONLY consulted if partitioning_strategy is None
     /// User explicit partitioning_strategy configuration ALWAYS takes priority
     pub auto_select_from_query: Option<Arc<StreamingQuery>>,
+
+    /// Partition ID for sticky partition strategy (SQL annotation: @sticky_partition_id)
+    /// When using StickyPartition strategy, records can be pinned to a specific partition
+    pub sticky_partition_id: Option<usize>,
+
+    /// Override partition count from SQL annotation (@partition_count)
+    /// When set, overrides num_partitions field if provided
+    pub annotation_partition_count: Option<usize>,
 }
 
 impl Default for PartitionedJobConfig {
@@ -56,6 +64,54 @@ impl Default for PartitionedJobConfig {
             backpressure_config: BackpressureConfig::default(),
             partitioning_strategy: None, // Will default to AlwaysHashStrategy
             auto_select_from_query: None, // Auto-selection disabled by default
+            sticky_partition_id: None, // No sticky partition override by default
+            annotation_partition_count: None, // No annotation override by default
+        }
+    }
+}
+
+impl PartitionedJobConfig {
+    /// Apply partition configuration annotations to this config
+    ///
+    /// Updates sticky_partition_id and annotation_partition_count from parsed annotations.
+    /// Use this method after parsing SQL annotations to apply them to the configuration.
+    ///
+    /// # Arguments
+    /// * `partition_annotations` - Parsed partition annotations from SQL comments
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// use velostream::velostream::sql::parser::annotations::parse_partition_annotations;
+    /// use velostream::velostream::server::v2::PartitionedJobConfig;
+    ///
+    /// let comments = vec![
+    ///     "-- @partition_count: 8".to_string(),
+    ///     "-- @sticky_partition_id: 2".to_string(),
+    /// ];
+    /// let annotations = parse_partition_annotations(&comments).unwrap();
+    /// let mut config = PartitionedJobConfig::default();
+    /// config.apply_partition_annotations(annotations);
+    /// assert_eq!(config.annotation_partition_count, Some(8));
+    /// assert_eq!(config.sticky_partition_id, Some(2));
+    /// ```
+    pub fn apply_partition_annotations(
+        &mut self,
+        annotations: crate::velostream::sql::parser::annotations::PartitionAnnotations,
+    ) {
+        if let Some(partition_count) = annotations.partition_count {
+            self.annotation_partition_count = Some(partition_count);
+            debug!(
+                "Applied @partition_count annotation: {}",
+                partition_count
+            );
+        }
+
+        if let Some(partition_id) = annotations.sticky_partition_id {
+            self.sticky_partition_id = Some(partition_id);
+            debug!(
+                "Applied @sticky_partition_id annotation: {}",
+                partition_id
+            );
         }
     }
 }
@@ -188,9 +244,21 @@ pub struct PartitionedJobCoordinator {
 impl PartitionedJobCoordinator {
     /// Create new partitioned job coordinator with configuration
     pub fn new(config: PartitionedJobConfig) -> Self {
-        let num_partitions = config
-            .num_partitions
-            .unwrap_or_else(|| num_cpus::get().max(1));
+        // CRITICAL: Priority hierarchy for partition count
+        // 1. Annotation-based override (@partition_count) - highest priority
+        // 2. Explicit config (num_partitions)
+        // 3. Default to CPU count
+        let num_partitions = if let Some(annotation_count) = config.annotation_partition_count {
+            info!(
+                "Using partition count from SQL annotation @partition_count: {}",
+                annotation_count
+            );
+            annotation_count
+        } else {
+            config
+                .num_partitions
+                .unwrap_or_else(|| num_cpus::get().max(1))
+        };
 
         let num_cpu_slots = num_cpus::get().max(1);
 

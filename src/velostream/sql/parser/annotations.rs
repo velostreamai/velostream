@@ -9,6 +9,14 @@
 // - @job_name: <custom_name>           (optional)
 //   Provides a human-readable name for the job instead of auto-generated name
 //
+// ## Partitioning Strategy Annotations
+// - @partitioning_strategy: <strategy> (optional)
+//   Selects partitioning strategy: always_hash, smart_repartition, sticky_partition, round_robin, fan_in
+// - @sticky-partition-id: <partition_id> (optional)
+//   For sticky_partition strategy: specifies which partition to pin records to (0-based index)
+// - @partition-count: <count>          (optional)
+//   Specifies number of partitions for V2 architecture (overrides default CPU count)
+//
 // ## Metric Annotations
 // - @metric: <name>                    (required)
 // - @metric_type: counter|gauge|histogram  (required)
@@ -95,6 +103,31 @@ impl MetricType {
     }
 }
 
+/// Partition configuration annotations parsed from SQL comments
+///
+/// Allows users to control partitioning behavior directly in SQL via annotations:
+/// - `@sticky_partition_id`: Which partition to pin records to (for StickyPartition strategy)
+/// - `@partition_count`: Number of partitions for V2 architecture
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartitionAnnotations {
+    /// Partition ID for sticky partition strategy (0-based index)
+    /// When using StickyPartition strategy, records can be pinned to a specific partition
+    pub sticky_partition_id: Option<usize>,
+
+    /// Number of partitions for V2 architecture
+    /// Overrides the default (CPU count) if specified
+    pub partition_count: Option<usize>,
+}
+
+impl Default for PartitionAnnotations {
+    fn default() -> Self {
+        Self {
+            sticky_partition_id: None,
+            partition_count: None,
+        }
+    }
+}
+
 /// Parse job name annotation from comment tokens
 ///
 /// Extracts @job_name annotation from SQL comments that appear before
@@ -177,6 +210,87 @@ fn validate_job_name(name: &str) -> Result<(), SqlError> {
     }
 
     Ok(())
+}
+
+/// Parse partition configuration annotations from comment tokens
+///
+/// Extracts `@sticky_partition_id` and `@partition_count` annotations from SQL comments
+/// that appear before a CREATE STREAM statement.
+///
+/// # Arguments
+/// * `comments` - Comment tokens from tokenize_with_comments()
+///
+/// # Returns
+/// * `Ok(PartitionAnnotations)` - Parsed annotations (fields are Option, may be None)
+/// * `Err(SqlError)` - Parse error with details
+///
+/// # Example
+/// ```no_run
+/// use velostream::velostream::sql::parser::annotations::parse_partition_annotations;
+///
+/// let comments = vec![
+///     "-- @sticky-partition-id: 2".to_string(),
+///     "-- @partition-count: 8".to_string(),
+/// ];
+/// let annotations = parse_partition_annotations(&comments).unwrap();
+/// assert_eq!(annotations.sticky_partition_id, Some(2));
+/// assert_eq!(annotations.partition_count, Some(8));
+/// ```
+pub fn parse_partition_annotations(comments: &[String]) -> Result<PartitionAnnotations, SqlError> {
+    let mut annotations = PartitionAnnotations::default();
+
+    for comment in comments {
+        let trimmed = comment.trim();
+
+        // Skip non-annotation comments
+        if !trimmed.starts_with('@') {
+            continue;
+        }
+
+        // Parse annotation directive
+        if let Some((directive, value)) = parse_annotation_line(trimmed) {
+            match directive.as_str() {
+                "sticky-partition-id" => {
+                    let partition_id = value.trim().parse::<usize>().map_err(|_| {
+                        SqlError::ParseError {
+                            message: format!(
+                                "Invalid sticky-partition-id '{}'. Must be a non-negative integer",
+                                value
+                            ),
+                            position: None,
+                        }
+                    })?;
+                    annotations.sticky_partition_id = Some(partition_id);
+                }
+                "partition-count" => {
+                    let count = value.trim().parse::<usize>().map_err(|_| {
+                        SqlError::ParseError {
+                            message: format!(
+                                "Invalid partition-count '{}'. Must be a positive integer",
+                                value
+                            ),
+                            position: None,
+                        }
+                    })?;
+
+                    if count == 0 {
+                        return Err(SqlError::ParseError {
+                            message: "partition-count must be at least 1".to_string(),
+                            position: None,
+                        });
+                    }
+
+                    annotations.partition_count = Some(count);
+                }
+                _ => {
+                    // Unknown directive - will be handled by other annotation parsers
+                    // or ignored if not a known annotation
+                }
+            }
+        }
+    }
+
+    Ok(annotations)
 }
 
 /// Parse metric annotations from comment tokens
@@ -482,5 +596,101 @@ mod tests {
         assert!(validate_metric_name("123_invalid").is_err());
         assert!(validate_metric_name("invalid-metric").is_err());
         assert!(validate_metric_name("invalid metric").is_err());
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_empty() {
+        let comments = vec![];
+        let annotations = parse_partition_annotations(&comments).unwrap();
+        assert_eq!(annotations.sticky_partition_id, None);
+        assert_eq!(annotations.partition_count, None);
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_sticky_partition_id() {
+        let comments = vec!["-- @sticky-partition-id: 2".to_string()];
+        let annotations = parse_partition_annotations(&comments).unwrap();
+        assert_eq!(annotations.sticky_partition_id, Some(2));
+        assert_eq!(annotations.partition_count, None);
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_partition_count() {
+        let comments = vec!["-- @partition-count: 8".to_string()];
+        let annotations = parse_partition_annotations(&comments).unwrap();
+        assert_eq!(annotations.sticky_partition_id, None);
+        assert_eq!(annotations.partition_count, Some(8));
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_both() {
+        let comments = vec![
+            "-- @sticky-partition-id: 3".to_string(),
+            "-- @partition-count: 16".to_string(),
+        ];
+        let annotations = parse_partition_annotations(&comments).unwrap();
+        assert_eq!(annotations.sticky_partition_id, Some(3));
+        assert_eq!(annotations.partition_count, Some(16));
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_with_other_comments() {
+        let comments = vec![
+            "-- This is a regular comment".to_string(),
+            "-- @sticky-partition-id: 1".to_string(),
+            "-- Another comment".to_string(),
+            "-- @partition-count: 4".to_string(),
+        ];
+        let annotations = parse_partition_annotations(&comments).unwrap();
+        assert_eq!(annotations.sticky_partition_id, Some(1));
+        assert_eq!(annotations.partition_count, Some(4));
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_invalid_sticky_partition_id() {
+        let comments = vec!["-- @sticky-partition-id: invalid".to_string()];
+        let result = parse_partition_annotations(&comments);
+        assert!(result.is_err());
+        if let Err(SqlError::ParseError { message, .. }) = result {
+            assert!(message.contains("Invalid sticky-partition-id"));
+        }
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_invalid_partition_count() {
+        let comments = vec!["-- @partition-count: not_a_number".to_string()];
+        let result = parse_partition_annotations(&comments);
+        assert!(result.is_err());
+        if let Err(SqlError::ParseError { message, .. }) = result {
+            assert!(message.contains("Invalid partition-count"));
+        }
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_zero_partition_count() {
+        let comments = vec!["-- @partition-count: 0".to_string()];
+        let result = parse_partition_annotations(&comments);
+        assert!(result.is_err());
+        if let Err(SqlError::ParseError { message, .. }) = result {
+            assert!(message.contains("partition-count must be at least 1"));
+        }
+    }
+
+    #[test]
+    fn test_parse_partition_annotations_large_values() {
+        let comments = vec![
+            "-- @sticky-partition-id: 999".to_string(),
+            "-- @partition-count: 1024".to_string(),
+        ];
+        let annotations = parse_partition_annotations(&comments).unwrap();
+        assert_eq!(annotations.sticky_partition_id, Some(999));
+        assert_eq!(annotations.partition_count, Some(1024));
+    }
+
+    #[test]
+    fn test_partition_annotations_default() {
+        let annotations = PartitionAnnotations::default();
+        assert_eq!(annotations.sticky_partition_id, None);
+        assert_eq!(annotations.partition_count, None);
     }
 }
