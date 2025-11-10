@@ -263,15 +263,17 @@ pub fn parse_partition_annotations(comments: &[String]) -> Result<PartitionAnnot
                     annotations.sticky_partition_id = Some(partition_id);
                 }
                 "partition-count" => {
-                    let count = value.trim().parse::<usize>().map_err(|_| {
-                        SqlError::ParseError {
-                            message: format!(
-                                "Invalid partition-count '{}'. Must be a positive integer",
-                                value
-                            ),
-                            position: None,
-                        }
-                    })?;
+                    let count =
+                        value
+                            .trim()
+                            .parse::<usize>()
+                            .map_err(|_| SqlError::ParseError {
+                                message: format!(
+                                    "Invalid partition-count '{}'. Must be a positive integer",
+                                    value
+                                ),
+                                position: None,
+                            })?;
 
                     if count == 0 {
                         return Err(SqlError::ParseError {

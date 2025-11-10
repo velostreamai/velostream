@@ -783,8 +783,10 @@ async fn scenario_1_rows_window_with_job_server() {
             "Should not fail any batches (failed: {})",
             metrics.batches_failed
         );
-        println!("✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
-            metrics.records_processed, metrics.throughput_rec_per_sec);
+        println!(
+            "✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
+            metrics.records_processed, metrics.throughput_rec_per_sec
+        );
         println!("═══════════════════════════════════════════════════════════\n");
     }
 

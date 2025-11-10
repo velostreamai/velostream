@@ -383,8 +383,10 @@ async fn job_server_overhead_breakdown() {
                 "V1: Should not fail any batches (failed: {})",
                 v1_metrics.batches_failed
             );
-            println!("✓ V1 JobMetrics: {} records at {:.0} rec/sec, 0 failures, 0 batch failures\n",
-                v1_metrics.records_processed, v1_metrics.throughput_rec_per_sec);
+            println!(
+                "✓ V1 JobMetrics: {} records at {:.0} rec/sec, 0 failures, 0 batch failures\n",
+                v1_metrics.records_processed, v1_metrics.throughput_rec_per_sec
+            );
 
             // V2 Metrics Validation
             assert_eq!(
@@ -407,8 +409,10 @@ async fn job_server_overhead_breakdown() {
                 "V2: Should not fail any batches (failed: {})",
                 v2_metrics.batches_failed
             );
-            println!("✓ V2 JobMetrics: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
-                v2_metrics.records_processed, v2_metrics.throughput_rec_per_sec);
+            println!(
+                "✓ V2 JobMetrics: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
+                v2_metrics.records_processed, v2_metrics.throughput_rec_per_sec
+            );
             println!("═══════════════════════════════════════════════════════════\n");
 
             // Validate server metrics

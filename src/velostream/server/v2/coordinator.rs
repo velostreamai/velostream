@@ -64,7 +64,7 @@ impl Default for PartitionedJobConfig {
             backpressure_config: BackpressureConfig::default(),
             partitioning_strategy: None, // Will default to AlwaysHashStrategy
             auto_select_from_query: None, // Auto-selection disabled by default
-            sticky_partition_id: None, // No sticky partition override by default
+            sticky_partition_id: None,   // No sticky partition override by default
             annotation_partition_count: None, // No annotation override by default
         }
     }
@@ -100,18 +100,12 @@ impl PartitionedJobConfig {
     ) {
         if let Some(partition_count) = annotations.partition_count {
             self.annotation_partition_count = Some(partition_count);
-            debug!(
-                "Applied @partition_count annotation: {}",
-                partition_count
-            );
+            debug!("Applied @partition_count annotation: {}", partition_count);
         }
 
         if let Some(partition_id) = annotations.sticky_partition_id {
             self.sticky_partition_id = Some(partition_id);
-            debug!(
-                "Applied @sticky_partition_id annotation: {}",
-                partition_id
-            );
+            debug!("Applied @sticky_partition_id annotation: {}", partition_id);
         }
     }
 }

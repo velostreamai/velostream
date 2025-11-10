@@ -235,9 +235,18 @@ fn generate_scenario_1_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            fields.insert("symbol".to_string(), FieldValue::String(format!("SYM{}", i % 10)));
-            fields.insert("price".to_string(), FieldValue::Float(100.0 + (i % 50) as f64));
-            fields.insert("timestamp".to_string(), FieldValue::Integer((i * 1000) as i64));
+            fields.insert(
+                "symbol".to_string(),
+                FieldValue::String(format!("SYM{}", i % 10)),
+            );
+            fields.insert(
+                "price".to_string(),
+                FieldValue::Float(100.0 + (i % 50) as f64),
+            );
+            fields.insert(
+                "timestamp".to_string(),
+                FieldValue::Integer((i * 1000) as i64),
+            );
             StreamRecord::new(fields)
         })
         .collect()
@@ -248,28 +257,52 @@ fn generate_scenario_2_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            fields.insert("symbol".to_string(), FieldValue::String(format!("SYM{}", i % 200)));
-            fields.insert("price".to_string(), FieldValue::Float(100.0 + (i % 100) as f64));
-            fields.insert("quantity".to_string(), FieldValue::Integer((i % 1000) as i64));
+            fields.insert(
+                "symbol".to_string(),
+                FieldValue::String(format!("SYM{}", i % 200)),
+            );
+            fields.insert(
+                "price".to_string(),
+                FieldValue::Float(100.0 + (i % 100) as f64),
+            );
+            fields.insert(
+                "quantity".to_string(),
+                FieldValue::Integer((i % 1000) as i64),
+            );
             StreamRecord::new(fields)
         })
         .collect()
 }
 
 /// Generate scenario 3a/3b records (TUMBLING WINDOW)
+/// CRITICAL: Must distribute records across source partitions (0-3) to test sticky_partition properly
+/// Without this: all records → partition 0, cores 1-3 idle, 4-core slower than 1-core due to merge overhead
 fn generate_scenario_3_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            fields.insert("trader_id".to_string(), FieldValue::String(format!("T{}", i % 50)));
-            fields.insert("symbol".to_string(), FieldValue::String(format!("SYM{}", i % 100)));
-            fields.insert("price".to_string(), FieldValue::Float(100.0 + (i % 50) as f64));
-            fields.insert("quantity".to_string(), FieldValue::Integer((i % 1000) as i64));
+            fields.insert(
+                "trader_id".to_string(),
+                FieldValue::String(format!("T{}", i % 50)),
+            );
+            fields.insert(
+                "symbol".to_string(),
+                FieldValue::String(format!("SYM{}", i % 100)),
+            );
+            fields.insert(
+                "price".to_string(),
+                FieldValue::Float(100.0 + (i % 50) as f64),
+            );
+            fields.insert(
+                "quantity".to_string(),
+                FieldValue::Integer((i % 1000) as i64),
+            );
             fields.insert(
                 "trade_time".to_string(),
                 FieldValue::Integer((1000000 + (i * 1000)) as i64),
             );
-            StreamRecord::new(fields)
+            let record = StreamRecord::new(fields);
+            record
         })
         .collect()
 }
@@ -496,12 +529,20 @@ async fn comprehensive_baseline_comparison() {
     );
     println!(
         "│ {:24} {:>12} {:>12} {:>12} {:>12} {:>18}",
-        "─────────────────────────", "─────────────", "─────────────", "─────────────",
-        "─────────────", "──────────────────"
+        "─────────────────────────",
+        "─────────────",
+        "─────────────",
+        "─────────────",
+        "─────────────",
+        "──────────────────"
     );
 
     for result in &results {
-        let partitioner_str = result.partitioner.as_ref().map(|s| s.as_str()).unwrap_or("N/A");
+        let partitioner_str = result
+            .partitioner
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("N/A");
         println!(
             "│ {:24} {:>12.0} {:>12.0} {:>12.0} {:>12.0} {:>18}",
             result.name.split(": ").nth(1).unwrap_or(&result.name),

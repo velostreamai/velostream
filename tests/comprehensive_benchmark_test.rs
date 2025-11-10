@@ -26,7 +26,7 @@ use serial_test::serial;
 /// **Assertions**: JobServerMetrics validation from shared validation module
 #[tokio::test]
 #[serial]
-#[ignore]  // Run explicitly: cargo test comprehensive_baseline_coordinator -- --nocapture
+#[ignore] // Run explicitly: cargo test comprehensive_baseline_coordinator -- --nocapture
 async fn comprehensive_baseline_coordinator() {
     println!("\n╔════════════════════════════════════════════════════════════╗");
     println!("║ FR-082: COMPREHENSIVE BASELINE COORDINATOR                 ║");
@@ -41,13 +41,25 @@ async fn comprehensive_baseline_coordinator() {
     println!("   • Scenario 3a (TUMBLING): Ready");
     println!("   • Scenario 3b (EMIT CHANGES): Ready");
     println!("\n💡 To run baseline scenarios individually:");
-    println!("   cargo test --release --no-default-features scenario_0_pure_select_baseline -- --nocapture");
-    println!("   cargo test --release --no-default-features scenario_1_rows_window_baseline -- --nocapture");
-    println!("   cargo test --release --no-default-features scenario_2_pure_group_by_baseline -- --nocapture");
-    println!("   cargo test --release --no-default-features scenario_3a_tumbling_standard_baseline -- --nocapture");
-    println!("   cargo test --release --no-default-features scenario_3b_tumbling_emit_changes_baseline -- --nocapture");
+    println!(
+        "   cargo test --release --no-default-features scenario_0_pure_select_baseline -- --nocapture"
+    );
+    println!(
+        "   cargo test --release --no-default-features scenario_1_rows_window_baseline -- --nocapture"
+    );
+    println!(
+        "   cargo test --release --no-default-features scenario_2_pure_group_by_baseline -- --nocapture"
+    );
+    println!(
+        "   cargo test --release --no-default-features scenario_3a_tumbling_standard_baseline -- --nocapture"
+    );
+    println!(
+        "   cargo test --release --no-default-features scenario_3b_tumbling_emit_changes_baseline -- --nocapture"
+    );
     println!("\n💡 To run comprehensive comparison:");
-    println!("   cargo test --release --no-default-features comprehensive_baseline_comparison -- --nocapture");
+    println!(
+        "   cargo test --release --no-default-features comprehensive_baseline_comparison -- --nocapture"
+    );
 }
 
 /// Test: Baseline SQL Functionality Verification
@@ -243,7 +255,10 @@ async fn test_baseline_performance_sanity() -> Result<(), Box<dyn std::error::Er
         where_clauses.len() * 10,
         query_duration
     );
-    println!("   📈 Query throughput: {:.0} queries/sec", query_throughput);
+    println!(
+        "   📈 Query throughput: {:.0} queries/sec",
+        query_throughput
+    );
     println!("   📊 Total results: {} records\n", total_results);
 
     // Phase 3: Aggregation throughput benchmark
@@ -267,7 +282,10 @@ async fn test_baseline_performance_sanity() -> Result<(), Box<dyn std::error::Er
         "   ✅ Executed {} aggregations in {:?}",
         total_aggs, agg_duration
     );
-    println!("   📈 Aggregation throughput: {:.0} agg/sec\n", agg_throughput);
+    println!(
+        "   📈 Aggregation throughput: {:.0} agg/sec\n",
+        agg_throughput
+    );
 
     // Verify sanity constraints
     println!("📊 Phase 4: Performance sanity checks");
@@ -276,21 +294,30 @@ async fn test_baseline_performance_sanity() -> Result<(), Box<dyn std::error::Er
         "Data loading too slow: {:.0} rec/sec (expected > 1000)",
         load_throughput
     );
-    println!("   ✅ Loading performance: {} rec/sec > 1000 rec/sec", load_throughput as u64);
+    println!(
+        "   ✅ Loading performance: {} rec/sec > 1000 rec/sec",
+        load_throughput as u64
+    );
 
     assert!(
         query_throughput > 100.0,
         "Query throughput too low: {:.0} queries/sec (expected > 100)",
         query_throughput
     );
-    println!("   ✅ Query performance: {} queries/sec > 100 queries/sec", query_throughput as u64);
+    println!(
+        "   ✅ Query performance: {} queries/sec > 100 queries/sec",
+        query_throughput as u64
+    );
 
     assert!(
         agg_throughput > 10.0,
         "Aggregation throughput too low: {:.0} agg/sec (expected > 10)",
         agg_throughput
     );
-    println!("   ✅ Aggregation performance: {} agg/sec > 10 agg/sec", agg_throughput as u64);
+    println!(
+        "   ✅ Aggregation performance: {} agg/sec > 10 agg/sec",
+        agg_throughput as u64
+    );
 
     println!("\n✅ All baseline performance sanity checks passed!");
     println!("   • Loading throughput: {:.0} rec/sec", load_throughput);

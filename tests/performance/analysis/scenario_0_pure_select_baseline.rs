@@ -366,8 +366,10 @@ async fn scenario_0_pure_select_baseline() {
                 "V1: Should not fail any batches (failed: {})",
                 v1_metrics.batches_failed
             );
-            println!("✓ V1 JobMetrics: {} records processed at {:.0} rec/sec, 0 failures, 0 batch failures\n",
-                v1_metrics.records_processed, v1_metrics.throughput_rec_per_sec);
+            println!(
+                "✓ V1 JobMetrics: {} records processed at {:.0} rec/sec, 0 failures, 0 batch failures\n",
+                v1_metrics.records_processed, v1_metrics.throughput_rec_per_sec
+            );
 
             // V2 Validation
             assert_eq!(
@@ -390,8 +392,10 @@ async fn scenario_0_pure_select_baseline() {
                 "V2: Should not fail any batches (failed: {})",
                 v2_metrics.batches_failed
             );
-            println!("✓ V2 JobMetrics: {} records processed at {:.0} rec/sec, 0 failures, 0 batch failures",
-                v2_metrics.records_processed, v2_metrics.throughput_rec_per_sec);
+            println!(
+                "✓ V2 JobMetrics: {} records processed at {:.0} rec/sec, 0 failures, 0 batch failures",
+                v2_metrics.records_processed, v2_metrics.throughput_rec_per_sec
+            );
             println!("═══════════════════════════════════════════════════════════\n");
 
             // Validate metrics for both V1 and V2

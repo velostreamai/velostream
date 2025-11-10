@@ -215,7 +215,6 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
     (result_count, elapsed.as_micros())
 }
 
-
 /// FR-082 Scenario 3a: TUMBLING + GROUP BY (Standard Emission) Baseline Test
 #[tokio::test]
 #[serial]
@@ -322,8 +321,10 @@ async fn scenario_3a_tumbling_standard_baseline() {
                 "Should not fail any batches (failed: {})",
                 metrics.batches_failed
             );
-            println!("✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
-                metrics.records_processed, metrics.throughput_rec_per_sec);
+            println!(
+                "✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures, 0 batch failures",
+                metrics.records_processed, metrics.throughput_rec_per_sec
+            );
             println!("═══════════════════════════════════════════════════════════\n");
 
             // Calculate overhead

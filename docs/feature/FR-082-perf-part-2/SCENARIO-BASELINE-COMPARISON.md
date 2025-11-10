@@ -380,10 +380,23 @@ WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE) EMIT CHANGES
 - **SQL Engine**: 8,696 rec/sec
 - **V1@1-core**: 7,634 rec/sec
 - **V2@1-core**: 10,702 rec/sec
-- **V2@4-core**: 6,637 rec/sec (⚠️ SLOWER than V1!)
+- **V2@4-core**: 6,637 rec/sec (⚠️ REGRESSION to 0.87x!)
 - **Speedup (V2@1 vs V1@1)**: 1.40x
-- **Note**: EMIT CHANGES with 4 cores is **0.87x** - synchronization overhead outweighs benefit!
-- **Partitioner**: `sticky_partition` (but contention limits scaling)
+- **Partitioner**: `sticky_partition` (routing via StreamRecord.partition field)
+
+### Critical Finding: 4-Core Regression in EMIT CHANGES
+
+**Root Cause**: Test data doesn't set `StreamRecord.partition` field → all records route to partition 0
+- With sticky_partition strategy: `partition = record.partition % num_partitions`
+- When `record.partition=0` for all records: all routing to partition 0, other 3 cores idle
+- Still incurs 4-partition merge overhead → net negative performance!
+
+**Expected Behavior** (when partition field is set correctly):
+- With proper source partition distribution: Each core processes ~1250 records
+- Overhead scales, but output amplification causes diminishing returns
+- EMIT CHANGES fundamentally limited by output merge bottleneck
+
+**Action Item**: Set `StreamRecord.partition = i % 4` in test data to properly test sticky_partition with 4 cores
 
 ### The Anomaly: Why SQL Engine is So Slow
 

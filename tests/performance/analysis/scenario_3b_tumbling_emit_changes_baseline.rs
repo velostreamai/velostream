@@ -213,7 +213,6 @@ async fn measure_sql_engine_only(records: Vec<StreamRecord>, query: &str) -> (us
     (output_count, elapsed.as_micros())
 }
 
-
 /// FR-082 Scenario 3b: TUMBLING + GROUP BY + EMIT CHANGES Baseline Test
 #[tokio::test]
 #[serial]
@@ -334,8 +333,10 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
                 "Should not fail any records (failed: {})",
                 metrics.records_failed
             );
-            println!("✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures",
-                metrics.records_processed, metrics.throughput_rec_per_sec);
+            println!(
+                "✓ JobMetrics validated: {} records at {:.0} rec/sec, 0 failures",
+                metrics.records_processed, metrics.throughput_rec_per_sec
+            );
             println!("═══════════════════════════════════════════════════════════\n");
 
             // Calculate overhead vs SQL Engine
