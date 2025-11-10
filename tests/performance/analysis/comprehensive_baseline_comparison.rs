@@ -321,9 +321,10 @@ async fn comprehensive_baseline_comparison() {
     let query = r#"
         SELECT symbol, price,
             AVG(price) OVER (
-                PARTITION BY symbol
-                ORDER BY timestamp
-                ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
+                ROWS WINDOW
+                    BUFFER 100 ROWS
+                    PARTITION BY symbol
+                    ORDER BY timestamp
             ) as moving_avg
         FROM market_data
     "#;
