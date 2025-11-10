@@ -9,11 +9,14 @@
 
 | Scenario | SQL Engine | V1@1-core | V2@1-core | V2@4-core | Verdict |
 |----------|-----------|-----------|-----------|-----------|---------|
-| **0: Pure SELECT** | N/A | 23.6K | N/A | 693.8K | ✅ V2 wins (29.4x vs V1) |
+| **0: Pure SELECT** | ~186K* | 23.6K | N/A | 693.8K | ✅ V2 29.4x faster than V1 |
 | **1: ROWS WINDOW** | 169.5K | ~15.3K | ~34.2K | ~69K | ⚠️ SQL faster (job overhead 90%) |
-| **2: GROUP BY** | N/A | 23.4K | N/A | 570.9K | ✅ V2 wins (24.5x vs V1) |
-| **3a: TUMBLING** | 441.3K | ~20K | **1,041.9K** | ~3M+ | ✅✅ V2 MUCH faster (2.36x vs SQL) |
-| **3b: EMIT CHANGES** | 487 | ~70 | ~100 | 2,277 | ✅ V2 wins (4.68x vs SQL) |
+| **2: GROUP BY** | ~112.5K* | 23.4K | N/A | 570.9K | ✅ V2 24.45x faster than V1 |
+| **3a: TUMBLING** | 441.3K | ~20K | **1,041.9K** | ~3M+ | ✅✅ V2 2.36x faster than SQL! |
+| **3b: EMIT CHANGES** | 487 | ~70 | ~100 | 2,277 | ✅ V2 4.68x faster than SQL |
+
+*SQL Engine values for Scenarios 0 & 2 are estimated from previous baseline (not re-measured Nov 10).
+V2@1-core for Scenarios 0 & 2 not measured (not bottleneck - V2@4-core shows clear winner).
 
 **Key Finding**: With StickyPartitionStrategy, V2@1-core exceeds SQL Engine performance in window scenarios!
 
