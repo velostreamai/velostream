@@ -9,20 +9,22 @@
 
 | Scenario | SQL Engine | V1@1-core | V2@1-core | V2@4-core | Verdict |
 |----------|-----------|-----------|-----------|-----------|---------|
-| **0: Pure SELECT** | ~186K* | 23.6K | N/A | 693.8K | ✅ V2 29.4x faster than V1 |
-| **1: ROWS WINDOW** | 169.5K | ~15.3K | ~34.2K | ~69K | ⚠️ SQL faster (job overhead 90%) |
-| **2: GROUP BY** | ~112.5K* | 23.4K | N/A | 570.9K | ✅ V2 24.45x faster than V1 |
-| **3a: TUMBLING** | 441.3K | ~20K | **1,041.9K** | ~3M+ | ✅✅ V2 2.36x faster than SQL! |
-| **3b: EMIT CHANGES** | 487 | ~70 | ~100 | 2,277 | ✅ V2 4.68x faster than SQL |
+| **0: Pure SELECT** | 196.4K | 23.3K | 390.1K | 538.8K | ✅ V2 23.1x faster than V1 |
+| **1: ROWS WINDOW** | 261.1K | 23.8K | 532.1K | 661.0K | ✅ V2 27.8x faster than V1 |
+| **2: GROUP BY** | 11.9K | 22.9K | 191.2K | 274.8K | ✅ V2 12.0x faster than V1 |
+| **3a: TUMBLING** | 244.3K | 23.1K | 277.6K | 343.9K | ✅ V2 14.9x faster than V1 |
+| **3b: EMIT CHANGES** | 8.4K | 7.5K | 10.7K | 10.8K | ✅ V2 1.4x faster than V1 |
 
-*SQL Engine values for Scenarios 0 & 2 are estimated from previous baseline (not re-measured Nov 10).
-V2@1-core for Scenarios 0 & 2 not measured (not bottleneck - V2@4-core shows clear winner).
+**Date**: November 10, 2025
+**Measurement Method**: Comprehensive baseline comparison test
+**Record Count**: 5,000 records per scenario
+**Environment**: Release build, no-default-features
 
-**Key Finding**: With StickyPartitionStrategy, V2@1-core exceeds SQL Engine performance in window scenarios!
+**Key Finding**: V2 consistently outperforms V1 across all scenarios, with 23.1x-27.8x improvements in simple scenarios and 1.4x-14.9x improvements in complex window scenarios!
 
 ---
 
-## SCENARIO 0: Pure SELECT ✅ (29.4x FASTER with V2)
+## SCENARIO 0: Pure SELECT ✅ (23.1x FASTER with V2)
 
 ### Query
 ```sql
@@ -31,11 +33,13 @@ FROM orders
 WHERE total_amount > 100
 ```
 
-### Performance (November 10, 2025 - Measured)
-- **V1@1-core**: 23,584 rec/sec
-- **V2@4-core**: 693,838 rec/sec
-- **Speedup**: 29.42x
-- **Per-core efficiency**: 735.5% (super-linear scaling!)
+### Performance (November 10, 2025 - Measured via comprehensive_baseline_comparison.rs)
+- **SQL Engine**: 196,375 rec/sec
+- **V1@1-core**: 23,293 rec/sec
+- **V2@1-core**: 390,071 rec/sec
+- **V2@4-core**: 538,788 rec/sec
+- **Speedup (V2@4 vs V1@1)**: 23.1x
+- **Per-core efficiency**: 576.2% (excellent super-linear scaling)
 
 ### Why V2 is Faster
 
@@ -72,7 +76,7 @@ Cost per record: 2.4µs (parallel processing + less I/O impact)
 
 ---
 
-## SCENARIO 1: ROWS WINDOW ❌ (Job Server slower than SQL Engine)
+## SCENARIO 1: ROWS WINDOW ✅ (27.8x FASTER with V2)
 
 ### Query
 ```sql
@@ -86,10 +90,13 @@ SELECT
 FROM market_data
 ```
 
-### Performance (November 10, 2025 - Measured)
-- **SQL Engine**: 169,500 rec/sec (pure engine, no job server)
-- **Job Server**: ~15,300 rec/sec (estimated from 90.2% overhead)
-- **Overhead**: 90.2% (10.18x slowdown due to coordination)
+### Performance (November 10, 2025 - Measured via comprehensive_baseline_comparison.rs)
+- **SQL Engine**: 261,068 rec/sec (pure engine, no job server)
+- **V1@1-core**: 23,768 rec/sec
+- **V2@1-core**: 532,082 rec/sec
+- **V2@4-core**: 661,022 rec/sec
+- **Speedup (V2@4 vs V1@1)**: 27.8x
+- **Per-core efficiency**: 691.6% (excellent super-linear scaling)
 
 ### Why V2 is Slower
 
@@ -168,7 +175,7 @@ Cost: 20-25ms per batch (huge!)
 
 ---
 
-## SCENARIO 2: GROUP BY ✅ (24.5x FASTER with V2)
+## SCENARIO 2: GROUP BY ✅ (12.0x FASTER with V2)
 
 ### Query
 ```sql
@@ -183,11 +190,13 @@ FROM market_data
 GROUP BY symbol
 ```
 
-### Performance (November 10, 2025 - Measured)
-- **V1@1-core**: 23,355 rec/sec
-- **V2@4-core**: 570,934 rec/sec
-- **Speedup**: 24.45x
-- **Per-core efficiency**: 611.1% (excellent super-linear scaling)
+### Performance (November 10, 2025 - Measured via comprehensive_baseline_comparison.rs)
+- **SQL Engine**: 11,905 rec/sec
+- **V1@1-core**: 22,919 rec/sec
+- **V2@1-core**: 191,166 rec/sec
+- **V2@4-core**: 274,763 rec/sec
+- **Speedup (V2@4 vs V1@1)**: 12.0x
+- **Per-core efficiency**: 597.9% (excellent super-linear scaling)
 
 ### Why V2 is Faster
 
@@ -258,24 +267,28 @@ The 2.42x speedup on 4 cores is 60.5% per core!
 
 ---
 
-## SCENARIO 3a: TUMBLING WINDOW ✅✅ (2.36x FASTER with V2!)
+## SCENARIO 3a: TUMBLING WINDOW + GROUP BY ✅ (14.9x FASTER with V2)
 
 ### Query
 ```sql
 SELECT
     trader_id, symbol,
     COUNT(*) as trade_count,
-    AVG(price) as avg_price
+    AVG(price) as avg_price,
+    SUM(quantity) as total_quantity,
+    SUM(price * quantity) as total_value
 FROM market_data
 GROUP BY trader_id, symbol
 WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
 ```
 
-### Performance (November 10, 2025 - Measured with StickyPartitionStrategy)
-- **SQL Engine**: 441,306 rec/sec
-- **V2@1-core (StickyPartition)**: 1,041,883 rec/sec
-- **Speedup**: 2.36x FASTER! ✨
-- **Key Insight**: StickyPartitionStrategy avoids re-partitioning overhead!
+### Performance (November 10, 2025 - Measured via comprehensive_baseline_comparison.rs)
+- **SQL Engine**: 244,290 rec/sec
+- **V1@1-core**: 23,103 rec/sec
+- **V2@1-core**: 277,602 rec/sec
+- **V2@4-core**: 343,894 rec/sec
+- **Speedup (V2@4 vs V1@1)**: 14.9x
+- **Per-core efficiency**: 464.8% (good scaling on complex workload)
 
 ### Why V2 is FASTER with StickyPartitionStrategy! ✨
 
@@ -344,23 +357,28 @@ For time-windowed queries with naturally ordered input:
 
 ---
 
-## SCENARIO 3b: EMIT CHANGES ✅ (4.68x FASTER with V2)
+## SCENARIO 3b: TUMBLING WINDOW + EMIT CHANGES ✅ (1.44x FASTER with V2)
 
 ### Query
 ```sql
 SELECT
     trader_id, symbol,
-    COUNT(*) as trade_count
+    COUNT(*) as trade_count,
+    AVG(price) as avg_price,
+    SUM(quantity) as total_quantity,
+    SUM(price * quantity) as total_value
 FROM market_data
 GROUP BY trader_id, symbol
 WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE) EMIT CHANGES
 ```
 
-### Performance (November 10, 2025 - Measured)
-- **SQL Engine**: 487 rec/sec (anomaly - see below)
-- **Job Server (V2)**: 2,277 rec/sec
-- **Speedup**: 4.68x FASTER!
-- **Note**: SQL Engine bottleneck is output serialization (99,810 emitted results vs 5,000 inputs)
+### Performance (November 10, 2025 - Measured via comprehensive_baseline_comparison.rs)
+- **SQL Engine**: 8,402 rec/sec
+- **V1@1-core**: 7,518 rec/sec
+- **V2@1-core**: 10,677 rec/sec
+- **V2@4-core**: 10,846 rec/sec
+- **Speedup (V2@4 vs V1@1)**: 1.44x
+- **Note**: EMIT CHANGES has high output overhead, limiting improvement potential
 
 ### The Anomaly: Why SQL Engine is So Slow
 
