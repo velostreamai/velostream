@@ -38,6 +38,10 @@ pub struct ProcessorContext {
     /// When set, processors should use this reference instead of the owned copy
     /// This eliminates HashMap cloning by sharing the Arc across multiple processors
     pub group_by_states_ref: Option<Arc<HashMap<String, Arc<GroupByState>>>>,
+    /// FR-082 Phase 6.5: Optional Arc reference to partition-owned window state
+    /// When set, processors should use this reference instead of the owned copy
+    /// This eliminates window Vec cloning by sharing the Arc across multiple processors
+    pub window_v2_states_ref: Option<Arc<Vec<(String, WindowState)>>>,
     /// Schema registry for introspection (SHOW/DESCRIBE operations)
     pub schemas: HashMap<String, Schema>,
     /// Stream handles registry
@@ -164,6 +168,7 @@ impl ProcessorContext {
             join_context: JoinContext::new(),
             group_by_states: HashMap::new(),
             group_by_states_ref: None, // FR-082 Phase 6.4C: Initialize as None, will be set by coordinator
+            window_v2_states_ref: None, // FR-082 Phase 6.5: Initialize as None, will be set by coordinator
             schemas: HashMap::new(),
             stream_handles: HashMap::new(),
             data_sources: HashMap::new(),

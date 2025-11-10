@@ -322,6 +322,12 @@ impl StreamExecutionEngine {
             .collect()
     }
 
+    /// Phase 6.5: Get Arc reference to window_v2_states for direct access without cloning
+    /// Returns Arc that can be cloned (bumping refcount) without deep-copying the Vec
+    pub fn get_window_states_arc(&self) -> Arc<Vec<(String, WindowState)>> {
+        Arc::new(self.get_window_states())
+    }
+
     /// Set window states after external processing
     ///
     /// Updates window states in active queries based on provided (query_id, state) pairs.
