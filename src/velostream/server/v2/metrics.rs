@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 ///
 /// ```rust
 /// use velostream::velostream::server::v2::PartitionMetrics;
+/// use std::time::Duration;
 ///
 /// let metrics = PartitionMetrics::new(0);
 ///

@@ -12,7 +12,7 @@
 //! ## Real-World Example
 //!
 //! Kafka topic with 50 partitions partitioned by `trader_id`:
-//! ```
+//! ```text
 //! SELECT trader_id, SUM(amount) FROM trades
 //! GROUP BY trader_id
 //! ```
@@ -21,7 +21,7 @@
 //! vs
 //!
 //! Kafka topic partitioned by `symbol` but grouped by `trader_id`:
-//! ```
+//! ```text
 //! SELECT trader_id, SUM(amount) FROM trades
 //! GROUP BY trader_id
 //! ```

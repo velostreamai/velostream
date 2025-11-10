@@ -32,7 +32,7 @@ use std::sync::Arc;
 ///     Arc::new(PartitionMetrics::new(1)),
 /// ];
 ///
-/// exporter.update_metrics(&metrics);
+/// exporter.update_metrics(&metrics, 1024);
 ///
 /// // Expose metrics via HTTP endpoint (using actix-web, warp, etc.)
 /// let metrics_text = exporter.export_metrics();

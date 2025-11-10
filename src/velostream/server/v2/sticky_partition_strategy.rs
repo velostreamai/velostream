@@ -21,7 +21,7 @@
 //! ## Real-World Example
 //!
 //! Kafka source with 8 partitions:
-//! ```
+//! ```text
 //! SELECT trader_id, SUM(amount) FROM trades
 //! GROUP BY trader_id
 //! ```

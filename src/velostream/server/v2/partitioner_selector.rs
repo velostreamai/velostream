@@ -85,7 +85,7 @@ impl PartitionerSelection {
 /// # Example
 ///
 /// ```rust,no_run
-/// use velostream::velostream::sql::ast::{StreamingQuery, StreamSource, SelectField};
+/// use velostream::velostream::sql::ast::{Expr, StreamingQuery, StreamSource, SelectField};
 /// use velostream::velostream::server::v2::PartitionerSelector;
 ///
 /// let query = StreamingQuery::Select {
