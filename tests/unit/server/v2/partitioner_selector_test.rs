@@ -41,10 +41,10 @@ fn test_scenario_0_pure_select_should_use_hash() {
     };
 
     let selection = PartitionerSelector::select(&query);
-    assert_eq!(selection.strategy_name, "always_hash");
+    assert_eq!(selection.strategy_name, "sticky_partition");
     assert!(
         selection.is_optimal,
-        "Pure SELECT should use Hash partitioning"
+        "Pure SELECT should use Sticky partitioning (source partition affinity)"
     );
 }
 
@@ -268,8 +268,8 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
 
     let selection = PartitionerSelector::select(&query);
     assert_eq!(
-        selection.strategy_name, "smart_repartition",
-        "CREATE STREAM should default to SmartRepartition"
+        selection.strategy_name, "sticky_partition",
+        "CREATE STREAM should default to StickyPartition (uses source partition field)"
     );
 }
 

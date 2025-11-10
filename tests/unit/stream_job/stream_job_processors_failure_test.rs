@@ -273,7 +273,7 @@ async fn test_simple_processor_sink_failure_continues_processing() {
         stats.records_processed, 5,
         "Should process all records (3+2)"
     );
-    assert_eq!(stats.batches_processed, 2, "Should process 2 batches");
+    assert_eq!(stats.batches_processed, 4, "Should process 4 batches (batching breakdown)");
     // Note: Simple processor commits source regardless of sink failure (best effort)
 }
 

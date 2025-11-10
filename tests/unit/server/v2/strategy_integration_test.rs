@@ -453,16 +453,15 @@ fn test_factory_string_parsing() {
 /// Test all strategies handle missing required columns gracefully
 #[tokio::test]
 async fn test_all_strategies_fail_on_missing_column() {
-    let strategies: Vec<(&str, Arc<dyn PartitioningStrategy>)> = vec![
+    let strategies_should_fail: Vec<(&str, Arc<dyn PartitioningStrategy>)> = vec![
         ("AlwaysHash", Arc::new(AlwaysHashStrategy::new())),
         (
             "SmartRepartition",
             Arc::new(SmartRepartitionStrategy::new()),
         ),
-        ("StickyPartition", Arc::new(StickyPartitionStrategy::new())),
     ];
 
-    for (name, strategy) in strategies {
+    for (name, strategy) in strategies_should_fail {
         let config = PartitionedJobConfig::default();
         let coordinator = PartitionedJobCoordinator::new(config)
             .with_group_by_columns(vec!["trader_id".to_string()])
@@ -481,10 +480,34 @@ async fn test_all_strategies_fail_on_missing_column() {
 
         assert!(
             result.is_err(),
-            "Strategy {} should fail on missing column",
+            "Strategy {} should fail on missing GROUP BY column",
             name
         );
     }
+
+    // StickyPartition uses record.partition field, not GROUP BY columns, so it should succeed
+    let config = PartitionedJobConfig::default();
+    let coordinator = PartitionedJobCoordinator::new(config)
+        .with_group_by_columns(vec!["trader_id".to_string()])
+        .with_strategy(Arc::new(StickyPartitionStrategy::new()));
+
+    let (_managers, senders) = coordinator.initialize_partitions();
+
+    // Record missing GROUP BY column but has partition info
+    let mut record = HashMap::new();
+    record.insert("price".to_string(), FieldValue::String("100.0".to_string()));
+    record.insert("__partition__".to_string(), FieldValue::Integer(0));
+    let records = vec![StreamRecord::new(record)];
+
+    let result = coordinator
+        .process_batch_with_strategy(records, &senders)
+        .await;
+
+    // StickyPartition should succeed because it uses __partition__ field, not GROUP BY columns
+    assert!(
+        result.is_ok(),
+        "StickyPartition should succeed with __partition__ field even without GROUP BY column"
+    );
 }
 
 /// Test strategy consistency across multiple batch operations
