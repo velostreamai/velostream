@@ -327,3 +327,137 @@ To achieve linear scaling in tests:
 - Production V2 has zero contention
 
 **For maximum performance**: Deploy with PartitionedJobCoordinator, not simplified process_job().
+
+---
+
+## Phase 6.4C: Eliminate State Duplication (PLANNED)
+
+### The Real Problem
+
+State currently lives in **TWO places simultaneously**:
+
+1. **StreamExecutionEngine** (`src/velostream/sql/execution/engine.rs:162`)
+   - Holds: `group_states: HashMap<String, Arc<GroupByState>>`
+   - Holds: `window_v2_states`
+
+2. **ProcessorContext** (`src/velostream/sql/execution/processors/context.rs:36`)
+   - Holds: `group_by_states: HashMap<String, Arc<GroupByState>>`
+   - Holds: `persistent_window_states`
+
+They're **manually synchronized** (lines 525, 530 in engine.rs):
+```rust
+// Before processing: COPY from engine → context
+context.group_by_states = self.group_states.clone();
+
+// Processors modify context state during processing
+
+// After processing: COPY from context → engine
+self.group_states = std::mem::take(&mut context.group_by_states);
+```
+
+**This is wrong because:**
+- ❌ Two sources of truth (confusing, error-prone)
+- ❌ Manual synchronization overhead (20+ lines of copy/sync code)
+- ❌ HashMap cloning for every batch (performance penalty)
+- ❌ Not distributed-ready (global engine doesn't scale)
+
+### Why Distributed Systems (Flink, Kafka Streams) Do It Right
+
+**Apache Flink Pattern**:
+```
+Partition 0 → Task 0 → State Store (LOCAL to partition)
+Partition 1 → Task 1 → State Store (LOCAL to partition)
+Partition 2 → Task 2 → State Store (LOCAL to partition)
+```
+
+**Key principle**: State attached to **PROCESSING UNIT** (partition), not global engine.
+
+### Option B: ProcessorContext as Single Source of Truth
+
+**Target Architecture**:
+```
+PartitionStateManager 0
+  └─ ProcessorContext
+     └─ group_by_states (ONLY copy, lives here)
+
+PartitionStateManager 1
+  └─ ProcessorContext
+     └─ group_by_states (ONLY copy, lives here)
+
+PartitionStateManager 2
+  └─ ProcessorContext
+     └─ group_by_states (ONLY copy, lives here)
+
+StreamExecutionEngine (no state, just executes)
+```
+
+**Changes required:**
+1. Delete `group_states` from StreamExecutionEngine
+2. Delete `get_group_states()` and `set_group_states()` methods (~20 lines)
+3. Remove all manual synchronization logic (~20 locations)
+4. Add state storage to PartitionStateManager
+5. ProcessorContext initialized with reference to partition state
+6. Update state lifecycle (initialize on first record, persist across records)
+
+### Level of Effort: **M** (Medium - 2-3 days)
+
+#### Phase 1: Cleanup (4 hours)
+- Remove state holders from StreamExecutionEngine
+- Remove synchronization code (~20 locations)
+- Delete accessor methods
+
+#### Phase 2: State Lifecycle (8 hours)
+- Add state storage to PartitionStateManager
+- Initialize empty state on first record
+- Persist state across records
+- Update ProcessorContext initialization
+
+#### Phase 3: Testing (4 hours)
+- Run comprehensive baseline test
+- Verify scenario tests still pass
+- Check performance improvement
+- Validate state persistence
+
+### Expected Benefits
+
+- ✅ **Single source of truth** (no duplication)
+- ✅ **No cloning overhead** (eliminate HashMap clones)
+- ✅ **Cleaner code** (remove 20+ sync lines)
+- ✅ **Distributed-ready** (state attached to partition)
+- ✅ **Better testability** (easier to mock state)
+- ✅ **Performance** (5-10% improvement from eliminating clones)
+
+### Risk Factors
+
+- **Medium**: Careful tracking of all state access patterns
+- **Medium**: State lifecycle changes (initialization/cleanup)
+- **Low**: Processors already use context (not engine)
+
+### Code Impact Summary
+
+**engine.rs**: DELETE
+- `group_states: HashMap<String, Arc<GroupByState>>` (line 162)
+- `get_group_states()` method
+- `set_group_states()` method
+- All `context.group_by_states = self.group_states.clone()` patterns
+- All `self.group_states = std::mem::take(&mut context.group_by_states)` patterns
+
+**partition_manager.rs**: ADD
+- `group_by_states: Arc<Mutex<HashMap<String, Arc<GroupByState>>>>`
+- Initialize in `new()`
+
+**Processors**: NO CHANGE
+- Already use `context.group_by_states` ✓
+- No changes needed to select.rs, aggregation functions, etc.
+
+### Performance Projection
+
+- **Current (Phase 6.4)**: 694K rec/sec (Scenario 0)
+- **After Phase 6.4C**: ~730-750K rec/sec (+5-10%)
+- No architectural overhead, pure performance gain from eliminating clones
+
+### Timeline
+
+- **Effort**: **M** (Medium)
+- **Duration**: 2-3 days
+- **After**: Phase 6.4C complete, system becomes truly distributed-ready

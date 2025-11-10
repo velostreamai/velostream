@@ -15,6 +15,7 @@
 | **Phase 6.0-6.2** | V2 Architecture Foundation | ✅ COMPLETE | (Done) | Per-partition execution | Various |
 | **Phase 6.3** | Comprehensive Benchmarking | ✅ COMPLETE | (Done) | All 5 scenarios measured | FR-082-PHASE6-3-COMPLETE-BENCHMARKS.md |
 | **Phase 6.4** | Per-Partition Engine Migration | ✅ COMPLETE | **S** | ~2x improvement | FR-082-PHASE6-4-EXECUTIVE-SUMMARY.md |
+| **Phase 6.4C** | Eliminate State Duplication | 📋 PLANNED | **M** | +5-10% improvement | FR-082-STATE-SHARING-ANALYSIS.md |
 | **Phase 6.5** | Window State Optimization | 📋 PLANNED | **M** | +5-15% improvement | - |
 | **Phase 6.6** | Zero-Copy Record Processing | 📋 PLANNED | **L** | +10-20% improvement | - |
 | **Phase 6.7** | Lock-Free Metrics Optimization | 📋 PLANNED | **S** | +1-5% improvement | - |
@@ -84,19 +85,93 @@
 
 ---
 
-## Phase 6.5: Window State Optimization (PLANNED)
+## Phase 6.4C: Eliminate State Duplication (PLANNED)
 
 **Status**: 📋 PLANNED
-**Effort**: **M** (Medium - 3-5 days)
+**Effort**: **M** (Medium - 2-3 days)
+**Expected Improvement**: +5-10% additional throughput
+**Target**: ~730-750K rec/sec (Scenario 0)
+
+### The Problem Solved
+
+Currently, state lives in **TWO places**:
+- **StreamExecutionEngine** holds `group_states` (master copy)
+- **ProcessorContext** holds `group_by_states` (working copy)
+- **Manual synchronization** copies state back and forth (~20 locations)
+
+This violates the distributed streaming principle: **state should attach to the processing unit (partition), not the global engine**.
+
+### Solution: ProcessorContext as Single Source of Truth
+
+**Change**: Move state from StreamExecutionEngine to PartitionStateManager
+- StreamExecutionEngine becomes stateless (just executes)
+- PartitionStateManager owns state (lives with partition)
+- ProcessorContext accesses partition state (no copying)
+- Processors continue to use context (no changes needed)
+
+### Implementation Path
+
+1. **Remove state from StreamExecutionEngine** (4 hours)
+   - Delete `group_states` field
+   - Delete `get_group_states()` and `set_group_states()` methods
+   - Remove all synchronization code (~20 locations)
+
+2. **Add state to PartitionStateManager** (8 hours)
+   - Add `group_by_states: Arc<Mutex<HashMap<...>>>`
+   - Initialize state on first record
+   - Persist across records
+   - Update ProcessorContext initialization
+
+3. **Testing & Validation** (4 hours)
+   - Run comprehensive baseline test
+   - Verify state persistence
+   - Check performance improvement
+
+### Expected Benefits
+
+- ✅ **Single source of truth** (no duplication)
+- ✅ **Distributed-ready** (state attached to partition)
+- ✅ **Performance** (5-10% from eliminating HashMap clones)
+- ✅ **Cleaner code** (remove 20+ synchronization lines)
+- ✅ **Better testability** (easier to mock state)
+
+### Dependency: MUST BE DONE BEFORE Phase 6.5
+
+⚠️ **CRITICAL**: Phase 6.4C enables Phase 6.5 optimization.
+
+**Why**: Phase 6.5 also needs to move window state from engine to partition manager.
+- **6.4C** removes `group_states` from engine
+- **6.5** can then remove `window_v2_states` from engine
+- Same pattern: engine becomes stateless, partitions own all state
+- If 6.5 done first: would move window state, then 6.4C moves group state (messy)
+- If 6.4C done first: clears the path for 6.5 (clean architecture)
+
+### Documentation
+
+See **FR-082-STATE-SHARING-ANALYSIS.md** for detailed analysis, architectural comparison with Flink/Kafka Streams, and complete implementation plan.
+
+---
+
+## Phase 6.5: Window State Optimization (PLANNED)
+
+**Status**: 📋 PLANNED (after 6.4C)
+**Effort**: **M** (Medium - 2-3 days, REDUCED because 6.4C already refactored state handling)
 **Expected Improvement**: +5-15% additional throughput
-**Target**: ~800K-850K rec/sec (Scenario 0)
+**Target**: ~850K-900K rec/sec (Scenario 0)
+
+### Dependency on Phase 6.4C
+
+Phase 6.4C completes the pattern for moving state from engine to partitions:
+- 6.4C moves `group_states` to PartitionStateManager
+- 6.5 applies same pattern to `window_v2_states`
+- No need to refactor the architecture twice - just extend it
 
 ### Optimization Opportunities
 
 1. **Per-Partition Window Managers**
-   - Move window state from shared engine to partition-local managers
+   - Move window state from StreamExecutionEngine to PartitionStateManager
    - Each partition manages its own windows independently
-   - Eliminates window state synchronization overhead
+   - Eliminates window state synchronization overhead (same pattern as 6.4C)
 
 2. **Lazy Window Initialization**
    - Don't pre-allocate window state
@@ -268,13 +343,14 @@
 ### 📊 Performance Trajectory
 
 ```
-Phase 6.3:  353K rec/sec (pure SELECT, 4 cores)
-Phase 6.4:  694K rec/sec (+1.96x)
-Phase 6.5:  ~850K rec/sec (+22%, target)
-Phase 6.6:  ~1.0M rec/sec (+18%, target)
-Phase 6.7:  ~1.05M rec/sec (+5%, target)
-Phase 7:    ~2-3M rec/sec (+2-3x, target)
-Phase 8:    2-3M+ rec/sec (distributed, target)
+Phase 6.3:   353K rec/sec (pure SELECT, 4 cores)
+Phase 6.4:   694K rec/sec (+1.96x)
+Phase 6.4C:  ~730-750K rec/sec (+5-10%, target - state duplication elimination)
+Phase 6.5:   ~850K rec/sec (+12-16%, target - window state optimization)
+Phase 6.6:   ~1.0M rec/sec (+18%, target - zero-copy processing)
+Phase 6.7:   ~1.05M rec/sec (+5%, target - lock-free metrics)
+Phase 7:     ~2-3M rec/sec (+2-3x, target - vectorization & SIMD)
+Phase 8:     2-3M+ rec/sec (distributed, target - multi-machine scaling)
 ```
 
 ### 🎯 Architecture Principles
