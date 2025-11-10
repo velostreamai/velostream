@@ -7,7 +7,8 @@
 use std::time::Duration;
 use velostream::velostream::server::v2::PartitionerSelector;
 use velostream::velostream::sql::ast::{
-    Expr, OrderByExpr, OrderDirection, SelectField, StreamSource, WindowSpec,
+    BinaryOperator, Expr, LiteralValue, OrderByExpr, OrderDirection, SelectField, StreamSource,
+    StreamingQuery, WindowSpec,
 };
 
 #[test]
@@ -16,7 +17,7 @@ fn test_scenario_0_pure_select_should_use_hash() {
     // Expected: Hash partitioning (any key works, no ordering needed)
     // Performance: 2.27x faster than SQL Engine
 
-    let query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let query = StreamingQuery::Select {
         fields: vec![
             SelectField::Column("order_id".to_string()),
             SelectField::Column("customer_id".to_string()),
@@ -27,10 +28,8 @@ fn test_scenario_0_pure_select_should_use_hash() {
         joins: None,
         where_clause: Some(Expr::BinaryOp {
             left: Box::new(Expr::Column("total_amount".to_string())),
-            op: velostream::velostream::sql::ast::BinaryOperator::GreaterThan,
-            right: Box::new(Expr::Literal(
-                velostream::velostream::sql::ast::LiteralValue::Integer(100),
-            )),
+            op: BinaryOperator::GreaterThan,
+            right: Box::new(Expr::Literal(LiteralValue::Integer(100))),
         }),
         group_by: None,
         having: None,
@@ -56,7 +55,7 @@ fn test_scenario_1_rows_window_with_order_by_should_use_sticky() {
     // Current Performance: 62% slower (Hash strategy is WRONG)
     // Optimal Performance: Should match SQL Engine with Sticky
 
-    let query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let query = StreamingQuery::Select {
         fields: vec![
             SelectField::Column("symbol".to_string()),
             SelectField::Column("price".to_string()),
@@ -102,15 +101,13 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
     // Expected: Hash partition by GROUP BY key
     // Performance: 2.42x faster (super-linear: 291% per-core efficiency!)
 
-    let query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let query = StreamingQuery::Select {
         fields: vec![
             SelectField::Column("symbol".to_string()),
             SelectField::Expression {
                 expr: Expr::Function {
                     name: "COUNT".to_string(),
-                    args: vec![Expr::Literal(
-                        velostream::velostream::sql::ast::LiteralValue::Integer(1),
-                    )],
+                    args: vec![Expr::Literal(LiteralValue::Integer(1))],
                 },
                 alias: Some("trade_count".to_string()),
             },
@@ -154,7 +151,7 @@ fn test_scenario_3a_tumbling_with_group_by_should_use_sticky() {
     // Current Performance: 92% slower (Hash strategy is VERY WRONG)
     // Optimal Performance: Should be on-par with SQL Engine
 
-    let query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let query = StreamingQuery::Select {
         fields: vec![
             SelectField::Column("trader_id".to_string()),
             SelectField::Column("symbol".to_string()),
@@ -198,16 +195,14 @@ fn test_scenario_3b_emit_changes_with_group_by_should_use_hash() {
     // Expected: Hash partition by GROUP BY key
     // Performance: 4.6x faster than SQL Engine (batch handles amplification well)
 
-    let query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let query = StreamingQuery::Select {
         fields: vec![
             SelectField::Column("trader_id".to_string()),
             SelectField::Column("symbol".to_string()),
             SelectField::Expression {
                 expr: Expr::Function {
                     name: "COUNT".to_string(),
-                    args: vec![Expr::Literal(
-                        velostream::velostream::sql::ast::LiteralValue::Integer(1),
-                    )],
+                    args: vec![Expr::Literal(LiteralValue::Integer(1))],
                 },
                 alias: Some("trade_count".to_string()),
             },
@@ -244,20 +239,18 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
     // Test default behavior for non-SELECT queries
     // Expected: SmartRepartition (respect source partitions)
 
-    let query = velostream::velostream::sql::ast::StreamingQuery::CreateStream {
+    let query = StreamingQuery::CreateStream {
         name: "high_value_orders".to_string(),
         columns: None,
-        as_select: Box::new(velostream::velostream::sql::ast::StreamingQuery::Select {
+        as_select: Box::new(StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Stream("orders".to_string()),
             from_alias: None,
             joins: None,
             where_clause: Some(Expr::BinaryOp {
                 left: Box::new(Expr::Column("total_amount".to_string())),
-                op: velostream::velostream::sql::ast::BinaryOperator::GreaterThan,
-                right: Box::new(Expr::Literal(
-                    velostream::velostream::sql::ast::LiteralValue::Integer(1000),
-                )),
+                op: BinaryOperator::GreaterThan,
+                right: Box::new(Expr::Literal(LiteralValue::Integer(1000))),
             }),
             group_by: None,
             having: None,
@@ -283,7 +276,7 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
 #[test]
 fn test_routing_keys_extracted_correctly_for_multi_column_group_by() {
     // Verify that routing keys are correctly extracted from complex GROUP BY
-    let query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("trades".to_string()),
         from_alias: None,
@@ -322,7 +315,7 @@ fn test_user_explicit_choice_principle_documented() {
     // Scenario: User explicitly chooses Hash for a window query (unusual but valid)
     // Even though optimal would be Sticky, we must respect user's explicit choice
 
-    let window_query = velostream::velostream::sql::ast::StreamingQuery::Select {
+    let window_query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,

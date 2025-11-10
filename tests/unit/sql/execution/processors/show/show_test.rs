@@ -75,6 +75,7 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         window_context: None,
         join_context: JoinContext::new(),
         group_by_states: HashMap::new(),
+        group_by_states_ref: None, // Phase 6.4C: Optional Arc reference
         schemas,
         stream_handles,
         state_tables: HashMap::new(),
@@ -431,6 +432,7 @@ async fn test_show_streams_empty_context() {
         window_context: None,
         join_context: JoinContext::new(),
         group_by_states: HashMap::new(),
+        group_by_states_ref: None, // Phase 6.4C: Optional Arc reference
         schemas: HashMap::new(),
         stream_handles: HashMap::new(),
         state_tables: HashMap::new(),

@@ -34,6 +34,10 @@ pub struct ProcessorContext {
     /// FR-082 Phase 4C: Wrapped in Arc to eliminate deep cloning overhead
     /// Cloning the HashMap now just bumps Arc refcounts instead of deep-cloning GroupByState
     pub group_by_states: HashMap<String, Arc<GroupByState>>,
+    /// FR-082 Phase 6.4C: Optional Arc reference to partition-owned state
+    /// When set, processors should use this reference instead of the owned copy
+    /// This eliminates HashMap cloning by sharing the Arc across multiple processors
+    pub group_by_states_ref: Option<Arc<HashMap<String, Arc<GroupByState>>>>,
     /// Schema registry for introspection (SHOW/DESCRIBE operations)
     pub schemas: HashMap<String, Schema>,
     /// Stream handles registry
@@ -159,6 +163,7 @@ impl ProcessorContext {
             window_context: None,
             join_context: JoinContext::new(),
             group_by_states: HashMap::new(),
+            group_by_states_ref: None, // FR-082 Phase 6.4C: Initialize as None, will be set by coordinator
             schemas: HashMap::new(),
             stream_handles: HashMap::new(),
             data_sources: HashMap::new(),

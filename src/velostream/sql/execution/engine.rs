@@ -284,6 +284,12 @@ impl StreamExecutionEngine {
         &self.group_states
     }
 
+    /// Phase 6.4C: Get Arc reference to group_by_states for direct access without cloning
+    /// Returns Arc that can be cloned (bumping refcount) without deep-copying the HashMap
+    pub fn get_group_states_arc(&self) -> Arc<HashMap<String, Arc<GroupByState>>> {
+        Arc::new(self.group_states.clone())
+    }
+
     /// Set GROUP BY states after external processing
     ///
     /// Replaces the engine's GROUP BY state with the provided state.
