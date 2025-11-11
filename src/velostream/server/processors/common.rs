@@ -368,7 +368,14 @@ pub async fn process_batch_with_output(
         // Get Arc<Mutex<ProcessorContext>> from QueryExecution - NOT holding engine lock during processing
         // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
         let processor_context_arc = {
-            let engine_lock = engine.read().await;
+            // Try to get existing QueryExecution, or lazy initialize if needed
+            let mut engine_lock = engine.write().await;
+
+            // Check if QueryExecution exists, if not lazy initialize for tests calling process_batch_with_output directly
+            if engine_lock.get_query_execution(&query_id).is_none() {
+                engine_lock.init_query_execution(query.clone());
+            }
+
             if let Some(execution) = engine_lock.get_query_execution(&query_id) {
                 Arc::clone(&execution.processor_context)
             } else {
@@ -451,7 +458,14 @@ pub async fn process_batch_with_output(
         // Context persists for lifetime of query - acquired by reference, never cloned
         // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
         let processor_context_arc = {
-            let engine_lock = engine.read().await;
+            // Try to get existing QueryExecution, or lazy initialize if needed
+            let mut engine_lock = engine.write().await;
+
+            // Check if QueryExecution exists, if not lazy initialize for tests calling process_batch_with_output directly
+            if engine_lock.get_query_execution(&query_id).is_none() {
+                engine_lock.init_query_execution(query.clone());
+            }
+
             if let Some(execution) = engine_lock.get_query_execution(&query_id) {
                 Arc::clone(&execution.processor_context)
             } else {

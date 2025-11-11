@@ -375,14 +375,6 @@ impl SelectProcessor {
                 }
             }
 
-            // Check limit first
-            if let Some(limit_value) = limit {
-                if let Some(result) = LimitProcessor::check_limit(*limit_value, context)? {
-                    return Ok(result);
-                }
-                LimitProcessor::increment_count(context);
-            }
-
             // Handle JOINs first (if any)
             let mut joined_record = record.clone();
             if let Some(join_clauses) = joins {
@@ -432,6 +424,14 @@ impl SelectProcessor {
                     header_mutations: Vec::new(),
                     should_count: false,
                 });
+            }
+
+            // Check limit AFTER WHERE clause (only count records that pass filtering)
+            if let Some(limit_value) = limit {
+                if let Some(result) = LimitProcessor::check_limit(*limit_value, context)? {
+                    return Ok(result);
+                }
+                LimitProcessor::increment_count(context);
             }
 
             // Handle GROUP BY if present

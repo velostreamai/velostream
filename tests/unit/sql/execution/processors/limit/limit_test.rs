@@ -164,17 +164,23 @@ mod tests {
         engine.execute_with_record(&query, &record3).await.unwrap();
 
         // Should receive exactly 1 output (first record matching WHERE clause)
-        if let Some(output) = rx.recv().await {
-            match (
-                output.fields.get("customer_id"),
-                output.fields.get("amount"),
-            ) {
-                (Some(FieldValue::Integer(id)), Some(FieldValue::Float(amount))) => {
-                    assert_eq!(*id, 2);
-                    assert_eq!(*amount, 200.0);
+        // Add timeout to prevent test from hanging
+        let timeout_duration = tokio::time::Duration::from_millis(100);
+        match tokio::time::timeout(timeout_duration, rx.recv()).await {
+            Ok(Some(output)) => {
+                match (
+                    output.fields.get("customer_id"),
+                    output.fields.get("amount"),
+                ) {
+                    (Some(FieldValue::Integer(id)), Some(FieldValue::Float(amount))) => {
+                        assert_eq!(*id, 2);
+                        assert_eq!(*amount, 200.0);
+                    }
+                    _ => panic!("Unexpected output types"),
                 }
-                _ => panic!("Unexpected output types"),
             }
+            Ok(None) => panic!("Channel closed unexpectedly"),
+            Err(_) => panic!("Timeout waiting for output - query did not produce expected result"),
         }
 
         // Should not receive second matching record due to LIMIT

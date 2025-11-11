@@ -457,13 +457,18 @@ impl StreamExecutionEngine {
         // Lazy initialize QueryExecution if not present
         // This allows tests to call apply_query directly without explicit init_query_execution
         if !self.active_queries.contains_key(&query_id) {
+            let mut new_context = ProcessorContext::new(&query_id);
+
+            // Apply any context customization (used by tests to load reference tables, etc.)
+            if let Some(customizer) = &self.context_customizer {
+                customizer(&mut new_context);
+            }
+
             let execution = QueryExecution {
                 query: query.clone(),
                 state: ExecutionState::Running,
                 window_state: None,
-                processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(
-                    &query_id,
-                ))),
+                processor_context: Arc::new(std::sync::Mutex::new(new_context)),
             };
             self.active_queries.insert(query_id.clone(), execution);
         }
