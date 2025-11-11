@@ -273,7 +273,8 @@ impl StreamExecutionEngine {
     /// Called by job processors before processing batches to register the query and create the persistent ProcessorContext
     /// Must be called once before any batch processing starts
     pub fn init_query_execution(&mut self, query: StreamingQuery) {
-        let query_id = format!("{:?}", &query);
+        // Use the same query_id generation as process_batch_with_output() for consistency
+        let query_id = self.generate_query_id(&query);
 
         // Only create if it doesn't already exist
         if !self.active_queries.contains_key(&query_id) {
