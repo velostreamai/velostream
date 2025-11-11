@@ -16,7 +16,7 @@
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
-use async_trait::async_trait;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -48,9 +48,8 @@ impl Default for RoundRobinStrategy {
     }
 }
 
-#[async_trait]
 impl PartitioningStrategy for RoundRobinStrategy {
-    async fn route_record(
+    fn route_record(
         &self,
         _record: &StreamRecord,
         context: &RoutingContext,
@@ -142,10 +141,7 @@ mod tests {
         let mut partitions = vec![];
         for _ in 0..8 {
             let record = StreamRecord::new(HashMap::new());
-            let partition = strategy
-                .route_record(&record, &routing_context)
-                .await
-                .unwrap();
+            let partition = strategy.route_record(&record, &routing_context).unwrap();
             partitions.push(partition);
         }
 
@@ -172,10 +168,7 @@ mod tests {
         let mut partitions = vec![];
         for _ in 0..10 {
             let record = StreamRecord::new(HashMap::new());
-            let partition = strategy
-                .route_record(&record, &routing_context)
-                .await
-                .unwrap();
+            let partition = strategy.route_record(&record, &routing_context).unwrap();
             partitions.push(partition);
         }
 

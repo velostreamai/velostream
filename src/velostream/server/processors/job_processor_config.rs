@@ -9,15 +9,12 @@ use std::str::FromStr;
 /// Configuration for selecting and configuring job processors
 ///
 /// This enum allows selecting between different processing architectures
-/// at runtime via configuration, enabling A/B testing and gradual migration.
+/// at runtime via configuration.
 ///
 /// ## Usage
 ///
 /// ```rust,no_run
 /// use velostream::velostream::server::processors::JobProcessorConfig;
-///
-/// // V1 architecture (single-threaded baseline)
-/// let v1_config = JobProcessorConfig::V1;
 ///
 /// // V2 architecture (multi-partition, 8 cores)
 /// let v2_config = JobProcessorConfig::V2 {
@@ -27,16 +24,6 @@ use std::str::FromStr;
 /// ```
 #[derive(Clone, Debug)]
 pub enum JobProcessorConfig {
-    /// V1 Architecture: Single-threaded, single-partition baseline
-    ///
-    /// Characteristics:
-    /// - Single-threaded sequential processing
-    /// - Single partition (num_partitions = 1)
-    /// - Baseline throughput: ~23.7K rec/sec
-    /// - Baseline overhead: 95-98%
-    /// - Use case: Baseline comparison, low-concurrency scenarios
-    V1,
-
     /// V2 Architecture: Multi-partition, parallel execution
     ///
     /// Characteristics:
@@ -76,14 +63,6 @@ impl JobProcessorConfig {
     /// Convert this config to PartitionedJobConfig for V2
     pub fn to_partitioned_job_config(&self) -> PartitionedJobConfig {
         match self {
-            JobProcessorConfig::V1 => {
-                // V1 uses single partition via V2 coordinator
-                PartitionedJobConfig {
-                    num_partitions: Some(1),
-                    enable_core_affinity: false,
-                    ..Default::default()
-                }
-            }
             JobProcessorConfig::V2 {
                 num_partitions,
                 enable_core_affinity,
@@ -98,9 +77,6 @@ impl JobProcessorConfig {
     /// Get a description of this configuration
     pub fn description(&self) -> String {
         match self {
-            JobProcessorConfig::V1 => {
-                "V1 (Single-threaded, single partition, 1x baseline)".to_string()
-            }
             JobProcessorConfig::V2 {
                 num_partitions,
                 enable_core_affinity,
@@ -144,7 +120,6 @@ impl FromStr for JobProcessorConfig {
     /// Parse JobProcessorConfig from string representation
     ///
     /// Supported formats:
-    /// - "v1" or "V1" → JobProcessorConfig::V1
     /// - "v2" or "V2" → JobProcessorConfig::V2 with defaults
     /// - "v2:4" or "V2:4" → JobProcessorConfig::V2 with 4 partitions
     /// - "v2:affinity" → JobProcessorConfig::V2 with core affinity
@@ -156,17 +131,12 @@ impl FromStr for JobProcessorConfig {
     /// use std::str::FromStr;
     /// use velostream::velostream::server::processors::JobProcessorConfig;
     ///
-    /// let v1 = "v1".parse::<JobProcessorConfig>()?;
     /// let v2 = "v2".parse::<JobProcessorConfig>()?;
     /// let v2_8 = "v2:8".parse::<JobProcessorConfig>()?;
     /// let v2_affinity = "v2:affinity".parse::<JobProcessorConfig>()?;
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s_lower = s.trim().to_lowercase();
-
-        if s_lower == "v1" {
-            return Ok(JobProcessorConfig::V1);
-        }
 
         if s_lower.starts_with("v2") {
             let mut num_partitions = None;
@@ -196,7 +166,7 @@ impl FromStr for JobProcessorConfig {
         }
 
         Err(format!(
-            "Unknown processor config: '{}'. Supported: 'v1', 'v2', 'v2:8', 'v2:affinity'",
+            "Unknown processor config: '{}'. Supported: 'v2', 'v2:8', 'v2:affinity'",
             s
         ))
     }
@@ -205,7 +175,6 @@ impl FromStr for JobProcessorConfig {
 impl std::fmt::Display for JobProcessorConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JobProcessorConfig::V1 => write!(f, "v1"),
             JobProcessorConfig::V2 {
                 num_partitions,
                 enable_core_affinity,
@@ -226,12 +195,6 @@ impl std::fmt::Display for JobProcessorConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_v1_config() {
-        let config = JobProcessorConfig::V1;
-        assert_eq!(config.to_string(), "v1");
-    }
 
     #[test]
     fn test_v2_config_default() {
@@ -258,15 +221,6 @@ mod tests {
             enable_core_affinity: true,
         };
         assert_eq!(config.to_string(), "v2:8:affinity");
-    }
-
-    #[test]
-    fn test_parse_v1() {
-        let config: JobProcessorConfig = "v1".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V1));
-
-        let config: JobProcessorConfig = "V1".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V1));
     }
 
     #[test]
@@ -335,22 +289,12 @@ mod tests {
 
     #[test]
     fn test_description() {
-        let v1 = JobProcessorConfig::V1;
-        assert!(v1.description().contains("V1"));
-
         let v2 = JobProcessorConfig::V2 {
             num_partitions: Some(8),
             enable_core_affinity: false,
         };
         assert!(v2.description().contains("V2"));
         assert!(v2.description().contains("8"));
-    }
-
-    #[test]
-    fn test_to_partitioned_job_config_v1() {
-        let config = JobProcessorConfig::V1;
-        let pjc = config.to_partitioned_job_config();
-        assert_eq!(pjc.num_partitions, Some(1));
     }
 
     #[test]

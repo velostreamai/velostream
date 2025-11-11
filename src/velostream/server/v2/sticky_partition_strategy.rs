@@ -30,7 +30,7 @@
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use async_trait::async_trait;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -99,9 +99,8 @@ impl Default for StickyPartitionStrategy {
     }
 }
 
-#[async_trait]
 impl PartitioningStrategy for StickyPartitionStrategy {
-    async fn route_record(
+    fn route_record(
         &self,
         record: &StreamRecord,
         context: &RoutingContext,
@@ -208,7 +207,6 @@ mod tests {
 
         let partition = strategy
             .route_record(&record_obj, &routing_context)
-            .await
             .unwrap();
 
         // Should use record.partition field directly (sticky, zero overhead!)
@@ -234,7 +232,6 @@ mod tests {
 
         let partition = strategy
             .route_record(&record_obj, &routing_context)
-            .await
             .unwrap();
 
         // Should apply modulo: 10 % 8 = 2
@@ -261,7 +258,6 @@ mod tests {
             record_obj.partition = i as i32;
             let _partition = strategy
                 .route_record(&record_obj, &routing_context)
-                .await
                 .unwrap();
         }
 

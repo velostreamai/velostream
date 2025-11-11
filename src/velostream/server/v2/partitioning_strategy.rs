@@ -10,7 +10,6 @@
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
-use async_trait::async_trait;
 use std::collections::HashMap;
 
 /// Metadata about the query for strategy validation
@@ -54,12 +53,11 @@ pub struct RoutingContext {
 /// - AlwaysHashStrategy: Safe, always correct
 /// - SmartRepartitionStrategy: Optimized for aligned data (Phase 2)
 /// - RoundRobinStrategy: Maximum throughput (Phase 3)
-#[async_trait]
 pub trait PartitioningStrategy: Send + Sync {
     /// Route a record to a partition
     ///
     /// Returns partition_id in range [0, num_partitions)
-    async fn route_record(
+    fn route_record(
         &self,
         record: &StreamRecord,
         context: &RoutingContext,
@@ -115,9 +113,8 @@ impl Default for AlwaysHashStrategy {
     }
 }
 
-#[async_trait]
 impl PartitioningStrategy for AlwaysHashStrategy {
-    async fn route_record(
+    fn route_record(
         &self,
         record: &StreamRecord,
         context: &RoutingContext,

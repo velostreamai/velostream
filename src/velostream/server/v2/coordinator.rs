@@ -526,10 +526,7 @@ impl PartitionedJobCoordinator {
             };
 
             // Route record using strategy
-            let partition_id = self
-                .strategy
-                .route_record(&record, &routing_context)
-                .await?;
+            let partition_id = self.strategy.route_record(&record, &routing_context)?;
             let sender = &partition_senders[partition_id];
 
             // Send to partition (non-blocking, async tokio mpsc channel)
@@ -833,10 +830,7 @@ impl PartitionedJobCoordinator {
             };
 
             // Route record using strategy
-            let partition_id = self
-                .strategy
-                .route_record(&record, &routing_context)
-                .await?;
+            let partition_id = self.strategy.route_record(&record, &routing_context)?;
             let sender = &partition_senders[partition_id];
 
             // Calculate throttle delay based on current backpressure
@@ -1097,7 +1091,7 @@ impl PartitionedJobCoordinator {
                         };
 
                         // Use strategy to determine target partition
-                        match strategy.route_record(&record, &routing_context).await {
+                        match strategy.route_record(&record, &routing_context) {
                             Ok(target_partition) => {
                                 // Only keep records for this partition
                                 if target_partition == partition_id {
@@ -1123,8 +1117,7 @@ impl PartitionedJobCoordinator {
                         &partition_records,
                         &mut engine,
                         &query,
-                    )
-                    .await?;
+                    )?;
 
                     // Write results directly to writer (no channels!)
                     for result in results {
@@ -1176,7 +1169,7 @@ impl PartitionedJobCoordinator {
     /// - Direct owned access to engine state (no locks needed)
     /// - No mandatory clones of group/window states
     /// - Significant performance improvement: eliminates RwLock contention
-    async fn execute_batch_for_partition(
+    fn execute_batch_for_partition(
         partition_id: usize,
         records: &[StreamRecord],
         engine: &mut StreamExecutionEngine,
@@ -1222,7 +1215,7 @@ impl PartitionedJobCoordinator {
     }
 
     /// Route batch to partitions based on GROUP BY keys using configured strategy
-    async fn route_batch(
+    fn route_batch(
         &self,
         batch: &[StreamRecord],
         group_by_columns: &[String],
@@ -1239,7 +1232,7 @@ impl PartitionedJobCoordinator {
                 num_cpu_slots: self.num_cpu_slots,
             };
 
-            match self.strategy.route_record(record, &routing_context).await {
+            match self.strategy.route_record(record, &routing_context) {
                 Ok(partition_id) => {
                     partitioned[partition_id].push(record.clone());
                 }
@@ -1417,8 +1410,10 @@ impl PartitionedJobCoordinator {
                     let mut engine = StreamExecutionEngine::new(output_tx);
                     engine.init_query_execution((*query).clone());
 
-                    // Create processor context for this partition
-                    let context = ProcessorContext::new(&format!("partition_{}", partition_id));
+                    let query_execution = engine
+                        .get_query_execution(&format!("partition_{}", partition_id))
+                        .unwrap();
+                    let context = query_execution.processor_context;
 
                     // Create PartitionReceiver with owned state
                     let mut receiver = PartitionReceiver::new(
@@ -1504,10 +1499,7 @@ impl PartitionedJobCoordinator {
             };
 
             // Route record to partition
-            let partition_id = self
-                .strategy
-                .route_record(&record, &routing_context)
-                .await?;
+            let partition_id = self.strategy.route_record(&record, &routing_context)?;
 
             partitions[partition_id].push(record);
         }

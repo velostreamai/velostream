@@ -21,7 +21,6 @@
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
-use async_trait::async_trait;
 
 use super::{PartitioningStrategy, QueryMetadata, RoutingContext};
 
@@ -56,9 +55,8 @@ impl Default for FanInStrategy {
     }
 }
 
-#[async_trait]
 impl PartitioningStrategy for FanInStrategy {
-    async fn route_record(
+    fn route_record(
         &self,
         _record: &StreamRecord,
         context: &RoutingContext,
@@ -124,7 +122,7 @@ mod tests {
             num_cpu_slots: 4,
         };
 
-        let partition = strategy.route_record(&record, &context).await;
+        let partition = strategy.route_record(&record, &context);
         assert!(partition.is_ok());
         assert_eq!(partition.unwrap(), 0);
     }
@@ -150,7 +148,7 @@ mod tests {
             );
             let record = StreamRecord::new(fields);
 
-            let partition = strategy.route_record(&record, &context).await;
+            let partition = strategy.route_record(&record, &context);
             assert_eq!(partition.unwrap(), 0);
         }
     }
@@ -174,7 +172,7 @@ mod tests {
         );
         let record = StreamRecord::new(fields);
 
-        let partition = strategy.route_record(&record, &context).await;
+        let partition = strategy.route_record(&record, &context);
         assert_eq!(partition.unwrap(), 2);
     }
 
@@ -197,7 +195,7 @@ mod tests {
         );
         let record = StreamRecord::new(fields);
 
-        let partition = strategy.route_record(&record, &context).await;
+        let partition = strategy.route_record(&record, &context);
         assert!(partition.is_err());
     }
 

@@ -253,19 +253,13 @@ impl StreamExecutionEngine {
 
     /// FR-082 Phase 6.5: Get immutable reference to a QueryExecution by ID
     /// Used by batch processor to load state from QueryExecution's ProcessorContext
-    pub fn get_query_execution(
-        &self,
-        query_id: &str,
-    ) -> Option<&crate::velostream::sql::execution::internal::QueryExecution> {
+    pub fn get_query_execution(&self, query_id: &str) -> Option<&QueryExecution> {
         self.active_queries.get(query_id)
     }
 
     /// FR-082 Phase 6.5: Get mutable reference to a QueryExecution by ID
     /// Used by batch processor to save state back to QueryExecution's ProcessorContext
-    pub fn get_query_execution_mut(
-        &mut self,
-        query_id: &str,
-    ) -> Option<&mut crate::velostream::sql::execution::internal::QueryExecution> {
+    pub fn get_query_execution_mut(&mut self, query_id: &str) -> Option<&mut QueryExecution> {
         self.active_queries.get_mut(query_id)
     }
 
@@ -278,7 +272,7 @@ impl StreamExecutionEngine {
 
         // Only create if it doesn't already exist
         if !self.active_queries.contains_key(&query_id) {
-            let execution = crate::velostream::sql::execution::internal::QueryExecution::new(query);
+            let execution = QueryExecution::new(query);
             self.active_queries.insert(query_id, execution);
         }
     }

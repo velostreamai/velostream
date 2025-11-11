@@ -29,7 +29,7 @@
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use async_trait::async_trait;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -95,9 +95,8 @@ impl Default for SmartRepartitionStrategy {
     }
 }
 
-#[async_trait]
 impl PartitioningStrategy for SmartRepartitionStrategy {
-    async fn route_record(
+    fn route_record(
         &self,
         record: &StreamRecord,
         context: &RoutingContext,
@@ -242,7 +241,6 @@ mod tests {
         let record_obj = StreamRecord::new(record);
         let partition = strategy
             .route_record(&record_obj, &routing_context)
-            .await
             .unwrap();
 
         // With alignment, should use __partition__ field directly (0% overhead!)
@@ -272,7 +270,6 @@ mod tests {
         let record_obj = StreamRecord::new(record);
         let partition = strategy
             .route_record(&record_obj, &routing_context)
-            .await
             .unwrap();
 
         // Without alignment, should hash the GROUP BY columns
