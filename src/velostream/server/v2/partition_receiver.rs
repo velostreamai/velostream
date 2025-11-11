@@ -35,19 +35,25 @@
 //!
 //! ```rust,no_run
 //! use velostream::velostream::server::v2::PartitionReceiver;
-//! use velostream::velostream::sql::StreamExecutionEngine;
+//! use std::sync::Arc;
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create receiver with owned engine
-//! let receiver = PartitionReceiver::new(
+//! // (execution_engine, query, context, rx, and metrics created elsewhere)
+//! let mut receiver = PartitionReceiver::new(
 //!     0,  // partition_id
-//!     engine,
-//!     query,
+//!     execution_engine,
+//!     Arc::new(query),
 //!     context,
 //!     rx,  // mpsc receiver for batch channel
+//!     Arc::new(metrics),
 //! );
 //!
-//! // Run synchronously (no async overhead)
-//! receiver.run_blocking()?;
+//! // Run the partition receiver's main event loop
+//! // This processes all batches synchronously until EOF
+//! receiver.run().await?;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::velostream::server::v2::metrics::PartitionMetrics;
