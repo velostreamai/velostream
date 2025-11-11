@@ -234,6 +234,13 @@ impl SimpleJobProcessor {
             );
         }
 
+        // FR-082 Phase 6.5: Initialize QueryExecution in the engine
+        // This creates the persistent ProcessorContext that will hold state across all batches
+        {
+            let mut engine_lock = engine.write().await;
+            engine_lock.init_query_execution(query.clone());
+        }
+
         // Create enhanced context with multiple sources and sinks
         let mut context =
             crate::velostream::sql::execution::processors::ProcessorContext::new_with_sources(
