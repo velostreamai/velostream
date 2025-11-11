@@ -12,6 +12,7 @@ pub mod error_tracker;
 pub mod label_extraction;
 pub mod metrics;
 pub mod profiling;
+pub mod span_collector;
 pub mod telemetry;
 pub mod trace_propagation;
 

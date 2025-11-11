@@ -1,5 +1,6 @@
 // === PHASE 4: OPENTELEMETRY DISTRIBUTED TRACING ===
 
+use crate::velostream::observability::span_collector::CollectingSpanProcessor;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::config::TracingConfig;
 use opentelemetry::{
@@ -8,9 +9,12 @@ use opentelemetry::{
 };
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{
-    Resource, runtime,
-    trace::{RandomIdGenerator, Sampler, TracerProvider},
+    Resource,
+    export::trace::SpanData,
+    runtime,
+    trace::{RandomIdGenerator, Sampler, SpanProcessor, TracerProvider},
 };
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Base span wrapper with common timing and status functionality
@@ -96,13 +100,15 @@ impl Drop for BaseSpan {
 }
 
 /// OpenTelemetry telemetry provider for distributed tracing
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct TelemetryProvider {
     config: TracingConfig,
     active: bool,
     deployment_node_id: Option<String>,
     deployment_node_name: Option<String>,
     deployment_region: Option<String>,
+    /// Span collector for testing (when no OTLP endpoint is configured)
+    span_collector: Option<CollectingSpanProcessor>,
 }
 
 impl TelemetryProvider {
@@ -142,14 +148,20 @@ impl TelemetryProvider {
         ]);
 
         // Create tracer provider with batch exporter (only if endpoint is specified)
-        // Use config sampling ratio instead of hardcoded 100%
-        let sampler = if config.sampling_ratio >= 0.99 {
+        // Use AlwaysOn sampler for test mode to collect all spans
+        // Use config sampling ratio for production mode
+        let sampler = if otlp_endpoint.is_none() {
+            // Test mode: collect all spans
+            Sampler::AlwaysOn
+        } else if config.sampling_ratio >= 0.99 {
             Sampler::ParentBased(Box::new(Sampler::AlwaysOn))
         } else if config.sampling_ratio <= 0.01 {
             Sampler::ParentBased(Box::new(Sampler::AlwaysOff))
         } else {
             Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.sampling_ratio)))
         };
+
+        let mut span_collector_ref: Option<CollectingSpanProcessor> = None;
 
         let provider = if let Some(endpoint) = otlp_endpoint {
             // Create OTLP exporter and tracer provider
@@ -159,10 +171,7 @@ impl TelemetryProvider {
                 .build_span_exporter()
             {
                 Ok(exporter) => {
-                    log::info!(
-                        "✅ OTLP exporter created successfully for {}",
-                        endpoint
-                    );
+                    log::info!("✅ OTLP exporter created successfully for {}", endpoint);
                     TracerProvider::builder()
                         .with_batch_exporter(exporter, runtime::Tokio)
                         .with_config(
@@ -181,9 +190,14 @@ impl TelemetryProvider {
                 }
             }
         } else {
-            // Create tracer provider without OTLP exporter (no-op mode for testing)
-            log::info!("ℹ️  Using no-op mode (no OTLP endpoint - spans not exported)");
+            // Create span collector for in-memory span collection (test mode)
+            let collector = CollectingSpanProcessor::new();
+            span_collector_ref = Some(collector.clone());
+
+            // Create tracer provider with span collector (no OTLP exporter for testing)
+            log::info!("ℹ️  Using test mode with in-memory span collection (no OTLP endpoint)");
             TracerProvider::builder()
+                .with_span_processor(collector)
                 .with_config(
                     opentelemetry_sdk::trace::config()
                         .with_sampler(sampler)
@@ -212,6 +226,7 @@ impl TelemetryProvider {
             deployment_node_id: None,
             deployment_node_name: None,
             deployment_region: None,
+            span_collector: span_collector_ref,
         })
     }
 
@@ -770,6 +785,27 @@ impl TelemetryProvider {
         log::info!("✅ Distributed tracing stopped - all spans flushed to Tempo");
 
         Ok(())
+    }
+
+    /// Get all collected spans (for testing with in-memory span collection)
+    ///
+    /// This method is only available when using no-op mode (no OTLP endpoint).
+    /// Returns empty vec if using OTLP exporter mode or if no spans were collected.
+    pub fn collected_spans(&self) -> Vec<SpanData> {
+        if let Some(collector) = &self.span_collector {
+            collector.spans()
+        } else {
+            vec![]
+        }
+    }
+
+    /// Get count of collected spans
+    pub fn span_count(&self) -> usize {
+        if let Some(collector) = &self.span_collector {
+            collector.span_count()
+        } else {
+            0
+        }
     }
 }
 
