@@ -31,30 +31,23 @@
 //! - Eliminates architectural indirection: ~5-10% overhead removed
 //! - **Total**: 15-25% improvement (target 2-3x with all optimizations)
 //!
-//! ## Usage Example
+//! ## Usage Pattern
 //!
-//! ```rust,no_run
-//! use velostream::velostream::server::v2::PartitionReceiver;
-//! use std::sync::Arc;
+//! To use PartitionReceiver:
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create receiver with owned engine
-//! // (execution_engine, query, context, rx, and metrics created elsewhere)
-//! let mut receiver = PartitionReceiver::new(
-//!     0,  // partition_id
-//!     execution_engine,
-//!     Arc::new(query),
-//!     context,
-//!     rx,  // mpsc receiver for batch channel
-//!     Arc::new(metrics),
-//! );
+//! 1. Create a new instance with `new()`, providing:
+//!    - A partition ID
+//!    - A StreamExecutionEngine (owned directly, not wrapped in Arc/Mutex)
+//!    - A StreamingQuery
+//!    - A ProcessorContext for state management
+//!    - An mpsc receiver for batch channels
+//!    - PartitionMetrics for tracking
 //!
-//! // Run the partition receiver's main event loop
-//! // This processes all batches synchronously until EOF
-//! receiver.run().await?;
-//! # Ok(())
-//! # }
-//! ```
+//! 2. Call `run().await` to start the event loop
+//!    - This processes batches synchronously as they arrive
+//!    - Exits when the channel closes (EOF)
+//!
+//! 3. Query metrics via `metrics()`, `throughput_per_sec()`, etc. at any time
 
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
