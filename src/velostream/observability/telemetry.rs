@@ -108,41 +108,26 @@ pub struct TelemetryProvider {
 impl TelemetryProvider {
     /// Create a new telemetry provider with the given configuration
     pub async fn new(config: TracingConfig) -> Result<Self, SqlError> {
-        let otlp_endpoint = config
-            .otlp_endpoint
-            .clone()
-            .unwrap_or_else(|| "http://localhost:4317".to_string());
+        // If no OTLP endpoint is specified, use a no-op mode (useful for testing)
+        let otlp_endpoint = config.otlp_endpoint.clone();
 
         log::info!(
             "🔍 Initializing OpenTelemetry distributed tracing for service '{}'",
             config.service_name
         );
-        log::info!(
-            "📊 Tracing configuration: endpoint={}, sampling_ratio={}",
-            otlp_endpoint,
-            config.sampling_ratio
-        );
 
-        // Initialize OTLP exporter
-        let exporter = match opentelemetry_otlp::new_exporter()
-            .tonic()
-            .with_endpoint(&otlp_endpoint)
-            .build_span_exporter()
-        {
-            Ok(exporter) => {
-                log::info!(
-                    "✅ OTLP exporter created successfully for {}",
-                    otlp_endpoint
-                );
-                exporter
-            }
-            Err(e) => {
-                log::error!("❌ Failed to create OTLP exporter: {}", e);
-                return Err(SqlError::ConfigurationError {
-                    message: format!("Failed to create OTLP exporter: {}", e),
-                });
-            }
-        };
+        if let Some(ref endpoint) = otlp_endpoint {
+            log::info!(
+                "📊 Tracing configuration: endpoint={}, sampling_ratio={}",
+                endpoint,
+                config.sampling_ratio
+            );
+        } else {
+            log::info!(
+                "📊 Tracing configuration: no-op mode (no OTLP endpoint), sampling_ratio={}",
+                config.sampling_ratio
+            );
+        }
 
         // Create resource with service information
         let resource = Resource::new(vec![
@@ -156,7 +141,7 @@ impl TelemetryProvider {
             ),
         ]);
 
-        // Create tracer provider with batch exporter
+        // Create tracer provider with batch exporter (only if endpoint is specified)
         // Use config sampling ratio instead of hardcoded 100%
         let sampler = if config.sampling_ratio >= 0.99 {
             Sampler::ParentBased(Box::new(Sampler::AlwaysOn))
@@ -166,20 +151,56 @@ impl TelemetryProvider {
             Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(config.sampling_ratio)))
         };
 
-        let provider = TracerProvider::builder()
-            .with_batch_exporter(exporter, runtime::Tokio)
-            .with_config(
-                opentelemetry_sdk::trace::config()
-                    .with_sampler(sampler)
-                    .with_id_generator(RandomIdGenerator::default())
-                    .with_resource(resource),
-            )
-            .build();
+        let provider = if let Some(endpoint) = otlp_endpoint {
+            // Create OTLP exporter and tracer provider
+            match opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(&endpoint)
+                .build_span_exporter()
+            {
+                Ok(exporter) => {
+                    log::info!(
+                        "✅ OTLP exporter created successfully for {}",
+                        endpoint
+                    );
+                    TracerProvider::builder()
+                        .with_batch_exporter(exporter, runtime::Tokio)
+                        .with_config(
+                            opentelemetry_sdk::trace::config()
+                                .with_sampler(sampler)
+                                .with_id_generator(RandomIdGenerator::default())
+                                .with_resource(resource),
+                        )
+                        .build()
+                }
+                Err(e) => {
+                    log::error!("❌ Failed to create OTLP exporter: {}", e);
+                    return Err(SqlError::ConfigurationError {
+                        message: format!("Failed to create OTLP exporter: {}", e),
+                    });
+                }
+            }
+        } else {
+            // Create tracer provider without OTLP exporter (no-op mode for testing)
+            log::info!("ℹ️  Using no-op mode (no OTLP endpoint - spans not exported)");
+            TracerProvider::builder()
+                .with_config(
+                    opentelemetry_sdk::trace::config()
+                        .with_sampler(sampler)
+                        .with_id_generator(RandomIdGenerator::default())
+                        .with_resource(resource),
+                )
+                .build()
+        };
 
         // Set as global tracer provider
         global::set_tracer_provider(provider);
 
-        log::info!("✅ OpenTelemetry tracer initialized - spans will be exported to Tempo");
+        if config.otlp_endpoint.is_some() {
+            log::info!("✅ OpenTelemetry tracer initialized - spans will be exported to Tempo");
+        } else {
+            log::info!("✅ OpenTelemetry tracer initialized in no-op mode (no spans exported)");
+        }
         log::info!(
             "🔍 Trace sampling: {:.1}% (using config sampling_ratio)",
             config.sampling_ratio * 100.0
