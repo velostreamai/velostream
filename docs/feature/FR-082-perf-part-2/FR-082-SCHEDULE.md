@@ -292,55 +292,114 @@ AFTER:  engine.get_group_states_arc() → context.group_by_states_ref
 
 ## Phase 6.7: STP Determinism Layer (NEXT)
 
-**Status**: 📋 PLANNED
-**Effort**: **M** (Medium - 3-5 days)
-**Expected Improvement**: Deterministic record processing, proper STP semantics
+**Status**: 📋 PLANNED - Ready for Implementation
+**Effort**: **M** (Medium - 12-15 hours over 2-3 days)
+**Expected Improvement**: **15-30% throughput improvement** + deterministic record processing
 **Blockers**: None - Phase 6.6 complete
+**Documentation**: See **FR-082-PHASE6-7-STP-DETERMINISM-IMPLEMENTATION.md** (comprehensive 18+ page guide)
 
-### Problem Statement
+### Quick Summary
 
-Current implementation uses async/await for record processing:
-- `execute_with_record()` is async
-- Tests need `timeout()` to wait for channel messages
-- Lost determinism: processing loop can't immediately decide commit/fail/rollback
-- Output availability is not guaranteed after `.await` completes
+**Primary Goal**: 15-30% throughput improvement (693K → 800K-950K+ rec/sec for Scenario 0)
+**Secondary Goal**: Deterministic STP semantics with immediate output availability
 
-### Solution Design
+**Solution**: Convert async/await to synchronous execution
+- Eliminate 12-18% overhead from async state machines, context switching, and channel buffering
+- Return `Vec<StreamRecord>` directly instead of buffering in MPSC channel
+- Enable deterministic commit/fail/rollback decisions per record
+- Simplify code by removing async complexity from hot path
 
-Make record processing **synchronous** with guaranteed output availability:
+### Performance Impact Breakdown
 
-**Goal**: Processing loop can immediately decide:
-- Commit: all records successfully processed
-- Fail: error occurred, rollback changes
-- Rollback: other partitions failed, abort this batch
+```
+Async Overhead Analysis:
+├── State Machine Generation: 2-3%
+├── Context Switching: 5-7%
+├── Channel Buffering: 3-5%
+└── Waker/Polling: 2-3%
+    TOTAL: 12-18% removed
 
-**Implementation Strategy**:
-1. Make `execute_with_record()` synchronous (blocking API)
-2. Direct output channel send (not buffered)
-3. Return `Option<StreamRecord>` directly instead of through channel
-4. Ensure ProcessorContext available immediately
+Performance Targets (Primary):
+├── Scenario 0: 693K → 800K-950K+ rec/sec (+15-37%)
+├── Scenario 2: 571K → 720K-850K+ rec/sec (+26-49%)
+├── Latency p50: 14.2μs → 9-10μs (-30-40%)
+└── Latency p99: Improvements across all workloads
+```
 
-**Key Changes**:
-- Convert `execute_with_record()` from async to sync
-- Make output_sender.send() a blocking operation if needed
-- Update all callers to sync pattern
-- Ensure test determinism without timeouts
+### Implementation Roadmap
 
-### Benefits
+**Phase 6.7a**: Core Signature Changes (0.5-1 hour)
+- Update `execute_with_record()` - remove async, return `Vec<StreamRecord>`
 
-1. **True STP semantics**: Single-threaded deterministic processing
-2. **Simpler code**: No .await, no channel races
-3. **Better testing**: No timeouts, tests run faster
-4. **Correct semantics**: Loop can immediately know result of each record
-5. **Performance**: Reduced context switching overhead from async
+**Phase 6.7b**: Source File Updates (2-3 hours)
+- Update 6 source files (partition_receiver, partition_manager, common processors, etc.)
 
-### Test Plan
+**Phase 6.7c**: Test File Updates (3-4 hours)
+- Update 52 test files - remove async/await patterns
 
-1. Remove all timeout-based test patterns
-2. Verify tests run without delays
-3. Ensure deterministic output ordering
-4. Validate commit/rollback semantics work correctly
-5. Benchmark to ensure no performance regression
+**Phase 6.7d**: Performance Validation (1-2 hours)
+- Run benchmarks, verify targets met, update baseline comparisons
+
+**Total Time**: 12-15 hours over 2-3 days
+
+### Key Architectural Changes
+
+**Before (Async)**:
+```rust
+pub async fn execute_with_record(
+    &mut self,
+    query: &StreamingQuery,
+    record: &StreamRecord,
+) -> Result<(), SqlError> {
+    self.tx.send(output)?;  // Buffered, non-deterministic
+    Ok(())
+}
+```
+
+**After (Sync)**:
+```rust
+pub fn execute_with_record(
+    &mut self,
+    query: &StreamingQuery,
+    record: &StreamRecord,
+) -> Result<Vec<StreamRecord>, SqlError> {
+    return Ok(outputs);  // Immediate, deterministic
+}
+```
+
+### Determinism Benefits
+
+✅ **Single-Threaded Processing**: Record processed completely in one call
+✅ **Immediate Output**: Results available synchronously, not buffered
+✅ **Commit/Fail/Rollback**: Loop can immediately decide what to do
+✅ **No Timeouts**: Tests don't need timeout patterns
+✅ **Simplified Code**: No async/await complexity in hot path
+
+### Success Criteria
+
+**Performance (PRIMARY)**:
+- ✅ Scenario 0: ≥800K records/sec (vs 693K baseline)
+- ✅ Scenario 2: ≥720K records/sec (vs 571K baseline)
+- ✅ Latency: ≥30% improvement (p50 and p99)
+
+**Correctness (SECONDARY)**:
+- ✅ All 528+ unit tests pass
+- ✅ All integration tests pass
+- ✅ Zero async patterns in hot path
+- ✅ Deterministic output validation
+
+### For Complete Implementation Details
+
+See **FR-082-PHASE6-7-STP-DETERMINISM-IMPLEMENTATION.md** for:
+- Detailed performance analysis (Part 1)
+- Technical architecture comparison (Part 2)
+- 4-phase implementation roadmap (Part 3)
+- Complete file inventory with line numbers (Part 4)
+- Risk assessment and mitigation (Part 5)
+- Testing strategy and validation (Part 6)
+- Implementation checklist (Part 7)
+- Success metrics (Part 8)
+- Appendix with deep dives on async overhead
 
 ---
 
