@@ -340,14 +340,10 @@ pub async fn process_batch_with_output(
             job_name, batch_size
         );
 
-        // Lock 1: Get state and output channel ONCE at batch start
-        let (mut temp_receiver, group_states_arc, window_states_arc) = {
+        // Lock 1: Get output channel ONCE at batch start
+        let mut temp_receiver = {
             let mut engine_lock = engine.write().await;
-            (
-                engine_lock.take_output_receiver(),
-                engine_lock.get_group_states_arc(), // Phase 6.4C: Get Arc reference instead of cloning
-                engine_lock.get_window_states_arc(), // Phase 6.5: Get Arc reference instead of cloning
-            )
+            engine_lock.take_output_receiver()
         };
 
         // Get output sender (cheap clone operation, minimal lock time)
@@ -358,8 +354,8 @@ pub async fn process_batch_with_output(
 
         // Create context for batch processing (reused across all records)
         let mut context = ProcessorContext::new(&query_id);
-        context.group_by_states_ref = Some(group_states_arc); // Phase 6.4C: Use reference instead of copy
-        context.window_v2_states_ref = Some(window_states_arc); // Phase 6.5: Use reference instead of copy
+        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
+        // No need to copy engine-level states
         // Set streaming configuration from engine
         let engine_lock = engine.read().await;
         context.streaming_config = Some(engine_lock.streaming_config().clone());
@@ -399,7 +395,7 @@ pub async fn process_batch_with_output(
         }
 
         // Collect any emitted results from receiver if still available
-        if let Some(ref mut rx) = temp_receiver {
+        if let Some(rx) = &mut temp_receiver {
             while let Ok(emitted_record) = rx.try_recv() {
                 output_records.push(Arc::new(emitted_record));
             }
@@ -417,15 +413,6 @@ pub async fn process_batch_with_output(
         }
     } else {
         // Standard Path: Batch optimization for non-EMIT queries (high performance)
-        // Lock 1: Get state once at batch start (minimal lock time)
-        let (group_states_arc, window_states_arc) = {
-            let engine_lock = engine.read().await;
-            (
-                engine_lock.get_group_states_arc(), // Phase 6.4C: Get Arc reference instead of clone
-                engine_lock.get_window_states_arc(), // Phase 6.5: Get Arc reference instead of clone
-            )
-        };
-
         // Track null output records for debugging
         let mut null_output_count = 0;
         let mut null_output_example_idx = None;
@@ -434,8 +421,7 @@ pub async fn process_batch_with_output(
         // Previous implementation cloned state per-record (1M clones for 1M records)
         // New implementation reuses context - state mutates in place
         let mut context = ProcessorContext::new(&query_id);
-        context.group_by_states_ref = Some(group_states_arc); // Phase 6.4C: Use Arc reference
-        context.window_v2_states_ref = Some(window_states_arc); // Phase 6.5: Use Arc reference
+        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
         // Set streaming configuration from engine
         let engine_lock = engine.read().await;
         context.streaming_config = Some(engine_lock.streaming_config().clone());

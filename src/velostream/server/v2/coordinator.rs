@@ -1169,21 +1169,11 @@ impl PartitionedJobCoordinator {
 
         let mut output_records = Vec::new();
 
-        // PHASE 6.4C/6.5: Direct state reference without cloning
-        // Previously: get_group_states().clone() and get_window_states() on every batch
-        // Now: Get Arc references from engine and use directly in context
-        // This eliminates both HashMap and Vec clone overhead (~20µs+ per batch)
-        let window_states_arc = engine.get_window_states_arc();
-
         // Create processing context for this batch
         let query_id = format!("partition_{:?}", partition_id);
         let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C: Use engine's group_by_states directly without cloning
-        // Store a reference to the Arc to avoid copying the HashMap
-        context.group_by_states_ref = Some(engine.get_group_states_arc());
-        // Phase 6.5: Use engine's window_v2_states directly without cloning
-        // Store a reference to the Arc to avoid copying the Vec
-        context.window_v2_states_ref = Some(window_states_arc);
+        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
+        // No need to pass state references from engine
 
         // Process each record WITHOUT holding the engine lock
         for record in records {
@@ -1293,20 +1283,11 @@ impl PartitionedJobCoordinator {
 
         let mut output_records = Vec::new();
 
-        // Get state from engine
-        let (group_states_arc, window_states_arc) = {
-            let engine_lock = engine.lock().await;
-            (
-                engine_lock.get_group_states_arc(), // Phase 6.4C: Get Arc reference instead of clone
-                engine_lock.get_window_states_arc(), // Phase 6.5: Get Arc reference instead of clone
-            )
-        };
-
         // Create processing context for this batch
         let query_id = format!("{:?}", query);
         let mut context = ProcessorContext::new(&query_id);
-        context.group_by_states_ref = Some(group_states_arc); // Phase 6.4C: Use Arc reference
-        context.window_v2_states_ref = Some(window_states_arc); // Phase 6.5: Use Arc reference
+        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
+        // No need to get state from engine
 
         // Process each record in the batch without holding engine lock
         for record in batch {
@@ -1322,13 +1303,8 @@ impl PartitionedJobCoordinator {
             }
         }
 
-        // Return updated state to engine
-        {
-            let mut engine_lock = engine.lock().await;
-            // Phase 6.4C/6.5: No state sync-back needed!
-            // Both group_by_states and window_v2_states were accessed by Arc reference
-            // Modifications are already persisted in the Arc, no sync-back required
-        }
+        // State sync-back no longer needed!
+        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
 
         Ok(output_records)
     }

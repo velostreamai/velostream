@@ -30,9 +30,6 @@ pub mod phase_1b_watermarks_test;
 // Phase 2: Error & Resource Enhancements tests
 pub mod phase_2_error_resource_test;
 
-// State accessor tests for external batch processing
-pub mod state_accessors_test;
-
 // Common test utilities for all SQL execution tests
 pub mod common_test_utils;
 
