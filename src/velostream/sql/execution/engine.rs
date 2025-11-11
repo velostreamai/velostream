@@ -264,6 +264,29 @@ impl StreamExecutionEngine {
         &self.config
     }
 
+    /// FR-082 Phase 6.4C/6.5: Get reference to GROUP BY state for loading into ProcessorContext
+    /// Returns a clone of the group_by_states HashMap for context initialization
+    pub fn get_group_by_states(&self) -> HashMap<String, Arc<GroupByState>> {
+        self.group_states.clone()
+    }
+
+    /// FR-082 Phase 6.5: Get reference to window V2 state for loading into ProcessorContext
+    /// Returns a clone of the window_v2_states for context initialization
+    pub fn get_window_v2_states(&self) -> Vec<(String, WindowState)> {
+        self.window_v2_states
+            .iter()
+            .filter_map(|(key, value)| {
+                // Try to downcast the boxed Any value to WindowState
+                // This is a temporary shim until state architecture is simplified
+                if let Some(window_state) = value.downcast_ref::<WindowState>() {
+                    Some((key.clone(), window_state.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// FR-082 Phase 5: Set output receiver for EMIT CHANGES support
     ///
     /// This allows the engine to own the output receiver, enabling batch processing
@@ -1194,9 +1217,11 @@ impl StreamExecutionEngine {
         _fields: &[SelectField],
         _having: &Option<Expr>,
     ) -> Result<(), SqlError> {
-        // This method is no longer functional since group_states was removed.
-        // GROUP BY state is now managed at the partition level in PartitionStateManager.
-        // This stub is kept to maintain API compatibility if needed.
+        // This method is a stub that is no longer called in the current implementation.
+        // GROUP BY states are still maintained in self.group_states (see lines 174, 454, 459)
+        // and are used by execute_with_record() for core GROUP BY functionality.
+        // State management has been optimized in Phase 6.4C/6.5 to use partition-level management
+        // via PartitionStateManager for batch processing. This stub is kept for API compatibility.
         Ok(())
     }
 

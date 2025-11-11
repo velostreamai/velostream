@@ -1172,8 +1172,10 @@ impl PartitionedJobCoordinator {
         // Create processing context for this batch
         let query_id = format!("partition_{:?}", partition_id);
         let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
-        // No need to pass state references from engine
+        // Phase 6.4C/6.5: Load state from engine into context
+        // State is owned in ProcessorContext (single source of truth - no locks)
+        context.group_by_states = engine.get_group_by_states();
+        context.persistent_window_states = engine.get_window_v2_states();
 
         // Process each record WITHOUT holding the engine lock
         for record in records {

@@ -354,11 +354,14 @@ pub async fn process_batch_with_output(
 
         // Create context for batch processing (reused across all records)
         let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
-        // No need to copy engine-level states
-        // Set streaming configuration from engine
+        // Phase 6.4C/6.5: Load state from engine into context
+        // State is owned in ProcessorContext (single source of truth - no locks)
+        // Engine provides the state via accessor methods
         let engine_lock = engine.read().await;
         context.streaming_config = Some(engine_lock.streaming_config().clone());
+        // CRITICAL FIX: Load state from engine into context to fix 10x regression
+        context.group_by_states = engine_lock.get_group_by_states();
+        context.persistent_window_states = engine_lock.get_window_v2_states();
         drop(engine_lock);
 
         // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
@@ -421,10 +424,13 @@ pub async fn process_batch_with_output(
         // Previous implementation cloned state per-record (1M clones for 1M records)
         // New implementation reuses context - state mutates in place
         let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
-        // Set streaming configuration from engine
+        // Phase 6.4C/6.5: Load state from engine into context
+        // State is owned in ProcessorContext (single source of truth - no locks)
         let engine_lock = engine.read().await;
         context.streaming_config = Some(engine_lock.streaming_config().clone());
+        // CRITICAL FIX: Load state from engine into context to fix 10x regression
+        context.group_by_states = engine_lock.get_group_by_states();
+        context.persistent_window_states = engine_lock.get_window_v2_states();
         drop(engine_lock);
 
         // Process batch WITHOUT holding engine lock (high performance)
