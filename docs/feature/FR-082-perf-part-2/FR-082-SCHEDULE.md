@@ -2,8 +2,8 @@
 
 **Project**: Per-Partition Streaming Engine Architecture
 **Last Updated**: November 11, 2025
-**Status**: ✅ **PHASE 6.5 COMPLETE** - Window state optimization and comprehensive verification
-**Achievement**: **Full state optimization with verification** - 3,358 unit tests passing, all dead code cleaned up
+**Status**: ✅ **PHASE 6.5B COMPLETE** - Scoped borrow state persistence optimization
+**Achievement**: **Code simplification with 30K allocation elimination** - All 528 unit tests passing, clean foundation for Phase 6.6
 
 ---
 
@@ -17,8 +17,10 @@
 | **Phase 6.4** | Per-Partition Engine Migration | ✅ COMPLETE | **S** | ~2x improvement | FR-082-PHASE6-4-EXECUTIVE-SUMMARY.md |
 | **Phase 6.4C** | Eliminate State Duplication | ✅ COMPLETE | **M** | +5-10% improvement | FR-082-PHASE6-4C-IMPLEMENTATION-GUIDE.md |
 | **Phase 6.5** | Window State Optimization & Verification | ✅ COMPLETE | **M** | +5-15% improvement | FR-082-PHASE6-5-COMPLETION-REPORT.md |
-| **Phase 6.6** | Zero-Copy Record Processing | 📋 PLANNED | **L** | +10-20% improvement | - |
-| **Phase 6.7** | Lock-Free Metrics Optimization | 📋 PLANNED | **S** | +1-5% improvement | - |
+| **Phase 6.5B** | Scoped Borrow State Persistence | ✅ COMPLETE | **S** | Code simplification, 30K alloc/batch elimination | FR-082-PHASE6-5B-COMPLETION-SUMMARY.md |
+| **Phase 6.6** | Synchronous Partition Receivers | 📋 NEXT | **M-L** | 2-3x improvement (async/Arc/Mutex elimination) | - |
+| **Phase 6.7** | Zero-Copy Record Processing | 📋 PLANNED | **L** | +10-20% improvement | - |
+| **Phase 6.8** | Lock-Free Metrics Optimization | 📋 PLANNED | **S** | +1-5% improvement | - |
 | **Phase 7** | Vectorization & SIMD | 📋 FUTURE | **XL** | 2-3M rec/sec | - |
 | **Phase 8** | Distributed Processing | 📋 FUTURE | **XXL** | Multi-machine scaling | - |
 
