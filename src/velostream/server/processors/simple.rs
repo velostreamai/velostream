@@ -439,6 +439,13 @@ impl SimpleJobProcessor {
             );
         }
 
+        // FR-082 Phase 6.5: Initialize QueryExecution in the engine
+        // This creates the persistent ProcessorContext that will hold state across all batches
+        {
+            let mut engine_lock = engine.write().await;
+            engine_lock.init_query_execution(query.clone());
+        }
+
         // Track consecutive empty batches for end-of-stream detection
         let mut consecutive_empty_batches = 0;
         const MAX_CONSECUTIVE_EMPTY: u32 = 3;

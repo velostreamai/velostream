@@ -31,17 +31,11 @@ pub struct ProcessorContext {
     /// JOIN processing utilities
     pub join_context: JoinContext,
     /// GROUP BY processing state
-    /// FR-082 Phase 4C: Wrapped in Arc to eliminate deep cloning overhead
-    /// Cloning the HashMap now just bumps Arc refcounts instead of deep-cloning GroupByState
+    /// FR-082 Phase 6.5: Single source of truth for group aggregations
+    /// Wrapped in Arc<GroupByState> to eliminate cloning without needing an additional Mutex
+    /// ProcessorContext owns this state (not borrowed from elsewhere)
+    /// Processors modify in place during batch processing
     pub group_by_states: HashMap<String, Arc<GroupByState>>,
-    /// FR-082 Phase 6.4C: Optional Arc reference to partition-owned state
-    /// When set, processors should use this reference instead of the owned copy
-    /// This eliminates HashMap cloning by sharing the Arc across multiple processors
-    pub group_by_states_ref: Option<Arc<HashMap<String, Arc<GroupByState>>>>,
-    /// FR-082 Phase 6.5: Optional Arc reference to partition-owned window state
-    /// When set, processors should use this reference instead of the owned copy
-    /// This eliminates window Vec cloning by sharing the Arc across multiple processors
-    pub window_v2_states_ref: Option<Arc<Vec<(String, WindowState)>>>,
     /// Schema registry for introspection (SHOW/DESCRIBE operations)
     pub schemas: HashMap<String, Schema>,
     /// Stream handles registry
@@ -68,7 +62,9 @@ pub struct ProcessorContext {
 
     // === HIGH-PERFORMANCE WINDOW STATE MANAGEMENT ===
     /// Persistent window states for queries processed in this context
+    /// FR-082 Phase 6.5: Single source of truth for window state (owned by ProcessorContext)
     /// Using Vec for cache efficiency - most contexts handle 1-2 queries
+    /// No locks, no duplicates - state is directly owned and modified in place
     pub persistent_window_states: Vec<(String, WindowState)>,
     /// Track which states were modified for efficient persistence (bit mask)
     pub dirty_window_states: u32,
@@ -167,8 +163,6 @@ impl ProcessorContext {
             window_context: None,
             join_context: JoinContext::new(),
             group_by_states: HashMap::new(),
-            group_by_states_ref: None, // FR-082 Phase 6.4C: Initialize as None, will be set by coordinator
-            window_v2_states_ref: None, // FR-082 Phase 6.5: Initialize as None, will be set by coordinator
             schemas: HashMap::new(),
             stream_handles: HashMap::new(),
             data_sources: HashMap::new(),

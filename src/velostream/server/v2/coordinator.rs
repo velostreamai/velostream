@@ -401,9 +401,25 @@ impl PartitionedJobCoordinator {
                 let mut dropped = 0u64;
 
                 // Phase 6.3a: Initialize engine and query in the manager if provided
-                if let Some((engine, query)) = partition_engine_opt {
+                // FR-082 STP: Initialize QueryExecution in per-partition engine for state persistence
+                if let Some((mut engine, query)) = partition_engine_opt {
+                    // CRITICAL: Call init_query_execution to create persistent ProcessorContext
+                    // This enables state accumulation across batches within each partition
+                    debug!(
+                        "Partition {}: Initializing QueryExecution for persistent state",
+                        partition_id
+                    );
+                    engine.init_query_execution((*query).clone());
+                    debug!(
+                        "Partition {}: QueryExecution initialized, storing engine in manager",
+                        partition_id
+                    );
                     *manager_clone.execution_engine.lock().await = Some(engine);
                     *manager_clone.query.lock().await = Some(query);
+                    debug!(
+                        "Partition {}: Engine stored in manager, ready to process records",
+                        partition_id
+                    );
                 }
 
                 // Process each record through the partition's state manager
@@ -1172,10 +1188,8 @@ impl PartitionedJobCoordinator {
         // Create processing context for this batch
         let query_id = format!("partition_{:?}", partition_id);
         let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: Load state from engine into context
-        // State is owned in ProcessorContext (single source of truth - no locks)
-        context.group_by_states = engine.get_group_by_states();
-        context.persistent_window_states = engine.get_window_v2_states();
+        // Phase 6.5: State is owned by ProcessorContext (single source of truth - no locks)
+        // Context is initialized with empty state and will accumulate during batch processing
 
         // Process each record WITHOUT holding the engine lock
         for record in records {

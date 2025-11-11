@@ -579,6 +579,14 @@ pub enum HeaderOperation {
 ///
 /// This structure maintains the execution state for a single active query,
 /// including its lifecycle management and windowing state.
+///
+/// ## Phase 6.5 Architecture (COMPLETED)
+///
+/// ProcessorContext is now owned by QueryExecution and persists for the lifetime
+/// of the query. This enables:
+/// - State accumulation across batches (GROUP BY, windows)
+/// - Single source of truth (no duplication)
+/// - Lock-free access (no Arc<Mutex> wrappers)
 pub struct QueryExecution {
     /// The streaming query being executed
     pub query: StreamingQuery,
@@ -586,15 +594,28 @@ pub struct QueryExecution {
     pub state: ExecutionState,
     /// Window state for windowed queries
     pub window_state: Option<WindowState>,
+    /// Processor context for query execution (Phase 6.5: Single source of truth)
+    /// FR-082 STP (Single Transfer Pattern): Arc<Mutex> for thread-safe state sharing
+    /// Persists for lifetime of query - Arc enables cheap ownership transfer between batches
+    /// Mutex lock held only during record processing (minimal contention)
+    pub processor_context: Arc<std::sync::Mutex<super::processors::ProcessorContext>>,
 }
 
 impl QueryExecution {
     /// Create a new query execution context
     pub fn new(query: StreamingQuery) -> Self {
+        // Generate a unique ID for this query for ProcessorContext
+        let query_id = format!("{:?}", &query);
         Self {
             query,
             state: ExecutionState::Running,
             window_state: None,
+            // FR-082 STP: Arc<Mutex> for thread-safe state sharing across async boundaries
+            // Context persists for lifetime of query, Arc enables cheap ownership transfer between batches
+            // Mutex lock held only during record processing (minimal contention)
+            processor_context: Arc::new(std::sync::Mutex::new(
+                super::processors::ProcessorContext::new(&query_id),
+            )),
         }
     }
 

@@ -85,16 +85,9 @@ pub struct PartitionStateManager {
     pub execution_engine: tokio::sync::Mutex<Option<StreamExecutionEngine>>,
     // Phase 6.1: Query to execute (stored for repeated execution per record)
     pub query: Arc<tokio::sync::Mutex<Option<Arc<StreamingQuery>>>>,
-    // Phase 6.4C: GROUP BY state storage for this partition
-    // Moved from StreamExecutionEngine to eliminate state duplication
-    // Each partition owns its own state, no cross-partition contention
-    // ProcessorContext will reference this directly instead of cloning
-    pub group_by_states: Arc<tokio::sync::Mutex<HashMap<String, Arc<GroupByState>>>>,
-    // Phase 6.5: Window state storage for this partition
-    // Moved from StreamExecutionEngine to eliminate state duplication (same pattern as 6.4C)
-    // Each partition owns its own window state, no cross-partition synchronization
-    // Arc references allow window state modifications to persist without sync-back
-    pub window_v2_states: Arc<tokio::sync::Mutex<Vec<(String, WindowState)>>>,
+    // FR-082 Phase 6.5: State moved to ProcessorContext (single source of truth)
+    // PartitionStateManager no longer holds state - it's owned by ProcessorContext
+    // This eliminates Arc<Mutex> wrappers and lock contention issues
 }
 
 impl PartitionStateManager {
@@ -108,10 +101,6 @@ impl PartitionStateManager {
             watermark_manager,
             execution_engine: tokio::sync::Mutex::new(None),
             query: Arc::new(tokio::sync::Mutex::new(None)),
-            // Phase 6.4C: Initialize empty group_by_states for this partition
-            group_by_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            // Phase 6.5: Initialize empty window_v2_states for this partition
-            window_v2_states: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -124,8 +113,6 @@ impl PartitionStateManager {
             watermark_manager,
             execution_engine: tokio::sync::Mutex::new(None),
             query: Arc::new(tokio::sync::Mutex::new(None)),
-            group_by_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            window_v2_states: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -141,8 +128,6 @@ impl PartitionStateManager {
             watermark_manager,
             execution_engine: tokio::sync::Mutex::new(None),
             query: Arc::new(tokio::sync::Mutex::new(None)),
-            group_by_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            window_v2_states: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -158,8 +143,6 @@ impl PartitionStateManager {
             watermark_manager,
             execution_engine: tokio::sync::Mutex::new(None),
             query: Arc::new(tokio::sync::Mutex::new(None)),
-            group_by_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
-            window_v2_states: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 

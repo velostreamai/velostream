@@ -40,8 +40,6 @@ fn create_context_with_window_v2_enabled() -> ProcessorContext {
         window_context: None,
         join_context: JoinContext::new(),
         group_by_states: HashMap::new(),
-        group_by_states_ref: None,  // Phase 6.4C: Optional Arc reference
-        window_v2_states_ref: None, // Phase 6.5: Optional Arc reference
         schemas: HashMap::new(),
         stream_handles: HashMap::new(),
         state_tables: HashMap::new(),
@@ -89,8 +87,6 @@ async fn test_window_v2_feature_flag_disabled_by_default() {
         window_context: None,
         join_context: JoinContext::new(),
         group_by_states: HashMap::new(),
-        group_by_states_ref: None,  // Phase 6.4C: Optional Arc reference
-        window_v2_states_ref: None, // Phase 6.5: Optional Arc reference
         schemas: HashMap::new(),
         stream_handles: HashMap::new(),
         state_tables: HashMap::new(),

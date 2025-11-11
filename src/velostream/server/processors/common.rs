@@ -352,22 +352,54 @@ pub async fn process_batch_with_output(
             engine_lock.get_output_sender_for_batch()
         };
 
-        // Create context for batch processing (reused across all records)
-        let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: Load state from engine into context
-        // State is owned in ProcessorContext (single source of truth - no locks)
-        // Engine provides the state via accessor methods
-        let engine_lock = engine.read().await;
-        context.streaming_config = Some(engine_lock.streaming_config().clone());
-        // CRITICAL FIX: Load state from engine into context to fix 10x regression
-        context.group_by_states = engine_lock.get_group_by_states();
-        context.persistent_window_states = engine_lock.get_window_v2_states();
-        drop(engine_lock);
+        // Phase 6.5: Get mutable context from QueryExecution
+        // Context persists for the lifetime of the query, accumulating state
+        // Get streaming config once at batch start
+        let streaming_config = {
+            let engine_lock = engine.read().await;
+            engine_lock.streaming_config().clone()
+        };
+
+        let output_sender = {
+            let engine_lock = engine.read().await;
+            engine_lock.get_output_sender_for_batch()
+        };
+
+        // Get Arc<Mutex<ProcessorContext>> from QueryExecution - NOT holding engine lock during processing
+        // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
+        let processor_context_arc = {
+            let engine_lock = engine.read().await;
+            if let Some(execution) = engine_lock.get_query_execution(&query_id) {
+                Arc::clone(&execution.processor_context)
+            } else {
+                error!("Query not found: {}", query_id);
+                return BatchProcessingResultWithOutput {
+                    records_processed: 0,
+                    records_failed: batch.len(),
+                    processing_time: Duration::from_secs(0),
+                    batch_size: batch.len(),
+                    error_details: vec![ProcessingError {
+                        record_index: 0,
+                        error_message: format!("Query not found: {}", query_id),
+                        recoverable: false,
+                    }],
+                    output_records: vec![],
+                };
+            }
+        };
+
+        // Set streaming config on the persistent context
+        {
+            let mut ctx = processor_context_arc.lock().unwrap();
+            ctx.streaming_config = Some(streaming_config.clone());
+        }
 
         // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
         // Process all records WITHOUT holding engine lock
         for (index, record) in batch.into_iter().enumerate() {
-            match QueryProcessor::process_query(query, &record, &mut context) {
+            // Acquire Mutex lock only during record processing (minimal contention)
+            let mut ctx = processor_context_arc.lock().unwrap();
+            match QueryProcessor::process_query(query, &record, &mut ctx) {
                 Ok(result) => {
                     records_processed += 1;
 
@@ -404,15 +436,10 @@ pub async fn process_batch_with_output(
             }
         }
 
-        // Lock 2: Return state and receiver at batch end
-        {
+        // No sync needed - context is Arc<Mutex>, mutations are already persisted in-place
+        if let Some(rx) = temp_receiver {
             let mut engine_lock = engine.write().await;
-            // Phase 6.4C/6.5: No state sync-back needed for EMIT_CHANGES!
-            // Both group_by_states and window_v2_states were accessed by Arc reference
-            // Modifications are already persisted in the Arc
-            if let Some(rx) = temp_receiver {
-                engine_lock.return_output_receiver(rx);
-            }
+            engine_lock.return_output_receiver(rx);
         }
     } else {
         // Standard Path: Batch optimization for non-EMIT queries (high performance)
@@ -420,18 +447,39 @@ pub async fn process_batch_with_output(
         let mut null_output_count = 0;
         let mut null_output_example_idx = None;
 
-        // PERF OPTIMIZATION: Create context ONCE for entire batch (92% faster)
-        // Previous implementation cloned state per-record (1M clones for 1M records)
-        // New implementation reuses context - state mutates in place
-        let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: Load state from engine into context
-        // State is owned in ProcessorContext (single source of truth - no locks)
-        let engine_lock = engine.read().await;
-        context.streaming_config = Some(engine_lock.streaming_config().clone());
-        // CRITICAL FIX: Load state from engine into context to fix 10x regression
-        context.group_by_states = engine_lock.get_group_by_states();
-        context.persistent_window_states = engine_lock.get_window_v2_states();
-        drop(engine_lock);
+        // Phase 6.5: Get Arc<Mutex<ProcessorContext>> from QueryExecution
+        // Context persists for lifetime of query - acquired by reference, never cloned
+        // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
+        let processor_context_arc = {
+            let engine_lock = engine.read().await;
+            if let Some(execution) = engine_lock.get_query_execution(&query_id) {
+                Arc::clone(&execution.processor_context)
+            } else {
+                error!("Query not found: {}", query_id);
+                return BatchProcessingResultWithOutput {
+                    records_processed: 0,
+                    records_failed: batch.len(),
+                    processing_time: Duration::from_secs(0),
+                    batch_size: batch.len(),
+                    error_details: vec![ProcessingError {
+                        record_index: 0,
+                        error_message: format!("Query not found: {}", query_id),
+                        recoverable: false,
+                    }],
+                    output_records: vec![],
+                };
+            }
+        };
+
+        // Set streaming config on the persistent context
+        {
+            let streaming_config = {
+                let engine_lock = engine.read().await;
+                engine_lock.streaming_config().clone()
+            };
+            let mut ctx = processor_context_arc.lock().unwrap();
+            ctx.streaming_config = Some(streaming_config);
+        }
 
         // Process batch WITHOUT holding engine lock (high performance)
         debug!(
@@ -439,13 +487,12 @@ pub async fn process_batch_with_output(
             job_name, batch_size
         );
         for (index, record) in batch.into_iter().enumerate() {
-            // CRITICAL: Reuse same context across all records in batch
-            // GROUP BY state accumulates in context.group_by_states HashMap (in-place mutation)
-            // Window state grows in context.persistent_window_states Vec (in-place mutation)
-            // Zero per-record allocation overhead - state management is O(1) amortized
+            // Acquire Mutex lock only during record processing (minimal contention)
+            // Context state accumulates (GROUP BY, window state) across all records
+            // Lock is acquired/released per record for minimal contention
 
-            // Direct processing (no engine lock, no output_sender channel overhead)
-            match QueryProcessor::process_query(query, &record, &mut context) {
+            let mut ctx = processor_context_arc.lock().unwrap();
+            match QueryProcessor::process_query(query, &record, &mut ctx) {
                 Ok(result) => {
                     records_processed += 1;
 
@@ -527,9 +574,7 @@ pub async fn process_batch_with_output(
             }
         }
 
-        // Phase 6.4C/6.5: No state sync-back needed!
-        // Both group_by_states and window_v2_states were accessed by Arc reference
-        // Modifications are already persisted in the Arc
+        // No sync needed - context is Arc<Mutex>, mutations are already persisted in-place
     }
 
     BatchProcessingResultWithOutput {

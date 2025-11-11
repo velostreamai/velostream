@@ -165,17 +165,6 @@ pub struct StreamExecutionEngine {
     // Optional context customizer for tests
     #[doc(hidden)]
     pub context_customizer: Option<ContextCustomizer>,
-    // Stateful GROUP BY support
-    // Phase 4C: Wrapped in Arc to eliminate deep cloning overhead (30% expected improvement)
-    // NOTE: These fields are intentionally kept for core GROUP BY functionality, though
-    // batch processors may also manage state at the partition level in PartitionStateManager.
-    // Removing these would break simple test cases using execute_with_record() directly.
-    #[allow(dead_code)]
-    group_states: HashMap<String, Arc<GroupByState>>,
-    // FR-081 Phase 2A+: Window V2 state persistence
-    // NOTE: Same note as group_states - kept for core functionality.
-    #[allow(dead_code)]
-    window_v2_states: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
 }
 
 // =============================================================================
@@ -213,8 +202,6 @@ impl StreamExecutionEngine {
             performance_monitor: None,
             config,
             context_customizer: None,
-            group_states: HashMap::new(),
-            window_v2_states: HashMap::new(),
         }
     }
 
@@ -264,27 +251,35 @@ impl StreamExecutionEngine {
         &self.config
     }
 
-    /// FR-082 Phase 6.4C/6.5: Get reference to GROUP BY state for loading into ProcessorContext
-    /// Returns a clone of the group_by_states HashMap for context initialization
-    pub fn get_group_by_states(&self) -> HashMap<String, Arc<GroupByState>> {
-        self.group_states.clone()
+    /// FR-082 Phase 6.5: Get immutable reference to a QueryExecution by ID
+    /// Used by batch processor to load state from QueryExecution's ProcessorContext
+    pub fn get_query_execution(
+        &self,
+        query_id: &str,
+    ) -> Option<&crate::velostream::sql::execution::internal::QueryExecution> {
+        self.active_queries.get(query_id)
     }
 
-    /// FR-082 Phase 6.5: Get reference to window V2 state for loading into ProcessorContext
-    /// Returns a clone of the window_v2_states for context initialization
-    pub fn get_window_v2_states(&self) -> Vec<(String, WindowState)> {
-        self.window_v2_states
-            .iter()
-            .filter_map(|(key, value)| {
-                // Try to downcast the boxed Any value to WindowState
-                // This is a temporary shim until state architecture is simplified
-                if let Some(window_state) = value.downcast_ref::<WindowState>() {
-                    Some((key.clone(), window_state.clone()))
-                } else {
-                    None
-                }
-            })
-            .collect()
+    /// FR-082 Phase 6.5: Get mutable reference to a QueryExecution by ID
+    /// Used by batch processor to save state back to QueryExecution's ProcessorContext
+    pub fn get_query_execution_mut(
+        &mut self,
+        query_id: &str,
+    ) -> Option<&mut crate::velostream::sql::execution::internal::QueryExecution> {
+        self.active_queries.get_mut(query_id)
+    }
+
+    /// FR-082 Phase 6.5: Initialize a QueryExecution for batch processing
+    /// Called by job processors before processing batches to register the query and create the persistent ProcessorContext
+    /// Must be called once before any batch processing starts
+    pub fn init_query_execution(&mut self, query: StreamingQuery) {
+        let query_id = format!("{:?}", &query);
+
+        // Only create if it doesn't already exist
+        if !self.active_queries.contains_key(&query_id) {
+            let execution = crate::velostream::sql::execution::internal::QueryExecution::new(query);
+            self.active_queries.insert(query_id, execution);
+        }
     }
 
     /// FR-082 Phase 5: Set output receiver for EMIT CHANGES support
@@ -362,6 +357,21 @@ impl StreamExecutionEngine {
     /// Create processor context for new processor-based execution
     /// Create high-performance processor context optimized for threading
     /// Loads only the window states needed for this specific processing call
+    /// Get mutable reference to persistent ProcessorContext for a query
+    /// FR-082 STP: Returns locked access to the context stored in QueryExecution
+    /// This is the single source of truth for state across all batches
+    fn get_processor_context(
+        &mut self,
+        query_id: &str,
+    ) -> std::sync::MutexGuard<'_, super::processors::ProcessorContext> {
+        self.active_queries
+            .get(query_id)
+            .expect("QueryExecution must be initialized before processing")
+            .processor_context
+            .lock()
+            .expect("Failed to acquire lock on ProcessorContext")
+    }
+
     fn create_processor_context(&mut self, query_id: &str) -> ProcessorContext {
         let mut context = ProcessorContext::new(query_id);
 
@@ -376,10 +386,6 @@ impl StreamExecutionEngine {
 
         // Load window states efficiently (only for queries we're processing)
         context.load_window_states(self.load_window_states_for_context(query_id));
-
-        // FR-081 Phase 2A+: Load window_v2 states from engine to context
-        // Move all window_v2_states to the context (they will be saved back after processing)
-        context.window_v2_states = std::mem::take(&mut self.window_v2_states);
 
         // Apply any context customization (used by tests)
         if let Some(customizer) = &self.context_customizer {
@@ -428,26 +434,6 @@ impl StreamExecutionEngine {
         states
     }
 
-    /// Save modified window states back to engine (high-performance, saves only dirty states)
-    /// Called after processor context completes to persist changes
-    /// OPTIMIZED: Uses references to avoid O(N²) buffer cloning
-    fn save_window_states_from_context(&mut self, context: &mut ProcessorContext) {
-        let dirty_states = context.get_dirty_window_states_mut();
-        for (query_id, window_state_ref) in dirty_states {
-            if let Some(execution) = self.active_queries.get_mut(&query_id) {
-                // Move the window state by replacing it with an empty one
-                // This eliminates 50M+ clone operations for 10K records
-                let empty_state = WindowState::new(window_state_ref.window_spec.clone());
-                execution.window_state = Some(std::mem::replace(window_state_ref, empty_state));
-            }
-            // Note: If query execution doesn't exist, we skip saving the state
-            // This can happen if the query completed between context creation and persistence
-        }
-
-        // FR-081 Phase 2A+: Save window_v2 states from context back to engine
-        self.window_v2_states = std::mem::take(&mut context.window_v2_states);
-    }
-
     /// Process query using the modern processor architecture
     fn apply_query(
         &mut self,
@@ -466,20 +452,20 @@ impl StreamExecutionEngine {
     ) -> Result<Option<StreamRecord>, SqlError> {
         // Generate a query ID based on the query type and content
         let query_id = self.generate_query_id(query);
-        let mut context = self.create_processor_context(&query_id);
 
-        // Set LIMIT in context if present
-        if let StreamingQuery::Select { limit, .. } = query {
-            context.max_records = *limit;
-        }
+        // Scope the context acquisition - guard drops automatically at end of block
+        let result = {
+            let mut context = self.get_processor_context(&query_id);
 
-        // Share engine GROUP BY states with processor context
-        context.group_by_states = self.group_states.clone();
+            // Set LIMIT in context if present
+            if let StreamingQuery::Select { limit, .. } = query {
+                context.max_records = *limit;
+            }
 
-        let result = QueryProcessor::process_query(query, record, &mut context)?;
-
-        // Update engine state from context - sync back the GROUP BY states
-        self.group_states = std::mem::take(&mut context.group_by_states);
+            QueryProcessor::process_query(query, record, &mut context)?
+            // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+            // Guard drops here automatically
+        };
 
         // NOTE: GROUP BY results emission moved to explicit triggers
         // Emitting after every record was causing performance issues and incorrect results
@@ -489,9 +475,6 @@ impl StreamExecutionEngine {
         // - Memory pressure
         // - Explicit flush commands
         // For now, results accumulate in group_states and can be retrieved via explicit calls
-
-        // Persist window states from context (high-performance, only saves dirty states)
-        self.save_window_states_from_context(&mut context);
 
         // Update engine state from context
         if result.should_count && result.record.is_some() {
@@ -628,8 +611,10 @@ impl StreamExecutionEngine {
         {
             // For windowed queries, we need to simulate the streaming execution model
 
-            // Initialize window state if needed for this query
-            let query_id = "execute_query".to_string();
+            // FR-082 STP FIX: Use consistent query_id matching init_query_execution
+            // This ensures execute_internal finds the QueryExecution with persistent ProcessorContext
+            // that was initialized by init_query_execution (or reuses existing one)
+            let query_id = format!("{:?}", query);
             if !self.active_queries.contains_key(&query_id) {
                 let window_state = Some(WindowState {
                     window_spec: window_spec.clone(),
@@ -641,14 +626,18 @@ impl StreamExecutionEngine {
                     query: query.clone(),
                     state: ExecutionState::Running,
                     window_state,
+                    processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(
+                        &query_id,
+                    ))),
                 };
 
                 self.active_queries.insert(query_id.clone(), execution);
             }
 
             // Process using windowed logic with high-performance state management
-            {
-                let mut context = self.create_processor_context(&query_id);
+            // Scope context to ensure guard is dropped before returning
+            let (result, pending_results) = {
+                let mut context = self.get_processor_context(&query_id);
                 let result = WindowProcessor::process_windowed_query_enhanced(
                     &query_id,
                     query,
@@ -656,9 +645,6 @@ impl StreamExecutionEngine {
                     &mut context,
                     None, // source_id
                 )?;
-
-                // Efficiently persist only modified window states (zero-copy for unchanged states)
-                self.save_window_states_from_context(&mut context);
 
                 // FR-079 Phase 6: Emit pending results from queue
                 // After processing the current record, check if there are additional results queued
@@ -682,14 +668,18 @@ impl StreamExecutionEngine {
                     }
                 }
 
+                // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+                // Guard drops here automatically
                 (result, pending_results)
-            }
+            };
+
+            (result, pending_results)
         } else {
             // Regular non-windowed processing
             (self.apply_query(query, &stream_record)?, Vec::new())
         };
 
-        // Unpack result and pending results
+        // Unpack result and pending results for remaining processing
         let (result, pending_results) = result;
 
         // Process result if any
@@ -1002,9 +992,10 @@ impl StreamExecutionEngine {
             query,
             state: ExecutionState::Running,
             window_state,
+            processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(&query_id))),
         };
 
-        self.active_queries.insert(query_id, execution);
+        self.active_queries.insert(query_id.clone(), execution);
         Ok(())
     }
 
@@ -1047,7 +1038,7 @@ impl StreamExecutionEngine {
             {
                 // Use windowed processing for queries with window specifications
                 {
-                    let mut context = self.create_processor_context(&query_id);
+                    let mut context = self.get_processor_context(&query_id);
                     let result = WindowProcessor::process_windowed_query_enhanced(
                         &query_id,
                         &query,
@@ -1056,9 +1047,8 @@ impl StreamExecutionEngine {
                         None, // source_id
                     )?;
 
-                    // Persist modified states efficiently
-                    self.save_window_states_from_context(&mut context);
-
+                    // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+                    // Guard drops here automatically
                     result
                 }
             } else {
@@ -1107,8 +1097,9 @@ impl StreamExecutionEngine {
                 } = &query
                 {
                     // Only flush windowed queries
-                    let (result, mut context) = {
-                        let mut context = self.create_processor_context(&query_id);
+                    // Scope context acquisition to ensure guard is dropped before using self
+                    let (result, pending_results) = {
+                        let mut context = self.get_processor_context(&query_id);
                         let result = WindowProcessor::process_windowed_query_enhanced(
                             &query_id,
                             &query,
@@ -1117,10 +1108,23 @@ impl StreamExecutionEngine {
                             None, // source_id
                         )?;
 
-                        // Persist modified states efficiently
-                        self.save_window_states_from_context(&mut context);
+                        // FR-081 Phase 6: Emit all pending GROUP BY results from queue
+                        // When GROUP BY + WINDOW produces multiple groups, additional results are queued
+                        // Only dequeue for queries WITH GROUP BY (non-GROUP BY queries produce single result)
+                        let mut pending_results = Vec::new();
+                        if group_by.is_some() {
+                            while context.has_pending_results(&query_id) {
+                                if let Some(pending_result) = context.dequeue_result(&query_id) {
+                                    pending_results.push(pending_result);
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
 
-                        (result, context)
+                        // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+                        // Guard drops here automatically when block ends
+                        (result, pending_results)
                     };
 
                     // Send the first result (if any)
@@ -1129,17 +1133,9 @@ impl StreamExecutionEngine {
                         let _ = self.output_sender.send(result_record);
                     }
 
-                    // FR-081 Phase 6: Emit all pending GROUP BY results from queue
-                    // When GROUP BY + WINDOW produces multiple groups, additional results are queued
-                    // Only dequeue for queries WITH GROUP BY (non-GROUP BY queries produce single result)
-                    if group_by.is_some() {
-                        while context.has_pending_results(&query_id) {
-                            if let Some(pending_result) = context.dequeue_result(&query_id) {
-                                let _ = self.output_sender.send(pending_result);
-                            } else {
-                                break;
-                            }
-                        }
+                    // Send pending results
+                    for pending_result in pending_results {
+                        let _ = self.output_sender.send(pending_result);
                     }
                 }
             }
@@ -1324,8 +1320,8 @@ impl StreamExecutionEngine {
             context.commit_sink(&sink_name).await?;
         }
 
-        // Sync state back to engine
-        self.save_window_states_from_context(&mut context);
+        // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+        // Guard drops here automatically when context goes out of scope
 
         Ok(())
     }
@@ -1364,18 +1360,21 @@ impl StreamExecutionEngine {
             }
 
             for record in batch {
-                let mut context = self.create_processor_context(&query_id);
+                // Scope context to ensure guard is dropped before using self
+                let (result_record, should_count) = {
+                    let mut context = self.get_processor_context(&query_id);
+                    let result = QueryProcessor::process_query(query, &record, &mut context)?;
 
-                let result = QueryProcessor::process_query(query, &record, &mut context)?;
+                    // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+                    // Guard drops here automatically when block ends
+                    (result.record, result.should_count)
+                };
 
-                if let Some(output_record) = result.record {
+                if let Some(output_record) = result_record {
                     results.push(output_record);
                 }
 
-                // Sync state
-                self.save_window_states_from_context(&mut context);
-
-                if result.should_count {
+                if should_count {
                     self.record_count += 1;
                 }
             }
@@ -1411,11 +1410,18 @@ impl StreamExecutionEngine {
                     }
 
                     for record in batch {
-                        let mut context = self.create_processor_context(&query_id);
+                        // Scope context to ensure guard is dropped before using self
+                        let (result_record, should_count) = {
+                            let mut context = self.get_processor_context(&query_id);
+                            let result =
+                                QueryProcessor::process_query(query, &record, &mut context)?;
 
-                        let result = QueryProcessor::process_query(query, &record, &mut context)?;
+                            // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
+                            // Guard drops here automatically when block ends
+                            (result.record, result.should_count)
+                        };
 
-                        if let Some(output_record) = result.record {
+                        if let Some(output_record) = result_record {
                             writer.write(output_record).await.map_err(|e| {
                                 SqlError::ExecutionError {
                                     message: format!("Failed to write output: {}", e),
@@ -1424,10 +1430,7 @@ impl StreamExecutionEngine {
                             })?;
                         }
 
-                        // Sync state
-                        self.save_window_states_from_context(&mut context);
-
-                        if result.should_count {
+                        if should_count {
                             self.record_count += 1;
                         }
                     }
