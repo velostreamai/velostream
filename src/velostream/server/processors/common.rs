@@ -383,7 +383,10 @@ pub async fn process_batch_with_output(
                     batch_size: batch.len(),
                     error_details: vec![ProcessingError {
                         record_index: 0,
-                        error_message: format!("Failed to initialize query execution: {}", query_id),
+                        error_message: format!(
+                            "Failed to initialize query execution: {}",
+                            query_id
+                        ),
                         recoverable: false,
                     }],
                     output_records: vec![],
@@ -469,7 +472,10 @@ pub async fn process_batch_with_output(
                     batch_size: batch.len(),
                     error_details: vec![ProcessingError {
                         record_index: 0,
-                        error_message: format!("Failed to initialize query execution: {}", query_id),
+                        error_message: format!(
+                            "Failed to initialize query execution: {}",
+                            query_id
+                        ),
                         recoverable: false,
                     }],
                     output_records: vec![],

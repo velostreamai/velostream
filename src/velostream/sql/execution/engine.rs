@@ -294,7 +294,10 @@ impl StreamExecutionEngine {
         query: &StreamingQuery,
     ) -> Option<Arc<std::sync::Mutex<ProcessorContext>>> {
         // Lazy initialize if needed
-        if !self.active_queries.contains_key(&self.generate_query_id(query)) {
+        if !self
+            .active_queries
+            .contains_key(&self.generate_query_id(query))
+        {
             self.init_query_execution(query.clone());
         }
 
