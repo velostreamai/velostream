@@ -131,8 +131,9 @@ impl std::fmt::Display for StrategyConfig {
 
 impl Default for StrategyConfig {
     fn default() -> Self {
-        // AlwaysHash is the safe default that guarantees correctness
-        StrategyConfig::AlwaysHash
+        // StickyPartition is the default: minimizes data movement and latency
+        // while maintaining state consistency for aggregations
+        StrategyConfig::StickyPartition
     }
 }
 
@@ -198,7 +199,7 @@ mod tests {
     #[test]
     fn test_strategy_config_default() {
         let config = StrategyConfig::default();
-        assert_eq!(config, StrategyConfig::AlwaysHash);
+        assert_eq!(config, StrategyConfig::StickyPartition);
     }
 
     #[test]
@@ -273,7 +274,7 @@ mod tests {
     #[test]
     fn test_builder_default() {
         let config = StrategyConfigBuilder::default().build();
-        assert_eq!(config, StrategyConfig::AlwaysHash);
+        assert_eq!(config, StrategyConfig::StickyPartition);
     }
 
     #[test]

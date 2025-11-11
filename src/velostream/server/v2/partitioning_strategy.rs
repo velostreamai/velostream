@@ -1,6 +1,7 @@
 //! Pluggable partitioning strategies for V2 architecture
 //!
 //! Different strategies optimize for different data characteristics:
+//! - StickyPartitionStrategy: Default - minimizes data movement, latency-optimized
 //! - AlwaysHashStrategy: Conservative, always correct
 //! - SmartRepartitionStrategy: Optimized for naturally partitioned data
 //! - RoundRobinStrategy: Maximum throughput for non-grouped queries
