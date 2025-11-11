@@ -69,25 +69,27 @@ use tokio::sync::RwLock;
 /// - **Direct Processor Access**: ProcessorContext references partition state
 /// - **No Cloning**: Eliminates 5-10% overhead from HashMap copies
 ///
-/// ## Phase 6.5 Implementation (IN PROGRESS)
+/// ## Phase 6.5 Implementation (COMPLETE)
 ///
 /// - **Window State**: Moved from engine to partition manager (same pattern as 6.4C)
 /// - **Per-Partition Windows**: Each partition manages its own windows independently
 /// - **Arc References**: Eliminates window state synchronization overhead
+///
+/// ## Phase 6.6 Implementation (PLANNED)
+///
+/// - **Direct Ownership**: Engine and query moved to PartitionReceiver (not Arc<Mutex>)
+/// - **Synchronous Processing**: Remove async/await overhead from hot path
+/// - **Lock Elimination**: Arc<Mutex> wrappers move to PartitionReceiver for ownership
+/// - **State Isolation**: Each partition receiver thread owns its complete state
 pub struct PartitionStateManager {
     partition_id: usize,
     metrics: Arc<PartitionMetrics>,
     watermark_manager: Arc<WatermarkManager>,
-    // Phase 6.3a: SQL execution engine for per-partition query processing
-    // CRITICAL FIX: Removed Arc<RwLock> - uses tokio::sync::Mutex for interior mutability
-    // No concurrent access (only partition receiver accesses this) but needs Sync for Arc in async context
-    // Direct ownership eliminates 5000 lock operations per batch by removing Arc<RwLock> wrapper
+    // Phase 6.6: Engine and query moved to PartitionReceiver for direct ownership
+    // PartitionStateManager now primarily holds configuration and metrics
+    // DEPRECATED FIELDS (kept for backward compatibility during Phase 6.6 transition):
     pub execution_engine: tokio::sync::Mutex<Option<StreamExecutionEngine>>,
-    // Phase 6.1: Query to execute (stored for repeated execution per record)
     pub query: Arc<tokio::sync::Mutex<Option<Arc<StreamingQuery>>>>,
-    // FR-082 Phase 6.5: State moved to ProcessorContext (single source of truth)
-    // PartitionStateManager no longer holds state - it's owned by ProcessorContext
-    // This eliminates Arc<Mutex> wrappers and lock contention issues
 }
 
 impl PartitionStateManager {
@@ -466,5 +468,80 @@ impl PartitionStateManager {
     /// Reset metrics (useful for benchmarks)
     pub fn reset_metrics(&self) {
         self.metrics.reset();
+    }
+
+    /// Phase 6.6: Extract engine and query for PartitionReceiver creation
+    ///
+    /// This method enables the transition to Phase 6.6 direct ownership model.
+    /// It extracts the owned engine and query so they can be transferred to PartitionReceiver.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok((engine, query))` if both exist and are Some
+    /// - `Err(message)` if either is None
+    pub async fn extract_for_receiver(
+        &self,
+    ) -> Result<(StreamExecutionEngine, Arc<StreamingQuery>), String> {
+        let engine_opt = self
+            .execution_engine
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| "Execution engine not initialized".to_string())?;
+
+        let query_opt = self
+            .query
+            .lock()
+            .await
+            .take()
+            .ok_or_else(|| "Query not initialized".to_string())?;
+
+        Ok((engine_opt, query_opt))
+    }
+
+    /// Phase 6.6: Get mutable reference to ProcessorContext for receiver initialization
+    ///
+    /// Provides access to the processor context that will be owned by PartitionReceiver.
+    /// This is a temporary bridge method during the Phase 6.6 transition.
+    pub fn processor_context_for_receiver(
+        &self,
+    ) -> crate::velostream::sql::execution::processors::context::ProcessorContext {
+        crate::velostream::sql::execution::processors::context::ProcessorContext::new(&format!(
+            "partition_{}",
+            self.partition_id
+        ))
+    }
+
+    /// Phase 6.6: Create a PartitionReceiver with owned engine and query
+    ///
+    /// This is the main entry point for transitioning from Phase 6.5B to Phase 6.6.
+    /// It takes the extracted engine and query, plus the receiver channel, and creates
+    /// a PartitionReceiver for synchronous processing.
+    ///
+    /// # Arguments
+    ///
+    /// * `engine` - The StreamExecutionEngine for this partition
+    /// * `query` - The StreamingQuery to execute
+    /// * `context` - The ProcessorContext for state management
+    /// * `receiver` - MPSC receiver for batch input channel
+    ///
+    /// # Returns
+    ///
+    /// A new PartitionReceiver with full ownership of engine and context
+    pub fn create_receiver(
+        &self,
+        engine: StreamExecutionEngine,
+        query: Arc<StreamingQuery>,
+        context: crate::velostream::sql::execution::processors::context::ProcessorContext,
+        receiver: tokio::sync::mpsc::Receiver<Vec<StreamRecord>>,
+    ) -> crate::velostream::server::v2::PartitionReceiver {
+        crate::velostream::server::v2::PartitionReceiver::new(
+            self.partition_id,
+            engine,
+            query,
+            context,
+            receiver,
+            Arc::clone(&self.metrics),
+        )
     }
 }
