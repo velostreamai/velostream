@@ -54,6 +54,7 @@ pub mod fan_in_strategy;
 pub mod job_processor_v2;
 pub mod metrics;
 pub mod partition_manager;
+pub mod partition_receiver;
 pub mod partitioner_selector;
 pub mod partitioning_strategy;
 pub mod prometheus_exporter;
@@ -73,6 +74,7 @@ pub use coordinator::{
 pub use fan_in_strategy::FanInStrategy;
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
+pub use partition_receiver::PartitionReceiver;
 pub use partitioner_selector::{PartitionerSelection, PartitionerSelector};
 pub use partitioning_strategy::{
     AlwaysHashStrategy, PartitioningStrategy, QueryMetadata, RoutingContext,
