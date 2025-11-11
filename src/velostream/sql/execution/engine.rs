@@ -453,6 +453,20 @@ impl StreamExecutionEngine {
         // Generate a query ID based on the query type and content
         let query_id = self.generate_query_id(query);
 
+        // Lazy initialize QueryExecution if not present
+        // This allows tests to call apply_query directly without explicit init_query_execution
+        if !self.active_queries.contains_key(&query_id) {
+            let execution = QueryExecution {
+                query: query.clone(),
+                state: ExecutionState::Running,
+                window_state: None,
+                processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(
+                    &query_id,
+                ))),
+            };
+            self.active_queries.insert(query_id.clone(), execution);
+        }
+
         // Scope the context acquisition - guard drops automatically at end of block
         let result = {
             let mut context = self.get_processor_context(&query_id);

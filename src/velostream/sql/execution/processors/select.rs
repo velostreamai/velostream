@@ -380,6 +380,7 @@ impl SelectProcessor {
                 if let Some(result) = LimitProcessor::check_limit(*limit_value, context)? {
                     return Ok(result);
                 }
+                LimitProcessor::increment_count(context);
             }
 
             // Handle JOINs first (if any)
