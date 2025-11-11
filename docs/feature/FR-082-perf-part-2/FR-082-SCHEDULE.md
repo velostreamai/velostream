@@ -18,9 +18,10 @@
 | **Phase 6.4C** | Eliminate State Duplication | ✅ COMPLETE | **M** | +5-10% improvement | FR-082-PHASE6-4C-IMPLEMENTATION-GUIDE.md |
 | **Phase 6.5** | Window State Optimization & Verification | ✅ COMPLETE | **M** | +5-15% improvement | FR-082-PHASE6-5-COMPLETION-REPORT.md |
 | **Phase 6.5B** | Scoped Borrow State Persistence | ✅ COMPLETE | **S** | Code simplification, 30K alloc/batch elimination | FR-082-PHASE6-5B-COMPLETION-SUMMARY.md |
-| **Phase 6.6** | Synchronous Partition Receivers | 📋 NEXT | **M-L** | 2-3x improvement (async/Arc/Mutex elimination) | - |
-| **Phase 6.7** | Zero-Copy Record Processing | 📋 PLANNED | **L** | +10-20% improvement | - |
-| **Phase 6.8** | Lock-Free Metrics Optimization | 📋 PLANNED | **S** | +1-5% improvement | - |
+| **Phase 6.6** | LIMIT Processor + Lazy Init Cleanup | ✅ COMPLETE | **S** | Bug fixes + code refactoring | - |
+| **Phase 6.7** | STP Determinism Layer | 📋 NEXT | **M** | Sync execution for commit/rollback decisions | - |
+| **Phase 6.8** | Zero-Copy Record Processing | 📋 PLANNED | **L** | +10-20% improvement | - |
+| **Phase 6.9** | Lock-Free Metrics Optimization | 📋 PLANNED | **S** | +1-5% improvement | - |
 | **Phase 7** | Vectorization & SIMD | 📋 FUTURE | **XL** | 2-3M rec/sec | - |
 | **Phase 8** | Distributed Processing | 📋 FUTURE | **XXL** | Multi-machine scaling | - |
 
@@ -235,7 +236,115 @@ AFTER:  engine.get_group_states_arc() → context.group_by_states_ref
 
 ---
 
-## Phase 6.6: Zero-Copy Record Processing (PLANNED)
+## Phase 6.6: ✅ COMPLETE - LIMIT Processor Bug Fixes + Lazy Initialization Refactoring
+
+**Status**: ✅ COMPLETE (November 11, 2025)
+**Effort**: **S** (Small)
+**Commits**:
+- `ebee09cf` - Fix LIMIT processor ordering and test determinism
+- `454ec5b8` - Extract lazy initialization pattern into helper method
+
+### What Was Done
+
+**Bug #1: LIMIT Processing Order (FIXED)**
+- Problem: LIMIT check happened BEFORE WHERE clause evaluation
+- Impact: Records matching WHERE were rejected before filtering
+- Solution: Moved LIMIT check to occur AFTER WHERE clause validation in SelectProcessor
+- Result: All 10 LIMIT tests now pass including previously failing test_limit_with_where_clause
+
+**Bug #2: Lazy Initialization Code Duplication (REFACTORED)**
+- Problem: Repeated lazy initialization pattern in process_batch_with_output (2 locations)
+- Solution: Extracted common boilerplate into `ensure_query_execution()` helper method
+- Result: DRY principle applied, 24 lines of duplicate code eliminated
+- Benefit: Consistency, maintainability, and clarity improved
+
+### Code Changes
+
+**SelectProcessor (select.rs)**
+- Moved LIMIT check from line 378 to line 429
+- LIMIT now only counts records passing WHERE clause
+
+**StreamExecutionEngine (engine.rs)**
+- Added new public method `ensure_query_execution()`
+- Handles both lazy initialization and retrieval atomically
+- Returns `Arc<Mutex<ProcessorContext>>` for ownership transfer
+
+**Batch Processors (common.rs, transactional.rs)**
+- Updated both process_batch_with_output branches to use ensure_query_execution()
+- Cleaner single-path error handling
+- Better error messages
+
+### Testing & Validation
+
+✅ All 10 LIMIT tests pass
+✅ All 528 unit tests pass (no regressions)
+✅ Code compiles cleanly
+✅ All pre-commit checks pass
+
+### Architectural Finding: STP Determinism Issue (For Phase 6.7)
+
+**Identified Issue**: Tests require timeouts because `execute_with_record()` is async
+- Current: Output may not be available immediately after `.await`
+- Required: STP semantics demand synchronous execution for deterministic commit/rollback
+- This is a Phase 6.7 task, not Phase 6.6
+
+---
+
+## Phase 6.7: STP Determinism Layer (NEXT)
+
+**Status**: 📋 PLANNED
+**Effort**: **M** (Medium - 3-5 days)
+**Expected Improvement**: Deterministic record processing, proper STP semantics
+**Blockers**: None - Phase 6.6 complete
+
+### Problem Statement
+
+Current implementation uses async/await for record processing:
+- `execute_with_record()` is async
+- Tests need `timeout()` to wait for channel messages
+- Lost determinism: processing loop can't immediately decide commit/fail/rollback
+- Output availability is not guaranteed after `.await` completes
+
+### Solution Design
+
+Make record processing **synchronous** with guaranteed output availability:
+
+**Goal**: Processing loop can immediately decide:
+- Commit: all records successfully processed
+- Fail: error occurred, rollback changes
+- Rollback: other partitions failed, abort this batch
+
+**Implementation Strategy**:
+1. Make `execute_with_record()` synchronous (blocking API)
+2. Direct output channel send (not buffered)
+3. Return `Option<StreamRecord>` directly instead of through channel
+4. Ensure ProcessorContext available immediately
+
+**Key Changes**:
+- Convert `execute_with_record()` from async to sync
+- Make output_sender.send() a blocking operation if needed
+- Update all callers to sync pattern
+- Ensure test determinism without timeouts
+
+### Benefits
+
+1. **True STP semantics**: Single-threaded deterministic processing
+2. **Simpler code**: No .await, no channel races
+3. **Better testing**: No timeouts, tests run faster
+4. **Correct semantics**: Loop can immediately know result of each record
+5. **Performance**: Reduced context switching overhead from async
+
+### Test Plan
+
+1. Remove all timeout-based test patterns
+2. Verify tests run without delays
+3. Ensure deterministic output ordering
+4. Validate commit/rollback semantics work correctly
+5. Benchmark to ensure no performance regression
+
+---
+
+## Phase 6.8: Zero-Copy Record Processing (PLANNED)
 
 **Status**: 📋 PLANNED
 **Effort**: **L** (Large - 1-2 weeks)
