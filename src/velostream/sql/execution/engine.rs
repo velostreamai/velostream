@@ -283,6 +283,26 @@ impl StreamExecutionEngine {
         }
     }
 
+    /// FR-082 Phase 6.6: Lazy initialize or get existing QueryExecution
+    ///
+    /// Ensures QueryExecution exists before returning. Creates if needed.
+    /// Used by batch processing and other code paths that need guaranteed execution context.
+    ///
+    /// Returns Arc<Mutex<ProcessorContext>> for ownership transfer to processing loops.
+    pub fn ensure_query_execution(
+        &mut self,
+        query: &StreamingQuery,
+    ) -> Option<Arc<std::sync::Mutex<ProcessorContext>>> {
+        // Lazy initialize if needed
+        if !self.active_queries.contains_key(&self.generate_query_id(query)) {
+            self.init_query_execution(query.clone());
+        }
+
+        // Now retrieve it
+        self.get_query_execution(&self.generate_query_id(query))
+            .map(|execution| Arc::clone(&execution.processor_context))
+    }
+
     /// FR-082 Phase 5: Set output receiver for EMIT CHANGES support
     ///
     /// This allows the engine to own the output receiver, enabling batch processing

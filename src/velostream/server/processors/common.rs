@@ -367,19 +367,15 @@ pub async fn process_batch_with_output(
 
         // Get Arc<Mutex<ProcessorContext>> from QueryExecution - NOT holding engine lock during processing
         // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
+        // FR-082 Phase 6.6: Use ensure_query_execution for lazy initialization pattern
         let processor_context_arc = {
-            // Try to get existing QueryExecution, or lazy initialize if needed
             let mut engine_lock = engine.write().await;
 
-            // Check if QueryExecution exists, if not lazy initialize for tests calling process_batch_with_output directly
-            if engine_lock.get_query_execution(&query_id).is_none() {
-                engine_lock.init_query_execution(query.clone());
-            }
-
-            if let Some(execution) = engine_lock.get_query_execution(&query_id) {
-                Arc::clone(&execution.processor_context)
+            // Lazy initialize if needed, then get Arc to ProcessorContext
+            if let Some(context_arc) = engine_lock.ensure_query_execution(&query) {
+                context_arc
             } else {
-                error!("Query not found: {}", query_id);
+                error!("Failed to initialize query execution: {}", query_id);
                 return BatchProcessingResultWithOutput {
                     records_processed: 0,
                     records_failed: batch.len(),
@@ -387,7 +383,7 @@ pub async fn process_batch_with_output(
                     batch_size: batch.len(),
                     error_details: vec![ProcessingError {
                         record_index: 0,
-                        error_message: format!("Query not found: {}", query_id),
+                        error_message: format!("Failed to initialize query execution: {}", query_id),
                         recoverable: false,
                     }],
                     output_records: vec![],
@@ -457,19 +453,15 @@ pub async fn process_batch_with_output(
         // Phase 6.5: Get Arc<Mutex<ProcessorContext>> from QueryExecution
         // Context persists for lifetime of query - acquired by reference, never cloned
         // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
+        // FR-082 Phase 6.6: Use ensure_query_execution for lazy initialization pattern
         let processor_context_arc = {
-            // Try to get existing QueryExecution, or lazy initialize if needed
             let mut engine_lock = engine.write().await;
 
-            // Check if QueryExecution exists, if not lazy initialize for tests calling process_batch_with_output directly
-            if engine_lock.get_query_execution(&query_id).is_none() {
-                engine_lock.init_query_execution(query.clone());
-            }
-
-            if let Some(execution) = engine_lock.get_query_execution(&query_id) {
-                Arc::clone(&execution.processor_context)
+            // Lazy initialize if needed, then get Arc to ProcessorContext
+            if let Some(context_arc) = engine_lock.ensure_query_execution(&query) {
+                context_arc
             } else {
-                error!("Query not found: {}", query_id);
+                error!("Failed to initialize query execution: {}", query_id);
                 return BatchProcessingResultWithOutput {
                     records_processed: 0,
                     records_failed: batch.len(),
@@ -477,7 +469,7 @@ pub async fn process_batch_with_output(
                     batch_size: batch.len(),
                     error_details: vec![ProcessingError {
                         record_index: 0,
-                        error_message: format!("Query not found: {}", query_id),
+                        error_message: format!("Failed to initialize query execution: {}", query_id),
                         recoverable: false,
                     }],
                     output_records: vec![],
