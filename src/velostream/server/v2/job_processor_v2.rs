@@ -182,9 +182,15 @@ impl JobProcessor for PartitionedJobCoordinator {
         // Step 3: Read batches and route to receivers
         let mut consecutive_empty = 0;
         let mut total_routed = 0u64;
+        // V2 uses a configurable limit for consecutive empty batches (default: 1000)
+        // This prevents early termination on slow data sources
+        const MAX_CONSECUTIVE_EMPTY: u32 = 1000;
+        const WAIT_ON_EMPTY_MS: u64 = 1000;
 
         loop {
-            if !reader.has_more().await.unwrap_or(false) && consecutive_empty >= 3 {
+            if !reader.has_more().await.unwrap_or(false)
+                && consecutive_empty >= MAX_CONSECUTIVE_EMPTY
+            {
                 break;
             }
 
@@ -192,6 +198,9 @@ impl JobProcessor for PartitionedJobCoordinator {
                 Ok(batch) => {
                     if batch.is_empty() {
                         consecutive_empty += 1;
+                        // Wait before next read to avoid busy-waiting on empty data sources
+                        tokio::time::sleep(tokio::time::Duration::from_millis(WAIT_ON_EMPTY_MS))
+                            .await;
                         continue;
                     }
 
@@ -268,6 +277,11 @@ impl JobProcessor for PartitionedJobCoordinator {
         // This is the unified API for processing multiple data sources and sinks.
         // It wraps the existing coordinator logic but handles multiple readers/writers.
 
+        // V2 uses a configurable limit for consecutive empty batches (default: 1000)
+        // This prevents early termination on slow data sources
+        const MAX_CONSECUTIVE_EMPTY: u32 = 1000;
+        const WAIT_ON_EMPTY_MS: u64 = 1000;
+
         info!(
             "V2 PartitionedJobCoordinator::process_multi_job: {} ({} sources, {} sinks)",
             job_name,
@@ -304,7 +318,9 @@ impl JobProcessor for PartitionedJobCoordinator {
             let mut total_routed = 0u64;
 
             loop {
-                if !reader.has_more().await.unwrap_or(false) && consecutive_empty >= 3 {
+                if !reader.has_more().await.unwrap_or(false)
+                    && consecutive_empty >= MAX_CONSECUTIVE_EMPTY
+                {
                     break;
                 }
 
@@ -312,6 +328,11 @@ impl JobProcessor for PartitionedJobCoordinator {
                     Ok(batch) => {
                         if batch.is_empty() {
                             consecutive_empty += 1;
+                            // Wait before next read to avoid busy-waiting on empty data sources
+                            tokio::time::sleep(tokio::time::Duration::from_millis(
+                                WAIT_ON_EMPTY_MS,
+                            ))
+                            .await;
                             continue;
                         }
 

@@ -238,6 +238,12 @@ pub struct JobProcessingConfig {
     pub log_progress: bool,
     /// Progress logging interval (in batches)
     pub progress_interval: u64,
+    /// Maximum number of consecutive empty batches before exiting data source loop
+    /// Default: 1000 (allows long waiting periods for slow data sources)
+    pub empty_batch_count: u32,
+    /// Wait time in milliseconds between empty batches
+    /// Default: 1000ms (1 second) to avoid busy-waiting on empty data sources
+    pub wait_on_empty_batch_ms: u64,
 }
 
 impl Default for JobProcessingConfig {
@@ -251,6 +257,8 @@ impl Default for JobProcessingConfig {
             retry_backoff: Duration::from_millis(5000),
             log_progress: true,
             progress_interval: 10,
+            empty_batch_count: 1000,
+            wait_on_empty_batch_ms: 1000,
         }
     }
 }

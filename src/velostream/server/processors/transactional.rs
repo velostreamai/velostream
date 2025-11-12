@@ -336,7 +336,8 @@ impl TransactionalJobProcessor {
 
         // Track consecutive empty batches for end-of-stream detection
         let mut consecutive_empty_batches = 0;
-        const MAX_CONSECUTIVE_EMPTY: u32 = 3;
+        let max_consecutive_empty = self.config.empty_batch_count;
+        let wait_on_empty = Duration::from_millis(self.config.wait_on_empty_batch_ms);
 
         loop {
             // Check for shutdown signal
@@ -364,19 +365,19 @@ impl TransactionalJobProcessor {
                         consecutive_empty_batches += 1;
                         debug!(
                             "Job '{}': Empty batch #{} of {}",
-                            job_name, consecutive_empty_batches, MAX_CONSECUTIVE_EMPTY
+                            job_name, consecutive_empty_batches, max_consecutive_empty
                         );
 
-                        if consecutive_empty_batches >= MAX_CONSECUTIVE_EMPTY {
+                        if consecutive_empty_batches >= max_consecutive_empty {
                             info!(
                                 "Job '{}': {} consecutive empty batches, assuming end of stream",
-                                job_name, MAX_CONSECUTIVE_EMPTY
+                                job_name, max_consecutive_empty
                             );
                             break;
                         }
 
-                        // Wait briefly before next read
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        // Wait before next read (configurable, default 1000ms)
+                        tokio::time::sleep(wait_on_empty).await;
                     } else {
                         // Reset counter on non-empty batch
                         consecutive_empty_batches = 0;
