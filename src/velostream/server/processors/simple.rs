@@ -244,10 +244,6 @@ impl SimpleJobProcessor {
             // Context is already prepared by engine.prepare_context() above
         }
 
-        // Track if we've seen empty batches from all sources (lazy check)
-        let mut consecutive_empty_batches = 0;
-        const MAX_EMPTY_BATCHES: usize = 30 * 1000; // Check has_more() after 3 empty batches
-
         loop {
             // Check for shutdown signal
             if shutdown_rx.try_recv().is_ok() {
@@ -255,43 +251,38 @@ impl SimpleJobProcessor {
                 break;
             }
 
-            // Only check has_more() after seeing empty batches (optimization)
-            if consecutive_empty_batches >= MAX_EMPTY_BATCHES {
-                let sources_finished = {
-                    let source_names = context.list_sources();
-                    let mut all_finished = true;
-                    for source_name in source_names {
-                        match context.has_more_data(&source_name).await {
-                            Ok(has_more) => {
-                                if has_more {
-                                    all_finished = false;
-                                    break;
-                                }
-                            }
-                            Err(e) => {
-                                warn!(
-                                    "Job '{}': Failed to check has_more for source '{}': {:?}",
-                                    job_name, source_name, e
-                                );
-                                // On error, assume source has more data to avoid premature exit
+            // Check if all sources have finished processing (consistent with transactional)
+            let sources_finished = {
+                let source_names = context.list_sources();
+                let mut all_finished = true;
+                for source_name in source_names {
+                    match context.has_more_data(&source_name).await {
+                        Ok(has_more) => {
+                            if has_more {
                                 all_finished = false;
                                 break;
                             }
                         }
+                        Err(e) => {
+                            warn!(
+                                "Job '{}': Failed to check has_more for source '{}': {:?}",
+                                job_name, source_name, e
+                            );
+                            // On error, assume source has more data to avoid premature exit
+                            all_finished = false;
+                            break;
+                        }
                     }
-                    all_finished
-                };
-
-                if sources_finished {
-                    info!(
-                        "Job '{}': All sources have finished - no more data to process",
-                        job_name
-                    );
-                    break;
                 }
+                all_finished
+            };
 
-                // Reset counter after checking
-                consecutive_empty_batches = 0;
+            if sources_finished {
+                info!(
+                    "Job '{}': All sources have finished - no more data to process",
+                    job_name
+                );
+                break;
             }
 
             // Track records processed before this batch
@@ -303,16 +294,6 @@ impl SimpleJobProcessor {
                 .await
             {
                 Ok(()) => {
-                    // Check if we actually processed any records
-                    let records_processed = stats.records_processed - records_before;
-                    if records_processed > 0 {
-                        // Reset empty batch counter on successful processing
-                        consecutive_empty_batches = 0;
-                    } else {
-                        // No records processed - increment empty batch counter
-                        consecutive_empty_batches += 1;
-                    }
-
                     if self.config.log_progress
                         && stats
                             .batches_processed
@@ -327,7 +308,6 @@ impl SimpleJobProcessor {
                         job_name, e
                     );
                     stats.batches_failed += 1;
-                    consecutive_empty_batches += 1; // Increment on failure (likely empty batch)
 
                     // Apply retry backoff
                     tokio::time::sleep(self.config.retry_backoff).await;
