@@ -12,6 +12,7 @@ pub mod job_processor_trait;
 pub mod metrics_helper;
 pub mod observability_helper;
 pub mod observability_utils;
+pub mod processor_registry;
 pub mod simple;
 pub mod transactional;
 
@@ -20,10 +21,11 @@ pub use common::*;
 pub use error_tracking_helper::ErrorTracker;
 pub use job_processor_config::JobProcessorConfig;
 pub use job_processor_factory::JobProcessorFactory;
-pub use job_processor_trait::JobProcessor;
+pub use job_processor_trait::{JobProcessor, LifecycleState, ProcessorMetrics};
 pub use metrics_helper::{
     LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,
 };
 pub use observability_helper::ObservabilityHelper;
+pub use processor_registry::{MigrationStrategy, ProcessorRegistry, RoutingStats};
 pub use simple::SimpleJobProcessor;
 pub use transactional::TransactionalJobProcessor;
