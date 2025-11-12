@@ -18,8 +18,10 @@ pub struct JobProcessorFactory;
 impl JobProcessorFactory {
     /// Create a job processor based on the provided configuration
     ///
-    /// This factory method creates the appropriate processor type:
-    /// - V2: Returns a PartitionedJobCoordinator (multi-partition parallel)
+    /// This factory method creates the appropriate processor:
+    /// - Simple: Single-threaded, best-effort delivery
+    /// - Transactional: Single-threaded, at-least-once delivery
+    /// - Adaptive: Multi-partition parallel execution
     ///
     /// The processor is returned as a trait object for flexible usage.
     ///
@@ -28,34 +30,34 @@ impl JobProcessorFactory {
     /// ```rust,no_run
     /// use velostream::velostream::server::processors::{JobProcessorFactory, JobProcessorConfig};
     ///
-    /// // Create V2 processor with 8 partitions
-    /// let v2_config = JobProcessorConfig::V2 {
+    /// // Create Adaptive processor with 8 partitions
+    /// let adaptive_config = JobProcessorConfig::Adaptive {
     ///     num_partitions: Some(8),
     ///     enable_core_affinity: false,
     /// };
-    /// let v2 = JobProcessorFactory::create(v2_config);
-    /// assert_eq!(v2.processor_version(), "V2");
-    /// assert_eq!(v2.num_partitions(), 8);
+    /// let adaptive = JobProcessorFactory::create(adaptive_config);
+    /// assert_eq!(adaptive.processor_version(), "V2");
+    /// assert_eq!(adaptive.num_partitions(), 8);
     /// ```
     pub fn create(config: JobProcessorConfig) -> Arc<dyn JobProcessor> {
         match config {
-            JobProcessorConfig::V1Simple => {
-                info!("Creating V1 Simple JobProcessor (SingleThreaded, Best-Effort)");
+            JobProcessorConfig::Simple => {
+                info!("Creating Simple processor (Single-threaded, Best-Effort delivery)");
                 Arc::new(SimpleJobProcessor::new(JobProcessingConfig {
                     use_transactions: false,
                     failure_strategy: FailureStrategy::LogAndContinue,
                     ..Default::default()
                 }))
             }
-            JobProcessorConfig::V1Transactional => {
-                info!("Creating V1 Transactional JobProcessor (SingleThreaded, At-Least-Once)");
+            JobProcessorConfig::Transactional => {
+                info!("Creating Transactional processor (Single-threaded, At-Least-Once delivery)");
                 Arc::new(TransactionalJobProcessor::new(JobProcessingConfig {
                     use_transactions: true,
                     failure_strategy: FailureStrategy::FailBatch,
                     ..Default::default()
                 }))
             }
-            JobProcessorConfig::V2 {
+            JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             } => {
@@ -72,7 +74,7 @@ impl JobProcessorFactory {
                 });
 
                 info!(
-                    "Creating V2 JobProcessor (PartitionedJobCoordinator): {} partitions, affinity: {}",
+                    "Creating Adaptive processor (PartitionedJobCoordinator): {} partitions, affinity: {}",
                     actual_partitions, enable_core_affinity
                 );
                 Arc::new(PartitionedJobCoordinator::new(partitioned_config))
@@ -80,30 +82,57 @@ impl JobProcessorFactory {
         }
     }
 
-    /// Create a V1 Simple processor (single-threaded, best-effort)
-    pub fn create_v1_simple() -> Arc<dyn JobProcessor> {
-        Self::create(JobProcessorConfig::V1Simple)
+    /// Create a Simple mode processor (single-threaded, best-effort)
+    pub fn create_simple() -> Arc<dyn JobProcessor> {
+        Self::create(JobProcessorConfig::Simple)
     }
 
-    /// Create a V1 Transactional processor (single-threaded, at-least-once)
-    pub fn create_v1_transactional() -> Arc<dyn JobProcessor> {
-        Self::create(JobProcessorConfig::V1Transactional)
+    /// Create a Transactional mode processor (single-threaded, at-least-once)
+    pub fn create_transactional() -> Arc<dyn JobProcessor> {
+        Self::create(JobProcessorConfig::Transactional)
     }
 
-    /// Create a V2 processor with default configuration
-    pub fn create_v2_default() -> Arc<dyn JobProcessor> {
-        Self::create(JobProcessorConfig::V2 {
+    /// Create an Adaptive mode processor with default configuration
+    pub fn create_adaptive_default() -> Arc<dyn JobProcessor> {
+        Self::create(JobProcessorConfig::Adaptive {
             num_partitions: None,
             enable_core_affinity: false,
         })
     }
 
-    /// Create a V2 processor with specific partition count
-    pub fn create_v2_with_partitions(num_partitions: usize) -> Arc<dyn JobProcessor> {
-        Self::create(JobProcessorConfig::V2 {
+    /// Create an Adaptive mode processor with specific partition count
+    pub fn create_adaptive_with_partitions(num_partitions: usize) -> Arc<dyn JobProcessor> {
+        Self::create(JobProcessorConfig::Adaptive {
             num_partitions: Some(num_partitions),
             enable_core_affinity: false,
         })
+    }
+
+    /// Legacy: Create a V1 Simple processor (single-threaded, best-effort)
+    #[deprecated(since = "0.2.0", note = "use create_simple() instead")]
+    pub fn create_v1_simple() -> Arc<dyn JobProcessor> {
+        Self::create_simple()
+    }
+
+    /// Legacy: Create a V1 Transactional processor (single-threaded, at-least-once)
+    #[deprecated(since = "0.2.0", note = "use create_transactional() instead")]
+    pub fn create_v1_transactional() -> Arc<dyn JobProcessor> {
+        Self::create_transactional()
+    }
+
+    /// Legacy: Create a V2 processor with default configuration
+    #[deprecated(since = "0.2.0", note = "use create_adaptive_default() instead")]
+    pub fn create_v2_default() -> Arc<dyn JobProcessor> {
+        Self::create_adaptive_default()
+    }
+
+    /// Legacy: Create a V2 processor with specific partition count
+    #[deprecated(
+        since = "0.2.0",
+        note = "use create_adaptive_with_partitions() instead"
+    )]
+    pub fn create_v2_with_partitions(num_partitions: usize) -> Arc<dyn JobProcessor> {
+        Self::create_adaptive_with_partitions(num_partitions)
     }
 
     /// Create a processor from a configuration string
@@ -112,10 +141,11 @@ impl JobProcessorFactory {
     /// This is useful for config file parsing (YAML, TOML, etc.)
     ///
     /// Supported formats:
-    /// - "v1" → V1 processor
-    /// - "v2" → V2 processor (default partitions)
-    /// - "v2:8" → V2 processor with 8 partitions
-    /// - "v2:8:affinity" → V2 processor with 8 partitions and core affinity
+    /// - "simple", "v1:simple" → Simple mode
+    /// - "transactional", "v1:transactional" → Transactional mode
+    /// - "adaptive", "v2" → Adaptive with default partitions
+    /// - "adaptive:8", "v2:8" → Adaptive with 8 partitions
+    /// - "adaptive:8:affinity", "v2:8:affinity" → Adaptive with affinity
     pub fn create_from_str(config_str: &str) -> Result<Arc<dyn JobProcessor>, String> {
         let config: JobProcessorConfig = config_str.parse()?;
         Ok(Self::create(config))
@@ -136,7 +166,7 @@ impl JobProcessorFactory {
     /// assert_eq!(mock.processor_version(), "Mock");
     /// ```
     pub fn create_mock() -> Arc<dyn JobProcessor> {
-        info!("Creating Mock JobProcessor for testing");
+        info!("Creating Mock processor for testing");
         Arc::new(MockJobProcessor::new())
     }
 }
@@ -146,58 +176,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_factory_create_v1_simple() {
-        let processor = JobProcessorFactory::create_v1_simple();
+    fn test_factory_create_simple() {
+        let processor = JobProcessorFactory::create_simple();
         assert_eq!(processor.processor_version(), "V1");
         assert_eq!(processor.num_partitions(), 1);
         assert_eq!(processor.processor_name(), "SimpleJobProcessor");
     }
 
     #[test]
-    fn test_factory_create_v1_transactional() {
-        let processor = JobProcessorFactory::create_v1_transactional();
+    fn test_factory_create_transactional() {
+        let processor = JobProcessorFactory::create_transactional();
         assert_eq!(processor.processor_version(), "V1-Transactional");
         assert_eq!(processor.num_partitions(), 1);
         assert_eq!(processor.processor_name(), "TransactionalJobProcessor");
     }
 
     #[test]
-    fn test_factory_create_from_string_v1_simple() {
-        let processor = JobProcessorFactory::create_from_str("v1:simple").unwrap();
+    fn test_factory_create_from_string_simple() {
+        let processor = JobProcessorFactory::create_from_str("simple").unwrap();
         assert_eq!(processor.processor_version(), "V1");
         assert_eq!(processor.num_partitions(), 1);
     }
 
     #[test]
-    fn test_factory_create_from_string_v1_transactional() {
-        let processor = JobProcessorFactory::create_from_str("v1:transactional").unwrap();
+    fn test_factory_create_from_string_transactional() {
+        let processor = JobProcessorFactory::create_from_str("transactional").unwrap();
         assert_eq!(processor.processor_version(), "V1-Transactional");
         assert_eq!(processor.num_partitions(), 1);
     }
 
     #[test]
-    fn test_factory_create_v2_default() {
-        let processor = JobProcessorFactory::create_v2_default();
+    fn test_factory_create_adaptive_default() {
+        let processor = JobProcessorFactory::create_adaptive_default();
         assert_eq!(processor.processor_version(), "V2");
         assert!(processor.num_partitions() > 0);
     }
 
     #[test]
-    fn test_factory_create_v2_with_partitions() {
-        let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    fn test_factory_create_adaptive_with_partitions() {
+        let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
         assert_eq!(processor.processor_version(), "V2");
         assert_eq!(processor.num_partitions(), 8);
     }
 
     #[test]
-    fn test_factory_create_from_string_v2() {
-        let processor = JobProcessorFactory::create_from_str("v2").unwrap();
+    fn test_factory_create_from_string_adaptive() {
+        let processor = JobProcessorFactory::create_from_str("adaptive").unwrap();
         assert_eq!(processor.processor_version(), "V2");
     }
 
     #[test]
-    fn test_factory_create_from_string_v2_8() {
-        let processor = JobProcessorFactory::create_from_str("v2:8").unwrap();
+    fn test_factory_create_from_string_adaptive_8() {
+        let processor = JobProcessorFactory::create_from_str("adaptive:8").unwrap();
         assert_eq!(processor.processor_version(), "V2");
         assert_eq!(processor.num_partitions(), 8);
     }
@@ -214,5 +244,30 @@ mod tests {
         assert_eq!(mock.processor_version(), "Mock");
         assert_eq!(mock.processor_name(), "Mock Test Processor");
         assert_eq!(mock.num_partitions(), 1);
+    }
+
+    #[test]
+    fn test_legacy_v1_simple() {
+        let processor = JobProcessorFactory::create_v1_simple();
+        assert_eq!(processor.processor_version(), "V1");
+    }
+
+    #[test]
+    fn test_legacy_v1_transactional() {
+        let processor = JobProcessorFactory::create_v1_transactional();
+        assert_eq!(processor.processor_version(), "V1-Transactional");
+    }
+
+    #[test]
+    fn test_legacy_v2_default() {
+        let processor = JobProcessorFactory::create_v2_default();
+        assert_eq!(processor.processor_version(), "V2");
+    }
+
+    #[test]
+    fn test_legacy_v2_with_partitions() {
+        let processor = JobProcessorFactory::create_v2_with_partitions(8);
+        assert_eq!(processor.processor_version(), "V2");
+        assert_eq!(processor.num_partitions(), 8);
     }
 }

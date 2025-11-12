@@ -1,13 +1,14 @@
-//! Demonstration of V1/V2 Job Processor Architecture Selection
+//! Demonstration of Job Processor Architecture Selection
 //!
 //! This example shows how to:
 //! 1. Create StreamJobServer instances with different processor architectures
-//! 2. Switch between V1 (single-threaded baseline) and V2 (multi-partition parallel)
+//! 2. Switch between Simple (single-threaded baseline) and Adaptive (multi-partition parallel)
 //! 3. Log the processor configuration during job deployment
 //!
-//! **Phase 5.3: JobProcessor Integration**
-//! - V1 Architecture: Single-threaded, single-partition baseline (~23.7K rec/sec baseline)
-//! - V2 Architecture: Multi-partition parallel execution (~190K rec/sec with real SQL work)
+//! **Processor Architectures**
+//! - Simple: Single-threaded, best-effort delivery (~23.7K rec/sec baseline)
+//! - Transactional: Single-threaded, at-least-once delivery
+//! - Adaptive: Multi-partition parallel execution (~190K rec/sec with real SQL work)
 //!
 //! The actual execution happens in StreamJobServer::deploy_job() where the configured
 //! processor architecture is logged and used for job execution.
@@ -25,7 +26,7 @@ async fn main() {
     println!("{}\n", separator);
 
     // Example 1: Create server with default processor configuration
-    println!("📋 Example 1: Default Configuration (V2)");
+    println!("📋 Example 1: Default Configuration (Adaptive)");
     println!("{}", divider);
     {
         let server = StreamJobServer::new(
@@ -35,110 +36,110 @@ async fn main() {
         );
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
-        println!("  • Processor: V2 (Multi-partition)");
+        println!("  • Processor: Adaptive (Multi-partition)");
         println!("  • Partitions: CPU count (automatic)");
         println!("  • Expected throughput: ~190K rec/sec with real SQL work\n");
     }
 
-    // Example 2: Create server with V2 processor (1 partition - minimal config)
-    println!("📋 Example 2: V2 Single Partition (Minimal)");
+    // Example 2: Create server with Adaptive processor (1 partition - minimal config)
+    println!("📋 Example 2: Adaptive Single Partition (Minimal)");
     println!("{}", divider);
     {
         let server = StreamJobServer::new(
             "localhost:9092".to_string(),
-            "demo-group-v2-single".to_string(),
+            "demo-group-adaptive-single".to_string(),
             10,
         )
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(1),
             enable_core_affinity: false,
         });
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
-        println!("  • Processor: V2 (PartitionedJobCoordinator)");
+        println!("  • Processor: Adaptive (PartitionedJobCoordinator)");
         println!("  • Partitions: 1 (minimal configuration)");
         println!("  • Use case: Single-partition baseline, low-concurrency");
         println!("  • Expected throughput: ~25-30K rec/sec with real SQL work\n");
     }
 
-    // Example 3: Create server with V2 processor (8 partitions)
-    println!("📋 Example 3: V2 Multi-Partition (8 cores)");
+    // Example 3: Create server with Adaptive processor (8 partitions)
+    println!("📋 Example 3: Adaptive Multi-Partition (8 cores)");
     println!("{}", divider);
     {
         let server = StreamJobServer::new(
             "localhost:9092".to_string(),
-            "demo-group-v2-8".to_string(),
+            "demo-group-adaptive-8".to_string(),
             10,
         )
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: false,
         });
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
-        println!("  • Processor: V2 (PartitionedJobCoordinator)");
+        println!("  • Processor: Adaptive (PartitionedJobCoordinator)");
         println!("  • Partitions: 8 (explicit)");
         println!("  • Core Affinity: Disabled");
         println!("  • Expected scaling: 8x improvement (linear scaling)");
         println!("  • Expected throughput: ~190K rec/sec with real SQL work\n");
     }
 
-    // Example 4: Create server with V2 processor (8 partitions + core affinity)
-    println!("📋 Example 4: V2 Multi-Partition with Core Affinity");
+    // Example 4: Create server with Adaptive processor (8 partitions + core affinity)
+    println!("📋 Example 4: Adaptive Multi-Partition with Core Affinity");
     println!("{}", divider);
     {
         let server = StreamJobServer::new(
             "localhost:9092".to_string(),
-            "demo-group-v2-affinity".to_string(),
+            "demo-group-adaptive-affinity".to_string(),
             10,
         )
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: true,
         });
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
-        println!("  • Processor: V2 (PartitionedJobCoordinator)");
+        println!("  • Processor: Adaptive (PartitionedJobCoordinator)");
         println!("  • Partitions: 8");
         println!("  • Core Affinity: Enabled");
         println!("  • Optimization: Each partition pinned to specific CPU core");
         println!("  • Expected benefit: Reduced cache misses, better locality\n");
     }
 
-    // Example 5: Compare V2 Single vs Multi-Partition
+    // Example 5: Compare Adaptive Single vs Multi-Partition
     println!("📋 Example 5: Performance Comparison (Single vs Multi-Partition)");
     println!("{}", divider);
     {
-        let v2_single_server = StreamJobServer::new(
+        let adaptive_single_server = StreamJobServer::new(
             "localhost:9092".to_string(),
-            "demo-v2-single".to_string(),
+            "demo-adaptive-single".to_string(),
             10,
         )
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(1),
             enable_core_affinity: false,
         });
 
-        let v2_multi_server = StreamJobServer::new(
+        let adaptive_multi_server = StreamJobServer::new(
             "localhost:9092".to_string(),
-            "demo-v2-multi".to_string(),
+            "demo-adaptive-multi".to_string(),
             10,
         )
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: false,
         });
 
         println!(
-            "V2 Single-Partition: {}",
-            v2_single_server.processor_config().description()
+            "Adaptive Single-Partition: {}",
+            adaptive_single_server.processor_config().description()
         );
         println!(
-            "V2 Multi-Partition: {}",
-            v2_multi_server.processor_config().description()
+            "Adaptive Multi-Partition: {}",
+            adaptive_multi_server.processor_config().description()
         );
 
         println!("\nPhase 5.2 Baseline Results (Interface-Level, Pass-Through):");

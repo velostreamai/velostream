@@ -1,6 +1,6 @@
 //! Integration tests for StreamJobServer with JobProcessor configuration
 //!
-//! Tests the V1/V2 processor architecture selection at the StreamJobServer level.
+//! Tests the Simple/Transactional/Adaptive processor architecture selection at the StreamJobServer level.
 //! This demonstrates the integration of JobProcessorConfig with the job server.
 //!
 //! ## Configuration Usage Examples
@@ -30,24 +30,24 @@ use velostream::velostream::server::stream_job_server::StreamJobServer;
 
 #[tokio::test]
 async fn test_stream_job_server_default_processor_config() {
-    // Default configuration should be V2
+    // Default configuration should be Adaptive
     let server = StreamJobServer::new("localhost:9092".to_string(), "test-group".to_string(), 10);
     let config = server.processor_config();
-    assert!(matches!(config, JobProcessorConfig::V2 { .. }));
+    assert!(matches!(config, JobProcessorConfig::Adaptive { .. }));
 }
 
 #[tokio::test]
-async fn test_stream_job_server_v2_single_partition_processor_config() {
-    // Set to V2 configuration with single partition (equivalent to old V1 baseline)
+async fn test_stream_job_server_adaptive_single_partition_processor_config() {
+    // Set to Adaptive configuration with single partition
     let server = StreamJobServer::new("localhost:9092".to_string(), "test-group".to_string(), 10);
-    let server_v2_single = server.with_processor_config(JobProcessorConfig::V2 {
+    let server_adaptive_single = server.with_processor_config(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
-    let v2_config = server_v2_single.processor_config();
+    let adaptive_config = server_adaptive_single.processor_config();
     assert!(matches!(
-        v2_config,
-        JobProcessorConfig::V2 {
+        adaptive_config,
+        JobProcessorConfig::Adaptive {
             num_partitions: Some(1),
             ..
         }
@@ -55,85 +55,86 @@ async fn test_stream_job_server_v2_single_partition_processor_config() {
 }
 
 #[tokio::test]
-async fn test_stream_job_server_v2_processor_config_with_partitions() {
-    // Set to V2 with specific partition count
+async fn test_stream_job_server_adaptive_processor_config_with_partitions() {
+    // Set to Adaptive with specific partition count
     let server = StreamJobServer::new("localhost:9092".to_string(), "test-group".to_string(), 10);
-    let server_v2_8 = server.with_processor_config(JobProcessorConfig::V2 {
+    let server_adaptive_8 = server.with_processor_config(JobProcessorConfig::Adaptive {
         num_partitions: Some(8),
         enable_core_affinity: false,
     });
 
-    let v2_8_config = server_v2_8.processor_config();
-    if let JobProcessorConfig::V2 {
+    let adaptive_8_config = server_adaptive_8.processor_config();
+    if let JobProcessorConfig::Adaptive {
         num_partitions: Some(n),
         ..
-    } = v2_8_config
+    } = adaptive_8_config
     {
         assert_eq!(*n, 8);
     } else {
-        panic!("Expected V2 with 8 partitions");
+        panic!("Expected Adaptive with 8 partitions");
     }
 }
 
 #[tokio::test]
 async fn test_stream_job_server_processor_config_description() {
-    // Test V2 single partition description
+    // Test Adaptive single partition description
     let server = StreamJobServer::new("localhost:9092".to_string(), "test-group".to_string(), 10);
-    let server_v2_single = server
-        .clone()
-        .with_processor_config(JobProcessorConfig::V2 {
-            num_partitions: Some(1),
-            enable_core_affinity: false,
-        });
-    let desc = server_v2_single.processor_config().description();
-    assert!(desc.contains("V2"));
+    let server_adaptive_single =
+        server
+            .clone()
+            .with_processor_config(JobProcessorConfig::Adaptive {
+                num_partitions: Some(1),
+                enable_core_affinity: false,
+            });
+    let desc = server_adaptive_single.processor_config().description();
+    assert!(desc.contains("Adaptive"));
     assert!(desc.contains("1"));
 
-    // Test V2 description with 8 partitions
-    let server_v2_8 = server
+    // Test Adaptive description with 8 partitions
+    let server_adaptive_8 = server
         .clone()
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: false,
         });
-    let desc_v2 = server_v2_8.processor_config().description();
-    assert!(desc_v2.contains("V2"));
-    assert!(desc_v2.contains("8"));
+    let desc_adaptive = server_adaptive_8.processor_config().description();
+    assert!(desc_adaptive.contains("Adaptive"));
+    assert!(desc_adaptive.contains("8"));
 }
 
 #[tokio::test]
 async fn test_stream_job_server_multiple_processor_configs() {
     // Test that multiple servers can have different processor configs
     let server1 = StreamJobServer::new("localhost:9092".to_string(), "group-1".to_string(), 10)
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(1),
             enable_core_affinity: false,
         });
 
     let server2 = StreamJobServer::new("localhost:9092".to_string(), "group-2".to_string(), 10)
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: false,
         });
 
-    if let JobProcessorConfig::V2 {
+    if let JobProcessorConfig::Adaptive {
         num_partitions: Some(n),
         ..
     } = server1.processor_config()
     {
         assert_eq!(*n, 1);
     } else {
-        panic!("Expected V2 with 1 partition for server1");
+        panic!("Expected Adaptive with 1 partition for server1");
     }
 
-    if let JobProcessorConfig::V2 {
+    if let JobProcessorConfig::Adaptive {
         num_partitions: Some(n),
         ..
     } = server2.processor_config()
     {
         assert_eq!(*n, 8);
     } else {
-        panic!("Expected V2 with 8 partitions for server2");
+        panic!("Expected Adaptive with 8 partitions for server2");
     }
 }
 
@@ -141,7 +142,7 @@ async fn test_stream_job_server_multiple_processor_configs() {
 async fn test_stream_job_server_processor_config_clone() {
     // Test that processor config is properly cloned
     let original = StreamJobServer::new("localhost:9092".to_string(), "test-group".to_string(), 10)
-        .with_processor_config(JobProcessorConfig::V2 {
+        .with_processor_config(JobProcessorConfig::Adaptive {
             num_partitions: Some(4),
             enable_core_affinity: false,
         });
@@ -150,14 +151,14 @@ async fn test_stream_job_server_processor_config_clone() {
 
     assert!(matches!(
         original.processor_config(),
-        JobProcessorConfig::V2 {
+        JobProcessorConfig::Adaptive {
             num_partitions: Some(4),
             ..
         }
     ));
     assert!(matches!(
         cloned.processor_config(),
-        JobProcessorConfig::V2 {
+        JobProcessorConfig::Adaptive {
             num_partitions: Some(4),
             ..
         }
@@ -186,10 +187,10 @@ async fn test_configuration_pattern_1_direct_parameters() {
     );
 
     // Uses defaults for: monitoring (false), timeout (24h), cache (100)
-    // Verify processor config is present and is V2
+    // Verify processor config is present and is Adaptive
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 }
 
@@ -215,7 +216,7 @@ async fn test_configuration_pattern_2_config_objects() {
 
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 }
 
@@ -249,7 +250,7 @@ async fn test_configuration_pattern_3_environment_variables() {
     // Verify configuration was loaded from environment
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 
     // Clean up environment
@@ -273,7 +274,7 @@ async fn test_custom_kafka_broker_pattern_1() {
     // Server is configured with the test broker
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 }
 
@@ -295,7 +296,7 @@ async fn test_custom_kafka_broker_pattern_2() {
 
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 }
 
@@ -315,7 +316,7 @@ async fn test_configuration_default_localhost() {
 
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 }
 
@@ -335,7 +336,7 @@ async fn test_configuration_with_dev_preset() {
 
     assert!(matches!(
         server.processor_config(),
-        JobProcessorConfig::V2 { .. }
+        JobProcessorConfig::Adaptive { .. }
     ));
 }
 

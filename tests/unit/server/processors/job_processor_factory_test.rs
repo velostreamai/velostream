@@ -1,4 +1,4 @@
-//! Tests for JobProcessorFactory and MockJobProcessor integration
+//! Integration tests for JobProcessorFactory and MockJobProcessor integration
 //!
 //! This test module verifies:
 //! - JobProcessorFactory creates all processor types correctly
@@ -11,52 +11,52 @@ use velostream::velostream::server::processors::{
 };
 
 #[test]
-fn test_factory_create_v1_simple() {
-    let processor = JobProcessorFactory::create_v1_simple();
+fn test_factory_create_simple() {
+    let processor = JobProcessorFactory::create_simple();
     assert_eq!(processor.processor_version(), "V1");
     assert_eq!(processor.processor_name(), "SimpleJobProcessor");
     assert_eq!(processor.num_partitions(), 1);
 }
 
 #[test]
-fn test_factory_create_v1_transactional() {
-    let processor = JobProcessorFactory::create_v1_transactional();
+fn test_factory_create_transactional() {
+    let processor = JobProcessorFactory::create_transactional();
     assert_eq!(processor.processor_version(), "V1-Transactional");
     assert_eq!(processor.processor_name(), "TransactionalJobProcessor");
     assert_eq!(processor.num_partitions(), 1);
 }
 
 #[test]
-fn test_factory_create_v2_default() {
-    let processor = JobProcessorFactory::create_v2_default();
+fn test_factory_create_adaptive_default() {
+    let processor = JobProcessorFactory::create_adaptive_default();
     assert_eq!(processor.processor_version(), "V2");
     assert!(processor.num_partitions() > 0);
 }
 
 #[test]
-fn test_factory_create_v2_with_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(4);
+fn test_factory_create_adaptive_with_partitions() {
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(4);
     assert_eq!(processor.processor_version(), "V2");
     assert_eq!(processor.num_partitions(), 4);
 }
 
 #[test]
-fn test_factory_create_from_config_v1_simple() {
-    let config = JobProcessorConfig::V1Simple;
+fn test_factory_create_from_config_simple() {
+    let config = JobProcessorConfig::Simple;
     let processor = JobProcessorFactory::create(config);
     assert_eq!(processor.processor_version(), "V1");
 }
 
 #[test]
-fn test_factory_create_from_config_v1_transactional() {
-    let config = JobProcessorConfig::V1Transactional;
+fn test_factory_create_from_config_transactional() {
+    let config = JobProcessorConfig::Transactional;
     let processor = JobProcessorFactory::create(config);
     assert_eq!(processor.processor_version(), "V1-Transactional");
 }
 
 #[test]
-fn test_factory_create_from_config_v2() {
-    let config = JobProcessorConfig::V2 {
+fn test_factory_create_from_config_adaptive() {
+    let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(8),
         enable_core_affinity: false,
     };
@@ -128,46 +128,44 @@ fn test_mock_processor_batch_passthrough_sync_check() {
 
 #[test]
 fn test_processor_config_description() {
-    let config_v1_simple = JobProcessorConfig::V1Simple;
-    let desc = config_v1_simple.description();
-    assert!(desc.contains("V1"));
+    let config_simple = JobProcessorConfig::Simple;
+    let desc = config_simple.description();
     assert!(desc.contains("Simple"));
 
-    let config_v1_transactional = JobProcessorConfig::V1Transactional;
-    let desc = config_v1_transactional.description();
-    assert!(desc.contains("V1"));
+    let config_transactional = JobProcessorConfig::Transactional;
+    let desc = config_transactional.description();
     assert!(desc.contains("Transactional"));
 
-    let config_v2 = JobProcessorConfig::V2 {
+    let config_adaptive = JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
     };
-    let desc = config_v2.description();
-    assert!(desc.contains("V2"));
+    let desc = config_adaptive.description();
+    assert!(desc.contains("Adaptive"));
     assert!(desc.contains("4"));
 }
 
 #[test]
-fn test_factory_create_from_string_v1_simple() {
-    let processor = JobProcessorFactory::create_from_str("v1:simple").unwrap();
+fn test_factory_create_from_string_simple() {
+    let processor = JobProcessorFactory::create_from_str("simple").unwrap();
     assert_eq!(processor.processor_version(), "V1");
 }
 
 #[test]
-fn test_factory_create_from_string_v1_transactional() {
-    let processor = JobProcessorFactory::create_from_str("v1:transactional").unwrap();
+fn test_factory_create_from_string_transactional() {
+    let processor = JobProcessorFactory::create_from_str("transactional").unwrap();
     assert_eq!(processor.processor_version(), "V1-Transactional");
 }
 
 #[test]
-fn test_factory_create_from_string_v2() {
-    let processor = JobProcessorFactory::create_from_str("v2").unwrap();
+fn test_factory_create_from_string_adaptive() {
+    let processor = JobProcessorFactory::create_from_str("adaptive").unwrap();
     assert_eq!(processor.processor_version(), "V2");
 }
 
 #[test]
-fn test_factory_create_from_string_v2_with_partitions() {
-    let processor = JobProcessorFactory::create_from_str("v2:8").unwrap();
+fn test_factory_create_from_string_adaptive_with_partitions() {
+    let processor = JobProcessorFactory::create_from_str("adaptive:8").unwrap();
     assert_eq!(processor.processor_version(), "V2");
     assert_eq!(processor.num_partitions(), 8);
 }
@@ -181,47 +179,47 @@ fn test_factory_invalid_config_string() {
 #[test]
 fn test_all_processors_implement_trait() {
     // Verify all factory methods return Arc<dyn JobProcessor>
-    let v1_simple = JobProcessorFactory::create_v1_simple();
-    let v1_transactional = JobProcessorFactory::create_v1_transactional();
-    let v2 = JobProcessorFactory::create_v2_default();
+    let simple = JobProcessorFactory::create_simple();
+    let transactional = JobProcessorFactory::create_transactional();
+    let adaptive = JobProcessorFactory::create_adaptive_default();
     let mock = JobProcessorFactory::create_mock();
 
     // All should be non-zero length versions
-    assert!(!v1_simple.processor_version().is_empty());
-    assert!(!v1_transactional.processor_version().is_empty());
-    assert!(!v2.processor_version().is_empty());
+    assert!(!simple.processor_version().is_empty());
+    assert!(!transactional.processor_version().is_empty());
+    assert!(!adaptive.processor_version().is_empty());
     assert!(!mock.processor_version().is_empty());
 }
 
 #[test]
 fn test_processor_config_from_string_parsing() {
     // Test that JobProcessorConfig can be parsed from various string formats
-    let config1: JobProcessorConfig = "v1:simple".parse().unwrap();
-    assert!(matches!(config1, JobProcessorConfig::V1Simple));
+    let config1: JobProcessorConfig = "simple".parse().unwrap();
+    assert!(matches!(config1, JobProcessorConfig::Simple));
 
-    let config2: JobProcessorConfig = "v1:transactional".parse().unwrap();
-    assert!(matches!(config2, JobProcessorConfig::V1Transactional));
+    let config2: JobProcessorConfig = "transactional".parse().unwrap();
+    assert!(matches!(config2, JobProcessorConfig::Transactional));
 
-    let config3: JobProcessorConfig = "v2".parse().unwrap();
-    assert!(matches!(config3, JobProcessorConfig::V2 { .. }));
+    let config3: JobProcessorConfig = "adaptive".parse().unwrap();
+    assert!(matches!(config3, JobProcessorConfig::Adaptive { .. }));
 
-    let config4: JobProcessorConfig = "v2:16".parse().unwrap();
-    if let JobProcessorConfig::V2 {
+    let config4: JobProcessorConfig = "adaptive:16".parse().unwrap();
+    if let JobProcessorConfig::Adaptive {
         num_partitions: Some(n),
         ..
     } = config4
     {
         assert_eq!(n, 16);
     } else {
-        panic!("Expected V2 with 16 partitions");
+        panic!("Expected Adaptive with 16 partitions");
     }
 }
 
 #[test]
 fn test_factory_creates_independent_instances() {
     // Verify that factory creates independent instances
-    let processor1 = JobProcessorFactory::create_v1_simple();
-    let processor2 = JobProcessorFactory::create_v1_simple();
+    let processor1 = JobProcessorFactory::create_simple();
+    let processor2 = JobProcessorFactory::create_simple();
 
     // Both should have same version but be different Arc instances
     assert_eq!(
@@ -250,4 +248,34 @@ fn test_mock_processor_testing_capabilities() {
     // Mock is cloneable for test scenarios
     let mock_clone = mock.clone();
     assert_eq!(mock_clone.processor_version(), "Mock");
+}
+
+// Legacy API tests - verify backward compatibility with deprecated methods
+#[test]
+fn test_legacy_create_v1_simple() {
+    #[allow(deprecated)]
+    let processor = JobProcessorFactory::create_v1_simple();
+    assert_eq!(processor.processor_version(), "V1");
+}
+
+#[test]
+fn test_legacy_create_v1_transactional() {
+    #[allow(deprecated)]
+    let processor = JobProcessorFactory::create_v1_transactional();
+    assert_eq!(processor.processor_version(), "V1-Transactional");
+}
+
+#[test]
+fn test_legacy_create_v2_default() {
+    #[allow(deprecated)]
+    let processor = JobProcessorFactory::create_v2_default();
+    assert_eq!(processor.processor_version(), "V2");
+}
+
+#[test]
+fn test_legacy_create_v2_with_partitions() {
+    #[allow(deprecated)]
+    let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    assert_eq!(processor.processor_version(), "V2");
+    assert_eq!(processor.num_partitions(), 8);
 }

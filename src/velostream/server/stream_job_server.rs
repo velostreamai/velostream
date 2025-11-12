@@ -1437,24 +1437,64 @@ impl StreamJobServer {
     }
 
     /// Extract job processing configuration from query properties
+    ///
+    /// Supports the 'mode' property to control processor behavior:
+    /// - mode='simple': Single-threaded, best-effort delivery (LogAndContinue failures)
+    /// - mode='transactional': Single-threaded, at-least-once delivery (FailBatch failures)
+    ///
+    /// Example:
+    /// ```sql
+    /// CREATE STREAM analytics AS
+    /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
+    /// WITH ('mode' = 'transactional', 'max_batch_size' = '1000');
+    /// ```
     fn extract_job_config_from_query(query: &StreamingQuery) -> JobProcessingConfig {
         let properties = Self::get_query_properties(query);
 
         let mut config = JobProcessingConfig::default();
 
-        // Extract use_transactions
-        if let Some(use_tx) = properties.get("use_transactions") {
-            config.use_transactions = use_tx.to_lowercase() == "true";
+        // Extract mode property to determine transaction behavior
+        // mode='transactional' sets use_transactions=true and FailBatch strategy
+        // mode='simple' keeps use_transactions=false and LogAndContinue strategy (default)
+        if let Some(mode) = properties.get("mode") {
+            match mode.to_lowercase().as_str() {
+                "transactional" => {
+                    config.use_transactions = true;
+                    config.failure_strategy = FailureStrategy::FailBatch;
+                }
+                "simple" => {
+                    config.use_transactions = false;
+                    config.failure_strategy = FailureStrategy::LogAndContinue;
+                }
+                "adaptive" => {
+                    // Adaptive mode can use either strategy; use transactional for safety
+                    config.use_transactions = true;
+                    config.failure_strategy = FailureStrategy::FailBatch;
+                }
+                _ => {
+                    warn!("Unknown mode: '{}', using default", mode);
+                }
+            }
         }
 
-        // Extract failure_strategy
+        // Legacy support: Extract use_transactions for backward compatibility
+        if let Some(use_tx) = properties.get("use_transactions") {
+            if use_tx.to_lowercase() == "true" {
+                config.use_transactions = true;
+                if matches!(config.failure_strategy, FailureStrategy::LogAndContinue) {
+                    config.failure_strategy = FailureStrategy::FailBatch;
+                }
+            }
+        }
+
+        // Extract failure_strategy (can override mode-inferred strategy)
         if let Some(strategy) = properties.get("failure_strategy") {
             config.failure_strategy = match strategy.as_str() {
                 "RetryWithBackoff" => FailureStrategy::RetryWithBackoff,
                 "LogAndContinue" => FailureStrategy::LogAndContinue,
                 "FailBatch" => FailureStrategy::FailBatch,
                 "SendToDLQ" => FailureStrategy::SendToDLQ,
-                _ => FailureStrategy::LogAndContinue, // Default
+                _ => config.failure_strategy.clone(), // Keep existing
             };
         }
 
@@ -1489,22 +1529,12 @@ impl StreamJobServer {
         config
     }
 
-    /// Extract partitioning strategy from SQL query properties
-    ///
-    /// Supports specifying the partitioning strategy via SQL annotations:
-    ///
-    /// Example:
-    /// ```sql
-    /// -- partitioning_strategy: smart_repartition
-    /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
-    /// ```
-    ///
     /// Create the appropriate processor based on configuration using factory pattern
     ///
     /// This centralized method handles all processor creation including:
-    /// - V1 Simple (single-threaded, best-effort)
-    /// - V1 Transactional (single-threaded, at-least-once)
-    /// - V2 (multi-partition parallel with partitioning strategies)
+    /// - Simple (single-threaded, best-effort)
+    /// - Transactional (single-threaded, at-least-once)
+    /// - Adaptive (multi-partition parallel with automatic partitioning strategy)
     fn create_processor_for_job(
         processor_config: &JobProcessorConfig,
         parsed_query: &StreamingQuery,
@@ -1513,26 +1543,26 @@ impl StreamJobServer {
         use crate::velostream::server::processors::JobProcessor;
 
         match processor_config {
-            JobProcessorConfig::V1Simple => {
+            JobProcessorConfig::Simple => {
                 info!(
-                    "Job '{}' using V1 Simple processor (single-threaded, best-effort)",
+                    "Job '{}' using Simple processor (single-threaded, best-effort delivery)",
                     job_name
                 );
-                JobProcessorFactory::create_v1_simple()
+                JobProcessorFactory::create_simple()
             }
-            JobProcessorConfig::V1Transactional => {
+            JobProcessorConfig::Transactional => {
                 info!(
-                    "Job '{}' using V1 Transactional processor (single-threaded, at-least-once)",
+                    "Job '{}' using Transactional processor (single-threaded, at-least-once delivery)",
                     job_name
                 );
-                JobProcessorFactory::create_v1_transactional()
+                JobProcessorFactory::create_transactional()
             }
-            JobProcessorConfig::V2 {
+            JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             } => {
                 info!(
-                    "Job '{}' using V2 (PartitionedJobCoordinator) processor with {} partitions",
+                    "Job '{}' using Adaptive processor (multi-partition parallel) with {} partitions",
                     job_name,
                     num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
                 );
@@ -1545,7 +1575,7 @@ impl StreamJobServer {
                 // CRITICAL: User explicit strategy takes priority and is NEVER overridden
                 let auto_select = partitioning_strategy.is_none();
 
-                let v2_config = PartitionedJobConfig {
+                let adaptive_config = PartitionedJobConfig {
                     num_partitions: *num_partitions,
                     processing_mode: ProcessingMode::Batch { size: 1000 },
                     partition_buffer_size: 1000,
@@ -1561,10 +1591,20 @@ impl StreamJobServer {
                     annotation_partition_count: None,
                 };
 
-                Arc::new(PartitionedJobCoordinator::new(v2_config))
+                Arc::new(PartitionedJobCoordinator::new(adaptive_config))
             }
         }
     }
+
+    /// Extract partitioning strategy from SQL query properties
+    ///
+    /// Supports specifying the partitioning strategy via SQL annotations:
+    ///
+    /// Example:
+    /// ```sql
+    /// -- partitioning_strategy: smart_repartition
+    /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
+    /// ```
 
     /// Supported strategies:
     /// - "always_hash" (default): Hashes GROUP BY columns, guarantees correctness

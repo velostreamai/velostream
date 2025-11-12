@@ -8,98 +8,100 @@ use std::str::FromStr;
 
 /// Configuration for selecting and configuring job processors
 ///
-/// This enum allows selecting between different processing architectures
-/// at runtime via configuration.
+/// This enum allows selecting between different processing modes:
+/// - Simple: Single-threaded, best-effort delivery
+/// - Transactional: Single-threaded, at-least-once delivery with ACID transactions
+/// - Adaptive: Multi-partition parallel execution with adaptive partitioning
 ///
 /// ## Usage
 ///
 /// ```rust,no_run
 /// use velostream::velostream::server::processors::JobProcessorConfig;
 ///
-/// // V2 architecture (multi-partition, 8 cores)
-/// let v2_config = JobProcessorConfig::V2 {
+/// // Adaptive mode (multi-partition, 8 cores)
+/// let adaptive_config = JobProcessorConfig::Adaptive {
 ///     num_partitions: Some(8),
 ///     enable_core_affinity: false,
 /// };
 /// ```
 #[derive(Clone, Debug)]
 pub enum JobProcessorConfig {
-    /// V1 Simple Architecture: Single-threaded, non-transactional
+    /// Simple Mode: Single-threaded, non-transactional, best-effort
     ///
     /// Characteristics:
     /// - Single-threaded batch processing
     /// - Best-effort semantics (LogAndContinue by default)
     /// - Optimized for throughput
-    /// - Use case: Simple pipelines, throughput-oriented
-    V1Simple,
+    /// - Use case: Simple pipelines, throughput-oriented, acceptable data loss
+    Simple,
 
-    /// V1 Transactional Architecture: Single-threaded, transactional
+    /// Transactional Mode: Single-threaded, transactional, at-least-once
     ///
     /// Characteristics:
     /// - Single-threaded batch processing with transaction boundaries
     /// - At-least-once delivery semantics
     /// - ACID transaction support per batch
-    /// - Use case: Data consistency required, lower throughput acceptable
-    V1Transactional,
+    /// - Use case: Data consistency required, acceptable lower throughput
+    Transactional,
 
-    /// V2 Architecture: Multi-partition, parallel execution
+    /// Adaptive Mode: Multi-partition parallel execution with auto-scaling
     ///
     /// Characteristics:
-    /// - Multi-threaded parallel processing
+    /// - Multi-threaded parallel processing with automatic partitioning
     /// - Configurable partition count (default: CPU count)
-    /// - Pluggable PartitioningStrategy (StickyPartition, SmartRepartition, etc.)
-    /// - Target throughput: ~190K rec/sec on 8 cores (8x scaling)
+    /// - Adaptive PartitioningStrategy selection (StickyPartition, SmartRepartition, etc.)
+    /// - Target throughput: ~190K rec/sec on 8 cores (8x linear scaling)
     /// - Scaling efficiency: 100% (linear scaling expected)
-    /// - Use case: High-throughput, multi-core systems
+    /// - Use case: High-throughput, multi-core systems, adaptive workloads
     ///
     /// ## Parameters
     /// - `num_partitions`: Number of independent partitions (defaults to CPU count)
     /// - `enable_core_affinity`: Pin partitions to CPU cores (advanced optimization)
-    V2 {
+    Adaptive {
         num_partitions: Option<usize>,
         enable_core_affinity: bool,
     },
 }
 
 impl JobProcessorConfig {
-    /// Create V1 Simple configuration
-    pub fn v1_simple() -> Self {
-        JobProcessorConfig::V1Simple
+    /// Create Simple mode configuration
+    pub fn simple() -> Self {
+        JobProcessorConfig::Simple
     }
 
-    /// Create V1 Transactional configuration
-    pub fn v1_transactional() -> Self {
-        JobProcessorConfig::V1Transactional
+    /// Create Transactional mode configuration
+    pub fn transactional() -> Self {
+        JobProcessorConfig::Transactional
     }
 
-    /// Create V2 configuration with default settings
-    pub fn v2_default() -> Self {
-        JobProcessorConfig::V2 {
+    /// Create Adaptive mode configuration with default settings
+    pub fn adaptive_default() -> Self {
+        JobProcessorConfig::Adaptive {
             num_partitions: None,
             enable_core_affinity: false,
         }
     }
 
-    /// Create V2 configuration with specific partition count
-    pub fn v2_with_partitions(num_partitions: usize) -> Self {
-        JobProcessorConfig::V2 {
+    /// Create Adaptive mode configuration with specific partition count
+    pub fn adaptive_with_partitions(num_partitions: usize) -> Self {
+        JobProcessorConfig::Adaptive {
             num_partitions: Some(num_partitions),
             enable_core_affinity: false,
         }
     }
 
-    /// Convert this config to PartitionedJobConfig for V2
+    /// Convert this config to PartitionedJobConfig for Adaptive mode
     pub fn to_partitioned_job_config(&self) -> PartitionedJobConfig {
         match self {
-            JobProcessorConfig::V1Simple | JobProcessorConfig::V1Transactional => {
-                // V1 configs don't need PartitionedJobConfig, but return defaults
+            JobProcessorConfig::Simple | JobProcessorConfig::Transactional => {
+                // Simple/Transactional configs don't need PartitionedJobConfig, but return defaults
                 PartitionedJobConfig {
                     num_partitions: Some(1),
                     enable_core_affinity: false,
                     ..Default::default()
                 }
             }
-            JobProcessorConfig::V2 {
+            JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             } => PartitionedJobConfig {
@@ -113,13 +115,13 @@ impl JobProcessorConfig {
     /// Get a description of this configuration
     pub fn description(&self) -> String {
         match self {
-            JobProcessorConfig::V1Simple => {
-                "V1 Simple (Single-threaded, best-effort semantics)".to_string()
+            JobProcessorConfig::Simple => {
+                "Simple (Single-threaded, best-effort delivery)".to_string()
             }
-            JobProcessorConfig::V1Transactional => {
-                "V1 Transactional (Single-threaded, at-least-once semantics)".to_string()
+            JobProcessorConfig::Transactional => {
+                "Transactional (Single-threaded, at-least-once delivery)".to_string()
             }
-            JobProcessorConfig::V2 {
+            JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             } => {
@@ -132,7 +134,7 @@ impl JobProcessorConfig {
                     ""
                 };
                 format!(
-                    "V2 (Multi-partition: {}{}, {}x baseline expected)",
+                    "Adaptive (Multi-partition: {}{}, {}x baseline expected)",
                     partitions,
                     affinity,
                     num_partitions.unwrap_or_else(|| {
@@ -148,8 +150,8 @@ impl JobProcessorConfig {
 
 impl Default for JobProcessorConfig {
     fn default() -> Self {
-        // Default to V2 with automatic partition detection
-        JobProcessorConfig::V2 {
+        // Default to Adaptive with automatic partition detection
+        JobProcessorConfig::Adaptive {
             num_partitions: None,
             enable_core_affinity: false,
         }
@@ -162,12 +164,12 @@ impl FromStr for JobProcessorConfig {
     /// Parse JobProcessorConfig from string representation
     ///
     /// Supported formats:
-    /// - "v1:simple" → JobProcessorConfig::V1Simple
-    /// - "v1:transactional" → JobProcessorConfig::V1Transactional
-    /// - "v2" or "V2" → JobProcessorConfig::V2 with defaults
-    /// - "v2:4" or "V2:4" → JobProcessorConfig::V2 with 4 partitions
-    /// - "v2:affinity" → JobProcessorConfig::V2 with core affinity
-    /// - "v2:8:affinity" → JobProcessorConfig::V2 with 8 partitions and affinity
+    /// - "simple" → JobProcessorConfig::Simple
+    /// - "transactional" → JobProcessorConfig::Transactional
+    /// - "adaptive" → JobProcessorConfig::Adaptive with defaults
+    /// - "adaptive:4" → JobProcessorConfig::Adaptive with 4 partitions
+    /// - "adaptive:affinity" → JobProcessorConfig::Adaptive with core affinity
+    /// - "adaptive:8:affinity" → Adaptive with 8 partitions and affinity
     ///
     /// ## Examples
     ///
@@ -175,36 +177,34 @@ impl FromStr for JobProcessorConfig {
     /// use std::str::FromStr;
     /// use velostream::velostream::server::processors::JobProcessorConfig;
     ///
-    /// let v1_simple = "v1:simple".parse::<JobProcessorConfig>()?;
-    /// let v1_tx = "v1:transactional".parse::<JobProcessorConfig>()?;
-    /// let v2 = "v2".parse::<JobProcessorConfig>()?;
-    /// let v2_8 = "v2:8".parse::<JobProcessorConfig>()?;
+    /// let simple = "simple".parse::<JobProcessorConfig>()?;
+    /// let tx = "transactional".parse::<JobProcessorConfig>()?;
+    /// let adaptive = "adaptive".parse::<JobProcessorConfig>()?;
+    /// let adaptive_8 = "adaptive:8".parse::<JobProcessorConfig>()?;
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s_lower = s.trim().to_lowercase();
 
-        if s_lower.starts_with("v1:") {
-            if let Some(variant) = s_lower.strip_prefix("v1:") {
-                match variant {
-                    "simple" => return Ok(JobProcessorConfig::V1Simple),
-                    "transactional" => return Ok(JobProcessorConfig::V1Transactional),
-                    _ => {
-                        return Err(format!(
-                            "Unknown V1 variant: '{}'. Supported: 'simple', 'transactional'",
-                            variant
-                        ));
-                    }
-                }
+        // Handle simple mode names
+        match s_lower.as_str() {
+            "simple" => return Ok(JobProcessorConfig::Simple),
+            "transactional" => return Ok(JobProcessorConfig::Transactional),
+            "adaptive" => {
+                return Ok(JobProcessorConfig::Adaptive {
+                    num_partitions: None,
+                    enable_core_affinity: false,
+                });
             }
+            _ => {}
         }
 
-        if s_lower.starts_with("v2") {
+        // Handle "adaptive:" prefix with parameters
+        if s_lower.starts_with("adaptive:") {
             let mut num_partitions = None;
             let mut enable_core_affinity = false;
 
-            // Parse optional parameters after "v2:"
-            if let Some(params_str) = s_lower.strip_prefix("v2:") {
-                for param in params_str.split(':') {
+            if let Some(params) = s_lower.strip_prefix("adaptive:") {
+                for param in params.split(':') {
                     if param == "affinity" {
                         enable_core_affinity = true;
                     } else if let Ok(n) = param.parse::<usize>() {
@@ -214,19 +214,19 @@ impl FromStr for JobProcessorConfig {
                             return Err(format!("Invalid partition count: {}", n));
                         }
                     } else if !param.is_empty() {
-                        return Err(format!("Unknown V2 parameter: {}", param));
+                        return Err(format!("Unknown parameter: {}", param));
                     }
                 }
             }
 
-            return Ok(JobProcessorConfig::V2 {
+            return Ok(JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             });
         }
 
         Err(format!(
-            "Unknown processor config: '{}'. Supported: 'v1:simple', 'v1:transactional', 'v2', 'v2:8', 'v2:affinity'",
+            "Unknown mode: '{}'. Supported: 'simple', 'transactional', 'adaptive', 'adaptive:8', 'adaptive:8:affinity'",
             s
         ))
     }
@@ -235,13 +235,13 @@ impl FromStr for JobProcessorConfig {
 impl std::fmt::Display for JobProcessorConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            JobProcessorConfig::V1Simple => write!(f, "v1:simple"),
-            JobProcessorConfig::V1Transactional => write!(f, "v1:transactional"),
-            JobProcessorConfig::V2 {
+            JobProcessorConfig::Simple => write!(f, "simple"),
+            JobProcessorConfig::Transactional => write!(f, "transactional"),
+            JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             } => {
-                write!(f, "v2")?;
+                write!(f, "adaptive")?;
                 if let Some(n) = num_partitions {
                     write!(f, ":{}", n)?;
                 }
@@ -259,105 +259,104 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_v1_simple_config() {
-        let config = JobProcessorConfig::V1Simple;
-        assert_eq!(config.to_string(), "v1:simple");
-        assert!(config.description().contains("V1 Simple"));
+    fn test_simple_config() {
+        let config = JobProcessorConfig::Simple;
+        assert_eq!(config.to_string(), "simple");
+        assert!(
+            config
+                .description()
+                .contains("Single-threaded, best-effort")
+        );
     }
 
     #[test]
-    fn test_v1_transactional_config() {
-        let config = JobProcessorConfig::V1Transactional;
-        assert_eq!(config.to_string(), "v1:transactional");
-        assert!(config.description().contains("V1 Transactional"));
+    fn test_transactional_config() {
+        let config = JobProcessorConfig::Transactional;
+        assert_eq!(config.to_string(), "transactional");
+        assert!(
+            config
+                .description()
+                .contains("Single-threaded, at-least-once")
+        );
     }
 
     #[test]
-    fn test_v2_config_default() {
-        let config = JobProcessorConfig::V2 {
+    fn test_adaptive_config_default() {
+        let config = JobProcessorConfig::Adaptive {
             num_partitions: None,
             enable_core_affinity: false,
         };
-        assert_eq!(config.to_string(), "v2");
+        assert_eq!(config.to_string(), "adaptive");
     }
 
     #[test]
-    fn test_v2_config_with_partitions() {
-        let config = JobProcessorConfig::V2 {
+    fn test_adaptive_config_with_partitions() {
+        let config = JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: false,
         };
-        assert_eq!(config.to_string(), "v2:8");
+        assert_eq!(config.to_string(), "adaptive:8");
     }
 
     #[test]
-    fn test_v2_config_with_affinity() {
-        let config = JobProcessorConfig::V2 {
+    fn test_adaptive_config_with_affinity() {
+        let config = JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: true,
         };
-        assert_eq!(config.to_string(), "v2:8:affinity");
+        assert_eq!(config.to_string(), "adaptive:8:affinity");
     }
 
     #[test]
-    fn test_parse_v1_simple() {
-        let config: JobProcessorConfig = "v1:simple".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V1Simple));
-
-        let config: JobProcessorConfig = "V1:SIMPLE".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V1Simple));
+    fn test_parse_simple() {
+        let config: JobProcessorConfig = "simple".parse().unwrap();
+        assert!(matches!(config, JobProcessorConfig::Simple));
     }
 
     #[test]
-    fn test_parse_v1_transactional() {
-        let config: JobProcessorConfig = "v1:transactional".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V1Transactional));
-
-        let config: JobProcessorConfig = "V1:TRANSACTIONAL".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V1Transactional));
+    fn test_parse_transactional() {
+        let config: JobProcessorConfig = "transactional".parse().unwrap();
+        assert!(matches!(config, JobProcessorConfig::Transactional));
     }
 
     #[test]
-    fn test_parse_v2() {
-        let config: JobProcessorConfig = "v2".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V2 { .. }));
-
-        let config: JobProcessorConfig = "V2".parse().unwrap();
-        assert!(matches!(config, JobProcessorConfig::V2 { .. }));
+    fn test_parse_adaptive() {
+        let config: JobProcessorConfig = "adaptive".parse().unwrap();
+        assert!(matches!(config, JobProcessorConfig::Adaptive { .. }));
     }
 
     #[test]
-    fn test_parse_v2_with_partitions() {
-        let config: JobProcessorConfig = "v2:8".parse().unwrap();
-        if let JobProcessorConfig::V2 {
+    fn test_parse_adaptive_with_partitions() {
+        let config: JobProcessorConfig = "adaptive:8".parse().unwrap();
+        if let JobProcessorConfig::Adaptive {
             num_partitions: Some(n),
             ..
         } = config
         {
             assert_eq!(n, 8);
         } else {
-            panic!("Expected V2 with 8 partitions");
+            panic!("Expected Adaptive with 8 partitions");
         }
     }
 
     #[test]
-    fn test_parse_v2_with_affinity() {
-        let config: JobProcessorConfig = "v2:affinity".parse().unwrap();
-        if let JobProcessorConfig::V2 {
+    fn test_parse_adaptive_with_affinity() {
+        let config: JobProcessorConfig = "adaptive:affinity".parse().unwrap();
+        if let JobProcessorConfig::Adaptive {
             enable_core_affinity,
             ..
         } = config
         {
             assert!(enable_core_affinity);
         } else {
-            panic!("Expected V2 with affinity");
+            panic!("Expected Adaptive with affinity");
         }
     }
 
     #[test]
-    fn test_parse_v2_with_both() {
-        let config: JobProcessorConfig = "v2:8:affinity".parse().unwrap();
-        if let JobProcessorConfig::V2 {
+    fn test_parse_adaptive_with_both() {
+        let config: JobProcessorConfig = "adaptive:8:affinity".parse().unwrap();
+        if let JobProcessorConfig::Adaptive {
             num_partitions: Some(n),
             enable_core_affinity,
         } = config
@@ -365,7 +364,7 @@ mod tests {
             assert_eq!(n, 8);
             assert!(enable_core_affinity);
         } else {
-            panic!("Expected V2 with 8 partitions and affinity");
+            panic!("Expected Adaptive with 8 partitions and affinity");
         }
     }
 
@@ -376,24 +375,24 @@ mod tests {
     }
 
     #[test]
-    fn test_default_is_v2() {
+    fn test_default_is_adaptive() {
         let config = JobProcessorConfig::default();
-        assert!(matches!(config, JobProcessorConfig::V2 { .. }));
+        assert!(matches!(config, JobProcessorConfig::Adaptive { .. }));
     }
 
     #[test]
     fn test_description() {
-        let v2 = JobProcessorConfig::V2 {
+        let adaptive = JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: false,
         };
-        assert!(v2.description().contains("V2"));
-        assert!(v2.description().contains("8"));
+        assert!(adaptive.description().contains("Adaptive"));
+        assert!(adaptive.description().contains("8"));
     }
 
     #[test]
-    fn test_to_partitioned_job_config_v2() {
-        let config = JobProcessorConfig::V2 {
+    fn test_to_partitioned_job_config_adaptive() {
+        let config = JobProcessorConfig::Adaptive {
             num_partitions: Some(8),
             enable_core_affinity: true,
         };
