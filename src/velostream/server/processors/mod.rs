@@ -10,6 +10,7 @@ pub mod job_processor_config;
 pub mod job_processor_factory;
 pub mod job_processor_trait;
 pub mod metrics_helper;
+pub mod mock;
 pub mod observability_helper;
 pub mod observability_utils;
 pub mod processor_registry;
@@ -25,6 +26,7 @@ pub use job_processor_trait::{JobProcessor, LifecycleState, ProcessorMetrics};
 pub use metrics_helper::{
     LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,
 };
+pub use mock::MockJobProcessor;
 pub use observability_helper::ObservabilityHelper;
 pub use processor_registry::{MigrationStrategy, ProcessorRegistry, RoutingStats};
 pub use simple::SimpleJobProcessor;

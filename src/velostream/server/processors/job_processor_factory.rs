@@ -4,8 +4,8 @@
 //! job processor based on JobProcessorConfig.
 
 use crate::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, SimpleJobProcessor,
-    TransactionalJobProcessor,
+    FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, MockJobProcessor,
+    SimpleJobProcessor, TransactionalJobProcessor,
 };
 use crate::velostream::server::v2::PartitionedJobCoordinator;
 use log::info;
@@ -120,6 +120,25 @@ impl JobProcessorFactory {
         let config: JobProcessorConfig = config_str.parse()?;
         Ok(Self::create(config))
     }
+
+    /// Create a mock processor for testing
+    ///
+    /// This creates a MockJobProcessor that simulates the JobProcessor trait
+    /// without requiring real Kafka connections or data processing.
+    /// Useful for testing StreamJobServer logic in isolation.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use velostream::velostream::server::processors::JobProcessorFactory;
+    ///
+    /// let mock = JobProcessorFactory::create_mock();
+    /// assert_eq!(mock.processor_version(), "Mock");
+    /// ```
+    pub fn create_mock() -> Arc<dyn JobProcessor> {
+        info!("Creating Mock JobProcessor for testing");
+        Arc::new(MockJobProcessor::new())
+    }
 }
 
 #[cfg(test)]
@@ -187,5 +206,13 @@ mod tests {
     fn test_factory_invalid_config() {
         let result = JobProcessorFactory::create_from_str("invalid");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_factory_create_mock() {
+        let mock = JobProcessorFactory::create_mock();
+        assert_eq!(mock.processor_version(), "Mock");
+        assert_eq!(mock.processor_name(), "Mock Test Processor");
+        assert_eq!(mock.num_partitions(), 1);
     }
 }

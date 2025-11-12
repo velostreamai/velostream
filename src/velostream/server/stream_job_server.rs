@@ -11,13 +11,16 @@ use crate::velostream::observability::{
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, JobProcessorConfig, SimpleJobProcessor,
-    TransactionalJobProcessor, create_multi_sink_writers, create_multi_source_readers,
+    FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
+    SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
+    create_multi_source_readers,
 };
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
-use crate::velostream::server::v2::{PartitionedJobConfig, PartitionedJobCoordinator};
+use crate::velostream::server::v2::{
+    PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
@@ -861,69 +864,12 @@ impl StreamJobServer {
                                 processor_config_for_spawn.description()
                             );
 
-                            // Route to appropriate processor based on configuration
-                            use crate::velostream::server::processors::JobProcessor;
-
-                            let processor: Arc<dyn JobProcessor> = match &processor_config_for_spawn
-                            {
-                                JobProcessorConfig::V1Simple => {
-                                    info!(
-                                        "Job '{}' using V1 Simple processor (single-threaded, best-effort)",
-                                        job_name
-                                    );
-                                    use crate::velostream::server::processors::JobProcessorFactory;
-                                    JobProcessorFactory::create_v1_simple()
-                                }
-                                JobProcessorConfig::V1Transactional => {
-                                    info!(
-                                        "Job '{}' using V1 Transactional processor (single-threaded, at-least-once)",
-                                        job_name
-                                    );
-                                    use crate::velostream::server::processors::JobProcessorFactory;
-                                    JobProcessorFactory::create_v1_transactional()
-                                }
-                                JobProcessorConfig::V2 {
-                                    num_partitions,
-                                    enable_core_affinity,
-                                } => {
-                                    info!(
-                                        "Job '{}' using V2 (PartitionedJobCoordinator) processor with {} partitions",
-                                        job_name,
-                                        num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
-                                    );
-
-                                    // Extract partitioning strategy from query properties if specified
-                                    let partitioning_strategy =
-                                        Self::extract_partitioning_strategy_from_query(
-                                            &parsed_query,
-                                        );
-
-                                    // Enable auto-selection from query if no explicit strategy provided
-                                    // CRITICAL: User explicit strategy takes priority and is NEVER overridden
-                                    let auto_select = partitioning_strategy.is_none();
-
-                                    let v2_config = PartitionedJobConfig {
-                                        num_partitions: *num_partitions,
-                                        processing_mode:
-                                            crate::velostream::server::v2::ProcessingMode::Batch {
-                                                size: 1000,
-                                            },
-                                        partition_buffer_size: 1000,
-                                        enable_core_affinity: *enable_core_affinity,
-                                        backpressure_config: Default::default(),
-                                        partitioning_strategy,
-                                        auto_select_from_query: if auto_select {
-                                            Some(Arc::new(parsed_query.clone()))
-                                        } else {
-                                            None
-                                        },
-                                        sticky_partition_id: None,
-                                        annotation_partition_count: None,
-                                    };
-
-                                    Arc::new(PartitionedJobCoordinator::new(v2_config))
-                                }
-                            };
+                            // Create processor using factory pattern
+                            let processor = Self::create_processor_for_job(
+                                &processor_config_for_spawn,
+                                &parsed_query,
+                                &job_name,
+                            );
 
                             // Execute the selected processor (unified API for all three)
                             match processor
@@ -1553,6 +1499,73 @@ impl StreamJobServer {
     /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
     /// ```
     ///
+    /// Create the appropriate processor based on configuration using factory pattern
+    ///
+    /// This centralized method handles all processor creation including:
+    /// - V1 Simple (single-threaded, best-effort)
+    /// - V1 Transactional (single-threaded, at-least-once)
+    /// - V2 (multi-partition parallel with partitioning strategies)
+    fn create_processor_for_job(
+        processor_config: &JobProcessorConfig,
+        parsed_query: &StreamingQuery,
+        job_name: &str,
+    ) -> Arc<dyn crate::velostream::server::processors::JobProcessor> {
+        use crate::velostream::server::processors::JobProcessor;
+
+        match processor_config {
+            JobProcessorConfig::V1Simple => {
+                info!(
+                    "Job '{}' using V1 Simple processor (single-threaded, best-effort)",
+                    job_name
+                );
+                JobProcessorFactory::create_v1_simple()
+            }
+            JobProcessorConfig::V1Transactional => {
+                info!(
+                    "Job '{}' using V1 Transactional processor (single-threaded, at-least-once)",
+                    job_name
+                );
+                JobProcessorFactory::create_v1_transactional()
+            }
+            JobProcessorConfig::V2 {
+                num_partitions,
+                enable_core_affinity,
+            } => {
+                info!(
+                    "Job '{}' using V2 (PartitionedJobCoordinator) processor with {} partitions",
+                    job_name,
+                    num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
+                );
+
+                // Extract partitioning strategy from query properties if specified
+                let partitioning_strategy =
+                    Self::extract_partitioning_strategy_from_query(parsed_query);
+
+                // Enable auto-selection from query if no explicit strategy provided
+                // CRITICAL: User explicit strategy takes priority and is NEVER overridden
+                let auto_select = partitioning_strategy.is_none();
+
+                let v2_config = PartitionedJobConfig {
+                    num_partitions: *num_partitions,
+                    processing_mode: ProcessingMode::Batch { size: 1000 },
+                    partition_buffer_size: 1000,
+                    enable_core_affinity: *enable_core_affinity,
+                    backpressure_config: Default::default(),
+                    partitioning_strategy,
+                    auto_select_from_query: if auto_select {
+                        Some(Arc::new(parsed_query.clone()))
+                    } else {
+                        None
+                    },
+                    sticky_partition_id: None,
+                    annotation_partition_count: None,
+                };
+
+                Arc::new(PartitionedJobCoordinator::new(v2_config))
+            }
+        }
+    }
+
     /// Supported strategies:
     /// - "always_hash" (default): Hashes GROUP BY columns, guarantees correctness
     /// - "smart_repartition": Detects if source partition key matches GROUP BY key
