@@ -300,6 +300,25 @@ impl StreamExecutionEngine {
             .map(|execution| Arc::clone(&execution.processor_context))
     }
 
+    /// FR-082 Phase 6.8: Get existing QueryExecution context without lazy initialization
+    ///
+    /// **IMPORTANT**: This is a read-only method that assumes QueryExecution already exists.
+    /// It MUST be called ONLY after init_query_execution() has been called at startup.
+    ///
+    /// This eliminates the expensive write lock needed by ensure_query_execution(),
+    /// since job processors guarantee initialization before batch processing starts.
+    ///
+    /// Returns Arc<Mutex<ProcessorContext>> for ownership transfer to processing loops.
+    /// Returns None if query not initialized (indicates initialization was skipped).
+    pub fn get_query_execution_context(
+        &self,
+        query: &StreamingQuery,
+    ) -> Option<Arc<std::sync::Mutex<ProcessorContext>>> {
+        // No lazy initialization - just fetch if it exists
+        self.get_query_execution(&self.generate_query_id(query))
+            .map(|execution| Arc::clone(&execution.processor_context))
+    }
+
     /// FR-082 Phase 5: Set output receiver for EMIT CHANGES support
     ///
     /// This allows the engine to own the output receiver, enabling batch processing

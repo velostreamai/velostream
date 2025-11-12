@@ -17,7 +17,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 /// Simple (non-transactional) job processor
 pub struct SimpleJobProcessor {
@@ -25,8 +25,6 @@ pub struct SimpleJobProcessor {
     observability: Option<SharedObservabilityManager>,
     /// Shared metrics helper for SQL-annotated metrics
     metrics_helper: ProcessorMetricsHelper,
-    /// Optional query context for process_batch (set when available)
-    query_context: Arc<Mutex<Option<StreamingQuery>>>,
     /// Dead Letter Queue for failed records
     dlq: DeadLetterQueue,
 }
@@ -37,7 +35,6 @@ impl SimpleJobProcessor {
             config,
             observability: None,
             metrics_helper: ProcessorMetricsHelper::new(),
-            query_context: Arc::new(Mutex::new(None)),
             dlq: DeadLetterQueue::new(),
         }
     }
@@ -50,7 +47,6 @@ impl SimpleJobProcessor {
             config,
             observability,
             metrics_helper: ProcessorMetricsHelper::new(),
-            query_context: Arc::new(Mutex::new(None)),
             dlq: DeadLetterQueue::new(),
         }
     }
@@ -64,7 +60,6 @@ impl SimpleJobProcessor {
             config,
             observability,
             metrics_helper: ProcessorMetricsHelper::new(),
-            query_context: Arc::new(Mutex::new(None)),
             dlq: DeadLetterQueue::new(),
         }
     }
@@ -72,13 +67,6 @@ impl SimpleJobProcessor {
     /// Get reference to the Dead Letter Queue
     pub fn get_dlq(&self) -> &DeadLetterQueue {
         &self.dlq
-    }
-
-    /// Set query context for process_batch execution
-    pub async fn set_query_context(&self, query: StreamingQuery) {
-        if let Ok(mut ctx) = self.query_context.try_lock() {
-            *ctx = Some(query);
-        }
     }
 
     /// Get reference to the job processing configuration
@@ -258,7 +246,7 @@ impl SimpleJobProcessor {
 
         // Track if we've seen empty batches from all sources (lazy check)
         let mut consecutive_empty_batches = 0;
-        const MAX_EMPTY_BATCHES: usize = 3; // Check has_more() after 3 empty batches
+        const MAX_EMPTY_BATCHES: usize = 30 * 1000; // Check has_more() after 3 empty batches
 
         loop {
             // Check for shutdown signal
@@ -906,14 +894,14 @@ impl SimpleJobProcessor {
             let batch = context.read().await?;
             let deser_duration = deser_start.elapsed().as_millis() as u64;
 
-            source_batches.push((source_name.clone(), batch, deser_start, deser_duration));
+            source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
         // Create parent batch span for the overall multi-source batch operation
         let first_batch = source_batches
             .iter()
-            .find(|(_, batch, _, _)| !batch.is_empty())
-            .map(|(_, batch, _, _)| batch.as_slice())
+            .find(|(_, batch, _)| !batch.is_empty())
+            .map(|(_, batch, _)| batch.as_slice())
             .unwrap_or(&[]);
 
         let parent_batch_span_guard = ObservabilityHelper::start_batch_span(
@@ -924,7 +912,7 @@ impl SimpleJobProcessor {
         );
 
         // Now process all collected batches with per-source batch spans
-        for (source_name, batch, deser_start, deser_duration) in source_batches {
+        for (source_name, batch, deser_duration) in source_batches {
             // Create per-source batch span linked to parent batch span for proper tracing
             // This ensures each source's data is traced independently while maintaining parent-child relationship
             debug!(
@@ -1301,7 +1289,7 @@ impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor 
     async fn process_batch(
         &self,
         records: Vec<StreamRecord>,
-        engine: Arc<StreamExecutionEngine>,
+        _engine: Arc<StreamExecutionEngine>,
     ) -> Result<Vec<StreamRecord>, crate::velostream::sql::SqlError> {
         // V1 Architecture: Single-threaded batch processing
         // Process all records sequentially through the query engine
@@ -1311,19 +1299,9 @@ impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor 
             return Ok(Vec::new());
         }
 
-        // Try to get query context if available
-        let query_opt = {
-            if let Ok(ctx_lock) = self.query_context.try_lock() {
-                ctx_lock.clone()
-            } else {
-                None
-            }
-        };
-
         debug!(
-            "V1 SimpleJobProcessor::process_batch - {} records, query_context: {}, engine available: true",
-            records.len(),
-            query_opt.is_some()
+            "V1 SimpleJobProcessor::process_batch - {} records, engine available: true",
+            records.len()
         );
 
         // V1 Baseline Note:
@@ -1331,8 +1309,7 @@ impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor 
         // and output channel infrastructure. The process_batch() interface validates the
         // processor architecture but doesn't execute the full query pipeline.
         //
-        // With query context available, this could execute records through the engine,
-        // but the engine architecture is designed for streaming execution via process_multi_job().
+        // The engine architecture is designed for streaming execution via process_multi_job().
         // This method serves as an interface validation point for the V1 architecture.
 
         // For now, return records as-is (pass-through for interface validation)

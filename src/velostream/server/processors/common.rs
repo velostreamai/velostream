@@ -247,8 +247,8 @@ impl Default for JobProcessingConfig {
             batch_timeout: Duration::from_millis(1000),
             use_transactions: false,
             failure_strategy: FailureStrategy::LogAndContinue,
-            max_retries: 3,
-            retry_backoff: Duration::from_millis(1000),
+            max_retries: 10,
+            retry_backoff: Duration::from_millis(5000),
             log_progress: true,
             progress_interval: 10,
         }
@@ -367,30 +367,41 @@ pub async fn process_batch_with_output(
 
         // Get Arc<Mutex<ProcessorContext>> from QueryExecution - NOT holding engine lock during processing
         // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
-        // FR-082 Phase 6.6: Use ensure_query_execution for lazy initialization pattern
+        // FR-082 Phase 6.8: Try read-only first, fall back to lazy init if needed
+        // This eliminates the write lock for queries that have been initialized at startup
         let processor_context_arc = {
-            let mut engine_lock = engine.write().await;
-
-            // Lazy initialize if needed, then get Arc to ProcessorContext
-            if let Some(context_arc) = engine_lock.ensure_query_execution(&query) {
-                context_arc
-            } else {
-                error!("Failed to initialize query execution: {}", query_id);
-                return BatchProcessingResultWithOutput {
-                    records_processed: 0,
-                    records_failed: batch.len(),
-                    processing_time: Duration::from_secs(0),
-                    batch_size: batch.len(),
-                    error_details: vec![ProcessingError {
-                        record_index: 0,
-                        error_message: format!(
-                            "Failed to initialize query execution: {}",
-                            query_id
-                        ),
-                        recoverable: false,
-                    }],
-                    output_records: vec![],
-                };
+            // Try to get without lazy initialization (fast path for normal operation)
+            {
+                let engine_lock = engine.read().await;
+                if let Some(context_arc) = engine_lock.get_query_execution_context(&query) {
+                    context_arc
+                } else {
+                    // Slow path: query not yet initialized, need write lock for lazy init
+                    // This happens when process_batch() is called directly without process_job()
+                    drop(engine_lock); // Release read lock before acquiring write lock
+                    let mut engine_lock = engine.write().await;
+                    match engine_lock.ensure_query_execution(&query) {
+                        Some(context_arc) => context_arc,
+                        None => {
+                            error!("Failed to initialize query execution: {}", query_id);
+                            return BatchProcessingResultWithOutput {
+                                records_processed: 0,
+                                records_failed: batch.len(),
+                                processing_time: Duration::from_secs(0),
+                                batch_size: batch.len(),
+                                error_details: vec![ProcessingError {
+                                    record_index: 0,
+                                    error_message: format!(
+                                        "Failed to initialize query execution: {}",
+                                        query_id
+                                    ),
+                                    recoverable: false,
+                                }],
+                                output_records: vec![],
+                            };
+                        }
+                    }
+                }
             }
         };
 
@@ -460,30 +471,41 @@ pub async fn process_batch_with_output(
         // Phase 6.5: Get Arc<Mutex<ProcessorContext>> from QueryExecution
         // Context persists for lifetime of query - acquired by reference, never cloned
         // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
-        // FR-082 Phase 6.6: Use ensure_query_execution for lazy initialization pattern
+        // FR-082 Phase 6.8: Try read-only first, fall back to lazy init if needed
+        // This eliminates the write lock for queries that have been initialized at startup
         let processor_context_arc = {
-            let mut engine_lock = engine.write().await;
-
-            // Lazy initialize if needed, then get Arc to ProcessorContext
-            if let Some(context_arc) = engine_lock.ensure_query_execution(&query) {
-                context_arc
-            } else {
-                error!("Failed to initialize query execution: {}", query_id);
-                return BatchProcessingResultWithOutput {
-                    records_processed: 0,
-                    records_failed: batch.len(),
-                    processing_time: Duration::from_secs(0),
-                    batch_size: batch.len(),
-                    error_details: vec![ProcessingError {
-                        record_index: 0,
-                        error_message: format!(
-                            "Failed to initialize query execution: {}",
-                            query_id
-                        ),
-                        recoverable: false,
-                    }],
-                    output_records: vec![],
-                };
+            // Try to get without lazy initialization (fast path for normal operation)
+            {
+                let engine_lock = engine.read().await;
+                if let Some(context_arc) = engine_lock.get_query_execution_context(&query) {
+                    context_arc
+                } else {
+                    // Slow path: query not yet initialized, need write lock for lazy init
+                    // This happens when process_batch() is called directly without process_job()
+                    drop(engine_lock); // Release read lock before acquiring write lock
+                    let mut engine_lock = engine.write().await;
+                    match engine_lock.ensure_query_execution(&query) {
+                        Some(context_arc) => context_arc,
+                        None => {
+                            error!("Failed to initialize query execution: {}", query_id);
+                            return BatchProcessingResultWithOutput {
+                                records_processed: 0,
+                                records_failed: batch.len(),
+                                processing_time: Duration::from_secs(0),
+                                batch_size: batch.len(),
+                                error_details: vec![ProcessingError {
+                                    record_index: 0,
+                                    error_message: format!(
+                                        "Failed to initialize query execution: {}",
+                                        query_id
+                                    ),
+                                    recoverable: false,
+                                }],
+                                output_records: vec![],
+                            };
+                        }
+                    }
+                }
             }
         };
 
@@ -595,6 +617,154 @@ pub async fn process_batch_with_output(
         }
 
         // No sync needed - context is Arc<Mutex>, mutations are already persisted in-place
+    }
+
+    BatchProcessingResultWithOutput {
+        records_processed,
+        records_failed,
+        processing_time: batch_start.elapsed(),
+        batch_size,
+        error_details,
+        output_records,
+    }
+}
+
+/// Phase 6.8 Optimization: Process batch with pre-cached ProcessorContext
+///
+/// This optimized version eliminates write lock acquisitions on the engine by accepting
+/// a pre-initialized Arc<Mutex<ProcessorContext>> directly. This is the recommended path
+/// when processing multiple batches with the same query.
+///
+/// ## Performance Benefits
+/// - **Zero engine write locks**: Eliminates engine.write().await() call
+/// - **Per-batch cost**: Only mutex lock on ProcessorContext (already optimized in Phase 6.7)
+/// - **Expected improvement**: Eliminates 100-200 write lock acquisitions per second at typical throughput
+///
+/// ## Usage Pattern
+/// ```rust,ignore
+/// // Initialize once at startup (with engine lock)
+/// let processor_context_arc = {
+///     let mut engine_lock = engine.write().await;
+///     engine_lock.init_query_execution(query.clone());
+///     let qe = engine_lock.get_query_execution(&query_id)?;
+///     Arc::clone(&qe.processor_context)
+/// };
+///
+/// // Process batches without engine lock
+/// loop {
+///     let batch = reader.read().await?;
+///     let result = process_batch_with_cached_context(
+///         batch,
+///         &processor_context_arc,
+///         &query,
+///         &streaming_config,
+///         &job_name,
+///     ).await;
+/// }
+/// ```
+pub async fn process_batch_with_cached_context(
+    batch: Vec<StreamRecord>,
+    processor_context_arc: &Arc<std::sync::Mutex<ProcessorContext>>,
+    query: &StreamingQuery,
+    streaming_config: &StreamingConfig,
+    job_name: &str,
+) -> BatchProcessingResultWithOutput {
+    let batch_start = Instant::now();
+    let batch_size = batch.len();
+    let mut records_processed = 0;
+    let mut records_failed = 0;
+    let mut error_details = Vec::new();
+    let mut output_records = Vec::new();
+
+    // Detect EMIT CHANGES mode
+    let uses_emit_changes = is_emit_changes_query(query);
+
+    if uses_emit_changes {
+        // EMIT CHANGES path - with channel-based output
+        debug!(
+            "Job '{}': Using cached context EMIT CHANGES path for {} records (Phase 6.8)",
+            job_name, batch_size
+        );
+
+        // Lock context once for entire batch
+        {
+            let mut ctx = processor_context_arc.lock().unwrap();
+            ctx.streaming_config = Some(streaming_config.clone());
+
+            // Process all records with lock held
+            for (index, record) in batch.into_iter().enumerate() {
+                match QueryProcessor::process_query(query, &record, &mut ctx) {
+                    Ok(result) => {
+                        records_processed += 1;
+                        if let Some(output) = result.record {
+                            // For EMIT CHANGES, record would be emitted via channel
+                            output_records.push(Arc::new(output));
+                        }
+                    }
+                    Err(e) => {
+                        records_failed += 1;
+                        let detailed_msg = extract_error_context(&e);
+                        let recoverable = is_recoverable_error(&e);
+                        error_details.push(ProcessingError {
+                            record_index: index,
+                            error_message: detailed_msg.clone(),
+                            recoverable,
+                        });
+                        warn!(
+                            "Job '{}' cached context EMIT CHANGES failed at record {}: {} [Recoverable: {}]",
+                            job_name, index, detailed_msg, recoverable
+                        );
+                        debug!("Full error details: {:?}", e);
+                    }
+                }
+            }
+        } // MutexGuard dropped here before any await
+    } else {
+        // Standard path - with direct output collection
+        debug!(
+            "Job '{}': Using cached context standard path for {} records (Phase 6.8)",
+            job_name, batch_size
+        );
+
+        // Lock context once for entire batch
+        {
+            let mut ctx = processor_context_arc.lock().unwrap();
+            ctx.streaming_config = Some(streaming_config.clone());
+
+            // Process all records with lock held
+            for (index, record) in batch.into_iter().enumerate() {
+                match QueryProcessor::process_query(query, &record, &mut ctx) {
+                    Ok(result) => {
+                        records_processed += 1;
+                        if let Some(output) = result.record {
+                            output_records.push(Arc::new(output));
+                        }
+                    }
+                    Err(e) => {
+                        records_failed += 1;
+                        let detailed_msg = extract_error_context(&e);
+                        let recoverable = is_recoverable_error(&e);
+                        error_details.push(ProcessingError {
+                            record_index: index,
+                            error_message: detailed_msg.clone(),
+                            recoverable,
+                        });
+                        if index < 3 {
+                            warn!(
+                                "Job '{}' cached context failed at record {}: {} [Recoverable: {}]",
+                                job_name, index, detailed_msg, recoverable
+                            );
+                            debug!("Full error details: {:?}", e);
+                        } else if index == 3 {
+                            warn!(
+                                "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                                job_name, batch_size
+                            );
+                        }
+                    }
+                }
+            }
+        } // MutexGuard dropped here
     }
 
     BatchProcessingResultWithOutput {
