@@ -57,6 +57,14 @@ pub struct PartitionedJobConfig {
     /// Override partition count from SQL annotation (@partition_count)
     /// When set, overrides num_partitions field if provided
     pub annotation_partition_count: Option<usize>,
+
+    /// Maximum number of consecutive empty batches before exiting data source loop
+    /// Default: 1000 (allows long waiting periods for slow data sources)
+    pub empty_batch_count: u32,
+
+    /// Wait time in milliseconds between empty batches
+    /// Default: 1000ms (1 second) to avoid busy-waiting on empty data sources
+    pub wait_on_empty_batch_ms: u64,
 }
 
 impl Default for PartitionedJobConfig {
@@ -71,6 +79,8 @@ impl Default for PartitionedJobConfig {
             auto_select_from_query: None, // Auto-selection disabled by default
             sticky_partition_id: None,   // No sticky partition override by default
             annotation_partition_count: None, // No annotation override by default
+            empty_batch_count: 1000,
+            wait_on_empty_batch_ms: 1000,
         }
     }
 }

@@ -1589,6 +1589,8 @@ impl StreamJobServer {
                     },
                     sticky_partition_id: None,
                     annotation_partition_count: None,
+                    empty_batch_count: 1000,
+                    wait_on_empty_batch_ms: 1000,
                 };
 
                 Arc::new(PartitionedJobCoordinator::new(adaptive_config))

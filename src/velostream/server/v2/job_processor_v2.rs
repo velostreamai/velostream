@@ -39,6 +39,7 @@ use crate::velostream::sql::execution::types::StreamRecord;
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Implement JobProcessor trait for PartitionedJobCoordinator (V2 Architecture)
@@ -182,14 +183,12 @@ impl JobProcessor for PartitionedJobCoordinator {
         // Step 3: Read batches and route to receivers
         let mut consecutive_empty = 0;
         let mut total_routed = 0u64;
-        // V2 uses a configurable limit for consecutive empty batches (default: 1000)
-        // This prevents early termination on slow data sources
-        const MAX_CONSECUTIVE_EMPTY: u32 = 1000;
-        const WAIT_ON_EMPTY_MS: u64 = 1000;
+        let max_consecutive_empty = self.config().empty_batch_count;
+        let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         loop {
             if !reader.has_more().await.unwrap_or(false)
-                && consecutive_empty >= MAX_CONSECUTIVE_EMPTY
+                && consecutive_empty >= max_consecutive_empty
             {
                 break;
             }
@@ -199,8 +198,7 @@ impl JobProcessor for PartitionedJobCoordinator {
                     if batch.is_empty() {
                         consecutive_empty += 1;
                         // Wait before next read to avoid busy-waiting on empty data sources
-                        tokio::time::sleep(tokio::time::Duration::from_millis(WAIT_ON_EMPTY_MS))
-                            .await;
+                        tokio::time::sleep(wait_on_empty).await;
                         continue;
                     }
 
@@ -277,11 +275,6 @@ impl JobProcessor for PartitionedJobCoordinator {
         // This is the unified API for processing multiple data sources and sinks.
         // It wraps the existing coordinator logic but handles multiple readers/writers.
 
-        // V2 uses a configurable limit for consecutive empty batches (default: 1000)
-        // This prevents early termination on slow data sources
-        const MAX_CONSECUTIVE_EMPTY: u32 = 1000;
-        const WAIT_ON_EMPTY_MS: u64 = 1000;
-
         info!(
             "V2 PartitionedJobCoordinator::process_multi_job: {} ({} sources, {} sinks)",
             job_name,
@@ -292,6 +285,8 @@ impl JobProcessor for PartitionedJobCoordinator {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
         let mut writers = writers;
+        let max_consecutive_empty = self.config().empty_batch_count;
+        let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         // Process each reader-writer pair
         for (reader_name, mut reader) in readers.into_iter() {
@@ -319,7 +314,7 @@ impl JobProcessor for PartitionedJobCoordinator {
 
             loop {
                 if !reader.has_more().await.unwrap_or(false)
-                    && consecutive_empty >= MAX_CONSECUTIVE_EMPTY
+                    && consecutive_empty >= max_consecutive_empty
                 {
                     break;
                 }
@@ -329,10 +324,7 @@ impl JobProcessor for PartitionedJobCoordinator {
                         if batch.is_empty() {
                             consecutive_empty += 1;
                             // Wait before next read to avoid busy-waiting on empty data sources
-                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                WAIT_ON_EMPTY_MS,
-                            ))
-                            .await;
+                            tokio::time::sleep(wait_on_empty).await;
                             continue;
                         }
 
