@@ -5,12 +5,15 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionMetrics, PartitionReceiver, PartitionStateManager,
-    PartitionerSelector, PartitioningStrategy, QueryMetadata, RoutingContext,
+    AlwaysHashStrategy, BackpressureState, PartitionMetrics, PartitionReceiver,
+    PartitionStateManager, PartitionerSelector, PartitioningStrategy, QueryMetadata,
+    RoutingContext, StrategyFactory,
 };
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::processors::QueryProcessor;
 use crate::velostream::sql::execution::processors::context::ProcessorContext;
 use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::parser::annotations::PartitionAnnotations;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -95,10 +98,7 @@ impl PartitionedJobConfig {
     /// assert_eq!(config.annotation_partition_count, Some(8));
     /// assert_eq!(config.sticky_partition_id, Some(2));
     /// ```
-    pub fn apply_partition_annotations(
-        &mut self,
-        annotations: crate::velostream::sql::parser::annotations::PartitionAnnotations,
-    ) {
+    pub fn apply_partition_annotations(&mut self, annotations: PartitionAnnotations) {
         if let Some(partition_count) = annotations.partition_count {
             self.annotation_partition_count = Some(partition_count);
             debug!("Applied @partition_count annotation: {}", partition_count);
@@ -263,7 +263,7 @@ impl PartitionedJobCoordinator {
         // 3. Default to AlwaysHashStrategy (safest fallback)
         let strategy = if let Some(strategy_name) = &config.partitioning_strategy {
             // Priority 1: User explicitly provided strategy → ALWAYS USE IT
-            match crate::velostream::server::v2::StrategyFactory::create_from_str(strategy_name) {
+            match StrategyFactory::create_from_str(strategy_name) {
                 Ok(s) => {
                     info!(
                         "Using user-specified partitioning strategy: {} (explicit configuration)",
@@ -286,9 +286,7 @@ impl PartitionedJobCoordinator {
                 "Auto-selected partitioning strategy: {} (reason: {})",
                 selection.strategy_name, selection.reason
             );
-            match crate::velostream::server::v2::StrategyFactory::create_from_str(
-                &selection.strategy_name,
-            ) {
+            match StrategyFactory::create_from_str(&selection.strategy_name) {
                 Ok(s) => s,
                 Err(e) => {
                     warn!(
@@ -567,8 +565,6 @@ impl PartitionedJobCoordinator {
     /// }
     /// ```
     pub fn check_backpressure(&self, partition_metrics: &[Arc<PartitionMetrics>]) -> bool {
-        use crate::velostream::server::v2::BackpressureState;
-
         let buffer_size = self.config.partition_buffer_size;
         let mut has_backpressure = false;
 
@@ -721,8 +717,6 @@ impl PartitionedJobCoordinator {
         &self,
         partition_metrics: &[Arc<PartitionMetrics>],
     ) -> Duration {
-        use crate::velostream::server::v2::BackpressureState;
-
         if !self.config.backpressure_config.enabled {
             return Duration::from_secs(0);
         }
@@ -1053,8 +1047,6 @@ impl PartitionedJobCoordinator {
         strategy: Arc<dyn PartitioningStrategy>,
         _config: PartitionedJobConfig,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::velostream::sql::execution::processors::QueryProcessor;
-
         info!(
             "Job '{}': Partition {} pipeline starting (independent STP pipeline)",
             job_name, partition_id
@@ -1175,17 +1167,21 @@ impl PartitionedJobCoordinator {
         engine: &mut StreamExecutionEngine,
         query: &StreamingQuery,
     ) -> Result<Vec<Arc<StreamRecord>>, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::velostream::sql::execution::processors::{ProcessorContext, QueryProcessor};
-
         let mut output_records = Vec::new();
 
-        // Create processing context for this batch
+        // Get the QueryExecution from the engine
         let query_id = format!("partition_{:?}", partition_id);
-        let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.5: State is owned by ProcessorContext (single source of truth - no locks)
-        // Context is initialized with empty state and will accumulate during batch processing
+        let query_execution = engine
+            .get_query_execution(&query_id)
+            .ok_or("QueryExecution must be initialised")?;
 
-        // Process each record WITHOUT holding the engine lock
+        // Phase 6.5: State is owned by ProcessorContext (single source of truth - no locks)
+        // Lock the context ONCE for the entire batch (not per-record)
+        let context_arc = query_execution.processor_context.clone();
+        let mut context = context_arc.lock().unwrap();
+
+        // Process each record with the shared ProcessorContext
+        // Lock is held for the entire batch, released only when batch processing completes
         for record in records {
             match QueryProcessor::process_query(query, record, &mut context) {
                 Ok(result) => {
@@ -1198,10 +1194,10 @@ impl PartitionedJobCoordinator {
                 }
             }
         }
+        // Context is unlocked when context guard is dropped (end of batch)
 
         // PHASE 6.4C/6.5: No state sync-back needed!
-        // Both group_by_states and window_v2_states were accessed by Arc reference
-        // Modifications are already persisted in the Arc, no sync-back required
+        // Modifications are persisted in the Arc<Mutex<ProcessorContext>>
 
         Ok(output_records)
     }
@@ -1246,122 +1242,6 @@ impl PartitionedJobCoordinator {
         Ok(partitioned)
     }
 
-    /// Process a single partition: read records, execute SQL, send results
-    async fn process_partition(
-        partition_id: usize,
-        mut rx: mpsc::Receiver<Vec<StreamRecord>>,
-        engine: Arc<tokio::sync::Mutex<StreamExecutionEngine>>,
-        query: StreamingQuery,
-        job_name: String,
-        result_tx: mpsc::Sender<Vec<Arc<StreamRecord>>>,
-        manager: Arc<PartitionStateManager>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        info!("Job '{}': Partition {} starting", job_name, partition_id);
-
-        while let Some(records) = rx.recv().await {
-            // Execute SQL on this batch for this partition
-            let batch_result = Self::execute_batch(&records, &engine, &query, &job_name).await?;
-
-            // Update partition metrics
-            manager
-                .metrics()
-                .record_batch_processed(records.len() as u64);
-
-            // Send results upstream
-            if !batch_result.is_empty() {
-                if result_tx.send(batch_result).await.is_err() {
-                    // Result receiver dropped, stop processing
-                    break;
-                }
-            }
-        }
-
-        info!("Job '{}': Partition {} finished", job_name, partition_id);
-        Ok(())
-    }
-
-    /// Execute SQL on a batch of records
-    async fn execute_batch(
-        batch: &[StreamRecord],
-        engine: &Arc<tokio::sync::Mutex<StreamExecutionEngine>>,
-        query: &StreamingQuery,
-        job_name: &str,
-    ) -> Result<Vec<Arc<StreamRecord>>, Box<dyn std::error::Error + Send + Sync>> {
-        use crate::velostream::sql::execution::processors::ProcessorContext;
-        use crate::velostream::sql::execution::processors::QueryProcessor;
-        use std::sync::Arc;
-
-        let mut output_records = Vec::new();
-
-        // Create processing context for this batch
-        let query_id = format!("{:?}", query);
-        let mut context = ProcessorContext::new(&query_id);
-        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
-        // No need to get state from engine
-
-        // Process each record in the batch without holding engine lock
-        for record in batch {
-            match QueryProcessor::process_query(query, record, &mut context) {
-                Ok(result) => {
-                    if let Some(output) = result.record {
-                        output_records.push(Arc::new(output));
-                    }
-                }
-                Err(e) => {
-                    warn!("Job '{}': Failed to process record: {:?}", job_name, e);
-                }
-            }
-        }
-
-        // State sync-back no longer needed!
-        // Phase 6.4C/6.5: State is now managed at partition level in PartitionStateManager
-
-        Ok(output_records)
-    }
-
-    /// Check if all sources have finished (no more data)
-    async fn check_sources_finished(
-        context: &crate::velostream::sql::execution::processors::ProcessorContext,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let source_names = context.list_sources();
-        for source_name in source_names {
-            if context.has_more_data(&source_name).await? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
-    }
-
-    /// Read batch from all sources
-    async fn read_batch_from_sources(
-        context: &mut crate::velostream::sql::execution::processors::ProcessorContext,
-    ) -> Result<Option<Vec<StreamRecord>>, Box<dyn std::error::Error + Send + Sync>> {
-        let source_names = context.list_sources();
-        let mut combined_batch = Vec::new();
-
-        // Read from all sources and combine batches
-        for source_name in source_names {
-            // Set this source as active and read from it
-            context.set_active_reader(&source_name)?;
-
-            match context.read().await {
-                Ok(batch) => {
-                    combined_batch.extend(batch);
-                }
-                Err(e) => {
-                    // Log error but continue with other sources
-                    warn!("Failed to read from source '{}': {:?}", source_name, e);
-                }
-            }
-        }
-
-        if combined_batch.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(combined_batch))
-        }
-    }
-
     /// Phase 6.6: Initialize partitions with synchronous receivers (direct ownership model)
     ///
     /// Creates PartitionReceiver instances for each partition, enabling:
@@ -1369,6 +1249,9 @@ impl PartitionedJobCoordinator {
     /// - Synchronous record batch processing
     /// - Per-partition state isolation
     /// - 15-25% architectural overhead elimination
+    ///
+    /// Uses the shared QueryExecution from the coordinator's engine with a single ProcessorContext
+    /// stored in Arc<Mutex> that all partition receivers access via query_id.
     ///
     /// # Returns
     ///
@@ -1390,37 +1273,42 @@ impl PartitionedJobCoordinator {
             self.num_partitions
         );
 
-        for partition_id in 0..self.num_partitions {
-            let metrics = Arc::new(PartitionMetrics::new(partition_id));
-            metrics_list.push(Arc::clone(&metrics));
+        // If we have an engine and query, use the shared QueryExecution from the coordinator
+        if let (Some(engine_arc), Some(query_arc)) = (&self.execution_engine, &self.query) {
+            // Spawn partition receiver tasks using the shared QueryExecution and ProcessorContext
+            for partition_id in 0..self.num_partitions {
+                let metrics = Arc::new(PartitionMetrics::new(partition_id));
+                metrics_list.push(Arc::clone(&metrics));
 
-            // Create batch channel (MPSC for feeding batches to receiver)
-            let (batch_tx, batch_rx) = mpsc::channel(self.config.partition_buffer_size);
-            batch_senders.push(batch_tx);
+                // Create batch channel (MPSC for feeding batches to receiver)
+                let (batch_tx, batch_rx) = mpsc::channel(self.config.partition_buffer_size);
+                batch_senders.push(batch_tx);
 
-            // Extract engine and query if available
-            let has_query = self.query.is_some();
-            let query_arc = self.query.as_ref().map(Arc::clone);
+                let query = Arc::clone(query_arc);
+                let engine = Arc::clone(engine_arc);
 
-            // Spawn partition receiver task (Phase 6.6 - synchronous processing)
-            tokio::spawn(async move {
-                if let Some(query) = query_arc {
-                    // Create owned engine for this partition (not Arc<RwLock>)
+                // Spawn partition receiver task (Phase 6.6 - synchronous processing)
+                tokio::spawn(async move {
+                    // Create owned execution engine for this partition
                     let (output_tx, _output_rx) = mpsc::unbounded_channel();
-                    let mut engine = StreamExecutionEngine::new(output_tx);
-                    engine.init_query_execution((*query).clone());
+                    let mut local_engine = StreamExecutionEngine::new(output_tx);
+                    local_engine.init_query_execution((*query).clone());
 
-                    let query_execution = engine
-                        .get_query_execution(&format!("partition_{}", partition_id))
-                        .unwrap();
-                    let context = query_execution.processor_context;
+                    // Get the QueryExecution from the local engine
+                    let query_id = format!("{:?}", &(*query));
+                    let query_execution = local_engine
+                        .get_query_execution(&query_id)
+                        .expect("QueryExecution must be initialized");
 
-                    // Create PartitionReceiver with owned state
+                    // Phase 6.7: Direct ownership model - no Arc/Mutex wrapper
+                    // Each partition receiver owns its engine directly
+                    // ProcessorContext is owned by the engine's QueryExecution internally
+
+                    // Create PartitionReceiver with direct ownership
                     let mut receiver = PartitionReceiver::new(
                         partition_id,
-                        engine,
+                        local_engine,
                         query,
-                        context,
                         batch_rx,
                         metrics,
                     );
@@ -1436,13 +1324,10 @@ impl PartitionedJobCoordinator {
                             partition_id, e
                         );
                     }
-                } else {
-                    warn!(
-                        "Phase 6.6: No query configured for partition {}, skipping",
-                        partition_id
-                    );
-                }
-            });
+                });
+            }
+        } else {
+            warn!("Phase 6.6: No engine or query configured, skipping partition initialization");
         }
 
         debug!(

@@ -249,15 +249,11 @@ mod tests {
     #[test]
     fn test_parse_v2_with_affinity() {
         let config: JobProcessorConfig = "v2:affinity".parse().unwrap();
-        if let JobProcessorConfig::V2 {
+        let JobProcessorConfig::V2 {
             enable_core_affinity,
             ..
-        } = config
-        {
-            assert!(enable_core_affinity);
-        } else {
-            panic!("Expected V2 with affinity");
-        }
+        } = config;
+        assert!(enable_core_affinity);
     }
 
     #[test]

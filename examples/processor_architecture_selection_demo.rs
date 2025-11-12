@@ -40,23 +40,26 @@ async fn main() {
         println!("  • Expected throughput: ~190K rec/sec with real SQL work\n");
     }
 
-    // Example 2: Create server with V1 (baseline) processor
-    println!("📋 Example 2: V1 Single-Threaded Baseline");
+    // Example 2: Create server with V2 processor (1 partition - minimal config)
+    println!("📋 Example 2: V2 Single Partition (Minimal)");
     println!("{}", divider);
     {
         let server = StreamJobServer::new(
             "localhost:9092".to_string(),
-            "demo-group-v1".to_string(),
+            "demo-group-v2-single".to_string(),
             10,
         )
-        .with_processor_config(JobProcessorConfig::V1);
+        .with_processor_config(JobProcessorConfig::V2 {
+            num_partitions: Some(1),
+            enable_core_affinity: false,
+        });
 
         let config = server.processor_config();
         println!("Configuration: {}", config.description());
-        println!("  • Processor: V1 (SimpleJobProcessor)");
-        println!("  • Partitions: 1 (single-threaded)");
-        println!("  • Use case: Baseline comparison, low-concurrency");
-        println!("  • Baseline throughput: ~23.7K rec/sec with real SQL work\n");
+        println!("  • Processor: V2 (PartitionedJobCoordinator)");
+        println!("  • Partitions: 1 (minimal configuration)");
+        println!("  • Use case: Single-partition baseline, low-concurrency");
+        println!("  • Expected throughput: ~25-30K rec/sec with real SQL work\n");
     }
 
     // Example 3: Create server with V2 processor (8 partitions)
@@ -105,28 +108,37 @@ async fn main() {
         println!("  • Expected benefit: Reduced cache misses, better locality\n");
     }
 
-    // Example 5: Compare V1 vs V2
-    println!("📋 Example 5: Performance Comparison (Interface-Level Baseline)");
+    // Example 5: Compare V2 Single vs Multi-Partition
+    println!("📋 Example 5: Performance Comparison (Single vs Multi-Partition)");
     println!("{}", divider);
     {
-        let v1_server =
-            StreamJobServer::new("localhost:9092".to_string(), "demo-v1".to_string(), 10)
-                .with_processor_config(JobProcessorConfig::V1);
+        let v2_single_server = StreamJobServer::new(
+            "localhost:9092".to_string(),
+            "demo-v2-single".to_string(),
+            10,
+        )
+        .with_processor_config(JobProcessorConfig::V2 {
+            num_partitions: Some(1),
+            enable_core_affinity: false,
+        });
 
-        let v2_server =
-            StreamJobServer::new("localhost:9092".to_string(), "demo-v2".to_string(), 10)
-                .with_processor_config(JobProcessorConfig::V2 {
-                    num_partitions: Some(8),
-                    enable_core_affinity: false,
-                });
+        let v2_multi_server = StreamJobServer::new(
+            "localhost:9092".to_string(),
+            "demo-v2-multi".to_string(),
+            10,
+        )
+        .with_processor_config(JobProcessorConfig::V2 {
+            num_partitions: Some(8),
+            enable_core_affinity: false,
+        });
 
         println!(
-            "V1 Configuration: {}",
-            v1_server.processor_config().description()
+            "V2 Single-Partition: {}",
+            v2_single_server.processor_config().description()
         );
         println!(
-            "V2 Configuration: {}",
-            v2_server.processor_config().description()
+            "V2 Multi-Partition: {}",
+            v2_multi_server.processor_config().description()
         );
 
         println!("\nPhase 5.2 Baseline Results (Interface-Level, Pass-Through):");

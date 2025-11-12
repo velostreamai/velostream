@@ -400,40 +400,44 @@ pub async fn process_batch_with_output(
             ctx.streaming_config = Some(streaming_config.clone());
         }
 
-        // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
-        // Process all records WITHOUT holding engine lock
-        for (index, record) in batch.into_iter().enumerate() {
-            // Acquire Mutex lock only during record processing (minimal contention)
+        // Acquire Mutex lock only during record processing (minimal contention)
+        // CRITICAL: Lock is held only during batch processing, released before any await
+        {
             let mut ctx = processor_context_arc.lock().unwrap();
-            match QueryProcessor::process_query(query, &record, &mut ctx) {
-                Ok(result) => {
-                    records_processed += 1;
 
-                    // For EMIT CHANGES: emit each output record through the channel
-                    if let Some(output) = result.record {
-                        let _ = output_sender.send(output);
+            // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
+            // Process all records WITHOUT holding engine lock
+            for (index, record) in batch.into_iter().enumerate() {
+                match QueryProcessor::process_query(query, &record, &mut ctx) {
+                    Ok(result) => {
+                        records_processed += 1;
+
+                        // For EMIT CHANGES: emit each output record through the channel
+                        if let Some(output) = result.record {
+                            let _ = output_sender.send(output);
+                        }
+                    }
+                    Err(e) => {
+                        records_failed += 1;
+
+                        let detailed_msg = extract_error_context(&e);
+                        let recoverable = is_recoverable_error(&e);
+
+                        error_details.push(ProcessingError {
+                            record_index: index,
+                            error_message: detailed_msg.clone(),
+                            recoverable,
+                        });
+
+                        warn!(
+                            "Job '{}' EMIT CHANGES (lock-free) failed to process record {}: {} [Recoverable: {}]",
+                            job_name, index, detailed_msg, recoverable
+                        );
+                        debug!("Full error details: {:?}", e);
                     }
                 }
-                Err(e) => {
-                    records_failed += 1;
-
-                    let detailed_msg = extract_error_context(&e);
-                    let recoverable = is_recoverable_error(&e);
-
-                    error_details.push(ProcessingError {
-                        record_index: index,
-                        error_message: detailed_msg.clone(),
-                        recoverable,
-                    });
-
-                    warn!(
-                        "Job '{}' EMIT CHANGES (lock-free) failed to process record {}: {} [Recoverable: {}]",
-                        job_name, index, detailed_msg, recoverable
-                    );
-                    debug!("Full error details: {:?}", e);
-                }
             }
-        }
+        } // MutexGuard explicitly dropped here before any await
 
         // Collect any emitted results from receiver if still available
         if let Some(rx) = &mut temp_receiver {
@@ -498,68 +502,72 @@ pub async fn process_batch_with_output(
             "Job '{}': Standard path processing {} records (uses_emit_changes = false)",
             job_name, batch_size
         );
-        for (index, record) in batch.into_iter().enumerate() {
-            // Acquire Mutex lock only during record processing (minimal contention)
-            // Context state accumulates (GROUP BY, window state) across all records
-            // Lock is acquired/released per record for minimal contention
 
+        // Acquire Mutex lock only during record processing (minimal contention)
+        // CRITICAL: Lock is held only during batch processing, released before any await
+        // Context state accumulates (GROUP BY, window state) across all records
+        {
             let mut ctx = processor_context_arc.lock().unwrap();
-            match QueryProcessor::process_query(query, &record, &mut ctx) {
-                Ok(result) => {
-                    records_processed += 1;
 
-                    // Collect ACTUAL SQL query results for sink writing
-                    // (not input passthrough - this is the critical fix!)
-                    // PERF: Wrap in Arc for zero-copy multi-sink writes (7x faster)
-                    if let Some(output) = result.record {
-                        output_records.push(Arc::new(output));
-                    } else {
-                        // DIAGNOSTIC: Record when result.record is None
-                        // This indicates the query executed but produced no output for this record
-                        null_output_count += 1;
-                        if null_output_example_idx.is_none() {
-                            null_output_example_idx = Some(index);
+            for (index, record) in batch.into_iter().enumerate() {
+                match QueryProcessor::process_query(query, &record, &mut ctx) {
+                    Ok(result) => {
+                        records_processed += 1;
+
+                        // Collect ACTUAL SQL query results for sink writing
+                        // (not input passthrough - this is the critical fix!)
+                        // PERF: Wrap in Arc for zero-copy multi-sink writes (7x faster)
+                        if let Some(output) = result.record {
+                            output_records.push(Arc::new(output));
+                        } else {
+                            // DIAGNOSTIC: Record when result.record is None
+                            // This indicates the query executed but produced no output for this record
+                            null_output_count += 1;
+                            if null_output_example_idx.is_none() {
+                                null_output_example_idx = Some(index);
+                            }
+
+                            debug!(
+                                "Job '{}' record {} processed successfully but produced no output (result.record is None)",
+                                job_name, index
+                            );
                         }
 
-                        debug!(
-                            "Job '{}' record {} processed successfully but produced no output (result.record is None)",
-                            job_name, index
-                        );
+                        // NOTE: State accumulation happens automatically in context
+                        // No need to copy state back - it's already mutated in place
                     }
+                    Err(e) => {
+                        records_failed += 1;
 
-                    // NOTE: State accumulation happens automatically in context
-                    // No need to copy state back - it's already mutated in place
-                }
-                Err(e) => {
-                    records_failed += 1;
+                        // Extract and log detailed error context
+                        let detailed_msg = extract_error_context(&e);
+                        let recoverable = is_recoverable_error(&e);
 
-                    // Extract and log detailed error context
-                    let detailed_msg = extract_error_context(&e);
-                    let recoverable = is_recoverable_error(&e);
+                        error_details.push(ProcessingError {
+                            record_index: index,
+                            error_message: detailed_msg.clone(),
+                            recoverable,
+                        });
 
-                    error_details.push(ProcessingError {
-                        record_index: index,
-                        error_message: detailed_msg.clone(),
-                        recoverable,
-                    });
-
-                    // Log with human-readable context and full debug info
-                    if index < 3 {
-                        // Log first 3 errors to avoid log spam
-                        warn!(
-                            "Job '{}' failed to process record {}: {} [Recoverable: {}]",
-                            job_name, index, detailed_msg, recoverable
-                        );
-                        debug!("Full error details: {:?}", e);
-                    } else if index == 3 {
-                        warn!(
-                            "Job '{}' (suppressing further error logs for batch, {} errors total)",
-                            job_name, batch_size
-                        );
+                        // Log with human-readable context and full debug info
+                        if index < 3 {
+                            // Log first 3 errors to avoid log spam
+                            warn!(
+                                "Job '{}' failed to process record {}: {} [Recoverable: {}]",
+                                job_name, index, detailed_msg, recoverable
+                            );
+                            debug!("Full error details: {:?}", e);
+                        } else if index == 3 {
+                            warn!(
+                                "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                                job_name, batch_size
+                            );
+                        }
                     }
                 }
             }
-        }
+        } // MutexGuard explicitly dropped here
+
         debug!(
             "Job '{}': Standard path completed: {} processed, {} failed",
             job_name, records_processed, records_failed

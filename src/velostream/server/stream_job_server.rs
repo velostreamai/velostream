@@ -740,7 +740,7 @@ impl StreamJobServer {
             );
         }
 
-        let execution_engine = Arc::new(tokio::sync::RwLock::new(execution_engine));
+        let execution_engine = Arc::new(RwLock::new(execution_engine));
 
         // Clone data for the job task
         let job_name = name.clone();

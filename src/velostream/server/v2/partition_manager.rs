@@ -3,6 +3,7 @@
 //! This module implements `PartitionStateManager` to manage query state
 //! for a single partition without Arc<Mutex> contention.
 
+use crate::velostream::server::v2::PartitionReceiver;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::server::v2::watermark::WatermarkManager;
 use crate::velostream::sql::error::SqlError;
@@ -532,14 +533,13 @@ impl PartitionStateManager {
         &self,
         engine: StreamExecutionEngine,
         query: Arc<StreamingQuery>,
-        context: crate::velostream::sql::execution::processors::context::ProcessorContext,
         receiver: tokio::sync::mpsc::Receiver<Vec<StreamRecord>>,
-    ) -> crate::velostream::server::v2::PartitionReceiver {
-        crate::velostream::server::v2::PartitionReceiver::new(
+    ) -> PartitionReceiver {
+        // Wrap the ProcessorContext in Arc<Mutex> for sharing across partition receivers
+        PartitionReceiver::new(
             self.partition_id,
             engine,
             query,
-            context,
             receiver,
             Arc::clone(&self.metrics),
         )

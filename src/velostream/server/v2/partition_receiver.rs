@@ -51,7 +51,6 @@
 
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::processors::context::ProcessorContext;
 use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, warn};
@@ -77,7 +76,6 @@ pub struct PartitionReceiver {
     partition_id: usize,
     execution_engine: StreamExecutionEngine,
     query: Arc<StreamingQuery>,
-    context: ProcessorContext,
     receiver: mpsc::Receiver<Vec<StreamRecord>>,
     metrics: Arc<PartitionMetrics>,
 }
@@ -90,7 +88,7 @@ impl PartitionReceiver {
     /// * `partition_id` - Unique partition identifier
     /// * `execution_engine` - Owned execution engine (no Arc/Mutex wrapper)
     /// * `query` - Query to execute (shared via Arc)
-    /// * `context` - Processor context for state (owned directly)
+    /// * `context` - Processor context for state (shared via Arc<Mutex>)
     /// * `receiver` - MPSC receiver for batch channel
     /// * `metrics` - Metrics tracker for this partition
     ///
@@ -101,7 +99,6 @@ impl PartitionReceiver {
         partition_id: usize,
         execution_engine: StreamExecutionEngine,
         query: Arc<StreamingQuery>,
-        context: ProcessorContext,
         receiver: mpsc::Receiver<Vec<StreamRecord>>,
         metrics: Arc<PartitionMetrics>,
     ) -> Self {
@@ -114,7 +111,6 @@ impl PartitionReceiver {
             partition_id,
             execution_engine,
             query,
-            context,
             receiver,
             metrics,
         }
