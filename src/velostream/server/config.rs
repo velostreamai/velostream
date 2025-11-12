@@ -8,23 +8,55 @@
 //! 3. Environment variables (for deployment)
 //! 4. Builder pattern (for runtime customization)
 //!
+//! # Configuration Patterns
+//!
+//! Three main patterns for configuring StreamJobServer:
+//!
+//! **Pattern 1: Direct Parameters** (Backward Compatible)
+//! - Pass broker and group directly
+//! - Uses defaults for other settings
+//! - Best for: Development, simple tests
+//!
+//! **Pattern 2: Configuration Objects** (Recommended for Tests)
+//! - Use StreamJobServerConfig struct with builder pattern
+//! - More flexible and readable for complex scenarios
+//! - Best for: Tests with custom brokers, monitoring, timeouts
+//!
+//! **Pattern 3: Environment Variables** (Production)
+//! - Load configuration from environment variables
+//! - Perfect for Docker, Kubernetes, cloud deployments
+//! - Best for: Production, CI/CD pipelines
+//!
 //! # Examples
 //!
 //! ```rust,ignore
 //! use velostream::velostream::server::config::StreamJobServerConfig;
 //!
-//! // Development: Use defaults
-//! let config = StreamJobServerConfig::default();
-//! assert_eq!(config.kafka_brokers, "localhost:9092");
+//! // Pattern 1: Direct parameters (development)
+//! let server = StreamJobServer::new("localhost:9092".to_string(), "my-group", 10);
 //!
-//! // Explicit: Create with specific values
-//! let config = StreamJobServerConfig::new("broker1:9092", "my-group")
+//! // Pattern 2: Configuration objects (testing - RECOMMENDED)
+//! let config = StreamJobServerConfig::new("test-broker:9092", "test-group")
 //!     .with_max_jobs(50)
 //!     .with_monitoring(true);
+//! let server = StreamJobServer::with_config(config);
 //!
-//! // Production: Load from environment
+//! // Pattern 3: Environment variables (production)
+//! // export VELOSTREAM_KAFKA_BROKERS="broker1:9092,broker2:9092"
+//! // export VELOSTREAM_MAX_JOBS=500
 //! let config = StreamJobServerConfig::from_env("my-group");
+//! let server = StreamJobServer::with_config(config);
 //! ```
+//!
+//! # Documentation
+//!
+//! For complete usage guide with examples, see:
+//! - `docs/configuration-usage-guide.md` - Comprehensive usage guide
+//! - `tests/integration/stream_job_server_processor_config_test.rs` - Live test examples
+//!   - Pattern 1 example: `test_configuration_pattern_1_direct_parameters`
+//!   - Pattern 2 example: `test_configuration_pattern_2_config_objects`
+//!   - Pattern 3 example: `test_configuration_pattern_3_environment_variables`
+//!   - Custom broker examples: `test_custom_kafka_broker_pattern_1` and `test_custom_kafka_broker_pattern_2`
 
 use std::env;
 use std::time::Duration;
