@@ -35,6 +35,7 @@ use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use log::info;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -232,6 +233,122 @@ impl JobProcessor for PartitionedJobCoordinator {
             total_routed,
             aggregated_stats.total_processing_time,
             self.num_partitions()
+        );
+
+        Ok(aggregated_stats)
+    }
+
+    async fn process_multi_job(
+        &self,
+        readers: HashMap<String, Box<dyn DataReader>>,
+        writers: HashMap<String, Box<dyn DataWriter>>,
+        _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
+        job_name: String,
+        _shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+        // Phase 6.6: V2 Coordinator-Based Multi-Job Processing with Synchronous Receivers
+        //
+        // This is the unified API for processing multiple data sources and sinks.
+        // It wraps the existing coordinator logic but handles multiple readers/writers.
+
+        info!(
+            "V2 PartitionedJobCoordinator::process_multi_job: {} ({} sources, {} sinks)",
+            job_name,
+            readers.len(),
+            writers.len()
+        );
+
+        let start_time = std::time::Instant::now();
+        let mut aggregated_stats = JobExecutionStats::new();
+        let mut writers = writers;
+
+        // Process each reader-writer pair
+        for (reader_name, mut reader) in readers.into_iter() {
+            // Get the corresponding writer if available
+            let writer = writers.remove(&reader_name);
+
+            let query_arc = Arc::new(query.clone());
+
+            // Initialize partitions with Phase 6.6 synchronous receivers
+            let job_coordinator = PartitionedJobCoordinator::new(self.config().clone())
+                .with_query(Arc::clone(&query_arc));
+
+            let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
+
+            info!(
+                "Initialized {} Phase 6.6 partition receivers for source: {} (job: {})",
+                batch_senders.len(),
+                reader_name,
+                job_name
+            );
+
+            // Read batches and route to receivers
+            let mut consecutive_empty = 0;
+            let mut total_routed = 0u64;
+
+            loop {
+                if !reader.has_more().await.unwrap_or(false) && consecutive_empty >= 3 {
+                    break;
+                }
+
+                match reader.read().await {
+                    Ok(batch) => {
+                        if batch.is_empty() {
+                            consecutive_empty += 1;
+                            continue;
+                        }
+
+                        consecutive_empty = 0;
+                        let batch_size = batch.len();
+
+                        // Route batch to receivers (Phase 6.6 batch-based routing)
+                        match job_coordinator
+                            .process_batch_for_receivers(batch, &batch_senders)
+                            .await
+                        {
+                            Ok(routed_count) => {
+                                aggregated_stats.records_processed += routed_count as u64;
+                                aggregated_stats.batches_processed += 1;
+                                total_routed += routed_count as u64;
+                            }
+                            Err(e) => {
+                                log::warn!("Error routing batch: {:?}", e);
+                                aggregated_stats.records_failed += batch_size as u64;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Error reading batch: {:?}", e);
+                        consecutive_empty += 1;
+                    }
+                }
+            }
+
+            // Close batch senders to signal EOF
+            drop(batch_senders);
+
+            // Wait for receiver tasks to complete
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+            // Finalize writer and reader for this source
+            if let Some(mut w) = writer {
+                let _ = w.flush().await;
+                let _ = w.commit().await;
+            }
+            let _ = reader.commit().await;
+
+            info!(
+                "Source {} completed: {} records routed",
+                reader_name, total_routed
+            );
+        }
+
+        aggregated_stats.total_processing_time = start_time.elapsed();
+
+        info!(
+            "V2 PartitionedJobCoordinator::process_multi_job: {} completed\n  Records: {}\n  Processing time: {:?}",
+            job_name, aggregated_stats.records_processed, aggregated_stats.total_processing_time
         );
 
         Ok(aggregated_stats)

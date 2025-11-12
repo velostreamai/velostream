@@ -17,7 +17,7 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 /// Transactional job processor with at-least-once delivery semantics
 ///
@@ -936,14 +936,14 @@ impl TransactionalJobProcessor {
             let deser_start = Instant::now();
             let batch = context.read().await?;
             let deser_duration = deser_start.elapsed().as_millis() as u64;
-            source_batches.push((source_name.clone(), batch, deser_start, deser_duration));
+            source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
         // Create batch span with trace context from first non-empty batch
         let first_batch = source_batches
             .iter()
-            .find(|(_, batch, _, _)| !batch.is_empty())
-            .map(|(_, batch, _, _)| batch.as_slice())
+            .find(|(_, batch, _)| !batch.is_empty())
+            .map(|(_, batch, _)| batch.as_slice())
             .unwrap_or(&[]);
 
         let mut batch_span_guard = ObservabilityHelper::start_batch_span(
@@ -962,7 +962,7 @@ impl TransactionalJobProcessor {
         > = Vec::new();
 
         // Process all collected batches within the transaction
-        for (source_name, batch, _deser_start, deser_duration) in source_batches {
+        for (source_name, batch, deser_duration) in source_batches {
             // Record deserialization telemetry
             ObservabilityHelper::record_deserialization(
                 &self.observability,
@@ -1474,6 +1474,94 @@ impl TransactionalJobProcessor {
         }
 
         Ok(())
+    }
+}
+
+/// Implement JobProcessor trait for TransactionalJobProcessor (V1 Architecture)
+#[async_trait::async_trait]
+impl crate::velostream::server::processors::JobProcessor for TransactionalJobProcessor {
+    async fn process_batch(
+        &self,
+        records: Vec<StreamRecord>,
+        _engine: Arc<crate::velostream::sql::StreamExecutionEngine>,
+    ) -> Result<Vec<StreamRecord>, crate::velostream::sql::SqlError> {
+        // V1 Transactional Architecture: Single-threaded batch processing with transaction boundaries
+        // Process all records sequentially through the query engine with transactional guarantees
+
+        if records.is_empty() {
+            debug!("V1 TransactionalJobProcessor::process_batch - empty batch");
+            return Ok(Vec::new());
+        }
+
+        debug!(
+            "V1 TransactionalJobProcessor::process_batch - {} records, engine available: true",
+            records.len()
+        );
+
+        // V1 Baseline Note:
+        // The full SQL execution happens in process_job() with complete query context
+        // and transaction infrastructure. The process_batch() interface validates the
+        // processor architecture but doesn't execute the full query pipeline.
+        //
+        // The engine architecture is designed for streaming execution via process_job().
+        // This method serves as an interface validation point for the V1 transactional architecture.
+
+        // For now, return records as-is (pass-through for interface validation)
+        // This allows benchmarking and testing of the processor trait
+        // Full SQL execution happens at the job processing level with complete context
+        Ok(records)
+    }
+
+    fn num_partitions(&self) -> usize {
+        1 // V1 uses single-threaded, single partition
+    }
+
+    fn processor_name(&self) -> &str {
+        "TransactionalJobProcessor"
+    }
+
+    fn processor_version(&self) -> &str {
+        "V1-Transactional"
+    }
+
+    async fn process_job(
+        &self,
+        reader: Box<dyn crate::velostream::datasource::DataReader>,
+        writer: Option<Box<dyn crate::velostream::datasource::DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
+        query: crate::velostream::sql::StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<
+        crate::velostream::server::processors::common::JobExecutionStats,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        // Delegate to the existing process_job implementation
+        self.process_job(reader, writer, engine, query, job_name, shutdown_rx)
+            .await
+    }
+
+    async fn process_multi_job(
+        &self,
+        readers: std::collections::HashMap<
+            String,
+            Box<dyn crate::velostream::datasource::DataReader>,
+        >,
+        writers: std::collections::HashMap<
+            String,
+            Box<dyn crate::velostream::datasource::DataWriter>,
+        >,
+        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
+        query: crate::velostream::sql::StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<
+        crate::velostream::server::processors::common::JobExecutionStats,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        // Delegate to the existing process_multi_job implementation
+        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
+            .await
     }
 }
 

@@ -1346,6 +1346,29 @@ impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor 
         self.process_job(reader, writer, engine, query, job_name, shutdown_rx)
             .await
     }
+
+    async fn process_multi_job(
+        &self,
+        readers: std::collections::HashMap<
+            String,
+            Box<dyn crate::velostream::datasource::DataReader>,
+        >,
+        writers: std::collections::HashMap<
+            String,
+            Box<dyn crate::velostream::datasource::DataWriter>,
+        >,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: crate::velostream::sql::StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<
+        crate::velostream::server::processors::common::JobExecutionStats,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        // Delegate to the existing process_multi_job implementation
+        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
+            .await
+    }
 }
 
 /// Create a simple job processor optimized for throughput

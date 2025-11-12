@@ -3,10 +3,14 @@
 //! This factory provides a simple interface for creating the appropriate
 //! job processor based on JobProcessorConfig.
 
-use crate::velostream::server::processors::{JobProcessor, JobProcessorConfig};
+use crate::velostream::server::processors::{
+    FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, SimpleJobProcessor,
+    TransactionalJobProcessor,
+};
 use crate::velostream::server::v2::PartitionedJobCoordinator;
 use log::info;
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Factory for creating JobProcessor implementations
 pub struct JobProcessorFactory;
@@ -35,6 +39,22 @@ impl JobProcessorFactory {
     /// ```
     pub fn create(config: JobProcessorConfig) -> Arc<dyn JobProcessor> {
         match config {
+            JobProcessorConfig::V1Simple => {
+                info!("Creating V1 Simple JobProcessor (SingleThreaded, Best-Effort)");
+                Arc::new(SimpleJobProcessor::new(JobProcessingConfig {
+                    use_transactions: false,
+                    failure_strategy: FailureStrategy::LogAndContinue,
+                    ..Default::default()
+                }))
+            }
+            JobProcessorConfig::V1Transactional => {
+                info!("Creating V1 Transactional JobProcessor (SingleThreaded, At-Least-Once)");
+                Arc::new(TransactionalJobProcessor::new(JobProcessingConfig {
+                    use_transactions: true,
+                    failure_strategy: FailureStrategy::FailBatch,
+                    ..Default::default()
+                }))
+            }
             JobProcessorConfig::V2 {
                 num_partitions,
                 enable_core_affinity,
@@ -58,6 +78,16 @@ impl JobProcessorFactory {
                 Arc::new(PartitionedJobCoordinator::new(partitioned_config))
             }
         }
+    }
+
+    /// Create a V1 Simple processor (single-threaded, best-effort)
+    pub fn create_v1_simple() -> Arc<dyn JobProcessor> {
+        Self::create(JobProcessorConfig::V1Simple)
+    }
+
+    /// Create a V1 Transactional processor (single-threaded, at-least-once)
+    pub fn create_v1_transactional() -> Arc<dyn JobProcessor> {
+        Self::create(JobProcessorConfig::V1Transactional)
     }
 
     /// Create a V2 processor with default configuration
@@ -95,6 +125,36 @@ impl JobProcessorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_factory_create_v1_simple() {
+        let processor = JobProcessorFactory::create_v1_simple();
+        assert_eq!(processor.processor_version(), "V1");
+        assert_eq!(processor.num_partitions(), 1);
+        assert_eq!(processor.processor_name(), "SimpleJobProcessor");
+    }
+
+    #[test]
+    fn test_factory_create_v1_transactional() {
+        let processor = JobProcessorFactory::create_v1_transactional();
+        assert_eq!(processor.processor_version(), "V1-Transactional");
+        assert_eq!(processor.num_partitions(), 1);
+        assert_eq!(processor.processor_name(), "TransactionalJobProcessor");
+    }
+
+    #[test]
+    fn test_factory_create_from_string_v1_simple() {
+        let processor = JobProcessorFactory::create_from_str("v1:simple").unwrap();
+        assert_eq!(processor.processor_version(), "V1");
+        assert_eq!(processor.num_partitions(), 1);
+    }
+
+    #[test]
+    fn test_factory_create_from_string_v1_transactional() {
+        let processor = JobProcessorFactory::create_from_str("v1:transactional").unwrap();
+        assert_eq!(processor.processor_version(), "V1-Transactional");
+        assert_eq!(processor.num_partitions(), 1);
+    }
 
     #[test]
     fn test_factory_create_v2_default() {

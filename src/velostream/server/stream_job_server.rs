@@ -836,7 +836,26 @@ impl StreamJobServer {
                             );
 
                             // Route to appropriate processor based on configuration
-                            match &processor_config_for_spawn {
+                            use crate::velostream::server::processors::JobProcessor;
+
+                            let processor: Arc<dyn JobProcessor> = match &processor_config_for_spawn
+                            {
+                                JobProcessorConfig::V1Simple => {
+                                    info!(
+                                        "Job '{}' using V1 Simple processor (single-threaded, best-effort)",
+                                        job_name
+                                    );
+                                    use crate::velostream::server::processors::JobProcessorFactory;
+                                    JobProcessorFactory::create_v1_simple()
+                                }
+                                JobProcessorConfig::V1Transactional => {
+                                    info!(
+                                        "Job '{}' using V1 Transactional processor (single-threaded, at-least-once)",
+                                        job_name
+                                    );
+                                    use crate::velostream::server::processors::JobProcessorFactory;
+                                    JobProcessorFactory::create_v1_transactional()
+                                }
                                 JobProcessorConfig::V2 {
                                     num_partitions,
                                     enable_core_affinity,
@@ -876,29 +895,39 @@ impl StreamJobServer {
                                         annotation_partition_count: None,
                                     };
 
-                                    let coordinator = PartitionedJobCoordinator::new(v2_config);
+                                    Arc::new(PartitionedJobCoordinator::new(v2_config))
+                                }
+                            };
 
-                                    match coordinator
-                                        .process_multi_job(
-                                            readers,
-                                            writers,
-                                            execution_engine.clone(),
-                                            parsed_query,
-                                            job_name.clone(),
-                                            shutdown_receiver,
-                                        )
-                                        .await
-                                    {
-                                        Ok(stats) => {
-                                            info!(
-                                                "Job '{}' completed successfully (V2): {:?}",
-                                                job_name, stats
-                                            );
-                                        }
-                                        Err(e) => {
-                                            error!("Job '{}' failed (V2): {:?}", job_name, e);
-                                        }
-                                    }
+                            // Execute the selected processor (unified API for all three)
+                            match processor
+                                .process_multi_job(
+                                    readers,
+                                    writers,
+                                    execution_engine.clone(),
+                                    parsed_query,
+                                    job_name.clone(),
+                                    shutdown_receiver,
+                                )
+                                .await
+                            {
+                                Ok(stats) => {
+                                    info!(
+                                        "Job '{}' completed successfully ({} - {}): {:?}",
+                                        job_name,
+                                        processor.processor_version(),
+                                        processor.processor_name(),
+                                        stats
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Job '{}' failed ({} - {}): {:?}",
+                                        job_name,
+                                        processor.processor_version(),
+                                        processor.processor_name(),
+                                        e
+                                    );
                                 }
                             }
                         }

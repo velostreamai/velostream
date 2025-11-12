@@ -10,6 +10,7 @@ use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -70,6 +71,31 @@ pub trait JobProcessor: Send + Sync {
         &self,
         reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Process a complete job with multiple data sources and sinks
+    ///
+    /// Handles end-to-end job execution with support for multiple readers and writers.
+    /// This is the primary method for job processing that supports all processor types.
+    ///
+    /// # Arguments
+    /// * `readers` - Map of named data sources to read records from
+    /// * `writers` - Map of named sinks to write results to
+    /// * `engine` - Shared StreamExecutionEngine for query execution
+    /// * `query` - Streaming query to execute
+    /// * `job_name` - Name of the job for logging and metrics
+    /// * `shutdown_rx` - Channel to receive shutdown signal
+    ///
+    /// # Returns
+    /// Job execution statistics or error
+    async fn process_multi_job(
+        &self,
+        readers: HashMap<String, Box<dyn DataReader>>,
+        writers: HashMap<String, Box<dyn DataWriter>>,
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
