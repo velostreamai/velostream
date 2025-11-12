@@ -3,6 +3,7 @@
 //! Coordinates execution across N partitions for linear scaling performance.
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::server::processors::MetricsCollector;
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::v2::{
     AlwaysHashStrategy, BackpressureState, PartitionMetrics, PartitionReceiver,
@@ -234,6 +235,8 @@ pub struct PartitionedJobCoordinator {
     query: Option<Arc<StreamingQuery>>,
     /// Phase 6.1: Execution engine for SQL processing on each partition
     execution_engine: Option<Arc<StreamExecutionEngine>>,
+    /// Aggregated metrics collector for all partitions
+    metrics_collector: MetricsCollector,
 }
 
 impl PartitionedJobCoordinator {
@@ -310,6 +313,7 @@ impl PartitionedJobCoordinator {
             num_cpu_slots,
             query: None,
             execution_engine: None,
+            metrics_collector: MetricsCollector::new(),
         }
     }
 
@@ -357,6 +361,11 @@ impl PartitionedJobCoordinator {
     /// Get configuration
     pub fn config(&self) -> &PartitionedJobConfig {
         &self.config
+    }
+
+    /// Get metrics collector for aggregated metrics
+    pub fn metrics_collector(&self) -> &MetricsCollector {
+        &self.metrics_collector
     }
 
     /// Initialize partitions with managers and channels

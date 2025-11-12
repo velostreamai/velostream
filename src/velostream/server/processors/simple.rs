@@ -8,6 +8,8 @@ use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
+use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
+use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::sql::execution::StreamRecord;
@@ -27,6 +29,8 @@ pub struct SimpleJobProcessor {
     metrics_helper: ProcessorMetricsHelper,
     /// Dead Letter Queue for failed records
     dlq: DeadLetterQueue,
+    /// Runtime metrics collector
+    metrics_collector: MetricsCollector,
 }
 
 impl SimpleJobProcessor {
@@ -36,6 +40,7 @@ impl SimpleJobProcessor {
             observability: None,
             metrics_helper: ProcessorMetricsHelper::new(),
             dlq: DeadLetterQueue::new(),
+            metrics_collector: MetricsCollector::new(),
         }
     }
 
@@ -48,6 +53,7 @@ impl SimpleJobProcessor {
             observability,
             metrics_helper: ProcessorMetricsHelper::new(),
             dlq: DeadLetterQueue::new(),
+            metrics_collector: MetricsCollector::new(),
         }
     }
 
@@ -61,6 +67,7 @@ impl SimpleJobProcessor {
             observability,
             metrics_helper: ProcessorMetricsHelper::new(),
             dlq: DeadLetterQueue::new(),
+            metrics_collector: MetricsCollector::new(),
         }
     }
 
@@ -94,7 +101,7 @@ impl SimpleJobProcessor {
     /// Public for testing purposes. Delegates to ProcessorMetricsHelper.
     pub fn evaluate_condition_expr(
         expr: &crate::velostream::sql::ast::Expr,
-        record: &crate::velostream::sql::execution::StreamRecord,
+        record: &StreamRecord,
         metric_name: &str,
         job_name: &str,
     ) -> bool {
@@ -116,7 +123,7 @@ impl SimpleJobProcessor {
     async fn emit_counter_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[std::sync::Arc<StreamRecord>],
         job_name: &str,
     ) {
         self.metrics_helper
@@ -139,7 +146,7 @@ impl SimpleJobProcessor {
     async fn emit_gauge_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[Arc<StreamRecord>],
         job_name: &str,
     ) {
         self.metrics_helper
@@ -162,7 +169,7 @@ impl SimpleJobProcessor {
     async fn emit_histogram_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
+        output_records: &[std::sync::Arc<StreamRecord>],
         job_name: &str,
     ) {
         self.metrics_helper
@@ -857,9 +864,7 @@ impl SimpleJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
-        let mut all_output_records: Vec<
-            std::sync::Arc<crate::velostream::sql::execution::StreamRecord>,
-        > = Vec::new();
+        let mut all_output_records: Vec<std::sync::Arc<StreamRecord>> = Vec::new();
 
         // Start batch timing
         let batch_start = Instant::now();
@@ -1308,6 +1313,19 @@ impl crate::velostream::server::processors::JobProcessor for SimpleJobProcessor 
 
     fn processor_version(&self) -> &str {
         "V1"
+    }
+
+    fn metrics(&self) -> ProcessorMetrics {
+        ProcessorMetrics {
+            version: self.processor_version().to_string(),
+            name: self.processor_name().to_string(),
+            num_partitions: self.num_partitions(),
+            lifecycle_state: self.metrics_collector.lifecycle_state(),
+            total_records: self.metrics_collector.total_records(),
+            failed_records: self.metrics_collector.failed_records(),
+            throughput_rps: self.metrics_collector.throughput_rps(),
+            uptime_secs: self.metrics_collector.uptime_secs(),
+        }
     }
 
     async fn process_job(

@@ -273,7 +273,7 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
         }
     });
 
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });

@@ -261,7 +261,7 @@ async fn scenario_3a_tumbling_standard_baseline() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });

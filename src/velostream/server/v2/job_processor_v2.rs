@@ -28,7 +28,9 @@
 //! See: `src/velostream/server/v2/partition_manager.rs` for per-partition state management
 
 use crate::velostream::datasource::{DataReader, DataWriter};
-use crate::velostream::server::processors::{JobProcessor, common::JobExecutionStats};
+use crate::velostream::server::processors::{
+    JobProcessor, ProcessorMetrics, common::JobExecutionStats,
+};
 use crate::velostream::server::v2::PartitionedJobCoordinator;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
@@ -115,6 +117,20 @@ impl JobProcessor for PartitionedJobCoordinator {
 
     fn processor_version(&self) -> &str {
         "V2"
+    }
+
+    fn metrics(&self) -> ProcessorMetrics {
+        let metrics_collector = self.metrics_collector();
+        ProcessorMetrics {
+            version: self.processor_version().to_string(),
+            name: self.processor_name().to_string(),
+            num_partitions: self.num_partitions(),
+            lifecycle_state: metrics_collector.lifecycle_state(),
+            total_records: metrics_collector.total_records(),
+            failed_records: metrics_collector.failed_records(),
+            throughput_rps: metrics_collector.throughput_rps(),
+            uptime_secs: metrics_collector.uptime_secs(),
+        }
     }
 
     async fn process_job(

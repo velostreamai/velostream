@@ -9,6 +9,7 @@ pub mod error_tracking_helper;
 pub mod job_processor_config;
 pub mod job_processor_factory;
 pub mod job_processor_trait;
+pub mod metrics_collector;
 pub mod metrics_helper;
 pub mod mock;
 pub mod observability_helper;
@@ -23,6 +24,7 @@ pub use error_tracking_helper::ErrorTracker;
 pub use job_processor_config::JobProcessorConfig;
 pub use job_processor_factory::JobProcessorFactory;
 pub use job_processor_trait::{JobProcessor, LifecycleState, ProcessorMetrics};
+pub use metrics_collector::MetricsCollector;
 pub use metrics_helper::{
     LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,
 };

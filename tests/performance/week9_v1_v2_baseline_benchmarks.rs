@@ -71,7 +71,7 @@ async fn week9_v1_baseline_throughput_100_records() {
     let num_batches = 10;
 
     // Create V2 processor with single partition (equivalent to V1 baseline)
-    let v1_config = JobProcessorConfig::V2 {
+    let v1_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     };
@@ -132,7 +132,7 @@ async fn week9_v1_baseline_throughput_1000_records() {
     let num_groups = 50;
     let num_batches = 10;
 
-    let v1_config = JobProcessorConfig::V2 {
+    let v1_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     };
@@ -194,7 +194,7 @@ async fn week9_v2_baseline_throughput_100_records() {
     let num_batches = 10;
     let num_partitions = 8;
 
-    let v2_config = JobProcessorConfig::V2 {
+    let v2_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(num_partitions),
         enable_core_affinity: false,
     };
@@ -256,7 +256,7 @@ async fn week9_v2_baseline_throughput_1000_records() {
     let num_batches = 10;
     let num_partitions = 8;
 
-    let v2_config = JobProcessorConfig::V2 {
+    let v2_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(num_partitions),
         enable_core_affinity: false,
     };
@@ -324,7 +324,7 @@ async fn week9_v1_v2_comparison_4_partitions() {
 
     // V2 single partition baseline
     println!("Running V2 single partition baseline...");
-    let v1_config = JobProcessorConfig::V2 {
+    let v1_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     };
@@ -343,7 +343,7 @@ async fn week9_v1_v2_comparison_4_partitions() {
 
     // V2 with 4 partitions
     println!("Running V2 with 4 partitions...");
-    let v2_config = JobProcessorConfig::V2 {
+    let v2_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
     };
@@ -392,7 +392,7 @@ async fn week9_v1_v2_comparison_8_partitions() {
 
     // V2 single partition baseline
     println!("Running V2 single partition baseline...");
-    let v1_config = JobProcessorConfig::V2 {
+    let v1_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     };
@@ -411,7 +411,7 @@ async fn week9_v1_v2_comparison_8_partitions() {
 
     // V2 with 8 partitions
     println!("Running V2 with 8 partitions...");
-    let v2_config = JobProcessorConfig::V2 {
+    let v2_config = JobProcessorConfig::Adaptive {
         num_partitions: Some(8),
         enable_core_affinity: false,
     };
@@ -459,7 +459,7 @@ async fn week9_v2_scaling_efficiency_across_partitions() {
 
     // Benchmark different partition counts
     for num_partitions in &[1, 2, 4, 8, 16] {
-        let config = JobProcessorConfig::V2 {
+        let config = JobProcessorConfig::Adaptive {
             num_partitions: Some(*num_partitions),
             enable_core_affinity: false,
         };

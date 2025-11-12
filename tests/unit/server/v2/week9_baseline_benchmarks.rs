@@ -67,7 +67,7 @@ fn create_test_engine() -> (
 
 #[tokio::test]
 async fn benchmark_v1_small_batch_throughput() {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -89,7 +89,7 @@ async fn benchmark_v1_small_batch_throughput() {
 
 #[tokio::test]
 async fn benchmark_v1_medium_batch_throughput() {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -114,7 +114,7 @@ async fn benchmark_v1_medium_batch_throughput() {
 
 #[tokio::test]
 async fn benchmark_v1_large_batch_throughput() {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -213,7 +213,7 @@ async fn benchmark_v2_large_batch_throughput_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v1_vs_v2_throughput_comparison() {
-    let v1 = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let v1 = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -365,7 +365,7 @@ async fn benchmark_v2_scaling_efficiency_2_vs_4_vs_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v1_batch_latency() {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -478,7 +478,7 @@ fn print_week9_baseline_summary() {
     println!("  Partitions:       1 (single-threaded)");
     println!("  Threading:        Sequential (no parallelism)");
     println!(
-        "  Configuration:    JobProcessorConfig::V2 {{ num_partitions: Some(1), enable_core_affinity: false }}"
+        "  Configuration:    JobProcessorConfig::Adaptive {{ num_partitions: Some(1), enable_core_affinity: false }}"
     );
     println!("  Factory Method:   JobProcessorFactory::create(...)");
     println!("  Expected Throughput:");
@@ -492,7 +492,7 @@ fn print_week9_baseline_summary() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("  Partitions:       Configurable (default: CPU count)");
     println!("  Threading:        Parallel (1 partition per thread)");
-    println!("  Configuration:    JobProcessorConfig::V2 {{ num_partitions: Some(8) }}");
+    println!("  Configuration:    JobProcessorConfig::Adaptive {{ num_partitions: Some(8) }}");
     println!("  Factory Methods:  JobProcessorFactory::create_v2_with_partitions(8)");
     println!("  Expected Throughput (on 8-core system):");
     println!("    - Small batch (100):    ~100K+ rec/sec (overhead dominated)");

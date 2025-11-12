@@ -724,7 +724,7 @@ async fn scenario_1_rows_window_with_job_server() {
     let (tx, _rx) = mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });

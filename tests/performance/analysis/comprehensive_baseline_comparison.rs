@@ -107,7 +107,7 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> f64 {
 
 /// Measure JobServer V1
 async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -142,7 +142,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
 
 /// Measure JobServer V2 @ 1-core
 async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -177,7 +177,7 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
 
 /// Measure JobServer V2 @ 4-core
 async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
     });

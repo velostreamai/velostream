@@ -8,6 +8,8 @@ use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
+use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
+use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::sql::execution::StreamRecord;
@@ -28,6 +30,8 @@ pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
     observability: Option<SharedObservabilityManager>,
     metrics_helper: ProcessorMetricsHelper,
+    /// Runtime metrics collector
+    metrics_collector: MetricsCollector,
 }
 
 impl TransactionalJobProcessor {
@@ -36,6 +40,7 @@ impl TransactionalJobProcessor {
             config,
             observability: None,
             metrics_helper: ProcessorMetricsHelper::new(),
+            metrics_collector: MetricsCollector::new(),
         }
     }
 
@@ -48,6 +53,7 @@ impl TransactionalJobProcessor {
             config,
             observability,
             metrics_helper: ProcessorMetricsHelper::new(),
+            metrics_collector: MetricsCollector::new(),
         }
     }
 
@@ -1522,6 +1528,19 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
 
     fn processor_version(&self) -> &str {
         "V1-Transactional"
+    }
+
+    fn metrics(&self) -> ProcessorMetrics {
+        ProcessorMetrics {
+            version: self.processor_version().to_string(),
+            name: self.processor_name().to_string(),
+            num_partitions: self.num_partitions(),
+            lifecycle_state: self.metrics_collector.lifecycle_state(),
+            total_records: self.metrics_collector.total_records(),
+            failed_records: self.metrics_collector.failed_records(),
+            throughput_rps: self.metrics_collector.throughput_rps(),
+            uptime_secs: self.metrics_collector.uptime_secs(),
+        }
     }
 
     async fn process_job(

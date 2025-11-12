@@ -262,7 +262,7 @@ async fn job_server_overhead_breakdown() {
     let (tx_v1, _rx_v1) = mpsc::unbounded_channel();
     let engine_v1 = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v1)));
 
-    let processor_v1 = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor_v1 = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
@@ -298,7 +298,7 @@ async fn job_server_overhead_breakdown() {
     let (tx_v2, _rx_v2) = mpsc::unbounded_channel();
     let engine_v2 = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v2)));
 
-    let processor_v2 = JobProcessorFactory::create(JobProcessorConfig::V2 {
+    let processor_v2 = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(num_v2_partitions),
         enable_core_affinity: false,
     });
