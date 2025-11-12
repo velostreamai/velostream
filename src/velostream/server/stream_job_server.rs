@@ -8,6 +8,7 @@ use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{
     ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
 };
+use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorConfig, SimpleJobProcessor,
@@ -112,19 +113,20 @@ pub struct JobSummary {
 }
 
 impl StreamJobServer {
-    pub fn new(_brokers: String, base_group_id: String, max_jobs: usize) -> Self {
+    /// Create server with explicit configuration
+    pub fn with_config(config: StreamJobServerConfig) -> Self {
         let table_registry_config = TableRegistryConfig {
-            max_tables: 100,
+            max_tables: config.table_cache_size,
             enable_ttl: false,
             ttl_duration_secs: None,
-            kafka_brokers: "localhost:9092".to_string(),
-            base_group_id: base_group_id.clone(),
+            kafka_brokers: config.kafka_brokers.clone(),
+            base_group_id: config.base_group_id.clone(),
         };
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id,
-            max_jobs,
+            base_group_id: config.base_group_id,
+            max_jobs: config.max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor: None,
             table_registry: TableRegistry::with_config(table_registry_config),
@@ -133,13 +135,28 @@ impl StreamJobServer {
         }
     }
 
+    /// Create server with brokers and group ID (backward compatible)
+    pub fn new(brokers: String, base_group_id: String, max_jobs: usize) -> Self {
+        let config = StreamJobServerConfig::new(brokers, base_group_id).with_max_jobs(max_jobs);
+        Self::with_config(config)
+    }
+
+    /// Create server with monitoring enabled (backward compatible)
     pub async fn new_with_monitoring(
-        _brokers: String,
+        brokers: String,
         base_group_id: String,
         max_jobs: usize,
         enable_monitoring: bool,
     ) -> Self {
-        let performance_monitor = if enable_monitoring {
+        let config = StreamJobServerConfig::new(brokers, base_group_id)
+            .with_max_jobs(max_jobs)
+            .with_monitoring(enable_monitoring);
+        Self::with_config_and_monitoring(config).await
+    }
+
+    /// Create server with explicit configuration and monitoring support
+    pub async fn with_config_and_monitoring(config: StreamJobServerConfig) -> Self {
+        let performance_monitor = if config.enable_monitoring {
             let monitor = Arc::new(PerformanceMonitor::new());
             info!("Performance monitoring enabled for StreamJobServer");
             Some(monitor)
@@ -148,7 +165,7 @@ impl StreamJobServer {
         };
 
         // Initialize shared observability manager for Prometheus metrics
-        let observability = if enable_monitoring {
+        let observability = if config.enable_monitoring {
             use crate::velostream::observability::ObservabilityManager;
             use crate::velostream::sql::execution::config::StreamingConfig;
 
@@ -173,17 +190,17 @@ impl StreamJobServer {
         };
 
         let table_registry_config = TableRegistryConfig {
-            max_tables: 100,
+            max_tables: config.table_cache_size,
             enable_ttl: false,
             ttl_duration_secs: None,
-            kafka_brokers: "localhost:9092".to_string(),
-            base_group_id: base_group_id.clone(),
+            kafka_brokers: config.kafka_brokers.clone(),
+            base_group_id: config.base_group_id.clone(),
         };
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id,
-            max_jobs,
+            base_group_id: config.base_group_id,
+            max_jobs: config.max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
@@ -192,11 +209,20 @@ impl StreamJobServer {
         }
     }
 
-    /// Create server with full observability configuration (tracing, metrics, profiling)
+    /// Create server with full observability configuration (backward compatible)
     pub async fn new_with_observability(
-        _brokers: String,
+        brokers: String,
         base_group_id: String,
         max_jobs: usize,
+        streaming_config: StreamingConfig,
+    ) -> Self {
+        let config = StreamJobServerConfig::new(brokers, base_group_id).with_max_jobs(max_jobs);
+        Self::with_config_and_observability(config, streaming_config).await
+    }
+
+    /// Create server with explicit configuration and full observability (tracing, metrics, profiling)
+    pub async fn with_config_and_observability(
+        config: StreamJobServerConfig,
         streaming_config: StreamingConfig,
     ) -> Self {
         let performance_monitor = if streaming_config.enable_prometheus_metrics {
@@ -243,17 +269,17 @@ impl StreamJobServer {
         };
 
         let table_registry_config = TableRegistryConfig {
-            max_tables: 100,
+            max_tables: config.table_cache_size,
             enable_ttl: false,
             ttl_duration_secs: None,
-            kafka_brokers: "localhost:9092".to_string(),
-            base_group_id: base_group_id.clone(),
+            kafka_brokers: config.kafka_brokers.clone(),
+            base_group_id: config.base_group_id.clone(),
         };
 
         let server = Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id,
-            max_jobs,
+            base_group_id: config.base_group_id,
+            max_jobs: config.max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
