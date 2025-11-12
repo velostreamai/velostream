@@ -238,7 +238,10 @@ async fn scenario_0_pure_select_baseline() {
     let (tx_v1, _rx_v1) = mpsc::unbounded_channel();
     let engine_v1 = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx_v1)));
 
-    let processor_v1 = JobProcessorFactory::create(JobProcessorConfig::V1);
+    let processor_v1 = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let (_shutdown_tx_v1, shutdown_rx_v1) = mpsc::channel(1);
 
     let v1_start = Instant::now();

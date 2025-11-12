@@ -91,24 +91,19 @@ fn benchmark_always_hash_strategy(records: &[StreamRecord], num_partitions: usiz
     let mut partition_counts = vec![0usize; num_partitions];
 
     for record in records {
-        let partition = futures::executor::block_on(async {
-            match strategy
-                .route_record(
-                    record,
-                    &RoutingContext {
-                        source_partition: None,
-                        source_partition_key: None,
-                        group_by_columns: vec!["trader_id".to_string()],
-                        num_partitions,
-                        num_cpu_slots: num_cpus::get().max(1),
-                    },
-                )
-                .await
-            {
-                Ok(p) => p,
-                Err(_) => 0,
-            }
-        });
+        let partition = match strategy.route_record(
+            &record,
+            &RoutingContext {
+                source_partition: None,
+                source_partition_key: None,
+                group_by_columns: vec!["trader_id".to_string()],
+                num_partitions,
+                num_cpu_slots: num_cpus::get().max(1),
+            },
+        ) {
+            Ok(p) => p,
+            Err(_) => 0,
+        };
         partition_counts[partition] += 1;
     }
 
@@ -147,24 +142,19 @@ fn benchmark_smart_repartition_strategy(
             Some("symbol".to_string())
         };
 
-        let partition = futures::executor::block_on(async {
-            match strategy
-                .route_record(
-                    record,
-                    &RoutingContext {
-                        source_partition,
-                        source_partition_key: source_key,
-                        group_by_columns: vec!["trader_id".to_string()],
-                        num_partitions,
-                        num_cpu_slots: num_cpus::get().max(1),
-                    },
-                )
-                .await
-            {
-                Ok(p) => p,
-                Err(_) => 0,
-            }
-        });
+        let partition = match strategy.route_record(
+            record,
+            &RoutingContext {
+                source_partition,
+                source_partition_key: source_key,
+                group_by_columns: vec!["trader_id".to_string()],
+                num_partitions,
+                num_cpu_slots: num_cpus::get().max(1),
+            },
+        ) {
+            Ok(p) => p,
+            Err(_) => 0,
+        };
         partition_counts[partition] += 1;
     }
 
@@ -193,24 +183,19 @@ fn benchmark_sticky_partition_strategy(records: &[StreamRecord], num_partitions:
     for (i, record) in records.iter().enumerate() {
         let source_partition = Some(i % num_partitions);
 
-        let partition = futures::executor::block_on(async {
-            match strategy
-                .route_record(
-                    record,
-                    &RoutingContext {
-                        source_partition,
-                        source_partition_key: Some("trader_id".to_string()),
-                        group_by_columns: vec!["trader_id".to_string()],
-                        num_partitions,
-                        num_cpu_slots: num_cpus::get().max(1),
-                    },
-                )
-                .await
-            {
-                Ok(p) => p,
-                Err(_) => 0,
-            }
-        });
+        let partition = match strategy.route_record(
+            record,
+            &RoutingContext {
+                source_partition,
+                source_partition_key: Some("trader_id".to_string()),
+                group_by_columns: vec!["trader_id".to_string()],
+                num_partitions,
+                num_cpu_slots: num_cpus::get().max(1),
+            },
+        ) {
+            Ok(p) => p,
+            Err(_) => 0,
+        };
         partition_counts[partition] += 1;
     }
 
@@ -237,24 +222,19 @@ fn benchmark_round_robin_strategy(records: &[StreamRecord], num_partitions: usiz
     let mut partition_counts = vec![0usize; num_partitions];
 
     for record in records {
-        let partition = futures::executor::block_on(async {
-            match strategy
-                .route_record(
-                    record,
-                    &RoutingContext {
-                        source_partition: None,
-                        source_partition_key: None,
-                        group_by_columns: vec![], // No GROUP BY for round-robin
-                        num_partitions,
-                        num_cpu_slots: num_cpus::get().max(1),
-                    },
-                )
-                .await
-            {
-                Ok(p) => p,
-                Err(_) => 0,
-            }
-        });
+        let partition = match strategy.route_record(
+            record,
+            &RoutingContext {
+                source_partition: None,
+                source_partition_key: None,
+                group_by_columns: vec![], // No GROUP BY for round-robin
+                num_partitions,
+                num_cpu_slots: num_cpus::get().max(1),
+            },
+        ) {
+            Ok(p) => p,
+            Err(_) => 0,
+        };
         partition_counts[partition] += 1;
     }
 

@@ -107,7 +107,10 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> f64 {
 
 /// Measure JobServer V1
 async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V1);
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 

@@ -273,7 +273,10 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
         }
     });
 
-    let processor = JobProcessorFactory::create(JobProcessorConfig::V1);
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 

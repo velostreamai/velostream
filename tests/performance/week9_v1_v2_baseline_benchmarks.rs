@@ -70,8 +70,11 @@ async fn week9_v1_baseline_throughput_100_records() {
     let num_groups = 10;
     let num_batches = 10;
 
-    // Create V1 processor
-    let v1_config = JobProcessorConfig::V1;
+    // Create V2 processor with single partition (equivalent to V1 baseline)
+    let v1_config = JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    };
     let v1_processor = JobProcessorFactory::create(v1_config);
     let engine = create_test_engine();
 
@@ -129,7 +132,10 @@ async fn week9_v1_baseline_throughput_1000_records() {
     let num_groups = 50;
     let num_batches = 10;
 
-    let v1_config = JobProcessorConfig::V1;
+    let v1_config = JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    };
     let v1_processor = JobProcessorFactory::create(v1_config);
     let engine = create_test_engine();
 
@@ -316,9 +322,12 @@ async fn week9_v1_v2_comparison_4_partitions() {
 
     let engine = create_test_engine();
 
-    // V1 baseline
-    println!("Running V1 baseline...");
-    let v1_config = JobProcessorConfig::V1;
+    // V2 single partition baseline
+    println!("Running V2 single partition baseline...");
+    let v1_config = JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    };
     let v1_processor = JobProcessorFactory::create(v1_config);
 
     let v1_start = Instant::now();
@@ -381,9 +390,12 @@ async fn week9_v1_v2_comparison_8_partitions() {
 
     let engine = create_test_engine();
 
-    // V1 baseline
-    println!("Running V1 baseline...");
-    let v1_config = JobProcessorConfig::V1;
+    // V2 single partition baseline
+    println!("Running V2 single partition baseline...");
+    let v1_config = JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    };
     let v1_processor = JobProcessorFactory::create(v1_config);
 
     let v1_start = Instant::now();

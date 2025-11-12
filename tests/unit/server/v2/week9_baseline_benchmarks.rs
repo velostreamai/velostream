@@ -67,7 +67,10 @@ fn create_test_engine() -> (
 
 #[tokio::test]
 async fn benchmark_v1_small_batch_throughput() {
-    let processor = JobProcessorFactory::create_v1();
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let (engine, _rx) = create_test_engine();
 
     let records = create_test_batch(100, 1);
@@ -86,7 +89,10 @@ async fn benchmark_v1_small_batch_throughput() {
 
 #[tokio::test]
 async fn benchmark_v1_medium_batch_throughput() {
-    let processor = JobProcessorFactory::create_v1();
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let (engine, _rx) = create_test_engine();
 
     let records = create_test_batch(1000, 1);
@@ -108,7 +114,10 @@ async fn benchmark_v1_medium_batch_throughput() {
 
 #[tokio::test]
 async fn benchmark_v1_large_batch_throughput() {
-    let processor = JobProcessorFactory::create_v1();
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let (engine, _rx) = create_test_engine();
 
     let records = create_test_batch(10_000, 1);
@@ -204,7 +213,10 @@ async fn benchmark_v2_large_batch_throughput_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v1_vs_v2_throughput_comparison() {
-    let v1 = JobProcessorFactory::create_v1();
+    let v1 = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let v2 = JobProcessorFactory::create_v2_with_partitions(8);
 
     let (engine_v1, _rx1) = create_test_engine();
@@ -353,7 +365,10 @@ async fn benchmark_v2_scaling_efficiency_2_vs_4_vs_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v1_batch_latency() {
-    let processor = JobProcessorFactory::create_v1();
+    let processor = JobProcessorFactory::create(JobProcessorConfig::V2 {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    });
     let (engine, _rx) = create_test_engine();
 
     let mut latencies = Vec::new();
@@ -462,8 +477,10 @@ fn print_week9_baseline_summary() {
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("  Partitions:       1 (single-threaded)");
     println!("  Threading:        Sequential (no parallelism)");
-    println!("  Configuration:    JobProcessorConfig::V1");
-    println!("  Factory Method:   JobProcessorFactory::create_v1()");
+    println!(
+        "  Configuration:    JobProcessorConfig::V2 {{ num_partitions: Some(1), enable_core_affinity: false }}"
+    );
+    println!("  Factory Method:   JobProcessorFactory::create(...)");
     println!("  Expected Throughput:");
     println!("    - Small batch (100):    ~100K+ rec/sec");
     println!("    - Medium batch (1K):    ~50K-100K rec/sec");
