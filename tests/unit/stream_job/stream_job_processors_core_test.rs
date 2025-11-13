@@ -303,7 +303,7 @@ async fn test_simple_processor_throughput() {
     let mock_writer = MockDataWriter::new();
 
     // Create high-throughput processor
-    let processor = create_simple_processor();
+    let processor = create_throughput_processor();
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
         output_sender,

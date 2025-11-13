@@ -370,3 +370,18 @@ pub fn create_low_latency_processor() -> SimpleJobProcessor {
     };
     SimpleJobProcessor::new(config)
 }
+
+/// Helper function to create throughput-focused processor
+/// Uses higher empty_batch_count to allow for proper completion testing
+pub fn create_throughput_processor() -> SimpleJobProcessor {
+    let config = JobProcessingConfig {
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_retries: 3,
+        retry_backoff: std::time::Duration::from_millis(100),
+        empty_batch_count: 1000, // Production config: wait for 1000 empty batches
+        wait_on_empty_batch_ms: 1000,
+        ..Default::default()
+    };
+    SimpleJobProcessor::new(config)
+}
