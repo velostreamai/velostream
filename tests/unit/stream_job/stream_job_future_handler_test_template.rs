@@ -100,6 +100,8 @@ async fn test_your_processor_comprehensive_failure_scenarios() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
     let log_continue_processor = YourJobProcessorWrapper::new(log_continue_config);
     run_comprehensive_failure_tests(&log_continue_processor, "YourJobProcessor_LogAndContinue")
@@ -116,6 +118,8 @@ async fn test_your_processor_comprehensive_failure_scenarios() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
     let retry_backoff_processor = YourJobProcessorWrapper::new(retry_backoff_config);
 
@@ -160,6 +164,8 @@ async fn test_your_processor_comprehensive_failure_scenarios() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
     let fail_batch_processor = YourJobProcessorWrapper::new(fail_batch_config);
     run_comprehensive_failure_tests(&fail_batch_processor, "YourJobProcessor_FailBatch").await;
@@ -193,6 +199,8 @@ async fn test_your_processor_specific_behavior() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     // TODO: Replace with actual processor creation and test
@@ -306,6 +314,8 @@ async fn test_batch_processor_timing() {
         retry_backoff: Duration::from_millis(100),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = BatchJobProcessor::new(config);

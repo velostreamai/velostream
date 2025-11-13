@@ -219,6 +219,8 @@ async fn test_transactional_multi_source_processor_writes_to_sinks() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 5,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);

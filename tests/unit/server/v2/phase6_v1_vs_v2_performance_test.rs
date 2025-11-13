@@ -228,6 +228,8 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 10,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);

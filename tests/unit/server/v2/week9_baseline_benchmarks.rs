@@ -143,7 +143,7 @@ async fn benchmark_v1_large_batch_throughput() {
 
 #[tokio::test]
 async fn benchmark_v2_small_batch_throughput_8_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
     let (engine, _rx) = create_test_engine();
 
     let records = create_test_batch(100, 8);
@@ -165,7 +165,7 @@ async fn benchmark_v2_small_batch_throughput_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v2_medium_batch_throughput_8_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
     let (engine, _rx) = create_test_engine();
 
     let records = create_test_batch(1000, 8);
@@ -187,7 +187,7 @@ async fn benchmark_v2_medium_batch_throughput_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v2_large_batch_throughput_8_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
     let (engine, _rx) = create_test_engine();
 
     let records = create_test_batch(10_000, 8);
@@ -217,7 +217,7 @@ async fn benchmark_v1_vs_v2_throughput_comparison() {
         num_partitions: Some(1),
         enable_core_affinity: false,
     });
-    let v2 = JobProcessorFactory::create_v2_with_partitions(8);
+    let v2 = JobProcessorFactory::create_adaptive_with_partitions(8);
 
     let (engine_v1, _rx1) = create_test_engine();
     let (engine_v2, _rx2) = create_test_engine();
@@ -256,7 +256,7 @@ async fn benchmark_v1_vs_v2_throughput_comparison() {
 
 #[tokio::test]
 async fn benchmark_v2_partition_distribution_4_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(4);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(4);
     assert_eq!(processor.num_partitions(), 4);
 
     let (engine, _rx) = create_test_engine();
@@ -273,7 +273,7 @@ async fn benchmark_v2_partition_distribution_4_partitions() {
 
 #[tokio::test]
 async fn benchmark_v2_partition_distribution_8_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
     assert_eq!(processor.num_partitions(), 8);
 
     let (engine, _rx) = create_test_engine();
@@ -290,7 +290,7 @@ async fn benchmark_v2_partition_distribution_8_partitions() {
 
 #[tokio::test]
 async fn benchmark_v2_partition_distribution_16_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(16);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(16);
     assert_eq!(processor.num_partitions(), 16);
 
     let (engine, _rx) = create_test_engine();
@@ -315,7 +315,7 @@ async fn benchmark_v2_scaling_efficiency_2_vs_4_vs_8_partitions() {
     let mut results = Vec::new();
 
     for num_partitions in [2, 4, 8] {
-        let processor = JobProcessorFactory::create_v2_with_partitions(num_partitions);
+        let processor = JobProcessorFactory::create_adaptive_with_partitions(num_partitions);
         let (engine, _rx) = create_test_engine();
         let records = create_test_batch(batch_size, num_partitions);
 
@@ -391,7 +391,7 @@ async fn benchmark_v1_batch_latency() {
 
 #[tokio::test]
 async fn benchmark_v2_batch_latency_8_partitions() {
-    let processor = JobProcessorFactory::create_v2_with_partitions(8);
+    let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
     let (engine, _rx) = create_test_engine();
 
     let mut latencies = Vec::new();
@@ -422,7 +422,7 @@ fn benchmark_configuration_creation_overhead() {
 
     // Create multiple configurations
     for i in 0..1000 {
-        let _ = JobProcessorFactory::create_v2_with_partitions(8);
+        let _ = JobProcessorFactory::create_adaptive_with_partitions(8);
     }
 
     let elapsed = start.elapsed();
@@ -493,7 +493,7 @@ fn print_week9_baseline_summary() {
     println!("  Partitions:       Configurable (default: CPU count)");
     println!("  Threading:        Parallel (1 partition per thread)");
     println!("  Configuration:    JobProcessorConfig::Adaptive {{ num_partitions: Some(8) }}");
-    println!("  Factory Methods:  JobProcessorFactory::create_v2_with_partitions(8)");
+    println!("  Factory Methods:  JobProcessorFactory::create_adaptive_with_partitions(8)");
     println!("  Expected Throughput (on 8-core system):");
     println!("    - Small batch (100):    ~100K+ rec/sec (overhead dominated)");
     println!("    - Medium batch (1K):    ~150K-200K rec/sec");

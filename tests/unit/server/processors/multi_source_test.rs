@@ -252,6 +252,8 @@ async fn test_simple_processor_multi_source_processing() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 5,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -329,6 +331,8 @@ async fn test_transactional_processor_multi_source_processing() {
         retry_backoff: Duration::from_millis(100),
         progress_interval: 2,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -522,6 +526,8 @@ async fn test_error_handling_in_multi_source_processing() {
         retry_backoff: Duration::from_millis(25),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -584,6 +590,8 @@ async fn test_processor_configuration_handling() {
             retry_backoff: Duration::from_millis(5),
             progress_interval: 1,
             log_progress: false,
+            empty_batch_count: 1,
+            wait_on_empty_batch_ms: 1000,
         },
         JobProcessingConfig {
             use_transactions: false,
@@ -594,6 +602,8 @@ async fn test_processor_configuration_handling() {
             retry_backoff: Duration::from_millis(500),
             progress_interval: 10,
             log_progress: true,
+            empty_batch_count: 1,
+            wait_on_empty_batch_ms: 1000,
         },
     ];
 

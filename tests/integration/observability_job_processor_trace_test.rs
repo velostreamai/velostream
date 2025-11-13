@@ -113,6 +113,8 @@ async fn test_job_processor_with_tracing_enabled() {
         retry_backoff: Duration::from_millis(100),
         progress_interval: 5,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);

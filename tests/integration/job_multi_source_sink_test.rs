@@ -158,6 +158,8 @@ async fn test_simple_processor_multi_job_interface() {
         retry_backoff: Duration::from_millis(500),
         progress_interval: 10,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -206,6 +208,8 @@ async fn test_transactional_processor_multi_job_interface() {
         retry_backoff: Duration::from_millis(1000),
         progress_interval: 5,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);
