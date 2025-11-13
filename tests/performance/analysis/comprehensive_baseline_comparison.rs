@@ -114,7 +114,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
@@ -134,8 +134,13 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
-    // Wait briefly for async tasks to complete before stopping
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Consume all remaining messages from the execution engine
+    while let Ok(_) = rx.try_recv() {
+        // Just drain the channel
+    }
+
+    // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
@@ -152,7 +157,7 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
@@ -172,8 +177,13 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
-    // Wait briefly for async tasks to complete before stopping
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Consume all remaining messages from the execution engine
+    while let Ok(_) = rx.try_recv() {
+        // Just drain the channel
+    }
+
+    // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
@@ -190,7 +200,7 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
-    let (tx, _rx) = mpsc::unbounded_channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
@@ -210,8 +220,13 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
-    // Wait briefly for async tasks to complete before stopping
-    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+    // Consume all remaining messages from the execution engine
+    while let Ok(_) = rx.try_recv() {
+        // Just drain the channel
+    }
+
+    // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
