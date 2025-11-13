@@ -116,13 +116,13 @@ async fn test_array_functions() {
         execute_query("SELECT ARRAY_CONTAINS(numbers, 2) as contains_two FROM test_stream")
             .await
             .unwrap();
-    assert!(results[0]["contains_two"]);
+    assert_eq!(results[0]["contains_two"], true);
 
     let results =
         execute_query("SELECT ARRAY_CONTAINS(numbers, 5) as contains_five FROM test_stream")
             .await
             .unwrap();
-    assert!(!(results[0]["contains_five"]));
+    assert_eq!(results[0]["contains_five"], false);
 
     // Test mixed type array
     let results = execute_query("SELECT ARRAY('hello', 42, true) as mixed_array FROM test_stream")
@@ -264,7 +264,7 @@ async fn test_complex_expressions() {
     )
     .await
     .unwrap();
-    assert!(results[0]["expr_contains"]);
+    assert_eq!(results[0]["expr_contains"], true);
 
     // Test map operations
     let results = execute_query("SELECT ARRAY_LENGTH(MAP_KEYS(MAP('a', 1, 'b', 2, 'c', 3))) as map_key_count FROM test_stream").await.unwrap();
@@ -278,14 +278,14 @@ async fn test_comparison_operations() {
         execute_query("SELECT ARRAY(1, 2, 3) = ARRAY(1, 2, 3) as arrays_equal FROM test_stream")
             .await
             .unwrap();
-    assert!(results[0]["arrays_equal"]);
+    assert_eq!(results[0]["arrays_equal"], true);
 
     let results = execute_query(
         "SELECT ARRAY(1, 2, 3) = ARRAY(3, 2, 1) as arrays_not_equal FROM test_stream",
     )
     .await
     .unwrap();
-    assert!(!(results[0]["arrays_not_equal"]));
+    assert_eq!(results[0]["arrays_not_equal"], false);
 
     // Maps should be comparable
     let results = execute_query(
@@ -293,7 +293,7 @@ async fn test_comparison_operations() {
     )
     .await
     .unwrap();
-    assert!(results[0]["maps_equal"]);
+    assert_eq!(results[0]["maps_equal"], true);
 }
 
 #[tokio::test]
