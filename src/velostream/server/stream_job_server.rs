@@ -11,7 +11,7 @@ use crate::velostream::observability::{
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
+    FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
     SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
     create_multi_source_readers,
 };
@@ -1539,9 +1539,7 @@ impl StreamJobServer {
         processor_config: &JobProcessorConfig,
         parsed_query: &StreamingQuery,
         job_name: &str,
-    ) -> Arc<dyn crate::velostream::server::processors::JobProcessor> {
-        use crate::velostream::server::processors::JobProcessor;
-
+    ) -> Arc<dyn JobProcessor> {
         match processor_config {
             JobProcessorConfig::Simple => {
                 info!(

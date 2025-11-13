@@ -247,26 +247,30 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_legacy_v1_simple() {
-        let processor = JobProcessorFactory::create_simple();
+        let processor = JobProcessorFactory::create_v1_simple();
         assert_eq!(processor.processor_version(), "V1");
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_legacy_v1_transactional() {
-        let processor = JobProcessorFactory::create_transactional();
+        let processor = JobProcessorFactory::create_v1_transactional();
         assert_eq!(processor.processor_version(), "V1-Transactional");
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_legacy_v2_default() {
-        let processor = JobProcessorFactory::create_adaptive_default();
+        let processor = JobProcessorFactory::create_v2_default();
         assert_eq!(processor.processor_version(), "V2");
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_legacy_v2_with_partitions() {
-        let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
+        let processor = JobProcessorFactory::create_v2_with_partitions(8);
         assert_eq!(processor.processor_version(), "V2");
         assert_eq!(processor.num_partitions(), 8);
     }

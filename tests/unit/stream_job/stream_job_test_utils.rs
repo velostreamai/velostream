@@ -332,6 +332,8 @@ pub fn create_simple_processor() -> SimpleJobProcessor {
         failure_strategy: FailureStrategy::LogAndContinue,
         max_retries: 3,
         retry_backoff: std::time::Duration::from_millis(100),
+        empty_batch_count: 1, // Test config: exit immediately on empty batch
+        wait_on_empty_batch_ms: 1000,
         ..Default::default()
     };
     SimpleJobProcessor::new(config)
@@ -346,6 +348,8 @@ pub fn create_conservative_simple_processor() -> SimpleJobProcessor {
         batch_timeout: std::time::Duration::from_millis(50),
         max_retries: 1,
         retry_backoff: std::time::Duration::from_millis(50),
+        empty_batch_count: 1, // Test config: exit immediately on empty batch
+        wait_on_empty_batch_ms: 1000,
         ..Default::default()
     };
     SimpleJobProcessor::new(config)
@@ -360,6 +364,8 @@ pub fn create_low_latency_processor() -> SimpleJobProcessor {
         batch_timeout: std::time::Duration::from_millis(10),
         max_retries: 2,
         retry_backoff: std::time::Duration::from_millis(25),
+        empty_batch_count: 1, // Test config: exit immediately on empty batch
+        wait_on_empty_batch_ms: 1000,
         ..Default::default()
     };
     SimpleJobProcessor::new(config)
