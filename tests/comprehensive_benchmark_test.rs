@@ -96,7 +96,7 @@ async fn test_sql_baseline_functionality() -> Result<(), Box<dyn std::error::Err
         );
         record.insert(
             "amount".to_string(),
-            FieldValue::ScaledInteger(1000 + (i * 100) as i64, 2),
+            FieldValue::ScaledInteger(1000 + (i * 100), 2),
         );
         table.insert(format!("test_{}", i), record)?;
     }

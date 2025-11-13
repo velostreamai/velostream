@@ -255,7 +255,7 @@ mod tests {
         for i in 0..8 {
             let record = HashMap::new();
             let mut record_obj = StreamRecord::new(record);
-            record_obj.partition = i as i32;
+            record_obj.partition = i;
             let _partition = strategy
                 .route_record(&record_obj, &routing_context)
                 .unwrap();

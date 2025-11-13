@@ -167,7 +167,7 @@ impl ProcessorRegistry {
             }
             MigrationStrategy::ABTest => {
                 // Split evenly: even request_ids → primary, odd → secondary
-                if request_id % 2 == 0 {
+                if request_id.is_multiple_of(2) {
                     Arc::clone(&self.primary)
                 } else {
                     match &self.secondary {

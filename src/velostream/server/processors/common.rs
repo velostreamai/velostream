@@ -382,14 +382,14 @@ pub async fn process_batch(
             // Try to get without lazy initialization (fast path for normal operation)
             {
                 let engine_lock = engine.read().await;
-                if let Some(context_arc) = engine_lock.get_query_execution_context(&query) {
+                if let Some(context_arc) = engine_lock.get_query_execution_context(query) {
                     context_arc
                 } else {
                     // Slow path: query not yet initialized, need write lock for lazy init
                     // This happens when process_batch() is called directly without process_job()
                     drop(engine_lock); // Release read lock before acquiring write lock
                     let mut engine_lock = engine.write().await;
-                    match engine_lock.ensure_query_execution(&query) {
+                    match engine_lock.ensure_query_execution(query) {
                         Some(context_arc) => context_arc,
                         None => {
                             error!("Failed to initialize query execution: {}", query_id);
@@ -486,14 +486,14 @@ pub async fn process_batch(
             // Try to get without lazy initialization (fast path for normal operation)
             {
                 let engine_lock = engine.read().await;
-                if let Some(context_arc) = engine_lock.get_query_execution_context(&query) {
+                if let Some(context_arc) = engine_lock.get_query_execution_context(query) {
                     context_arc
                 } else {
                     // Slow path: query not yet initialized, need write lock for lazy init
                     // This happens when process_batch() is called directly without process_job()
                     drop(engine_lock); // Release read lock before acquiring write lock
                     let mut engine_lock = engine.write().await;
-                    match engine_lock.ensure_query_execution(&query) {
+                    match engine_lock.ensure_query_execution(query) {
                         Some(context_arc) => context_arc,
                         None => {
                             error!("Failed to initialize query execution: {}", query_id);

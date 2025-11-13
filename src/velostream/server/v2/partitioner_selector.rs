@@ -276,7 +276,7 @@ impl PartitionerSelector {
                         || Self::expr_has_window_function(then_expr)
                 }) || else_clause
                     .as_ref()
-                    .map_or(false, |e| Self::expr_has_window_function(e))
+                    .is_some_and(|e| Self::expr_has_window_function(e))
             }
             _ => false,
         }
@@ -290,7 +290,7 @@ impl PartitionerSelector {
             Expr::UnaryOp { expr, .. } => Self::extract_column_name(expr),
             Expr::Function { name, args } => {
                 // For functions like EXTRACT(YEAR FROM timestamp), extract timestamp
-                if args.len() > 0 {
+                if !args.is_empty() {
                     Self::extract_column_name(&args[0])
                 } else {
                     None
@@ -513,7 +513,7 @@ mod tests {
 
         let selection = PartitionerSelector::select(&query);
         assert_eq!(selection.strategy_name, "always_hash");
-        assert!(selection.routing_keys.len() >= 1);
+        assert!(!selection.routing_keys.is_empty());
         assert!(
             selection
                 .routing_keys

@@ -1492,7 +1492,7 @@ impl StreamJobServer {
                 "LogAndContinue" => FailureStrategy::LogAndContinue,
                 "FailBatch" => FailureStrategy::FailBatch,
                 "SendToDLQ" => FailureStrategy::SendToDLQ,
-                _ => config.failure_strategy.clone(), // Keep existing
+                _ => config.failure_strategy, // Keep existing
             };
         }
 
@@ -1603,7 +1603,7 @@ impl StreamJobServer {
     /// -- partitioning_strategy: smart_repartition
     /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
     /// ```
-
+    ///
     /// Supported strategies:
     /// - "always_hash" (default): Hashes GROUP BY columns, guarantees correctness
     /// - "smart_repartition": Detects if source partition key matches GROUP BY key

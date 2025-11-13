@@ -271,10 +271,9 @@ impl StreamExecutionEngine {
         let query_id = self.generate_query_id(&query);
 
         // Only create if it doesn't already exist
-        if !self.active_queries.contains_key(&query_id) {
-            let execution = QueryExecution::new(query);
-            self.active_queries.insert(query_id, execution);
-        }
+        self.active_queries
+            .entry(query_id)
+            .or_insert_with(|| QueryExecution::new(query));
     }
 
     /// FR-082 Phase 6.6: Lazy initialize or get existing QueryExecution
@@ -1231,17 +1230,15 @@ impl StreamExecutionEngine {
                 // Use windowed processing for queries with window specifications
                 {
                     let mut context = self.get_processor_context(&query_id);
-                    let result = WindowProcessor::process_windowed_query_enhanced(
+                    WindowProcessor::process_windowed_query_enhanced(
                         &query_id,
                         &query,
                         &record,
                         &mut context,
                         None, // source_id
-                    )?;
-
+                    )?
                     // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
                     // Guard drops here automatically
-                    result
                 }
             } else {
                 // Use regular processing for non-windowed queries
