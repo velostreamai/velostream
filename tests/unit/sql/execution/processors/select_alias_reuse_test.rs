@@ -240,11 +240,9 @@ fn test_alias_shadowing() {
             match output.fields.get("new_price") {
                 Some(FieldValue::ScaledInteger(11000, 2)) => {
                     // ScaledInteger(11000, 2) = 110.00 ✓
-                    assert!(true);
                 }
                 Some(FieldValue::Float(f)) if (f - 110.0).abs() < 0.01 => {
                     // Float(110.0) ✓
-                    assert!(true);
                 }
                 other => {
                     panic!("Expected 110.0 but got {:?}", other);

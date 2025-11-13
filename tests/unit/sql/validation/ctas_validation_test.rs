@@ -62,7 +62,7 @@ fn test_empty_table_name() {
     validator.validate(&query);
 
     // Should produce error for empty table name
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("name cannot be empty"));
 }
@@ -82,7 +82,7 @@ fn test_whitespace_table_name() {
     validator.validate(&query);
 
     // Should produce error for whitespace-only table name
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("name cannot be empty"));
 }
@@ -112,7 +112,7 @@ fn test_invalid_table_name_special_characters() {
 
         // Should produce warning for potentially invalid table name
         assert!(
-            validator.warnings().len() > 0 || validator.errors().len() > 0,
+            validator.warnings().is_empty() || validator.errors().is_empty(),
             "Expected warning or error for table name: {}",
             name
         );
@@ -170,7 +170,7 @@ fn test_invalid_table_model_property() {
     validator.validate(&query);
 
     // Should produce error for invalid table_model
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("table_model"));
     assert!(error.message.contains("normal") || error.message.contains("compact"));
@@ -236,7 +236,7 @@ fn test_invalid_retention_format() {
     validator.validate(&query);
 
     // Should produce error for invalid retention format
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("retention"));
 }
@@ -286,7 +286,7 @@ fn test_emit_final_without_window_warning() {
     validator.validate(&query);
 
     // Should produce warning about EMIT FINAL without window
-    assert!(validator.warnings().len() > 0);
+    assert!(validator.warnings().is_empty());
     let warning = &validator.warnings()[0];
     assert!(warning.message.contains("EMIT FINAL"));
     assert!(warning.message.contains("WINDOW") || warning.message.contains("window"));
@@ -330,7 +330,7 @@ fn test_long_retention_without_compact_warning() {
     validator.validate(&query);
 
     // Should produce warning about long retention without compact model
-    assert!(validator.warnings().len() > 0);
+    assert!(validator.warnings().is_empty());
     let warning = &validator.warnings()[0];
     assert!(warning.message.contains("retention") || warning.message.contains("memory"));
     assert!(warning.message.contains("compact"));
@@ -398,7 +398,7 @@ fn test_aggregation_without_group_by_warning() {
     validator.validate(&query);
 
     // Should produce warning about aggregation without GROUP BY
-    assert!(validator.warnings().len() > 0);
+    assert!(validator.warnings().is_empty());
     let warning = &validator.warnings()[0];
     assert!(warning.message.contains("aggregation") || warning.message.contains("GROUP BY"));
 }
@@ -500,7 +500,7 @@ fn test_invalid_compression_property() {
     validator.validate(&query);
 
     // Should produce error for invalid compression
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("compression"));
 }
@@ -523,7 +523,7 @@ fn test_kafka_batch_size_validation() {
     validator.validate(&query);
 
     // Should produce error for invalid kafka.batch.size
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("kafka.batch.size") || error.message.contains("integer"));
 }
@@ -590,7 +590,7 @@ fn test_csas_empty_name() {
     validator.validate(&query);
 
     // Should produce error for empty stream name
-    assert!(validator.errors().len() > 0);
+    assert!(validator.errors().is_empty());
     let error = &validator.errors()[0];
     assert!(error.message.contains("name cannot be empty"));
 }

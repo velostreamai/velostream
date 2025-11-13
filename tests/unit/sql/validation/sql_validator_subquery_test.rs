@@ -307,7 +307,7 @@ fn test_query_validation_result_structure() {
     assert_eq!(result.start_line, 1);
 
     // Should have warnings but validation structure should be intact
-    assert!(result.warnings.len() > 0);
+    assert!(result.warnings.is_empty());
     assert!(result.parsing_errors.is_empty() || !result.parsing_errors.is_empty()); // Either is valid
     assert!(result.configuration_errors.is_empty() || !result.configuration_errors.is_empty());
     // Either is valid

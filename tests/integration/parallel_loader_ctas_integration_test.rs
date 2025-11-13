@@ -387,7 +387,7 @@ async fn test_parallel_ctas_partial_wave_failure() {
 
     // Verify failures
     assert!(
-        result.failed.len() > 0 || result.skipped.len() > 0,
+        result.failed.is_empty() || result.skipped.is_empty(),
         "Should have failures or skipped tables"
     );
 

@@ -281,9 +281,9 @@ mod tests {
         let r2 = create_test_record(60000); // 1 minute later
         let r3 = create_test_record(120000); // 2 minutes later
 
-        assert_eq!(strategy.add_record(r1).unwrap(), false);
-        assert_eq!(strategy.add_record(r2).unwrap(), false);
-        assert_eq!(strategy.add_record(r3).unwrap(), false);
+        assert!(!(strategy.add_record(r1).unwrap()));
+        assert!(!(strategy.add_record(r2).unwrap()));
+        assert!(!(strategy.add_record(r3).unwrap()));
 
         assert_eq!(strategy.buffer.len(), 3);
         assert_eq!(strategy.session_start_time, Some(1000));
@@ -299,12 +299,12 @@ mod tests {
         let r1 = create_test_record(1000);
         let r2 = create_test_record(60000);
 
-        assert_eq!(strategy.add_record(r1).unwrap(), false);
-        assert_eq!(strategy.add_record(r2).unwrap(), false);
+        assert!(!(strategy.add_record(r1).unwrap()));
+        assert!(!(strategy.add_record(r2).unwrap()));
 
         // Event beyond gap - should trigger emission
         let r3 = create_test_record(500000); // 8+ minutes after r2
-        assert_eq!(strategy.add_record(r3).unwrap(), true);
+        assert!(strategy.add_record(r3).unwrap());
     }
 
     #[test]
@@ -344,7 +344,7 @@ mod tests {
 
         // Session 2: 100s
         let r3 = create_test_record(100000);
-        assert_eq!(strategy.add_record(r3).unwrap(), true); // Should emit session 1
+        assert!(strategy.add_record(r3).unwrap()); // Should emit session 1
 
         strategy.clear();
 
@@ -376,13 +376,13 @@ mod tests {
         strategy.add_record(r1).unwrap();
 
         // Current time before session end
-        assert_eq!(strategy.should_emit(50000), false);
+        assert!(!(strategy.should_emit(50000)));
 
         // Current time at session end
-        assert_eq!(strategy.should_emit(70000), true);
+        assert!(strategy.should_emit(70000));
 
         // Current time after session end
-        assert_eq!(strategy.should_emit(100000), true);
+        assert!(strategy.should_emit(100000));
     }
 
     #[test]
@@ -433,9 +433,9 @@ mod tests {
         let r2 = create_test_record(5000); // 4s later - within gap
         let r3 = create_test_record(20000); // 15s later - beyond gap
 
-        assert_eq!(strategy.add_record(r1).unwrap(), false);
-        assert_eq!(strategy.add_record(r2).unwrap(), false);
-        assert_eq!(strategy.add_record(r3).unwrap(), true); // Should emit
+        assert!(!(strategy.add_record(r1).unwrap()));
+        assert!(!(strategy.add_record(r2).unwrap()));
+        assert!(strategy.add_record(r3).unwrap()); // Should emit
 
         // Session end should be extended to last event + gap
         assert_eq!(strategy.session_end_time, Some(15000)); // 5000 + 10000

@@ -168,7 +168,7 @@ async fn test_batch_processing_result_creation() {
     assert_eq!(result.batch_size, 10);
     assert_eq!(result.error_details.len(), 2);
     assert_eq!(result.error_details[0].record_index, 0);
-    assert_eq!(result.error_details[1].recoverable, false);
+    assert!(!(result.error_details[1].recoverable));
 }
 
 #[tokio::test]

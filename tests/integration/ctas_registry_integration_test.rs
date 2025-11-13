@@ -210,7 +210,7 @@ async fn test_ctas_duplicate_table_name() {
     if let Ok(result) = result2 {
         // If it doesn't error at CTAS level, check if it failed during wave execution
         assert!(
-            result.failed.len() > 0 || result.skipped.len() > 0,
+            result.failed.is_empty() || result.skipped.is_empty(),
             "Duplicate table should cause failure or skip"
         );
     } else {

@@ -310,7 +310,7 @@ async fn test_configuration_default_localhost() {
 
     assert_eq!(config.kafka_brokers, "localhost:9092");
     assert_eq!(config.max_jobs, 100);
-    assert_eq!(config.enable_monitoring, false);
+    assert!(!(config.enable_monitoring));
 
     let server = StreamJobServer::with_config(config);
 
@@ -329,7 +329,7 @@ async fn test_configuration_with_dev_preset() {
     let config = StreamJobServerConfig::default().with_dev_preset();
 
     assert_eq!(config.kafka_brokers, "localhost:9092");
-    assert_eq!(config.enable_monitoring, false);
+    assert!(!(config.enable_monitoring));
     assert_eq!(config.max_jobs, 10);
 
     let server = StreamJobServer::with_config(config);

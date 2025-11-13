@@ -308,7 +308,6 @@ mod tests {
         // Basic creation test - verify processor was created successfully
         // JobProcessor is a unit struct, so we just verify it exists
         let _processor_ref = &processor;
-        assert!(true);
     }
 
     #[test]

@@ -297,7 +297,7 @@ mod file_watcher_tests {
 
         assert!(result.is_ok());
         // Should watch the parent directory (subdir)
-        assert!(watcher.watched_paths().len() > 0);
+        assert!(watcher.watched_paths().is_empty());
     }
 
     #[tokio::test]

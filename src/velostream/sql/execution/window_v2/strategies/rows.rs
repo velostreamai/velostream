@@ -143,9 +143,9 @@ mod tests {
         let r2 = create_test_record(2);
         let r3 = create_test_record(3);
 
-        assert_eq!(strategy.add_record(r1).unwrap(), false);
-        assert_eq!(strategy.add_record(r2).unwrap(), false);
-        assert_eq!(strategy.add_record(r3).unwrap(), false);
+        assert!(!(strategy.add_record(r1).unwrap()));
+        assert!(!(strategy.add_record(r2).unwrap()));
+        assert!(!(strategy.add_record(r3).unwrap()));
 
         assert_eq!(strategy.buffer.len(), 3);
         assert_eq!(strategy.total_rows_processed, 3);
@@ -195,8 +195,8 @@ mod tests {
         let r2 = create_test_record(2);
 
         // Should emit on every record
-        assert_eq!(strategy.add_record(r1).unwrap(), true);
-        assert_eq!(strategy.add_record(r2).unwrap(), true);
+        assert!(strategy.add_record(r1).unwrap());
+        assert!(strategy.add_record(r2).unwrap());
     }
 
     #[test]
@@ -207,8 +207,8 @@ mod tests {
         let r2 = create_test_record(2);
 
         // Should not emit
-        assert_eq!(strategy.add_record(r1).unwrap(), false);
-        assert_eq!(strategy.add_record(r2).unwrap(), false);
+        assert!(!(strategy.add_record(r1).unwrap()));
+        assert!(!(strategy.add_record(r2).unwrap()));
     }
 
     #[test]
@@ -261,10 +261,10 @@ mod tests {
     #[test]
     fn test_rows_window_should_emit() {
         let strategy_no_emit = RowsWindowStrategy::new(5, false);
-        assert_eq!(strategy_no_emit.should_emit(12345), false);
+        assert!(!(strategy_no_emit.should_emit(12345)));
 
         let strategy_emit = RowsWindowStrategy::new(5, true);
-        assert_eq!(strategy_emit.should_emit(12345), true);
+        assert!(strategy_emit.should_emit(12345));
     }
 
     #[test]

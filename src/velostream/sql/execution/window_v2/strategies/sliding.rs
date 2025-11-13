@@ -290,9 +290,9 @@ mod tests {
         let r2 = create_test_record(30000);
         let r3 = create_test_record(59000);
 
-        assert_eq!(strategy.add_record(r1).unwrap(), false);
-        assert_eq!(strategy.add_record(r2).unwrap(), false);
-        assert_eq!(strategy.add_record(r3).unwrap(), false);
+        assert!(!(strategy.add_record(r1).unwrap()));
+        assert!(!(strategy.add_record(r2).unwrap()));
+        assert!(!(strategy.add_record(r3).unwrap()));
 
         assert_eq!(strategy.buffer.len(), 3);
         assert_eq!(strategy.next_window_start, Some(0));
@@ -312,7 +312,7 @@ mod tests {
 
         // Advance to next window
         let r3 = create_test_record(70000);
-        assert_eq!(strategy.add_record(r3).unwrap(), true); // Should emit
+        assert!(strategy.add_record(r3).unwrap()); // Should emit
 
         strategy.clear(); // Advance window
 
@@ -413,7 +413,7 @@ mod tests {
         strategy.add_record(r3).unwrap();
 
         // Should emit when r4 arrives (beyond window end)
-        assert_eq!(strategy.add_record(r4).unwrap(), true);
+        assert!(strategy.add_record(r4).unwrap());
 
         strategy.clear();
 

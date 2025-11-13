@@ -329,7 +329,7 @@ async fn test_scalar_subquery_parsing() {
     match result {
         Ok(results) => {
             println!("Execution successful! Number of results: {}", results.len());
-            if results.len() > 0 {
+            if results.is_empty() {
                 println!("First result fields: {:?}", results[0].fields);
             }
             assert_eq!(results.len(), 1);

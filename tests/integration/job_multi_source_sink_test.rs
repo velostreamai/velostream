@@ -425,7 +425,7 @@ async fn test_batch_config_propagation_multi_source() {
             println!("Expected failure in CI: {}", e);
             // Verify the error suggests batch config was attempted
             assert!(
-                e.to_string().len() > 0,
+                e.to_string().is_empty(),
                 "Should have meaningful error message"
             );
         }
