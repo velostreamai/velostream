@@ -15,6 +15,7 @@ pub mod mock;
 pub mod observability_helper;
 pub mod observability_utils;
 pub mod processor_registry;
+pub mod profiling_helper;
 pub mod simple;
 pub mod transactional;
 
@@ -31,5 +32,8 @@ pub use metrics_helper::{
 pub use mock::MockJobProcessor;
 pub use observability_helper::ObservabilityHelper;
 pub use processor_registry::{MigrationStrategy, ProcessorRegistry, RoutingStats};
+pub use profiling_helper::{
+    ProfilingHelper, ProfilingMetrics, ProfilingMetricsSummary, TimingScope,
+};
 pub use simple::SimpleJobProcessor;
 pub use transactional::TransactionalJobProcessor;
