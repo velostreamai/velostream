@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionedJobConfig, PartitionedJobCoordinator, RoundRobinStrategy,
+    AlwaysHashStrategy, PartitionedJobConfig, AdaptiveJobProcessor, RoundRobinStrategy,
     SmartRepartitionStrategy, StickyPartitionStrategy,
 };
 use velostream::velostream::sql::StreamingQuery;
@@ -19,7 +19,7 @@ fn test_default_strategy_when_not_specified() {
     // Strategy should be None, allowing coordinator to use default AlwaysHashStrategy
     assert!(config.partitioning_strategy.is_none());
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     // Coordinator should be created successfully with default strategy
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
 }
@@ -30,7 +30,7 @@ fn test_strategy_always_hash() {
     let mut config = PartitionedJobConfig::default();
     config.partitioning_strategy = Some("always_hash".to_string());
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
     // Coordinator created successfully
 }
@@ -41,7 +41,7 @@ fn test_strategy_smart_repartition() {
     let mut config = PartitionedJobConfig::default();
     config.partitioning_strategy = Some("smart_repartition".to_string());
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
 }
 
@@ -51,7 +51,7 @@ fn test_strategy_sticky_partition() {
     let mut config = PartitionedJobConfig::default();
     config.partitioning_strategy = Some("sticky_partition".to_string());
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
 }
 
@@ -61,7 +61,7 @@ fn test_strategy_round_robin() {
     let mut config = PartitionedJobConfig::default();
     config.partitioning_strategy = Some("round_robin".to_string());
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
 }
 
@@ -82,7 +82,7 @@ fn test_strategy_case_insensitive() {
         config.partitioning_strategy = Some(strategy_name.to_string());
 
         // Should not panic, coordinator should handle case-insensitive parsing
-        let coordinator = PartitionedJobCoordinator::new(config);
+        let coordinator = AdaptiveJobProcessor::new(config);
         assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
     }
 }
@@ -94,7 +94,7 @@ fn test_invalid_strategy_falls_back_to_default() {
     config.partitioning_strategy = Some("invalid_strategy_name".to_string());
 
     // Should not panic, should fallback to AlwaysHashStrategy with a warning
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
 }
 
@@ -102,7 +102,7 @@ fn test_invalid_strategy_falls_back_to_default() {
 #[test]
 fn test_strategy_with_builder_pattern() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_strategy(std::sync::Arc::new(AlwaysHashStrategy::new()));
 
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
@@ -115,7 +115,7 @@ fn test_strategy_with_custom_partition_count() {
     config.num_partitions = Some(8);
     config.partitioning_strategy = Some("smart_repartition".to_string());
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     assert_eq!(coordinator.num_partitions(), 8);
 }
 
@@ -125,7 +125,7 @@ fn test_strategy_with_group_by_columns() {
     let mut config = PartitionedJobConfig::default();
     config.partitioning_strategy = Some("smart_repartition".to_string());
 
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["symbol".to_string(), "trader_id".to_string()]);
 
     assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
@@ -146,7 +146,7 @@ fn test_multiple_coordinators_different_strategies() {
         config.partitioning_strategy = Some(strategy_name.to_string());
         config.num_partitions = Some(4);
 
-        let coordinator = PartitionedJobCoordinator::new(config);
+        let coordinator = AdaptiveJobProcessor::new(config);
         assert_eq!(coordinator.num_partitions(), 4);
     }
 }
@@ -159,7 +159,7 @@ fn test_strategy_config_preserved() {
     config.num_partitions = Some(16);
 
     // Create coordinator
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     // Verify both strategy and partition count are respected
     assert_eq!(coordinator.num_partitions(), 16);
@@ -188,7 +188,7 @@ fn test_strategy_property_extraction() {
 
         let mut config = PartitionedJobConfig::default();
         config.partitioning_strategy = Some(strategy.clone());
-        let coordinator = PartitionedJobCoordinator::new(config);
+        let coordinator = AdaptiveJobProcessor::new(config);
         assert_eq!(coordinator.num_partitions(), num_cpus::get().max(1));
     }
 }
@@ -207,7 +207,7 @@ fn test_recommended_strategies_for_workloads() {
         let mut config = PartitionedJobConfig::default();
         config.partitioning_strategy = Some(strategy.to_string());
 
-        let coordinator = PartitionedJobCoordinator::new(config);
+        let coordinator = AdaptiveJobProcessor::new(config);
         assert!(coordinator.num_partitions() > 0);
     }
 }

@@ -207,10 +207,10 @@ impl Default for ThrottleConfig {
 /// ## Usage
 ///
 /// ```rust,no_run
-/// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, AlwaysHashStrategy};
+/// use velostream::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, AlwaysHashStrategy};
 ///
 /// let config = PartitionedJobConfig::default();
-/// let coordinator = PartitionedJobCoordinator::new(config)
+/// let coordinator = AdaptiveJobProcessor::new(config)
 ///     .with_group_by_columns(vec!["trader_id".to_string()])
 ///     .with_strategy(std::sync::Arc::new(AlwaysHashStrategy::new()));
 ///
@@ -236,7 +236,7 @@ impl Default for ThrottleConfig {
 ///                   Output Merger
 ///                 (N × 200K rec/sec)
 /// ```
-pub struct PartitionedJobCoordinator {
+pub struct AdaptiveJobProcessor {
     config: PartitionedJobConfig,
     num_partitions: usize,
     /// Pluggable routing strategy for record distribution
@@ -257,7 +257,7 @@ pub struct PartitionedJobCoordinator {
     pub stop_flag: Arc<AtomicBool>,
 }
 
-impl PartitionedJobCoordinator {
+impl AdaptiveJobProcessor {
     /// Create new partitioned job coordinator with configuration
     pub fn new(config: PartitionedJobConfig) -> Self {
         // CRITICAL: Priority hierarchy for partition count
@@ -602,10 +602,10 @@ impl PartitionedJobCoordinator {
     ///
     /// ```rust,no_run
     /// use std::sync::Arc;
-    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, PartitionMetrics};
+    /// use velostream::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, PartitionMetrics};
     ///
     /// let config = PartitionedJobConfig::default();
-    /// let coordinator = PartitionedJobCoordinator::new(config);
+    /// let coordinator = AdaptiveJobProcessor::new(config);
     ///
     /// let metrics: Vec<Arc<PartitionMetrics>> = vec![
     ///     Arc::new(PartitionMetrics::new(0)),
@@ -753,10 +753,10 @@ impl PartitionedJobCoordinator {
     ///
     /// ```rust,no_run
     /// use std::sync::Arc;
-    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, PartitionMetrics};
+    /// use velostream::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, PartitionMetrics};
     ///
     /// let config = PartitionedJobConfig::default();
-    /// let coordinator = PartitionedJobCoordinator::new(config);
+    /// let coordinator = AdaptiveJobProcessor::new(config);
     ///
     /// let metrics: Vec<Arc<PartitionMetrics>> = vec![
     ///     Arc::new(PartitionMetrics::new(0)),
@@ -819,13 +819,13 @@ impl PartitionedJobCoordinator {
     ///
     /// ```rust,no_run
     /// use std::sync::Arc;
-    /// use velostream::velostream::server::v2::{PartitionedJobCoordinator, PartitionedJobConfig, AlwaysHashStrategy};
+    /// use velostream::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, AlwaysHashStrategy};
     /// use velostream::velostream::sql::execution::types::StreamRecord;
     /// use std::collections::HashMap;
     ///
     /// # async fn example() {
     /// let config = PartitionedJobConfig::default();
-    /// let coordinator = PartitionedJobCoordinator::new(config)
+    /// let coordinator = AdaptiveJobProcessor::new(config)
     ///     .with_group_by_columns(vec!["key".to_string()])
     ///     .with_strategy(Arc::new(AlwaysHashStrategy::new()));
     ///

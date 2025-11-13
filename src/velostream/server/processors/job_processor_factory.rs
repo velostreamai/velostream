@@ -7,7 +7,7 @@ use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, MockJobProcessor,
     SimpleJobProcessor, TransactionalJobProcessor,
 };
-use crate::velostream::server::v2::PartitionedJobCoordinator;
+use crate::velostream::server::v2::AdaptiveJobProcessor;
 use log::info;
 use std::sync::Arc;
 use std::time::Duration;
@@ -74,10 +74,10 @@ impl JobProcessorFactory {
                 });
 
                 info!(
-                    "Creating Adaptive processor (PartitionedJobCoordinator): {} partitions, affinity: {}",
+                    "Creating Adaptive processor (AdaptiveJobProcessor): {} partitions, affinity: {}",
                     actual_partitions, enable_core_affinity
                 );
-                Arc::new(PartitionedJobCoordinator::new(partitioned_config))
+                Arc::new(AdaptiveJobProcessor::new(partitioned_config))
             }
         }
     }

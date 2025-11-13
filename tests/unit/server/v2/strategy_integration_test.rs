@@ -1,4 +1,4 @@
-//! Integration tests for PartitioningStrategy with PartitionedJobCoordinator
+//! Integration tests for PartitioningStrategy with AdaptiveJobProcessor
 //!
 //! Tests the complete flow of strategy-based record routing:
 //! - Strategy selection and configuration
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use velostream::velostream::serialization::FieldValue;
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, FanInStrategy, PartitionedJobConfig, PartitionedJobCoordinator,
+    AlwaysHashStrategy, FanInStrategy, PartitionedJobConfig, AdaptiveJobProcessor,
     PartitioningStrategy, QueryMetadata, RoundRobinStrategy, RoutingContext,
     SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig, StrategyFactory,
 };
@@ -20,7 +20,7 @@ use velostream::velostream::sql::execution::types::StreamRecord;
 #[test]
 fn test_coordinator_with_always_hash_strategy() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -61,7 +61,7 @@ fn test_strategy_validation_fails_without_group_by() {
 #[tokio::test]
 async fn test_deterministic_routing_same_key() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -99,7 +99,7 @@ async fn test_deterministic_routing_same_key() {
 #[tokio::test]
 async fn test_multiple_keys_distribute_across_partitions() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -130,7 +130,7 @@ async fn test_multiple_keys_distribute_across_partitions() {
 #[tokio::test]
 async fn test_routing_with_empty_group_by_fails() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec![])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -155,7 +155,7 @@ async fn test_routing_with_empty_group_by_fails() {
 #[tokio::test]
 async fn test_routing_with_missing_group_by_column_fails() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -213,7 +213,7 @@ fn test_coordinator_builder_pattern() {
     let config = PartitionedJobConfig::default();
 
     // Build with fluent API
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string(), "symbol".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -225,7 +225,7 @@ fn test_coordinator_builder_pattern() {
 #[tokio::test]
 async fn test_batch_processing_maintains_consistency() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -257,7 +257,7 @@ async fn test_batch_processing_maintains_consistency() {
 #[tokio::test]
 async fn test_compound_group_by_columns() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec![
             "trader_id".to_string(),
             "symbol".to_string(),
@@ -291,7 +291,7 @@ async fn test_compound_group_by_columns() {
 #[tokio::test]
 async fn test_strategy_with_throttling() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -320,7 +320,7 @@ async fn test_strategy_with_throttling() {
 #[tokio::test]
 async fn test_smart_repartition_with_aligned_source() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(SmartRepartitionStrategy::new()));
 
@@ -350,7 +350,7 @@ async fn test_smart_repartition_with_aligned_source() {
 #[tokio::test]
 async fn test_round_robin_even_distribution() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec![]) // RoundRobin works without GROUP BY
         .with_strategy(Arc::new(RoundRobinStrategy::new()));
 
@@ -380,7 +380,7 @@ async fn test_round_robin_even_distribution() {
 #[tokio::test]
 async fn test_sticky_partition_maintains_affinity() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(StickyPartitionStrategy::new()));
 
@@ -463,7 +463,7 @@ async fn test_all_strategies_fail_on_missing_column() {
 
     for (name, strategy) in strategies_should_fail {
         let config = PartitionedJobConfig::default();
-        let coordinator = PartitionedJobCoordinator::new(config)
+        let coordinator = AdaptiveJobProcessor::new(config)
             .with_group_by_columns(vec!["trader_id".to_string()])
             .with_strategy(strategy);
 
@@ -487,7 +487,7 @@ async fn test_all_strategies_fail_on_missing_column() {
 
     // StickyPartition uses record.partition field, not GROUP BY columns, so it should succeed
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(StickyPartitionStrategy::new()));
 
@@ -514,7 +514,7 @@ async fn test_all_strategies_fail_on_missing_column() {
 #[tokio::test]
 async fn test_strategy_consistency_across_batches() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
@@ -550,7 +550,7 @@ async fn test_strategy_consistency_across_batches() {
 #[test]
 fn test_coordinator_builder_with_smart_repartition() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(SmartRepartitionStrategy::new()));
 
@@ -561,7 +561,7 @@ fn test_coordinator_builder_with_smart_repartition() {
 #[test]
 fn test_coordinator_builder_with_sticky_partition() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec!["trader_id".to_string()])
         .with_strategy(Arc::new(StickyPartitionStrategy::new()));
 
@@ -598,7 +598,7 @@ fn test_round_robin_validation_rejects_group_by() {
 #[tokio::test]
 async fn test_fan_in_strategy_concentrates_records() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config)
+    let coordinator = AdaptiveJobProcessor::new(config)
         .with_group_by_columns(vec![]) // FanIn doesn't require GROUP BY
         .with_strategy(Arc::new(FanInStrategy::new()));
 

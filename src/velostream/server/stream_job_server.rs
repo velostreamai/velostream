@@ -19,7 +19,7 @@ use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
 use crate::velostream::server::v2::{
-    PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+    PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
 };
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
@@ -1591,7 +1591,7 @@ impl StreamJobServer {
                     wait_on_empty_batch_ms: 1000,
                 };
 
-                Arc::new(PartitionedJobCoordinator::new(adaptive_config))
+                Arc::new(AdaptiveJobProcessor::new(adaptive_config))
             }
         }
     }

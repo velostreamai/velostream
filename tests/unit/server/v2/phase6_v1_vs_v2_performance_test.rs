@@ -2,7 +2,7 @@
 //!
 //! Validates that Phase 6.1a implementation delivers expected performance improvements:
 //! - V1 baseline: ~23.7K rec/sec (single-threaded SimpleJobProcessor)
-//! - V2@8cores: ~190K rec/sec (PartitionedJobCoordinator with 8 partitions)
+//! - V2@8cores: ~190K rec/sec (AdaptiveJobProcessor with 8 partitions)
 //! - Scaling efficiency: ≥95% linear (8x improvement)
 //!
 //! Tests use real SQL execution with GROUP BY and SUM aggregations to ensure
@@ -19,7 +19,7 @@ use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
 };
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+    AlwaysHashStrategy, PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
 };
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
@@ -313,7 +313,7 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
     assert!(records_written > 0, "Should write output records");
 }
 
-/// Test V2 (PartitionedJobCoordinator) baseline performance with real SQL execution
+/// Test V2 (AdaptiveJobProcessor) baseline performance with real SQL execution
 ///
 /// Expected: ~95% of V1 with 1 partition (minimal overhead)
 #[tokio::test]
@@ -330,7 +330,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
     };
 
     let coordinator =
-        PartitionedJobCoordinator::new(config).with_strategy(Arc::new(AlwaysHashStrategy::new()));
+        AdaptiveJobProcessor::new(config).with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
     // Create readers with 100K records
     let mut readers = HashMap::new();
@@ -411,7 +411,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
     assert!(records_written > 0, "Should write output records");
 }
 
-/// Test V2 (PartitionedJobCoordinator) scaling performance with 8 partitions
+/// Test V2 (AdaptiveJobProcessor) scaling performance with 8 partitions
 ///
 /// Expected: ~190K rec/sec (8x improvement over V1 baseline)
 #[tokio::test]
@@ -428,7 +428,7 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
     };
 
     let coordinator =
-        PartitionedJobCoordinator::new(config).with_strategy(Arc::new(AlwaysHashStrategy::new()));
+        AdaptiveJobProcessor::new(config).with_strategy(Arc::new(AlwaysHashStrategy::new()));
 
     // Create readers with 100K records
     let mut readers = HashMap::new();

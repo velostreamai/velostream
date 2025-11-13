@@ -73,7 +73,7 @@ impl std::fmt::Display for LifecycleState {
 /// Implementations:
 /// - `SimpleJobProcessor`: V1 architecture (single-threaded, single partition)
 /// - `TransactionalJobProcessor`: V1 architecture with transaction support
-/// - `PartitionedJobCoordinator`: V2 architecture (multi-partition, parallel execution)
+/// - `AdaptiveJobProcessor`: V2 architecture (multi-partition, parallel execution)
 ///
 /// This trait enables:
 /// - Runtime architecture switching via configuration
@@ -274,7 +274,7 @@ mod tests {
     fn test_processor_metrics_v2() {
         let metrics = ProcessorMetrics {
             version: "V2".to_string(),
-            name: "PartitionedJobCoordinator".to_string(),
+            name: "AdaptiveJobProcessor".to_string(),
             num_partitions: 8,
             lifecycle_state: LifecycleState::Running,
             total_records: 50000,
@@ -284,7 +284,7 @@ mod tests {
         };
 
         assert_eq!(metrics.version, "V2");
-        assert_eq!(metrics.name, "PartitionedJobCoordinator");
+        assert_eq!(metrics.name, "AdaptiveJobProcessor");
         assert_eq!(metrics.num_partitions, 8);
         assert_eq!(metrics.total_records, 50000);
     }

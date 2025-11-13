@@ -341,7 +341,7 @@ fn test_user_explicit_choice_principle_documented() {
     assert_eq!(auto_selection.strategy_name, "sticky_partition");
 
     // DOCUMENTATION: If user explicitly specified Hash in config, that should be RESPECTED
-    // PartitionedJobCoordinator logic (not tested here):
+    // AdaptiveJobProcessor logic (not tested here):
     // if config.partitioning_strategy == Some("always_hash") {
     //     Use AlwaysHashStrategy  // ← User's choice wins
     // } else if config.auto_select_from_query == Some(query) {

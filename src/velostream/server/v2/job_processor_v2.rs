@@ -1,10 +1,10 @@
-//! V2 JobProcessor implementation for PartitionedJobCoordinator
+//! V2 JobProcessor implementation for AdaptiveJobProcessor
 //!
 //! Implements the JobProcessor trait for multi-partition parallel execution.
 //!
 //! ## Phase 6.3a Architecture
 //!
-//! This implementation properly delegates to PartitionedJobCoordinator:
+//! This implementation properly delegates to AdaptiveJobProcessor:
 //! - Creates per-partition StreamExecutionEngine instances (no shared RwLock)
 //! - Routes records using pluggable partitioning strategies
 //! - Each partition processes independently with its own state
@@ -31,28 +31,26 @@ use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::{
     JobProcessor, ProcessorMetrics, common::JobExecutionStats,
 };
-use crate::velostream::server::v2::PartitionedJobCoordinator;
+use crate::velostream::server::v2::AdaptiveJobProcessor;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
-use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::StreamRecord;
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-/// Implement JobProcessor trait for PartitionedJobCoordinator (V2 Architecture)
+/// Implement JobProcessor trait for AdaptiveJobProcessor (V2 Architecture)
 ///
 /// This enables V2 to be used interchangeably with V1 via the JobProcessor trait.
 #[async_trait::async_trait]
-impl JobProcessor for PartitionedJobCoordinator {
+impl JobProcessor for AdaptiveJobProcessor {
     fn num_partitions(&self) -> usize {
         self.num_partitions()
     }
 
     fn processor_name(&self) -> &str {
-        "PartitionedJobCoordinator"
+        "AdaptiveJobProcessor"
     }
 
     fn processor_version(&self) -> &str {
@@ -95,7 +93,7 @@ impl JobProcessor for PartitionedJobCoordinator {
         // All job processing now uses Phase 6.6 synchronous batch-based receivers.
 
         info!(
-            "V2 PartitionedJobCoordinator::process_job: {} (Phase 6.6 - Synchronous batch receivers)",
+            "V2 AdaptiveJobProcessor::process_job: {} (Phase 6.6 - Synchronous batch receivers)",
             job_name
         );
 
@@ -108,7 +106,7 @@ impl JobProcessor for PartitionedJobCoordinator {
         // Step 2: Initialize partitions with Phase 6.6 synchronous receivers
         // Each partition owns its StreamExecutionEngine directly (no Arc/Mutex)
         // Enables 15-25% architectural overhead elimination
-        let job_coordinator = PartitionedJobCoordinator::new(self.config().clone())
+        let job_coordinator = AdaptiveJobProcessor::new(self.config().clone())
             .with_query(Arc::clone(&query_arc));
 
         let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
@@ -190,7 +188,7 @@ impl JobProcessor for PartitionedJobCoordinator {
         aggregated_stats.total_processing_time = start_time.elapsed();
 
         info!(
-            "V2 PartitionedJobCoordinator::process_job: {} completed\n  Records: {} routed in {:?}\n  Phase 6.6 batch-based processing: {} partitions with synchronous receivers (owned engines)",
+            "V2 AdaptiveJobProcessor::process_job: {} completed\n  Records: {} routed in {:?}\n  Phase 6.6 batch-based processing: {} partitions with synchronous receivers (owned engines)",
             job_name,
             total_routed,
             aggregated_stats.total_processing_time,
@@ -215,7 +213,7 @@ impl JobProcessor for PartitionedJobCoordinator {
         // It wraps the existing coordinator logic but handles multiple readers/writers.
 
         info!(
-            "V2 PartitionedJobCoordinator::process_multi_job: {} ({} sources, {} sinks)",
+            "V2 AdaptiveJobProcessor::process_multi_job: {} ({} sources, {} sinks)",
             job_name,
             readers.len(),
             writers.len()
@@ -235,7 +233,7 @@ impl JobProcessor for PartitionedJobCoordinator {
             let query_arc = Arc::new(query.clone());
 
             // Initialize partitions with Phase 6.6 synchronous receivers
-            let job_coordinator = PartitionedJobCoordinator::new(self.config().clone())
+            let job_coordinator = AdaptiveJobProcessor::new(self.config().clone())
                 .with_query(Arc::clone(&query_arc));
 
             let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
@@ -315,7 +313,7 @@ impl JobProcessor for PartitionedJobCoordinator {
         aggregated_stats.total_processing_time = start_time.elapsed();
 
         info!(
-            "V2 PartitionedJobCoordinator::process_multi_job: {} completed\n  Records: {}\n  Processing time: {:?}",
+            "V2 AdaptiveJobProcessor::process_multi_job: {} completed\n  Records: {}\n  Processing time: {:?}",
             job_name, aggregated_stats.records_processed, aggregated_stats.total_processing_time
         );
 
@@ -325,7 +323,7 @@ impl JobProcessor for PartitionedJobCoordinator {
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         use std::sync::atomic::Ordering;
         self.stop_flag.store(true, Ordering::Relaxed);
-        info!("PartitionedJobCoordinator (V2) stop signal set");
+        info!("AdaptiveJobProcessor (V2) stop signal set");
         Ok(())
     }
 }

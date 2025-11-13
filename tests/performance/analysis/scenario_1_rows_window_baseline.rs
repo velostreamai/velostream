@@ -916,7 +916,7 @@ async fn scenario_1_v2_sticky_partition_1core() {
     use tokio::sync::RwLock;
     use velostream::velostream::server::processors::JobProcessor;
     use velostream::velostream::server::v2::{
-        PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+        PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
     };
 
     // Configure for 1 partition (single core scenario)
@@ -926,7 +926,7 @@ async fn scenario_1_v2_sticky_partition_1core() {
         ..Default::default()
     };
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
     let data_source = RowsWindowDataSource::new(records.clone());
     let data_writer = RowsWindowDataWriter::new();
 

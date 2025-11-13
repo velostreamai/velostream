@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use velostream::velostream::server::v2::{
-    PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+    PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
@@ -60,7 +60,7 @@ async fn test_v2_baseline_group_by_with_sql_execution() {
     };
 
     let coordinator =
-        PartitionedJobCoordinator::new(config).with_group_by_columns(vec!["group_id".to_string()]);
+        AdaptiveJobProcessor::new(config).with_group_by_columns(vec!["group_id".to_string()]);
 
     // Phase 6.1: Set up execution engine and query
     let (output_tx, mut output_rx) = mpsc::unbounded_channel::<StreamRecord>();
@@ -175,7 +175,7 @@ async fn test_v2_baseline_scaling_100k_records() {
     };
 
     let coordinator =
-        PartitionedJobCoordinator::new(config).with_group_by_columns(vec!["group_id".to_string()]);
+        AdaptiveJobProcessor::new(config).with_group_by_columns(vec!["group_id".to_string()]);
 
     // Setup execution
     let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
@@ -259,7 +259,7 @@ async fn test_v2_partition_isolation_multi_group() {
     };
 
     let coordinator =
-        PartitionedJobCoordinator::new(config).with_group_by_columns(vec!["group_id".to_string()]);
+        AdaptiveJobProcessor::new(config).with_group_by_columns(vec!["group_id".to_string()]);
 
     let (output_tx, _output_rx) = mpsc::unbounded_channel::<StreamRecord>();
     let engine = Arc::new(StreamExecutionEngine::new(output_tx));

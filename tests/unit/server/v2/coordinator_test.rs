@@ -1,4 +1,4 @@
-//! Unit tests for PartitionedJobCoordinator
+//! Unit tests for AdaptiveJobProcessor
 //!
 //! Tests coordinator initialization, configuration, and multi-partition orchestration.
 
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use velostream::velostream::server::v2::{
-    BackpressureConfig, PartitionedJobConfig, PartitionedJobCoordinator, PartitionerSelector,
+    BackpressureConfig, PartitionedJobConfig, AdaptiveJobProcessor, PartitionerSelector,
     ProcessingMode,
 };
 use velostream::velostream::sql::ast::{
@@ -18,7 +18,7 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 #[test]
 fn test_coordinator_creation() {
     let config = PartitionedJobConfig::default();
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     assert!(coordinator.num_partitions() > 0);
     // Verify processing mode is Individual (default)
@@ -34,7 +34,7 @@ fn test_coordinator_with_custom_partitions() {
         num_partitions: Some(4),
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     assert_eq!(coordinator.num_partitions(), 4);
 }
@@ -96,7 +96,7 @@ async fn test_coordinator_metrics_collection() {
         num_partitions: Some(2),
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, _senders) = coordinator.initialize_partitions();
 
@@ -125,7 +125,7 @@ fn test_backpressure_detection_healthy() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     // Create partition metrics with low queue depth (healthy)
     let metrics = vec![
@@ -150,7 +150,7 @@ fn test_backpressure_detection_warning() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -170,7 +170,7 @@ fn test_backpressure_detection_critical() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -190,7 +190,7 @@ fn test_backpressure_detection_saturated() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -211,7 +211,7 @@ fn test_backpressure_multi_partition_mixed_states() {
         num_partitions: Some(4),
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![
         Arc::new(PartitionMetrics::new(0)),
@@ -243,7 +243,7 @@ fn test_hot_partition_detection_method_exists() {
         num_partitions: Some(2),
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![
         Arc::new(PartitionMetrics::new(0)),
@@ -278,7 +278,7 @@ fn test_calculate_throttle_delay_healthy() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![
         Arc::new(PartitionMetrics::new(0)),
@@ -303,7 +303,7 @@ fn test_calculate_throttle_delay_warning() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -324,7 +324,7 @@ fn test_calculate_throttle_delay_critical() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -345,7 +345,7 @@ fn test_calculate_throttle_delay_saturated() {
         partition_buffer_size: 1000,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -374,7 +374,7 @@ fn test_calculate_throttle_delay_disabled() {
         },
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let metrics = vec![Arc::new(PartitionMetrics::new(0))];
 
@@ -434,7 +434,7 @@ fn test_auto_selection_from_query_respects_user_explicit_choice() {
         ..Default::default()
     };
 
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     // The coordinator MUST respect the explicit partitioning_strategy
     // We cannot directly access the strategy type, but the fact that it constructed

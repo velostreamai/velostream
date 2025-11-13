@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 use velostream::velostream::server::v2::{
-    PartitionedJobConfig, PartitionedJobCoordinator, ProcessingMode,
+    PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
@@ -41,7 +41,7 @@ async fn test_partition_receiver_processes_records() {
         processing_mode: ProcessingMode::Individual,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, senders) = coordinator.initialize_partitions();
 
@@ -77,7 +77,7 @@ async fn test_partition_receiver_updates_watermark() {
         processing_mode: ProcessingMode::Individual,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, senders) = coordinator.initialize_partitions();
 
@@ -120,7 +120,7 @@ async fn test_partition_receiver_tracks_multiple_records() {
         processing_mode: ProcessingMode::Individual,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, senders) = coordinator.initialize_partitions();
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -166,7 +166,7 @@ async fn test_partition_receiver_handles_late_records() {
         processing_mode: ProcessingMode::Individual,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, senders) = coordinator.initialize_partitions();
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -216,7 +216,7 @@ async fn test_partition_isolation_per_key() {
         processing_mode: ProcessingMode::Individual,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, senders) = coordinator.initialize_partitions();
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -283,7 +283,7 @@ async fn test_partition_receiver_shutdown() {
         processing_mode: ProcessingMode::Individual,
         ..Default::default()
     };
-    let coordinator = PartitionedJobCoordinator::new(config);
+    let coordinator = AdaptiveJobProcessor::new(config);
 
     let (managers, senders) = coordinator.initialize_partitions();
     tokio::time::sleep(Duration::from_millis(10)).await;
