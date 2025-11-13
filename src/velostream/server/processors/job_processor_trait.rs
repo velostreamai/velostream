@@ -7,8 +7,6 @@ use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
-use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::StreamRecord;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;

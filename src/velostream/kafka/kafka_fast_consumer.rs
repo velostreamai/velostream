@@ -1182,7 +1182,6 @@ where
 // Usage example with BaseConsumer
 #[cfg(test)]
 mod examples {
-    use super::*;
     use futures::StreamExt;
     use rdkafka::config::ClientConfig;
     use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
