@@ -78,7 +78,6 @@ impl TransactionalJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -309,7 +308,6 @@ impl TransactionalJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             vec![("default_source".to_string(), reader)]
@@ -323,7 +321,6 @@ impl TransactionalJobProcessor {
             engine,
             query,
             job_name,
-            _shutdown_rx,
         )
         .await
     }
@@ -1509,7 +1506,6 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
         engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
         query: crate::velostream::sql::StreamingQuery,
         job_name: String,
-        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             {
@@ -1527,7 +1523,6 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
             engine,
             query,
             job_name,
-            shutdown_rx,
         )
         .await
     }
@@ -1545,10 +1540,9 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
         engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
         query: crate::velostream::sql::StreamingQuery,
         job_name: String,
-        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to the existing process_multi_job implementation
-        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
+        self.process_multi_job(readers, writers, engine, query, job_name)
             .await
     }
 

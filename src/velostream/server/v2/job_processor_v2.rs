@@ -78,7 +78,6 @@ impl JobProcessor for AdaptiveJobProcessor {
         _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Job Processing with Synchronous Receivers
         //
@@ -221,7 +220,6 @@ impl JobProcessor for AdaptiveJobProcessor {
         _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Multi-Job Processing with Synchronous Receivers
         //
