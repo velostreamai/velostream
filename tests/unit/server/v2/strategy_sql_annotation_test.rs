@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionedJobConfig, AdaptiveJobProcessor, RoundRobinStrategy,
+    AdaptiveJobProcessor, AlwaysHashStrategy, PartitionedJobConfig, RoundRobinStrategy,
     SmartRepartitionStrategy, StickyPartitionStrategy,
 };
 use velostream::velostream::sql::StreamingQuery;

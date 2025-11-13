@@ -495,7 +495,7 @@ async fn scenario_3a_v2_sticky_partition_1core() {
     use tokio::sync::RwLock;
     use velostream::velostream::server::processors::JobProcessor;
     use velostream::velostream::server::v2::{
-        PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
+        AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode,
     };
 
     // Configure for 1 partition (single core scenario)

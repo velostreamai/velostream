@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use velostream::velostream::server::v2::{
-    PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
+    AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};

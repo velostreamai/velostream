@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use velostream::velostream::serialization::FieldValue;
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, FanInStrategy, PartitionedJobConfig, AdaptiveJobProcessor,
+    AdaptiveJobProcessor, AlwaysHashStrategy, FanInStrategy, PartitionedJobConfig,
     PartitioningStrategy, QueryMetadata, RoundRobinStrategy, RoutingContext,
     SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig, StrategyFactory,
 };

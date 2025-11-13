@@ -106,8 +106,8 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Step 2: Initialize partitions with Phase 6.6 synchronous receivers
         // Each partition owns its StreamExecutionEngine directly (no Arc/Mutex)
         // Enables 15-25% architectural overhead elimination
-        let job_coordinator = AdaptiveJobProcessor::new(self.config().clone())
-            .with_query(Arc::clone(&query_arc));
+        let job_coordinator =
+            AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
 
         let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
 
@@ -233,8 +233,8 @@ impl JobProcessor for AdaptiveJobProcessor {
             let query_arc = Arc::new(query.clone());
 
             // Initialize partitions with Phase 6.6 synchronous receivers
-            let job_coordinator = AdaptiveJobProcessor::new(self.config().clone())
-                .with_query(Arc::clone(&query_arc));
+            let job_coordinator =
+                AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
 
             let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
 

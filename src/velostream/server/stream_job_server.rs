@@ -18,9 +18,7 @@ use crate::velostream::server::processors::{
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
-use crate::velostream::server::v2::{
-    PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
-};
+use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,

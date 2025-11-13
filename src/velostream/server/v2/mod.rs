@@ -68,7 +68,7 @@ pub mod watermark;
 
 // Re-exports for convenience
 pub use coordinator::{
-    BackpressureConfig, CoordinatorMetrics, PartitionedJobConfig, AdaptiveJobProcessor,
+    AdaptiveJobProcessor, BackpressureConfig, CoordinatorMetrics, PartitionedJobConfig,
     ProcessingMode, ThrottleConfig,
 };
 pub use fan_in_strategy::FanInStrategy;

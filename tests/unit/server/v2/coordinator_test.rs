@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use velostream::velostream::server::v2::{
-    BackpressureConfig, PartitionedJobConfig, AdaptiveJobProcessor, PartitionerSelector,
+    AdaptiveJobProcessor, BackpressureConfig, PartitionedJobConfig, PartitionerSelector,
     ProcessingMode,
 };
 use velostream::velostream::sql::ast::{

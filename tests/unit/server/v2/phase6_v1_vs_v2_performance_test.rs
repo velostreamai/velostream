@@ -19,7 +19,7 @@ use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
 };
 use velostream::velostream::server::v2::{
-    AlwaysHashStrategy, PartitionedJobConfig, AdaptiveJobProcessor, ProcessingMode,
+    AdaptiveJobProcessor, AlwaysHashStrategy, PartitionedJobConfig, ProcessingMode,
 };
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
 use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
