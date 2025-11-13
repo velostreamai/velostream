@@ -124,9 +124,12 @@ impl JobProcessor for AdaptiveJobProcessor {
         let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         loop {
-            if !reader.has_more().await.unwrap_or(false)
-                && consecutive_empty >= max_consecutive_empty
-            {
+            // Check if data source has more records
+            let has_more = reader.has_more().await.unwrap_or(false);
+
+            // If no more data available AND we've seen consecutive empty reads, break
+            if !has_more {
+                info!("Reader reports no more data available, exiting read loop");
                 break;
             }
 
@@ -134,6 +137,13 @@ impl JobProcessor for AdaptiveJobProcessor {
                 Ok(batch) => {
                     if batch.is_empty() {
                         consecutive_empty += 1;
+                        if consecutive_empty >= max_consecutive_empty {
+                            info!(
+                                "Reached max consecutive empty batches ({}) without new data, exiting",
+                                max_consecutive_empty
+                            );
+                            break;
+                        }
                         // Wait before next read to avoid busy-waiting on empty data sources
                         tokio::time::sleep(wait_on_empty).await;
                         continue;
@@ -250,9 +260,12 @@ impl JobProcessor for AdaptiveJobProcessor {
             let mut total_routed = 0u64;
 
             loop {
-                if !reader.has_more().await.unwrap_or(false)
-                    && consecutive_empty >= max_consecutive_empty
-                {
+                // Check if data source has more records
+                let has_more = reader.has_more().await.unwrap_or(false);
+
+                // If no more data available, break
+                if !has_more {
+                    info!("Reader {} reports no more data available, exiting read loop", reader_name);
                     break;
                 }
 
@@ -260,6 +273,13 @@ impl JobProcessor for AdaptiveJobProcessor {
                     Ok(batch) => {
                         if batch.is_empty() {
                             consecutive_empty += 1;
+                            if consecutive_empty >= max_consecutive_empty {
+                                info!(
+                                    "Reader {} reached max consecutive empty batches ({}), exiting",
+                                    reader_name, max_consecutive_empty
+                                );
+                                break;
+                            }
                             // Wait before next read to avoid busy-waiting on empty data sources
                             tokio::time::sleep(wait_on_empty).await;
                             continue;

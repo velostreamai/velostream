@@ -134,6 +134,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
+    processor.stop().await.ok();
     let elapsed = start.elapsed();
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
@@ -169,6 +170,7 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
+    processor.stop().await.ok();
     let elapsed = start.elapsed();
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
@@ -204,6 +206,7 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
+    processor.stop().await.ok();
     let elapsed = start.elapsed();
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();

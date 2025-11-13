@@ -44,6 +44,9 @@ pub mod processor_metrics_helper_test;
 /// Template for adding new processor tests
 pub mod stream_job_future_handler_test_template;
 
+/// Processor lifecycle tests - verifies stop() and process_job completion
+pub mod processor_lifecycle_test;
+
 // =============================================================================
 // FEATURE-SPECIFIC TESTS
 // =============================================================================
