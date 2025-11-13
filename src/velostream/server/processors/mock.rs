@@ -110,18 +110,6 @@ impl JobProcessor for MockJobProcessor {
         Ok(())
     }
 
-    async fn process_batch(
-        &self,
-        records: Vec<crate::velostream::sql::execution::types::StreamRecord>,
-        _engine: Arc<StreamExecutionEngine>,
-    ) -> Result<
-        Vec<crate::velostream::sql::execution::types::StreamRecord>,
-        crate::velostream::sql::error::SqlError,
-    > {
-        // Mock just passes through records
-        Ok(records)
-    }
-
     async fn process_multi_job(
         &self,
         _readers: HashMap<String, Box<dyn DataReader>>,

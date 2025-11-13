@@ -35,7 +35,6 @@ pub mod microbench_multi_sink_write;
 pub mod performance_optimization_verification;
 pub mod performance_regression_test;
 pub mod phase6_2_baseline_validation; // Phase 6.2: V2 baseline with SQL execution integration
-pub mod week9_v1_v2_baseline_benchmarks; // Week 9 Part B: V1 vs V2 architecture baseline testing
 
 // Re-export organized structure for easier access
 pub use consolidated_mod::*;

@@ -83,20 +83,6 @@ impl std::fmt::Display for LifecycleState {
 /// - Extensibility for future architectures (V3, etc.)
 #[async_trait]
 pub trait JobProcessor: Send + Sync {
-    /// Process a batch of records through the job processing pipeline
-    ///
-    /// # Arguments
-    /// * `records` - Input records to process
-    /// * `engine` - Shared StreamExecutionEngine for query execution
-    ///
-    /// # Returns
-    /// Processed records (may be amplified for EMIT CHANGES queries)
-    async fn process_batch(
-        &self,
-        records: Vec<StreamRecord>,
-        engine: Arc<StreamExecutionEngine>,
-    ) -> Result<Vec<StreamRecord>, SqlError>;
-
     /// Get the number of partitions this processor uses
     ///
     /// - V1: Returns 1 (single-threaded)

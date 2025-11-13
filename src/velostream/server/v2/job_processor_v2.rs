@@ -47,67 +47,6 @@ use tokio::sync::mpsc;
 /// This enables V2 to be used interchangeably with V1 via the JobProcessor trait.
 #[async_trait::async_trait]
 impl JobProcessor for PartitionedJobCoordinator {
-    async fn process_batch(
-        &self,
-        records: Vec<StreamRecord>,
-        _engine: Arc<StreamExecutionEngine>,
-    ) -> Result<Vec<StreamRecord>, SqlError> {
-        // V2 Architecture: Multi-partition parallel processing with state consistency
-        //
-        // Week 9 Implementation: Record Routing by Partition Strategy
-        //
-        // This implementation uses the configured PartitioningStrategy to route records
-        // to partitions. This ensures:
-        // - Records with the same GROUP BY key go to the same partition (if using hash)
-        // - Records maintain source partition affinity (if using sticky strategy)
-        // - Parallel independent processing across all partitions
-        //
-        // ## Key Design: Pluggable Strategies
-        // The coordinator is initialized with a PartitioningStrategy (e.g., StickyPartition,
-        // SmartRepartition) that handles the routing logic. This enables flexible
-        // optimization for different data patterns:
-        // - StickyPartition: Zero-overhead for Kafka data (uses __partition__ field)
-        // - SmartRepartition: Aligned data detection and optimization
-        // - AlwaysHash: Safe default for misaligned GROUP BY
-        // - RoundRobin: Maximum throughput for non-aggregated queries
-        //
-        // ## Record Routing
-        // Records are distributed to partitions based on the strategy's routing logic.
-        // This validates that the distribution works correctly while returning records
-        // for downstream processing in full job context.
-
-        if records.is_empty() {
-            log::debug!("V2 PartitionedJobCoordinator::process_batch: empty batch");
-            return Ok(Vec::new());
-        }
-
-        log::debug!(
-            "V2 PartitionedJobCoordinator::process_batch: {} records -> {} partitions (strategy-based routing)",
-            records.len(),
-            self.num_partitions()
-        );
-
-        // V2 Baseline Note:
-        // Records should be routed based on GROUP BY keys to maintain state consistency.
-        // The actual routing strategy (StickyPartition, SmartRepartition, etc.) is
-        // applied during process_multi_job() with full query context and per-partition
-        // state managers.
-        //
-        // This method validates the multi-partition architecture without requiring
-        // full query execution context. The actual parallel processing happens in
-        // process_multi_job() with proper state isolation and coordination.
-
-        log::debug!(
-            "V2 PartitionedJobCoordinator::process_batch: {} records ready for {} partitions",
-            records.len(),
-            self.num_partitions()
-        );
-
-        // Return records for downstream processing in process_multi_job()
-        // where they will be distributed using the configured strategy
-        Ok(records)
-    }
-
     fn num_partitions(&self) -> usize {
         self.num_partitions()
     }

@@ -893,38 +893,6 @@ impl SimpleJobProcessor {
 /// Implement JobProcessor trait for SimpleJobProcessor (V1 Architecture)
 #[async_trait::async_trait]
 impl JobProcessor for SimpleJobProcessor {
-    async fn process_batch(
-        &self,
-        records: Vec<StreamRecord>,
-        engine: Arc<StreamExecutionEngine>,
-    ) -> Result<Vec<StreamRecord>, crate::velostream::sql::SqlError> {
-        // V1 Architecture: Single-threaded batch processing
-        // Process all records sequentially through the query engine
-
-        if records.is_empty() {
-            debug!("V1 SimpleJobProcessor::process_batch - empty batch");
-            return Ok(Vec::new());
-        }
-
-        debug!(
-            "V1 SimpleJobProcessor::process_batch - {} records (pass-through)",
-            records.len()
-        );
-
-        // V1 Baseline Note:
-        // The full SQL execution happens in process_multi_job() with complete query context
-        // and output channel infrastructure. The process_batch() interface validates the
-        // processor architecture but doesn't execute the full query pipeline.
-        //
-        // The engine architecture is designed for streaming execution via process_multi_job().
-        // This method serves as an interface validation point for the V1 architecture.
-
-        // For now, return records as-is (pass-through for interface validation)
-        // This allows benchmarking and testing of the processor trait
-        // Full SQL execution happens at the job processing level with complete context
-        Ok(records)
-    }
-
     fn num_partitions(&self) -> usize {
         1 // V1 uses single-threaded, single partition
     }

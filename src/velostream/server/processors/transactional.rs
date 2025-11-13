@@ -1476,38 +1476,6 @@ impl TransactionalJobProcessor {
 /// Implement JobProcessor trait for TransactionalJobProcessor (V1 Architecture)
 #[async_trait::async_trait]
 impl crate::velostream::server::processors::JobProcessor for TransactionalJobProcessor {
-    async fn process_batch(
-        &self,
-        records: Vec<StreamRecord>,
-        _engine: Arc<crate::velostream::sql::StreamExecutionEngine>,
-    ) -> Result<Vec<StreamRecord>, crate::velostream::sql::SqlError> {
-        // V1 Transactional Architecture: Single-threaded batch processing with transaction boundaries
-        // Process all records sequentially through the query engine with transactional guarantees
-
-        if records.is_empty() {
-            debug!("V1 TransactionalJobProcessor::process_batch - empty batch");
-            return Ok(Vec::new());
-        }
-
-        debug!(
-            "V1 TransactionalJobProcessor::process_batch - {} records, engine available: true",
-            records.len()
-        );
-
-        // V1 Baseline Note:
-        // The full SQL execution happens in process_job() with complete query context
-        // and transaction infrastructure. The process_batch() interface validates the
-        // processor architecture but doesn't execute the full query pipeline.
-        //
-        // The engine architecture is designed for streaming execution via process_job().
-        // This method serves as an interface validation point for the V1 transactional architecture.
-
-        // For now, return records as-is (pass-through for interface validation)
-        // This allows benchmarking and testing of the processor trait
-        // Full SQL execution happens at the job processing level with complete context
-        Ok(records)
-    }
-
     fn num_partitions(&self) -> usize {
         1 // V1 uses single-threaded, single partition
     }

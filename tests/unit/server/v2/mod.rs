@@ -18,5 +18,3 @@ pub mod phase6_stp_bottleneck_analysis;
 pub mod phase6_v1_vs_v2_performance_test;
 pub mod strategy_integration_test;
 pub mod strategy_sql_annotation_test;
-pub mod week9_baseline_benchmarks;
-pub mod week9_v1_v2_comparison_test;
