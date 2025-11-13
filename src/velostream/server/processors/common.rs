@@ -8,6 +8,7 @@ use crate::velostream::datasource::{
     file::{FileDataSink, FileDataSource},
     kafka::{KafkaDataSink, KafkaDataSource},
 };
+use crate::velostream::server::processors::SimpleJobProcessor;
 use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
@@ -294,7 +295,7 @@ pub async fn process_batch_common(
     query: &StreamingQuery,
     job_name: &str,
 ) -> BatchProcessingResult {
-    let result = process_batch_with_output(batch, engine, query, job_name).await;
+    let result = process_batch(batch, engine, query, job_name).await;
 
     // Convert to the original result type (without output records)
     BatchProcessingResult {
@@ -319,7 +320,7 @@ pub async fn process_batch_common(
 /// 1. Get state once at batch start (minimal lock time)
 /// 2. Process batch with local state copies (no locks)
 /// 3. Sync state back once at batch end (minimal lock time)
-pub async fn process_batch_with_output(
+pub async fn process_batch(
     batch: Vec<StreamRecord>,
     engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
     query: &StreamingQuery,
@@ -1572,100 +1573,5 @@ pub fn ensure_sink_or_create_stdout(writer: &mut Option<Box<dyn DataWriter>>, jo
             job_name
         );
         *writer = Some(Box::new(StdoutWriter::new_pretty()));
-    }
-}
-
-/// Main processing loop shared by both simple and transactional processors
-pub async fn run_processing_loop<F, Fut>(
-    job_name: &str,
-    config: &JobProcessingConfig,
-    mut shutdown_rx: mpsc::Receiver<()>,
-    mut stats: JobExecutionStats,
-    mut process_batch_fn: F,
-) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>
-where
-    F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = DataSourceResult<()>>,
-{
-    loop {
-        // Check for shutdown signal
-        if shutdown_rx.try_recv().is_ok() {
-            info!("Job '{}' received shutdown signal", job_name);
-            break;
-        }
-
-        // Process one batch
-        match process_batch_fn().await {
-            Ok(()) => {
-                // Successful batch processing
-                if config.log_progress
-                    && stats
-                        .batches_processed
-                        .is_multiple_of(config.progress_interval)
-                {
-                    log_job_progress(job_name, &stats);
-                }
-            }
-            Err(e) => {
-                warn!("Job '{}' batch processing failed: {:?}", job_name, e);
-                stats.batches_failed += 1;
-
-                // Apply retry backoff
-                warn!(
-                    "Job '{}': Applying retry backoff of {:?} due to batch failure",
-                    job_name, config.retry_backoff
-                );
-                tokio::time::sleep(config.retry_backoff).await;
-                debug!(
-                    "Job '{}': Backoff complete, retrying batch processing",
-                    job_name
-                );
-            }
-        }
-    }
-
-    log_final_stats(job_name, &stats);
-    Ok(stats)
-}
-
-/// Process records from a datasource using the modern multi-job processors
-/// This is the recommended entry point that automatically chooses between
-/// simple and transactional processing based on datasource capabilities
-pub async fn process_datasource_records(
-    reader: Box<dyn DataReader>,
-    writer: Option<Box<dyn DataWriter>>,
-    execution_engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
-    parsed_query: StreamingQuery,
-    job_name: String,
-    shutdown_receiver: mpsc::Receiver<()>,
-    config: JobProcessingConfig,
-) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-    // Choose processor based on configuration and datasource capabilities
-    if config.use_transactions && reader.supports_transactions() {
-        use crate::velostream::server::processors::transactional::TransactionalJobProcessor;
-        let processor = TransactionalJobProcessor::new(config);
-        processor
-            .process_job(
-                reader,
-                writer,
-                execution_engine,
-                parsed_query,
-                job_name,
-                shutdown_receiver,
-            )
-            .await
-    } else {
-        use crate::velostream::server::processors::simple::SimpleJobProcessor;
-        let processor = SimpleJobProcessor::new(config);
-        processor
-            .process_job(
-                reader,
-                writer,
-                execution_engine,
-                parsed_query,
-                job_name,
-                shutdown_receiver,
-            )
-            .await
     }
 }

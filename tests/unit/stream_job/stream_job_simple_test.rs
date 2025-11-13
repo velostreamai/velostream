@@ -15,9 +15,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use velostream::velostream::server::processors::{
+    JobProcessor,
     common::{
-        DataSourceResult, FailureStrategy, JobExecutionStats, JobProcessingConfig,
-        process_batch_with_output,
+        DataSourceResult, FailureStrategy, JobExecutionStats, JobProcessingConfig, process_batch,
     },
     simple::SimpleJobProcessor,
 };

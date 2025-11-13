@@ -13,7 +13,7 @@ use velostream::velostream::sql::{StreamExecutionEngine, execution::types::Strea
 // Import test utilities
 use super::stream_job_test_utils::*;
 use velostream::velostream::server::processors::{
-    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
+    JobProcessor, common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };
 
 #[tokio::test]
@@ -191,7 +191,7 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
         .with_transaction_support()
         .with_begin_tx_failure(); // Writer begin_transaction will fail
 
-    let processor = create_transactional_processor();
+    let processor_handle = Arc::new(create_transactional_processor());
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
     let engine = Arc::new(RwLock::new(StreamExecutionEngine::new(output_sender)));
     let query = create_test_query();
@@ -201,8 +201,9 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
     let job_handle = tokio::spawn({
         let engine = engine.clone();
         let query = query.clone();
+        let proc_for_task = processor_handle.clone();
         async move {
-            processor
+            proc_for_task
                 .process_job(
                     Box::new(mock_reader),
                     Some(Box::new(mock_writer)),
@@ -216,7 +217,9 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
-    shutdown_tx.send(()).await.expect("Should send shutdown");
+
+    processor_handle.stop().await;
+    // shutdown_tx.send(()).await.expect("Should send shutdown");
 
     let stats = job_handle
         .await
@@ -274,8 +277,8 @@ async fn test_simple_processor_sink_failure_continues_processing() {
         "Should process all records (3+2)"
     );
     assert_eq!(
-        stats.batches_processed, 4,
-        "Should process 4 batches (batching breakdown)"
+        stats.batches_processed, 2,
+        "Should process 2 batches (one with 3 records, one with 2 records)"
     );
     // Note: Simple processor commits source regardless of sink failure (best effort)
 }

@@ -121,6 +121,12 @@ impl ObservabilityWrapper {
         self.observability.is_some()
     }
 
+    /// Get observability as reference for helper functions
+    /// This returns &Option which is what ObservabilityHelper expects
+    pub fn observability_ref(&self) -> &Option<SharedObservabilityManager> {
+        &self.observability
+    }
+
     /// Get reference to metrics helper
     pub fn metrics_helper(&self) -> &ProcessorMetricsHelper {
         &self.metrics_helper

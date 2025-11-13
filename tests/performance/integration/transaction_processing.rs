@@ -12,7 +12,7 @@ use std::{
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::{
     datasource::{DataReader, DataWriter},
-    server::processors::{common::*, simple::*, transactional::*},
+    server::processors::{JobProcessor, common::*, simple::*, transactional::*},
     sql::{
         StreamExecutionEngine, StreamingQuery,
         ast::{EmitMode, SelectField, StreamSource},

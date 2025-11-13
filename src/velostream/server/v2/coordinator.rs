@@ -3,8 +3,11 @@
 //! Coordinates execution across N partitions for linear scaling performance.
 
 use crate::velostream::datasource::{DataReader, DataWriter};
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::MetricsCollector;
 use crate::velostream::server::processors::common::JobExecutionStats;
+use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
+use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
 use crate::velostream::server::v2::{
     AlwaysHashStrategy, BackpressureState, PartitionMetrics, PartitionReceiver,
     PartitionStateManager, PartitionerSelector, PartitioningStrategy, QueryMetadata,
@@ -19,6 +22,7 @@ use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
@@ -245,8 +249,12 @@ pub struct PartitionedJobCoordinator {
     query: Option<Arc<StreamingQuery>>,
     /// Phase 6.1: Execution engine for SQL processing on each partition
     execution_engine: Option<Arc<StreamExecutionEngine>>,
-    /// Aggregated metrics collector for all partitions
-    metrics_collector: MetricsCollector,
+    /// Unified observability, metrics, and DLQ wrapper
+    observability_wrapper: ObservabilityWrapper,
+    /// Profiling helper for timing instrumentation
+    profiling_helper: ProfilingHelper,
+    /// Stop flag for graceful shutdown
+    pub stop_flag: Arc<AtomicBool>,
 }
 
 impl PartitionedJobCoordinator {
@@ -323,7 +331,9 @@ impl PartitionedJobCoordinator {
             num_cpu_slots,
             query: None,
             execution_engine: None,
-            metrics_collector: MetricsCollector::new(),
+            observability_wrapper: ObservabilityWrapper::new(),
+            profiling_helper: ProfilingHelper::new(),
+            stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -373,9 +383,32 @@ impl PartitionedJobCoordinator {
         &self.config
     }
 
+    /// Create coordinator with observability support
+    pub fn with_observability(mut self, observability: Option<SharedObservabilityManager>) -> Self {
+        self.observability_wrapper = ObservabilityWrapper::with_observability(observability);
+        self
+    }
+
+    /// Get reference to observability manager (if present)
+    pub fn observability(&self) -> Option<&SharedObservabilityManager> {
+        self.observability_wrapper.observability()
+    }
+
+    /// Get reference to metrics helper
+    pub fn metrics_helper(
+        &self,
+    ) -> &crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper {
+        self.observability_wrapper.metrics_helper()
+    }
+
     /// Get metrics collector for aggregated metrics
     pub fn metrics_collector(&self) -> &MetricsCollector {
-        &self.metrics_collector
+        self.observability_wrapper.metrics_collector()
+    }
+
+    /// Get reference to profiling helper
+    pub fn profiling_helper(&self) -> &ProfilingHelper {
+        &self.profiling_helper
     }
 
     /// Initialize partitions with managers and channels

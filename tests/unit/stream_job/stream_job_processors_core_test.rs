@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
-    common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
+    JobProcessor, common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
 };
 use velostream::velostream::sql::ast::DataType;
 use velostream::velostream::sql::{

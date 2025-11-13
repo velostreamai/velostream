@@ -382,4 +382,11 @@ impl JobProcessor for PartitionedJobCoordinator {
 
         Ok(aggregated_stats)
     }
+
+    async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        use std::sync::atomic::Ordering;
+        self.stop_flag.store(true, Ordering::Relaxed);
+        info!("PartitionedJobCoordinator (V2) stop signal set");
+        Ok(())
+    }
 }
