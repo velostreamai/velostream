@@ -12,7 +12,7 @@ use crate::velostream::kafka::{
     serialization::{JsonSerializer, SerializationError},
     serialization_format::{SerializationConfig, SerializationFactory, SerializationFormat},
 };
-use rdkafka::{consumer::DefaultConsumerContext, error::KafkaError};
+use rdkafka::error::KafkaError;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, marker::PhantomData};
 

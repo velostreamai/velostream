@@ -5,9 +5,7 @@
 //! monitoring dashboards and alerting systems.
 
 use crate::velostream::server::progress_monitoring::{LoadingSummary, TableLoadProgress};
-use crate::velostream::server::progress_streaming::{
-    ConnectionStats, ProgressEvent, ProgressStreamingServer,
-};
+use crate::velostream::server::progress_streaming::{ConnectionStats, ProgressStreamingServer};
 use crate::velostream::server::table_registry::{
     EnhancedTableHealth, TableMetadata, TableRegistry, TableStatus,
 };

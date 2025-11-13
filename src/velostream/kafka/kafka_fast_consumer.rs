@@ -112,16 +112,16 @@
 //! See the `examples` module at the bottom of this file for complete usage examples.
 
 use futures::{
-    Stream,
     task::{Context, Poll},
+    Stream,
 };
 
 use crate::velostream::kafka::headers::Headers;
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::serialization::Serde;
-use rdkafka::Message as RdKafkaMessage;
 use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
+use rdkafka::Message as RdKafkaMessage;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -708,7 +708,7 @@ where
     ///
     /// - [`buffered_stream`](Self::buffered_stream) - For higher throughput
     /// - [`dedicated_stream`](Self::dedicated_stream) - For maximum performance
-    pub fn stream(&self) -> impl Stream<Item = Result<Message<K, V>, ConsumerError>> + '_ {
+    pub fn stream(&self) -> impl Stream<Item=Result<Message<K, V>, ConsumerError>> + '_ {
         KafkaStream {
             consumer: &self.consumer, // BaseConsumer reference
             value_serializer: &self.value_serializer,
@@ -760,7 +760,7 @@ where
     pub fn buffered_stream(
         &self,
         batch_size: usize,
-    ) -> impl Stream<Item = Result<Message<K, V>, ConsumerError>> + '_
+    ) -> impl Stream<Item=Result<Message<K, V>, ConsumerError>> + '_
     where
         K: Unpin,
         V: Unpin,
@@ -774,9 +774,6 @@ where
         }
     }
 }
-
-// Import for dedicated thread implementation
-use tokio::task;
 
 /// Maximum-performance stream using a dedicated blocking thread for Kafka polling.
 ///
@@ -1148,7 +1145,7 @@ where
     fn stream(
         &self,
     ) -> std::pin::Pin<
-        Box<dyn futures::Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>,
+        Box<dyn futures::Stream<Item=Result<Message<K, V>, ConsumerError>> + Send + '_>,
     > {
         // Box the stream for object safety
         Box::pin(self.stream())
@@ -1182,10 +1179,8 @@ where
 // Usage example with BaseConsumer
 #[cfg(test)]
 mod examples {
-    use futures::StreamExt;
     use rdkafka::config::ClientConfig;
     use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
-    use std::time::Duration;
 
     // Example showing how to use the fast consumer
     // Note: Requires concrete serializer implementations
