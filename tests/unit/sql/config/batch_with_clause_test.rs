@@ -26,7 +26,7 @@ fn test_basic_batch_configuration() {
     assert!(config.batch_config.is_some());
     let batch_config = config.batch_config.unwrap();
 
-    assert!(batch_config.enable_batching);
+    assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1000);
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(500));
 
@@ -136,7 +136,7 @@ fn test_low_latency_batch_strategy() {
         } => {
             assert_eq!(max_batch_size, 5);
             assert_eq!(max_wait_time, Duration::from_millis(2));
-            assert!(eager_processing);
+            assert_eq!(eager_processing, true);
         }
         _ => panic!("Expected LowLatency strategy"),
     }
@@ -156,7 +156,7 @@ fn test_batch_configuration_defaults() {
     let batch_config = config.batch_config.unwrap();
 
     // Should use defaults for missing values
-    assert!(batch_config.enable_batching);
+    assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1000); // Default max size
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(1000)); // Default timeout
 
@@ -180,7 +180,7 @@ fn test_batch_disabled() {
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
 
-    assert!(!(batch_config.enable_batching));
+    assert_eq!(batch_config.enable_batching, false);
 }
 
 #[test]
@@ -334,7 +334,7 @@ fn test_comprehensive_batch_configuration() {
     assert!(config.raw_config.contains_key("sink.topic"));
 
     let batch_config = config.batch_config.unwrap();
-    assert!(batch_config.enable_batching);
+    assert_eq!(batch_config.enable_batching, true);
     assert_eq!(batch_config.max_batch_size, 1500);
     assert_eq!(batch_config.batch_timeout, Duration::from_millis(750));
 
@@ -386,7 +386,7 @@ fn test_batch_configuration_with_file_sink() {
     let config = parser.parse_with_clause(with_clause).unwrap();
     let batch_config = config.batch_config.unwrap();
 
-    assert!(batch_config.enable_batching);
+    assert_eq!(batch_config.enable_batching, true);
     match batch_config.strategy {
         BatchStrategy::MemoryBased(size) => assert_eq!(size, 524288), // 512KB
         _ => panic!("Expected MemoryBased strategy"),
@@ -430,7 +430,7 @@ fn test_sink_failure_strategy_configuration() {
 
     // Validate that batch config is still parsed correctly alongside failure strategy
     let batch_config = config.batch_config.unwrap();
-    assert!(batch_config.enable_batching);
+    assert_eq!(batch_config.enable_batching, true);
     match batch_config.strategy {
         BatchStrategy::FixedSize(size) => assert_eq!(size, 100),
         _ => panic!("Expected FixedSize strategy"),

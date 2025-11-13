@@ -131,8 +131,8 @@ mod tests {
         let record = create_test_record(1000);
 
         // Should emit for every record
-        assert!(strategy.should_emit_for_record(&record, false));
-        assert!(strategy.should_emit_for_record(&record, true));
+        assert_eq!(strategy.should_emit_for_record(&record, false), true);
+        assert_eq!(strategy.should_emit_for_record(&record, true), true);
     }
 
     #[test]
@@ -140,9 +140,9 @@ mod tests {
         let mut strategy = EmitChangesStrategy::new(1);
 
         // Should emit on every record
-        assert!(strategy.should_emit_now());
-        assert!(strategy.should_emit_now());
-        assert!(strategy.should_emit_now());
+        assert_eq!(strategy.should_emit_now(), true);
+        assert_eq!(strategy.should_emit_now(), true);
+        assert_eq!(strategy.should_emit_now(), true);
     }
 
     #[test]

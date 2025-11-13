@@ -250,9 +250,9 @@ mod tests {
         let r2 = create_test_record(30000);
         let r3 = create_test_record(59000);
 
-        assert!(!(strategy.add_record(r1).unwrap()));
-        assert!(!(strategy.add_record(r2).unwrap()));
-        assert!(!(strategy.add_record(r3).unwrap()));
+        assert_eq!(strategy.add_record(r1).unwrap(), false);
+        assert_eq!(strategy.add_record(r2).unwrap(), false);
+        assert_eq!(strategy.add_record(r3).unwrap(), false);
 
         assert_eq!(strategy.buffer.len(), 3);
         assert_eq!(strategy.window_start_time, Some(0));
@@ -265,11 +265,11 @@ mod tests {
 
         // Add record in first window
         let r1 = create_test_record(30000);
-        assert!(!(strategy.add_record(r1).unwrap()));
+        assert_eq!(strategy.add_record(r1).unwrap(), false);
 
         // Add record in next window - should trigger emission
         let r2 = create_test_record(70000);
-        assert!(strategy.add_record(r2).unwrap());
+        assert_eq!(strategy.add_record(r2).unwrap(), true);
     }
 
     #[test]
@@ -314,13 +314,13 @@ mod tests {
         strategy.add_record(r1).unwrap();
 
         // Current time before window end
-        assert!(!(strategy.should_emit(30000)));
+        assert_eq!(strategy.should_emit(30000), false);
 
         // Current time at window end
-        assert!(strategy.should_emit(60000));
+        assert_eq!(strategy.should_emit(60000), true);
 
         // Current time after window end
-        assert!(strategy.should_emit(70000));
+        assert_eq!(strategy.should_emit(70000), true);
     }
 
     #[test]

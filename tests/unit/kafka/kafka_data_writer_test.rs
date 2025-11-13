@@ -343,6 +343,7 @@ mod kafka_data_writer_tests {
         assert!(null_record.fields.contains_key("null_field"));
         if let Some(FieldValue::Null) = null_record.fields.get("null_field") {
             // Null should not be used as key
+            assert!(true);
         }
     }
 }

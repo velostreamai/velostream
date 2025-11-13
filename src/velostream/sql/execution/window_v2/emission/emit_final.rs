@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_emit_final_strategy_creation() {
         let strategy = EmitFinalStrategy::new();
-        assert!(!strategy.window_active);
+        assert_eq!(strategy.window_active, false);
     }
 
     #[test]
@@ -104,10 +104,10 @@ mod tests {
         let record = create_test_record(1000);
 
         // Should not emit for incomplete window
-        assert!(!strategy.should_emit_for_record(&record, false));
+        assert_eq!(strategy.should_emit_for_record(&record, false), false);
 
         // Should emit for complete window
-        assert!(strategy.should_emit_for_record(&record, true));
+        assert_eq!(strategy.should_emit_for_record(&record, true), true);
     }
 
     #[test]

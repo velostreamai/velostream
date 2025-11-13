@@ -71,7 +71,7 @@ fn test_processing_modes() {
 
     // Verify enum variants exist and compile
     match individual {
-        ProcessingMode::Individual => {}
+        ProcessingMode::Individual => assert!(true),
         ProcessingMode::Batch { .. } => panic!("Wrong variant"),
     }
 

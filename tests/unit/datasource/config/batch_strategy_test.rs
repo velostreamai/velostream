@@ -22,7 +22,7 @@ fn test_batch_config_default() {
     // Phase 4 optimization: increased from 1000 to 50,000
     assert_eq!(config.max_batch_size, 50_000);
     assert_eq!(config.batch_timeout, Duration::from_millis(1000));
-    assert!(config.enable_batching);
+    assert_eq!(config.enable_batching, true);
 
     match config.strategy {
         BatchStrategy::FixedSize(size) => assert_eq!(size, 100),
@@ -96,7 +96,7 @@ fn test_batch_strategy_low_latency() {
         } => {
             assert_eq!(max_batch_size, 5);
             assert_eq!(max_wait_time, Duration::from_millis(10));
-            assert!(eager_processing);
+            assert_eq!(eager_processing, true);
         }
         _ => panic!("Expected LowLatency strategy"),
     }
@@ -118,7 +118,7 @@ fn test_batch_config_construction() {
 
     assert_eq!(config.max_batch_size, 2000);
     assert_eq!(config.batch_timeout, Duration::from_millis(500));
-    assert!(!(config.enable_batching));
+    assert_eq!(config.enable_batching, false);
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn test_low_latency_edge_cases() {
         BatchStrategy::LowLatency {
             eager_processing, ..
         } => {
-            assert!(!(eager_processing));
+            assert_eq!(eager_processing, false);
         }
         _ => panic!("Expected LowLatency strategy"),
     }
@@ -314,7 +314,7 @@ fn test_batch_config_edge_cases() {
         enable_batching: false,
     };
 
-    assert!(!(disabled_config.enable_batching));
+    assert_eq!(disabled_config.enable_batching, false);
 
     // Very large batch configuration
     let large_config = BatchConfig {
@@ -404,7 +404,7 @@ fn test_serialization_deserialization() {
         } => {
             assert_eq!(max_batch_size, 3);
             assert_eq!(max_wait_time, Duration::from_millis(5));
-            assert!(eager_processing);
+            assert_eq!(eager_processing, true);
         }
         _ => panic!("Deserialization failed for LowLatency"),
     }
@@ -442,7 +442,7 @@ fn test_batch_config_serialization() {
     let deserialized: BatchConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.max_batch_size, 2000);
     assert_eq!(deserialized.batch_timeout, Duration::from_millis(1500));
-    assert!(deserialized.enable_batching);
+    assert_eq!(deserialized.enable_batching, true);
 
     match deserialized.strategy {
         BatchStrategy::AdaptiveSize {

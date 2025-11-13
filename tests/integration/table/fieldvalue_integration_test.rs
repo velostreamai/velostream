@@ -584,7 +584,7 @@ fn test_sql_operations_with_fieldvalue_data() {
         assert_eq!(*balance, 125000.50);
     }
     if let Some(FieldValue::Boolean(active)) = portfolio_record.get("active") {
-        assert!(*active);
+        assert_eq!(*active, true);
     }
 
     // For testing the old logic, let's get it from the original records

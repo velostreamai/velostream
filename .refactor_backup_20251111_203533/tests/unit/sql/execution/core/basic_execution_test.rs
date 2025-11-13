@@ -50,6 +50,7 @@ async fn test_engine_creation() {
     let _engine = StreamExecutionEngine::new(tx);
 
     // Basic creation test - engine should start without errors
+    assert!(true); // Engine created successfully
 }
 
 #[tokio::test]

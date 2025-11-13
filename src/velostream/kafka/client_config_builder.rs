@@ -98,6 +98,7 @@ mod tests {
         // The config should have all the properties set
         // (We can't easily test the internal state of ClientConfig,
         // but this ensures the builder pattern works)
+        assert!(true); // Placeholder assertion
     }
 
     #[test]
@@ -106,5 +107,7 @@ mod tests {
             .bootstrap_servers("localhost:9092")
             .client_id(None) // Should not set client.id
             .build();
+
+        assert!(true); // Placeholder assertion
     }
 }

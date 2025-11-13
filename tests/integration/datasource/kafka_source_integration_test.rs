@@ -38,7 +38,7 @@ async fn test_kafka_source_from_properties_with_config_file() {
 
     // Check that config was loaded
     assert!(
-        source.config().is_empty(),
+        source.config().len() > 0,
         "Config should have been loaded from file"
     );
 }
@@ -74,7 +74,7 @@ async fn test_kafka_source_with_prefixed_config_file() {
 
     // Check that config was loaded
     assert!(
-        source.config().is_empty(),
+        source.config().len() > 0,
         "Config should have been loaded from prefixed property"
     );
     assert_eq!(source.topic(), "market_data_ts");

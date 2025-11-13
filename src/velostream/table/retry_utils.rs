@@ -398,10 +398,10 @@ pub fn is_topic_missing_error(
 /// ```rust
 /// use velostream::velostream::table::retry_utils::{should_retry_for_category, ErrorCategory};
 ///
-/// assert!(should_retry_for_category(&ErrorCategory::TopicMissing));
-/// assert!(should_retry_for_category(&ErrorCategory::NetworkIssue));
-/// assert!(!(should_retry_for_category(&ErrorCategory::AuthenticationIssue)));
-/// assert!(!(should_retry_for_category(&ErrorCategory::ConfigurationIssue)));
+/// assert_eq!(should_retry_for_category(&ErrorCategory::TopicMissing), true);
+/// assert_eq!(should_retry_for_category(&ErrorCategory::NetworkIssue), true);
+/// assert_eq!(should_retry_for_category(&ErrorCategory::AuthenticationIssue), false);
+/// assert_eq!(should_retry_for_category(&ErrorCategory::ConfigurationIssue), false);
 /// ```
 pub fn should_retry_for_category(category: &ErrorCategory) -> bool {
     match category {
