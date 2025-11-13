@@ -124,6 +124,12 @@ impl JobProcessor for AdaptiveJobProcessor {
         let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         loop {
+            // Check if processor stop signal was raised
+            if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                info!("Stop signal received, exiting read loop");
+                break;
+            }
+
             // Check if data source has more records
             let has_more = reader.has_more().await.unwrap_or(false);
 
@@ -260,6 +266,12 @@ impl JobProcessor for AdaptiveJobProcessor {
             let mut total_routed = 0u64;
 
             loop {
+                // Check if processor stop signal was raised
+                if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    info!("Stop signal received, exiting read loop for reader {}", reader_name);
+                    break;
+                }
+
                 // Check if data source has more records
                 let has_more = reader.has_more().await.unwrap_or(false);
 

@@ -134,6 +134,8 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
+    // Wait briefly for async tasks to complete before stopping
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
@@ -170,6 +172,8 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
+    // Wait briefly for async tasks to complete before stopping
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
@@ -206,6 +210,8 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
             shutdown_rx,
         )
         .await;
+    // Wait briefly for async tasks to complete before stopping
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
