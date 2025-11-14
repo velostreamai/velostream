@@ -15,7 +15,10 @@ use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory,
 };
-use velostream::velostream::sql::execution::{StreamExecutionEngine, types::{FieldValue, StreamRecord}};
+use velostream::velostream::sql::execution::{
+    StreamExecutionEngine,
+    types::{FieldValue, StreamRecord},
+};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 use async_trait::async_trait;
@@ -39,9 +42,14 @@ impl SimpleMockDataSource {
 
 #[async_trait]
 impl DataReader for SimpleMockDataSource {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         if self.current_index >= self.records.len() {
-            println!("[MockDataSource] EOF reached at index {}", self.current_index);
+            println!(
+                "[MockDataSource] EOF reached at index {}",
+                self.current_index
+            );
             return Ok(vec![]);
         }
 
@@ -49,7 +57,11 @@ impl DataReader for SimpleMockDataSource {
         let batch: Vec<StreamRecord> = self.records[self.current_index..end].to_vec();
         self.current_index = end;
 
-        println!("[MockDataSource] Read batch of {} records (total so far: {})", batch.len(), self.current_index);
+        println!(
+            "[MockDataSource] Read batch of {} records (total so far: {})",
+            batch.len(),
+            self.current_index
+        );
         Ok(batch)
     }
 
@@ -67,7 +79,12 @@ impl DataReader for SimpleMockDataSource {
 
     async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let has_more = self.current_index < self.records.len();
-        println!("[MockDataSource] has_more() = {} (index: {}, len: {})", has_more, self.current_index, self.records.len());
+        println!(
+            "[MockDataSource] has_more() = {} (index: {}, len: {})",
+            has_more,
+            self.current_index,
+            self.records.len()
+        );
         Ok(has_more)
     }
 }
@@ -85,18 +102,32 @@ impl SimpleMockDataWriter {
 
 #[async_trait]
 impl DataWriter for SimpleMockDataWriter {
-    async fn write(&mut self, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write(
+        &mut self,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written += 1;
         Ok(())
     }
 
-    async fn write_batch(&mut self, records: Vec<Arc<StreamRecord>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write_batch(
+        &mut self,
+        records: Vec<Arc<StreamRecord>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written += records.len();
-        println!("[MockDataWriter] write_batch: {} records (total: {})", records.len(), self.records_written);
+        println!(
+            "[MockDataWriter] write_batch: {} records (total: {})",
+            records.len(),
+            self.records_written
+        );
         Ok(())
     }
 
-    async fn update(&mut self, _key: &str, _record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn update(
+        &mut self,
+        _key: &str,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
@@ -147,21 +178,27 @@ async fn test_simple_processor_completes() {
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
-    let query = parser.parse(&create_test_query()).expect("Failed to parse query");
+    let query = parser
+        .parse(&create_test_query())
+        .expect("Failed to parse query");
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     println!("Starting process_job...");
     let start = std::time::Instant::now();
 
     // Test with 30-second timeout
-    let result = timeout(Duration::from_secs(30), processor.process_job(
-        Box::new(data_source),
-        Some(Box::new(data_writer)),
-        engine,
-        query,
-        "simple_test".to_string(),
-        shutdown_rx,
-    )).await;
+    let result = timeout(
+        Duration::from_secs(30),
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer)),
+            engine,
+            query,
+            "simple_test".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
 
     let elapsed = start.elapsed();
     println!("process_job completed in {:?}", elapsed);
@@ -199,20 +236,26 @@ async fn test_transactional_processor_completes() {
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
-    let query = parser.parse(&create_test_query()).expect("Failed to parse query");
+    let query = parser
+        .parse(&create_test_query())
+        .expect("Failed to parse query");
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     println!("Starting process_job...");
     let start = std::time::Instant::now();
 
-    let result = timeout(Duration::from_secs(30), processor.process_job(
-        Box::new(data_source),
-        Some(Box::new(data_writer)),
-        engine,
-        query,
-        "transactional_test".to_string(),
-        shutdown_rx,
-    )).await;
+    let result = timeout(
+        Duration::from_secs(30),
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer)),
+            engine,
+            query,
+            "transactional_test".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
 
     let elapsed = start.elapsed();
     println!("process_job completed in {:?}", elapsed);
@@ -253,20 +296,26 @@ async fn test_adaptive_processor_completes() {
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
-    let query = parser.parse(&create_test_query()).expect("Failed to parse query");
+    let query = parser
+        .parse(&create_test_query())
+        .expect("Failed to parse query");
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     println!("Starting process_job...");
     let start = std::time::Instant::now();
 
-    let result = timeout(Duration::from_secs(30), processor.process_job(
-        Box::new(data_source),
-        Some(Box::new(data_writer)),
-        engine,
-        query,
-        "adaptive_test".to_string(),
-        shutdown_rx,
-    )).await;
+    let result = timeout(
+        Duration::from_secs(30),
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer)),
+            engine,
+            query,
+            "adaptive_test".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
 
     let elapsed = start.elapsed();
     println!("process_job completed in {:?}", elapsed);
@@ -278,7 +327,11 @@ async fn test_adaptive_processor_completes() {
             println!("  Batches processed: {}", stats.batches_processed);
             // The critical fix is that process_job completes promptly (< 1 second)
             // Previously it would hang for 30+ seconds
-            assert!(elapsed.as_secs() < 2, "process_job should complete quickly (< 2 seconds), took {:?}", elapsed);
+            assert!(
+                elapsed.as_secs() < 2,
+                "process_job should complete quickly (< 2 seconds), took {:?}",
+                elapsed
+            );
         }
         Ok(Err(e)) => {
             panic!("❌ FAILED: process_job returned error: {:?}", e);

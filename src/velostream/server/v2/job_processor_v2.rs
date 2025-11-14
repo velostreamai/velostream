@@ -268,7 +268,10 @@ impl JobProcessor for AdaptiveJobProcessor {
             loop {
                 // Check if processor stop signal was raised
                 if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    info!("Stop signal received, exiting read loop for reader {}", reader_name);
+                    info!(
+                        "Stop signal received, exiting read loop for reader {}",
+                        reader_name
+                    );
                     break;
                 }
 
@@ -277,7 +280,10 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                 // If no more data available, break
                 if !has_more {
-                    info!("Reader {} reports no more data available, exiting read loop", reader_name);
+                    info!(
+                        "Reader {} reports no more data available, exiting read loop",
+                        reader_name
+                    );
                     break;
                 }
 
