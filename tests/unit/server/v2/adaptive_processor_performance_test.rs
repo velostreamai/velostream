@@ -200,3 +200,92 @@ async fn adaptive_processor_busy_spin_performance() {
     println!("  • Processor exits immediately when stop() is called");
     println!("  • Expected throughput: 100K-300K rec/sec (SQL engine + routing overhead)");
 }
+
+#[tokio::test]
+#[ignore] // Run with: cargo test --test mod adaptive_processor_steady_state -- --nocapture --ignored
+async fn adaptive_processor_steady_state_throughput() {
+    println!("\n╔════════════════════════════════════════════════════════════╗");
+    println!("║   Steady-State Throughput Test (Long Running)              ║");
+    println!("║   Measures throughput after warm-up and stabilization      ║");
+    println!("╚════════════════════════════════════════════════════════════╝\n");
+
+    let processor = Arc::new(JobProcessorFactory::create(JobProcessorConfig::Adaptive {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    }));
+
+    // Test with larger dataset to measure steady-state
+    let record_count = 100_000;
+    let batch_size = 1000;
+
+    println!(
+        "Testing with {} records in batches of {}\n",
+        record_count, batch_size
+    );
+
+    let data_source = SimpleDataSource::new(record_count, batch_size);
+    let data_writer = SimpleDataWriter;
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
+
+    let mut parser = StreamingSqlParser::new();
+    let query = parser
+        .parse("SELECT id, value FROM test WHERE value > 0")
+        .expect("Failed to parse query");
+
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let processor_clone = Arc::clone(&processor);
+
+    let start = Instant::now();
+
+    let job_handle = tokio::spawn(async move {
+        processor_clone
+            .process_job(
+                Box::new(data_source),
+                Some(Box::new(data_writer)),
+                engine,
+                query,
+                "steady_state_test".to_string(),
+                shutdown_rx,
+            )
+            .await
+    });
+
+    // Let it process for longer to measure steady-state
+    // All 100K records should process in < 500ms if we're at 200K+ rec/sec
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    processor.stop().await.expect("Failed to stop processor");
+
+    let result = job_handle.await;
+    let elapsed = start.elapsed();
+
+    match result {
+        Ok(Ok(stats)) => {
+            let throughput = (record_count as f64 / elapsed.as_secs_f64()) as u64;
+            println!("Results:");
+            println!("  Records: {}", record_count);
+            println!("  Time: {}ms", elapsed.as_millis());
+            println!("  Throughput: {} rec/sec", throughput);
+            println!(
+                "  Per-record latency: {:.2}µs",
+                (elapsed.as_micros() as f64) / (record_count as f64)
+            );
+
+            if throughput > 200_000 {
+                println!(
+                    "\n✅ EXCELLENT: Throughput > 200K rec/sec (lock-free architecture working)"
+                );
+            } else if throughput > 100_000 {
+                println!(
+                    "\n⚠️  GOOD: Throughput 100K-200K rec/sec (potential optimization needed)"
+                );
+            } else {
+                println!("\n❌ NEEDS INVESTIGATION: Throughput < 100K rec/sec");
+            }
+        }
+        Ok(Err(e)) => eprintln!("Error: {:?}", e),
+        Err(e) => eprintln!("Task error: {:?}", e),
+    }
+}
