@@ -35,15 +35,15 @@ Pick compilation mode AND which scenario(s) to run:
 
 | Script | Compile | Runtime | When to Use |
 |--------|---------|---------|-------------|
-| `run_baseline.sh` | 60s | 8-12s (all) | **Recommended for final benchmarks** |
-| `run_baseline_quick.sh` | 15s* | 30-40s (all) | Quick iterations with cache hits |
-| `run_baseline_flexible.sh release 1` | 60s | 2-3s (one) | **Single scenario testing, fast** |
-| `run_baseline_flexible.sh debug 1` | 15s | 6-8s (one) | Single scenario, quick compile |
-| `run_baseline_options.sh release` | 60s | 8-12s (all) | Same as `run_baseline.sh` |
-| `run_baseline_options.sh debug` | 15s | 30-40s (all) | Quick dev feedback |
-| `run_baseline_options.sh profile` | 60s | 8-12s (all) | Flamegraph profiling |
+| `run_baseline.sh` | 60s | 8–12s (all) | **Recommended for final benchmarks** |
+| `run_baseline_quick.sh` | 15s* | 30–40s (all) | Quick iterations with cache hits |
+| `run_baseline_flexible.sh release 1` | 60s | 2–3s (one) | **Single scenario testing, fast** |
+| `run_baseline_flexible.sh debug 1` | 15s | 6–8s (one) | Single scenario, quick compile |
+| `run_baseline_options.sh release` | 60s | 8–12s (all) | Same as `run_baseline.sh` |
+| `run_baseline_options.sh debug` | 15s | 30–40s (all) | Quick dev feedback |
+| `run_baseline_options.sh profile` | 60s | 8–12s (all) | Flamegraph profiling |
 
-\* ~60s if code changed, ~5-10s if unchanged (cache hit)
+\* ~60s if code changed, ~5–10s if unchanged (cache hit)
 (all) = all 5 scenarios × 4 implementations = 20 benchmarks
 (one) = 1 scenario × 4 implementations = 4 benchmarks
 

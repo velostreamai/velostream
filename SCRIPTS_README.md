@@ -168,20 +168,20 @@ Each scenario tests 4 implementations:
 ### Complete Benchmark (All 5 Scenarios × 4 Implementations = 20 tests)
 
 | Mode | Compile | Test | Total | Best For |
-|------|---------|------|-------|----------|
-| Release | 60s | 8-12s | ~70-72s | **Final results** |
-| Debug | 15s | 30-40s | ~45-55s | Quick feedback |
-| Quick (cold) | 15s | 30-40s | ~45-55s | First iteration |
-| Quick (warm) | 5-10s | 30-40s | ~35-50s | Subsequent runs |
-| Profile | 60s | 8-12s | ~70-72s | Profiling analysis |
+|------|---------|------|----------|----------|
+| Release | 60s | 8–12s | ~70–72s | **Final results** |
+| Debug | 15s | 30–40s | ~45–55s | Quick feedback |
+| Quick (cold) | 15s | 30–40s | ~45–55s | First iteration |
+| Quick (warm) | 5–10s | 30–40s | ~35–50s | Subsequent runs |
+| Profile | 60s | 8–12s | ~70–72s | Profiling analysis |
 
 ### Single Scenario Test (1 Scenario × 4 Implementations = 4 tests)
 
 | Mode | Compile | Test | Total | Best For |
-|------|---------|------|-------|----------|
-| Release | 60s | 2-3s | ~62-63s | Single scenario verification |
-| Debug | 15s | 6-8s | ~21-23s | **Fastest feedback** |
-| Profile | 60s | 2-3s | ~62-63s | Single scenario profiling |
+|------|---------|------|----------|----------|
+| Release | 60s | 2–3s | ~62–63s | Single scenario verification |
+| Debug | 15s | 6–8s | ~21–23s | **Fastest feedback** |
+| Profile | 60s | 2–3s | ~62–63s | Single scenario profiling |
 
 ---
 
