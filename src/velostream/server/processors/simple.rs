@@ -474,7 +474,7 @@ impl SimpleJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
-        let mut all_output_records: Vec<std::sync::Arc<StreamRecord>> = Vec::new();
+        let mut all_output_records: Vec<Arc<StreamRecord>> = Vec::new();
 
         // Start batch timing
         let batch_start = Instant::now();

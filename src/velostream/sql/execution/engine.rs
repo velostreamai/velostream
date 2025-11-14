@@ -492,19 +492,7 @@ impl StreamExecutionEngine {
         // Lazy initialize QueryExecution if not present
         // This allows tests to call apply_query directly without explicit init_query_execution
         if !self.active_queries.contains_key(&query_id) {
-            let mut new_context = ProcessorContext::new(&query_id);
-
-            // Apply any context customization (used by tests to load reference tables, etc.)
-            if let Some(customizer) = &self.context_customizer {
-                customizer(&mut new_context);
-            }
-
-            let execution = QueryExecution {
-                query: query.clone(),
-                state: ExecutionState::Running,
-                window_state: None,
-                processor_context: Arc::new(std::sync::Mutex::new(new_context)),
-            };
+            let execution = self.create_query_execution(&query_id, query.clone(), None);
             self.active_queries.insert(query_id.clone(), execution);
         }
 
@@ -615,39 +603,7 @@ impl StreamExecutionEngine {
         query: &StreamingQuery,
         stream_record: &StreamRecord,
     ) -> Result<(), SqlError> {
-        // Phase 6.3b: Only clone for windowed queries that need timestamp adjustment
-        // Non-windowed queries pass reference directly (no clone penalty)
-        let record_to_process = if let StreamingQuery::Select {
-            window: Some(_), ..
-        } = query
-        {
-            // For windowed queries, check if we need to adjust timestamp
-            if let Some(ts_field) = stream_record.fields.get("_timestamp") {
-                // Only clone if we actually need to modify
-                let mut modified_record = stream_record.clone();
-                match ts_field {
-                    FieldValue::Integer(ts) => {
-                        // _timestamp field must be in milliseconds since epoch
-                        modified_record.timestamp = *ts;
-                    }
-                    FieldValue::Float(ts) => {
-                        // _timestamp field must be in milliseconds since epoch
-                        modified_record.timestamp = *ts as i64;
-                    }
-                    _ => {
-                        // Keep existing timestamp if _timestamp field isn't a valid time
-                    }
-                }
-                modified_record
-            } else {
-                // No _timestamp field, use original record
-                stream_record.clone()
-            }
-        } else {
-            // Non-windowed queries don't need modification - convert reference to owned
-            stream_record.clone()
-        };
-
+        let record_to_process = self.prepare_record_for_execution(query, stream_record);
         self.execute_internal(query, record_to_process).await
     }
 
@@ -692,40 +648,7 @@ impl StreamExecutionEngine {
         query: &StreamingQuery,
         stream_record: &StreamRecord,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        // Phase 6.3b: Only clone for windowed queries that need timestamp adjustment
-        // Non-windowed queries pass reference directly (no clone penalty)
-        let record_to_process = if let StreamingQuery::Select {
-            window: Some(_), ..
-        } = query
-        {
-            // For windowed queries, check if we need to adjust timestamp
-            if let Some(ts_field) = stream_record.fields.get("_timestamp") {
-                // Only clone if we actually need to modify
-                let mut modified_record = stream_record.clone();
-                match ts_field {
-                    FieldValue::Integer(ts) => {
-                        // _timestamp field must be in milliseconds since epoch
-                        modified_record.timestamp = *ts;
-                    }
-                    FieldValue::Float(ts) => {
-                        // _timestamp field must be in milliseconds since epoch
-                        modified_record.timestamp = *ts as i64;
-                    }
-                    _ => {
-                        // Keep existing timestamp if _timestamp field isn't a valid time
-                    }
-                }
-                modified_record
-            } else {
-                // No _timestamp field, use original record
-                stream_record.clone()
-            }
-        } else {
-            // Non-windowed queries don't need modification - convert reference to owned
-            stream_record.clone()
-        };
-
-        // Execute synchronously (no async, no state machine overhead)
+        let record_to_process = self.prepare_record_for_execution(query, stream_record);
         self.execute_internal_sync(query, record_to_process)
     }
 
@@ -756,15 +679,7 @@ impl StreamExecutionEngine {
                     last_emit: 0,
                 });
 
-                let execution = QueryExecution {
-                    query: query.clone(),
-                    state: ExecutionState::Running,
-                    window_state,
-                    processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(
-                        &query_id,
-                    ))),
-                };
-
+                let execution = self.create_query_execution(&query_id, query.clone(), window_state);
                 self.active_queries.insert(query_id.clone(), execution);
             }
 
@@ -813,15 +728,7 @@ impl StreamExecutionEngine {
                     last_emit: 0,
                 });
 
-                let execution = QueryExecution {
-                    query: query.clone(),
-                    state: ExecutionState::Running,
-                    window_state,
-                    processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(
-                        &query_id,
-                    ))),
-                };
-
+                let execution = self.create_query_execution(&query_id, query.clone(), window_state);
                 self.active_queries.insert(query_id.clone(), execution);
             }
 
@@ -839,24 +746,13 @@ impl StreamExecutionEngine {
 
                 // FR-079 Phase 6: Emit pending results from queue
                 // After processing the current record, check if there are additional results queued
-                // Only dequeue for queries WITH GROUP BY (non-GROUP BY queries produce single result)
-                let mut pending_results = Vec::new();
-                if group_by.is_some() {
-                    while context.has_pending_results(&query_id) {
-                        if let Some(pending_result) = context.dequeue_result(&query_id) {
-                            pending_results.push(pending_result);
-                        } else {
-                            break;
-                        }
-                    }
-
-                    // Store pending results for later emission outside context block
-                    if !pending_results.is_empty() {
-                        log::debug!(
-                            "FR-079 Phase 6: Dequeued {} pending results for emission",
-                            pending_results.len()
-                        );
-                    }
+                let pending_results =
+                    Self::collect_pending_results(&mut context, &query_id, group_by.is_some());
+                if !pending_results.is_empty() {
+                    log::debug!(
+                        "FR-079 Phase 6: Dequeued {} pending results for emission",
+                        pending_results.len()
+                    );
                 }
 
                 // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
@@ -1179,13 +1075,7 @@ impl StreamExecutionEngine {
             _ => None,
         };
 
-        let execution = QueryExecution {
-            query,
-            state: ExecutionState::Running,
-            window_state,
-            processor_context: Arc::new(std::sync::Mutex::new(ProcessorContext::new(&query_id))),
-        };
-
+        let execution = self.create_query_execution(&query_id, query, window_state);
         self.active_queries.insert(query_id.clone(), execution);
         Ok(())
     }
@@ -1299,17 +1189,11 @@ impl StreamExecutionEngine {
 
                         // FR-081 Phase 6: Emit all pending GROUP BY results from queue
                         // When GROUP BY + WINDOW produces multiple groups, additional results are queued
-                        // Only dequeue for queries WITH GROUP BY (non-GROUP BY queries produce single result)
-                        let mut pending_results = Vec::new();
-                        if group_by.is_some() {
-                            while context.has_pending_results(&query_id) {
-                                if let Some(pending_result) = context.dequeue_result(&query_id) {
-                                    pending_results.push(pending_result);
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
+                        let pending_results = Self::collect_pending_results(
+                            &mut context,
+                            &query_id,
+                            group_by.is_some(),
+                        );
 
                         // ProcessorContext state is persistent (via Arc<Mutex>) - no explicit save needed
                         // Guard drops here automatically when block ends
@@ -1656,5 +1540,111 @@ impl StreamExecutionEngine {
             })?;
 
         Ok(())
+    }
+
+    // =============================================================================
+    // PHASE 1 REFACTORING: HELPER METHODS TO REDUCE DUPLICATION
+    // =============================================================================
+
+    /// Prepares a record for execution by adjusting timestamps for windowed queries.
+    ///
+    /// For windowed queries with a `_timestamp` field, extracts and converts it to i64.
+    /// For non-windowed queries or records without `_timestamp`, returns a clone.
+    ///
+    /// # Arguments
+    /// * `query` - The SQL query being executed
+    /// * `stream_record` - The incoming record with potential timestamp field
+    ///
+    /// # Returns
+    /// A StreamRecord with adjusted timestamp if needed
+    fn prepare_record_for_execution(
+        &self,
+        query: &StreamingQuery,
+        stream_record: &StreamRecord,
+    ) -> StreamRecord {
+        if let StreamingQuery::Select {
+            window: Some(_), ..
+        } = query
+        {
+            if let Some(ts_field) = stream_record.fields.get("_timestamp") {
+                let mut modified_record = stream_record.clone();
+                match ts_field {
+                    FieldValue::Integer(ts) => {
+                        modified_record.timestamp = *ts;
+                    }
+                    FieldValue::Float(ts) => {
+                        modified_record.timestamp = *ts as i64;
+                    }
+                    _ => {
+                        // Keep existing timestamp if _timestamp field isn't a valid time
+                    }
+                }
+                return modified_record;
+            }
+        }
+        stream_record.clone()
+    }
+
+    /// Collects all pending results from the processor context.
+    ///
+    /// For queries with GROUP BY, drains the pending results queue and collects them.
+    /// For non-GROUP BY queries, returns an empty vector.
+    ///
+    /// # Arguments
+    /// * `context` - The processor context to drain results from
+    /// * `query_id` - The query ID to retrieve results for
+    /// * `has_group_by` - Whether the query has a GROUP BY clause
+    ///
+    /// # Returns
+    /// Vector of all pending StreamRecords
+    fn collect_pending_results(
+        context: &mut ProcessorContext,
+        query_id: &str,
+        has_group_by: bool,
+    ) -> Vec<StreamRecord> {
+        let mut pending_results = Vec::new();
+        if has_group_by {
+            while context.has_pending_results(query_id) {
+                if let Some(pending_result) = context.dequeue_result(query_id) {
+                    pending_results.push(pending_result);
+                } else {
+                    break;
+                }
+            }
+        }
+        pending_results
+    }
+
+    /// Creates a new QueryExecution with optional window state.
+    ///
+    /// Initializes a QueryExecution with the given query and window state, applying
+    /// any configured context customization for testing.
+    ///
+    /// # Arguments
+    /// * `query_id` - Unique identifier for the query
+    /// * `query` - The parsed SQL query
+    /// * `window_state` - Optional window state if this is a windowed query
+    ///
+    /// # Returns
+    /// A new QueryExecution ready for processing
+    fn create_query_execution(
+        &self,
+        query_id: &str,
+        query: StreamingQuery,
+        window_state: Option<WindowState>,
+    ) -> QueryExecution {
+        let mut context = ProcessorContext::new(query_id);
+
+        // Apply any context customization (mainly for tests)
+        if let Some(customizer) = &self.context_customizer {
+            customizer(&mut context);
+        }
+
+        QueryExecution {
+            query,
+            state: ExecutionState::Running,
+            window_state,
+            processor_context: Arc::new(std::sync::Mutex::new(context)),
+        }
     }
 }
