@@ -671,8 +671,9 @@ impl StreamExecutionEngine {
             ..
         } = query
         {
-            // FR-082 STP FIX: Use consistent query_id matching init_query_execution
-            let query_id = format!("{:?}", query);
+            // OPTIMIZATION: Reuse generate_query_id instead of format!("{:?}", query)
+            // format! with Debug is expensive when called per-record (CRITICAL HOTPATH)
+            let query_id = self.generate_query_id(query);
             if !self.active_queries.contains_key(&query_id) {
                 let window_state = Some(WindowState {
                     window_spec: window_spec.clone(),
@@ -721,7 +722,8 @@ impl StreamExecutionEngine {
             // FR-082 STP FIX: Use consistent query_id matching init_query_execution
             // This ensures execute_internal finds the QueryExecution with persistent ProcessorContext
             // that was initialized by init_query_execution (or reuses existing one)
-            let query_id = format!("{:?}", query);
+            // OPTIMIZATION: Use generate_query_id instead of format!("{:?}", query) to avoid expensive Debug formatting
+            let query_id = self.generate_query_id(query);
             if !self.active_queries.contains_key(&query_id) {
                 let window_state = Some(WindowState {
                     window_spec: window_spec.clone(),
