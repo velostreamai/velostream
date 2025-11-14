@@ -6,11 +6,9 @@
 //! - Metrics are tracked correctly
 //! - Late records are handled per strategy
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono::{Duration as ChronoDuration, Utc};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
 use velostream::velostream::server::v2::{
     AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode,
 };
@@ -55,7 +53,7 @@ async fn test_partition_receiver_processes_records() {
         .await
         .expect("Failed to send record to partition");
 
-    // Give partition receiver time to process
+    // Give partition receiver time to processπ
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // VERIFY: Partition metrics should show the record was processed

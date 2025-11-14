@@ -533,8 +533,9 @@ impl StreamExecutionEngine {
         Ok(final_record)
     }
 
-    /// Generate a consistent query ID for processor context management
-    fn generate_query_id(&self, query: &StreamingQuery) -> String {
+    /// Generate a consistent query ID from a StreamingQuery
+    /// This ID is used internally to track query execution state and is required for partition receiver setup
+    pub fn generate_query_id(&self, query: &StreamingQuery) -> String {
         match query {
             StreamingQuery::Select { from, window, .. } => {
                 let base = format!(

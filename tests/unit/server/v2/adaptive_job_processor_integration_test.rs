@@ -178,7 +178,13 @@ async fn test_adaptive_processor_simple_select() {
     let reader = MockDataSource::new(test_records.clone(), 10);
     let writer = MockDataWriter::new();
 
+    // Create simple SELECT query
+    let query_str = "SELECT id, value FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
     // Create AdaptiveJobProcessor with 2 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
     let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(2),
         enable_core_affinity: false,
@@ -188,28 +194,26 @@ async fn test_adaptive_processor_simple_select() {
             num_partitions,
             enable_core_affinity,
         } => {
-            use velostream::velostream::server::v2::PartitionedJobConfig;
-            Arc::new(AdaptiveJobProcessor::new(PartitionedJobConfig {
-                num_partitions,
-                enable_core_affinity,
-                ..Default::default()
-            }))
+            Arc::new(
+                AdaptiveJobProcessor::new(PartitionedJobConfig {
+                    num_partitions,
+                    enable_core_affinity,
+                    ..Default::default()
+                })
+                // Use RoundRobinStrategy for simple SELECT (doesn't require GROUP BY columns)
+                .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+            )
         }
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create simple SELECT query
-    let query_str = "SELECT id, value FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
-    let query = parser.parse(query_str).expect("Failed to parse query");
-
-    // Create dummy engine (will be created internally by processor)
+    // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job
+    // Process job - coordinator will initialize partition engines from query
     let result = processor
         .process_job(
             Box::new(reader),
@@ -245,6 +249,306 @@ async fn test_adaptive_processor_simple_select() {
     );
 }
 
+/// Test that AdaptiveJobProcessor actually writes records to the sink
+#[tokio::test]
+async fn test_adaptive_processor_writes_records() {
+    // Create test data: 50 records
+    let test_records = {
+        let mut records = Vec::with_capacity(50);
+        for i in 0..50 {
+            let mut fields = HashMap::new();
+            fields.insert("id".to_string(), FieldValue::Integer(i as i64));
+            fields.insert("value".to_string(), FieldValue::Integer((i * 100) as i64));
+            records.push(StreamRecord::new(fields));
+        }
+        records
+    };
+
+    // Create mock reader and writer
+    let reader = MockDataSource::new(test_records.clone(), 10); // 10 batches of 5 records
+    let writer = MockDataWriter::new();
+
+    // Create simple SELECT query
+    let query_str = "SELECT id, value FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    // Create AdaptiveJobProcessor with 2 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
+    let config = JobProcessorConfig::Adaptive {
+        num_partitions: Some(2),
+        enable_core_affinity: false,
+    };
+    let processor = match config {
+        JobProcessorConfig::Adaptive {
+            num_partitions,
+            enable_core_affinity,
+        } => Arc::new(
+            AdaptiveJobProcessor::new(PartitionedJobConfig {
+                num_partitions,
+                enable_core_affinity,
+                ..Default::default()
+            })
+            .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+        ),
+        _ => panic!("Expected Adaptive config"),
+    };
+
+    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
+    ));
+
+    // Process job
+    let result = processor
+        .process_job(
+            Box::new(reader),
+            Some(Box::new(writer.clone())),
+            dummy_engine,
+            query,
+            "test_write_job".to_string(),
+            {
+                let (_tx, rx) = tokio::sync::mpsc::channel(1);
+                rx
+            },
+        )
+        .await;
+
+    // Verify processing completed
+    assert!(result.is_ok(), "process_job failed: {:?}", result.err());
+
+    let stats = result.unwrap();
+    println!(
+        "Records processed: {}, records failed: {}",
+        stats.records_processed, stats.records_failed
+    );
+
+    // Give async tasks time to finish writing
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Verify records were written to sink
+    let written_count = writer.get_count();
+    println!(
+        "Test write_records: {} records processed, {} records written",
+        stats.records_processed, written_count
+    );
+
+    // CRITICAL: Records should be written to output
+    assert!(
+        written_count > 0,
+        "No records were written to sink! processed: {}, written: {}",
+        stats.records_processed,
+        written_count
+    );
+
+    // For SELECT queries, output count should match processed count
+    assert_eq!(
+        written_count, 50,
+        "Expected 50 records written, got {}",
+        written_count
+    );
+}
+
+/// Test AdaptiveJobProcessor with the exact query from comprehensive baseline (Scenario 1)
+#[tokio::test]
+async fn test_adaptive_processor_comprehensive_scenario_1() {
+    // Use same query as comprehensive test Scenario 1
+    let query_str = r#"
+        SELECT order_id, customer_id, order_date, total_amount
+        FROM orders
+        WHERE total_amount > 100
+    "#;
+
+    // Create test data matching comprehensive test structure
+    let test_records = {
+        let mut records = Vec::with_capacity(50);
+        for i in 0..50 {
+            let mut fields = HashMap::new();
+            fields.insert("order_id".to_string(), FieldValue::Integer(i as i64));
+            fields.insert(
+                "customer_id".to_string(),
+                FieldValue::Integer((i / 5) as i64),
+            );
+            fields.insert(
+                "order_date".to_string(),
+                FieldValue::String("2024-01-01".to_string()),
+            );
+            fields.insert(
+                "total_amount".to_string(),
+                FieldValue::Float(100.0 + (i as f64)),
+            );
+            records.push(StreamRecord::new(fields));
+        }
+        records
+    };
+
+    let reader = MockDataSource::new(test_records.clone(), 10);
+    let writer = MockDataWriter::new();
+
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
+    let config = JobProcessorConfig::Adaptive {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    };
+    let processor = match config {
+        JobProcessorConfig::Adaptive {
+            num_partitions,
+            enable_core_affinity,
+        } => Arc::new(
+            AdaptiveJobProcessor::new(PartitionedJobConfig {
+                num_partitions,
+                enable_core_affinity,
+                ..Default::default()
+            })
+            .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+        ),
+        _ => panic!("Expected Adaptive config"),
+    };
+
+    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
+    ));
+
+    let result = processor
+        .process_job(
+            Box::new(reader),
+            Some(Box::new(writer.clone())),
+            dummy_engine,
+            query,
+            "test_scenario_1".to_string(),
+            {
+                let (_tx, rx) = tokio::sync::mpsc::channel(1);
+                rx
+            },
+        )
+        .await;
+
+    assert!(result.is_ok(), "process_job failed: {:?}", result.err());
+
+    let stats = result.unwrap();
+
+    // Give async tasks time to finish
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let written_count = writer.get_count();
+    println!(
+        "Scenario 1: {} records processed, {} records written",
+        stats.records_processed, written_count
+    );
+
+    // Should have written all 50 records
+    assert!(
+        written_count > 0,
+        "No records written for Scenario 1 query! Processed: {}, Written: {}",
+        stats.records_processed,
+        written_count
+    );
+}
+
+/// Test AdaptiveJobProcessor with large batch (like comprehensive test does)
+#[tokio::test]
+async fn test_adaptive_processor_large_single_batch() {
+    // Create 5000 records like comprehensive test
+    let test_records = {
+        let mut records = Vec::with_capacity(5000);
+        for i in 0..5000 {
+            let mut fields = HashMap::new();
+            fields.insert("order_id".to_string(), FieldValue::Integer(i as i64));
+            fields.insert(
+                "customer_id".to_string(),
+                FieldValue::Integer((i / 1000) as i64),
+            );
+            fields.insert(
+                "order_date".to_string(),
+                FieldValue::String("2024-01-15".to_string()),
+            );
+            fields.insert(
+                "total_amount".to_string(),
+                FieldValue::Float(150.0 + ((i % 100) as f64)),
+            );
+            records.push(StreamRecord::new(fields));
+        }
+        records
+    };
+
+    // Use records.len() as batch_size like comprehensive does - creates 1 batch of 5000 records
+    let reader = MockDataSource::new(test_records.clone(), test_records.len());
+    let writer = MockDataWriter::new();
+
+    let query_str = r#"
+        SELECT order_id, customer_id, order_date, total_amount
+        FROM orders
+        WHERE total_amount > 100
+    "#;
+
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
+    let config = JobProcessorConfig::Adaptive {
+        num_partitions: Some(1),
+        enable_core_affinity: false,
+    };
+    let processor = match config {
+        JobProcessorConfig::Adaptive {
+            num_partitions,
+            enable_core_affinity,
+        } => Arc::new(
+            AdaptiveJobProcessor::new(PartitionedJobConfig {
+                num_partitions,
+                enable_core_affinity,
+                ..Default::default()
+            })
+            .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+        ),
+        _ => panic!("Expected Adaptive config"),
+    };
+
+    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
+    ));
+
+    let result = processor
+        .process_job(
+            Box::new(reader),
+            Some(Box::new(writer.clone())),
+            dummy_engine,
+            query,
+            "test_large_batch".to_string(),
+            {
+                let (_tx, rx) = tokio::sync::mpsc::channel(1);
+                rx
+            },
+        )
+        .await;
+
+    assert!(result.is_ok(), "process_job failed: {:?}", result.err());
+
+    let stats = result.unwrap();
+
+    // Give async tasks time to finish
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let written_count = writer.get_count();
+    println!(
+        "Large batch test: {} records processed, {} records written",
+        stats.records_processed, written_count
+    );
+
+    // Should have written all 5000 records
+    assert!(
+        written_count > 0,
+        "No records written for large batch! Processed: {}, Written: {}",
+        stats.records_processed,
+        written_count
+    );
+}
+
 /// Test that AdaptiveJobProcessor handles windowed queries (GROUP BY)
 #[tokio::test]
 async fn test_adaptive_processor_group_by() {
@@ -275,7 +579,13 @@ async fn test_adaptive_processor_group_by() {
     let reader = MockDataSource::new(test_records.clone(), 20);
     let writer = MockDataWriter::new();
 
+    // Create GROUP BY query
+    let query_str = "SELECT trader_id, COUNT(*) as trade_count, SUM(quantity) as total_qty FROM input_stream GROUP BY trader_id";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
     // Create AdaptiveJobProcessor with 4 partitions
+    use velostream::velostream::server::v2::PartitionedJobConfig;
     let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
@@ -285,28 +595,26 @@ async fn test_adaptive_processor_group_by() {
             num_partitions,
             enable_core_affinity,
         } => {
-            use velostream::velostream::server::v2::PartitionedJobConfig;
-            Arc::new(AdaptiveJobProcessor::new(PartitionedJobConfig {
-                num_partitions,
-                enable_core_affinity,
-                ..Default::default()
-            }))
+            Arc::new(
+                AdaptiveJobProcessor::new(PartitionedJobConfig {
+                    num_partitions,
+                    enable_core_affinity,
+                    ..Default::default()
+                })
+                // Configure GROUP BY columns for proper routing
+                .with_group_by_columns(vec!["trader_id".to_string()]),
+            )
         }
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create GROUP BY query
-    let query_str = "SELECT trader_id, COUNT(*) as trade_count, SUM(quantity) as total_qty FROM input_stream GROUP BY trader_id";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
-    let query = parser.parse(query_str).expect("Failed to parse query");
-
-    // Create dummy engine
+    // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job
+    // Process job - coordinator will initialize partition engines from query
     let result = processor
         .process_job(
             Box::new(reader),
@@ -365,7 +673,13 @@ async fn test_adaptive_processor_partition_routing() {
     let reader = MockDataSource::new(test_records.clone(), 10);
     let writer = MockDataWriter::new();
 
+    // Create simple SELECT query
+    let query_str = "SELECT id, trader_id FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
     // Create AdaptiveJobProcessor with 4 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
     let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
@@ -375,28 +689,26 @@ async fn test_adaptive_processor_partition_routing() {
             num_partitions,
             enable_core_affinity,
         } => {
-            use velostream::velostream::server::v2::PartitionedJobConfig;
-            Arc::new(AdaptiveJobProcessor::new(PartitionedJobConfig {
-                num_partitions,
-                enable_core_affinity,
-                ..Default::default()
-            }))
+            Arc::new(
+                AdaptiveJobProcessor::new(PartitionedJobConfig {
+                    num_partitions,
+                    enable_core_affinity,
+                    ..Default::default()
+                })
+                // Use RoundRobinStrategy for simple SELECT (doesn't require GROUP BY columns)
+                .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+            )
         }
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create simple SELECT query
-    let query_str = "SELECT id, trader_id FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
-    let query = parser.parse(query_str).expect("Failed to parse query");
-
-    // Create dummy engine
+    // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job
+    // Process job - coordinator will initialize partition engines from query
     let result = processor
         .process_job(
             Box::new(reader),

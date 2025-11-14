@@ -83,8 +83,8 @@ impl Default for PartitionedJobConfig {
             auto_select_from_query: None, // Auto-selection disabled by default
             sticky_partition_id: None,   // No sticky partition override by default
             annotation_partition_count: None, // No annotation override by default
-            empty_batch_count: 1000,
-            wait_on_empty_batch_ms: 1000,
+            empty_batch_count: 3,
+            wait_on_empty_batch_ms: 100,
         }
     }
 }
@@ -245,10 +245,6 @@ pub struct AdaptiveJobProcessor {
     group_by_columns: Vec<String>,
     /// Number of available CPU slots
     num_cpu_slots: usize,
-    /// Phase 6.1: Streaming query to execute on each partition
-    query: Option<Arc<StreamingQuery>>,
-    /// Phase 6.1: Execution engine for SQL processing on each partition
-    execution_engine: Option<Arc<StreamExecutionEngine>>,
     /// Unified observability, metrics, and DLQ wrapper
     observability_wrapper: ObservabilityWrapper,
     /// Profiling helper for timing instrumentation
@@ -329,8 +325,6 @@ impl AdaptiveJobProcessor {
             strategy,
             group_by_columns: Vec::new(),
             num_cpu_slots,
-            query: None,
-            execution_engine: None,
             observability_wrapper: ObservabilityWrapper::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -352,24 +346,6 @@ impl AdaptiveJobProcessor {
     /// based on workload characteristics.
     pub fn with_strategy(mut self, strategy: Arc<dyn PartitioningStrategy>) -> Self {
         self.strategy = strategy;
-        self
-    }
-
-    /// Set execution engine for SQL processing (Phase 6.1)
-    ///
-    /// Configures the coordinator to use this engine for executing queries on each partition.
-    /// Must be called before initialize_partitions() to be effective.
-    pub fn with_execution_engine(mut self, engine: Arc<StreamExecutionEngine>) -> Self {
-        self.execution_engine = Some(engine);
-        self
-    }
-
-    /// Set query to execute on each partition (Phase 6.1)
-    ///
-    /// Configures the coordinator to execute this query on records in each partition.
-    /// Must be called before initialize_partitions() to be effective.
-    pub fn with_query(mut self, query: Arc<StreamingQuery>) -> Self {
-        self.query = Some(query);
         self
     }
 
@@ -415,7 +391,10 @@ impl AdaptiveJobProcessor {
     ///
     /// Returns partition managers and input channel senders
     ///
-    /// ## Phase 3 Implementation
+    /// ## DEPRECATED: Phase 3 Implementation
+    ///
+    /// This method is deprecated. Use `initialize_partitions_v6_6()` instead, which accepts
+    /// the query as a parameter instead of storing it on the coordinator.
     ///
     /// Made public for testing purposes
     pub fn initialize_partitions(
@@ -433,8 +412,12 @@ impl AdaptiveJobProcessor {
 
             // Phase 6.3a FIX: Create per-partition execution engine WITHOUT Arc<RwLock>
             // (CRITICAL: Removes RwLock wrapper - uses direct ownership in Mutex)
-            let has_sql_execution = self.query.is_some();
-            let partition_engine_opt = if let Some(query) = &self.query {
+            // DEPRECATED: This method no longer has access to query via self.query
+            // Use initialize_partitions_v6_6() which accepts query as parameter
+            let has_sql_execution = false;
+            let partition_engine_opt: Option<(StreamExecutionEngine, Arc<StreamingQuery>)> = None;
+            let _ = partition_engine_opt; // Suppress unused warnings
+            if let Some(query) = &None::<Arc<StreamingQuery>> {
                 // Create a NEW engine per partition instead of sharing one across all partitions
                 // This eliminates the exclusive write lock contention that was serializing all 8 partitions
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
@@ -1313,6 +1296,7 @@ impl AdaptiveJobProcessor {
     /// - Vec of PartitionMetrics (for monitoring)
     pub fn initialize_partitions_v6_6(
         &self,
+        query: Arc<StreamingQuery>,
         writer: Option<Arc<tokio::sync::Mutex<Box<dyn DataWriter>>>>,
     ) -> (
         Vec<mpsc::Sender<Vec<StreamRecord>>>,
@@ -1326,63 +1310,57 @@ impl AdaptiveJobProcessor {
             self.num_partitions
         );
 
-        // If we have an engine and query, use the shared QueryExecution from the coordinator
-        if let (Some(engine_arc), Some(query_arc)) = (&self.execution_engine, &self.query) {
-            // Spawn partition receiver tasks using the shared QueryExecution and ProcessorContext
-            for partition_id in 0..self.num_partitions {
-                let metrics = Arc::new(PartitionMetrics::new(partition_id));
-                metrics_list.push(Arc::clone(&metrics));
+        // Initialize partitions (each partition creates its own engine)
+        for partition_id in 0..self.num_partitions {
+            let metrics = Arc::new(PartitionMetrics::new(partition_id));
+            metrics_list.push(Arc::clone(&metrics));
 
-                // Create batch channel (MPSC for feeding batches to receiver)
-                let (batch_tx, batch_rx) = mpsc::channel(self.config.partition_buffer_size);
-                batch_senders.push(batch_tx);
+            // Create batch channel (MPSC for feeding batches to receiver)
+            let (batch_tx, batch_rx) = mpsc::channel(self.config.partition_buffer_size);
+            batch_senders.push(batch_tx);
 
-                let query = Arc::clone(query_arc);
-                let engine = Arc::clone(engine_arc);
-                let writer_clone = writer.clone();
+            let query = Arc::clone(&query);
+            let writer_clone = writer.clone();
 
-                // Spawn partition receiver task (Phase 6.6 - synchronous processing)
-                tokio::spawn(async move {
-                    // Create owned execution engine for this partition
-                    let (output_tx, _output_rx) = mpsc::unbounded_channel();
-                    let mut local_engine = StreamExecutionEngine::new(output_tx);
-                    local_engine.init_query_execution((*query).clone());
+            // Spawn partition receiver task (Phase 6.6 - synchronous processing)
+            tokio::spawn(async move {
+                // Create owned execution engine for this partition
+                let (output_tx, _output_rx) = mpsc::unbounded_channel();
+                let mut local_engine = StreamExecutionEngine::new(output_tx);
+                local_engine.init_query_execution((*query).clone());
 
-                    // Get the QueryExecution from the local engine
-                    let query_id = format!("{:?}", &(*query));
-                    let query_execution = local_engine
-                        .get_query_execution(&query_id)
-                        .expect("QueryExecution must be initialized");
+                // Get the QueryExecution from the local engine using the proper query_id generation
+                let query_id = local_engine.generate_query_id(&query);
+                let query_execution = local_engine
+                    .get_query_execution(&query_id)
+                    .expect("QueryExecution must be initialized");
 
-                    // Phase 6.7: Direct ownership model - no Arc/Mutex wrapper
-                    // Each partition receiver owns its engine directly
-                    // ProcessorContext is owned by the engine's QueryExecution internally
+                // Phase 6.7: Direct ownership model - no Arc/Mutex wrapper
+                // Each partition receiver owns its engine directly
+                // ProcessorContext is owned by the engine's QueryExecution internally
 
-                    // Create PartitionReceiver with direct ownership and writer
-                    let mut receiver = PartitionReceiver::new(
-                        partition_id,
-                        local_engine,
-                        query,
-                        batch_rx,
-                        metrics,
-                        writer_clone,
+                // Create PartitionReceiver with direct ownership and writer
+                let mut receiver = PartitionReceiver::new(
+                    partition_id,
+                    local_engine,
+                    query,
+                    batch_rx,
+                    metrics,
+                    writer_clone,
+                );
+
+                // Run synchronous batch processing loop
+                debug!(
+                    "Phase 6.6: PartitionReceiver {} spawned, ready for batch processing",
+                    partition_id
+                );
+                if let Err(e) = receiver.run().await {
+                    warn!(
+                        "Phase 6.6: PartitionReceiver {} encountered error: {:?}",
+                        partition_id, e
                     );
-
-                    // Run synchronous batch processing loop
-                    debug!(
-                        "Phase 6.6: PartitionReceiver {} spawned, ready for batch processing",
-                        partition_id
-                    );
-                    if let Err(e) = receiver.run().await {
-                        warn!(
-                            "Phase 6.6: PartitionReceiver {} encountered error: {:?}",
-                            partition_id, e
-                        );
-                    }
-                });
-            }
-        } else {
-            warn!("Phase 6.6: No engine or query configured, skipping partition initialization");
+                }
+            });
         }
 
         debug!(

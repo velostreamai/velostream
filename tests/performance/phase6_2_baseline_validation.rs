@@ -77,12 +77,8 @@ async fn test_v2_baseline_group_by_with_sql_execution() {
         }
     };
 
-    // Phase 6.1: Wire up engine and query to coordinator
-    let coordinator = coordinator
-        .with_execution_engine(Arc::clone(&engine))
-        .with_query(Arc::clone(&query));
-
-    // Initialize partitions (now with SQL execution wired up)
+    // Initialize partitions (deprecated Phase 6.2 method - no longer stores state on coordinator)
+    // Note: Phase 6.6+ uses initialize_partitions_v6_6() which accepts query as parameter
     let (_managers, senders) = coordinator.initialize_partitions();
 
     println!(
@@ -191,10 +187,7 @@ async fn test_v2_baseline_scaling_100k_records() {
         }
     };
 
-    let coordinator = coordinator
-        .with_execution_engine(Arc::clone(&engine))
-        .with_query(Arc::clone(&query));
-
+    // Initialize partitions (deprecated Phase 6.2 method - no longer stores state on coordinator)
     let (_managers, senders) = coordinator.initialize_partitions();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -274,10 +267,7 @@ async fn test_v2_partition_isolation_multi_group() {
         }
     };
 
-    let coordinator = coordinator
-        .with_execution_engine(Arc::clone(&engine))
-        .with_query(Arc::clone(&query));
-
+    // Initialize partitions (deprecated Phase 6.2 method - no longer stores state on coordinator)
     let (managers, senders) = coordinator.initialize_partitions();
     tokio::time::sleep(Duration::from_millis(50)).await;
 

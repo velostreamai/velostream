@@ -16,12 +16,20 @@ use velostream::velostream::sql::ast::StreamingQuery;
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
+/// Shared state for MockDataSource to ensure clones see the same batch count
+#[derive(Clone)]
+struct SharedState {
+    batches_read: Arc<AtomicUsize>,
+    all_consumed: Arc<AtomicUsize>,
+}
+
 /// Mock data source for job server performance testing
+#[derive(Clone)]
 pub struct MockDataSource {
     batch: Vec<StreamRecord>,
     batch_template: Vec<StreamRecord>,
-    batches_read: usize,
     total_batches: usize,
+    state: SharedState,
 }
 
 impl MockDataSource {
@@ -32,9 +40,17 @@ impl MockDataSource {
         Self {
             batch: batch.clone(),
             batch_template: batch,
-            batches_read: 0,
             total_batches,
+            state: SharedState {
+                batches_read: Arc::new(AtomicUsize::new(0)),
+                all_consumed: Arc::new(AtomicUsize::new(0)),
+            },
         }
+    }
+
+    /// Returns true when all records have been consumed
+    pub fn all_consumed(&self) -> bool {
+        self.state.all_consumed.load(Ordering::SeqCst) != 0
     }
 }
 
@@ -43,12 +59,15 @@ impl DataReader for MockDataSource {
     async fn read(
         &mut self,
     ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        if self.batches_read >= self.total_batches {
+        let batches_read = self.state.batches_read.load(Ordering::SeqCst);
+        if batches_read >= self.total_batches {
+            // Mark that all records have been consumed
+            self.state.all_consumed.store(1, Ordering::SeqCst);
             return Ok(vec![]);
         }
 
         let batch = std::mem::take(&mut self.batch);
-        self.batches_read += 1;
+        self.state.batches_read.fetch_add(1, Ordering::SeqCst);
         self.batch = self.batch_template.clone();
 
         Ok(batch)
@@ -66,7 +85,8 @@ impl DataReader for MockDataSource {
     }
 
     async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self.batches_read < self.total_batches)
+        let batches_read = self.state.batches_read.load(Ordering::SeqCst);
+        Ok(batches_read < self.total_batches)
     }
 }
 

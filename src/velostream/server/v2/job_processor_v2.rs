@@ -100,25 +100,30 @@ impl JobProcessor for AdaptiveJobProcessor {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
 
-        // Step 1: Wrap query in Arc for coordinator
+        // Step 1: Wrap query in Arc for partition initialization
         let query_arc = Arc::new(query);
 
         // Step 2: Initialize partitions with Phase 6.6 synchronous receivers
         // Each partition owns its StreamExecutionEngine directly (no Arc/Mutex)
         // Enables 15-25% architectural overhead elimination
-        let job_coordinator =
-            AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
+        // Pass query directly to initialize_partitions_v6_6, which will distribute to each partition
 
         // Wrap writer in Arc<Mutex<>> for sharing across partitions
         let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-        let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6(shared_writer.clone());
+        let (batch_senders, _metrics) =
+            self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
             "Initialized {} Phase 6.6 partition receivers for job: {}",
             batch_senders.len(),
             job_name
         );
+
+        // Yield control to allow spawned partition receiver tasks to start
+        // This prevents deadlock where the main loop awaits on channel send
+        // while receivers haven't been scheduled yet
+        tokio::task::yield_now().await;
 
         // Step 3: Read batches and route to receivers
         let mut consecutive_empty = 0;
@@ -130,15 +135,6 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Check if processor stop signal was raised
             if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                 info!("Stop signal received, exiting read loop");
-                break;
-            }
-
-            // Check if data source has more records
-            let has_more = reader.has_more().await.unwrap_or(false);
-
-            // If no more data available AND we've seen consecutive empty reads, break
-            if !has_more {
-                info!("Reader reports no more data available, exiting read loop");
                 break;
             }
 
@@ -163,7 +159,7 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                     // Route batch to receivers (Phase 6.6 batch-based routing)
                     // Records are grouped by partition and sent as Vec<StreamRecord> batches
-                    match job_coordinator
+                    match self
                         .process_batch_for_receivers(batch, &batch_senders)
                         .await
                     {
@@ -252,14 +248,11 @@ impl JobProcessor for AdaptiveJobProcessor {
 
             let query_arc = Arc::new(query.clone());
 
-            // Initialize partitions with Phase 6.6 synchronous receivers
-            let job_coordinator =
-                AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
-
             // Wrap writer in Arc<Mutex<>> for sharing across partitions
             let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-            let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6(shared_writer.clone());
+            let (batch_senders, _metrics) =
+                self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
                 "Initialized {} Phase 6.6 partition receivers for source: {} (job: {})",
@@ -267,6 +260,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                 reader_name,
                 job_name
             );
+
+            // Yield control to allow spawned partition receiver tasks to start
+            tokio::task::yield_now().await;
 
             // Read batches and route to receivers
             let mut consecutive_empty = 0;
@@ -277,18 +273,6 @@ impl JobProcessor for AdaptiveJobProcessor {
                 if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
                     info!(
                         "Stop signal received, exiting read loop for reader {}",
-                        reader_name
-                    );
-                    break;
-                }
-
-                // Check if data source has more records
-                let has_more = reader.has_more().await.unwrap_or(false);
-
-                // If no more data available, break
-                if !has_more {
-                    info!(
-                        "Reader {} reports no more data available, exiting read loop",
                         reader_name
                     );
                     break;
@@ -314,7 +298,7 @@ impl JobProcessor for AdaptiveJobProcessor {
                         let batch_size = batch.len();
 
                         // Route batch to receivers (Phase 6.6 batch-based routing)
-                        match job_coordinator
+                        match self
                             .process_batch_for_receivers(batch, &batch_senders)
                             .await
                         {
