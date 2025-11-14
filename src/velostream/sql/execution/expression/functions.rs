@@ -169,7 +169,7 @@ impl BuiltinFunctions {
 
             "STDDEV" | "STDDEV_SAMP" => Self::stddev_function(args, record),
 
-            "VARIANCE" | "VAR_SAMP" => Self::evaluate_variance(&args, record),
+            "VARIANCE" | "VAR_SAMP" => Self::evaluate_variance(args, record),
 
             "VAR_POP" => Self::var_pop_function(args, record),
 
@@ -1137,7 +1137,7 @@ impl BuiltinFunctions {
 
         let mut struct_map = HashMap::new();
 
-        if args.len() % 2 == 0 {
+        if args.len().is_multiple_of(2) {
             // Even number of arguments - treat as name-value pairs
             for chunk in args.chunks(2) {
                 let name_val = ExpressionEvaluator::evaluate_expression_value(&chunk[0], record)?;
@@ -1172,7 +1172,7 @@ impl BuiltinFunctions {
         }
 
         // MAP constructor - alternating keys and values
-        if args.len() % 2 != 0 {
+        if !args.len().is_multiple_of(2) {
             return Err(SqlError::TypeError {
                 expected: "even number of arguments (key-value pairs)".to_string(),
                 actual: format!("{} arguments", args.len()),
@@ -2463,7 +2463,7 @@ impl BuiltinFunctions {
         let percentile_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         let percentile = match percentile_val {
             FieldValue::Float(p) => {
-                if p < 0.0 || p > 1.0 {
+                if !(0.0..=1.0).contains(&p) {
                     return Err(SqlError::ExecutionError {
                         message: "PERCENTILE_CONT percentile must be between 0 and 1".to_string(),
                         query: None,
@@ -2473,7 +2473,7 @@ impl BuiltinFunctions {
             }
             FieldValue::Integer(i) => {
                 let p = i as f64;
-                if p < 0.0 || p > 1.0 {
+                if !(0.0..=1.0).contains(&p) {
                     return Err(SqlError::ExecutionError {
                         message: "PERCENTILE_CONT percentile must be between 0 and 1".to_string(),
                         query: None,
@@ -2525,7 +2525,7 @@ impl BuiltinFunctions {
         let percentile_val = ExpressionEvaluator::evaluate_expression_value(&args[0], record)?;
         let percentile = match percentile_val {
             FieldValue::Float(p) => {
-                if p < 0.0 || p > 1.0 {
+                if !(0.0..=1.0).contains(&p) {
                     return Err(SqlError::ExecutionError {
                         message: "PERCENTILE_DISC percentile must be between 0 and 1".to_string(),
                         query: None,
@@ -2535,7 +2535,7 @@ impl BuiltinFunctions {
             }
             FieldValue::Integer(i) => {
                 let p = i as f64;
-                if p < 0.0 || p > 1.0 {
+                if !(0.0..=1.0).contains(&p) {
                     return Err(SqlError::ExecutionError {
                         message: "PERCENTILE_DISC percentile must be between 0 and 1".to_string(),
                         query: None,

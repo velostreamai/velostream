@@ -120,6 +120,7 @@ impl TableDataSource {
     }
 
     /// Execute SQL filter with WHERE clause
+    #[allow(clippy::type_complexity)]
     pub fn sql_filter(
         &self,
         where_clause: &str,

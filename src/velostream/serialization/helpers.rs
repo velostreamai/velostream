@@ -451,7 +451,8 @@ fn encode_big_endian_signed(value: i64) -> Vec<u8> {
     let bytes = value.to_be_bytes();
 
     // For Avro decimal, find the minimal representation that preserves two's complement
-    let significant_bytes = if value >= 0 {
+
+    if value >= 0 {
         // For positive numbers, remove leading zeros but ensure high bit is 0
         let start = bytes
             .iter()
@@ -480,9 +481,7 @@ fn encode_big_endian_signed(value: i64) -> Vec<u8> {
             &bytes[start..]
         };
         significant.to_vec()
-    };
-
-    significant_bytes
+    }
 }
 
 // Protobuf conversion helpers (feature-gated)

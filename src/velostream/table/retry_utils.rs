@@ -46,6 +46,7 @@ impl RetryDefaults {
 }
 
 // Pre-compiled error patterns for zero-allocation matching
+#[allow(clippy::type_complexity)]
 static ERROR_PATTERNS: &[(fn(&str) -> bool, ErrorCategory)] = &[
     (
         |s| {
@@ -834,20 +835,17 @@ pub fn find_matching_files(pattern: &str) -> Result<Vec<String>, String> {
         match std::fs::read_dir(parent_dir) {
             Ok(entries) => {
                 let mut matches = Vec::new();
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let file_name = entry.file_name();
-                        if let Some(name_str) = file_name.to_str() {
-                            // Simple wildcard matching - replace with proper glob matching
-                            if filename_pattern == "*"
-                                || (filename_pattern.ends_with("*")
-                                    && name_str.starts_with(
-                                        &filename_pattern[..filename_pattern.len() - 1],
-                                    ))
-                                || name_str.contains(&filename_pattern.replace("*", ""))
-                            {
-                                matches.push(entry.path().to_string_lossy().to_string());
-                            }
+                for entry in entries.flatten() {
+                    let file_name = entry.file_name();
+                    if let Some(name_str) = file_name.to_str() {
+                        // Simple wildcard matching - replace with proper glob matching
+                        if filename_pattern == "*"
+                            || (filename_pattern.ends_with("*")
+                                && name_str
+                                    .starts_with(&filename_pattern[..filename_pattern.len() - 1]))
+                            || name_str.contains(&filename_pattern.replace("*", ""))
+                        {
+                            matches.push(entry.path().to_string_lossy().to_string());
                         }
                     }
                 }

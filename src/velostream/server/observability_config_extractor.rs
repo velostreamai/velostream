@@ -208,12 +208,16 @@ mod tests {
 
     #[test]
     fn test_merge_configs_preserves_explicit_settings() {
-        let mut base_config = StreamingConfig::default();
-        base_config.enable_prometheus_metrics = true; // Explicitly set in WITH clause
+        let base_config = StreamingConfig {
+            enable_prometheus_metrics: true, // Explicitly set in WITH clause
+            ..StreamingConfig::default()
+        };
 
-        let mut annotation_config = StreamingConfig::default();
-        annotation_config.enable_prometheus_metrics = false; // Not set in annotations
-        annotation_config.enable_distributed_tracing = true; // Set in annotations
+        let annotation_config = StreamingConfig {
+            enable_prometheus_metrics: false, // Not set in annotations
+            enable_distributed_tracing: true, // Set in annotations
+            ..StreamingConfig::default()
+        };
 
         let merged = ObservabilityConfigExtractor::merge_configs(base_config, annotation_config);
 
@@ -227,9 +231,11 @@ mod tests {
     fn test_merge_configs_applies_annotations() {
         let base_config = StreamingConfig::default(); // No explicit settings
 
-        let mut annotation_config = StreamingConfig::default();
-        annotation_config.enable_prometheus_metrics = true;
-        annotation_config.enable_distributed_tracing = true;
+        let annotation_config = StreamingConfig {
+            enable_prometheus_metrics: true,
+            enable_distributed_tracing: true,
+            ..StreamingConfig::default()
+        };
 
         let merged = ObservabilityConfigExtractor::merge_configs(base_config, annotation_config);
 

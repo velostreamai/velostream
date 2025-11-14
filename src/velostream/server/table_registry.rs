@@ -102,6 +102,12 @@ pub struct TableRegistry {
     progress_monitor: Arc<ProgressMonitor>,
 }
 
+impl Default for TableRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TableRegistry {
     /// Create a new table registry with default configuration
     pub fn new() -> Self {

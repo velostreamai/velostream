@@ -478,12 +478,13 @@ impl WindowAdapter {
         for shared_record in &window_records {
             let record = shared_record.as_ref(); // &StreamRecord (no clone!)
 
-            // Evaluate GROUP BY key for this record
-            let mut group_key = Vec::new();
-            for expr in group_exprs {
-                let key_value = ExpressionEvaluator::evaluate_expression_value(expr, record)?;
-                group_key.push(format!("{:?}", key_value));
-            }
+            // Phase 4B: Generate optimized group key using GroupByStateManager
+            // Uses GroupKey with Arc<[FieldValue]> instead of Vec<String>
+            let group_key =
+                crate::velostream::sql::execution::aggregation::state::GroupByStateManager::generate_group_key(
+                    group_exprs,
+                    record,
+                )?;
 
             // Get or create accumulator for this group
             let accumulator = group_state.get_or_create_group(group_key);

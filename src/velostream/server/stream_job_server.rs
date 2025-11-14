@@ -8,14 +8,17 @@ use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{
     ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
 };
+use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, SimpleJobProcessor, TransactionalJobProcessor,
-    create_multi_sink_writers, create_multi_source_readers,
+    FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
+    SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
+    create_multi_source_readers,
 };
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
+use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
@@ -40,6 +43,8 @@ pub struct StreamJobServer {
     table_registry: TableRegistry,
     /// Observability manager for distributed tracing, metrics, and profiling
     observability: Option<SharedObservabilityManager>,
+    /// Job processor architecture configuration (V1 or V2)
+    processor_config: JobProcessorConfig,
 }
 
 pub struct RunningJob {
@@ -72,6 +77,9 @@ pub struct JobMetrics {
     pub last_record_time: Option<chrono::DateTime<chrono::Utc>>,
     pub errors: u64,
     pub memory_usage_mb: f64,
+    /// Partitioner strategy used for this job (e.g., "always_hash", "sticky_partition", "smart_repartition")
+    /// Helps understand performance characteristics
+    pub partitioner: Option<String>,
 }
 
 impl Default for JobMetrics {
@@ -82,7 +90,16 @@ impl Default for JobMetrics {
             last_record_time: None,
             errors: 0,
             memory_usage_mb: 0.0,
+            partitioner: None,
         }
+    }
+}
+
+impl JobMetrics {
+    /// Set the partitioner strategy for this job's metrics
+    pub fn with_partitioner(mut self, partitioner: String) -> Self {
+        self.partitioner = Some(partitioner);
+        self
     }
 }
 
@@ -97,33 +114,50 @@ pub struct JobSummary {
 }
 
 impl StreamJobServer {
-    pub fn new(_brokers: String, base_group_id: String, max_jobs: usize) -> Self {
+    /// Create server with explicit configuration
+    pub fn with_config(config: StreamJobServerConfig) -> Self {
         let table_registry_config = TableRegistryConfig {
-            max_tables: 100,
+            max_tables: config.table_cache_size,
             enable_ttl: false,
             ttl_duration_secs: None,
-            kafka_brokers: "localhost:9092".to_string(),
-            base_group_id: base_group_id.clone(),
+            kafka_brokers: config.kafka_brokers.clone(),
+            base_group_id: config.base_group_id.clone(),
         };
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id,
-            max_jobs,
+            base_group_id: config.base_group_id,
+            max_jobs: config.max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor: None,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: None,
+            processor_config: JobProcessorConfig::default(),
         }
     }
 
+    /// Create server with brokers and group ID (backward compatible)
+    pub fn new(brokers: String, base_group_id: String, max_jobs: usize) -> Self {
+        let config = StreamJobServerConfig::new(brokers, base_group_id).with_max_jobs(max_jobs);
+        Self::with_config(config)
+    }
+
+    /// Create server with monitoring enabled (backward compatible)
     pub async fn new_with_monitoring(
-        _brokers: String,
+        brokers: String,
         base_group_id: String,
         max_jobs: usize,
         enable_monitoring: bool,
     ) -> Self {
-        let performance_monitor = if enable_monitoring {
+        let config = StreamJobServerConfig::new(brokers, base_group_id)
+            .with_max_jobs(max_jobs)
+            .with_monitoring(enable_monitoring);
+        Self::with_config_and_monitoring(config).await
+    }
+
+    /// Create server with explicit configuration and monitoring support
+    pub async fn with_config_and_monitoring(config: StreamJobServerConfig) -> Self {
+        let performance_monitor = if config.enable_monitoring {
             let monitor = Arc::new(PerformanceMonitor::new());
             info!("Performance monitoring enabled for StreamJobServer");
             Some(monitor)
@@ -132,7 +166,7 @@ impl StreamJobServer {
         };
 
         // Initialize shared observability manager for Prometheus metrics
-        let observability = if enable_monitoring {
+        let observability = if config.enable_monitoring {
             use crate::velostream::observability::ObservabilityManager;
             use crate::velostream::sql::execution::config::StreamingConfig;
 
@@ -157,29 +191,39 @@ impl StreamJobServer {
         };
 
         let table_registry_config = TableRegistryConfig {
-            max_tables: 100,
+            max_tables: config.table_cache_size,
             enable_ttl: false,
             ttl_duration_secs: None,
-            kafka_brokers: "localhost:9092".to_string(),
-            base_group_id: base_group_id.clone(),
+            kafka_brokers: config.kafka_brokers.clone(),
+            base_group_id: config.base_group_id.clone(),
         };
 
         Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id,
-            max_jobs,
+            base_group_id: config.base_group_id,
+            max_jobs: config.max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability,
+            processor_config: JobProcessorConfig::default(),
         }
     }
 
-    /// Create server with full observability configuration (tracing, metrics, profiling)
+    /// Create server with full observability configuration (backward compatible)
     pub async fn new_with_observability(
-        _brokers: String,
+        brokers: String,
         base_group_id: String,
         max_jobs: usize,
+        streaming_config: StreamingConfig,
+    ) -> Self {
+        let config = StreamJobServerConfig::new(brokers, base_group_id).with_max_jobs(max_jobs);
+        Self::with_config_and_observability(config, streaming_config).await
+    }
+
+    /// Create server with explicit configuration and full observability (tracing, metrics, profiling)
+    pub async fn with_config_and_observability(
+        config: StreamJobServerConfig,
         streaming_config: StreamingConfig,
     ) -> Self {
         let performance_monitor = if streaming_config.enable_prometheus_metrics {
@@ -226,21 +270,22 @@ impl StreamJobServer {
         };
 
         let table_registry_config = TableRegistryConfig {
-            max_tables: 100,
+            max_tables: config.table_cache_size,
             enable_ttl: false,
             ttl_duration_secs: None,
-            kafka_brokers: "localhost:9092".to_string(),
-            base_group_id: base_group_id.clone(),
+            kafka_brokers: config.kafka_brokers.clone(),
+            base_group_id: config.base_group_id.clone(),
         };
 
         let server = Self {
             jobs: Arc::new(RwLock::new(HashMap::new())),
-            base_group_id,
-            max_jobs,
+            base_group_id: config.base_group_id,
+            max_jobs: config.max_jobs,
             job_counter: Arc::new(Mutex::new(0)),
             performance_monitor,
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: observability.clone(),
+            processor_config: JobProcessorConfig::default(),
         };
 
         // Initialize server-level deployment context for system metrics
@@ -320,6 +365,22 @@ impl StreamJobServer {
         }
 
         server
+    }
+
+    /// Set the job processor configuration (V1 or V2)
+    pub fn with_processor_config(mut self, config: JobProcessorConfig) -> Self {
+        let description = config.description();
+        self.processor_config = config;
+        info!(
+            "StreamJobServer processor configuration set to: {}",
+            description
+        );
+        self
+    }
+
+    /// Get the current job processor configuration
+    pub fn processor_config(&self) -> &JobProcessorConfig {
+        &self.processor_config
     }
 
     /// Get performance metrics (if monitoring is enabled)
@@ -599,8 +660,12 @@ impl StreamJobServer {
         let (shutdown_sender, shutdown_receiver) = mpsc::channel(1);
 
         // Create execution engine for this job with query-driven format
-        let (output_sender, mut output_receiver) = mpsc::unbounded_channel();
+        let (output_sender, output_receiver) = mpsc::unbounded_channel();
         let mut execution_engine = StreamExecutionEngine::new(output_sender);
+
+        // FR-082 Phase 5: Set output receiver for EMIT CHANGES support
+        // This allows batch processing to drain emitted results for EMIT CHANGES queries
+        execution_engine.set_output_receiver(output_receiver);
 
         // Apply StreamingConfig to execution engine (Phase 1B-4 wiring)
         execution_engine.set_streaming_config(streaming_config.clone());
@@ -702,40 +767,25 @@ impl StreamJobServer {
             );
         }
 
-        let execution_engine = Arc::new(tokio::sync::Mutex::new(execution_engine));
+        let execution_engine = Arc::new(RwLock::new(execution_engine));
 
         // Clone data for the job task
         let job_name = name.clone();
         let topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
+        let processor_config_for_spawn = self.processor_config.clone();
 
-        // Spawn output handler task to consume from SQL engine output channel
-        let output_job_name = job_name.clone();
-        tokio::spawn(async move {
-            debug!(
-                "Job '{}': Starting output handler task for SQL engine output channel",
-                output_job_name
-            );
-            let mut stdout_writer = crate::velostream::datasource::StdoutWriter::new_pretty();
+        // FR-082 Phase 5: Output handler task no longer needed
+        // The engine now owns the output_receiver for EMIT CHANGES support.
+        // Batch processing drains the receiver synchronously and collects results
+        // for sink writing. This provides correct EMIT CHANGES semantics.
+        //
+        // Previously, this task consumed from the output channel asynchronously,
+        // but that architecture didn't work for EMIT CHANGES queries which need
+        // synchronous result collection during batch processing.
 
-            while let Some(record) = output_receiver.recv().await {
-                debug!(
-                    "Job '{}': SQL engine output channel received record, writing to stdout",
-                    output_job_name
-                );
-                if let Err(e) = stdout_writer.write(record).await {
-                    warn!(
-                        "Job '{}': Failed to write SQL engine output to stdout: {:?}",
-                        output_job_name, e
-                    );
-                }
-            }
-            debug!(
-                "Job '{}': Output handler task completed (channel closed)",
-                output_job_name
-            );
-        });
+        // Removed: tokio::spawn output handler task (receiver now owned by engine)
 
         // Spawn the job execution task using modern datasource approach
         let execution_handle = tokio::spawn(async move {
@@ -806,75 +856,48 @@ impl StreamJobServer {
                                 config.log_progress
                             );
 
-                            if use_transactions {
-                                info!(
-                                    "Job '{}' using transactional processor for multi-source processing",
-                                    job_name
-                                );
-                                let processor = TransactionalJobProcessor::with_observability(
-                                    config,
-                                    observability_for_spawn.clone(),
-                                );
+                            info!(
+                                "Job '{}' using JobProcessor architecture: {}",
+                                job_name,
+                                processor_config_for_spawn.description()
+                            );
 
-                                match processor
-                                    .process_multi_job(
-                                        readers,
-                                        writers,
-                                        execution_engine,
-                                        parsed_query,
-                                        job_name.clone(),
-                                        shutdown_receiver,
-                                    )
-                                    .await
-                                {
-                                    Ok(stats) => {
-                                        info!(
-                                            "Job '{}' completed successfully (transactional): {:?}",
-                                            job_name, stats
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            "Job '{}' failed (transactional): {:?}",
-                                            job_name, e
-                                        );
-                                    }
+                            // Create processor using factory pattern
+                            let processor = Self::create_processor_for_job(
+                                &processor_config_for_spawn,
+                                &parsed_query,
+                                &job_name,
+                            );
+
+                            // Execute the selected processor (unified API for all three)
+                            match processor
+                                .process_multi_job(
+                                    readers,
+                                    writers,
+                                    execution_engine.clone(),
+                                    parsed_query,
+                                    job_name.clone(),
+                                    shutdown_receiver,
+                                )
+                                .await
+                            {
+                                Ok(stats) => {
+                                    info!(
+                                        "Job '{}' completed successfully ({} - {}): {:?}",
+                                        job_name,
+                                        processor.processor_version(),
+                                        processor.processor_name(),
+                                        stats
+                                    );
                                 }
-                            } else {
-                                info!(
-                                    "Job '{}' using simple processor for multi-source processing",
-                                    job_name
-                                );
-                                let processor = SimpleJobProcessor::with_observability(
-                                    config,
-                                    observability_for_spawn.clone(),
-                                );
-                                info!(
-                                    "Job '{}': Created processor with observability: {}",
-                                    job_name,
-                                    observability_for_spawn.is_some()
-                                );
-
-                                match processor
-                                    .process_multi_job(
-                                        readers,
-                                        writers,
-                                        execution_engine,
-                                        parsed_query,
-                                        job_name.clone(),
-                                        shutdown_receiver,
-                                    )
-                                    .await
-                                {
-                                    Ok(stats) => {
-                                        info!(
-                                            "Job '{}' completed successfully (simple): {:?}",
-                                            job_name, stats
-                                        );
-                                    }
-                                    Err(e) => {
-                                        error!("Job '{}' failed (simple): {:?}", job_name, e);
-                                    }
+                                Err(e) => {
+                                    error!(
+                                        "Job '{}' failed ({} - {}): {:?}",
+                                        job_name,
+                                        processor.processor_version(),
+                                        processor.processor_name(),
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -1412,24 +1435,64 @@ impl StreamJobServer {
     }
 
     /// Extract job processing configuration from query properties
+    ///
+    /// Supports the 'mode' property to control processor behavior:
+    /// - mode='simple': Single-threaded, best-effort delivery (LogAndContinue failures)
+    /// - mode='transactional': Single-threaded, at-least-once delivery (FailBatch failures)
+    ///
+    /// Example:
+    /// ```sql
+    /// CREATE STREAM analytics AS
+    /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
+    /// WITH ('mode' = 'transactional', 'max_batch_size' = '1000');
+    /// ```
     fn extract_job_config_from_query(query: &StreamingQuery) -> JobProcessingConfig {
         let properties = Self::get_query_properties(query);
 
         let mut config = JobProcessingConfig::default();
 
-        // Extract use_transactions
-        if let Some(use_tx) = properties.get("use_transactions") {
-            config.use_transactions = use_tx.to_lowercase() == "true";
+        // Extract mode property to determine transaction behavior
+        // mode='transactional' sets use_transactions=true and FailBatch strategy
+        // mode='simple' keeps use_transactions=false and LogAndContinue strategy (default)
+        if let Some(mode) = properties.get("mode") {
+            match mode.to_lowercase().as_str() {
+                "transactional" => {
+                    config.use_transactions = true;
+                    config.failure_strategy = FailureStrategy::FailBatch;
+                }
+                "simple" => {
+                    config.use_transactions = false;
+                    config.failure_strategy = FailureStrategy::LogAndContinue;
+                }
+                "adaptive" => {
+                    // Adaptive mode can use either strategy; use transactional for safety
+                    config.use_transactions = true;
+                    config.failure_strategy = FailureStrategy::FailBatch;
+                }
+                _ => {
+                    warn!("Unknown mode: '{}', using default", mode);
+                }
+            }
         }
 
-        // Extract failure_strategy
+        // Legacy support: Extract use_transactions for backward compatibility
+        if let Some(use_tx) = properties.get("use_transactions") {
+            if use_tx.to_lowercase() == "true" {
+                config.use_transactions = true;
+                if matches!(config.failure_strategy, FailureStrategy::LogAndContinue) {
+                    config.failure_strategy = FailureStrategy::FailBatch;
+                }
+            }
+        }
+
+        // Extract failure_strategy (can override mode-inferred strategy)
         if let Some(strategy) = properties.get("failure_strategy") {
             config.failure_strategy = match strategy.as_str() {
                 "RetryWithBackoff" => FailureStrategy::RetryWithBackoff,
                 "LogAndContinue" => FailureStrategy::LogAndContinue,
                 "FailBatch" => FailureStrategy::FailBatch,
                 "SendToDLQ" => FailureStrategy::SendToDLQ,
-                _ => FailureStrategy::LogAndContinue, // Default
+                _ => config.failure_strategy, // Keep existing
             };
         }
 
@@ -1462,6 +1525,93 @@ impl StreamJobServer {
         }
 
         config
+    }
+
+    /// Create the appropriate processor based on configuration using factory pattern
+    ///
+    /// This centralized method handles all processor creation including:
+    /// - Simple (single-threaded, best-effort)
+    /// - Transactional (single-threaded, at-least-once)
+    /// - Adaptive (multi-partition parallel with automatic partitioning strategy)
+    fn create_processor_for_job(
+        processor_config: &JobProcessorConfig,
+        parsed_query: &StreamingQuery,
+        job_name: &str,
+    ) -> Arc<dyn JobProcessor> {
+        match processor_config {
+            JobProcessorConfig::Simple => {
+                info!(
+                    "Job '{}' using Simple processor (single-threaded, best-effort delivery)",
+                    job_name
+                );
+                JobProcessorFactory::create_simple()
+            }
+            JobProcessorConfig::Transactional => {
+                info!(
+                    "Job '{}' using Transactional processor (single-threaded, at-least-once delivery)",
+                    job_name
+                );
+                JobProcessorFactory::create_transactional()
+            }
+            JobProcessorConfig::Adaptive {
+                num_partitions,
+                enable_core_affinity,
+            } => {
+                info!(
+                    "Job '{}' using Adaptive processor (multi-partition parallel) with {} partitions",
+                    job_name,
+                    num_partitions.unwrap_or_else(|| num_cpus::get().max(1))
+                );
+
+                // Extract partitioning strategy from query properties if specified
+                let partitioning_strategy =
+                    Self::extract_partitioning_strategy_from_query(parsed_query);
+
+                // Enable auto-selection from query if no explicit strategy provided
+                // CRITICAL: User explicit strategy takes priority and is NEVER overridden
+                let auto_select = partitioning_strategy.is_none();
+
+                let adaptive_config = PartitionedJobConfig {
+                    num_partitions: *num_partitions,
+                    processing_mode: ProcessingMode::Batch { size: 1000 },
+                    partition_buffer_size: 1000,
+                    enable_core_affinity: *enable_core_affinity,
+                    backpressure_config: Default::default(),
+                    partitioning_strategy,
+                    auto_select_from_query: if auto_select {
+                        Some(Arc::new(parsed_query.clone()))
+                    } else {
+                        None
+                    },
+                    sticky_partition_id: None,
+                    annotation_partition_count: None,
+                    empty_batch_count: 1000,
+                    wait_on_empty_batch_ms: 1000,
+                };
+
+                Arc::new(AdaptiveJobProcessor::new(adaptive_config))
+            }
+        }
+    }
+
+    /// Extract partitioning strategy from SQL query properties
+    ///
+    /// Supports specifying the partitioning strategy via SQL annotations:
+    ///
+    /// Example:
+    /// ```sql
+    /// -- partitioning_strategy: smart_repartition
+    /// SELECT symbol, AVG(price) FROM market_data GROUP BY symbol
+    /// ```
+    ///
+    /// Supported strategies:
+    /// - "always_hash" (default): Hashes GROUP BY columns, guarantees correctness
+    /// - "smart_repartition": Detects if source partition key matches GROUP BY key
+    /// - "sticky_partition": Uses source partition affinity, zero data movement
+    /// - "round_robin": Distributes evenly, only for non-aggregated queries
+    fn extract_partitioning_strategy_from_query(query: &StreamingQuery) -> Option<String> {
+        let properties = Self::get_query_properties(query);
+        properties.get("partitioning_strategy").cloned()
     }
 
     /// Extract properties from different query types

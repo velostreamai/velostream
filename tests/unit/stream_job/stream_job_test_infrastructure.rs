@@ -236,7 +236,7 @@ impl DataWriter for AdvancedMockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "AdvancedMockDataWriter: write_batch called with {} records (batch {})",
@@ -260,8 +260,9 @@ impl DataWriter for AdvancedMockDataWriter {
         if self.partial_batch_failure && self.current_batch_count == 1 {
             // Write first half, fail on second half
             let mid = records.len() / 2;
-            for record in records.iter().take(mid) {
-                self.write(record.clone()).await?;
+            for record_arc in records.iter().take(mid) {
+                // Dereference Arc and clone for write() which takes ownership
+                self.write((**record_arc).clone()).await?;
             }
             self.current_batch_count += 1;
             return Err(format!(
@@ -273,8 +274,9 @@ impl DataWriter for AdvancedMockDataWriter {
         }
 
         // Write all records
-        for record in records {
-            self.write(record).await?;
+        for record_arc in records {
+            // Dereference Arc and clone for write() which takes ownership
+            self.write((*record_arc).clone()).await?;
         }
         self.current_batch_count += 1;
         Ok(())
@@ -376,9 +378,11 @@ pub fn create_test_query() -> StreamingQuery {
     }
 }
 
-pub fn create_test_engine() -> Arc<Mutex<StreamExecutionEngine>> {
+pub fn create_test_engine() -> Arc<tokio::sync::RwLock<StreamExecutionEngine>> {
     let (output_sender, _) = tokio::sync::mpsc::unbounded_channel();
-    Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)))
+    Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )))
 }
 
 // =====================================================
@@ -395,7 +399,7 @@ pub trait StreamJobProcessor {
         &self,
         reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,

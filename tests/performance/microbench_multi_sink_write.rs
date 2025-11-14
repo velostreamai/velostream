@@ -203,7 +203,7 @@ impl DataWriter for BenchmarkDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start = Instant::now();
         let count = records.len();
@@ -320,6 +320,8 @@ async fn benchmark_simple_processor(
         retry_backoff: Duration::from_millis(50),
         progress_interval: 100,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -349,7 +351,9 @@ async fn benchmark_simple_processor(
     }
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -422,6 +426,8 @@ async fn benchmark_transactional_processor(
         retry_backoff: Duration::from_millis(50),
         progress_interval: 100,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -451,7 +457,9 @@ async fn benchmark_transactional_processor(
     }
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();

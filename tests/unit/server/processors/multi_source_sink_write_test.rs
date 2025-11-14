@@ -142,14 +142,18 @@ impl DataWriter for MockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "MockDataWriter '{}' writing {} records",
             self.name,
             records.len()
         );
-        self.written_records.lock().unwrap().extend(records);
+        // Dereference Arc and clone for storage
+        self.written_records
+            .lock()
+            .unwrap()
+            .extend(records.iter().map(|r| (**r).clone()));
         Ok(())
     }
 
@@ -212,6 +216,8 @@ async fn test_multi_source_processor_writes_to_sinks() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 5,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -238,7 +244,9 @@ async fn test_multi_source_processor_writes_to_sinks() {
     );
 
     let (output_sender, _output_receiver) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();

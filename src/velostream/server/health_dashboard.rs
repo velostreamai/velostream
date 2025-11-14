@@ -5,9 +5,7 @@
 //! monitoring dashboards and alerting systems.
 
 use crate::velostream::server::progress_monitoring::{LoadingSummary, TableLoadProgress};
-use crate::velostream::server::progress_streaming::{
-    ConnectionStats, ProgressEvent, ProgressStreamingServer,
-};
+use crate::velostream::server::progress_streaming::{ConnectionStats, ProgressStreamingServer};
 use crate::velostream::server::table_registry::{
     EnhancedTableHealth, TableMetadata, TableRegistry, TableStatus,
 };
@@ -178,11 +176,8 @@ impl HealthDashboard {
             let total_remaining: usize = progress
                 .values()
                 .filter_map(|p| {
-                    if let Some(total) = p.total_records_expected {
-                        Some(total.saturating_sub(p.records_loaded))
-                    } else {
-                        None
-                    }
+                    p.total_records_expected
+                        .map(|total| total.saturating_sub(p.records_loaded))
                 })
                 .sum();
 
@@ -262,11 +257,10 @@ impl HealthDashboard {
         }
 
         // Connection stats if available
-        let connection_stats = if let Some(streaming) = self.progress_streaming.as_ref() {
-            Some(streaming.get_connection_stats())
-        } else {
-            None
-        };
+        let connection_stats = self
+            .progress_streaming
+            .as_ref()
+            .map(|streaming| streaming.get_connection_stats());
 
         Ok(HealthMetricsResponse {
             loading_summary: summary,

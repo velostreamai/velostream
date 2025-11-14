@@ -49,7 +49,8 @@ impl TestExecutionEngine {
         query: &StreamingQuery,
         record: StreamRecord,
     ) -> Result<(), SqlError> {
-        self.engine.execute_with_record(query, record).await
+        self.engine.execute_with_record_sync(query, &record)?;
+        Ok(())
     }
 }
 

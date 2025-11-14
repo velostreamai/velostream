@@ -8,14 +8,21 @@ use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
+use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
+use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
+use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
+use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
+use crate::velostream::sql::execution::StreamRecord;
+use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 
 /// Transactional job processor with at-least-once delivery semantics
 ///
@@ -24,16 +31,21 @@ use tokio::sync::{Mutex, mpsc};
 /// for idempotent operations or scenarios where occasional duplicates are acceptable.
 pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
-    observability: Option<SharedObservabilityManager>,
-    metrics_helper: ProcessorMetricsHelper,
+    /// Unified observability, metrics, and DLQ wrapper
+    observability_wrapper: ObservabilityWrapper,
+    /// Profiling helper for timing instrumentation
+    profiling_helper: ProfilingHelper,
+    /// Stop flag for graceful shutdown
+    stop_flag: Arc<AtomicBool>,
 }
 
 impl TransactionalJobProcessor {
     pub fn new(config: JobProcessingConfig) -> Self {
         Self {
             config,
-            observability: None,
-            metrics_helper: ProcessorMetricsHelper::new(),
+            observability_wrapper: ObservabilityWrapper::with_dlq(),
+            profiling_helper: ProfilingHelper::new(),
+            stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -44,8 +56,9 @@ impl TransactionalJobProcessor {
     ) -> Self {
         Self {
             config,
-            observability,
-            metrics_helper: ProcessorMetricsHelper::new(),
+            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            profiling_helper: ProfilingHelper::new(),
+            stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -62,10 +75,10 @@ impl TransactionalJobProcessor {
         &self,
         readers: HashMap<String, Box<dyn DataReader>>,
         writers: HashMap<String, Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        mut shutdown_rx: mpsc::Receiver<()>,
+        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -96,8 +109,13 @@ impl TransactionalJobProcessor {
 
         // Register SQL-annotated metrics
         if let Err(e) = self
-            .metrics_helper
-            .register_counter_metrics(&query, &self.observability, &job_name)
+            .observability_wrapper
+            .metrics_helper()
+            .register_counter_metrics(
+                &query,
+                self.observability_wrapper.observability_ref(),
+                &job_name,
+            )
             .await
         {
             warn!(
@@ -106,8 +124,13 @@ impl TransactionalJobProcessor {
             );
         }
         if let Err(e) = self
-            .metrics_helper
-            .register_gauge_metrics(&query, &self.observability, &job_name)
+            .observability_wrapper
+            .metrics_helper()
+            .register_gauge_metrics(
+                &query,
+                self.observability_wrapper.observability_ref(),
+                &job_name,
+            )
             .await
         {
             warn!(
@@ -116,8 +139,13 @@ impl TransactionalJobProcessor {
             );
         }
         if let Err(e) = self
-            .metrics_helper
-            .register_histogram_metrics(&query, &self.observability, &job_name)
+            .observability_wrapper
+            .metrics_helper()
+            .register_histogram_metrics(
+                &query,
+                self.observability_wrapper.observability_ref(),
+                &job_name,
+            )
             .await
         {
             warn!(
@@ -126,22 +154,32 @@ impl TransactionalJobProcessor {
             );
         }
 
+        // FR-082 Phase 6.5: Initialize QueryExecution in the engine
+        // This creates the persistent ProcessorContext that will hold state across all batches
+        {
+            let mut engine_lock = engine.write().await;
+            engine_lock.init_query_execution(query.clone());
+        }
+
         // Create enhanced context with multiple sources and sinks
         let mut context =
             crate::velostream::sql::execution::processors::ProcessorContext::new_with_sources(
                 &job_name, readers, writers,
             );
 
+        // FR-081 Phase 2A: Enable window_v2 architecture for high-performance window processing
+        context.streaming_config = Some(StreamingConfig::default());
+
         // Copy engine state to context
         {
-            let _engine_lock = engine.lock().await;
+            let _engine_lock = engine.read().await;
             // Context is already prepared by engine.prepare_context() above
         }
 
         loop {
-            // Check for shutdown signal
-            if shutdown_rx.try_recv().is_ok() {
-                info!("Job '{}' received shutdown signal", job_name);
+            // Check for stop signal from processor
+            if self.stop_flag.load(Ordering::Relaxed) {
+                info!("Job '{}' received stop signal", job_name);
                 break;
             }
 
@@ -194,7 +232,9 @@ impl TransactionalJobProcessor {
             {
                 Ok(()) => {
                     if self.config.log_progress
-                        && stats.batches_processed % self.config.progress_interval == 0
+                        && stats
+                            .batches_processed
+                            .is_multiple_of(self.config.progress_interval)
                     {
                         log_job_progress(&job_name, &stats);
                     }
@@ -205,7 +245,11 @@ impl TransactionalJobProcessor {
                         e
                     );
                     warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                    ErrorTracker::record_error(
+                        self.observability_wrapper.observability_ref(),
+                        &job_name,
+                        error_msg,
+                    );
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
@@ -224,7 +268,11 @@ impl TransactionalJobProcessor {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
                 warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                ErrorTracker::record_error(
+                    self.observability_wrapper.observability_ref(),
+                    &job_name,
+                    error_msg,
+                );
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -236,7 +284,11 @@ impl TransactionalJobProcessor {
         if let Err(e) = context.flush_all().await {
             let error_msg = format!("Failed to flush all sinks: {:?}", e);
             warn!("Job '{}': {}", job_name, error_msg);
-            ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+            ErrorTracker::record_error(
+                self.observability_wrapper.observability_ref(),
+                &job_name,
+                error_msg,
+            );
         } else {
             info!("Job '{}': Successfully flushed all sinks", job_name);
         }
@@ -252,138 +304,28 @@ impl TransactionalJobProcessor {
     /// batch is rolled back. On failure with RetryWithBackoff, batches may be reprocessed.
     pub async fn process_job(
         &self,
-        mut reader: Box<dyn DataReader>,
-        mut writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        reader: Box<dyn DataReader>,
+        writer: Option<Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        mut shutdown_rx: mpsc::Receiver<()>,
+        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        let mut stats = JobExecutionStats::new();
-
-        // Create a StdoutWriter if no sink is provided
-        ensure_sink_or_create_stdout(&mut writer, &job_name);
-
-        // Check transaction support for reader and writer
-        let reader_supports_tx = check_transaction_support(reader.as_ref(), &job_name);
-        let writer_supports_tx = writer
-            .as_ref()
-            .map(|w| check_writer_transaction_support(w.as_ref(), &job_name))
-            .unwrap_or(false);
-
-        // Log comprehensive configuration details
-        log_job_configuration(&job_name, &self.config);
-
-        // Log detailed information about the source and sink types
-        log_datasource_info(&job_name, reader.as_ref(), writer.as_deref());
-
-        info!(
-            "Job '{}' starting transactional processing (reader_tx: {}, writer_tx: {})",
-            job_name, reader_supports_tx, writer_supports_tx
-        );
-
-        // Register SQL-annotated metrics
-        if let Err(e) = self
-            .metrics_helper
-            .register_counter_metrics(&query, &self.observability, &job_name)
-            .await
-        {
-            warn!(
-                "Job '{}': Failed to register counter metrics: {:?}",
-                job_name, e
-            );
-        }
-        if let Err(e) = self
-            .metrics_helper
-            .register_gauge_metrics(&query, &self.observability, &job_name)
-            .await
-        {
-            warn!(
-                "Job '{}': Failed to register gauge metrics: {:?}",
-                job_name, e
-            );
-        }
-        if let Err(e) = self
-            .metrics_helper
-            .register_histogram_metrics(&query, &self.observability, &job_name)
-            .await
-        {
-            warn!(
-                "Job '{}': Failed to register histogram metrics: {:?}",
-                job_name, e
-            );
-        }
-
-        loop {
-            // Check for shutdown signal
-            if shutdown_rx.try_recv().is_ok() {
-                info!("Job '{}' received shutdown signal", job_name);
-                break;
-            }
-
-            // Check if there's more data to process
-            match reader.has_more().await {
-                Ok(false) => {
-                    info!("Job '{}' completed - no more data available", job_name);
-                    break;
-                }
-                Ok(true) => {
-                    // Continue processing
-                }
-                Err(e) => {
-                    let error_msg = format!("Error checking for more data: {:?}", e);
-                    warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
-                    stats.batches_failed += 1;
-                    tokio::time::sleep(self.config.retry_backoff).await;
-                    continue;
-                }
-            }
-
-            // Process one transactional batch
-            match self
-                .process_transactional_batch(
-                    reader.as_mut(),
-                    writer.as_deref_mut(),
-                    &engine,
-                    &query,
-                    &job_name,
-                    reader_supports_tx,
-                    writer_supports_tx,
-                    &mut stats,
-                )
-                .await
-            {
-                Ok(()) => {
-                    // Successful batch processing
-                    if self.config.log_progress
-                        && stats.batches_processed % self.config.progress_interval == 0
-                    {
-                        log_job_progress(&job_name, &stats);
-                    }
-                }
-                Err(e) => {
-                    let error_msg = format!("Batch processing failed: {:?}", e);
-                    warn!("Job '{}' {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
-                    stats.batches_failed += 1;
-
-                    // Apply retry backoff
-                    warn!(
-                        "Job '{}': Applying retry backoff of {:?} due to batch failure",
-                        job_name, self.config.retry_backoff
-                    );
-                    tokio::time::sleep(self.config.retry_backoff).await;
-                    debug!(
-                        "Job '{}': Backoff complete, retrying batch processing",
-                        job_name
-                    );
-                }
-            }
-        }
-
-        log_final_stats(&job_name, &stats);
-        Ok(stats)
+        self.process_multi_job(
+            vec![("default_source".to_string(), reader)]
+                .into_iter()
+                .collect(),
+            if let Some(w) = writer {
+                vec![("default_sink".to_string(), w)].into_iter().collect()
+            } else {
+                HashMap::new()
+            },
+            engine,
+            query,
+            job_name,
+            _shutdown_rx,
+        )
+        .await
     }
 
     /// Process a single transactional batch with at-least-once semantics
@@ -391,17 +333,19 @@ impl TransactionalJobProcessor {
     /// This method processes one batch with ACID transaction boundaries but does not
     /// prevent duplicate processing on retry. If sink commits but source commit fails,
     /// data may be duplicated on the next retry attempt.
+    /// Process a single batch with transactional semantics
+    /// Returns Ok(true) if batch was empty, Ok(false) if batch had data
     async fn process_transactional_batch(
         &self,
         reader: &mut dyn DataReader,
         mut writer: Option<&mut dyn DataWriter>,
-        engine: &Arc<Mutex<StreamExecutionEngine>>,
+        engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: &StreamingQuery,
         job_name: &str,
         reader_supports_tx: bool,
         writer_supports_tx: bool,
         stats: &mut JobExecutionStats,
-    ) -> DataSourceResult<()> {
+    ) -> DataSourceResult<bool> {
         // Step 1: Begin transactions if supported
         let reader_tx_active = if reader_supports_tx {
             match reader.begin_transaction().await? {
@@ -453,12 +397,12 @@ impl TransactionalJobProcessor {
             // No data available - abort any active transactions and return
             self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
-            return Ok(());
+            return Ok(true); // Signal empty batch to caller
         }
 
         // Create batch span with trace extraction from first record
         let mut batch_span_guard = ObservabilityHelper::start_batch_span(
-            &self.observability,
+            self.observability_wrapper.observability_ref(),
             job_name,
             stats.batches_processed,
             &batch,
@@ -466,7 +410,7 @@ impl TransactionalJobProcessor {
 
         // Record deserialization telemetry
         ObservabilityHelper::record_deserialization(
-            &self.observability,
+            self.observability_wrapper.observability_ref(),
             job_name,
             &batch_span_guard,
             batch.len(),
@@ -476,47 +420,55 @@ impl TransactionalJobProcessor {
 
         // Step 3: Process batch through SQL engine and capture output (with SQL telemetry)
         let sql_start = Instant::now();
-        let mut batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+        let batch_result = process_batch(batch, engine, query, job_name).await;
         let sql_duration = sql_start.elapsed().as_millis() as u64;
 
         // Record SQL processing telemetry
         ObservabilityHelper::record_sql_processing(
-            &self.observability,
+            self.observability_wrapper.observability_ref(),
             job_name,
             &batch_span_guard,
             &batch_result,
             sql_duration,
         );
 
+        // Update stats from batch result BEFORE moving output_records
+        update_stats_from_batch_result(stats, &batch_result);
+
         // Inject trace context into output records for downstream propagation
+        // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
+        let mut output_owned: Vec<Arc<StreamRecord>> = batch_result.output_records;
         ObservabilityHelper::inject_trace_context_into_records(
             &batch_span_guard,
-            &mut batch_result.output_records,
+            &mut output_owned,
             job_name,
         );
 
         // Emit SQL-annotated metrics for output records
-        self.metrics_helper
+        self.observability_wrapper
+            .metrics_helper()
             .emit_counter_metrics(
                 query,
-                &batch_result.output_records,
-                &self.observability,
+                &output_owned,
+                self.observability_wrapper.observability_ref(),
                 job_name,
             )
             .await;
-        self.metrics_helper
+        self.observability_wrapper
+            .metrics_helper()
             .emit_gauge_metrics(
                 query,
-                &batch_result.output_records,
-                &self.observability,
+                &output_owned,
+                self.observability_wrapper.observability_ref(),
                 job_name,
             )
             .await;
-        self.metrics_helper
+        self.observability_wrapper
+            .metrics_helper()
             .emit_histogram_metrics(
                 query,
-                &batch_result.output_records,
-                &self.observability,
+                &output_owned,
+                self.observability_wrapper.observability_ref(),
                 job_name,
             )
             .await;
@@ -530,21 +482,22 @@ impl TransactionalJobProcessor {
 
         // Step 5: Write processed data to sink if we have one (with serialization telemetry)
         if let Some(w) = writer.as_mut() {
-            if should_commit && !batch_result.output_records.is_empty() {
+            if should_commit && !output_owned.is_empty() {
                 debug!(
                     "Job '{}': Writing {} output records to sink",
                     job_name,
-                    batch_result.output_records.len()
+                    output_owned.len()
                 );
                 let ser_start = Instant::now();
-                let record_count = batch_result.output_records.len();
-                match w.write_batch(batch_result.output_records.clone()).await {
+                let record_count = output_owned.len();
+                // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
+                match w.write_batch(output_owned).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
                         // Record serialization telemetry on success
                         ObservabilityHelper::record_serialization_success(
-                            &self.observability,
+                            self.observability_wrapper.observability_ref(),
                             job_name,
                             &batch_span_guard,
                             record_count,
@@ -564,7 +517,7 @@ impl TransactionalJobProcessor {
 
                         // Record serialization telemetry on failure
                         ObservabilityHelper::record_serialization_failure(
-                            &self.observability,
+                            self.observability_wrapper.observability_ref(),
                             job_name,
                             &batch_span_guard,
                             record_count,
@@ -574,7 +527,11 @@ impl TransactionalJobProcessor {
                         );
 
                         warn!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            self.observability_wrapper.observability_ref(),
+                            job_name,
+                            error_msg,
+                        );
 
                         // Complete batch span with error
                         ObservabilityHelper::complete_batch_span_error(
@@ -608,9 +565,6 @@ impl TransactionalJobProcessor {
         if should_commit {
             self.commit_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
                 .await?;
-
-            // Update stats from batch result
-            update_stats_from_batch_result(stats, &batch_result);
 
             // Complete batch span with success
             ObservabilityHelper::complete_batch_span_success(
@@ -665,7 +619,7 @@ impl TransactionalJobProcessor {
             }
         }
 
-        Ok(())
+        Ok(false) // Non-empty batch was processed (with or without failures)
     }
 
     /// Commit all active transactions with proper ordering (at-least-once semantics)
@@ -694,7 +648,11 @@ impl TransactionalJobProcessor {
                     Err(e) => {
                         let error_msg = format!("Sink transaction commit failed: {:?}", e);
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                         // Abort reader transaction since sink failed
                         if reader_tx_active {
                             if let Err(abort_err) = reader.abort_transaction().await {
@@ -704,8 +662,8 @@ impl TransactionalJobProcessor {
                                 );
                                 error!("Job '{}': {}", job_name, abort_msg);
                                 ErrorTracker::record_error(
-                                    &self.observability,
-                                    &job_name,
+                                    self.observability_wrapper.observability_ref(),
+                                    job_name,
                                     abort_msg,
                                 );
                             } else {
@@ -730,7 +688,11 @@ impl TransactionalJobProcessor {
                     Err(e) => {
                         let error_msg = format!("Sink flush failed: {:?}", e);
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                         // Still abort reader to avoid data loss
                         if reader_tx_active {
                             if let Err(abort_err) = reader.abort_transaction().await {
@@ -740,8 +702,8 @@ impl TransactionalJobProcessor {
                                 );
                                 error!("Job '{}': {}", job_name, abort_msg);
                                 ErrorTracker::record_error(
-                                    &self.observability,
-                                    &job_name,
+                                    self.observability_wrapper.observability_ref(),
+                                    job_name,
                                     abort_msg,
                                 );
                             }
@@ -768,7 +730,11 @@ impl TransactionalJobProcessor {
                         e
                     );
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        job_name,
+                        error_msg,
+                    );
                     // This is a critical failure - sink succeeded but we can't advance read position
                     // Data might be duplicated on retry, but it's better than data loss
                     return Err(format!("Source commit failed after sink success: {:?}", e).into());
@@ -786,7 +752,11 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Source commit failed after sink success: {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        job_name,
+                        error_msg,
+                    );
                     return Err(format!("Source commit failed: {:?}", e).into());
                 }
             }
@@ -799,7 +769,7 @@ impl TransactionalJobProcessor {
     async fn process_multi_source_transactional_batch(
         &self,
         context: &mut crate::velostream::sql::execution::processors::ProcessorContext,
-        engine: &Arc<Mutex<StreamExecutionEngine>>,
+        engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: &StreamingQuery,
         job_name: &str,
         readers_support_tx: &HashMap<String, bool>,
@@ -847,7 +817,11 @@ impl TransactionalJobProcessor {
                             source_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                         // Abort all transactions started so far
                         self.abort_multi_source_transactions(
                             context,
@@ -894,7 +868,11 @@ impl TransactionalJobProcessor {
                             sink_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                         // Abort all transactions
                         self.abort_multi_source_transactions(
                             context,
@@ -923,18 +901,18 @@ impl TransactionalJobProcessor {
             let deser_start = Instant::now();
             let batch = context.read().await?;
             let deser_duration = deser_start.elapsed().as_millis() as u64;
-            source_batches.push((source_name.clone(), batch, deser_start, deser_duration));
+            source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
         // Create batch span with trace context from first non-empty batch
         let first_batch = source_batches
             .iter()
-            .find(|(_, batch, _, _)| !batch.is_empty())
-            .map(|(_, batch, _, _)| batch.as_slice())
+            .find(|(_, batch, _)| !batch.is_empty())
+            .map(|(_, batch, _)| batch.as_slice())
             .unwrap_or(&[]);
 
         let mut batch_span_guard = ObservabilityHelper::start_batch_span(
-            &self.observability,
+            self.observability_wrapper.observability_ref(),
             job_name,
             stats.batches_processed,
             first_batch,
@@ -943,14 +921,16 @@ impl TransactionalJobProcessor {
         let mut total_records_processed = 0;
         let mut total_records_failed = 0;
         let mut processing_successful = true;
-        let mut all_output_records: Vec<crate::velostream::sql::execution::StreamRecord> =
-            Vec::new();
+        // PERF: Collect Arc<StreamRecord> for zero-copy multi-source collection
+        let mut all_output_records: Vec<
+            std::sync::Arc<crate::velostream::sql::execution::StreamRecord>,
+        > = Vec::new();
 
         // Process all collected batches within the transaction
-        for (source_name, batch, _deser_start, deser_duration) in source_batches {
+        for (source_name, batch, deser_duration) in source_batches {
             // Record deserialization telemetry
             ObservabilityHelper::record_deserialization(
-                &self.observability,
+                self.observability_wrapper.observability_ref(),
                 job_name,
                 &batch_span_guard,
                 batch.len(),
@@ -975,40 +955,44 @@ impl TransactionalJobProcessor {
 
             // Process batch through SQL engine and capture output records (with SQL telemetry)
             let sql_start = Instant::now();
-            let batch_result = process_batch_with_output(batch, engine, query, job_name).await;
+            let batch_result = process_batch(batch, engine, query, job_name).await;
             let sql_duration = sql_start.elapsed().as_millis() as u64;
 
             // Record SQL processing telemetry
             ObservabilityHelper::record_sql_processing(
-                &self.observability,
+                self.observability_wrapper.observability_ref(),
                 job_name,
                 &batch_span_guard,
                 &batch_result,
                 sql_duration,
             );
 
+            // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
             // Emit SQL-annotated metrics for output records from this source
-            self.metrics_helper
+            self.observability_wrapper
+                .metrics_helper()
                 .emit_counter_metrics(
                     query,
                     &batch_result.output_records,
-                    &self.observability,
+                    self.observability_wrapper.observability_ref(),
                     job_name,
                 )
                 .await;
-            self.metrics_helper
+            self.observability_wrapper
+                .metrics_helper()
                 .emit_gauge_metrics(
                     query,
                     &batch_result.output_records,
-                    &self.observability,
+                    self.observability_wrapper.observability_ref(),
                     job_name,
                 )
                 .await;
-            self.metrics_helper
+            self.observability_wrapper
+                .metrics_helper()
                 .emit_histogram_metrics(
                     query,
                     &batch_result.output_records,
-                    &self.observability,
+                    self.observability_wrapper.observability_ref(),
                     job_name,
                 )
                 .await;
@@ -1066,17 +1050,20 @@ impl TransactionalJobProcessor {
 
         // Write output records to all sinks within the transaction
         if processing_successful && !all_output_records.is_empty() && !sink_names.is_empty() {
+            // PERF(FR-082 Phase 2): Use Arc records directly - no clone!
+            let mut output_owned: Vec<Arc<StreamRecord>> = all_output_records;
+
             // Inject trace context into all output records for downstream propagation
             ObservabilityHelper::inject_trace_context_into_records(
                 &batch_span_guard,
-                &mut all_output_records,
+                &mut output_owned,
                 job_name,
             );
 
             debug!(
                 "Job '{}': Writing {} output records to {} sink(s) within transaction",
                 job_name,
-                all_output_records.len(),
+                output_owned.len(),
                 sink_names.len()
             );
 
@@ -1084,17 +1071,14 @@ impl TransactionalJobProcessor {
             if sink_names.len() == 1 {
                 // Single sink: use move semantics (no clone) with serialization telemetry
                 let ser_start = Instant::now();
-                let record_count = all_output_records.len();
-                match context
-                    .write_batch_to(&sink_names[0], all_output_records.clone())
-                    .await
-                {
+                let record_count = output_owned.len();
+                match context.write_batch_to(&sink_names[0], output_owned).await {
                     Ok(()) => {
                         let ser_duration = ser_start.elapsed().as_millis() as u64;
 
                         // Record serialization telemetry on success
                         ObservabilityHelper::record_serialization_success(
-                            &self.observability,
+                            self.observability_wrapper.observability_ref(),
                             job_name,
                             &batch_span_guard,
                             record_count,
@@ -1116,7 +1100,7 @@ impl TransactionalJobProcessor {
 
                         // Record serialization telemetry on failure
                         ObservabilityHelper::record_serialization_failure(
-                            &self.observability,
+                            self.observability_wrapper.observability_ref(),
                             job_name,
                             &batch_span_guard,
                             record_count,
@@ -1126,17 +1110,22 @@ impl TransactionalJobProcessor {
                         );
 
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                         processing_successful = false;
                     }
                 }
             } else {
                 // Multiple sinks: use shared slice to avoid N clones with serialization telemetry
+                // NOTE: output_owned already created above for trace injection
                 for sink_name in &sink_names {
                     let ser_start = Instant::now();
-                    let record_count = all_output_records.len();
+                    let record_count = output_owned.len();
                     match context
-                        .write_batch_to_shared(sink_name, &all_output_records)
+                        .write_batch_to_shared(sink_name, &output_owned)
                         .await
                     {
                         Ok(()) => {
@@ -1144,7 +1133,7 @@ impl TransactionalJobProcessor {
 
                             // Record serialization telemetry on success
                             ObservabilityHelper::record_serialization_success(
-                                &self.observability,
+                                self.observability_wrapper.observability_ref(),
                                 job_name,
                                 &batch_span_guard,
                                 record_count,
@@ -1166,7 +1155,7 @@ impl TransactionalJobProcessor {
 
                             // Record serialization telemetry on failure
                             ObservabilityHelper::record_serialization_failure(
-                                &self.observability,
+                                self.observability_wrapper.observability_ref(),
                                 job_name,
                                 &batch_span_guard,
                                 record_count,
@@ -1176,7 +1165,11 @@ impl TransactionalJobProcessor {
                             );
 
                             error!("Job '{}': {}", job_name, error_msg);
-                            ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                            ErrorTracker::record_error(
+                                &self.observability_wrapper.observability().cloned(),
+                                job_name,
+                                error_msg,
+                            );
                             processing_successful = false;
                             break; // Exit sink write loop - will abort transaction
                         }
@@ -1245,7 +1238,11 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Failed to commit transactions: {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        job_name,
+                        error_msg,
+                    );
 
                     // Complete batch span with error
                     ObservabilityHelper::complete_batch_span_error(
@@ -1383,7 +1380,11 @@ impl TransactionalJobProcessor {
                             sink_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                     }
                 }
             }
@@ -1411,7 +1412,11 @@ impl TransactionalJobProcessor {
                             source_name, e
                         );
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                     }
                 }
             }
@@ -1438,7 +1443,11 @@ impl TransactionalJobProcessor {
                     Err(e) => {
                         let error_msg = format!("Failed to abort writer transaction: {:?}", e);
                         error!("Job '{}': {}", job_name, error_msg);
-                        ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
                     }
                 }
             }
@@ -1451,11 +1460,101 @@ impl TransactionalJobProcessor {
                 Err(e) => {
                     let error_msg = format!("Failed to abort reader transaction: {:?}", e);
                     error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(&self.observability, &job_name, error_msg);
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        job_name,
+                        error_msg,
+                    );
                 }
             }
         }
 
+        Ok(())
+    }
+}
+
+/// Implement JobProcessor trait for TransactionalJobProcessor (V1 Architecture)
+#[async_trait::async_trait]
+impl crate::velostream::server::processors::JobProcessor for TransactionalJobProcessor {
+    fn num_partitions(&self) -> usize {
+        1 // V1 uses single-threaded, single partition
+    }
+
+    fn processor_name(&self) -> &str {
+        "TransactionalJobProcessor"
+    }
+
+    fn processor_version(&self) -> &str {
+        "V1-Transactional"
+    }
+
+    fn metrics(&self) -> ProcessorMetrics {
+        let mc = self.observability_wrapper.metrics_collector();
+        ProcessorMetrics {
+            version: self.processor_version().to_string(),
+            name: self.processor_name().to_string(),
+            num_partitions: self.num_partitions(),
+            lifecycle_state: mc.lifecycle_state(),
+            total_records: mc.total_records(),
+            failed_records: mc.failed_records(),
+            throughput_rps: mc.throughput_rps(),
+            uptime_secs: mc.uptime_secs(),
+        }
+    }
+
+    async fn process_job(
+        &self,
+        reader: Box<dyn crate::velostream::datasource::DataReader>,
+        writer: Option<Box<dyn crate::velostream::datasource::DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
+        query: crate::velostream::sql::StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+        self.process_multi_job(
+            {
+                let mut readers = std::collections::HashMap::new();
+                readers.insert("default_reader".to_string(), reader);
+                readers
+            },
+            {
+                let mut writers = std::collections::HashMap::new();
+                if let Some(w) = writer {
+                    writers.insert("default_writer".to_string(), w);
+                }
+                writers
+            },
+            engine,
+            query,
+            job_name,
+            shutdown_rx,
+        )
+        .await
+    }
+
+    async fn process_multi_job(
+        &self,
+        readers: std::collections::HashMap<
+            String,
+            Box<dyn crate::velostream::datasource::DataReader>,
+        >,
+        writers: std::collections::HashMap<
+            String,
+            Box<dyn crate::velostream::datasource::DataWriter>,
+        >,
+        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
+        query: crate::velostream::sql::StreamingQuery,
+        job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
+        // Delegate to the existing process_multi_job implementation
+        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
+            .await
+    }
+
+    async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.stop_flag.store(true, Ordering::Relaxed);
+        info!("TransactionalJobProcessor stop signal set");
         Ok(())
     }
 }

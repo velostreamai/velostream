@@ -80,7 +80,7 @@ impl ObservabilityHelper {
     /// * `job_name` - Name of the job (for logging)
     pub fn inject_trace_context_into_records(
         batch_span: &Option<BatchSpan>,
-        output_records: &mut [StreamRecord],
+        output_records: &mut [std::sync::Arc<StreamRecord>],
         job_name: &str,
     ) {
         if let Some(span) = batch_span {
@@ -92,7 +92,10 @@ impl ObservabilityHelper {
                         output_records.len()
                     );
 
-                    for record in output_records.iter_mut() {
+                    // Use Arc::make_mut for copy-on-write mutation
+                    // Clones only if refcount > 1 (shared ownership)
+                    for record_arc in output_records.iter_mut() {
+                        let record = std::sync::Arc::make_mut(record_arc);
                         trace_propagation::inject_trace_context(&span_ctx, &mut record.headers);
                     }
                 } else {

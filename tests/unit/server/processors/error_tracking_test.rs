@@ -177,7 +177,7 @@ impl DataWriter for FailingMockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.write_count.fetch_add(records.len(), Ordering::SeqCst);
 
@@ -185,7 +185,9 @@ impl DataWriter for FailingMockDataWriter {
             return Err("Simulated batch write failure".into());
         }
 
-        self.written_records.extend(records);
+        // Dereference Arc and clone for storage
+        self.written_records
+            .extend(records.iter().map(|r| (**r).clone()));
         Ok(())
     }
 
@@ -246,6 +248,8 @@ async fn test_simple_processor_handles_read_errors() {
         retry_backoff: Duration::from_millis(10),
         progress_interval: 1,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -255,7 +259,7 @@ async fn test_simple_processor_handles_read_errors() {
     let writer = Box::new(FailingMockDataWriter::new("test_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -299,6 +303,8 @@ async fn test_simple_processor_handles_write_errors_with_retry() {
         retry_backoff: Duration::from_millis(10),
         progress_interval: 1,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -309,7 +315,7 @@ async fn test_simple_processor_handles_write_errors_with_retry() {
         as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -354,6 +360,8 @@ async fn test_transactional_processor_handles_write_errors() {
         retry_backoff: Duration::from_millis(10),
         progress_interval: 1,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -364,7 +372,7 @@ async fn test_transactional_processor_handles_write_errors() {
         as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -409,6 +417,8 @@ async fn test_error_tracking_without_observability_manager() {
         retry_backoff: Duration::from_millis(10),
         progress_interval: 1,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -418,7 +428,7 @@ async fn test_error_tracking_without_observability_manager() {
     let writer = Box::new(FailingMockDataWriter::new("test_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -465,6 +475,8 @@ async fn test_simple_processor_log_and_continue_strategy() {
         retry_backoff: Duration::from_millis(10),
         progress_interval: 1,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -474,7 +486,7 @@ async fn test_simple_processor_log_and_continue_strategy() {
     let writer = Box::new(FailingMockDataWriter::new("test_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -526,6 +538,8 @@ async fn test_transactional_processor_fail_batch_strategy() {
         retry_backoff: Duration::from_millis(10),
         progress_interval: 1,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -535,7 +549,7 @@ async fn test_transactional_processor_fail_batch_strategy() {
     let writer = Box::new(FailingMockDataWriter::new("test_sink", true)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -578,6 +592,8 @@ async fn test_error_tracking_performance_impact() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 5,
         log_progress: false,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -587,7 +603,7 @@ async fn test_error_tracking_performance_impact() {
     let writer = Box::new(FailingMockDataWriter::new("perf_sink", false)) as Box<dyn DataWriter>;
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();

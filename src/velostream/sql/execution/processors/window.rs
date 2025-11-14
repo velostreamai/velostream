@@ -47,32 +47,13 @@ impl WindowProcessor {
         context: &mut ProcessorContext,
         _source_id: Option<&str>, // Deprecated parameter, kept for API compatibility
     ) -> Result<Option<StreamRecord>, SqlError> {
-        // FR-081 Phase 2A+: Route to window_v2 architecture (supports all aggregations)
-        if context.is_window_v2_enabled() {
-            debug!(
-                "FR-081 Phase 2E: Processing query {} with window_v2 architecture",
-                query_id
-            );
-            return crate::velostream::sql::execution::window_v2::adapter::WindowAdapter::process_with_v2(
-                query_id, query, record, context,
-            );
-        }
+        // FR-081 Phase 2E+: window_v2 is the only window architecture available
+        // The legacy window implementation was removed in Phase 2E
+        debug!("Processing query {} with window_v2 architecture", query_id);
 
-        // FR-081 Phase 2E: window_v2 is always enabled, this path should never be reached
-        error!(
-            "FR-081 Phase 2E ERROR: window_v2 disabled for query: {}. \
-             Legacy window processing has been removed. Enable window_v2 in ExecutionConfig.",
-            query_id
-        );
-
-        Err(SqlError::ExecutionError {
-            message: format!(
-                "Window processing requires window_v2 architecture. \
-                 Legacy implementation removed in Phase 2E. Query: {}",
-                query_id
-            ),
-            query: Some(format!("{:?}", query)),
-        })
+        crate::velostream::sql::execution::window_v2::adapter::WindowAdapter::process_with_v2(
+            query_id, query, record, context,
+        )
     }
 
     /// Check if query has aggregation functions (AVG, MIN, MAX, COUNT, SUM, etc.)

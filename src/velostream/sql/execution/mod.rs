@@ -30,7 +30,7 @@
 //! let parser = StreamingSqlParser::new();
 //! let query = parser.parse("SELECT * FROM stream")?;
 //! let record = StreamRecord::new(HashMap::new()); // Empty record for example
-//! engine.execute_with_record(&query, record).await?;
+//! engine.execute_with_record(&query, &record).await?;
 //! # Ok(())
 //! # }
 //! ```

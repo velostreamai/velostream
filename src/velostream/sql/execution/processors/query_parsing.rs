@@ -42,7 +42,7 @@ pub fn extract_table_name(query: &StreamingQuery) -> Result<String, SqlError> {
                 // This is a fallback for cases where the URI represents a table
                 let parsed_name = uri
                     .split('/')
-                    .last()
+                    .next_back()
                     .unwrap_or("unknown")
                     .split('?')
                     .next()

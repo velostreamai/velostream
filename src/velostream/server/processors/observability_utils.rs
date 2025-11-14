@@ -58,9 +58,8 @@ where
     F: FnOnce(&crate::velostream::observability::ObservabilityManager) -> Option<T>,
 {
     if let Some(obs) = observability {
-        match obs.read().await {
-            obs_lock => f(&*obs_lock),
-        }
+        let obs_lock = obs.read().await;
+        f(&obs_lock)
     } else {
         None
     }

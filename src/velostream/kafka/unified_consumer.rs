@@ -52,6 +52,10 @@ use rdkafka::TopicPartitionList;
 use rdkafka::error::KafkaError;
 use std::pin::Pin;
 
+/// Type alias to reduce complexity warnings for stream return types
+pub type ConsumerStream<'a, K, V> =
+    Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + 'a>>;
+
 /// Unified Kafka consumer interface supporting both StreamConsumer and BaseConsumer implementations.
 ///
 /// This trait provides a common interface for consuming Kafka messages, allowing applications
@@ -107,9 +111,7 @@ pub trait KafkaStreamConsumer<K, V>: Send + Sync {
     ///     }
     /// }
     /// ```
-    fn stream(
-        &self,
-    ) -> Pin<Box<dyn Stream<Item = Result<Message<K, V>, ConsumerError>> + Send + '_>>;
+    fn stream(&self) -> ConsumerStream<'_, K, V>;
 
     /// Subscribes to the specified Kafka topics.
     ///

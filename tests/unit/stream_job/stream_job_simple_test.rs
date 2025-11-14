@@ -15,9 +15,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use velostream::velostream::server::processors::{
+    JobProcessor,
     common::{
-        DataSourceResult, FailureStrategy, JobExecutionStats, JobProcessingConfig,
-        process_batch_with_output,
+        DataSourceResult, FailureStrategy, JobExecutionStats, JobProcessingConfig, process_batch,
     },
     simple::SimpleJobProcessor,
 };
@@ -54,7 +54,7 @@ impl StreamJobProcessor for SimpleJobProcessorWrapper {
         &self,
         reader: Box<dyn DataReader>,
         writer: Option<Box<dyn DataWriter>>,
-        engine: Arc<Mutex<StreamExecutionEngine>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
@@ -197,7 +197,7 @@ impl DataWriter for MockDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!(
             "MockDataWriter: write_batch called with {} records (batch {})",
@@ -216,8 +216,9 @@ impl DataWriter for MockDataWriter {
             }
         }
 
-        for record in records {
-            self.write(record).await?;
+        for record_arc in records {
+            // Dereference Arc and clone for write() which takes ownership
+            self.write((*record_arc).clone()).await?;
         }
         self.current_batch_count += 1;
         Ok(())
@@ -291,6 +292,8 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
     let log_continue_processor = SimpleJobProcessorWrapper::new(log_continue_config);
 
@@ -318,6 +321,8 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
     let retry_backoff_processor = SimpleJobProcessorWrapper::new(retry_backoff_config);
 
@@ -404,6 +409,8 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
     let fail_batch_processor = SimpleJobProcessorWrapper::new(fail_batch_config);
     run_comprehensive_failure_tests(&fail_batch_processor, "SimpleJobProcessor_FailBatch").await;
@@ -443,6 +450,8 @@ async fn test_simple_processor_with_different_failure_strategies() {
             retry_backoff: Duration::from_millis(50),
             progress_interval: 1,
             log_progress: true,
+            empty_batch_count: 1,
+            wait_on_empty_batch_ms: 1000,
         };
 
         let processor = SimpleJobProcessor::new(config);
@@ -508,6 +517,8 @@ async fn test_simple_processor_transaction_detection() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -568,6 +579,8 @@ async fn test_sink_failure_with_log_and_continue_strategy() {
         retry_backoff: Duration::from_millis(100),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -636,6 +649,8 @@ async fn test_sink_failure_with_retry_with_backoff_strategy() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -697,6 +712,8 @@ async fn test_sink_failure_with_fail_batch_strategy() {
         retry_backoff: Duration::from_millis(50),
         progress_interval: 1,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -776,6 +793,8 @@ async fn test_simple_processor_with_10000_records() {
         retry_backoff: Duration::from_millis(100),
         progress_interval: 10, // Log every 10 batches for visibility
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessorWrapper::new(config);

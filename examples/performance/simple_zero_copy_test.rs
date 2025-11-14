@@ -179,7 +179,7 @@ async fn run_simple_zero_copy_test() -> Result<(u64, u64, u64, f64), Box<dyn std
 
                         // Log progress
                         let count = consumer_metrics.messages_received.load(Ordering::Relaxed);
-                        if count % 1000 == 0 {
+                        if count.is_multiple_of(1000) {
                             println!("📈 Processed: {} messages", count);
                         }
                     }

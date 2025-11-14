@@ -598,6 +598,7 @@ pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredic
 /// Legacy parse WHERE clause into a predicate function (backwards compatibility)
 ///
 /// **Deprecated**: Use `parse_where_clause_cached` for better performance
+#[allow(clippy::type_complexity)]
 fn parse_where_clause(
     where_clause: &str,
 ) -> TableResult<Box<dyn Fn(&str, &HashMap<String, FieldValue>) -> bool>> {
@@ -667,6 +668,7 @@ pub struct OptimizedTableImpl {
     string_pool: Arc<RwLock<HashMap<String, Arc<String>>>>,
 
     /// Simple column indexes for common queries
+    #[allow(clippy::type_complexity)]
     column_indexes: Arc<RwLock<HashMap<String, HashMap<String, Vec<String>>>>>,
 }
 
@@ -678,6 +680,7 @@ struct CachedQuery {
     /// Pre-compiled predicate for WHERE clauses (performance optimized)
     predicate: Option<CachedPredicate>,
     /// Legacy filter function for backward compatibility
+    #[allow(clippy::type_complexity)]
     filter_fn: Option<Arc<dyn Fn(&HashMap<String, FieldValue>) -> bool + Send + Sync>>,
     /// Target column for column queries
     target_column: Option<String>,
@@ -714,6 +717,12 @@ pub struct TableStats {
     pub memory_usage_bytes: usize,
 }
 
+impl Default for OptimizedTableImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OptimizedTableImpl {
     /// Create a new optimized table implementation
     pub fn new() -> Self {
@@ -740,9 +749,7 @@ impl OptimizedTableImpl {
         {
             let mut indexes = self.column_indexes.write().unwrap();
             for (column_name, field_value) in &record {
-                let column_index = indexes
-                    .entry(column_name.clone())
-                    .or_insert_with(HashMap::new);
+                let column_index = indexes.entry(column_name.clone()).or_default();
 
                 // Convert field value to index key
                 let index_key = match field_value {
@@ -754,10 +761,7 @@ impl OptimizedTableImpl {
                     _ => continue, // Skip complex types for indexing
                 };
 
-                column_index
-                    .entry(index_key)
-                    .or_insert_with(Vec::new)
-                    .push(key.clone());
+                column_index.entry(index_key).or_default().push(key.clone());
             }
         }
 
@@ -1768,7 +1772,7 @@ fn parse_path_components(path: &str) -> TableResult<Vec<PathPart>> {
                 let mut bracket_content = String::new();
                 let mut bracket_depth = 1;
 
-                while let Some(bracket_ch) = chars.next() {
+                for bracket_ch in chars.by_ref() {
                     if bracket_ch == '[' {
                         bracket_depth += 1;
                     } else if bracket_ch == ']' {

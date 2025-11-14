@@ -37,9 +37,8 @@ async fn execute_windowed_query(
     records: Vec<StreamRecord>,
 ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error>> {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    // FR-081: Enable window_v2 for proper GROUP BY + WINDOW + HAVING execution
-    let config =
-        velostream::velostream::sql::execution::config::StreamingConfig::new().with_window_v2();
+    // Window_v2 is the only architecture available (Phase 2E+)
+    let config = velostream::velostream::sql::execution::config::StreamingConfig::new();
     let mut engine = StreamExecutionEngine::new_with_config(tx, config);
     let parser = StreamingSqlParser::new();
 

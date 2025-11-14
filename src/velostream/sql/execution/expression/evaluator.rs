@@ -12,6 +12,9 @@ use crate::velostream::sql::error::SqlError;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
+/// Type alias for WHERE clause predicate function
+type WhereClausePredicate = Box<dyn Fn(&String, &FieldValue) -> bool>;
+
 /// Helper functions for converting decimal string literals to ScaledInteger
 mod scaled_integer_helper {
     use super::*;
@@ -90,6 +93,12 @@ impl Default for SelectAliasContext {
 /// Main expression evaluator that handles all SQL expression types
 pub struct ExpressionEvaluator;
 
+impl Default for ExpressionEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExpressionEvaluator {
     /// Create a new expression evaluator (for backward compatibility)
     pub fn new() -> Self {
@@ -100,10 +109,7 @@ impl ExpressionEvaluator {
     ///
     /// This is a simplified version for testing that returns a closure
     /// that evaluates the WHERE clause against key-value pairs.
-    pub fn parse_where_clause(
-        &self,
-        where_clause: &str,
-    ) -> Result<Box<dyn Fn(&String, &FieldValue) -> bool>, SqlError> {
+    pub fn parse_where_clause(&self, where_clause: &str) -> Result<WhereClausePredicate, SqlError> {
         // This is a simplified implementation for testing
         // In a real implementation, you'd parse the WHERE clause into an AST
         let clause = where_clause.to_string();
@@ -191,10 +197,7 @@ impl ExpressionEvaluator {
                     LiteralValue::Null => FieldValue::Null,
                     LiteralValue::Decimal(s) => {
                         // Convert decimal literals to ScaledInteger for 42x faster performance
-                        match scaled_integer_helper::parse_decimal_to_scaled_integer(s) {
-                            Ok(value) => value,
-                            Err(e) => return Err(e),
-                        }
+                        scaled_integer_helper::parse_decimal_to_scaled_integer(s)?
                     }
                     LiteralValue::Interval { value, unit } => FieldValue::Interval {
                         value: *value,

@@ -1,5 +1,5 @@
 use crate::velostream::schema::{Schema, StreamHandle};
-use crate::velostream::sql::ast::StreamingQuery;
+use crate::velostream::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery};
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::parser::StreamingSqlParser;
 use std::collections::HashMap;
@@ -75,10 +75,10 @@ impl StreamingSqlContext {
             } => {
                 // Extract stream name from StreamSource
                 let stream_name = match from {
-                    crate::velostream::sql::ast::StreamSource::Stream(name) => name,
-                    crate::velostream::sql::ast::StreamSource::Table(name) => name,
-                    crate::velostream::sql::ast::StreamSource::Uri(uri) => uri,
-                    crate::velostream::sql::ast::StreamSource::Subquery(_) => {
+                    StreamSource::Stream(name) => name,
+                    StreamSource::Table(name) => name,
+                    StreamSource::Uri(uri) => uri,
+                    StreamSource::Subquery(_) => {
                         return Err(SqlError::ParseError {
                             message: "Subqueries not yet supported".to_string(),
                             position: None,
@@ -104,8 +104,8 @@ impl StreamingSqlContext {
                 // Validate select fields
                 for field in fields {
                     match field {
-                        crate::velostream::sql::ast::SelectField::Wildcard => {}
-                        crate::velostream::sql::ast::SelectField::Column(name) => {
+                        SelectField::Wildcard => {}
+                        SelectField::Column(name) => {
                             if !schema.has_field(name) {
                                 return Err(SqlError::SchemaError {
                                     message: "Column not found".to_string(),
@@ -113,9 +113,7 @@ impl StreamingSqlContext {
                                 });
                             }
                         }
-                        crate::velostream::sql::ast::SelectField::AliasedColumn {
-                            column, ..
-                        } => {
+                        SelectField::AliasedColumn { column, .. } => {
                             if !schema.has_field(column) {
                                 return Err(SqlError::SchemaError {
                                     message: "Column not found".to_string(),
@@ -123,7 +121,7 @@ impl StreamingSqlContext {
                                 });
                             }
                         }
-                        crate::velostream::sql::ast::SelectField::Expression { expr, .. } => {
+                        SelectField::Expression { expr, .. } => {
                             self.validate_expression(expr, schema)?;
                         }
                     }
@@ -231,13 +229,9 @@ impl StreamingSqlContext {
         }
     }
 
-    fn validate_expression(
-        &self,
-        expr: &crate::velostream::sql::ast::Expr,
-        schema: &Schema,
-    ) -> Result<(), SqlError> {
+    fn validate_expression(&self, expr: &Expr, schema: &Schema) -> Result<(), SqlError> {
         match expr {
-            crate::velostream::sql::ast::Expr::Column(name) => {
+            Expr::Column(name) => {
                 if !schema.has_field(name) {
                     return Err(SqlError::SchemaError {
                         message: "Column not found".to_string(),
@@ -246,12 +240,12 @@ impl StreamingSqlContext {
                 }
                 Ok(())
             }
-            crate::velostream::sql::ast::Expr::Literal(_) => Ok(()),
-            crate::velostream::sql::ast::Expr::BinaryOp { left, right, .. } => {
+            Expr::Literal(_) => Ok(()),
+            Expr::BinaryOp { left, right, .. } => {
                 self.validate_expression(left, schema)?;
                 self.validate_expression(right, schema)
             }
-            crate::velostream::sql::ast::Expr::Function { args, .. } => {
+            Expr::Function { args, .. } => {
                 for arg in args {
                     self.validate_expression(arg, schema)?;
                 }
@@ -267,10 +261,10 @@ impl StreamingSqlContext {
     fn create_execution_plan(&self, query: StreamingQuery) -> Result<StreamHandle, SqlError> {
         let stream_name = match &query {
             StreamingQuery::Select { from, .. } => match from {
-                crate::velostream::sql::ast::StreamSource::Stream(name) => name,
-                crate::velostream::sql::ast::StreamSource::Table(name) => name,
-                crate::velostream::sql::ast::StreamSource::Uri(uri) => uri,
-                crate::velostream::sql::ast::StreamSource::Subquery(_) => {
+                StreamSource::Stream(name) => name,
+                StreamSource::Table(name) => name,
+                StreamSource::Uri(uri) => uri,
+                StreamSource::Subquery(_) => {
                     return Err(SqlError::ParseError {
                         message: "Subqueries not yet supported".to_string(),
                         position: None,
@@ -323,10 +317,10 @@ impl StreamingSqlContext {
                 // For UNION, use the left side's stream name as primary identifier
                 match left.as_ref() {
                     StreamingQuery::Select { from, .. } => match from {
-                        crate::velostream::sql::ast::StreamSource::Stream(name) => name,
-                        crate::velostream::sql::ast::StreamSource::Table(name) => name,
-                        crate::velostream::sql::ast::StreamSource::Uri(uri) => uri,
-                        crate::velostream::sql::ast::StreamSource::Subquery(_) => "union_subquery",
+                        StreamSource::Stream(name) => name,
+                        StreamSource::Table(name) => name,
+                        StreamSource::Uri(uri) => uri,
+                        StreamSource::Subquery(_) => "union_subquery",
                     },
                     _ => "union_query",
                 }

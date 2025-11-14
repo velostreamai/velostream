@@ -137,23 +137,26 @@ pub trait DataWriter: Send + Sync + 'static {
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Write multiple records in a batch (more efficient for some sinks)
+    ///
+    /// BREAKING CHANGE (FR-082 Phase 2): Now accepts `Arc<StreamRecord>` for zero-copy writes.
+    /// This eliminates clone overhead when writing to multiple sinks or injecting trace context.
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>>;
 
     /// Write multiple records from a shared slice (zero-copy for multi-sink scenarios)
     ///
     /// This method is used when the same batch needs to be written to multiple sinks.
-    /// Instead of cloning the entire Vec for each sink, we pass a slice reference.
+    /// Arc cloning is O(1) (atomic refcount increment), not O(fields) record cloning.
     ///
-    /// Default implementation clones the slice into a Vec and calls write_batch.
-    /// Implementations can override this for better performance.
+    /// BREAKING CHANGE (FR-082 Phase 2): Now accepts `&[Arc<StreamRecord>]` instead of `&[StreamRecord]`.
+    /// Default implementation clones Arc pointers (cheap) and calls write_batch.
     async fn write_batch_shared(
         &mut self,
-        records: &[StreamRecord],
+        records: &[std::sync::Arc<StreamRecord>],
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Default: clone the slice and call write_batch
+        // Default: clone Arc pointers (O(1) each) and call write_batch
         self.write_batch(records.to_vec()).await
     }
 

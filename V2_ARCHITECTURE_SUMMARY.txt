@@ -1,0 +1,226 @@
+================================================================================
+V2 PARTITIONER ARCHITECTURE - QUICK REFERENCE
+================================================================================
+
+QUESTION 1: WHERE IS PARTITIONER SELECTION HAPPENING?
+────────────────────────────────────────────────────
+File: /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/coordinator.rs
+Lines: 183-207
+
+Current Flow:
+  PartitionedJobConfig::partitioning_strategy: Option<String>
+    │
+    ├─ None → AlwaysHashStrategy (HARD-CODED DEFAULT)
+    │
+    └─ Some(name) → StrategyFactory::create_from_str()
+                      ├─ "always_hash" → AlwaysHashStrategy
+                      ├─ "smart_repartition" → SmartRepartitionStrategy
+                      ├─ "round_robin" → RoundRobinStrategy
+                      ├─ "sticky_partition" → StickyPartitionStrategy
+                      └─ "fan_in" → FanInStrategy
+
+KEY FINDING: NO AUTOMATIC SELECTION - must be configured manually!
+
+
+QUESTION 2: HOW TO INSPECT AST FOR PARTITIONER HINTS?
+──────────────────────────────────────────────────────
+
+Extract GROUP BY columns:
+  File: /Users/navery/RustroverProjects/velostream/src/velostream/sql/ast.rs:100-137
+  
+  enum StreamingQuery {
+      Select {
+          group_by: Option<Vec<Expr>>,  // ← THIS FIELD
+          order_by: Option<Vec<OrderByExpr>>,  // ← THIS FIELD
+          window: Option<WindowSpec>,  // ← THIS FIELD
+          ...
+      }
+  }
+
+How to extract in code:
+  match query {
+      StreamingQuery::Select { group_by: Some(exprs), .. } => {
+          for expr in exprs {
+              if let Expr::Column(col_name) = expr {
+                  group_by_columns.push(col_name);
+              }
+          }
+      }
+      _ => {}
+  }
+
+
+QUESTION 3: STREAMRECORD STRUCTURE - DOES IT HAVE PARTITION_ID?
+────────────────────────────────────────────────────────────────
+
+File: /Users/navery/RustroverProjects/velostream/src/velostream/sql/execution/types.rs:1037
+
+pub struct StreamRecord {
+    pub fields: HashMap<String, FieldValue>,
+    pub timestamp: i64,
+    pub offset: i64,
+    pub partition: i32,                    // ← SOURCE PARTITION!
+    pub headers: HashMap<String, String>,
+    pub event_time: Option<DateTime<Utc>>,
+}
+
+✅ YES! Has:
+  - Direct field: `partition: i32`
+  - System column access: `_PARTITION`
+  - SmartRepartitionStrategy uses it for alignment detection
+
+
+QUESTION 4: WHERE DOES JOB PROCESSOR CURRENTLY ROUTE RECORDS?
+──────────────────────────────────────────────────────────────
+
+File: /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/job_processor_v2.rs:32-96
+
+Current implementation:
+  - process_batch() just returns records without routing
+  - No per-partition channels created
+  - No actual distribution happens
+
+File: /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/coordinator.rs:110+
+
+Where it WOULD route (future implementation):
+  - process_job() method could use PartitioningStrategy
+  - But currently doesn't pass query AST to coordinator
+
+
+QUESTION 5: WHAT INFO DOES PARTITIONINGCONTEXT HAVE?
+──────────────────────────────────────────────────────
+
+File: /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/partitioning_strategy.rs:31-48
+
+pub struct RoutingContext {
+    pub source_partition: Option<usize>,        // From Kafka
+    pub source_partition_key: Option<String>,   // Unknown - needs metadata
+    pub group_by_columns: Vec<String>,          // ← MANUALLY SET
+    pub num_partitions: usize,
+    pub num_cpu_slots: usize,
+}
+
+⚠️ Problem: group_by_columns must be SET MANUALLY - no automatic extraction!
+
+
+================================================================================
+AVAILABLE PARTITIONING STRATEGIES (ALL IMPLEMENTED)
+================================================================================
+
+1. AlwaysHashStrategy (partitioning_strategy.rs:87-168)
+   - Hash GROUP BY columns
+   - Guaranteed correct but 5-10% overhead
+   - DEFAULT choice
+
+2. SmartRepartitionStrategy (smart_repartition_strategy.rs:38-164)
+   - Detects if data already partitioned by GROUP BY key
+   - If aligned: 0% overhead (uses source partition)
+   - If misaligned: 8% overhead (falls back to hashing)
+
+3. RoundRobinStrategy (round_robin_strategy.rs)
+   - Pure round-robin
+   - Max throughput but breaks aggregation state consistency
+
+4. StickyPartitionStrategy (sticky_partition_strategy.rs)
+   - Maintains source partition affinity
+   - Good for low-latency, order-preserving queries
+
+5. FanInStrategy (fan_in_strategy.rs)
+   - Concentrates all records into partition 0
+   - For global aggregations
+
+
+================================================================================
+KEY FILES TO UNDERSTAND V2 ARCHITECTURE
+================================================================================
+
+Partitioner Core:
+  /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/partitioning_strategy.rs
+  - PartitioningStrategy trait (lines 50-75)
+  - AlwaysHashStrategy implementation (lines 87-168)
+  - RoutingContext struct (lines 31-48)
+  - QueryMetadata struct (lines 15-29)
+
+Coordinator:
+  /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/coordinator.rs
+  - PartitionedJobCoordinator struct (line 166+)
+  - Strategy selection: lines 183-207
+  - Config: PartitionedJobConfig (lines 20-54)
+
+Strategy Implementations:
+  smart_repartition_strategy.rs (alignment detection)
+  round_robin_strategy.rs
+  sticky_partition_strategy.rs
+  fan_in_strategy.rs
+
+AST Structures:
+  /Users/navery/RustroverProjects/velostream/src/velostream/sql/ast.rs
+  - StreamingQuery enum (line 100+)
+  - WindowSpec enum (line 479+)
+  - OrderByExpr struct (line 527+)
+  - Expr enum (line 593+)
+
+Stream Data:
+  /Users/navery/RustroverProjects/velostream/src/velostream/sql/execution/types.rs
+  - StreamRecord struct (line 1037+)
+  - System columns module (lines 128-200)
+
+
+================================================================================
+WHAT'S MISSING - THE GAP
+================================================================================
+
+❌ NO automatic partitioner selection based on query
+❌ NO extraction of GROUP BY columns from AST
+❌ NO detection of ORDER BY to suggest partitioner
+❌ NO analysis of window specifications
+❌ NO integration between parser and coordinator
+
+The infrastructure is READY but not connected!
+
+
+================================================================================
+HOW TO CLOSE THE GAP
+================================================================================
+
+Create: /Users/navery/RustroverProjects/velostream/src/velostream/server/v2/query_analyzer.rs
+
+1. Extract query characteristics from StreamingQuery AST:
+   - has_group_by: bool
+   - group_by_columns: Vec<String>
+   - has_order_by: bool
+   - order_by_columns: Vec<String>
+   - has_window: bool
+
+2. Implement decision tree:
+   - Has GROUP BY? → SmartRepartitionStrategy (if aligned) or AlwaysHashStrategy
+   - No GROUP BY + ORDER BY? → StickyPartitionStrategy
+   - No GROUP BY + No ORDER BY? → RoundRobinStrategy
+
+3. Integrate with PartitionedJobCoordinator:
+   - Pass StreamingQuery to coordinator initialization
+   - Call analyze() before creating strategy
+   - Use suggested strategy instead of default
+
+Result: Automatic, optimal partitioner selection!
+
+
+================================================================================
+EXAMPLE: BEFORE vs AFTER
+================================================================================
+
+BEFORE (Manual):
+  let config = PartitionedJobConfig {
+      partitioning_strategy: Some("smart_repartition".to_string()),
+      ...
+  };
+
+AFTER (Automatic):
+  let config = PartitionedJobConfig {
+      auto_select_strategy: true,  // NEW FIELD
+      ...
+  };
+  let analysis = QueryAnalysisForPartitioning::from_ast(&query);
+  let strategy = analysis.suggest_strategy();
+  // ✅ Optimal strategy selected automatically!
+

@@ -80,20 +80,29 @@ pub(crate) fn extract_record_timestamp(
             // Convert NaiveDateTime to milliseconds since epoch
             Ok(dt.and_utc().timestamp_millis())
         }
-        Some(other) => Err(SqlError::ExecutionError {
-            message: format!(
+        Some(other) => {
+            let error_msg = format!(
                 "Time field '{}' has invalid type: {:?} (expected Integer or Timestamp)",
                 time_field, other
-            ),
-            query: None,
-        }),
-        None => Err(SqlError::ExecutionError {
-            message: format!(
-                "Time field '{}' not found in record. Use _TIMESTAMP for system processing-time.",
-                time_field
-            ),
-            query: None,
-        }),
+            );
+            log::error!("WINDOW ERROR: {}", error_msg);
+            Err(SqlError::ExecutionError {
+                message: error_msg,
+                query: None,
+            })
+        }
+        None => {
+            let error_msg = format!(
+                "Time field '{}' not found in record. Available fields: {:?}. Use _TIMESTAMP for system processing-time.",
+                time_field,
+                rec.fields.keys().collect::<Vec<_>>()
+            );
+            log::error!("WINDOW ERROR: {}", error_msg);
+            Err(SqlError::ExecutionError {
+                message: error_msg,
+                query: None,
+            })
+        }
     }
 }
 

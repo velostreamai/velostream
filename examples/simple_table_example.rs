@@ -3,7 +3,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use velostream::Table;
 use velostream::velostream::kafka::consumer_config::{ConsumerConfig, IsolationLevel, OffsetReset};
-use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::kafka::serialization::StringSerializer;
 use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::execution::types::FieldValue;
 

@@ -7,8 +7,6 @@
 // - Label value validation
 
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use chrono::NaiveDate;
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 /// Configuration for label extraction behavior
@@ -140,7 +138,6 @@ fn truncate_if_needed(value: &str, max_length: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDateTime;
 
     fn create_test_record() -> StreamRecord {
         let mut fields = HashMap::new();

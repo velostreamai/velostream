@@ -102,7 +102,7 @@ async fn execute_dynamic_correlation_test(
     let parsed_query = parser.parse(query)?;
 
     engine
-        .execute_with_record(&parsed_query, test_record)
+        .execute_with_record(&parsed_query, &test_record)
         .await?;
 
     let mut results = Vec::new();

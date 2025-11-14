@@ -107,8 +107,7 @@ impl AliasContext {
 
     /// Check if an alias is known in this context
     pub fn contains_alias(&self, alias: &str) -> bool {
-        self.from_alias.as_ref().map(|a| a.as_str()) == Some(alias)
-            || self.join_aliases.contains(alias)
+        self.from_alias.as_deref() == Some(alias) || self.join_aliases.contains(alias)
     }
 
     /// Get all known aliases

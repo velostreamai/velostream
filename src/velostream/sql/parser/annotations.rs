@@ -9,6 +9,14 @@
 // - @job_name: <custom_name>           (optional)
 //   Provides a human-readable name for the job instead of auto-generated name
 //
+// ## Partitioning Strategy Annotations
+// - @partitioning_strategy: <strategy> (optional)
+//   Selects partitioning strategy: always_hash, smart_repartition, sticky_partition, round_robin, fan_in
+// - @sticky-partition-id: <partition_id> (optional)
+//   For sticky_partition strategy: specifies which partition to pin records to (0-based index)
+// - @partition-count: <count>          (optional)
+//   Specifies number of partitions for V2 architecture (overrides default CPU count)
+//
 // ## Metric Annotations
 // - @metric: <name>                    (required)
 // - @metric_type: counter|gauge|histogram  (required)
@@ -78,6 +86,7 @@ pub enum MetricType {
 
 impl MetricType {
     /// Parse metric type from string
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, SqlError> {
         match s.to_lowercase().trim() {
             "counter" => Ok(MetricType::Counter),
@@ -90,6 +99,31 @@ impl MetricType {
                 ),
                 position: None,
             }),
+        }
+    }
+}
+
+/// Partition configuration annotations parsed from SQL comments
+///
+/// Allows users to control partitioning behavior directly in SQL via annotations:
+/// - `@sticky_partition_id`: Which partition to pin records to (for StickyPartition strategy)
+/// - `@partition_count`: Number of partitions for V2 architecture
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartitionAnnotations {
+    /// Partition ID for sticky partition strategy (0-based index)
+    /// When using StickyPartition strategy, records can be pinned to a specific partition
+    pub sticky_partition_id: Option<usize>,
+
+    /// Number of partitions for V2 architecture
+    /// Overrides the default (CPU count) if specified
+    pub partition_count: Option<usize>,
+}
+
+impl Default for PartitionAnnotations {
+    fn default() -> Self {
+        Self {
+            sticky_partition_id: None,
+            partition_count: None,
         }
     }
 }
@@ -178,6 +212,94 @@ fn validate_job_name(name: &str) -> Result<(), SqlError> {
     Ok(())
 }
 
+/// Parse partition configuration annotations from comment tokens
+///
+/// Extracts `@sticky_partition_id` and `@partition_count` annotations from SQL comments
+/// that appear before a CREATE STREAM statement.
+///
+/// # Arguments
+/// * `comments` - Comment tokens from tokenize_with_comments()
+///
+/// # Returns
+/// * `Ok(PartitionAnnotations)` - Parsed annotations (fields are Option, may be None)
+/// * `Err(SqlError)` - Parse error with details
+///
+/// # Example
+/// ```no_run
+/// use velostream::velostream::sql::parser::annotations::parse_partition_annotations;
+///
+/// let comments = vec![
+///     "-- @sticky-partition-id: 2".to_string(),
+///     "-- @partition-count: 8".to_string(),
+/// ];
+/// let annotations = parse_partition_annotations(&comments).unwrap();
+/// assert_eq!(annotations.sticky_partition_id, Some(2));
+/// assert_eq!(annotations.partition_count, Some(8));
+/// ```
+pub fn parse_partition_annotations(comments: &[String]) -> Result<PartitionAnnotations, SqlError> {
+    let mut annotations = PartitionAnnotations::default();
+
+    for comment in comments {
+        let mut trimmed = comment.trim();
+
+        // Strip SQL comment prefix if present
+        if trimmed.starts_with("--") {
+            trimmed = trimmed.trim_start_matches("--").trim();
+        }
+
+        // Skip non-annotation comments
+        if !trimmed.starts_with('@') {
+            continue;
+        }
+
+        // Parse annotation directive
+        if let Some((directive, value)) = parse_annotation_line(trimmed) {
+            match directive.as_str() {
+                "sticky-partition-id" => {
+                    let partition_id = value.trim().parse::<usize>().map_err(|_| {
+                        SqlError::ParseError {
+                            message: format!(
+                                "Invalid sticky-partition-id '{}'. Must be a non-negative integer",
+                                value
+                            ),
+                            position: None,
+                        }
+                    })?;
+                    annotations.sticky_partition_id = Some(partition_id);
+                }
+                "partition-count" => {
+                    let count =
+                        value
+                            .trim()
+                            .parse::<usize>()
+                            .map_err(|_| SqlError::ParseError {
+                                message: format!(
+                                    "Invalid partition-count '{}'. Must be a positive integer",
+                                    value
+                                ),
+                                position: None,
+                            })?;
+
+                    if count == 0 {
+                        return Err(SqlError::ParseError {
+                            message: "partition-count must be at least 1".to_string(),
+                            position: None,
+                        });
+                    }
+
+                    annotations.partition_count = Some(count);
+                }
+                _ => {
+                    // Unknown directive - will be handled by other annotation parsers
+                    // or ignored if not a known annotation
+                }
+            }
+        }
+    }
+
+    Ok(annotations)
+}
+
 /// Parse metric annotations from comment tokens
 ///
 /// Extracts @metric annotations from SQL comments that appear before
@@ -224,8 +346,10 @@ pub fn parse_metric_annotations(comments: &[String]) -> Result<Vec<MetricAnnotat
                         validate_annotation(&annotation)?;
                         annotations.push(annotation);
                     }
-                    let mut new_annotation = MetricAnnotation::default();
-                    new_annotation.name = value.trim().to_string();
+                    let new_annotation = MetricAnnotation {
+                        name: value.trim().to_string(),
+                        ..MetricAnnotation::default()
+                    };
                     current_annotation = Some(new_annotation);
                 }
                 "metric_type" => {
@@ -417,67 +541,4 @@ fn validate_metric_name(name: &str) -> Result<(), SqlError> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_metric_type() {
-        assert_eq!(
-            MetricType::from_str("counter").unwrap(),
-            MetricType::Counter
-        );
-        assert_eq!(
-            MetricType::from_str("COUNTER").unwrap(),
-            MetricType::Counter
-        );
-        assert_eq!(MetricType::from_str("gauge").unwrap(), MetricType::Gauge);
-        assert_eq!(
-            MetricType::from_str("histogram").unwrap(),
-            MetricType::Histogram
-        );
-
-        assert!(MetricType::from_str("invalid").is_err());
-    }
-
-    #[test]
-    fn test_parse_annotation_line() {
-        let result = parse_annotation_line("@metric: test_metric_total");
-        assert_eq!(
-            result,
-            Some(("metric".to_string(), "test_metric_total".to_string()))
-        );
-
-        let result = parse_annotation_line("@metric_type: counter");
-        assert_eq!(
-            result,
-            Some(("metric_type".to_string(), "counter".to_string()))
-        );
-    }
-
-    #[test]
-    fn test_parse_buckets() {
-        let result = parse_buckets("[0.1, 0.5, 1.0, 5.0]").unwrap();
-        assert_eq!(result, vec![0.1, 0.5, 1.0, 5.0]);
-
-        let result = parse_buckets("[1, 10, 100]").unwrap();
-        assert_eq!(result, vec![1.0, 10.0, 100.0]);
-
-        assert!(parse_buckets("[invalid]").is_err());
-    }
-
-    #[test]
-    fn test_validate_metric_name() {
-        assert!(validate_metric_name("valid_metric_name").is_ok());
-        assert!(validate_metric_name("metric_123").is_ok());
-        assert!(validate_metric_name("_metric").is_ok());
-        assert!(validate_metric_name("metric:subsystem:name").is_ok());
-
-        assert!(validate_metric_name("").is_err());
-        assert!(validate_metric_name("123_invalid").is_err());
-        assert!(validate_metric_name("invalid-metric").is_err());
-        assert!(validate_metric_name("invalid metric").is_err());
-    }
 }

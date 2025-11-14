@@ -26,6 +26,12 @@ pub struct StreamTableJoinProcessor {
     degradation_handler: GracefulDegradationHandler,
 }
 
+impl Default for StreamTableJoinProcessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamTableJoinProcessor {
     /// Create a new Stream-Table JOIN processor with default fail-fast behavior
     pub fn new() -> Self {

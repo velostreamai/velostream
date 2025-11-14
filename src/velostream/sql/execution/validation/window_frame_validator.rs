@@ -5,6 +5,7 @@
 //! - RANGE vs ROWS compatibility
 //! - Frame boundary specifications (UNBOUNDED, CURRENT ROW, INTERVAL)
 //! - Temporal window validation for INTERVAL clauses
+//!
 //! This is Phase 8 of the correctness work.
 
 use crate::velostream::sql::SqlError;

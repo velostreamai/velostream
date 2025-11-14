@@ -36,6 +36,7 @@
 -- @metric_field: price
 -- @metric_labels: symbol, exchange
 -- @job_name: market-data-event-time-1
+-- @partitioning_strategy: always_hash
 CREATE STREAM market_data_ts AS
 SELECT
     symbol,
@@ -88,6 +89,7 @@ WITH (
 -- @metric_labels: symbol
 -- @metric_buckets: 100, 500, 1000, 5000, 10000, 50000, 100000
 -- @job_name: tick_buckets_streams
+-- @partitioning_strategy: always_hash
 CREATE STREAM tick_buckets AS
 SELECT
     symbol,
@@ -133,6 +135,7 @@ WITH (
 -- @metric_labels: symbol
 -- @metric_buckets: 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0
 -- @job_name: advanced_price_movement_alerts
+-- @partitioning_strategy: smart_repartition
 CREATE STREAM advanced_price_movement_alerts AS
 SELECT 
     symbol,
@@ -249,6 +252,7 @@ WITH (
 --
 -- @description: Debug stream for filter condition visibility
 -- @job_name: price_movement_debug
+-- @partitioning_strategy: always_hash
 CREATE STREAM price_movement_debug AS
 SELECT
     symbol,
@@ -311,6 +315,7 @@ WITH (
 -- @metric_labels: symbol, spike_classification
 -- @metric_condition: spike_classification IN ('EXTREME_SPIKE', 'HIGH_SPIKE', 'STATISTICAL_ANOMALY')
 -- @job_name: volume_spike_analysis
+-- @partitioning_strategy: always_hash
 CREATE STREAM volume_spike_analysis AS
 SELECT
     symbol,
@@ -408,6 +413,7 @@ WITH (
 -- Shows late data handling across multiple streams
 
 -- @job_name: trading_positions_with_event_time
+-- @partitioning_strategy: always_hash
 CREATE STREAM trading_positions_with_event_time AS
 SELECT
     trader_id,
@@ -440,6 +446,7 @@ WITH (
 -- @metric_condition: risk_classification IN ('POSITION_LIMIT_EXCEEDED', 'DAILY_LOSS_LIMIT_EXCEEDED', 'HIGH_VOLATILITY_TRADER')
 
 -- @job_name: risk-monitoring-stream
+-- @partitioning_strategy: always_hash
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
     p.trader_id,
@@ -618,6 +625,7 @@ WITH (
 -- @metric_condition: buy_ratio > 0.7 OR sell_ratio > 0.7
 
 -- @job_name: order_flow_imbalance_detection
+-- @partitioning_strategy: smart_repartition
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
     symbol,
@@ -657,6 +665,7 @@ WITH (
 -- @metric_labels: symbol, exchange_a, exchange_b
 
 -- @job_name: arbitrage_opportunities_detection
+-- @partitioning_strategy: always_hash
 CREATE STREAM arbitrage_opportunities_detection AS
 SELECT 
     a.symbol,
@@ -691,6 +700,7 @@ WITH (
 -- ====================================================================================
 -- @job_name: simple-price-movement-test
 -- @phase: 7
+-- @partitioning_strategy: always_hash
 -- Testing basic GROUP BY + WINDOW + EMIT CHANGES with window pseudo-columns
 -- This simplified version tests the window boundary fix without complex aggregations
 --

@@ -5,7 +5,7 @@ use crate::velostream::schema::{Schema, StreamHandle};
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::RowsEmitMode;
 use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::execution::internal::{RowsWindowState, WindowState};
+use crate::velostream::sql::execution::internal::{GroupByState, RowsWindowState, WindowState};
 use crate::velostream::sql::execution::performance::PerformanceMonitor;
 use crate::velostream::sql::execution::watermarks::WatermarkManager;
 use crate::velostream::table::unified_table::UnifiedTable;
@@ -31,7 +31,11 @@ pub struct ProcessorContext {
     /// JOIN processing utilities
     pub join_context: JoinContext,
     /// GROUP BY processing state
-    pub group_by_states: HashMap<String, crate::velostream::sql::execution::internal::GroupByState>,
+    /// FR-082 Phase 6.5: Single source of truth for group aggregations
+    /// Wrapped in Arc<GroupByState> to eliminate cloning without needing an additional Mutex
+    /// ProcessorContext owns this state (not borrowed from elsewhere)
+    /// Processors modify in place during batch processing
+    pub group_by_states: HashMap<String, Arc<GroupByState>>,
     /// Schema registry for introspection (SHOW/DESCRIBE operations)
     pub schemas: HashMap<String, Schema>,
     /// Stream handles registry
@@ -58,7 +62,9 @@ pub struct ProcessorContext {
 
     // === HIGH-PERFORMANCE WINDOW STATE MANAGEMENT ===
     /// Persistent window states for queries processed in this context
+    /// FR-082 Phase 6.5: Single source of truth for window state (owned by ProcessorContext)
     /// Using Vec for cache efficiency - most contexts handle 1-2 queries
+    /// No locks, no duplicates - state is directly owned and modified in place
     pub persistent_window_states: Vec<(String, WindowState)>,
     /// Track which states were modified for efficient persistence (bit mask)
     pub dirty_window_states: u32,
@@ -462,7 +468,7 @@ impl ProcessorContext {
     pub async fn write_batch_to(
         &mut self,
         sink_name: &str,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), SqlError> {
         let writer =
             self.data_writers
@@ -488,7 +494,7 @@ impl ProcessorContext {
     pub async fn write_batch_to_shared(
         &mut self,
         sink_name: &str,
-        records: &[StreamRecord],
+        records: &[std::sync::Arc<StreamRecord>],
     ) -> Result<(), SqlError> {
         let writer =
             self.data_writers
@@ -941,7 +947,7 @@ impl ProcessorContext {
     pub fn queue_result(&mut self, query_id: &str, result: StreamRecord) {
         self.pending_results
             .entry(query_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(result);
     }
 
@@ -955,7 +961,7 @@ impl ProcessorContext {
     pub fn queue_results(&mut self, query_id: &str, results: Vec<StreamRecord>) {
         self.pending_results
             .entry(query_id.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .extend(results);
     }
 
@@ -979,14 +985,13 @@ impl ProcessorContext {
                     Some(queue.remove(0))
                 }
             })
-            .and_then(|result| {
+            .inspect(|result| {
                 // Clean up empty queues
                 if let Some(queue) = self.pending_results.get(query_id) {
                     if queue.is_empty() {
                         self.pending_results.remove(query_id);
                     }
                 }
-                Some(result)
             })
     }
 
@@ -1033,20 +1038,9 @@ impl ProcessorContext {
         self.pending_results.clear();
     }
 
-    // === FR-081 PHASE 2A: WINDOW V2 CONFIGURATION ===
+    // === STREAMING CONFIGURATION ===
 
-    /// Check if window_v2 architecture is enabled (FR-081 Phase 2A)
-    ///
-    /// Returns true if the streaming config has window_v2 enabled.
-    /// When enabled, window processing uses the high-performance trait-based architecture.
-    pub fn is_window_v2_enabled(&self) -> bool {
-        self.streaming_config
-            .as_ref()
-            .map(|config| config.enable_window_v2)
-            .unwrap_or(false) // Default to false (legacy behavior)
-    }
-
-    /// Set the streaming configuration (FR-081 Phase 2A)
+    /// Set the streaming configuration
     ///
     /// Allows runtime configuration of streaming engine features.
     pub fn set_streaming_config(

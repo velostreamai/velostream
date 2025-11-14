@@ -11,5 +11,6 @@ pub mod fr079_window_group_by_clause_order_test; // FR-079: Test WINDOW/GROUP BY
 pub mod implicit_aggregation_test;
 pub mod lifecycle_test;
 pub mod metric_annotations_test; // FR-073 Phase 1
+pub mod partition_annotations_test; // Partition annotation parsing tests
 pub mod session_window_test;
 pub mod tumbling_window_test;

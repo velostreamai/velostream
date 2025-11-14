@@ -10,6 +10,7 @@
 
 // Common utilities for unified performance testing (Phase 1)
 pub mod common;
+pub mod validation; // Benchmark validation utilities for metrics and record sampling
 
 // Organized test hierarchy (Phase 2)
 pub mod analysis; // Performance profiling and analysis
@@ -25,11 +26,15 @@ pub mod where_clause_performance_test;
 
 // Individual performance test modules (these ARE discoverable and clickable in IDEs)
 pub mod avro_decimal_roundtrip_test;
+// Removed: fr082_phase1_partitioned_routing_benchmark (Phase 1, replaced by pluggable strategies)
+pub mod fr082_strategy_comparison_benchmark; // FR-082 Phase 2-3: Strategy comparison (V1 vs V2)
 pub mod kafka_consumer_benchmark;
 pub mod microbench_job_server_profiling;
+pub mod microbench_job_server_profiling_comprehensive; // Phase 3 validation: window + GROUP BY
 pub mod microbench_multi_sink_write;
 pub mod performance_optimization_verification;
 pub mod performance_regression_test;
+pub mod phase6_2_baseline_validation; // Phase 6.2: V2 baseline with SQL execution integration
 
 // Re-export organized structure for easier access
 pub use consolidated_mod::*;

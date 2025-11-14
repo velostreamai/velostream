@@ -58,12 +58,6 @@ pub struct StreamingConfig {
     /// Default: None (use default monitoring settings)
     pub resource_monitoring_config: Option<ResourceMonitoringConfig>,
 
-    // === FR-081 PHASE 2A: WINDOW V2 ARCHITECTURE ===
-    /// Enable window_v2 trait-based architecture for window processing
-    /// Default: false (uses existing window processor)
-    /// When enabled: 27-79x performance improvement with Arc<StreamRecord> zero-copy
-    pub enable_window_v2: bool,
-
     // === PHASE 4: ADVANCED OBSERVABILITY ===
     /// Enable OpenTelemetry distributed tracing
     /// Default: false (no distributed tracing)
@@ -119,8 +113,6 @@ impl Default for StreamingConfig {
             enable_resource_monitoring: false,
             circuit_breaker_config: None,
             resource_monitoring_config: None,
-            // FR-081 Phase 2A defaults - ENABLED by default (500K+ rec/sec performance)
-            enable_window_v2: true,
             // Phase 4 defaults - all disabled for backward compatibility
             enable_distributed_tracing: false,
             enable_prometheus_metrics: false,
@@ -172,8 +164,6 @@ impl StreamingConfig {
             enable_resource_monitoring: true,
             circuit_breaker_config: Some(CircuitBreakerConfig::production()),
             resource_monitoring_config: Some(ResourceMonitoringConfig::production()),
-            // FR-081 Phase 2A enhanced features
-            enable_window_v2: true, // Enable high-performance window processing
             // Phase 4 enhanced features - conservative defaults for production
             enable_distributed_tracing: false, // Requires explicit opt-in due to overhead
             enable_prometheus_metrics: true,
@@ -261,17 +251,6 @@ impl StreamingConfig {
         self.enable_enhanced_errors = true;
         self.enable_circuit_breakers = true;
         self.enable_resource_monitoring = true;
-        self
-    }
-
-    // === FR-081 PHASE 2A: WINDOW V2 ARCHITECTURE ===
-
-    /// Enable window_v2 high-performance window processing (FR-081 Phase 2A)
-    ///
-    /// Enables the trait-based window architecture with Arc<StreamRecord> zero-copy semantics.
-    /// Performance improvements: 27-79x over Phase 1 baseline (428K-1.23M rec/sec)
-    pub fn with_window_v2(mut self) -> Self {
-        self.enable_window_v2 = true;
         self
     }
 

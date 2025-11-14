@@ -321,7 +321,7 @@ impl WindowFunctions {
             (FrameType::Range, FrameBound::Preceding(n)) => -(*n as i64),
             (FrameType::Range, FrameBound::Following(n)) => *n as i64,
             (_, FrameBound::UnboundedFollowing) => {
-                (partition_end as i64 - current_position as i64 - 1)
+                partition_end as i64 - current_position as i64 - 1
             }
             _ => {
                 // Default to CURRENT ROW if unknown
@@ -333,7 +333,7 @@ impl WindowFunctions {
         let end_offset = match (&frame.frame_type, end_bound) {
             // UNBOUNDED FOLLOWING = all rows to end of partition
             (_, FrameBound::UnboundedFollowing) => {
-                (partition_end as i64 - current_position as i64 - 1)
+                partition_end as i64 - current_position as i64 - 1
             }
             // CURRENT ROW = current row only
             (_, FrameBound::CurrentRow) => 0,
@@ -911,10 +911,10 @@ impl WindowFunctions {
                 (frame_start, frame_end)
             } else {
                 // Fallback to partition bounds if no frame specified
-                let bounds = window_context
+
+                window_context
                     .partition_bounds
-                    .unwrap_or((0, window_context.buffer.len()));
-                bounds
+                    .unwrap_or((0, window_context.buffer.len()))
             };
 
         let mut sum = 0.0;

@@ -18,6 +18,7 @@ use crate::velostream::sql::execution::{
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Parameter binding for SQL queries to prevent injection
 #[derive(Debug, Clone)]
@@ -161,8 +162,7 @@ impl SelectProcessor {
                     let escaped = s
                         .replace('\\', "\\\\")
                         .replace('\'', "''")
-                        .replace('\0', "")
-                        .replace('\x1a', "")
+                        .replace(['\0', '\x1a'], "")
                         .chars()
                         .filter(|c| !c.is_control() || c == &'\t' || c == &'\n' || c == &'\r')
                         .collect::<String>();
@@ -375,13 +375,6 @@ impl SelectProcessor {
                 }
             }
 
-            // Check limit first
-            if let Some(limit_value) = limit {
-                if let Some(result) = LimitProcessor::check_limit(*limit_value, context)? {
-                    return Ok(result);
-                }
-            }
-
             // Handle JOINs first (if any)
             let mut joined_record = record.clone();
             if let Some(join_clauses) = joins {
@@ -400,7 +393,7 @@ impl SelectProcessor {
                 // Phase 3: Validate WHERE clause fields exist in the joined record
                 FieldValidator::validate_expressions_with_aliases(
                     &joined_record,
-                    &[where_expr.clone()],
+                    std::slice::from_ref(where_expr),
                     ValidationContext::WhereClause,
                     &from_join_aliases,
                 )
@@ -431,6 +424,14 @@ impl SelectProcessor {
                     header_mutations: Vec::new(),
                     should_count: false,
                 });
+            }
+
+            // Check limit AFTER WHERE clause (only count records that pass filtering)
+            if let Some(limit_value) = limit {
+                if let Some(result) = LimitProcessor::check_limit(*limit_value, context)? {
+                    return Ok(result);
+                }
+                LimitProcessor::increment_count(context);
             }
 
             // Handle GROUP BY if present
@@ -682,7 +683,7 @@ impl SelectProcessor {
                 // Phase 3: Validate HAVING clause fields exist in combined scope
                 FieldValidator::validate_expressions_with_aliases(
                     &result_record,
-                    &[having_expr.clone()],
+                    std::slice::from_ref(having_expr),
                     ValidationContext::HavingClause,
                     &from_join_aliases,
                 )
@@ -1180,46 +1181,30 @@ impl SelectProcessor {
         let query_key = format!("{:p}", query as *const _);
 
         // Initialize GROUP BY state if not exists
+        // Phase 4B: Use GroupByState::new() which uses FxHashMap
+        // Phase 4C: Wrap in Arc to eliminate cloning overhead
         if !context.group_by_states.contains_key(&query_key) {
             context.group_by_states.insert(
                 query_key.clone(),
-                GroupByState {
-                    groups: HashMap::new(),
-                    group_expressions: group_exprs.to_vec(),
-                    select_fields: fields.to_vec(),
-                    having_clause: having.clone(),
-                },
+                Arc::new(GroupByState::new(
+                    group_exprs.to_vec(),
+                    fields.to_vec(),
+                    having.clone(),
+                )),
             );
         }
 
-        // Generate group key for this record
-        let mut group_key = Vec::new();
-        for group_expr in group_exprs {
-            let key_value = Self::evaluate_group_key_expression(group_expr, record)?;
-            group_key.push(key_value);
-        }
+        // Phase 4B: Generate optimized group key for this record
+        // Uses GroupKey with Arc<[FieldValue]> instead of Vec<String>
+        let group_key = GroupByStateManager::generate_group_key(group_exprs, record)?;
 
-        // Get mutable reference to the GROUP BY state
-        let group_state = context.group_by_states.get_mut(&query_key).unwrap();
+        // Phase 4C: Get mutable reference using Arc::make_mut (copy-on-write)
+        // This clones the GroupByState only if there are multiple Arc references
+        let group_state = Arc::make_mut(context.group_by_states.get_mut(&query_key).unwrap());
 
-        // Initialize or update the accumulator for this group
-        let accumulator = group_state
-            .groups
-            .entry(group_key.clone())
-            .or_insert_with(|| GroupAccumulator {
-                count: 0,
-                non_null_counts: HashMap::new(),
-                sums: HashMap::new(),
-                mins: HashMap::new(),
-                maxs: HashMap::new(),
-                numeric_values: HashMap::new(),
-                first_values: HashMap::new(),
-                last_values: HashMap::new(),
-                string_values: HashMap::new(),
-                distinct_values: HashMap::new(),
-                approx_distinct_values: HashMap::new(),
-                sample_record: Some(record.clone()),
-            });
+        // Phase 4B: Initialize or update the accumulator for this group
+        // Uses get_or_create_group which works with GroupKey
+        let accumulator = group_state.get_or_create_group(group_key.clone());
 
         // Note: accumulator.count will be incremented in AccumulatorManager::process_record_into_accumulator
         // Do NOT increment it here to avoid double-counting
@@ -1292,14 +1277,14 @@ impl SelectProcessor {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(*f);
                     }
                     FieldValue::Integer(i) => {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(*i as f64);
                     }
                     FieldValue::ScaledInteger(scaled, scale) => {
@@ -1307,7 +1292,7 @@ impl SelectProcessor {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(f);
                     }
                     FieldValue::Decimal(d) => {
@@ -1316,7 +1301,7 @@ impl SelectProcessor {
                         accumulator
                             .numeric_values
                             .entry(col_name.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(f_val);
                     }
                     _ => {}
@@ -1724,10 +1709,9 @@ impl SelectProcessor {
         }
 
         let mean = values.iter().sum::<f64>() / values.len() as f64;
-        let variance =
-            values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64; // Sample variance uses n-1
+        // Sample variance uses n-1
 
-        variance
+        values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (values.len() - 1) as f64
     }
 
     /// Evaluate expression with window and subquery support
@@ -2816,6 +2800,7 @@ impl SelectProcessor {
 ///
 /// # Returns
 /// * The WHERE clause with correlation variables substituted with actual values
+///
 /// Convert a FieldValue to its SQL string representation
 /// Convert a FieldValue to a SQL string literal with comprehensive SQL injection protection
 ///
@@ -2841,8 +2826,7 @@ fn field_value_to_sql_string(field_value: &FieldValue) -> String {
             let escaped = s
                 .replace('\\', "\\\\") // Escape backslashes first
                 .replace('\'', "''") // Escape single quotes (SQL standard)
-                .replace('\0', "") // Remove null bytes
-                .replace('\x1a', "") // Remove SUB character (can terminate strings in some DBs)
+                .replace(['\0', '\x1a'], "") // Remove SUB character (can terminate strings in some DBs)
                 .chars()
                 .filter(|c| !c.is_control() || c == &'\t' || c == &'\n' || c == &'\r')
                 .collect::<String>();
@@ -2887,7 +2871,7 @@ impl TableReference {
             || self
                 .alias
                 .as_ref()
-                .map_or(false, |alias| identifier.eq_ignore_ascii_case(alias))
+                .is_some_and(|alias| identifier.eq_ignore_ascii_case(alias))
     }
 }
 

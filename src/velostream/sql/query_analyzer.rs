@@ -1081,9 +1081,7 @@ impl QueryAnalyzer {
 
                             // Merge: YAML provides defaults, SQL properties override
                             for (yaml_key, yaml_value) in yaml_properties {
-                                if !properties.contains_key(&yaml_key) {
-                                    properties.insert(yaml_key, yaml_value);
-                                }
+                                properties.entry(yaml_key).or_insert(yaml_value);
                             }
                             log::info!(
                                 "Loaded {} properties from config file '{}'",

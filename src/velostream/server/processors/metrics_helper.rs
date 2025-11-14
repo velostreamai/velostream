@@ -401,10 +401,10 @@ impl ProcessorMetricsHelper {
     }
 
     /// Extract annotations of a specific type from a query
-    fn extract_annotations_by_type<'a>(
-        query: &'a StreamingQuery,
+    fn extract_annotations_by_type(
+        query: &StreamingQuery,
         metric_type: MetricType,
-    ) -> Vec<&'a MetricAnnotation> {
+    ) -> Vec<&MetricAnnotation> {
         match query {
             StreamingQuery::CreateStream {
                 metric_annotations, ..
@@ -503,36 +503,33 @@ impl ProcessorMetricsHelper {
         }
 
         if let Some(obs) = observability {
-            match obs.read().await {
-                obs_lock => {
-                    if let Some(metrics) = obs_lock.metrics() {
-                        for annotation in annotations {
-                            // Register the metric using the provided function
-                            register_fn(metrics, annotation)?;
+            let obs_lock = obs.read().await;
+            if let Some(metrics) = obs_lock.metrics() {
+                for annotation in annotations {
+                    // Register the metric using the provided function
+                    register_fn(metrics, annotation)?;
 
-                            // Compile condition expression if present
-                            self.compile_condition(annotation, job_name).await?;
+                    // Compile condition expression if present
+                    self.compile_condition(annotation, job_name).await?;
 
-                            info!(
-                                "Job '{}': Registered {} metric '{}' with labels {:?}{}",
-                                job_name,
-                                metric_type_name,
-                                annotation.name,
-                                annotation.labels,
-                                if annotation.condition.is_some() {
-                                    " (with condition)"
-                                } else {
-                                    ""
-                                }
-                            );
+                    info!(
+                        "Job '{}': Registered {} metric '{}' with labels {:?}{}",
+                        job_name,
+                        metric_type_name,
+                        annotation.name,
+                        annotation.labels,
+                        if annotation.condition.is_some() {
+                            " (with condition)"
+                        } else {
+                            ""
                         }
-                    } else {
-                        warn!(
-                            "Job '{}': No metrics provider available for annotation registration",
-                            job_name
-                        );
-                    }
+                    );
                 }
+            } else {
+                warn!(
+                    "Job '{}': No metrics provider available for annotation registration",
+                    job_name
+                );
             }
         } else {
             debug!(
@@ -604,7 +601,7 @@ impl ProcessorMetricsHelper {
     async fn emit_metrics_generic<F>(
         &self,
         annotations: Vec<&MetricAnnotation>,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
         batch_fn: F,
@@ -631,7 +628,9 @@ impl ProcessorMetricsHelper {
                         batch_capacity,
                     );
 
-                for record in output_records {
+                for record_arc in output_records {
+                    // Dereference Arc for field access
+                    let record = &**record_arc;
                     let record_start = Instant::now();
                     for annotation in &annotations {
                         // Check if metric should be emitted based on condition
@@ -728,7 +727,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_counter_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
@@ -814,7 +813,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_gauge_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {
@@ -912,7 +911,7 @@ impl ProcessorMetricsHelper {
     pub async fn emit_histogram_metrics(
         &self,
         query: &StreamingQuery,
-        output_records: &[crate::velostream::sql::execution::StreamRecord],
+        output_records: &[std::sync::Arc<crate::velostream::sql::execution::StreamRecord>],
         observability: &Option<SharedObservabilityManager>,
         job_name: &str,
     ) {

@@ -884,9 +884,9 @@ impl HierarchicalSchemaRegistry {
             let current_version = if self.global_schemas.get(config_type).is_some() {
                 // In a real implementation, get version from the provider
                 "2.0.0" // Current schema version
-            } else if self.source_schemas.get(config_type).is_some() {
-                "2.0.0"
-            } else if self.sink_schemas.get(config_type).is_some() {
+            } else if self.source_schemas.get(config_type).is_some()
+                || self.sink_schemas.get(config_type).is_some()
+            {
                 "2.0.0"
             } else {
                 errors.push(ConfigValidationError {

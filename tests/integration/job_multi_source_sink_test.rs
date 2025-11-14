@@ -158,6 +158,8 @@ async fn test_simple_processor_multi_job_interface() {
         retry_backoff: Duration::from_millis(500),
         progress_interval: 10,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -167,7 +169,7 @@ async fn test_simple_processor_multi_job_interface() {
     let writers = HashMap::new(); // Empty for interface test
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser.parse("SELECT * FROM test_stream").unwrap();
@@ -206,6 +208,8 @@ async fn test_transactional_processor_multi_job_interface() {
         retry_backoff: Duration::from_millis(1000),
         progress_interval: 5,
         log_progress: true,
+        empty_batch_count: 1,
+        wait_on_empty_batch_ms: 1000,
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -215,7 +219,7 @@ async fn test_transactional_processor_multi_job_interface() {
     let writers = HashMap::new();
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let parser = StreamingSqlParser::new();
     let query = parser

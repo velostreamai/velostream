@@ -349,7 +349,7 @@ impl CtasExecutor {
         }
 
         // Determine if we should use CompactTable for better performance
-        let use_compact_table = self.should_use_compact_table(&properties);
+        let use_compact_table = self.should_use_compact_table(properties);
 
         let table = if use_compact_table {
             log::info!(

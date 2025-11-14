@@ -397,7 +397,11 @@ async fn run_kafka_to_file_pipeline(
         }
 
         // Flush periodically
-        if metrics.records_written.load(Ordering::Relaxed) % 10 == 0 {
+        if metrics
+            .records_written
+            .load(Ordering::Relaxed)
+            .is_multiple_of(10)
+        {
             let _ = writer.flush().await;
         }
     }

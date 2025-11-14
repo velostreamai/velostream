@@ -775,9 +775,6 @@ where
     }
 }
 
-// Import for dedicated thread implementation
-use tokio::task;
-
 /// Maximum-performance stream using a dedicated blocking thread for Kafka polling.
 ///
 /// This stream spawns a dedicated thread that continuously polls the Kafka consumer,
@@ -838,6 +835,7 @@ pub struct DedicatedKafkaStream<K, V> {
 }
 
 impl<K, V> DedicatedKafkaStream<K, V> {
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Result<Message<K, V>, ConsumerError>> {
         self.receiver.recv().ok()
     }
@@ -1181,11 +1179,8 @@ where
 // Usage example with BaseConsumer
 #[cfg(test)]
 mod examples {
-    use super::*;
-    use futures::StreamExt;
     use rdkafka::config::ClientConfig;
     use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
-    use std::time::Duration;
 
     // Example showing how to use the fast consumer
     // Note: Requires concrete serializer implementations

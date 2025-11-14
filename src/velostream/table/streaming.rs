@@ -49,6 +49,7 @@ impl Stream for RecordStream {
 ///
 /// This trait provides streaming alternatives to legacy SqlQueryable operations,
 /// processing records in batches to minimize memory usage.
+#[allow(async_fn_in_trait)]
 pub trait StreamingQueryable: Send + Sync {
     /// Stream all records without loading them into memory at once
     ///
@@ -206,6 +207,12 @@ pub struct StreamQueryBuilder {
     select_fields: Vec<String>,
     batch_size: usize,
     limit: Option<usize>,
+}
+
+impl Default for StreamQueryBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StreamQueryBuilder {

@@ -60,7 +60,7 @@ fn register_all_providers(registry: &mut HierarchicalSchemaRegistry) {
 
 /// Generate comprehensive JSON Schema for all registered providers
 fn generate_comprehensive_json_schema(
-    registry: &HierarchicalSchemaRegistry,
+    _registry: &HierarchicalSchemaRegistry,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let mut schema = json!({
         "$schema": "http://json-schema.org/draft-07/schema#",

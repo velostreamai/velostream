@@ -181,7 +181,9 @@ async fn test_process_batch_common_success() {
     ];
 
     let (output_sender, _output_receiver) = tokio::sync::mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(output_sender)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+        output_sender,
+    )));
     let query = create_simple_query();
     let job_name = "test_batch_processing";
 
@@ -202,8 +204,8 @@ fn test_job_processing_config_default() {
     assert_eq!(config.batch_timeout, Duration::from_millis(1000));
     assert!(!config.use_transactions);
     assert_eq!(config.failure_strategy, FailureStrategy::LogAndContinue);
-    assert_eq!(config.max_retries, 3);
-    assert_eq!(config.retry_backoff, Duration::from_millis(1000));
+    assert_eq!(config.max_retries, 10);
+    assert_eq!(config.retry_backoff, Duration::from_millis(5000));
     assert!(config.log_progress);
     assert_eq!(config.progress_interval, 10);
 }

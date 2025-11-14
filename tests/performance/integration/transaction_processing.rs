@@ -12,7 +12,7 @@ use std::{
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::{
     datasource::{DataReader, DataWriter},
-    server::processors::{common::*, simple::*, transactional::*},
+    server::processors::{JobProcessor, common::*, simple::*, transactional::*},
     sql::{
         StreamExecutionEngine, StreamingQuery,
         ast::{EmitMode, SelectField, StreamSource},
@@ -156,7 +156,7 @@ impl DataWriter for TransactionalBenchmarkWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records_written += records.len() as u64;
         Ok(())
@@ -328,7 +328,7 @@ async fn benchmark_simple_processor(
     let writer = Some(Box::new(TransactionalBenchmarkWriter::new()) as Box<dyn DataWriter>);
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
     let query = create_benchmark_query();
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
@@ -380,7 +380,7 @@ async fn benchmark_transactional_processor(
     let writer = Some(Box::new(TransactionalBenchmarkWriter::new()) as Box<dyn DataWriter>);
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(Mutex::new(StreamExecutionEngine::new(tx)));
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
     let query = create_benchmark_query();
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
 

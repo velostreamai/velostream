@@ -33,6 +33,7 @@ impl SharedRecord {
     }
 
     /// Get a reference to the underlying StreamRecord.
+    #[allow(clippy::should_implement_trait)]
     pub fn as_ref(&self) -> &StreamRecord {
         &self.inner
     }

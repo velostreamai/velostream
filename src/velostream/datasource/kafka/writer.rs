@@ -768,7 +768,7 @@ impl DataWriter for KafkaDataWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         log::debug!(
             "KafkaDataWriter: Starting batch write of {} records to topic '{}', format={:?}",
@@ -781,7 +781,9 @@ impl DataWriter for KafkaDataWriter {
         let mut successful_writes = 0;
 
         // Process each record individually to avoid lifetime issues
-        for (index, record) in records.into_iter().enumerate() {
+        for (index, record_arc) in records.into_iter().enumerate() {
+            // Dereference Arc and clone for write() which takes ownership
+            let record = (*record_arc).clone();
             log::debug!(
                 "KafkaDataWriter: Processing record {}/{} in batch for topic '{}'",
                 index + 1,

@@ -190,7 +190,7 @@ impl DeploymentConfig {
                     return hostname::get()
                         .map(|h| h.to_string_lossy().to_string())
                         .unwrap_or_else(|_| {
-                            format!("node-{}", uuid::Uuid::new_v4().to_string()[..8].to_string())
+                            format!("node-{}", &uuid::Uuid::new_v4().to_string()[..8])
                         });
                 }
                 // Variable not set, continue to next in fallback chain

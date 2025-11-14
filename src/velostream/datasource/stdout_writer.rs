@@ -126,12 +126,13 @@ impl DataWriter for StdoutWriter {
 
     async fn write_batch(
         &mut self,
-        records: Vec<StreamRecord>,
+        records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         println!("STDOUT_BATCH: Writing {} records to stdout", records.len());
 
-        for record in records {
-            self.write(record).await?;
+        for record_arc in records {
+            // Dereference Arc and clone for write() which takes ownership
+            self.write((*record_arc).clone()).await?;
         }
 
         Ok(())
