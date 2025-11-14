@@ -45,21 +45,22 @@ impl ScenarioResult {
     fn print_table(&self) {
         println!("\n┌─ {}", self.name);
         println!("│");
-        println!("│  SQL Engine Sync (sent: {}, processed: {})",
-            self.sql_engine_sync_records_sent, self.sql_engine_sync_records_processed);
         println!(
-            "│    {:>8.0} rec/sec",
-            self.sql_engine_sync_throughput
+            "│  SQL Engine Sync (sent: {}, processed: {})",
+            self.sql_engine_sync_records_sent, self.sql_engine_sync_records_processed
         );
+        println!("│    {:>8.0} rec/sec", self.sql_engine_sync_throughput);
         println!("│");
-        println!("│  SQL Engine Async (sent: {}, processed: {})",
-            self.sql_engine_async_records_sent, self.sql_engine_async_records_processed);
         println!(
-            "│    {:>8.0} rec/sec",
-            self.sql_engine_async_throughput
+            "│  SQL Engine Async (sent: {}, processed: {})",
+            self.sql_engine_async_records_sent, self.sql_engine_async_records_processed
         );
+        println!("│    {:>8.0} rec/sec", self.sql_engine_async_throughput);
         println!("│");
-        println!("│  SimpleJp:         {:>8.0} rec/sec", self.simple_jp_throughput);
+        println!(
+            "│  SimpleJp:         {:>8.0} rec/sec",
+            self.simple_jp_throughput
+        );
         println!(
             "│  AdaptiveJp@1c:    {:>8.0} rec/sec",
             self.adaptive_jp_1c_throughput
@@ -77,10 +78,13 @@ impl ScenarioResult {
 
         // Calculate ratios vs SQL Engine Sync (baseline)
         if self.sql_engine_sync_throughput > 0.0 {
-            let ratio_sql_async = self.sql_engine_async_throughput / self.sql_engine_sync_throughput;
+            let ratio_sql_async =
+                self.sql_engine_async_throughput / self.sql_engine_sync_throughput;
             let ratio_simple = self.simple_jp_throughput / self.sql_engine_sync_throughput;
-            let ratio_adaptive_1c = self.adaptive_jp_1c_throughput / self.sql_engine_sync_throughput;
-            let ratio_adaptive_4c = self.adaptive_jp_4c_throughput / self.sql_engine_sync_throughput;
+            let ratio_adaptive_1c =
+                self.adaptive_jp_1c_throughput / self.sql_engine_sync_throughput;
+            let ratio_adaptive_4c =
+                self.adaptive_jp_4c_throughput / self.sql_engine_sync_throughput;
 
             println!("│");
             println!("│  Ratios vs SQL Engine Sync:");
@@ -451,10 +455,16 @@ async fn comprehensive_baseline_comparison() {
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@1c:  {:.0} rec/sec", adaptive_jp_1c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
+        adaptive_jp_1c_throughput
+    );
 
     let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@4c:  {:.0} rec/sec", adaptive_jp_4c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
+        adaptive_jp_4c_throughput
+    );
 
     results.push(ScenarioResult {
         name: "Scenario 1: Pure SELECT".to_string(),
@@ -506,10 +516,16 @@ async fn comprehensive_baseline_comparison() {
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@1c:  {:.0} rec/sec", adaptive_jp_1c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
+        adaptive_jp_1c_throughput
+    );
 
     let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@4c:  {:.0} rec/sec", adaptive_jp_4c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
+        adaptive_jp_4c_throughput
+    );
 
     results.push(ScenarioResult {
         name: "Scenario 2: ROWS WINDOW".to_string(),
@@ -561,10 +577,16 @@ async fn comprehensive_baseline_comparison() {
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@1c:  {:.0} rec/sec", adaptive_jp_1c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
+        adaptive_jp_1c_throughput
+    );
 
     let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@4c:  {:.0} rec/sec", adaptive_jp_4c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
+        adaptive_jp_4c_throughput
+    );
 
     results.push(ScenarioResult {
         name: "Scenario 3: GROUP BY".to_string(),
@@ -616,10 +638,16 @@ async fn comprehensive_baseline_comparison() {
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@1c:  {:.0} rec/sec", adaptive_jp_1c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
+        adaptive_jp_1c_throughput
+    );
 
     let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@4c:  {:.0} rec/sec", adaptive_jp_4c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
+        adaptive_jp_4c_throughput
+    );
 
     results.push(ScenarioResult {
         name: "Scenario 4: TUMBLING + GROUP BY".to_string(),
@@ -671,10 +699,16 @@ async fn comprehensive_baseline_comparison() {
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@1c:  {:.0} rec/sec", adaptive_jp_1c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
+        adaptive_jp_1c_throughput
+    );
 
     let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
-    println!("  ✓ AdaptiveJp@4c:  {:.0} rec/sec", adaptive_jp_4c_throughput);
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
+        adaptive_jp_4c_throughput
+    );
 
     results.push(ScenarioResult {
         name: "Scenario 5: TUMBLING + EMIT CHANGES".to_string(),
@@ -706,7 +740,13 @@ async fn comprehensive_baseline_comparison() {
     println!("│");
     println!(
         "│ {:24} {:>14} {:>14} {:>14} {:>14} {:>14} {:>18}",
-        "Scenario", "SQLSync", "SQLAsync", "SimpleJp", "AdaptiveJp@1c", "AdaptiveJp@4c", "Partitioner"
+        "Scenario",
+        "SQLSync",
+        "SQLAsync",
+        "SimpleJp",
+        "AdaptiveJp@1c",
+        "AdaptiveJp@4c",
+        "Partitioner"
     );
     println!(
         "│ {:24} {:>14} {:>14} {:>14} {:>14} {:>14} {:>18}",
