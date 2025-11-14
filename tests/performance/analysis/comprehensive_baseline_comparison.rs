@@ -274,10 +274,9 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
 
 /// Measure JobServer V2 @ 1-core
 async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(1),
-        enable_core_affinity: false,
-    });
+    // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
+    // See: docs/developer/adaptive_processor_performance_analysis.md
+    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
@@ -319,10 +318,9 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usiz
 
 /// Measure JobServer V2 @ 4-core
 async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(4),
-        enable_core_affinity: false,
-    });
+    // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
+    // See: docs/developer/adaptive_processor_performance_analysis.md
+    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(4));
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 

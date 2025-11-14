@@ -13,6 +13,7 @@ pub mod rows_window_emit_changes_sql_benchmarks;
 pub mod time_window_sql_benchmarks;
 
 // Specialized benchmarks
+pub mod adaptive_processor_microbench;
 pub mod financial_precision;
 pub mod kafka_configurations;
 // Removed: phase3_coordinator_benchmark (outdated Phase 3 benchmark)
@@ -21,6 +22,7 @@ pub mod serialization_formats;
 pub mod sql_execution;
 
 // Re-export commonly used benchmarks
+pub use adaptive_processor_microbench::*;
 pub use comprehensive_sql_benchmarks::*;
 pub use financial_precision::*;
 pub use kafka_configurations::*;
