@@ -230,11 +230,39 @@ git push origin branch-name
 ```
 
 ### Performance Testing
+
+#### FR-082 Comprehensive Baseline Comparison
+```bash
+# All scenarios, release build (recommended for final benchmarks)
+./run_baseline.sh
+
+# Choose mode and scenarios flexibly
+./run_baseline_flexible.sh release 1    # Release, scenario 1 only
+./run_baseline_flexible.sh debug        # Debug, all scenarios
+./run_baseline_flexible.sh profile 2    # Profile, scenario 2 only
+
+# Quick iteration with minimal recompilation
+./run_baseline_quick.sh
+
+# Multiple compilation modes
+./run_baseline_options.sh debug         # Fast compile
+./run_baseline_options.sh release       # Optimized runtime
+./run_baseline_options.sh profile       # With debug symbols
+```
+
+**Documentation:** See [`docs/benchmarks/`](docs/benchmarks/) for:
+- [`SCRIPTS_README.md`](docs/benchmarks/SCRIPTS_README.md) - Complete reference guide
+- [`BASELINE_TESTING.md`](docs/benchmarks/BASELINE_TESTING.md) - Detailed methodology
+- [`BASELINE_QUICK_REFERENCE.md`](docs/benchmarks/BASELINE_QUICK_REFERENCE.md) - Quick cheat sheet
+
+#### Financial Precision & Compatibility Tests
 ```bash
 # Run financial precision tests
-cargo run --bin test_financial_precision 
+cargo run --bin test_financial_precision
+
 # Test serialization compatibility
-cargo run --bin test_serialization_compatibility ```
+cargo run --bin test_serialization_compatibility
+```
 
 
 ## Schema Configuration
