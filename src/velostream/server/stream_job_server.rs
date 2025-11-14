@@ -877,6 +877,7 @@ impl StreamJobServer {
                                     execution_engine.clone(),
                                     parsed_query,
                                     job_name.clone(),
+                                    shutdown_receiver,
                                 )
                                 .await
                             {
@@ -933,6 +934,7 @@ impl StreamJobServer {
                                     execution_engine,
                                     parsed_query,
                                     job_name.clone(),
+                                    shutdown_receiver,
                                 )
                                 .await
                             {

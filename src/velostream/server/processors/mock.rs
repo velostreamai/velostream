@@ -117,6 +117,7 @@ impl JobProcessor for MockJobProcessor {
         _engine: Arc<RwLock<StreamExecutionEngine>>,
         _query: StreamingQuery,
         job_name: String,
+        _shutdown_receiver: tokio::sync::mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Increment call count
         *self.call_count.write().await += 1;
@@ -146,6 +147,7 @@ impl JobProcessor for MockJobProcessor {
         _engine: Arc<RwLock<StreamExecutionEngine>>,
         _query: StreamingQuery,
         job_name: String,
+        _shutdown_receiver: tokio::sync::mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Increment call count
         *self.call_count.write().await += 1;

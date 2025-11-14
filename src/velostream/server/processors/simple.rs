@@ -197,6 +197,7 @@ impl SimpleJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             HashMap::from([(String::from("default_source"), reader)]),
@@ -207,6 +208,7 @@ impl SimpleJobProcessor {
             engine,
             query,
             job_name,
+            shutdown_rx,
         )
         .await
     }
@@ -219,6 +221,7 @@ impl SimpleJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
+        _shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -923,6 +926,7 @@ impl JobProcessor for SimpleJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             HashMap::from([(String::from("default_source"), reader)]),
@@ -933,6 +937,7 @@ impl JobProcessor for SimpleJobProcessor {
             engine,
             query,
             job_name,
+            shutdown_rx,
         )
         .await
     }
@@ -944,9 +949,10 @@ impl JobProcessor for SimpleJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Delegate to the existing process_multi_job implementation
-        self.process_multi_job(readers, writers, engine, query, job_name)
+        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
             .await
     }
 

@@ -17,8 +17,8 @@ use tokio::sync::mpsc;
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory,
 };
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Shared test utilities
@@ -78,9 +78,9 @@ impl ScenarioResult {
                 ("V2@1", self.v2_1core_throughput),
                 ("V2@4", self.v2_4core_throughput),
             ]
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-                .map(|x| x.0);
+            .iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .map(|x| x.0);
 
             println!("│  Best: {}", best.unwrap_or("Unknown"));
         }
@@ -106,7 +106,7 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> f64 {
 }
 
 /// Measure JobServer V1
-async fn measure_simple(records: Vec<StreamRecord>, query: &str) -> f64 {
+async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
@@ -123,7 +123,6 @@ async fn measure_simple(records: Vec<StreamRecord>, query: &str) -> f64 {
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    let num_records_sent = records.len();
     let start = Instant::now();
     let _result = processor
         .process_job(
@@ -136,24 +135,21 @@ async fn measure_simple(records: Vec<StreamRecord>, query: &str) -> f64 {
         )
         .await;
 
-    // Consume all remaining messages from the execution engine and count them
-    let mut records_processed = 0;
+    // Consume all remaining messages from the execution engine
     while let Ok(_) = rx.try_recv() {
-        records_processed += 1;
+        // Just drain the channel
     }
 
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
-    println!("  Records sent: {} | Processed: {}", num_records_sent, records_processed);
-
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     throughput
 }
 
 /// Measure JobServer V2 @ 1-core
-async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
+async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
@@ -170,7 +166,6 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> f64 
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    let num_records_sent = records.len();
     let start = Instant::now();
     let _result = processor
         .process_job(
@@ -183,24 +178,21 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> f64 
         )
         .await;
 
-    // Consume all remaining messages from the execution engine and count them
-    let mut records_processed = 0;
+    // Consume all remaining messages from the execution engine
     while let Ok(_) = rx.try_recv() {
-        records_processed += 1;
+        // Just drain the channel
     }
 
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
-    println!("  Records sent: {} | Processed: {}", num_records_sent, records_processed);
-
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     throughput
 }
 
 /// Measure JobServer V2 @ 4-core
-async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
+async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
@@ -217,7 +209,6 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> f64 
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    let num_records_sent = records.len();
     let start = Instant::now();
     let _result = processor
         .process_job(
@@ -230,17 +221,14 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> f64 
         )
         .await;
 
-    // Consume all remaining messages from the execution engine and count them
-    let mut records_processed = 0;
+    // Consume all remaining messages from the execution engine
     while let Ok(_) = rx.try_recv() {
-        records_processed += 1;
+        // Just drain the channel
     }
 
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
-
-    println!("  Records sent: {} | Processed: {}", num_records_sent, records_processed);
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     throughput
@@ -374,13 +362,13 @@ async fn comprehensive_baseline_comparison() {
     let sql_throughput = measure_sql_engine(records.clone(), query).await;
     println!("  ✓ SQL Engine: {:.0} rec/sec", sql_throughput);
 
-    let v1_throughput = measure_simple(records.clone(), query).await;
+    let v1_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ V1: {:.0} rec/sec", v1_throughput);
 
-    let v2_1core_throughput = measure_adaptive_1core(records.clone(), query).await;
+    let v2_1core_throughput = measure_v2_1core(records.clone(), query).await;
     println!("  ✓ V2@1-core: {:.0} rec/sec", v2_1core_throughput);
 
-    let v2_4core_throughput = measure_adaptive_4core(records.clone(), query).await;
+    let v2_4core_throughput = measure_v2_4core(records.clone(), query).await;
     println!("  ✓ V2@4-core: {:.0} rec/sec", v2_4core_throughput);
 
     results.push(ScenarioResult {
@@ -413,13 +401,13 @@ async fn comprehensive_baseline_comparison() {
     let sql_throughput = measure_sql_engine(records.clone(), query).await;
     println!("  ✓ SQL Engine: {:.0} rec/sec", sql_throughput);
 
-    let v1_throughput = measure_simple(records.clone(), query).await;
+    let v1_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ V1: {:.0} rec/sec", v1_throughput);
 
-    let v2_1core_throughput = measure_adaptive_1core(records.clone(), query).await;
+    let v2_1core_throughput = measure_v2_1core(records.clone(), query).await;
     println!("  ✓ V2@1-core: {:.0} rec/sec", v2_1core_throughput);
 
-    let v2_4core_throughput = measure_adaptive_4core(records.clone(), query).await;
+    let v2_4core_throughput = measure_v2_4core(records.clone(), query).await;
     println!("  ✓ V2@4-core: {:.0} rec/sec", v2_4core_throughput);
 
     results.push(ScenarioResult {
@@ -452,13 +440,13 @@ async fn comprehensive_baseline_comparison() {
     let sql_throughput = measure_sql_engine(records.clone(), query).await;
     println!("  ✓ SQL Engine: {:.0} rec/sec", sql_throughput);
 
-    let v1_throughput = measure_simple(records.clone(), query).await;
+    let v1_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ V1: {:.0} rec/sec", v1_throughput);
 
-    let v2_1core_throughput = measure_adaptive_1core(records.clone(), query).await;
+    let v2_1core_throughput = measure_v2_1core(records.clone(), query).await;
     println!("  ✓ V2@1-core: {:.0} rec/sec", v2_1core_throughput);
 
-    let v2_4core_throughput = measure_adaptive_4core(records.clone(), query).await;
+    let v2_4core_throughput = measure_v2_4core(records.clone(), query).await;
     println!("  ✓ V2@4-core: {:.0} rec/sec", v2_4core_throughput);
 
     results.push(ScenarioResult {
@@ -491,13 +479,13 @@ async fn comprehensive_baseline_comparison() {
     let sql_throughput = measure_sql_engine(records.clone(), query).await;
     println!("  ✓ SQL Engine: {:.0} rec/sec", sql_throughput);
 
-    let v1_throughput = measure_simple(records.clone(), query).await;
+    let v1_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ V1: {:.0} rec/sec", v1_throughput);
 
-    let v2_1core_throughput = measure_adaptive_1core(records.clone(), query).await;
+    let v2_1core_throughput = measure_v2_1core(records.clone(), query).await;
     println!("  ✓ V2@1-core: {:.0} rec/sec", v2_1core_throughput);
 
-    let v2_4core_throughput = measure_adaptive_4core(records.clone(), query).await;
+    let v2_4core_throughput = measure_v2_4core(records.clone(), query).await;
     println!("  ✓ V2@4-core: {:.0} rec/sec", v2_4core_throughput);
 
     results.push(ScenarioResult {
@@ -530,13 +518,13 @@ async fn comprehensive_baseline_comparison() {
     let sql_throughput = measure_sql_engine(records.clone(), query).await;
     println!("  ✓ SQL Engine: {:.0} rec/sec", sql_throughput);
 
-    let v1_throughput = measure_simple(records.clone(), query).await;
+    let v1_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ V1: {:.0} rec/sec", v1_throughput);
 
-    let v2_1core_throughput = measure_adaptive_1core(records.clone(), query).await;
+    let v2_1core_throughput = measure_v2_1core(records.clone(), query).await;
     println!("  ✓ V2@1-core: {:.0} rec/sec", v2_1core_throughput);
 
-    let v2_4core_throughput = measure_adaptive_4core(records.clone(), query).await;
+    let v2_4core_throughput = measure_v2_4core(records.clone(), query).await;
     println!("  ✓ V2@4-core: {:.0} rec/sec", v2_4core_throughput);
 
     results.push(ScenarioResult {

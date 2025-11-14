@@ -10,6 +10,7 @@ use crate::velostream::sql::StreamingQuery;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// Enhanced metrics for unified processor monitoring
 #[derive(Debug, Clone)]
@@ -103,6 +104,7 @@ pub trait JobProcessor: Send + Sync {
     /// * `engine` - Shared StreamExecutionEngine for query execution
     /// * `query` - Streaming query to execute
     /// * `job_name` - Name of the job for logging and metrics
+    /// * `shutdown_rx` - Channel to receive shutdown signal
     ///
     /// # Returns
     /// Job execution statistics or error
@@ -113,6 +115,7 @@ pub trait JobProcessor: Send + Sync {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Process a complete job with multiple data sources and sinks
@@ -126,6 +129,7 @@ pub trait JobProcessor: Send + Sync {
     /// * `engine` - Shared StreamExecutionEngine for query execution
     /// * `query` - Streaming query to execute
     /// * `job_name` - Name of the job for logging and metrics
+    /// * `shutdown_rx` - Channel to receive shutdown signal
     ///
     /// # Returns
     /// Job execution statistics or error
@@ -136,6 +140,7 @@ pub trait JobProcessor: Send + Sync {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
+        shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Start the processor
