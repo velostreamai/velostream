@@ -511,3 +511,126 @@ async fn bench_summary_report() {
     println!("  2. Test with empty_batch_count=0 configuration");
     println!("  3. Consider async EOF detection for long-running jobs");
 }
+
+// ============================================================================
+// SQL Engine Microbenchmarks (Direct Query Execution)
+// ============================================================================
+
+/// Test SQL engine performance in isolation (no processor overhead)
+#[tokio::test]
+async fn bench_sql_engine_only() {
+    println!("\n\n=== SQL ENGINE PERFORMANCE (No Processor Overhead) ===\n");
+    println!("Direct StreamExecutionEngine benchmark with simple SELECT query\n");
+
+    let record_count = 5000;
+    let mut records = Vec::with_capacity(record_count);
+    for i in 0..record_count {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(i as i64));
+        fields.insert("value".to_string(), FieldValue::Integer((i * 100) as i64));
+        records.push(StreamRecord::new(fields));
+    }
+
+    let parser = StreamingSqlParser::new();
+    let query = parser
+        .parse("SELECT id, value FROM stream")
+        .expect("Parse failed");
+
+    // Create execution engine
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+
+    // Initialize query execution
+    engine.init_query_execution(query.clone());
+
+    // Benchmark query execution
+    let start = Instant::now();
+    let mut executed = 0;
+
+    for record in &records {
+        match engine.execute_with_record_sync(&query, record) {
+            Ok(Some(_output)) => {
+                executed += 1;
+            }
+            Ok(None) => {
+                executed += 1;
+            }
+            Err(_e) => {
+                // Continue on error
+            }
+        }
+    }
+
+    let elapsed = start.elapsed();
+    let throughput = (executed as f64) / elapsed.as_secs_f64();
+
+    println!("Results:");
+    println!("  Records executed: {}", executed);
+    println!("  Time: {:.2}ms", elapsed.as_millis());
+    println!("  Throughput: {:.0} rec/sec", throughput);
+    println!(
+        "  Per-record latency: {:.2}μs",
+        elapsed.as_micros() as f64 / executed as f64
+    );
+    println!();
+
+    // Compare with baseline
+    println!("Comparison:");
+    println!("  Baseline I/O (no SQL): 1,100,000 rec/sec");
+    println!("  SQL Engine: {:.0} rec/sec", throughput);
+    println!(
+        "  Gap: {:.0}x slower (SQL overhead)",
+        1_100_000.0 / throughput
+    );
+}
+
+/// Profile individual query execution steps
+#[tokio::test]
+async fn bench_sql_engine_profile() {
+    println!("\n\n=== SQL ENGINE PROFILE (Detailed Breakdown) ===\n");
+
+    let record_count = 1000; // Smaller set for profiling
+    let mut records = Vec::with_capacity(record_count);
+    for i in 0..record_count {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(i as i64));
+        fields.insert("value".to_string(), FieldValue::Integer((i * 100) as i64));
+        records.push(StreamRecord::new(fields));
+    }
+
+    let parser = StreamingSqlParser::new();
+    let query = parser
+        .parse("SELECT id, value FROM stream")
+        .expect("Parse failed");
+
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(tx);
+    engine.init_query_execution(query.clone());
+
+    // Measure first record (includes initialization)
+    let start = Instant::now();
+    let _ = engine.execute_with_record_sync(&query, &records[0]);
+    let first_record_time = start.elapsed();
+
+    // Measure remaining records (steady state)
+    let start = Instant::now();
+    for record in &records[1..] {
+        let _ = engine.execute_with_record_sync(&query, record);
+    }
+    let remaining_time = start.elapsed();
+    let remaining_count = record_count - 1;
+
+    println!("First record (with initialization):");
+    println!("  Time: {:.2}μs", first_record_time.as_micros());
+    println!();
+    println!("Remaining {} records (steady state):", remaining_count);
+    println!("  Total time: {:.2}ms", remaining_time.as_millis());
+    println!(
+        "  Per-record: {:.2}μs",
+        remaining_time.as_micros() as f64 / remaining_count as f64
+    );
+    println!(
+        "  Throughput: {:.0} rec/sec",
+        (remaining_count as f64) / remaining_time.as_secs_f64()
+    );
+}
