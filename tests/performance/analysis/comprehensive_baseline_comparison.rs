@@ -1,11 +1,13 @@
 /*!
 # FR-082 Comprehensive Baseline Comparison Test
 
-Unified test measuring all 5 scenarios with 4 implementations:
-- SQL Engine (baseline, no job server)
-- JobServer V1 (single-threaded)
-- JobServer V2 @ 1-core
-- JobServer V2 @ 4-core
+Unified test measuring all 5 scenarios with 6 implementations:
+- SQL Engine Sync (baseline, synchronous)
+- SQL Engine Async (baseline, asynchronous)
+- SimpleJp (single-threaded, best-effort)
+- TransactionalJp (single-threaded, at-least-once)
+- AdaptiveJp @ 1-core (partitioned, 1 core)
+- AdaptiveJp @ 4-core (partitioned, 4 cores)
 
 Results feed into SCENARIO-BASELINE-COMPARISON.md table.
 */
@@ -35,6 +37,7 @@ struct ScenarioResult {
     sql_engine_async_records_sent: usize,
     sql_engine_async_records_processed: usize,
     simple_jp_throughput: f64,
+    transactional_jp_throughput: f64,
     adaptive_jp_1c_throughput: f64,
     adaptive_jp_4c_throughput: f64,
     /// Partitioner strategy used for AdaptiveJp (helps understand performance characteristics)
@@ -62,6 +65,10 @@ impl ScenarioResult {
             self.simple_jp_throughput
         );
         println!(
+            "│  TransactionalJp:  {:>8.0} rec/sec",
+            self.transactional_jp_throughput
+        );
+        println!(
             "│  AdaptiveJp@1c:    {:>8.0} rec/sec",
             self.adaptive_jp_1c_throughput
         );
@@ -81,6 +88,8 @@ impl ScenarioResult {
             let ratio_sql_async =
                 self.sql_engine_async_throughput / self.sql_engine_sync_throughput;
             let ratio_simple = self.simple_jp_throughput / self.sql_engine_sync_throughput;
+            let ratio_transactional =
+                self.transactional_jp_throughput / self.sql_engine_sync_throughput;
             let ratio_adaptive_1c =
                 self.adaptive_jp_1c_throughput / self.sql_engine_sync_throughput;
             let ratio_adaptive_4c =
@@ -90,6 +99,7 @@ impl ScenarioResult {
             println!("│  Ratios vs SQL Engine Sync:");
             println!("│    SQL Async:      {:.2}x", ratio_sql_async);
             println!("│    SimpleJp:       {:.2}x", ratio_simple);
+            println!("│    TransactionalJp:{:.2}x", ratio_transactional);
             println!("│    AdaptiveJp@1c:  {:.2}x", ratio_adaptive_1c);
             println!("│    AdaptiveJp@4c:  {:.2}x", ratio_adaptive_4c);
 
@@ -98,6 +108,7 @@ impl ScenarioResult {
                 ("SQLSync", self.sql_engine_sync_throughput),
                 ("SQLAsync", self.sql_engine_async_throughput),
                 ("SimpleJp", self.simple_jp_throughput),
+                ("TransactionalJp", self.transactional_jp_throughput),
                 ("AdaptiveJp@1c", self.adaptive_jp_1c_throughput),
                 ("AdaptiveJp@4c", self.adaptive_jp_4c_throughput),
             ]
@@ -209,6 +220,46 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
             engine,
             (*query_arc).clone(),
             "v1_test".to_string(),
+            shutdown_rx,
+        )
+        .await;
+
+    // Consume all remaining messages from the execution engine
+    while let Ok(_) = rx.try_recv() {
+        // Just drain the channel
+    }
+
+    // Now stop the processor after all messages have been consumed
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    throughput
+}
+
+/// Measure Transactional Job Processor (single-threaded with transactions)
+async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> f64 {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
+    let data_source = MockDataSource::new(records.clone(), records.len());
+    let data_writer = MockDataWriter::new();
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = Instant::now();
+    let _result = processor
+        .process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer)),
+            engine,
+            (*query_arc).clone(),
+            "transactional_test".to_string(),
             shutdown_rx,
         )
         .await;
@@ -454,6 +505,12 @@ async fn comprehensive_baseline_comparison() {
     let simple_jp_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
+    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    println!(
+        "  ✓ TransactionalJp: {:.0} rec/sec",
+        transactional_jp_throughput
+    );
+
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
@@ -475,6 +532,7 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_records_processed: sql_async_processed,
         simple_jp_throughput,
+        transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
         partitioner: Some("always_hash".to_string()),
@@ -515,6 +573,12 @@ async fn comprehensive_baseline_comparison() {
     let simple_jp_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
+    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    println!(
+        "  ✓ TransactionalJp: {:.0} rec/sec",
+        transactional_jp_throughput
+    );
+
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
@@ -536,6 +600,7 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_records_processed: sql_async_processed,
         simple_jp_throughput,
+        transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
         partitioner: Some("sticky_partition".to_string()),
@@ -576,6 +641,12 @@ async fn comprehensive_baseline_comparison() {
     let simple_jp_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
+    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    println!(
+        "  ✓ TransactionalJp: {:.0} rec/sec",
+        transactional_jp_throughput
+    );
+
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
@@ -597,6 +668,7 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_records_processed: sql_async_processed,
         simple_jp_throughput,
+        transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
         partitioner: Some("always_hash".to_string()),
@@ -637,6 +709,12 @@ async fn comprehensive_baseline_comparison() {
     let simple_jp_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
+    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    println!(
+        "  ✓ TransactionalJp: {:.0} rec/sec",
+        transactional_jp_throughput
+    );
+
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
@@ -658,6 +736,7 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_records_processed: sql_async_processed,
         simple_jp_throughput,
+        transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
         partitioner: Some("sticky_partition".to_string()),
@@ -698,6 +777,12 @@ async fn comprehensive_baseline_comparison() {
     let simple_jp_throughput = measure_v1(records.clone(), query).await;
     println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
 
+    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    println!(
+        "  ✓ TransactionalJp: {:.0} rec/sec",
+        transactional_jp_throughput
+    );
+
     let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
@@ -719,6 +804,7 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_records_processed: sql_async_processed,
         simple_jp_throughput,
+        transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
         partitioner: Some("sticky_partition".to_string()),
@@ -739,34 +825,37 @@ async fn comprehensive_baseline_comparison() {
     println!("\n┌─ UNIFIED COMPARISON TABLE (for SCENARIO-BASELINE-COMPARISON.md)");
     println!("│");
     println!(
-        "│ {:24} {:>14} {:>14} {:>14} {:>14} {:>14} {:>18}",
+        "│ {:24} {:>12} {:>12} {:>12} {:>14} {:>14} {:>14} {:>16}",
         "Scenario",
         "SQLSync",
         "SQLAsync",
         "SimpleJp",
+        "TransJp",
         "AdaptiveJp@1c",
         "AdaptiveJp@4c",
         "Partitioner"
     );
     println!(
-        "│ {:24} {:>14} {:>14} {:>14} {:>14} {:>14} {:>18}",
+        "│ {:24} {:>12} {:>12} {:>12} {:>14} {:>14} {:>14} {:>16}",
         "─────────────────────────",
+        "────────────",
+        "────────────",
+        "────────────",
         "──────────────",
         "──────────────",
         "──────────────",
-        "──────────────",
-        "──────────────",
-        "──────────────────"
+        "────────────────"
     );
 
     for result in &results {
         let partitioner_str = result.partitioner.as_deref().unwrap_or("N/A");
         println!(
-            "│ {:24} {:>14.0} {:>14.0} {:>14.0} {:>14.0} {:>14.0} {:>18}",
+            "│ {:24} {:>12.0} {:>12.0} {:>12.0} {:>14.0} {:>14.0} {:>14.0} {:>16}",
             result.name.split(": ").nth(1).unwrap_or(&result.name),
             result.sql_engine_sync_throughput,
             result.sql_engine_async_throughput,
             result.simple_jp_throughput,
+            result.transactional_jp_throughput,
             result.adaptive_jp_1c_throughput,
             result.adaptive_jp_4c_throughput,
             partitioner_str
@@ -789,6 +878,11 @@ async fn comprehensive_baseline_comparison() {
         assert!(
             result.simple_jp_throughput > 0.0,
             "SimpleJp should have positive throughput for {}",
+            result.name
+        );
+        assert!(
+            result.transactional_jp_throughput > 0.0,
+            "TransactionalJp should have positive throughput for {}",
             result.name
         );
         assert!(
