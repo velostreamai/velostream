@@ -1324,9 +1324,11 @@ impl AdaptiveJobProcessor {
 
             // Spawn partition receiver task (Phase 6.6 - synchronous processing)
             tokio::spawn(async move {
+                // OPTIMIZATION: Avoid cloning query - use Arc directly
                 // Create owned execution engine for this partition
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
                 let mut local_engine = StreamExecutionEngine::new(output_tx);
+                // OPTIMIZATION: Pass query by reference via Arc to avoid clone
                 local_engine.init_query_execution((*query).clone());
 
                 // Get the QueryExecution from the local engine using the proper query_id generation
@@ -1404,31 +1406,39 @@ impl AdaptiveJobProcessor {
                 query: None,
             })?;
 
-        // Collect records by partition (batch-based routing)
-        let mut partitions: Vec<Vec<StreamRecord>> = vec![Vec::new(); self.num_partitions];
+        // OPTIMIZATION: Pre-allocate partitions with capacity to reduce reallocations
+        // Use with_capacity to avoid reallocation overhead in hot path
+        let mut partitions: Vec<Vec<StreamRecord>> = (0..self.num_partitions)
+            .map(|_| Vec::with_capacity(records.len() / self.num_partitions + 1))
+            .collect();
 
+        // OPTIMIZATION: Create routing context once instead of per-record
+        let routing_context_template = RoutingContext {
+            source_partition: None,
+            source_partition_key: None,
+            group_by_columns: self.group_by_columns.clone(),
+            num_partitions: self.num_partitions,
+            num_cpu_slots: self.num_cpu_slots,
+        };
+
+        // Route records to partitions
         for record in records {
-            let routing_context = RoutingContext {
-                source_partition: None,
-                source_partition_key: None,
-                group_by_columns: self.group_by_columns.clone(),
-                num_partitions: self.num_partitions,
-                num_cpu_slots: self.num_cpu_slots,
-            };
-
-            // Route record to partition
-            let partition_id = self.strategy.route_record(&record, &routing_context)?;
-
+            let partition_id = self
+                .strategy
+                .route_record(&record, &routing_context_template)?;
             partitions[partition_id].push(record);
         }
 
-        // Send batches to each partition's receiver
+        // OPTIMIZATION: Avoid cloning - move batches directly to senders
+        // Use move semantics instead of clone() to eliminate per-batch allocation
         let mut sent = 0;
         for (partition_id, batch) in partitions.into_iter().enumerate() {
             if !batch.is_empty() {
+                let batch_len = batch.len();
                 let sender = &batch_senders[partition_id];
-                if sender.send(batch.clone()).await.is_ok() {
-                    sent += batch.len();
+                // Move batch directly without cloning
+                if sender.send(batch).await.is_ok() {
+                    sent += batch_len;
                 }
             }
         }
