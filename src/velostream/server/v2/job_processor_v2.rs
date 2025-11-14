@@ -111,12 +111,12 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Wrap writer in Arc<Mutex<>> for sharing across partitions
         let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-        let (batch_senders, _metrics) =
+        let (batch_queues, _metrics, eof_flags) =
             self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
-            "Initialized {} Phase 6.6 partition receivers for job: {}",
-            batch_senders.len(),
+            "Initialized {} Phase 6.8 partition receivers with lock-free queues for job: {}",
+            batch_queues.len(),
             job_name
         );
 
@@ -157,12 +157,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                     consecutive_empty = 0;
                     let batch_size = batch.len();
 
-                    // Route batch to receivers (Phase 6.6 batch-based routing)
-                    // Records are grouped by partition and sent as Vec<StreamRecord> batches
-                    match self
-                        .process_batch_for_receivers(batch, &batch_senders)
-                        .await
-                    {
+                    // Route batch to receivers (Phase 6.8 lock-free queue routing)
+                    // Records are grouped by partition and pushed to lock-free queues
+                    match self.process_batch_for_receivers(batch, &batch_queues).await {
                         Ok(routed_count) => {
                             aggregated_stats.records_processed += routed_count as u64;
                             aggregated_stats.batches_processed += 1;
@@ -181,13 +178,15 @@ impl JobProcessor for AdaptiveJobProcessor {
             }
         }
 
-        // Step 4: Close batch senders to signal EOF
+        // Step 4: Signal EOF to all partition receivers
         // This tells each partition receiver to exit once all batches are processed
-        drop(batch_senders);
+        for eof_flag in &eof_flags {
+            eof_flag.store(true, std::sync::atomic::Ordering::Release);
+        }
 
         // Step 5: Wait for receiver tasks to complete
         // The partition receiver tasks spawned in initialize_partitions_v6_6() will
-        // process all queued batches and then exit when the channel closes
+        // process all queued batches and then exit when EOF is signaled
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Step 6: Finalize writer
@@ -251,12 +250,12 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Wrap writer in Arc<Mutex<>> for sharing across partitions
             let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-            let (batch_senders, _metrics) =
+            let (batch_queues, _metrics, eof_flags) =
                 self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
-                "Initialized {} Phase 6.6 partition receivers for source: {} (job: {})",
-                batch_senders.len(),
+                "Initialized {} Phase 6.8 partition receivers with lock-free queues for source: {} (job: {})",
+                batch_queues.len(),
                 reader_name,
                 job_name
             );
@@ -297,11 +296,8 @@ impl JobProcessor for AdaptiveJobProcessor {
                         consecutive_empty = 0;
                         let batch_size = batch.len();
 
-                        // Route batch to receivers (Phase 6.6 batch-based routing)
-                        match self
-                            .process_batch_for_receivers(batch, &batch_senders)
-                            .await
-                        {
+                        // Route batch to receivers (Phase 6.8 lock-free queue routing)
+                        match self.process_batch_for_receivers(batch, &batch_queues).await {
                             Ok(routed_count) => {
                                 aggregated_stats.records_processed += routed_count as u64;
                                 aggregated_stats.batches_processed += 1;
@@ -320,8 +316,10 @@ impl JobProcessor for AdaptiveJobProcessor {
                 }
             }
 
-            // Close batch senders to signal EOF
-            drop(batch_senders);
+            // Signal EOF to all partition receivers
+            for eof_flag in &eof_flags {
+                eof_flag.store(true, std::sync::atomic::Ordering::Release);
+            }
 
             // Wait for receiver tasks to complete
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
