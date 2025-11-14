@@ -37,7 +37,6 @@ use crate::velostream::sql::StreamingQuery;
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Implement JobProcessor trait for AdaptiveJobProcessor (V2 Architecture)
@@ -125,11 +124,9 @@ impl JobProcessor for AdaptiveJobProcessor {
         // while receivers haven't been scheduled yet
         tokio::task::yield_now().await;
 
-        // Step 3: Read batches and route to receivers
-        let mut consecutive_empty = 0;
+        // Step 3: Read batches and route to receivers (busy-spin pattern)
+        // Shutdown is controlled via stop_flag, not artificial EOF detection
         let mut total_routed = 0u64;
-        let max_consecutive_empty = self.config().empty_batch_count;
-        let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         loop {
             // Check if processor stop signal was raised
@@ -141,20 +138,13 @@ impl JobProcessor for AdaptiveJobProcessor {
             match reader.read().await {
                 Ok(batch) => {
                     if batch.is_empty() {
-                        consecutive_empty += 1;
-                        if consecutive_empty >= max_consecutive_empty {
-                            info!(
-                                "Reached max consecutive empty batches ({}) without new data, exiting",
-                                max_consecutive_empty
-                            );
-                            break;
-                        }
-                        // Wait before next read to avoid busy-waiting on empty data sources
-                        tokio::time::sleep(wait_on_empty).await;
+                        // Data source returned empty batch - continue polling
+                        // Partition receivers use the same pattern: yield and continue
+                        // Real EOF comes from stop_flag or successful commit
+                        tokio::task::yield_now().await;
                         continue;
                     }
 
-                    consecutive_empty = 0;
                     let batch_size = batch.len();
 
                     // Route batch to receivers (Phase 6.8 lock-free queue routing)
@@ -173,7 +163,8 @@ impl JobProcessor for AdaptiveJobProcessor {
                 }
                 Err(e) => {
                     log::warn!("Error reading batch: {:?}", e);
-                    consecutive_empty += 1;
+                    // Continue on error - stop_flag will eventually be set to shutdown
+                    tokio::task::yield_now().await;
                 }
             }
         }
@@ -237,8 +228,6 @@ impl JobProcessor for AdaptiveJobProcessor {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
         let mut writers = writers;
-        let max_consecutive_empty = self.config().empty_batch_count;
-        let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         // Process each reader-writer pair
         for (reader_name, mut reader) in readers.into_iter() {
@@ -263,8 +252,7 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Yield control to allow spawned partition receiver tasks to start
             tokio::task::yield_now().await;
 
-            // Read batches and route to receivers
-            let mut consecutive_empty = 0;
+            // Read batches and route to receivers (busy-spin pattern)
             let mut total_routed = 0u64;
 
             loop {
@@ -280,20 +268,13 @@ impl JobProcessor for AdaptiveJobProcessor {
                 match reader.read().await {
                     Ok(batch) => {
                         if batch.is_empty() {
-                            consecutive_empty += 1;
-                            if consecutive_empty >= max_consecutive_empty {
-                                info!(
-                                    "Reader {} reached max consecutive empty batches ({}), exiting",
-                                    reader_name, max_consecutive_empty
-                                );
-                                break;
-                            }
-                            // Wait before next read to avoid busy-waiting on empty data sources
-                            tokio::time::sleep(wait_on_empty).await;
+                            // Data source returned empty batch - continue polling
+                            // Partition receivers use the same pattern: yield and continue
+                            // Real EOF comes from stop_flag or successful commit
+                            tokio::task::yield_now().await;
                             continue;
                         }
 
-                        consecutive_empty = 0;
                         let batch_size = batch.len();
 
                         // Route batch to receivers (Phase 6.8 lock-free queue routing)
@@ -311,7 +292,8 @@ impl JobProcessor for AdaptiveJobProcessor {
                     }
                     Err(e) => {
                         log::warn!("Error reading batch: {:?}", e);
-                        consecutive_empty += 1;
+                        // Continue on error - stop_flag will eventually be set to shutdown
+                        tokio::task::yield_now().await;
                     }
                 }
             }
