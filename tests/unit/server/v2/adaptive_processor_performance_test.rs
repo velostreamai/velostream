@@ -146,8 +146,9 @@ async fn adaptive_processor_busy_spin_performance() {
         let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
         let mut parser = StreamingSqlParser::new();
+        // Use GROUP BY to ensure compatibility with AdaptiveJobProcessor's hashing strategy
         let query = parser
-            .parse("SELECT id, value FROM test WHERE value > 0")
+            .parse("SELECT id, COUNT(*) FROM test WHERE value > 0 GROUP BY id")
             .expect("Failed to parse query");
 
         let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
@@ -230,8 +231,9 @@ async fn adaptive_processor_steady_state_throughput() {
     let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
+    // Use GROUP BY to ensure compatibility with AdaptiveJobProcessor's hashing strategy
     let query = parser
-        .parse("SELECT id, value FROM test WHERE value > 0")
+        .parse("SELECT id, COUNT(*) FROM test WHERE value > 0 GROUP BY id")
         .expect("Failed to parse query");
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);

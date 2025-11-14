@@ -2,6 +2,7 @@
 
 pub mod adaptive_job_processor_integration_test;
 pub mod adaptive_processor_performance_test;
+pub mod adaptive_processor_profiling_test;
 pub mod coordinator_test;
 pub mod job_processor_v2_test;
 pub mod metrics_test;
