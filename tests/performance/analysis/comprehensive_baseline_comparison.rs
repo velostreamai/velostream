@@ -14,7 +14,7 @@ Results feed into SCENARIO-BASELINE-COMPARISON.md table.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory,
@@ -288,26 +288,43 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usiz
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let start = Instant::now();
-    let _result = processor
-        .process_job(
-            Box::new(data_source),
-            Some(Box::new(data_writer.clone())),
-            // Engine is created internally by processor
-            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
-                mpsc::unbounded_channel().0,
-            ))),
-            (*query_arc).clone(),
-            "v2_1core_test".to_string(),
-            shutdown_rx,
-        )
-        .await;
+    let data_writer_clone = data_writer.clone();
+    let process_handle = {
+        let processor_clone = processor.clone();
+        let data_source_clone = data_source.clone();
+        let data_writer_for_task = data_writer_clone.clone();
+        tokio::spawn(async move {
+            processor_clone
+                .process_job(
+                    Box::new(data_source_clone),
+                    Some(Box::new(data_writer_for_task)),
+                    // Engine is created internally by processor
+                    Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                        mpsc::unbounded_channel().0,
+                    ))),
+                    (*query_arc).clone(),
+                    "v2_1core_test".to_string(),
+                    shutdown_rx,
+                )
+                .await
+        })
+    };
 
-    // Now stop the processor after all messages have been consumed
+    // Wait for data source to be fully consumed
+    while !data_source.all_consumed() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    // Wait 1 second for partition receivers to process final records
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Now stop the processor
     processor.stop().await.ok();
+
     let elapsed = start.elapsed();
 
     // Get actual records written to the sink via MockDataWriter
-    let records_written = data_writer.get_count();
+    let records_written = data_writer_clone.get_count();
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     (throughput, records_written)
@@ -329,26 +346,43 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usiz
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let start = Instant::now();
-    let _result = processor
-        .process_job(
-            Box::new(data_source),
-            Some(Box::new(data_writer.clone())),
-            // Engine is created internally by processor
-            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
-                mpsc::unbounded_channel().0,
-            ))),
-            (*query_arc).clone(),
-            "v2_4core_test".to_string(),
-            shutdown_rx,
-        )
-        .await;
+    let data_writer_clone = data_writer.clone();
+    let process_handle = {
+        let processor_clone = processor.clone();
+        let data_source_clone = data_source.clone();
+        let data_writer_for_task = data_writer_clone.clone();
+        tokio::spawn(async move {
+            processor_clone
+                .process_job(
+                    Box::new(data_source_clone),
+                    Some(Box::new(data_writer_for_task)),
+                    // Engine is created internally by processor
+                    Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                        mpsc::unbounded_channel().0,
+                    ))),
+                    (*query_arc).clone(),
+                    "v2_4core_test".to_string(),
+                    shutdown_rx,
+                )
+                .await
+        })
+    };
 
-    // Now stop the processor after all messages have been consumed
+    // Wait for data source to be fully consumed
+    while !data_source.all_consumed() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    // Wait 1 second for partition receivers to process final records
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    // Now stop the processor
     processor.stop().await.ok();
+
     let elapsed = start.elapsed();
 
     // Get actual records written to the sink via MockDataWriter
-    let records_written = data_writer.get_count();
+    let records_written = data_writer_clone.get_count();
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     (throughput, records_written)

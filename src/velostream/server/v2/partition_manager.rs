@@ -542,7 +542,7 @@ impl PartitionStateManager {
             query,
             receiver,
             Arc::clone(&self.metrics),
-            None,  // No writer in this code path
+            None, // No writer in this code path
         )
     }
 }

@@ -178,7 +178,13 @@ async fn test_adaptive_processor_simple_select() {
     let reader = MockDataSource::new(test_records.clone(), 10);
     let writer = MockDataWriter::new();
 
+    // Create simple SELECT query
+    let query_str = "SELECT id, value FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
     // Create AdaptiveJobProcessor with 2 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
     let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(2),
         enable_core_affinity: false,
@@ -188,28 +194,26 @@ async fn test_adaptive_processor_simple_select() {
             num_partitions,
             enable_core_affinity,
         } => {
-            use velostream::velostream::server::v2::PartitionedJobConfig;
-            Arc::new(AdaptiveJobProcessor::new(PartitionedJobConfig {
-                num_partitions,
-                enable_core_affinity,
-                ..Default::default()
-            }))
+            Arc::new(
+                AdaptiveJobProcessor::new(PartitionedJobConfig {
+                    num_partitions,
+                    enable_core_affinity,
+                    ..Default::default()
+                })
+                // Use RoundRobinStrategy for simple SELECT (doesn't require GROUP BY columns)
+                .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+            )
         }
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create simple SELECT query
-    let query_str = "SELECT id, value FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
-    let query = parser.parse(query_str).expect("Failed to parse query");
-
-    // Create dummy engine (will be created internally by processor)
+    // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job
+    // Process job - coordinator will initialize partition engines from query
     let result = processor
         .process_job(
             Box::new(reader),
@@ -275,7 +279,13 @@ async fn test_adaptive_processor_group_by() {
     let reader = MockDataSource::new(test_records.clone(), 20);
     let writer = MockDataWriter::new();
 
+    // Create GROUP BY query
+    let query_str = "SELECT trader_id, COUNT(*) as trade_count, SUM(quantity) as total_qty FROM input_stream GROUP BY trader_id";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
     // Create AdaptiveJobProcessor with 4 partitions
+    use velostream::velostream::server::v2::PartitionedJobConfig;
     let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
@@ -285,28 +295,26 @@ async fn test_adaptive_processor_group_by() {
             num_partitions,
             enable_core_affinity,
         } => {
-            use velostream::velostream::server::v2::PartitionedJobConfig;
-            Arc::new(AdaptiveJobProcessor::new(PartitionedJobConfig {
-                num_partitions,
-                enable_core_affinity,
-                ..Default::default()
-            }))
+            Arc::new(
+                AdaptiveJobProcessor::new(PartitionedJobConfig {
+                    num_partitions,
+                    enable_core_affinity,
+                    ..Default::default()
+                })
+                // Configure GROUP BY columns for proper routing
+                .with_group_by_columns(vec!["trader_id".to_string()]),
+            )
         }
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create GROUP BY query
-    let query_str = "SELECT trader_id, COUNT(*) as trade_count, SUM(quantity) as total_qty FROM input_stream GROUP BY trader_id";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
-    let query = parser.parse(query_str).expect("Failed to parse query");
-
-    // Create dummy engine
+    // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job
+    // Process job - coordinator will initialize partition engines from query
     let result = processor
         .process_job(
             Box::new(reader),
@@ -365,7 +373,13 @@ async fn test_adaptive_processor_partition_routing() {
     let reader = MockDataSource::new(test_records.clone(), 10);
     let writer = MockDataWriter::new();
 
+    // Create simple SELECT query
+    let query_str = "SELECT id, trader_id FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
     // Create AdaptiveJobProcessor with 4 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
     let config = JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
@@ -375,28 +389,26 @@ async fn test_adaptive_processor_partition_routing() {
             num_partitions,
             enable_core_affinity,
         } => {
-            use velostream::velostream::server::v2::PartitionedJobConfig;
-            Arc::new(AdaptiveJobProcessor::new(PartitionedJobConfig {
-                num_partitions,
-                enable_core_affinity,
-                ..Default::default()
-            }))
+            Arc::new(
+                AdaptiveJobProcessor::new(PartitionedJobConfig {
+                    num_partitions,
+                    enable_core_affinity,
+                    ..Default::default()
+                })
+                // Use RoundRobinStrategy for simple SELECT (doesn't require GROUP BY columns)
+                .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+            )
         }
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create simple SELECT query
-    let query_str = "SELECT id, trader_id FROM input_stream";
-    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
-    let query = parser.parse(query_str).expect("Failed to parse query");
-
-    // Create dummy engine
+    // Create dummy engine wrapper for process_job (coordinator will create its own)
     let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
     let dummy_engine = Arc::new(tokio::sync::RwLock::new(
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job
+    // Process job - coordinator will initialize partition engines from query
     let result = processor
         .process_job(
             Box::new(reader),

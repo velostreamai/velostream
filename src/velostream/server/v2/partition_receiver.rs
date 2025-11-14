@@ -57,8 +57,8 @@ use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, warn};
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 
 /// Synchronous partition receiver with direct ownership model
 ///
@@ -177,7 +177,10 @@ impl PartitionReceiver {
 
                             debug!(
                                 "PartitionReceiver {}: Processed batch of {} records ({} output), total: {}",
-                                self.partition_id, processed, output_records.len(), total_records
+                                self.partition_id,
+                                processed,
+                                output_records.len(),
+                                total_records
                             );
 
                             // Write output records to sink if available

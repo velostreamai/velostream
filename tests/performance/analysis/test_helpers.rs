@@ -17,11 +17,13 @@ use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Mock data source for job server performance testing
+#[derive(Clone)]
 pub struct MockDataSource {
     batch: Vec<StreamRecord>,
     batch_template: Vec<StreamRecord>,
     batches_read: usize,
     total_batches: usize,
+    all_consumed: Arc<AtomicUsize>,
 }
 
 impl MockDataSource {
@@ -34,7 +36,13 @@ impl MockDataSource {
             batch_template: batch,
             batches_read: 0,
             total_batches,
+            all_consumed: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// Returns true when all records have been consumed
+    pub fn all_consumed(&self) -> bool {
+        self.all_consumed.load(Ordering::SeqCst) != 0
     }
 }
 
@@ -44,6 +52,8 @@ impl DataReader for MockDataSource {
         &mut self,
     ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         if self.batches_read >= self.total_batches {
+            // Mark that all records have been consumed
+            self.all_consumed.store(1, Ordering::SeqCst);
             return Ok(vec![]);
         }
 

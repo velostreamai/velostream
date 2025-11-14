@@ -100,19 +100,19 @@ impl JobProcessor for AdaptiveJobProcessor {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
 
-        // Step 1: Wrap query in Arc for coordinator
+        // Step 1: Wrap query in Arc for partition initialization
         let query_arc = Arc::new(query);
 
         // Step 2: Initialize partitions with Phase 6.6 synchronous receivers
         // Each partition owns its StreamExecutionEngine directly (no Arc/Mutex)
         // Enables 15-25% architectural overhead elimination
-        let job_coordinator =
-            AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
+        // Pass query directly to initialize_partitions_v6_6, which will distribute to each partition
 
         // Wrap writer in Arc<Mutex<>> for sharing across partitions
         let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-        let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6(shared_writer.clone());
+        let (batch_senders, _metrics) =
+            self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
             "Initialized {} Phase 6.6 partition receivers for job: {}",
@@ -163,7 +163,7 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                     // Route batch to receivers (Phase 6.6 batch-based routing)
                     // Records are grouped by partition and sent as Vec<StreamRecord> batches
-                    match job_coordinator
+                    match self
                         .process_batch_for_receivers(batch, &batch_senders)
                         .await
                     {
@@ -252,14 +252,11 @@ impl JobProcessor for AdaptiveJobProcessor {
 
             let query_arc = Arc::new(query.clone());
 
-            // Initialize partitions with Phase 6.6 synchronous receivers
-            let job_coordinator =
-                AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
-
             // Wrap writer in Arc<Mutex<>> for sharing across partitions
             let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-            let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6(shared_writer.clone());
+            let (batch_senders, _metrics) =
+                self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
                 "Initialized {} Phase 6.6 partition receivers for source: {} (job: {})",
@@ -314,7 +311,7 @@ impl JobProcessor for AdaptiveJobProcessor {
                         let batch_size = batch.len();
 
                         // Route batch to receivers (Phase 6.6 batch-based routing)
-                        match job_coordinator
+                        match self
                             .process_batch_for_receivers(batch, &batch_senders)
                             .await
                         {
