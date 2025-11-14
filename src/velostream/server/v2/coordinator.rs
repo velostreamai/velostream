@@ -1313,6 +1313,7 @@ impl AdaptiveJobProcessor {
     /// - Vec of PartitionMetrics (for monitoring)
     pub fn initialize_partitions_v6_6(
         &self,
+        writer: Option<Arc<tokio::sync::Mutex<Box<dyn DataWriter>>>>,
     ) -> (
         Vec<mpsc::Sender<Vec<StreamRecord>>>,
         Vec<Arc<PartitionMetrics>>,
@@ -1338,6 +1339,7 @@ impl AdaptiveJobProcessor {
 
                 let query = Arc::clone(query_arc);
                 let engine = Arc::clone(engine_arc);
+                let writer_clone = writer.clone();
 
                 // Spawn partition receiver task (Phase 6.6 - synchronous processing)
                 tokio::spawn(async move {
@@ -1356,13 +1358,14 @@ impl AdaptiveJobProcessor {
                     // Each partition receiver owns its engine directly
                     // ProcessorContext is owned by the engine's QueryExecution internally
 
-                    // Create PartitionReceiver with direct ownership
+                    // Create PartitionReceiver with direct ownership and writer
                     let mut receiver = PartitionReceiver::new(
                         partition_id,
                         local_engine,
                         query,
                         batch_rx,
                         metrics,
+                        writer_clone,
                     );
 
                     // Run synchronous batch processing loop

@@ -49,6 +49,7 @@
 //!
 //! 3. Query metrics via `metrics()`, `throughput_per_sec()`, etc. at any time
 
+use crate::velostream::datasource::DataWriter;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
@@ -57,6 +58,7 @@ use log::{debug, warn};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 
 /// Synchronous partition receiver with direct ownership model
 ///
@@ -78,6 +80,7 @@ pub struct PartitionReceiver {
     query: Arc<StreamingQuery>,
     receiver: mpsc::Receiver<Vec<StreamRecord>>,
     metrics: Arc<PartitionMetrics>,
+    writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
 }
 
 impl PartitionReceiver {
@@ -88,9 +91,9 @@ impl PartitionReceiver {
     /// * `partition_id` - Unique partition identifier
     /// * `execution_engine` - Owned execution engine (no Arc/Mutex wrapper)
     /// * `query` - Query to execute (shared via Arc)
-    /// * `context` - Processor context for state (shared via Arc<Mutex>)
     /// * `receiver` - MPSC receiver for batch channel
     /// * `metrics` - Metrics tracker for this partition
+    /// * `writer` - Optional shared DataWriter for output records
     ///
     /// # Returns
     ///
@@ -101,9 +104,10 @@ impl PartitionReceiver {
         query: Arc<StreamingQuery>,
         receiver: mpsc::Receiver<Vec<StreamRecord>>,
         metrics: Arc<PartitionMetrics>,
+        writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
     ) -> Self {
         debug!(
-            "PartitionReceiver {}: Created with direct engine ownership",
+            "PartitionReceiver {}: Created with direct engine ownership and writer",
             partition_id
         );
 
@@ -113,6 +117,7 @@ impl PartitionReceiver {
             query,
             receiver,
             metrics,
+            writer,
         }
     }
 
@@ -163,7 +168,7 @@ impl PartitionReceiver {
 
                     // Process batch synchronously (Phase 6.7: no async overhead)
                     match self.process_batch(&batch) {
-                        Ok(processed) => {
+                        Ok((processed, output_records)) => {
                             total_records += processed as u64;
                             batch_count += 1;
 
@@ -171,9 +176,22 @@ impl PartitionReceiver {
                             self.metrics.record_latency(start.elapsed());
 
                             debug!(
-                                "PartitionReceiver {}: Processed batch of {} records (total: {})",
-                                self.partition_id, processed, total_records
+                                "PartitionReceiver {}: Processed batch of {} records ({} output), total: {}",
+                                self.partition_id, processed, output_records.len(), total_records
                             );
+
+                            // Write output records to sink if available
+                            if !output_records.is_empty() {
+                                if let Some(ref writer_arc) = self.writer {
+                                    let mut writer = writer_arc.lock().await;
+                                    if let Err(e) = writer.write_batch(output_records).await {
+                                        warn!(
+                                            "PartitionReceiver {}: Error writing {} output records to sink: {}",
+                                            self.partition_id, batch_size, e
+                                        );
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
                             warn!(
@@ -211,7 +229,7 @@ impl PartitionReceiver {
     /// For each record in the batch:
     /// 1. Execute the query via the engine
     /// 2. Update partition state (GROUP BY, windows, etc.)
-    /// 3. Emit results to output (if applicable)
+    /// 3. Collect output records for writing
     ///
     /// # Arguments
     ///
@@ -219,7 +237,7 @@ impl PartitionReceiver {
     ///
     /// # Returns
     ///
-    /// - `Ok(count)` - Number of records successfully processed
+    /// - `Ok((processed_count, output_records))` - Number of records successfully processed and output records
     /// - `Err(SqlError)` - Error that occurred during processing
     ///
     /// # Phase 6.7 Optimization
@@ -229,17 +247,26 @@ impl PartitionReceiver {
     /// - Enables deterministic output availability per record
     /// - Allows main loop to immediately decide commit/fail/rollback
     /// - Expected: 15% throughput improvement (693K → 800K+ rec/sec)
-    fn process_batch(&mut self, batch: &[StreamRecord]) -> Result<usize, SqlError> {
+    fn process_batch(
+        &mut self,
+        batch: &[StreamRecord],
+    ) -> Result<(usize, Vec<Arc<StreamRecord>>), SqlError> {
         let mut processed = 0;
+        let mut output_records = Vec::new();
 
         for record in batch {
             match self
                 .execution_engine
                 .execute_with_record_sync(&self.query, record)
             {
-                Ok(_output) => {
+                Ok(Some(output)) => {
                     processed += 1;
+                    output_records.push(Arc::new(output));
                     // Output is available synchronously - main loop can immediately commit if needed
+                }
+                Ok(None) => {
+                    processed += 1;
+                    // Record was buffered (windowed query) - no immediate output
                 }
                 Err(e) => {
                     warn!(
@@ -251,7 +278,7 @@ impl PartitionReceiver {
             }
         }
 
-        Ok(processed)
+        Ok((processed, output_records))
     }
 
     /// Check if partition is experiencing backpressure

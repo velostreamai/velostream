@@ -71,6 +71,7 @@ impl DataReader for MockDataSource {
 }
 
 /// Mock data writer for job server performance testing
+#[derive(Clone)]
 pub struct MockDataWriter {
     count: Arc<AtomicUsize>,
 }

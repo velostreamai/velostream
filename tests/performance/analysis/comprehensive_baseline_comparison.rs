@@ -194,18 +194,14 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, us
     (throughput, records_sent, records_processed)
 }
 
-/// Measure JobServer V1
-async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(1),
-        enable_core_affinity: false,
-    });
+/// Measure JobServer V1 (returns throughput and actual records written)
+async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Simple {});
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
+    let writer_count = data_writer.get_count(); // Capture initial count (should be 0)
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
-
+    // Engine is managed internally by processor, no need to create/manage it here
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
@@ -216,35 +212,33 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> f64 {
     let _result = processor
         .process_job(
             Box::new(data_source),
-            Some(Box::new(data_writer)),
-            engine,
+            Some(Box::new(data_writer.clone())),
+            // Engine is created internally by processor
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
             (*query_arc).clone(),
             "v1_test".to_string(),
             shutdown_rx,
         )
         .await;
 
-    // Consume all remaining messages from the execution engine
-    while let Ok(_) = rx.try_recv() {
-        // Just drain the channel
-    }
-
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
+    // Get actual records written to the sink via MockDataWriter
+    let records_written = data_writer.get_count();
+
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
-    throughput
+    (throughput, records_written)
 }
 
 /// Measure Transactional Job Processor (single-threaded with transactions)
-async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> f64 {
+async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
-
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
 
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
@@ -256,29 +250,30 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> f6
     let _result = processor
         .process_job(
             Box::new(data_source),
-            Some(Box::new(data_writer)),
-            engine,
+            Some(Box::new(data_writer.clone())),
+            // Engine is created internally by processor
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
             (*query_arc).clone(),
             "transactional_test".to_string(),
             shutdown_rx,
         )
         .await;
 
-    // Consume all remaining messages from the execution engine
-    while let Ok(_) = rx.try_recv() {
-        // Just drain the channel
-    }
-
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
+    // Get actual records written to the sink via MockDataWriter
+    let records_written = data_writer.get_count();
+
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
-    throughput
+    (throughput, records_written)
 }
 
 /// Measure JobServer V2 @ 1-core
-async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
+async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
@@ -286,9 +281,6 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
-
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
@@ -299,29 +291,30 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let _result = processor
         .process_job(
             Box::new(data_source),
-            Some(Box::new(data_writer)),
-            engine,
+            Some(Box::new(data_writer.clone())),
+            // Engine is created internally by processor
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
             (*query_arc).clone(),
             "v2_1core_test".to_string(),
             shutdown_rx,
         )
         .await;
 
-    // Consume all remaining messages from the execution engine
-    while let Ok(_) = rx.try_recv() {
-        // Just drain the channel
-    }
-
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
+    // Get actual records written to the sink via MockDataWriter
+    let records_written = data_writer.get_count();
+
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
-    throughput
+    (throughput, records_written)
 }
 
 /// Measure JobServer V2 @ 4-core
-async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
+async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(4),
         enable_core_affinity: false,
@@ -329,9 +322,6 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(tx)));
-
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
@@ -342,25 +332,26 @@ async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> f64 {
     let _result = processor
         .process_job(
             Box::new(data_source),
-            Some(Box::new(data_writer)),
-            engine,
+            Some(Box::new(data_writer.clone())),
+            // Engine is created internally by processor
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
             (*query_arc).clone(),
             "v2_4core_test".to_string(),
             shutdown_rx,
         )
         .await;
 
-    // Consume all remaining messages from the execution engine
-    while let Ok(_) = rx.try_recv() {
-        // Just drain the channel
-    }
-
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
     let elapsed = start.elapsed();
 
+    // Get actual records written to the sink via MockDataWriter
+    let records_written = data_writer.get_count();
+
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
-    throughput
+    (throughput, records_written)
 }
 
 /// Generate scenario 0 records (Pure SELECT)
@@ -502,25 +493,32 @@ async fn comprehensive_baseline_comparison() {
         sql_async_throughput, sql_async_sent, sql_async_processed
     );
 
-    let simple_jp_throughput = measure_v1(records.clone(), query).await;
-    println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
-
-    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    let (simple_jp_throughput, simple_jp_records_written) =
+        measure_v1(records.clone(), query).await;
     println!(
-        "  ✓ TransactionalJp: {:.0} rec/sec",
-        transactional_jp_throughput
+        "  ✓ SimpleJp:       {:.0} rec/sec (written: {})",
+        simple_jp_throughput, simple_jp_records_written
     );
 
-    let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
+    let (transactional_jp_throughput, transactional_jp_records_written) =
+        measure_transactional_jp(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
-        adaptive_jp_1c_throughput
+        "  ✓ TransactionalJp: {:.0} rec/sec (written: {})",
+        transactional_jp_throughput, transactional_jp_records_written
     );
 
-    let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
+    let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
+        measure_v2_1core(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
-        adaptive_jp_4c_throughput
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
+    );
+
+    let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
+        measure_v2_4core(records.clone(), query).await;
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
     );
 
     results.push(ScenarioResult {
@@ -570,25 +568,32 @@ async fn comprehensive_baseline_comparison() {
         sql_async_throughput, sql_async_sent, sql_async_processed
     );
 
-    let simple_jp_throughput = measure_v1(records.clone(), query).await;
-    println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
-
-    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    let (simple_jp_throughput, simple_jp_records_written) =
+        measure_v1(records.clone(), query).await;
     println!(
-        "  ✓ TransactionalJp: {:.0} rec/sec",
-        transactional_jp_throughput
+        "  ✓ SimpleJp:       {:.0} rec/sec (written: {})",
+        simple_jp_throughput, simple_jp_records_written
     );
 
-    let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
+    let (transactional_jp_throughput, transactional_jp_records_written) =
+        measure_transactional_jp(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
-        adaptive_jp_1c_throughput
+        "  ✓ TransactionalJp: {:.0} rec/sec (written: {})",
+        transactional_jp_throughput, transactional_jp_records_written
     );
 
-    let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
+    let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
+        measure_v2_1core(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
-        adaptive_jp_4c_throughput
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
+    );
+
+    let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
+        measure_v2_4core(records.clone(), query).await;
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
     );
 
     results.push(ScenarioResult {
@@ -638,25 +643,32 @@ async fn comprehensive_baseline_comparison() {
         sql_async_throughput, sql_async_sent, sql_async_processed
     );
 
-    let simple_jp_throughput = measure_v1(records.clone(), query).await;
-    println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
-
-    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    let (simple_jp_throughput, simple_jp_records_written) =
+        measure_v1(records.clone(), query).await;
     println!(
-        "  ✓ TransactionalJp: {:.0} rec/sec",
-        transactional_jp_throughput
+        "  ✓ SimpleJp:       {:.0} rec/sec (written: {})",
+        simple_jp_throughput, simple_jp_records_written
     );
 
-    let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
+    let (transactional_jp_throughput, transactional_jp_records_written) =
+        measure_transactional_jp(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
-        adaptive_jp_1c_throughput
+        "  ✓ TransactionalJp: {:.0} rec/sec (written: {})",
+        transactional_jp_throughput, transactional_jp_records_written
     );
 
-    let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
+    let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
+        measure_v2_1core(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
-        adaptive_jp_4c_throughput
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
+    );
+
+    let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
+        measure_v2_4core(records.clone(), query).await;
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
     );
 
     results.push(ScenarioResult {
@@ -706,25 +718,32 @@ async fn comprehensive_baseline_comparison() {
         sql_async_throughput, sql_async_sent, sql_async_processed
     );
 
-    let simple_jp_throughput = measure_v1(records.clone(), query).await;
-    println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
-
-    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    let (simple_jp_throughput, simple_jp_records_written) =
+        measure_v1(records.clone(), query).await;
     println!(
-        "  ✓ TransactionalJp: {:.0} rec/sec",
-        transactional_jp_throughput
+        "  ✓ SimpleJp:       {:.0} rec/sec (written: {})",
+        simple_jp_throughput, simple_jp_records_written
     );
 
-    let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
+    let (transactional_jp_throughput, transactional_jp_records_written) =
+        measure_transactional_jp(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
-        adaptive_jp_1c_throughput
+        "  ✓ TransactionalJp: {:.0} rec/sec (written: {})",
+        transactional_jp_throughput, transactional_jp_records_written
     );
 
-    let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
+    let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
+        measure_v2_1core(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
-        adaptive_jp_4c_throughput
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
+    );
+
+    let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
+        measure_v2_4core(records.clone(), query).await;
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
     );
 
     results.push(ScenarioResult {
@@ -774,25 +793,32 @@ async fn comprehensive_baseline_comparison() {
         sql_async_throughput, sql_async_sent, sql_async_processed
     );
 
-    let simple_jp_throughput = measure_v1(records.clone(), query).await;
-    println!("  ✓ SimpleJp:       {:.0} rec/sec", simple_jp_throughput);
-
-    let transactional_jp_throughput = measure_transactional_jp(records.clone(), query).await;
+    let (simple_jp_throughput, simple_jp_records_written) =
+        measure_v1(records.clone(), query).await;
     println!(
-        "  ✓ TransactionalJp: {:.0} rec/sec",
-        transactional_jp_throughput
+        "  ✓ SimpleJp:       {:.0} rec/sec (written: {})",
+        simple_jp_throughput, simple_jp_records_written
     );
 
-    let adaptive_jp_1c_throughput = measure_v2_1core(records.clone(), query).await;
+    let (transactional_jp_throughput, transactional_jp_records_written) =
+        measure_transactional_jp(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec",
-        adaptive_jp_1c_throughput
+        "  ✓ TransactionalJp: {:.0} rec/sec (written: {})",
+        transactional_jp_throughput, transactional_jp_records_written
     );
 
-    let adaptive_jp_4c_throughput = measure_v2_4core(records.clone(), query).await;
+    let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
+        measure_v2_1core(records.clone(), query).await;
     println!(
-        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec",
-        adaptive_jp_4c_throughput
+        "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
+    );
+
+    let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
+        measure_v2_4core(records.clone(), query).await;
+    println!(
+        "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
+        adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
     );
 
     results.push(ScenarioResult {

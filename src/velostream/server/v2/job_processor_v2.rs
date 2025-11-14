@@ -109,7 +109,10 @@ impl JobProcessor for AdaptiveJobProcessor {
         let job_coordinator =
             AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
 
-        let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
+        // Wrap writer in Arc<Mutex<>> for sharing across partitions
+        let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
+
+        let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6(shared_writer.clone());
 
         info!(
             "Initialized {} Phase 6.6 partition receivers for job: {}",
@@ -193,7 +196,8 @@ impl JobProcessor for AdaptiveJobProcessor {
 
         // Step 6: Finalize writer
         // Partition receivers process records internally and update per-partition state
-        if let Some(mut w) = writer {
+        if let Some(writer_arc) = shared_writer {
+            let mut w = writer_arc.lock().await;
             let _ = w.flush().await;
             let _ = w.commit().await;
         }
@@ -252,7 +256,10 @@ impl JobProcessor for AdaptiveJobProcessor {
             let job_coordinator =
                 AdaptiveJobProcessor::new(self.config().clone()).with_query(Arc::clone(&query_arc));
 
-            let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6();
+            // Wrap writer in Arc<Mutex<>> for sharing across partitions
+            let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
+
+            let (batch_senders, _metrics) = job_coordinator.initialize_partitions_v6_6(shared_writer.clone());
 
             info!(
                 "Initialized {} Phase 6.6 partition receivers for source: {} (job: {})",
@@ -336,7 +343,8 @@ impl JobProcessor for AdaptiveJobProcessor {
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
             // Finalize writer and reader for this source
-            if let Some(mut w) = writer {
+            if let Some(writer_arc) = shared_writer {
+                let mut w = writer_arc.lock().await;
                 let _ = w.flush().await;
                 let _ = w.commit().await;
             }
