@@ -634,3 +634,100 @@ async fn bench_sql_engine_profile() {
         (remaining_count as f64) / remaining_time.as_secs_f64()
     );
 }
+
+// ============================================================================
+// PROFILING: End-to-End Timing Instrumentation
+// ============================================================================
+
+/// Profile the AdaptiveProcessor with detailed timing at each level
+#[tokio::test]
+async fn bench_profiling_end_to_end() {
+    println!("\n\n=== ADAPTIVE PROCESSOR PROFILING (End-to-End Timing) ===\n");
+    println!("Measuring where the 18x overhead (282K→16K rec/sec) comes from\n");
+
+    let record_count = 5000;
+    let mut records = Vec::with_capacity(record_count);
+    for i in 0..record_count {
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(i as i64));
+        fields.insert("value".to_string(), FieldValue::Integer((i * 100) as i64));
+        records.push(StreamRecord::new(fields));
+    }
+
+    // Create data source and writer
+    let data_source = SimpleDataSource::new(record_count, 100);
+    let data_writer = SimpleDataWriter::new();
+
+    // Create processor
+    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
+
+    // Measure overall processing time
+    let overall_start = Instant::now();
+
+    // Create mock reader (wraps SimpleDataSource)
+    let reader = Box::new(data_source) as Box<dyn DataReader>;
+
+    // Parse query
+    let mut parser = StreamingSqlParser::new();
+    let query = parser
+        .parse("SELECT id, value FROM stream")
+        .expect("Parse failed");
+
+    // Create execution engine (needed for JobProcessor trait)
+    let (_tx, _rx) = mpsc::unbounded_channel();
+    let engine = Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(_tx)));
+
+    // Create shutdown channel
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    // Process job
+    let result = processor
+        .process_job(
+            reader,
+            Some(Box::new(data_writer)),
+            engine,
+            query,
+            "profiling_test".to_string(),
+            shutdown_rx,
+        )
+        .await;
+
+    let overall_elapsed = overall_start.elapsed();
+
+    match result {
+        Ok(stats) => {
+            println!("✅ Processing completed successfully");
+            println!();
+            println!("OVERALL METRICS:");
+            println!("  Records processed: {}", stats.records_processed);
+            println!("  Total time: {:.2}ms", overall_elapsed.as_millis());
+            println!(
+                "  Throughput: {:.0} rec/sec",
+                (stats.records_processed as f64) / overall_elapsed.as_secs_f64()
+            );
+            println!();
+
+            println!("CURRENT BOTTLENECK:");
+            println!("  Direct SQL: 282K rec/sec");
+            println!(
+                "  Through processor: {:.0} rec/sec",
+                (stats.records_processed as f64) / overall_elapsed.as_secs_f64()
+            );
+            println!(
+                "  Overhead: {:.1}x",
+                282000.0 / ((stats.records_processed as f64) / overall_elapsed.as_secs_f64())
+            );
+            println!();
+
+            println!("ANALYSIS NEEDED:");
+            println!("  1. Where does 17x overhead come from?");
+            println!("  2. Is it in SELECT processor HashMap/cloning?");
+            println!("  3. Is it in expression evaluation?");
+            println!("  4. Is it in field validation?");
+            println!("  5. Add detailed timing to each component to find bottleneck");
+        }
+        Err(e) => {
+            println!("❌ Processing failed: {:?}", e);
+        }
+    }
+}

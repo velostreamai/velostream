@@ -256,22 +256,28 @@ impl PartitionReceiver {
     ) -> Result<(usize, Vec<Arc<StreamRecord>>), SqlError> {
         let mut processed = 0;
         let mut output_records = Vec::new();
+        let batch_start = Instant::now();
+        let mut total_sql_time = std::time::Duration::ZERO;
 
         for record in batch {
+            let sql_start = Instant::now();
             match self
                 .execution_engine
                 .execute_with_record_sync(&self.query, record)
             {
                 Ok(Some(output)) => {
+                    total_sql_time += sql_start.elapsed();
                     processed += 1;
                     output_records.push(Arc::new(output));
                     // Output is available synchronously - main loop can immediately commit if needed
                 }
                 Ok(None) => {
+                    total_sql_time += sql_start.elapsed();
                     processed += 1;
                     // Record was buffered (windowed query) - no immediate output
                 }
                 Err(e) => {
+                    total_sql_time += sql_start.elapsed();
                     warn!(
                         "PartitionReceiver {}: Error processing record: {}",
                         self.partition_id, e
@@ -279,6 +285,23 @@ impl PartitionReceiver {
                     // Continue processing remaining records on error
                 }
             }
+        }
+
+        // PROFILING: Log timing data for bottleneck analysis
+        if processed > 0 && batch.len() >= 100 {
+            let batch_total = batch_start.elapsed();
+            let overhead = batch_total - total_sql_time;
+            let overhead_pct =
+                (overhead.as_micros() as f64 / batch_total.as_micros() as f64) * 100.0;
+            debug!(
+                "PartitionReceiver {}: batch_size={}, total_time={:.0}µs, sql_time={:.0}µs, overhead={:.0}µs ({:.1}%)",
+                self.partition_id,
+                batch.len(),
+                batch_total.as_micros(),
+                total_sql_time.as_micros(),
+                overhead.as_micros(),
+                overhead_pct
+            );
         }
 
         Ok((processed, output_records))
