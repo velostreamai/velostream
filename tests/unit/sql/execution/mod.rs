@@ -35,3 +35,6 @@ pub mod common_test_utils;
 
 // Performance monitoring tests
 pub mod performance;
+
+// execute_with_record_sync multi-result tests
+pub mod execute_sync_multi_result_test;

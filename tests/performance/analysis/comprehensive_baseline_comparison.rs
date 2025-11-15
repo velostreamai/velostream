@@ -137,13 +137,11 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
     for record in records.iter() {
         records_sent += 1;
         match engine.execute_with_record_sync(&parsed_query, &record) {
-            Ok(Some(_result_record)) => {
-                records_processed += 1;
-                // Validate result is a valid StreamRecord with expected fields
+            Ok(results) => {
+                // Count each result returned (0 or more per record)
+                records_processed += results.len();
+                // Validate results are valid StreamRecords with expected fields
                 // Additional validation happens in assertions
-            }
-            Ok(None) => {
-                // Record was buffered (windowed queries) - will be emitted later
             }
             Err(e) => {
                 eprintln!("Error processing record: {}", e);

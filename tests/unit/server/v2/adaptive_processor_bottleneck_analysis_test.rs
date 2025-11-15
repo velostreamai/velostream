@@ -144,7 +144,7 @@ async fn bottleneck_sql_engine() {
 
     let start = Instant::now();
     for record in &records {
-        let _ = engine.execute_with_record_sync(&query, record);
+        let _ = engine.execute_with_record_sync(&query, record).ok();
     }
     let elapsed = start.elapsed();
 
@@ -331,7 +331,7 @@ async fn bottleneck_comprehensive() {
 
     let start = Instant::now();
     for record in &records {
-        let _ = engine.execute_with_record_sync(&query, record);
+        let _ = engine.execute_with_record_sync(&query, record).ok();
     }
     let sql_elapsed = start.elapsed();
     let sql_per_record = sql_elapsed.as_micros() as f64 / records.len() as f64;

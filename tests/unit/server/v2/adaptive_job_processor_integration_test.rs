@@ -19,6 +19,53 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 use std::time::Duration;
 
+/// Helper: Run process_job with proper shutdown handling
+async fn run_process_job(
+    processor: Arc<AdaptiveJobProcessor>,
+    reader: MockDataSource,
+    writer: MockDataWriter,
+    query: StreamingQuery,
+    job_name: &str,
+) -> Result<
+    velostream::velostream::server::processors::common::JobExecutionStats,
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
+    ));
+
+    let processor_clone = Arc::clone(&processor);
+    let job_name_owned = job_name.to_string();
+    let process_handle = tokio::spawn(async move {
+        processor_clone
+            .process_job(
+                Box::new(reader),
+                Some(Box::new(writer)),
+                dummy_engine,
+                query,
+                job_name_owned,
+                {
+                    let (_tx, rx) = tokio::sync::mpsc::channel(1);
+                    rx
+                },
+            )
+            .await
+    });
+
+    // Wait for processing to complete
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Stop the processor to signal shutdown
+    let _ = processor.stop().await;
+
+    // Wait for process_job to complete with timeout
+    tokio::time::timeout(Duration::from_secs(5), process_handle)
+        .await
+        .expect("process_job timed out")
+        .expect("process_job task panicked")
+}
+
 /// Mock data source for testing - provides a fixed set of records
 #[derive(Clone)]
 struct MockDataSource {
@@ -207,26 +254,9 @@ async fn test_adaptive_processor_simple_select() {
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create dummy engine wrapper for process_job (coordinator will create its own)
-    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
-        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
-    ));
-
-    // Process job - coordinator will initialize partition engines from query
-    let result = processor
-        .process_job(
-            Box::new(reader),
-            Some(Box::new(writer.clone())),
-            dummy_engine,
-            query,
-            "test_job".to_string(),
-            {
-                let (_tx, rx) = tokio::sync::mpsc::channel(1);
-                rx
-            },
-        )
-        .await;
+    // Process job with proper shutdown handling
+    let result =
+        run_process_job(processor.clone(), reader, writer.clone(), query, "test_job").await;
 
     // Verify processing completed successfully
     assert!(result.is_ok(), "process_job failed: {:?}", result.err());
@@ -294,25 +324,15 @@ async fn test_adaptive_processor_writes_records() {
         _ => panic!("Expected Adaptive config"),
     };
 
-    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
-        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
-    ));
-
-    // Process job
-    let result = processor
-        .process_job(
-            Box::new(reader),
-            Some(Box::new(writer.clone())),
-            dummy_engine,
-            query,
-            "test_write_job".to_string(),
-            {
-                let (_tx, rx) = tokio::sync::mpsc::channel(1);
-                rx
-            },
-        )
-        .await;
+    // Process job with proper shutdown handling
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_write_job",
+    )
+    .await;
 
     // Verify processing completed
     assert!(result.is_ok(), "process_job failed: {:?}", result.err());
@@ -408,24 +428,14 @@ async fn test_adaptive_processor_comprehensive_scenario_1() {
         _ => panic!("Expected Adaptive config"),
     };
 
-    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
-        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
-    ));
-
-    let result = processor
-        .process_job(
-            Box::new(reader),
-            Some(Box::new(writer.clone())),
-            dummy_engine,
-            query,
-            "test_scenario_1".to_string(),
-            {
-                let (_tx, rx) = tokio::sync::mpsc::channel(1);
-                rx
-            },
-        )
-        .await;
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_scenario_1",
+    )
+    .await;
 
     assert!(result.is_ok(), "process_job failed: {:?}", result.err());
 
@@ -508,24 +518,14 @@ async fn test_adaptive_processor_large_single_batch() {
         _ => panic!("Expected Adaptive config"),
     };
 
-    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
-        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
-    ));
-
-    let result = processor
-        .process_job(
-            Box::new(reader),
-            Some(Box::new(writer.clone())),
-            dummy_engine,
-            query,
-            "test_large_batch".to_string(),
-            {
-                let (_tx, rx) = tokio::sync::mpsc::channel(1);
-                rx
-            },
-        )
-        .await;
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_large_batch",
+    )
+    .await;
 
     assert!(result.is_ok(), "process_job failed: {:?}", result.err());
 
@@ -608,26 +608,15 @@ async fn test_adaptive_processor_group_by() {
         _ => panic!("Expected Adaptive config"),
     };
 
-    // Create dummy engine wrapper for process_job (coordinator will create its own)
-    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
-        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
-    ));
-
-    // Process job - coordinator will initialize partition engines from query
-    let result = processor
-        .process_job(
-            Box::new(reader),
-            Some(Box::new(writer.clone())),
-            dummy_engine,
-            query,
-            "test_group_by".to_string(),
-            {
-                let (_tx, rx) = tokio::sync::mpsc::channel(1);
-                rx
-            },
-        )
-        .await;
+    // Process job with proper shutdown handling
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_group_by",
+    )
+    .await;
 
     // Verify processing completed successfully
     assert!(result.is_ok(), "process_job failed: {:?}", result.err());
@@ -708,20 +697,15 @@ async fn test_adaptive_processor_partition_routing() {
         velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
     ));
 
-    // Process job - coordinator will initialize partition engines from query
-    let result = processor
-        .process_job(
-            Box::new(reader),
-            Some(Box::new(writer.clone())),
-            dummy_engine,
-            query,
-            "test_routing".to_string(),
-            {
-                let (_tx, rx) = tokio::sync::mpsc::channel(1);
-                rx
-            },
-        )
-        .await;
+    // Process job with proper shutdown handling
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_routing",
+    )
+    .await;
 
     // Verify processing completed
     assert!(result.is_ok(), "process_job failed: {:?}", result.err());

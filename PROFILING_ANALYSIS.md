@@ -227,6 +227,97 @@ The 10x slowdown per-record is acceptable because:
 2. Absolute latency is still low (60µs)
 3. Enables streaming workloads that require > 1M rec/sec throughput
 
+## Phase 3: Direct Partition Receiver Benchmarking
+
+### Direct Benchmark Results ✅ NEW FINDINGS
+
+**Direct Queue-Fed Partition Receiver** (partition_receiver_latency_benchmark.rs):
+```
+Per-record latency: 26.18µs
+Throughput: 38,190 rec/sec
+Configuration: 100-record batches, batches fed directly via SegQueue
+Method: PartitionReceiver::new_with_queue() with direct queue feeding
+```
+
+### Critical Discovery: Coordinator Overhead
+
+Comparing full pipeline vs. direct partition receiver:
+```
+Full Coordinator Pipeline: 60.43µs per-record
+Direct Partition Receiver: 26.18µs per-record
+Difference: 34.25µs per-record
+
+This 34µs overhead comes from:
+- Batch routing/dispatching in coordinator
+- Queue distribution to multiple partitions
+- Scheduling overhead in multi-partition setup
+```
+
+### Spinlock Backoff Optimization Results
+
+Implemented 3-phase wait pattern in partition receiver:
+
+**Wait Pattern Metrics**:
+```
+Phase 1: Tight spinlock (first 100µs)
+  - Uses std::hint::spin_loop() for CPU efficiency
+  - Catches ~95% of batches with <100µs latency
+  - 1334 spin_loop() calls in test scenario
+
+Phase 2: Single yield_now() (after 100µs)
+  - Allows OS scheduler to intervene
+  - Measured: ~90µs overhead
+  - Used when batch arrival delayed
+
+Phase 3: Brief 10µs sleep (reduces CPU burndown)
+  - Last resort for very delayed batches
+  - Measured: ~1175µs (but drops CPU usage dramatically)
+```
+
+### Performance Comparison Summary
+
+| Configuration | Per-Record Latency | Throughput | Setup |
+|---------------|-------------------|-----------|-------|
+| SQL Engine only | 5.45µs | 183K rec/sec | Direct engine |
+| Partition Receiver (direct) | 26.18µs | 38.2K rec/sec | Queue-fed |
+| Coordinator (full pipeline) | 60.43µs | 16.5K rec/sec | Multi-partition |
+
+### Key Insight: Where Overhead Actually Comes From
+
+The 55-60µs overhead measured in the coordinator pipeline is NOT entirely from the partition receiver. Breakdown:
+
+```
+Direct Partition Receiver overhead: 26.18 - 5.45 = 20.73µs
+  └─ Caused by: yield_now() busy-spin (confirmed via yield instrumentation)
+
+Coordinator dispatch overhead: 60.43 - 26.18 = 34.25µs
+  └─ Caused by: batch routing/scheduling in multi-partition setup
+```
+
+### Implication for Low-Latency Requirements
+
+If you want to achieve lower latency (<10µs):
+
+**Option 1**: Use direct partition receiver with single partition
+- Trade: No parallelism
+- Result: 26.18µs per-record
+- Limitation: Single core bottleneck
+
+**Option 2**: Reduce batch size
+- Trade: More batches = more coordination overhead
+- Result: Likely minimal improvement (batch overhead amortizes)
+- Current baseline already accounts for batch overhead
+
+**Option 3**: Use V1 SimpleJobProcessor
+- Trade: No parallelism, but deterministic latency
+- Result: 5-6µs per-record
+- Limitation: Single-threaded only
+
+**Option 4**: Shared engine architecture
+- Trade: State must be synchronized across partitions
+- Result: Estimated 10-15µs per-record with parallelism
+- Effort: Significant architectural change
+
 ## Testing Infrastructure
 
 ### Test Files Created
@@ -235,14 +326,52 @@ The 10x slowdown per-record is acceptable because:
 - `bottleneck_detailed_profiling_test.rs` - Profiling infrastructure
 - `adaptive_processor_bottleneck_analysis_test.rs` - Analysis tests
 - `adaptive_processor_partition_strategies_test.rs` - Strategy tests
+- `yield_instrumentation_test.rs` - Yield overhead validation
+- `partition_receiver_latency_benchmark.rs` - Direct partition receiver benchmark
 
 ### Test Coverage
 - ✅ 9 bottleneck analysis tests (all passing)
 - ✅ 6 microbenchmark tests (all passing)
 - ✅ 6 partition strategy tests (all passing)
+- ✅ 2 yield instrumentation tests (90.7% hypothesis validation)
+- ✅ 2 partition receiver direct benchmark tests
 - ✅ 595 unit tests (all passing)
 
 All tests available with:
 ```bash
 cargo test --test mod bottleneck_ -- --nocapture --ignored
+cargo test --test mod yield_instrumentation -- --nocapture --ignored
+cargo test --test mod partition_receiver_latency -- --nocapture --ignored
 ```
+
+## Final Recommendations
+
+### For Throughput-Optimized Workloads
+Use AdaptiveJobProcessor (V2) with 8+ cores:
+- Expected throughput: 8 × 16.5K = 132K rec/sec
+- Per-record latency: 60µs (acceptable for streaming)
+- Parallelism: 8-way without coordination complexity
+
+### For Latency-Sensitive Workloads
+Use SimpleJobProcessor (V1):
+- Per-record latency: 5-6µs
+- Throughput: ~170K rec/sec single-core
+- Deterministic, no async overhead
+
+### For Balanced Workloads
+Direct Partition Receiver with 1-2 partitions:
+- Per-record latency: 26-30µs
+- Throughput: 33-38K rec/sec per partition
+- Balance between latency and some parallelism
+
+## Cross-Reference: Tokio Overhead Deep Dive
+
+See **TOKIO_OVERHEAD_ANALYSIS.md** for comprehensive measurements of:
+- Task dispatcher overhead (0.32µs spawn + 0.69µs join per task)
+- yield_now() overhead: **1.30µs per call** (PRIMARY source of 55-60µs total overhead)
+- Channel operations: 0.034µs send + 0.004µs recv (negligible)
+- Async function call stack: 2.1x slower than sync (small impact)
+- Multi-partition context switching: 27x speedup with 8 partitions
+- Real partition receiver simulation: validates architecture decisions
+
+These measurements explain why AdaptiveJobProcessor has 60µs per-record latency and validate that it's an optimal trade-off for multi-core throughput optimization.

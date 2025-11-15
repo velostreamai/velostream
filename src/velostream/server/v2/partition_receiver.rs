@@ -426,16 +426,15 @@ impl PartitionReceiver {
                 .execution_engine
                 .execute_with_record_sync(&self.query, record)
             {
-                Ok(Some(output)) => {
+                Ok(results) => {
                     total_sql_time += sql_start.elapsed();
                     processed += 1;
-                    output_records.push(Arc::new(output));
+                    // Handle 0 or more results per record
+                    for output in results {
+                        output_records.push(Arc::new(output));
+                    }
+                    // Note: Empty results vector is valid (record filtered/buffered)
                     // Output is available synchronously - main loop can immediately commit if needed
-                }
-                Ok(None) => {
-                    total_sql_time += sql_start.elapsed();
-                    processed += 1;
-                    // Record was buffered (windowed query) - no immediate output
                 }
                 Err(e) => {
                     total_sql_time += sql_start.elapsed();

@@ -42,10 +42,10 @@ impl PassthroughEngine {
         &mut self,
         _query: &velostream::velostream::sql::StreamingQuery,
         record: &StreamRecord,
-    ) -> Result<Option<Arc<StreamRecord>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Vec<Arc<StreamRecord>>, Box<dyn std::error::Error + Send + Sync>> {
         self.record_count.fetch_add(1, Ordering::Relaxed);
         // Simply pass through the record with minimal overhead
-        Ok(Some(Arc::new(record.clone())))
+        Ok(vec![Arc::new(record.clone())])
     }
 
     fn get_count(&self) -> u64 {
@@ -276,7 +276,7 @@ async fn passthrough_vs_sql_engine_comparison() {
 
     let start = Instant::now();
     for record in &records {
-        let _ = engine.execute_with_record_sync(&query, record);
+        let _ = engine.execute_with_record_sync(&query, record).ok();
     }
     let sql_elapsed = start.elapsed();
     let sql_per_record = sql_elapsed.as_micros() as f64 / records.len() as f64;
@@ -372,7 +372,7 @@ async fn passthrough_overhead_breakdown() {
 
     let start = Instant::now();
     for record in &records {
-        let _ = engine.execute_with_record_sync(&query, record);
+        let _ = engine.execute_with_record_sync(&query, record).ok();
     }
     let sql_elapsed = start.elapsed();
 

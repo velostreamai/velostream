@@ -549,11 +549,9 @@ async fn bench_sql_engine_only() {
 
     for record in &records {
         match engine.execute_with_record_sync(&query, record) {
-            Ok(Some(_output)) => {
-                executed += 1;
-            }
-            Ok(None) => {
-                executed += 1;
+            Ok(results) => {
+                // Count results (0 or more per record)
+                executed += results.len().max(1); // Count as executed if no results (buffered)
             }
             Err(_e) => {
                 // Continue on error
@@ -609,13 +607,13 @@ async fn bench_sql_engine_profile() {
 
     // Measure first record (includes initialization)
     let start = Instant::now();
-    let _ = engine.execute_with_record_sync(&query, &records[0]);
+    let _ = engine.execute_with_record_sync(&query, &records[0]).ok();
     let first_record_time = start.elapsed();
 
     // Measure remaining records (steady state)
     let start = Instant::now();
     for record in &records[1..] {
-        let _ = engine.execute_with_record_sync(&query, record);
+        let _ = engine.execute_with_record_sync(&query, record).ok();
     }
     let remaining_time = start.elapsed();
     let remaining_count = record_count - 1;
