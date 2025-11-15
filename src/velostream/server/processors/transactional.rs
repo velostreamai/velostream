@@ -185,7 +185,10 @@ impl TransactionalJobProcessor {
 
             // Non-blocking check for shutdown signal from stream_job_server
             if shutdown_rx.try_recv().is_ok() {
-                info!("Job '{}' received shutdown signal from stream_job_server", job_name);
+                info!(
+                    "Job '{}' received shutdown signal from stream_job_server",
+                    job_name
+                );
                 break;
             }
 

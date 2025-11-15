@@ -293,7 +293,10 @@ impl SimpleJobProcessor {
 
             // Non-blocking check for shutdown signal
             if shutdown_rx.try_recv().is_ok() {
-                info!("Job '{}' received shutdown signal from stream_job_server", job_name);
+                info!(
+                    "Job '{}' received shutdown signal from stream_job_server",
+                    job_name
+                );
                 break;
             }
 
