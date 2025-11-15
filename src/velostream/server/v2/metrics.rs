@@ -58,6 +58,10 @@ pub struct PartitionMetrics {
     // Latency tracking (microseconds)
     total_latency_micros: AtomicU64,
     latency_sample_count: AtomicU64,
+
+    // Yield instrumentation (for profiling busy-spin overhead)
+    yield_count: AtomicU64,
+    total_yield_time_micros: AtomicU64,
 }
 
 impl PartitionMetrics {
@@ -71,6 +75,8 @@ impl PartitionMetrics {
             queue_depth: AtomicUsize::new(0),
             total_latency_micros: AtomicU64::new(0),
             latency_sample_count: AtomicU64::new(0),
+            yield_count: AtomicU64::new(0),
+            total_yield_time_micros: AtomicU64::new(0),
         }
     }
 
@@ -142,6 +148,45 @@ impl PartitionMetrics {
         total / count
     }
 
+    /// Record a yield operation (for profiling busy-spin overhead)
+    pub fn record_yield(&self, yield_time_micros: u64) {
+        self.yield_count.fetch_add(1, Ordering::Relaxed);
+        self.total_yield_time_micros
+            .fetch_add(yield_time_micros, Ordering::Relaxed);
+    }
+
+    /// Get total yield count
+    pub fn total_yield_count(&self) -> u64 {
+        self.yield_count.load(Ordering::Relaxed)
+    }
+
+    /// Get total yield time (microseconds)
+    pub fn total_yield_time_micros(&self) -> u64 {
+        self.total_yield_time_micros.load(Ordering::Relaxed)
+    }
+
+    /// Get yields per record (for analysis)
+    pub fn yields_per_record(&self) -> f64 {
+        let records = self.total_records_processed();
+        let yields = self.total_yield_count();
+        if records == 0 {
+            0.0
+        } else {
+            yields as f64 / records as f64
+        }
+    }
+
+    /// Get average yield time in microseconds
+    pub fn avg_yield_time_micros(&self) -> f64 {
+        let yields = self.total_yield_count();
+        let total = self.total_yield_time_micros();
+        if yields == 0 {
+            0.0
+        } else {
+            total as f64 / yields as f64
+        }
+    }
+
     /// Check if partition is experiencing backpressure
     ///
     /// Returns true if queue depth exceeds threshold OR latency exceeds threshold
@@ -171,6 +216,8 @@ impl PartitionMetrics {
         self.queue_depth.store(0, Ordering::Relaxed);
         self.total_latency_micros.store(0, Ordering::Relaxed);
         self.latency_sample_count.store(0, Ordering::Relaxed);
+        self.yield_count.store(0, Ordering::Relaxed);
+        self.total_yield_time_micros.store(0, Ordering::Relaxed);
     }
 }
 

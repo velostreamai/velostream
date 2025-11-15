@@ -282,8 +282,11 @@ impl PartitionReceiver {
                         );
                         break;
                     }
-                    // Yield to allow other tasks to progress
+                    // Yield to allow other tasks to progress (with profiling instrumentation)
+                    let yield_start = Instant::now();
                     tokio::task::yield_now().await;
+                    let yield_elapsed = yield_start.elapsed().as_micros() as u64;
+                    self.metrics.record_yield(yield_elapsed);
                 }
             }
         } else {

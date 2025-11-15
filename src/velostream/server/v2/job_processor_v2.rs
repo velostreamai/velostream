@@ -336,4 +336,10 @@ impl JobProcessor for AdaptiveJobProcessor {
         info!("AdaptiveJobProcessor (V2) stop signal set");
         Ok(())
     }
+
+    fn get_partition_metrics(&self) -> Vec<Arc<crate::velostream::server::v2::PartitionMetrics>> {
+        // TODO: Return actual partition metrics from adaptive processor
+        // Currently partition metrics are internal to partition receivers
+        Vec::new()
+    }
 }
