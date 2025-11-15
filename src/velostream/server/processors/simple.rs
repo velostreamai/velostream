@@ -221,7 +221,7 @@ impl SimpleJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
+        mut shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -285,9 +285,15 @@ impl SimpleJobProcessor {
         }
 
         loop {
-            // Check for stop signal from processor
+            // Check for stop signal from processor or shutdown channel
             if self.stop_flag.load(Ordering::Relaxed) {
-                info!("Job '{}' received stop signal", job_name);
+                info!("Job '{}' received stop signal from processor", job_name);
+                break;
+            }
+
+            // Non-blocking check for shutdown signal
+            if shutdown_rx.try_recv().is_ok() {
+                info!("Job '{}' received shutdown signal from stream_job_server", job_name);
                 break;
             }
 

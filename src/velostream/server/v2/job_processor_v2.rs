@@ -77,7 +77,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
+        mut shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Job Processing with Synchronous Receivers
         //
@@ -131,7 +131,13 @@ impl JobProcessor for AdaptiveJobProcessor {
         loop {
             // Check if processor stop signal was raised
             if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                info!("Stop signal received, exiting read loop");
+                info!("Stop signal received from processor, exiting read loop");
+                break;
+            }
+
+            // Non-blocking check for shutdown signal from stream_job_server
+            if shutdown_rx.try_recv().is_ok() {
+                info!("Shutdown signal received from stream_job_server, exiting read loop");
                 break;
             }
 
