@@ -1,8 +1,12 @@
 //! FR-082 Phase 1-6: Job Server V2 hash-partitioned architecture unit tests
 
 pub mod adaptive_job_processor_integration_test;
+pub mod adaptive_processor_bottleneck_analysis_test;
+pub mod adaptive_processor_partition_strategies_test;
 pub mod adaptive_processor_performance_test;
 pub mod adaptive_processor_profiling_test;
+pub mod bottleneck_microbench_overhead_components_test;
+pub mod bottleneck_passthrough_baseline_test;
 pub mod coordinator_test;
 pub mod job_processor_v2_test;
 pub mod metrics_test;
