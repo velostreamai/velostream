@@ -282,11 +282,41 @@ impl PartitionReceiver {
                         );
                         break;
                     }
-                    // Yield to allow other tasks to progress (with profiling instrumentation)
-                    let yield_start = Instant::now();
-                    tokio::task::yield_now().await;
-                    let yield_elapsed = yield_start.elapsed().as_micros() as u64;
-                    self.metrics.record_yield(yield_elapsed);
+                    // Low-latency wait pattern: tight spinlock with backoff
+                    // Key insight: most batches arrive quickly (< 100µs)
+                    // Use spinlock for first 100µs, then back off to yields
+                    let wait_start = Instant::now();
+                    let mut yield_count = 0u64;
+
+                    loop {
+                        // Check for batch
+                        if !queue.is_empty() || eof_flag.load(AtomicOrdering::Acquire) {
+                            break;
+                        }
+
+                        let elapsed_us = wait_start.elapsed().as_micros() as u64;
+
+                        // Phase 1: Tight spinlock for first 100µs (catches ~95% of batches)
+                        if elapsed_us < 100 {
+                            std::hint::spin_loop();
+                        }
+                        // Phase 2: Single yield after 100µs (lets OS scheduler intervene)
+                        else if yield_count == 0 {
+                            let yield_start = Instant::now();
+                            tokio::task::yield_now().await;
+                            let yield_elapsed = yield_start.elapsed().as_micros() as u64;
+                            self.metrics.record_yield(yield_elapsed);
+                            yield_count += 1;
+                        }
+                        // Phase 3: Brief sleep after first yield (reduces CPU burndown)
+                        else {
+                            let sleep_start = Instant::now();
+                            tokio::time::sleep(tokio::time::Duration::from_micros(10)).await;
+                            let sleep_elapsed = sleep_start.elapsed().as_micros() as u64;
+                            self.metrics.record_yield(sleep_elapsed);
+                            break; // Exit wait loop after sleep
+                        }
+                    }
                 }
             }
         } else {
