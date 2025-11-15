@@ -5,6 +5,7 @@ pub mod adaptive_processor_bottleneck_analysis_test;
 pub mod adaptive_processor_partition_strategies_test;
 pub mod adaptive_processor_performance_test;
 pub mod adaptive_processor_profiling_test;
+pub mod adaptive_processor_strategy_functional_test;
 pub mod bottleneck_detailed_profiling_test;
 pub mod bottleneck_microbench_overhead_components_test;
 pub mod bottleneck_passthrough_baseline_test;
