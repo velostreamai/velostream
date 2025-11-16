@@ -644,13 +644,49 @@ impl SimpleJobProcessor {
                             job_name, source_name, batch_result.records_failed
                         );
                         // Add all failed records to the DLQ
-                        for error in &batch_result.error_details {
-                            // Note: We don't have the original record here, but error_details has the index
-                            // In a full implementation, we'd pass the records through the batch processor
-                            info!(
-                                "DLQ Entry: Record {} - {}",
-                                error.record_index, error.error_message
-                            );
+                        if let Some(dlq) = self.observability_wrapper.dlq() {
+                            for error in &batch_result.error_details {
+                                // Create a record with error context
+                                let mut record_data = std::collections::HashMap::new();
+                                record_data.insert(
+                                    "error".to_string(),
+                                    crate::velostream::sql::execution::types::FieldValue::String(
+                                        error.error_message.clone(),
+                                    ),
+                                );
+                                record_data.insert(
+                                    "source".to_string(),
+                                    crate::velostream::sql::execution::types::FieldValue::String(
+                                        source_name.clone(),
+                                    ),
+                                );
+
+                                let record =
+                                    crate::velostream::sql::execution::types::StreamRecord::new(
+                                        record_data,
+                                    );
+
+                                dlq.add_entry(
+                                    record,
+                                    error.error_message.clone(),
+                                    error.record_index,
+                                    error.recoverable,
+                                )
+                                .await;
+
+                                debug!(
+                                    "DLQ Entry Added: Record {} from Source '{}' - {}",
+                                    error.record_index, source_name, error.error_message
+                                );
+                            }
+                        } else {
+                            warn!("DLQ not enabled, logging failures only");
+                            for error in &batch_result.error_details {
+                                info!(
+                                    "Failed Record {}: {}",
+                                    error.record_index, error.error_message
+                                );
+                            }
                         }
                     }
                 }

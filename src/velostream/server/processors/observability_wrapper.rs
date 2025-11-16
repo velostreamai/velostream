@@ -142,6 +142,11 @@ impl ObservabilityWrapper {
         self.dlq.is_some()
     }
 
+    /// Get reference to DLQ (if enabled)
+    pub fn dlq(&self) -> Option<&Arc<DeadLetterQueue>> {
+        self.dlq.as_ref()
+    }
+
     // ===== Metrics Methods =====
 
     /// Get total records processed

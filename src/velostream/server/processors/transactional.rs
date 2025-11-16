@@ -1060,11 +1060,15 @@ impl TransactionalJobProcessor {
                         break; // Exit to retry
                     }
                     FailureStrategy::SendToDLQ => {
+                        // Note: SendToDLQ should never occur for TransactionalJobProcessor
+                        // because it always uses FailBatch strategy. This case is here for
+                        // completeness to handle misconfigurations gracefully.
                         warn!(
-                            "Job '{}': Source '{}' had {} failures, would send to DLQ (not implemented)",
+                            "Job '{}': Source '{}' had {} failures - SendToDLQ not applicable for transactional mode (treating as FailBatch)",
                             job_name, source_name, batch_result.records_failed
                         );
-                        // TODO: Implement DLQ functionality
+                        processing_successful = false;
+                        break; // Treat as FailBatch - fail the transaction
                     }
                 }
             }

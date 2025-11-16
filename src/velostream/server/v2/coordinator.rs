@@ -5,7 +5,7 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::MetricsCollector;
-use crate::velostream::server::processors::common::JobExecutionStats;
+use crate::velostream::server::processors::common::{JobExecutionStats, JobProcessingConfig};
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
 use crate::velostream::server::v2::{
@@ -1322,6 +1322,10 @@ impl AdaptiveJobProcessor {
             let query = Arc::clone(&query);
             let writer_clone = writer.clone();
 
+            // Clone configuration and observability before moving into async block
+            let job_config = JobProcessingConfig::default();
+            let observability_wrapper_clone = self.observability_wrapper.clone();
+
             // Spawn partition receiver task (Phase 6.6 - synchronous processing)
             tokio::spawn(async move {
                 // Create owned execution engine for this partition
@@ -1339,7 +1343,7 @@ impl AdaptiveJobProcessor {
                 // Each partition receiver owns its engine directly
                 // ProcessorContext is owned by the engine's QueryExecution internally
 
-                // Create PartitionReceiver with direct ownership and writer
+                // Create PartitionReceiver with direct ownership, DLQ support, and retry config
                 let mut receiver = PartitionReceiver::new(
                     partition_id,
                     local_engine,
@@ -1347,6 +1351,8 @@ impl AdaptiveJobProcessor {
                     batch_rx,
                     metrics,
                     writer_clone,
+                    job_config,
+                    None, // No observability manager for partition receiver
                 );
 
                 // Run synchronous batch processing loop

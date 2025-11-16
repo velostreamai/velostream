@@ -536,6 +536,10 @@ impl PartitionStateManager {
         receiver: tokio::sync::mpsc::Receiver<Vec<StreamRecord>>,
     ) -> PartitionReceiver {
         // Wrap the ProcessorContext in Arc<Mutex> for sharing across partition receivers
+        use crate::velostream::server::processors::common::JobProcessingConfig;
+
+        let job_config = JobProcessingConfig::default();
+
         PartitionReceiver::new(
             self.partition_id,
             engine,
@@ -543,6 +547,8 @@ impl PartitionStateManager {
             receiver,
             Arc::clone(&self.metrics),
             None, // No writer in this code path
+            job_config,
+            None, // No observability manager in this code path
         )
     }
 }

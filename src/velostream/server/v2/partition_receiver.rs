@@ -50,6 +50,8 @@
 //! 3. Query metrics via `metrics()`, `throughput_per_sec()`, etc. at any time
 
 use crate::velostream::datasource::DataWriter;
+use crate::velostream::server::processors::common::JobProcessingConfig;
+use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
@@ -81,6 +83,8 @@ pub struct PartitionReceiver {
     receiver: mpsc::Receiver<Vec<StreamRecord>>,
     metrics: Arc<PartitionMetrics>,
     writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
+    config: JobProcessingConfig,
+    observability_wrapper: ObservabilityWrapper,
 }
 
 impl PartitionReceiver {
@@ -94,6 +98,8 @@ impl PartitionReceiver {
     /// * `receiver` - MPSC receiver for batch channel
     /// * `metrics` - Metrics tracker for this partition
     /// * `writer` - Optional shared DataWriter for output records
+    /// * `config` - Job processing configuration (for DLQ and retry behavior)
+    /// * `observability` - Optional observability manager for tracing support
     ///
     /// # Returns
     ///
@@ -105,11 +111,18 @@ impl PartitionReceiver {
         receiver: mpsc::Receiver<Vec<StreamRecord>>,
         metrics: Arc<PartitionMetrics>,
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
+        config: JobProcessingConfig,
+        observability: Option<crate::velostream::observability::SharedObservabilityManager>,
     ) -> Self {
         debug!(
-            "PartitionReceiver {}: Created with direct engine ownership and writer",
-            partition_id
+            "PartitionReceiver {}: Created with DLQ support: {}, retry config: max_retries={}, backoff={:?}",
+            partition_id, config.enable_dlq, config.max_retries, config.retry_backoff,
         );
+
+        let observability_wrapper = ObservabilityWrapper::builder()
+            .with_observability(observability)
+            .with_dlq(config.enable_dlq)
+            .build();
 
         Self {
             partition_id,
@@ -118,6 +131,8 @@ impl PartitionReceiver {
             receiver,
             metrics,
             writer,
+            config,
+            observability_wrapper,
         }
     }
 
@@ -166,42 +181,126 @@ impl PartitionReceiver {
                     let start = Instant::now();
                     let batch_size = batch.len();
 
-                    // Process batch synchronously (Phase 6.7: no async overhead)
-                    match self.process_batch(&batch) {
-                        Ok((processed, output_records)) => {
-                            total_records += processed as u64;
-                            batch_count += 1;
+                    // Process batch with retry logic
+                    let mut retry_count = 0;
 
-                            self.metrics.record_batch_processed(processed as u64);
-                            self.metrics.record_latency(start.elapsed());
+                    while retry_count <= self.config.max_retries {
+                        // Process batch synchronously (Phase 6.7: no async overhead)
+                        match self.process_batch(&batch) {
+                            Ok((processed, output_records)) => {
+                                total_records += processed as u64;
+                                batch_count += 1;
 
-                            debug!(
-                                "PartitionReceiver {}: Processed batch of {} records ({} output), total: {}",
-                                self.partition_id,
-                                processed,
-                                output_records.len(),
-                                total_records
-                            );
+                                self.metrics.record_batch_processed(processed as u64);
+                                self.metrics.record_latency(start.elapsed());
 
-                            // Write output records to sink if available
-                            if !output_records.is_empty() {
-                                if let Some(ref writer_arc) = self.writer {
-                                    let mut writer = writer_arc.lock().await;
-                                    if let Err(e) = writer.write_batch(output_records).await {
-                                        warn!(
-                                            "PartitionReceiver {}: Error writing {} output records to sink: {}",
-                                            self.partition_id, batch_size, e
-                                        );
+                                debug!(
+                                    "PartitionReceiver {}: Processed batch of {} records ({} output), total: {}",
+                                    self.partition_id,
+                                    processed,
+                                    output_records.len(),
+                                    total_records
+                                );
+
+                                // Write output records to sink if available
+                                if !output_records.is_empty() {
+                                    if let Some(ref writer_arc) = self.writer {
+                                        let mut writer = writer_arc.lock().await;
+                                        if let Err(e) = writer.write_batch(output_records).await {
+                                            warn!(
+                                                "PartitionReceiver {}: Error writing {} output records to sink: {}",
+                                                self.partition_id, batch_size, e
+                                            );
+                                        }
+                                    }
+                                }
+
+                                break; // Batch processed successfully, exit retry loop
+                            }
+                            Err(e) => {
+                                warn!(
+                                    "PartitionReceiver {}: Error processing batch (attempt {}/{}): {}",
+                                    self.partition_id,
+                                    retry_count + 1,
+                                    self.config.max_retries + 1,
+                                    e
+                                );
+
+                                retry_count += 1;
+
+                                if retry_count <= self.config.max_retries {
+                                    // Apply exponential backoff before retry
+                                    debug!(
+                                        "PartitionReceiver {}: Applying backoff {} ms before retry",
+                                        self.partition_id,
+                                        self.config.retry_backoff.as_millis()
+                                    );
+                                    tokio::time::sleep(self.config.retry_backoff).await;
+                                } else {
+                                    // Max retries exceeded - send to DLQ if enabled
+                                    debug!(
+                                        "PartitionReceiver {}: Max retries ({}) exceeded, sending batch to DLQ",
+                                        self.partition_id, self.config.max_retries
+                                    );
+
+                                    // Send to DLQ if enabled
+                                    if self.config.enable_dlq {
+                                        if let Some(dlq) = self.observability_wrapper.dlq() {
+                                            let error_msg = format!(
+                                                "PartitionReceiver {}: Batch processing failed after {} retries: {}",
+                                                self.partition_id, self.config.max_retries, e
+                                            );
+
+                                            // Create a batch-level DLQ record with error context
+                                            let mut record_data = std::collections::HashMap::new();
+                                            record_data.insert(
+                                                "error".to_string(),
+                                                crate::velostream::sql::execution::types::FieldValue::String(
+                                                    error_msg.clone(),
+                                                ),
+                                            );
+                                            record_data.insert(
+                                                "partition_id".to_string(),
+                                                crate::velostream::sql::execution::types::FieldValue::Integer(
+                                                    self.partition_id as i64,
+                                                ),
+                                            );
+                                            record_data.insert(
+                                                "batch_size".to_string(),
+                                                crate::velostream::sql::execution::types::FieldValue::Integer(
+                                                    batch_size as i64,
+                                                ),
+                                            );
+
+                                            let dlq_record =
+                                                crate::velostream::sql::execution::types::StreamRecord::new(record_data);
+
+                                            // Add to DLQ
+                                            let dlq_ref = Arc::clone(dlq);
+                                            let fut = dlq_ref.add_entry(
+                                                dlq_record,
+                                                error_msg,
+                                                retry_count as usize,
+                                                false, // not recoverable after max retries
+                                            );
+
+                                            // Use a blocking runtime to execute the async add_entry
+                                            if let Ok(runtime) = std::panic::catch_unwind(
+                                                std::panic::AssertUnwindSafe(|| {
+                                                    tokio::runtime::Handle::current()
+                                                }),
+                                            ) {
+                                                let _ = runtime.block_on(fut);
+                                            } else {
+                                                warn!(
+                                                    "PartitionReceiver {}: Could not execute DLQ add_entry, no async runtime available",
+                                                    self.partition_id
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "PartitionReceiver {}: Error processing batch: {}",
-                                self.partition_id, e
-                            );
-                            // Continue processing other batches on non-fatal errors
                         }
                     }
                 }
@@ -257,7 +356,7 @@ impl PartitionReceiver {
         let mut processed = 0;
         let mut output_records = Vec::new();
 
-        for record in batch {
+        for (record_index, record) in batch.iter().enumerate() {
             match self
                 .execution_engine
                 .execute_with_record_sync(&self.query, record)
@@ -273,9 +372,68 @@ impl PartitionReceiver {
                 }
                 Err(e) => {
                     warn!(
-                        "PartitionReceiver {}: Error processing record: {}",
-                        self.partition_id, e
+                        "PartitionReceiver {}: Error processing record at index {}: {}",
+                        self.partition_id, record_index, e
                     );
+
+                    // Send to DLQ if enabled
+                    if self.config.enable_dlq {
+                        if let Some(dlq) = self.observability_wrapper.dlq() {
+                            let error_msg = format!(
+                                "PartitionReceiver {}: SQL execution error at index {}: {}",
+                                self.partition_id, record_index, e
+                            );
+                            // Create a DLQ record with error context
+                            let mut record_data = std::collections::HashMap::new();
+                            record_data.insert(
+                                "error".to_string(),
+                                crate::velostream::sql::execution::types::FieldValue::String(
+                                    error_msg.clone(),
+                                ),
+                            );
+                            record_data.insert(
+                                "partition_id".to_string(),
+                                crate::velostream::sql::execution::types::FieldValue::Integer(
+                                    self.partition_id as i64,
+                                ),
+                            );
+
+                            let dlq_record =
+                                crate::velostream::sql::execution::types::StreamRecord::new(
+                                    record_data,
+                                );
+
+                            // Add to DLQ (execute async block synchronously)
+                            let dlq_ref = Arc::clone(dlq);
+                            let fut = dlq_ref.add_entry(
+                                dlq_record,
+                                error_msg,
+                                record_index, // usize, not u32
+                                true,         // recoverable
+                            );
+
+                            // Use a blocking runtime to execute the async add_entry
+                            if let Ok(runtime) =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    tokio::runtime::Handle::current()
+                                }))
+                            {
+                                let _ = runtime.block_on(fut);
+                            } else {
+                                warn!(
+                                    "PartitionReceiver {}: Could not execute DLQ add_entry, no async runtime available",
+                                    self.partition_id
+                                );
+                            }
+
+                            debug!(
+                                "PartitionReceiver {}: DLQ Entry Added - Record {} - {}",
+                                self.partition_id, record_index, e
+                            );
+                        }
+                    }
+
+                    processed += 1;
                     // Continue processing remaining records on error
                 }
             }

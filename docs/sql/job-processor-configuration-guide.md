@@ -219,13 +219,15 @@ SimpleJobProcessor::new(JobProcessingConfig {
 
 ### SQL Configuration
 
-Configure SimpleJobProcessor via WITH clause:
+> ⚠️ **Note:** SQL-based configuration via WITH clauses is planned for a future release. Currently, processor configuration must be done programmatically via code or environment variables, not through SQL annotations.
+
+SQL configuration examples (planned feature - not yet implemented):
 
 ```sql
--- Basic simple mode (explicit)
-CREATE STREAM analytics AS
-SELECT * FROM events
-WITH ('mode' = 'simple', 'failure_strategy' = 'LogAndContinue');
+-- PLANNED: Basic simple mode (explicit)
+-- CREATE STREAM analytics AS
+-- SELECT * FROM events
+-- WITH ('mode' = 'simple', 'failure_strategy' = 'LogAndContinue');
 
 -- Large batches for throughput
 CREATE STREAM high_throughput AS
@@ -249,28 +251,39 @@ SELECT * FROM events;
 
 ### How to Enable Transactional Mode
 
-Three equivalent methods:
+> ⚠️ **Note:** SQL-based configuration via WITH clauses and annotations is planned for a future release. Currently, processor configuration must be done programmatically via code.
 
-**Method 1: WITH Clause (mode property)**
+Configuration methods (current and planned):
+
+**Currently Supported: Programmatic Configuration**
+- Use code/environment variables to set `use_transactions: true`
+- See application documentation for your language/framework
+
+**Planned: SQL-based Configuration**
+
+Planned Method 1: WITH Clause (mode property)
 ```sql
-CREATE STREAM financial_trades AS
-SELECT symbol, SUM(quantity) as total_volume
-FROM trades
-WITH ('mode' = 'transactional', 'max_retries' = '5');
+-- PLANNED: Not yet implemented
+-- CREATE STREAM financial_trades AS
+-- SELECT symbol, SUM(quantity) as total_volume
+-- FROM trades
+-- WITH ('mode' = 'transactional', 'max_retries' = '5');
 ```
 
-**Method 2: WITH Clause (use_transactions property)**
+Planned Method 2: WITH Clause (use_transactions property)
 ```sql
-CREATE STREAM atomic_updates AS
-SELECT * FROM transactions
-WITH ('use_transactions' = 'true', 'failure_strategy' = 'FailBatch');
+-- PLANNED: Not yet implemented
+-- CREATE STREAM atomic_updates AS
+-- SELECT * FROM transactions
+-- WITH ('use_transactions' = 'true', 'failure_strategy' = 'FailBatch');
 ```
 
-**Method 3: SQL Annotation**
+Planned Method 3: SQL Annotation
 ```sql
+-- PLANNED: Not yet implemented
 -- @processor_mode: transactional
-CREATE STREAM payment_processing AS
-SELECT * FROM payment_events;
+-- CREATE STREAM payment_processing AS
+-- SELECT * FROM payment_events;
 ```
 
 ### When to Use Transactional Mode
