@@ -38,10 +38,21 @@ pub struct SimpleJobProcessor {
 }
 
 impl SimpleJobProcessor {
+    /// Create a new Simple processor with optional DLQ based on config
+    ///
+    /// # Failure Handling Strategy
+    /// SimpleJobProcessor uses `FailureStrategy::LogAndContinue` to process records
+    /// even if some fail. Failed records can be sent to DLQ for analysis if enabled.
+    ///
+    /// # DLQ Configuration
+    /// DLQ is enabled by default (config.enable_dlq == true) to support error recovery
+    /// and debugging in production environments. Disable if overhead is a concern.
     pub fn new(config: JobProcessingConfig) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_dlq(),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_dlq(config.enable_dlq)
+                .build(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -52,21 +63,32 @@ impl SimpleJobProcessor {
         observability: Option<SharedObservabilityManager>,
     ) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_observability(observability)
+                .with_dlq(config.enable_dlq)
+                .build(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Create processor with observability support
+    ///
+    /// # Failure Handling Strategy
+    /// SimpleJobProcessor uses `FailureStrategy::LogAndContinue` which continues
+    /// processing even when records fail. With observability enabled, errors are
+    /// tracked for monitoring and debugging.
     pub fn with_observability(
         config: JobProcessingConfig,
         observability: Option<SharedObservabilityManager>,
     ) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_observability(observability)
+                .with_dlq(config.enable_dlq)
+                .build(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }

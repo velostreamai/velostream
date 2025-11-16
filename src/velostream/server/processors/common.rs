@@ -241,6 +241,11 @@ pub struct JobProcessingConfig {
     /// Wait time in milliseconds between empty batches
     /// Default: 1000ms (1 second) to avoid busy-waiting on empty data sources
     pub wait_on_empty_batch_ms: u64,
+    /// Enable Dead Letter Queue for failed records (only used with LogAndContinue strategy)
+    /// - SimpleJobProcessor: Default true (supports error recovery)
+    /// - TransactionalJobProcessor: Default false (FailBatch rolls back, DLQ not applicable)
+    /// - PartitionReceiver: Default true (enables debug tracking for partition-level failures)
+    pub enable_dlq: bool,
 }
 
 impl Default for JobProcessingConfig {
@@ -256,6 +261,7 @@ impl Default for JobProcessingConfig {
             progress_interval: 10,
             empty_batch_count: 1000,
             wait_on_empty_batch_ms: 1000,
+            enable_dlq: true, // Default: enabled for LogAndContinue strategy
         }
     }
 }

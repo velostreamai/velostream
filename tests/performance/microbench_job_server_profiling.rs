@@ -406,6 +406,7 @@ async fn profile_realistic_1m_records() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
     };
 
     let processor = SimpleJobProcessor::new(config);

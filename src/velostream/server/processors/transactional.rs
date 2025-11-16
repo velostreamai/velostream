@@ -40,23 +40,45 @@ pub struct TransactionalJobProcessor {
 }
 
 impl TransactionalJobProcessor {
+    /// Create a new Transactional processor
+    ///
+    /// # Failure Handling Strategy
+    /// TransactionalJobProcessor uses `FailureStrategy::FailBatch` which rolls back
+    /// the entire batch on any record failure. DLQ is intentionally disabled since
+    /// failed records are already rolled back and not persisted.
+    ///
+    /// # Note on DLQ
+    /// DLQ is disabled by default (config.enable_dlq == false) because:
+    /// - FailBatch rolls back entire batch on error
+    /// - Failed records are not written to the sink
+    /// - DLQ is only useful for LogAndContinue strategies where records partially succeed
     pub fn new(config: JobProcessingConfig) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_dlq(),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_dlq(false) // Always disabled for FailBatch strategy
+                .build(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Create processor with observability support
+    ///
+    /// # Failure Handling Strategy
+    /// TransactionalJobProcessor uses `FailureStrategy::FailBatch` - any record failure
+    /// causes the entire batch to be rolled back. Observability tracks metrics but
+    /// errors don't create DLQ entries (batch is atomic).
     pub fn with_observability(
         config: JobProcessingConfig,
         observability: Option<SharedObservabilityManager>,
     ) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_observability(observability)
+                .with_dlq(false) // Always disabled for FailBatch strategy
+                .build(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
