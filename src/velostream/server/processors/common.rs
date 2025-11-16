@@ -12,11 +12,7 @@ use crate::velostream::server::processors::SimpleJobProcessor;
 use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
-    execution::{
-        config::StreamingConfig,
-        processors::{QueryProcessor, context::ProcessorContext},
-        types::StreamRecord,
-    },
+    execution::{config::StreamingConfig, types::StreamRecord},
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
 };
 use log::{debug, error, info, warn};
