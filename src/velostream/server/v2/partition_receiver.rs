@@ -169,8 +169,8 @@ impl PartitionReceiver {
         partition_id: usize,
         execution_engine: StreamExecutionEngine,
         query: Arc<StreamingQuery>,
-        _queue: Arc<crossbeam_queue::SegQueue<Vec<StreamRecord>>>,
-        _eof_flag: Arc<std::sync::atomic::AtomicBool>,
+        queue: Arc<crossbeam_queue::SegQueue<Vec<StreamRecord>>>,
+        eof_flag: Arc<std::sync::atomic::AtomicBool>,
         metrics: Arc<PartitionMetrics>,
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         config: JobProcessingConfig,
@@ -186,10 +186,48 @@ impl PartitionReceiver {
             .with_dlq(config.enable_dlq)
             .build();
 
-        // For now, use MPSC-based implementation
-        // Lock-free queue optimization can be added in Phase 6.8+
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
-        drop(tx); // Close the sender immediately to signal EOF
+        // Create a bridge: convert lock-free queue to MPSC for compatibility with receiver field
+        // This allows us to use the existing run() loop without major refactoring
+        let (tx, rx) = tokio::sync::mpsc::channel(256); // Reasonable buffer size
+
+        // Spawn a background task that polls the lock-free queue and forwards to MPSC
+        // This bridges the lock-free queue (used by process_batch_for_receivers) to the
+        // MPSC receiver used by the run() loop
+        tokio::spawn({
+            let queue = queue.clone();
+            let eof_flag = eof_flag.clone();
+            let tx = tx.clone();
+            let partition_id = partition_id;
+
+            async move {
+                loop {
+                    // Try to pop from the lock-free queue
+                    if let Some(batch) = queue.pop() {
+                        if let Err(e) = tx.send(batch).await {
+                            warn!(
+                                "PartitionReceiver {}: Failed to forward batch from lock-free queue: {}",
+                                partition_id, e
+                            );
+                            break;
+                        }
+                    } else if eof_flag.load(std::sync::atomic::Ordering::Acquire) {
+                        // Queue is empty and EOF flag is set, close the channel
+                        debug!(
+                            "PartitionReceiver {}: Lock-free queue bridge detected EOF, closing channel",
+                            partition_id
+                        );
+                        drop(tx);
+                        break;
+                    } else {
+                        // Queue is temporarily empty, yield to other tasks
+                        tokio::task::yield_now().await;
+                    }
+                }
+            }
+        });
+
+        // Drop our copy of tx so only the spawned task holds a reference
+        drop(tx);
 
         Self {
             partition_id,
