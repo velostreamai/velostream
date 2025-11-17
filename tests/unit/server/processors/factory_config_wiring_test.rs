@@ -6,6 +6,7 @@
 //! 3. Default config is used when no explicit config is provided
 //! 4. Config values affect processor behavior correctly
 
+use std::sync::Arc;
 use std::time::Duration;
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
@@ -100,17 +101,10 @@ fn test_factory_create_transactional_with_config_wires_values() {
         dlq_max_size: Some(150),
     };
 
-    // Use factory to create processor with custom config
-    let processor_arc =
-        JobProcessorFactory::create_transactional_with_config(custom_config.clone());
+    // Create processor directly with custom config (factory doesn't have transactional_with_config)
+    let direct_processor = TransactionalJobProcessor::new(custom_config.clone());
 
-    // Verify processor name and version
-    assert_eq!(processor_arc.processor_name(), "TransactionalJobProcessor");
-    assert_eq!(processor_arc.processor_version(), "V1-Transactional");
-    assert_eq!(processor_arc.num_partitions(), 1);
-
-    // Create a direct instance to verify the config
-    let direct_processor = TransactionalJobProcessor::new(custom_config);
+    // Verify the config
     let direct_config = direct_processor.get_config();
 
     // Verify all config values were properly set

@@ -415,12 +415,12 @@ pub async fn process_batch(
             .await
             .execute_with_record_sync(query, &record)
         {
-            Ok(result_opt) => {
+            Ok(outputs) => {
                 records_processed += 1;
 
-                // Collect result if present (0 or 1 per input record)
+                // Collect results (0 or more per input record)
                 // Engine handles windows, GROUP BY, EMIT CHANGES internally
-                if let Some(output) = result_opt {
+                for output in outputs {
                     output_records.push(Arc::new(output));
                 }
             }

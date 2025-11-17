@@ -1349,6 +1349,7 @@ impl AdaptiveJobProcessor {
                 // ProcessorContext is owned by the engine's QueryExecution internally
 
                 // Create PartitionReceiver with lock-free queue and writer
+                let job_config = JobProcessingConfig::default();
                 let mut receiver = PartitionReceiver::new_with_queue(
                     partition_id,
                     local_engine,
