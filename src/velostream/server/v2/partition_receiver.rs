@@ -56,7 +56,7 @@ use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
-use log::{debug, warn};
+use log::{debug, error, warn};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
@@ -290,11 +290,34 @@ impl PartitionReceiver {
                                                     tokio::runtime::Handle::current()
                                                 }),
                                             ) {
-                                                let _ = runtime.block_on(fut);
+                                                if let Err(_) = std::panic::catch_unwind(
+                                                    std::panic::AssertUnwindSafe(|| {
+                                                        runtime.block_on(fut)
+                                                    }),
+                                                ) {
+                                                    error!(
+                                                        "PartitionReceiver {}: Panic occurred while adding batch DLQ entry after {} retries. Batch will be logged for manual recovery.",
+                                                        self.partition_id, self.config.max_retries
+                                                    );
+                                                    error!(
+                                                        "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
+                                                        self.partition_id,
+                                                        self.partition_id,
+                                                        batch_size,
+                                                        e
+                                                    );
+                                                }
                                             } else {
-                                                warn!(
-                                                    "PartitionReceiver {}: Could not execute DLQ add_entry, no async runtime available",
-                                                    self.partition_id
+                                                error!(
+                                                    "PartitionReceiver {}: Failed to obtain Tokio runtime for batch DLQ write after {} retries. Batch will be logged for manual recovery.",
+                                                    self.partition_id, self.config.max_retries
+                                                );
+                                                error!(
+                                                    "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
+                                                    self.partition_id,
+                                                    self.partition_id,
+                                                    batch_size,
+                                                    e
                                                 );
                                             }
                                         }
@@ -407,7 +430,7 @@ impl PartitionReceiver {
                             let dlq_ref = Arc::clone(dlq);
                             let fut = dlq_ref.add_entry(
                                 dlq_record,
-                                error_msg,
+                                error_msg.clone(),
                                 record_index, // usize, not u32
                                 true,         // recoverable
                             );
@@ -418,18 +441,38 @@ impl PartitionReceiver {
                                     tokio::runtime::Handle::current()
                                 }))
                             {
-                                let _ = runtime.block_on(fut);
+                                if let Err(_) =
+                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                        runtime.block_on(fut)
+                                    }))
+                                {
+                                    error!(
+                                        "PartitionReceiver {}: Panic occurred while adding record DLQ entry for Record {}. Record will be logged for manual recovery.",
+                                        self.partition_id, record_index
+                                    );
+                                    error!(
+                                        "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Record Index: {}, Error: '{}', Recoverable: true",
+                                        self.partition_id,
+                                        self.partition_id,
+                                        record_index,
+                                        error_msg
+                                    );
+                                } else {
+                                    debug!(
+                                        "PartitionReceiver {}: DLQ Entry Added - Record {} - {}",
+                                        self.partition_id, record_index, e
+                                    );
+                                }
                             } else {
-                                warn!(
-                                    "PartitionReceiver {}: Could not execute DLQ add_entry, no async runtime available",
-                                    self.partition_id
+                                error!(
+                                    "PartitionReceiver {}: Failed to obtain Tokio runtime for record DLQ write for Record {}. Record will be logged for manual recovery.",
+                                    self.partition_id, record_index
+                                );
+                                error!(
+                                    "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Record Index: {}, Error: '{}', Recoverable: true",
+                                    self.partition_id, self.partition_id, record_index, error_msg
                                 );
                             }
-
-                            debug!(
-                                "PartitionReceiver {}: DLQ Entry Added - Record {} - {}",
-                                self.partition_id, record_index, e
-                            );
                         }
                     }
 

@@ -5,6 +5,7 @@ pub mod coordinator_test;
 pub mod job_processor_v2_test;
 pub mod metrics_test;
 pub mod partition_manager_test;
+pub mod partition_receiver_dlq_test;
 pub mod partition_receiver_integration_test;
 pub mod partitioner_selector_test;
 pub mod phase4_system_fields_test;

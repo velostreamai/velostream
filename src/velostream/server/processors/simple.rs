@@ -666,18 +666,59 @@ impl SimpleJobProcessor {
                                         record_data,
                                     );
 
-                                dlq.add_entry(
-                                    record,
-                                    error.error_message.clone(),
-                                    error.record_index,
-                                    error.recoverable,
-                                )
-                                .await;
+                                // Attempt to add entry to DLQ with error handling
+                                // (add_entry returns (), so we just await it and catch any panics)
+                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    tokio::runtime::Handle::current()
+                                })) {
+                                    Ok(handle) => {
+                                        let dlq_ref = Arc::clone(dlq);
+                                        let fut = dlq_ref.add_entry(
+                                            record,
+                                            error.error_message.clone(),
+                                            error.record_index,
+                                            error.recoverable,
+                                        );
 
-                                debug!(
-                                    "DLQ Entry Added: Record {} from Source '{}' - {}",
-                                    error.record_index, source_name, error.error_message
-                                );
+                                        if let Err(_) = std::panic::catch_unwind(
+                                            std::panic::AssertUnwindSafe(|| handle.block_on(fut)),
+                                        ) {
+                                            error!(
+                                                "Job '{}': Panic occurred while adding DLQ entry for Source '{}', Record {}. Record will be logged for manual recovery.",
+                                                job_name, source_name, error.record_index
+                                            );
+                                            error!(
+                                                "Job '{}': DLQ Failure Context - Source: '{}', Record Index: {}, Error: '{}', Recoverable: {}",
+                                                job_name,
+                                                source_name,
+                                                error.record_index,
+                                                error.error_message,
+                                                error.recoverable
+                                            );
+                                        } else {
+                                            debug!(
+                                                "DLQ Entry Added: Record {} from Source '{}' - {}",
+                                                error.record_index,
+                                                source_name,
+                                                error.error_message
+                                            );
+                                        }
+                                    }
+                                    Err(_) => {
+                                        error!(
+                                            "Job '{}': Failed to obtain Tokio runtime for DLQ write for Source '{}', Record {}. Record will be logged for manual recovery.",
+                                            job_name, source_name, error.record_index
+                                        );
+                                        error!(
+                                            "Job '{}': DLQ Failure Context - Source: '{}', Record Index: {}, Error: '{}', Recoverable: {}",
+                                            job_name,
+                                            source_name,
+                                            error.record_index,
+                                            error.error_message,
+                                            error.recoverable
+                                        );
+                                    }
+                                }
                             }
                         } else {
                             warn!("DLQ not enabled, logging failures only");
