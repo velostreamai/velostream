@@ -69,6 +69,7 @@ async-trait = "0.1"
 async-stream = "0.3"
 lazy_static = "1.4"
 inventory = "0.3"
+crossbeam-queue = "0.3"  # Phase 6.8: Lock-free queue optimization for partition receivers
 
 # Dependencies for additional serialization formats (now always available)
 apache-avro = { version = "0.20.0" }

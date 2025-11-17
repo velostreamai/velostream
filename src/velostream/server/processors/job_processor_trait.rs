@@ -206,6 +206,18 @@ pub trait JobProcessor: Send + Sync {
             uptime_secs: 0.0,
         }
     }
+
+    /// Get per-partition metrics for profiling and analysis
+    ///
+    /// Returns metrics from each partition for detailed performance analysis.
+    /// Useful for identifying bottlenecks and validating hypotheses about
+    /// per-partition behavior.
+    ///
+    /// # Returns
+    /// Vector of partition metrics (empty for single-partition processors)
+    fn get_partition_metrics(&self) -> Vec<Arc<crate::velostream::server::v2::PartitionMetrics>> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

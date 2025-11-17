@@ -137,13 +137,11 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
     for record in records.iter() {
         records_sent += 1;
         match engine.execute_with_record_sync(&parsed_query, &record) {
-            Ok(Some(_result_record)) => {
-                records_processed += 1;
-                // Validate result is a valid StreamRecord with expected fields
+            Ok(results) => {
+                // Count each result returned (0 or more per record)
+                records_processed += results.len();
+                // Validate results are valid StreamRecords with expected fields
                 // Additional validation happens in assertions
-            }
-            Ok(None) => {
-                // Record was buffered (windowed queries) - will be emitted later
             }
             Err(e) => {
                 eprintln!("Error processing record: {}", e);
@@ -288,10 +286,9 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
 
 /// Measure JobServer V2 @ 1-core
 async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(1),
-        enable_core_affinity: false,
-    });
+    // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
+    // See: docs/developer/adaptive_processor_performance_analysis.md
+    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 
@@ -333,10 +330,9 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usiz
 
 /// Measure JobServer V2 @ 4-core
 async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(4),
-        enable_core_affinity: false,
-    });
+    // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
+    // See: docs/developer/adaptive_processor_performance_analysis.md
+    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(4));
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
 

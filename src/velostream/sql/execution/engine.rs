@@ -610,7 +610,7 @@ impl StreamExecutionEngine {
 
     /// Synchronous record execution (Phase 6.7 STP Determinism)
     ///
-    /// Processes a single record synchronously and returns output directly without
+    /// Processes a single record synchronously and returns all output records directly without
     /// async/await overhead or channel buffering. This enables true Single-Threaded
     /// Pipeline (STP) semantics where the processing loop can immediately decide
     /// commit/fail/rollback without waiting for channel messages.
@@ -632,47 +632,56 @@ impl StreamExecutionEngine {
     ///
     /// # Returns
     ///
-    /// * `Some(StreamRecord)` - If the record produced output (non-EMIT-CHANGES or first emit)
-    /// * `None` - If no output (filtered out or intermediate window state)
+    /// * `Ok(Vec<StreamRecord>)` - All output records (0 or more):
+    ///   - Empty vec: Record filtered out or buffered in window
+    ///   - Single record: Non-windowed query or first window result
+    ///   - Multiple records: GROUP BY emitting multiple groups, or windowed aggregations
     /// * `Err(SqlError)` - If an error occurred during processing
     ///
     /// # Determinism Guarantee
     ///
     /// The caller ALWAYS knows immediately after this method returns whether:
-    /// - Processing succeeded with output
-    /// - Processing succeeded without output (filtered/buffered)
+    /// - Processing succeeded with 0+ results (empty vec is valid for buffered/filtered)
     /// - Processing failed with error
     ///
     /// This enables deterministic commit/fail/rollback decisions per record.
+    ///
+    /// # Multiple Results
+    ///
+    /// This method returns ALL results per record, supporting:
+    /// - GROUP BY queries that emit multiple groups per window
+    /// - EMIT CHANGES queries that emit on each state change
+    /// - Windowed aggregations with multiple results
     pub fn execute_with_record_sync(
         &mut self,
         query: &StreamingQuery,
         stream_record: &StreamRecord,
-    ) -> Result<Option<StreamRecord>, SqlError> {
+    ) -> Result<Vec<StreamRecord>, SqlError> {
         let record_to_process = self.prepare_record_for_execution(query, stream_record);
         self.execute_internal_sync(query, record_to_process)
     }
 
     /// Synchronous internal execute method (Phase 6.7)
     ///
-    /// Processes the record synchronously and returns the first output only.
-    /// For EMIT-CHANGES queries with multiple outputs, the async method should be used.
+    /// Processes the record synchronously and returns ALL output records.
+    /// Includes first result plus any pending results from GROUP BY queue.
     ///
-    /// Returns the primary result for the record, or None if no output.
+    /// Returns a vector of 0 or more results for the record.
     fn execute_internal_sync(
         &mut self,
         query: &StreamingQuery,
         stream_record: StreamRecord,
-    ) -> Result<Option<StreamRecord>, SqlError> {
+    ) -> Result<Vec<StreamRecord>, SqlError> {
         // Check if this is a windowed query and process accordingly
-        let result = if let StreamingQuery::Select {
+        let (result, pending_results) = if let StreamingQuery::Select {
             window: Some(window_spec),
             group_by,
             ..
         } = query
         {
-            // FR-082 STP FIX: Use consistent query_id matching init_query_execution
-            let query_id = format!("{:?}", query);
+            // OPTIMIZATION: Reuse generate_query_id instead of format!("{:?}", query)
+            // format! with Debug is expensive when called per-record (CRITICAL HOTPATH)
+            let query_id = self.generate_query_id(query);
             if !self.active_queries.contains_key(&query_id) {
                 let window_state = Some(WindowState {
                     window_spec: window_spec.clone(),
@@ -685,22 +694,36 @@ impl StreamExecutionEngine {
             }
 
             // Process using windowed logic with high-performance state management
-            {
+            let (result, pending) = {
                 let mut context = self.get_processor_context(&query_id);
-                WindowProcessor::process_windowed_query_enhanced(
+                let result = WindowProcessor::process_windowed_query_enhanced(
                     &query_id,
                     query,
                     &stream_record,
                     &mut context,
                     None, // source_id
-                )?
-            }
+                )?;
+
+                // Collect pending results from GROUP BY queue (like async version does)
+                let pending_results =
+                    Self::collect_pending_results(&mut context, &query_id, group_by.is_some());
+
+                (result, pending_results)
+            };
+            (result, pending)
         } else {
             // Regular non-windowed processing
-            self.apply_query(query, &stream_record)?
+            (self.apply_query(query, &stream_record)?, Vec::new())
         };
 
-        Ok(result)
+        // Collect all results into a vector
+        let mut all_results = Vec::new();
+        if let Some(first_result) = result {
+            all_results.push(first_result);
+        }
+        all_results.extend(pending_results);
+
+        Ok(all_results)
     }
 
     /// Internal execute method that does the actual query processing
@@ -721,7 +744,8 @@ impl StreamExecutionEngine {
             // FR-082 STP FIX: Use consistent query_id matching init_query_execution
             // This ensures execute_internal finds the QueryExecution with persistent ProcessorContext
             // that was initialized by init_query_execution (or reuses existing one)
-            let query_id = format!("{:?}", query);
+            // OPTIMIZATION: Use generate_query_id instead of format!("{:?}", query) to avoid expensive Debug formatting
+            let query_id = self.generate_query_id(query);
             if !self.active_queries.contains_key(&query_id) {
                 let window_state = Some(WindowState {
                     window_spec: window_spec.clone(),

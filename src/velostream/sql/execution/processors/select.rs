@@ -501,7 +501,10 @@ impl SelectProcessor {
                     }
                 })
                 .collect();
-            let mut result_fields = HashMap::new();
+            // OPTIMIZATION: Pre-allocate HashMap with expected capacity to avoid reallocations
+            // Most queries select a fixed number of fields, so we can estimate capacity
+            let expected_fields = fields.len();
+            let mut result_fields = HashMap::with_capacity(expected_fields);
             let mut alias_context = SelectAliasContext::new();
             let mut header_mutations = Vec::new();
 

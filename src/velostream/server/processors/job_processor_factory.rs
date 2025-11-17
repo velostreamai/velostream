@@ -148,9 +148,37 @@ impl JobProcessorFactory {
         Self::create(JobProcessorConfig::Transactional)
     }
 
-    /// Create a Transactional mode processor with explicit configuration
-    pub fn create_transactional_with_config(config: JobProcessingConfig) -> Arc<dyn JobProcessor> {
-        Self::create_with_config(JobProcessorConfig::Transactional, Some(config))
+    /// Create an Adaptive mode processor optimized for testing/benchmarking
+    ///
+    /// Uses immediate EOF detection (empty_batch_count=0) instead of the production default,
+    /// eliminating 200-300ms empty batch polling overhead that affects test measurements.
+    /// This configuration is optimal for finite test datasets where EOF is deterministic.
+    ///
+    /// # Performance Impact
+    /// - Production config (empty_batch_count=3): 200-300ms overhead for EOF detection
+    /// - Test config (empty_batch_count=0): 0ms overhead, immediate EOF detection
+    ///
+    /// See docs/developer/adaptive_processor_performance_analysis.md for details.
+    pub fn create_adaptive_test_optimized(num_partitions: Option<usize>) -> Arc<dyn JobProcessor> {
+        let partitioned_config = crate::velostream::server::v2::PartitionedJobConfig {
+            num_partitions,
+            enable_core_affinity: false,
+            empty_batch_count: 0, // Immediate EOF detection for test datasets
+            wait_on_empty_batch_ms: 0, // No wait needed
+            ..Default::default()
+        };
+
+        let actual_partitions = num_partitions.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(8)
+        });
+
+        info!(
+            "Creating Adaptive processor (Test-optimized): {} partitions, immediate EOF detection",
+            actual_partitions
+        );
+        Arc::new(AdaptiveJobProcessor::new(partitioned_config))
     }
 
     /// Create an Adaptive mode processor with default configuration

@@ -37,7 +37,6 @@ use crate::velostream::sql::StreamingQuery;
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Implement JobProcessor trait for AdaptiveJobProcessor (V2 Architecture)
@@ -78,7 +77,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         _engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
+        mut shutdown_rx: mpsc::Receiver<()>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Job Processing with Synchronous Receivers
         //
@@ -111,12 +110,12 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Wrap writer in Arc<Mutex<>> for sharing across partitions
         let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-        let (batch_senders, _metrics) =
+        let (batch_queues, _metrics, eof_flags) =
             self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
-            "Initialized {} Phase 6.6 partition receivers for job: {}",
-            batch_senders.len(),
+            "Initialized {} Phase 6.8 partition receivers with lock-free queues for job: {}",
+            batch_queues.len(),
             job_name
         );
 
@@ -125,44 +124,38 @@ impl JobProcessor for AdaptiveJobProcessor {
         // while receivers haven't been scheduled yet
         tokio::task::yield_now().await;
 
-        // Step 3: Read batches and route to receivers
-        let mut consecutive_empty = 0;
+        // Step 3: Read batches and route to receivers (busy-spin pattern)
+        // Shutdown is controlled via stop_flag, not artificial EOF detection
         let mut total_routed = 0u64;
-        let max_consecutive_empty = self.config().empty_batch_count;
-        let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         loop {
             // Check if processor stop signal was raised
             if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
-                info!("Stop signal received, exiting read loop");
+                info!("Stop signal received from processor, exiting read loop");
+                break;
+            }
+
+            // Non-blocking check for shutdown signal from stream_job_server
+            if shutdown_rx.try_recv().is_ok() {
+                info!("Shutdown signal received from stream_job_server, exiting read loop");
                 break;
             }
 
             match reader.read().await {
                 Ok(batch) => {
                     if batch.is_empty() {
-                        consecutive_empty += 1;
-                        if consecutive_empty >= max_consecutive_empty {
-                            info!(
-                                "Reached max consecutive empty batches ({}) without new data, exiting",
-                                max_consecutive_empty
-                            );
-                            break;
-                        }
-                        // Wait before next read to avoid busy-waiting on empty data sources
-                        tokio::time::sleep(wait_on_empty).await;
+                        // Data source returned empty batch - continue polling
+                        // Partition receivers use the same pattern: yield and continue
+                        // Real EOF comes from stop_flag or successful commit
+                        tokio::task::yield_now().await;
                         continue;
                     }
 
-                    consecutive_empty = 0;
                     let batch_size = batch.len();
 
-                    // Route batch to receivers (Phase 6.6 batch-based routing)
-                    // Records are grouped by partition and sent as Vec<StreamRecord> batches
-                    match self
-                        .process_batch_for_receivers(batch, &batch_senders)
-                        .await
-                    {
+                    // Route batch to receivers (Phase 6.8 lock-free queue routing)
+                    // Records are grouped by partition and pushed to lock-free queues
+                    match self.process_batch_for_receivers(batch, &batch_queues).await {
                         Ok(routed_count) => {
                             aggregated_stats.records_processed += routed_count as u64;
                             aggregated_stats.batches_processed += 1;
@@ -176,18 +169,21 @@ impl JobProcessor for AdaptiveJobProcessor {
                 }
                 Err(e) => {
                     log::warn!("Error reading batch: {:?}", e);
-                    consecutive_empty += 1;
+                    // Continue on error - stop_flag will eventually be set to shutdown
+                    tokio::task::yield_now().await;
                 }
             }
         }
 
-        // Step 4: Close batch senders to signal EOF
+        // Step 4: Signal EOF to all partition receivers
         // This tells each partition receiver to exit once all batches are processed
-        drop(batch_senders);
+        for eof_flag in &eof_flags {
+            eof_flag.store(true, std::sync::atomic::Ordering::Release);
+        }
 
         // Step 5: Wait for receiver tasks to complete
         // The partition receiver tasks spawned in initialize_partitions_v6_6() will
-        // process all queued batches and then exit when the channel closes
+        // process all queued batches and then exit when EOF is signaled
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Step 6: Finalize writer
@@ -238,8 +234,6 @@ impl JobProcessor for AdaptiveJobProcessor {
         let start_time = std::time::Instant::now();
         let mut aggregated_stats = JobExecutionStats::new();
         let mut writers = writers;
-        let max_consecutive_empty = self.config().empty_batch_count;
-        let wait_on_empty = Duration::from_millis(self.config().wait_on_empty_batch_ms);
 
         // Process each reader-writer pair
         for (reader_name, mut reader) in readers.into_iter() {
@@ -251,12 +245,12 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Wrap writer in Arc<Mutex<>> for sharing across partitions
             let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-            let (batch_senders, _metrics) =
+            let (batch_queues, _metrics, eof_flags) =
                 self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
-                "Initialized {} Phase 6.6 partition receivers for source: {} (job: {})",
-                batch_senders.len(),
+                "Initialized {} Phase 6.8 partition receivers with lock-free queues for source: {} (job: {})",
+                batch_queues.len(),
                 reader_name,
                 job_name
             );
@@ -264,8 +258,7 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Yield control to allow spawned partition receiver tasks to start
             tokio::task::yield_now().await;
 
-            // Read batches and route to receivers
-            let mut consecutive_empty = 0;
+            // Read batches and route to receivers (busy-spin pattern)
             let mut total_routed = 0u64;
 
             loop {
@@ -281,27 +274,17 @@ impl JobProcessor for AdaptiveJobProcessor {
                 match reader.read().await {
                     Ok(batch) => {
                         if batch.is_empty() {
-                            consecutive_empty += 1;
-                            if consecutive_empty >= max_consecutive_empty {
-                                info!(
-                                    "Reader {} reached max consecutive empty batches ({}), exiting",
-                                    reader_name, max_consecutive_empty
-                                );
-                                break;
-                            }
-                            // Wait before next read to avoid busy-waiting on empty data sources
-                            tokio::time::sleep(wait_on_empty).await;
+                            // Data source returned empty batch - continue polling
+                            // Partition receivers use the same pattern: yield and continue
+                            // Real EOF comes from stop_flag or successful commit
+                            tokio::task::yield_now().await;
                             continue;
                         }
 
-                        consecutive_empty = 0;
                         let batch_size = batch.len();
 
-                        // Route batch to receivers (Phase 6.6 batch-based routing)
-                        match self
-                            .process_batch_for_receivers(batch, &batch_senders)
-                            .await
-                        {
+                        // Route batch to receivers (Phase 6.8 lock-free queue routing)
+                        match self.process_batch_for_receivers(batch, &batch_queues).await {
                             Ok(routed_count) => {
                                 aggregated_stats.records_processed += routed_count as u64;
                                 aggregated_stats.batches_processed += 1;
@@ -315,13 +298,16 @@ impl JobProcessor for AdaptiveJobProcessor {
                     }
                     Err(e) => {
                         log::warn!("Error reading batch: {:?}", e);
-                        consecutive_empty += 1;
+                        // Continue on error - stop_flag will eventually be set to shutdown
+                        tokio::task::yield_now().await;
                     }
                 }
             }
 
-            // Close batch senders to signal EOF
-            drop(batch_senders);
+            // Signal EOF to all partition receivers
+            for eof_flag in &eof_flags {
+                eof_flag.store(true, std::sync::atomic::Ordering::Release);
+            }
 
             // Wait for receiver tasks to complete
             tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -355,5 +341,11 @@ impl JobProcessor for AdaptiveJobProcessor {
         self.stop_flag.store(true, Ordering::Relaxed);
         info!("AdaptiveJobProcessor (V2) stop signal set");
         Ok(())
+    }
+
+    fn get_partition_metrics(&self) -> Vec<Arc<crate::velostream::server::v2::PartitionMetrics>> {
+        // TODO: Return actual partition metrics from adaptive processor
+        // Currently partition metrics are internal to partition receivers
+        Vec::new()
     }
 }

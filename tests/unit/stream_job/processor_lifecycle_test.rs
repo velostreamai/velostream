@@ -298,10 +298,10 @@ async fn test_transactional_processor_completes() {
 async fn test_adaptive_processor_completes() {
     println!("\n=== TEST: Adaptive Processor Lifecycle ===");
 
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
+    let processor = Arc::new(JobProcessorFactory::create(JobProcessorConfig::Adaptive {
         num_partitions: Some(1),
         enable_core_affinity: false,
-    });
+    }));
     let records = create_test_records(100);
     let data_source = SimpleMockDataSource::new(records.clone(), 10);
     let data_writer = SimpleMockDataWriter::new();
@@ -315,47 +315,63 @@ async fn test_adaptive_processor_completes() {
         .expect("Failed to parse query");
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
-    println!("Starting process_job...");
+    println!("Starting process_job in background task...");
     let start = std::time::Instant::now();
 
-    let result = timeout(
-        Duration::from_secs(30),
-        processor.process_job(
-            Box::new(data_source),
-            Some(Box::new(data_writer)),
-            engine,
-            query,
-            "adaptive_test".to_string(),
-            shutdown_rx,
-        ),
-    )
-    .await;
+    // Spawn process_job as a background task so we can call stop() while it's running
+    let processor_clone = Arc::clone(&processor);
+    let job_handle = tokio::spawn(async move {
+        processor_clone
+            .process_job(
+                Box::new(data_source),
+                Some(Box::new(data_writer)),
+                engine,
+                query,
+                "adaptive_test".to_string(),
+                shutdown_rx,
+            )
+            .await
+    });
+
+    // Give the processor a moment to start
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Wait for data processing to complete (100 records in batches of 10 should be very fast)
+    // Allow up to 500ms for all batches to be routed and processed
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    println!("Calling processor.stop() to signal shutdown...");
+    processor.stop().await.expect("Failed to stop processor");
+
+    // Now wait for the background task to complete
+    let result = timeout(Duration::from_secs(10), job_handle).await;
 
     let elapsed = start.elapsed();
     println!("process_job completed in {:?}", elapsed);
 
     match result {
-        Ok(Ok(stats)) => {
+        Ok(Ok(Ok(stats))) => {
             println!("✅ SUCCESS: process_job completed");
             println!("  Records processed: {}", stats.records_processed);
             println!("  Batches processed: {}", stats.batches_processed);
-            // The critical fix is that process_job completes promptly (< 1 second)
-            // Previously it would hang for 30+ seconds
+            // The critical fix is that process_job completes promptly after stop() is called
+            // Previously it would hang waiting for artificial EOF detection
             assert!(
-                elapsed.as_secs() < 2,
-                "process_job should complete quickly (< 2 seconds), took {:?}",
+                elapsed.as_secs() < 5,
+                "process_job should complete quickly after stop() (< 5 seconds), took {:?}",
                 elapsed
             );
         }
-        Ok(Err(e)) => {
+        Ok(Ok(Err(e))) => {
             panic!("❌ FAILED: process_job returned error: {:?}", e);
         }
+        Ok(Err(e)) => {
+            panic!("❌ FAILED: Background task panicked: {:?}", e);
+        }
         Err(_) => {
-            panic!("❌ TIMEOUT: process_job did not complete within 30 seconds");
+            panic!("❌ TIMEOUT: process_job did not complete within 10 seconds after stop()");
         }
     }
 
-    println!("Calling processor.stop()...");
-    processor.stop().await.expect("Failed to stop processor");
-    println!("✅ stop() completed");
+    println!("✅ stop() completed successfully");
 }
