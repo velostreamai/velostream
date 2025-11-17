@@ -18,7 +18,6 @@ use crate::velostream::sql::{
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
 
@@ -54,57 +53,24 @@ pub struct DLQEntry {
 #[derive(Debug, Clone)]
 pub struct DeadLetterQueue {
     pub entries: Arc<Mutex<Vec<DLQEntry>>>,
-    /// Optional maximum size limit for DLQ. If None, no limit is enforced.
-    max_size: Option<usize>,
-    /// Atomic flag indicating if DLQ has reached max capacity
-    max_size_reached: Arc<AtomicBool>,
-    /// Current count of entries (updated atomically for fast capacity checks)
-    entry_count: Arc<AtomicUsize>,
 }
 
 impl DeadLetterQueue {
-    /// Create a new DLQ without size limits
+    /// Create a new DLQ
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(Vec::new())),
-            max_size: None,
-            max_size_reached: Arc::new(AtomicBool::new(false)),
-            entry_count: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    /// Create a new DLQ with a maximum size limit
-    pub fn with_max_size(max_size: usize) -> Self {
-        Self {
-            entries: Arc::new(Mutex::new(Vec::new())),
-            max_size: Some(max_size),
-            max_size_reached: Arc::new(AtomicBool::new(false)),
-            entry_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     /// Add a failed record to the DLQ
-    /// Returns true if entry was added, false if at capacity or other error
     pub async fn add_entry(
         &self,
         record: StreamRecord,
         error_message: String,
         record_index: usize,
         recoverable: bool,
-    ) -> bool {
-        // Check capacity before adding
-        if let Some(max) = self.max_size {
-            let current_count = self.entry_count.load(Ordering::SeqCst);
-            if current_count >= max {
-                self.max_size_reached.store(true, Ordering::SeqCst);
-                debug!(
-                    "DLQ at capacity: {}/{} entries. Rejecting new entry.",
-                    current_count, max
-                );
-                return false;
-            }
-        }
-
+    ) {
         let entry = DLQEntry {
             record,
             error_message,
@@ -112,20 +78,7 @@ impl DeadLetterQueue {
             recoverable,
             timestamp: Instant::now(),
         };
-
         self.entries.lock().await.push(entry);
-
-        // Update atomic count
-        let new_count = self.entry_count.fetch_add(1, Ordering::SeqCst) + 1;
-
-        // Update max_size_reached flag
-        if let Some(max) = self.max_size {
-            if new_count >= max {
-                self.max_size_reached.store(true, Ordering::SeqCst);
-            }
-        }
-
-        true
     }
 
     /// Get all DLQ entries
@@ -143,11 +96,9 @@ impl DeadLetterQueue {
         self.entries.lock().await.is_empty()
     }
 
-    /// Clear the DLQ and reset counters
+    /// Clear the DLQ
     pub async fn clear(&self) {
         self.entries.lock().await.clear();
-        self.entry_count.store(0, Ordering::SeqCst);
-        self.max_size_reached.store(false, Ordering::SeqCst);
     }
 
     /// Print all DLQ entries for debugging
@@ -176,35 +127,6 @@ impl DeadLetterQueue {
             );
             println!();
         }
-    }
-
-    /// Get the maximum size limit for this DLQ
-    pub fn max_size(&self) -> Option<usize> {
-        self.max_size
-    }
-
-    /// Check if DLQ has reached maximum capacity
-    pub fn is_at_capacity(&self) -> bool {
-        self.max_size_reached.load(Ordering::SeqCst)
-    }
-
-    /// Reset the max_size_reached flag (useful after clearing DLQ)
-    pub fn reset_max_size_flag(&self) {
-        self.max_size_reached.store(false, Ordering::SeqCst);
-    }
-
-    /// Get current capacity usage as a percentage (0.0 - 100.0)
-    /// Returns None if no max_size is configured
-    pub fn capacity_usage_percent(&self) -> Option<f64> {
-        self.max_size.map(|max| {
-            let current = self.entry_count.load(Ordering::SeqCst);
-            (current as f64 / max as f64) * 100.0
-        })
-    }
-
-    /// Get current entry count (fast, non-blocking)
-    pub fn current_size(&self) -> usize {
-        self.entry_count.load(Ordering::SeqCst)
     }
 }
 
@@ -324,10 +246,6 @@ pub struct JobProcessingConfig {
     /// - TransactionalJobProcessor: Default false (FailBatch rolls back, DLQ not applicable)
     /// - PartitionReceiver: Default true (enables debug tracking for partition-level failures)
     pub enable_dlq: bool,
-    /// Maximum size limit for the Dead Letter Queue
-    /// If None, no limit is enforced. If Some(max), DLQ will reject entries once capacity is reached.
-    /// Default: None (unlimited)
-    pub dlq_max_size: Option<usize>,
 }
 
 impl Default for JobProcessingConfig {
@@ -343,8 +261,7 @@ impl Default for JobProcessingConfig {
             progress_interval: 10,
             empty_batch_count: 1000,
             wait_on_empty_batch_ms: 1000,
-            enable_dlq: true,   // Default: enabled for LogAndContinue strategy
-            dlq_max_size: None, // Default: unlimited DLQ size
+            enable_dlq: true, // Default: enabled for LogAndContinue strategy
         }
     }
 }
