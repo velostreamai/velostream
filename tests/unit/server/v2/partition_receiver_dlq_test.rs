@@ -22,6 +22,7 @@ fn test_partition_receiver_dlq_config() {
     // Verify JobProcessingConfig properly sets up DLQ
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 3,
         retry_backoff: Duration::from_millis(100),
         ..Default::default()
@@ -37,6 +38,7 @@ fn test_partition_receiver_dlq_disabled_config() {
     // Verify DLQ can be disabled via config
     let config = JobProcessingConfig {
         enable_dlq: false,
+        dlq_max_size: Some(100),
         max_retries: 0,
         ..Default::default()
     };
@@ -81,6 +83,7 @@ fn test_retry_backoff_calculation() {
     // Verify exponential backoff is configurable
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 5,
         retry_backoff: Duration::from_millis(50),
         ..Default::default()
@@ -98,6 +101,7 @@ fn test_retry_with_zero_retries() {
     // Verify behavior with zero retries
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 0,
         retry_backoff: Duration::from_millis(0),
         ..Default::default()
@@ -111,6 +115,7 @@ fn test_retry_with_max_retries() {
     // Verify max retry count is respected
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 10,
         retry_backoff: Duration::from_millis(100),
         ..Default::default()
@@ -144,8 +149,9 @@ fn test_dlq_entry_timestamp() {
         FieldValue::String("Test error".to_string()),
     );
 
-    let record = StreamRecord::new(entry_context);
-    // StreamRecord has timestamp field set automatically
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let record = StreamRecord::with_metadata(entry_context, timestamp, 0, 0, HashMap::new());
+    // StreamRecord timestamp should be set via with_metadata
     assert!(record.timestamp > 0);
 }
 

@@ -14,10 +14,10 @@ Results feed into SCENARIO-BASELINE-COMPARISON.md table.
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use velostream::velostream::server::processors::{
-    JobProcessor, JobProcessorConfig, JobProcessorFactory,
+    FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
 };
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
@@ -196,10 +196,24 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, us
 
 /// Measure JobServer V1 (returns throughput and actual records written)
 async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Simple {});
+    // Create processor with explicit config for immediate exit on exhausted sources
+    let config = JobProcessingConfig {
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_batch_size: 100,
+        batch_timeout: Duration::from_millis(100),
+        max_retries: 2,
+        retry_backoff: Duration::from_millis(50),
+        progress_interval: 100,
+        log_progress: false,
+        empty_batch_count: 0, // Exit immediately when sources exhausted
+        wait_on_empty_batch_ms: 100,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
+    };
+    let processor = JobProcessorFactory::create_simple_with_config(config);
     let data_source = MockDataSource::new(records.clone(), records.len());
     let data_writer = MockDataWriter::new();
-    let writer_count = data_writer.get_count(); // Capture initial count (should be 0)
 
     // Engine is managed internally by processor, no need to create/manage it here
     let mut parser = StreamingSqlParser::new();

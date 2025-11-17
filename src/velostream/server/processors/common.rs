@@ -326,7 +326,7 @@ pub struct JobProcessingConfig {
     pub enable_dlq: bool,
     /// Maximum size limit for the Dead Letter Queue
     /// If None, no limit is enforced. If Some(max), DLQ will reject entries once capacity is reached.
-    /// Default: None (unlimited)
+    /// Default: Some(100) - 100 items max to prevent unbounded growth
     pub dlq_max_size: Option<usize>,
 }
 
@@ -341,10 +341,10 @@ impl Default for JobProcessingConfig {
             retry_backoff: Duration::from_millis(5000),
             log_progress: true,
             progress_interval: 10,
-            empty_batch_count: 1000,
+            empty_batch_count: 1000, // Exit immediately when all sources exhausted (no retry delay)
             wait_on_empty_batch_ms: 1000,
-            enable_dlq: true,   // Default: enabled for LogAndContinue strategy
-            dlq_max_size: None, // Default: unlimited DLQ size
+            enable_dlq: true,        // Default: enabled for LogAndContinue strategy
+            dlq_max_size: Some(100), // Default: 100 items max DLQ size
         }
     }
 }

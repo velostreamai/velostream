@@ -218,8 +218,12 @@ async fn test_process_datasource_with_shutdown() {
     // Create mock reader
     let reader = Box::new(MockReader { count: 5 });
 
-    // Create default processor using trait
-    let processor = SimpleJobProcessor::new(JobProcessingConfig::default());
+    // Create processor with fast exit on exhausted sources for test
+    let config = JobProcessingConfig {
+        empty_batch_count: 0, // Exit immediately when sources exhausted
+        ..Default::default()
+    };
+    let processor = SimpleJobProcessor::new(config);
 
     // Process records with job processor trait
     let stats = processor

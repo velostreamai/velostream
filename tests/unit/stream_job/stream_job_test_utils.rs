@@ -335,6 +335,7 @@ pub fn create_simple_processor() -> SimpleJobProcessor {
         empty_batch_count: 1, // Test config: exit immediately on empty batch
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
         ..Default::default()
     };
     SimpleJobProcessor::new(config)
@@ -352,6 +353,7 @@ pub fn create_conservative_simple_processor() -> SimpleJobProcessor {
         empty_batch_count: 1, // Test config: exit immediately on empty batch
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
         ..Default::default()
     };
     SimpleJobProcessor::new(config)
@@ -369,6 +371,7 @@ pub fn create_low_latency_processor() -> SimpleJobProcessor {
         empty_batch_count: 1, // Test config: exit immediately on empty batch
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
         ..Default::default()
     };
     SimpleJobProcessor::new(config)
@@ -382,9 +385,10 @@ pub fn create_throughput_processor() -> SimpleJobProcessor {
         failure_strategy: FailureStrategy::LogAndContinue,
         max_retries: 3,
         retry_backoff: std::time::Duration::from_millis(100),
-        empty_batch_count: 1000, // Production config: wait for 1000 empty batches
+        empty_batch_count: 0, // Test config: exit immediately when sources exhausted
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
         ..Default::default()
     };
     SimpleJobProcessor::new(config)

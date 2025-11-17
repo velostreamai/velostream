@@ -323,6 +323,7 @@ async fn benchmark_simple_processor(
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -430,6 +431,7 @@ async fn benchmark_transactional_processor(
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);

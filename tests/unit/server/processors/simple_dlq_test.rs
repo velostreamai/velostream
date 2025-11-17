@@ -14,8 +14,8 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use tokio::sync::Mutex;
-use velostream::velostream::datasource::{DataReader, DataWriter};
+use tokio::sync::{Mutex, mpsc};
+use velostream::velostream::datasource::{DataReader, DataWriter, SourceOffset};
 use velostream::velostream::observability::SharedObservabilityManager;
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, SimpleJobProcessor,
@@ -28,7 +28,7 @@ use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
 pub struct MockDataReader {
     pub name: String,
     pub records: Vec<StreamRecord>,
-    pub current_index: usize,
+    pub current_index: Arc<AtomicUsize>,
     pub supports_transactions: bool,
 }
 
@@ -53,19 +53,8 @@ impl MockDataReader {
         Self {
             name: name.to_string(),
             records,
-            current_index: 0,
+            current_index: Arc::new(AtomicUsize::new(0)),
             supports_transactions: false,
-        }
-    }
-}
-
-impl Clone for MockDataReader {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            records: self.records.clone(),
-            current_index: self.current_index,
-            supports_transactions: self.supports_transactions,
         }
     }
 }
@@ -75,14 +64,15 @@ impl DataReader for MockDataReader {
     async fn read(
         &mut self,
     ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
-        let batch_size = 3.min(self.records.len() - self.current_index);
+        let current = self.current_index.load(Ordering::Relaxed);
+        let batch_size = 3.min(self.records.len() - current);
         if batch_size == 0 {
             return Ok(vec![]);
         }
 
-        let end_index = self.current_index + batch_size;
-        let batch = self.records[self.current_index..end_index].to_vec();
-        self.current_index = end_index;
+        let end_index = current + batch_size;
+        let batch = self.records[current..end_index].to_vec();
+        self.current_index.store(end_index, Ordering::Relaxed);
 
         Ok(batch)
     }
@@ -91,12 +81,16 @@ impl DataReader for MockDataReader {
         Ok(())
     }
 
-    async fn rollback(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
+    async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let current = self.current_index.load(Ordering::Relaxed);
+        Ok(current < self.records.len())
     }
 
-    fn name(&self) -> String {
-        self.name.clone()
+    async fn seek(
+        &mut self,
+        _offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
     }
 
     fn supports_transactions(&self) -> bool {
@@ -123,6 +117,15 @@ impl MockDataWriter {
 
 #[async_trait]
 impl DataWriter for MockDataWriter {
+    async fn write(
+        &mut self,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut write_records = self.records.lock().await;
+        write_records.push(Arc::new(record));
+        Ok(())
+    }
+
     async fn write_batch(
         &mut self,
         records: Vec<Arc<StreamRecord>>,
@@ -132,8 +135,28 @@ impl DataWriter for MockDataWriter {
         Ok(())
     }
 
-    fn name(&self) -> String {
-        "mock_writer".to_string()
+    async fn update(
+        &mut self,
+        _key: &str,
+        _record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn delete(&mut self, _key: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn flush(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn rollback(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
     }
 }
 
@@ -145,6 +168,7 @@ async fn test_simple_dlq_enabled_on_failure() {
     // Create SimpleJobProcessor with DLQ enabled
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 0,
         failure_strategy: FailureStrategy::SendToDLQ,
         ..Default::default()
@@ -153,7 +177,8 @@ async fn test_simple_dlq_enabled_on_failure() {
     let parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse query");
 
-    let execution_engine = StreamExecutionEngine::new();
+    let (_tx, _rx) = mpsc::unbounded_channel();
+    let execution_engine = StreamExecutionEngine::new(_tx);
     let reader = MockDataReader::new("source1", 5);
     let writer = MockDataWriter::new();
 
@@ -170,6 +195,7 @@ async fn test_simple_dlq_disabled() {
     // Create SimpleJobProcessor with DLQ disabled
     let config = JobProcessingConfig {
         enable_dlq: false,
+        dlq_max_size: Some(100),
         max_retries: 0,
         failure_strategy: FailureStrategy::SendToDLQ,
         ..Default::default()
@@ -185,6 +211,7 @@ async fn test_simple_dlq_multiple_errors() {
 
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 0,
         failure_strategy: FailureStrategy::SendToDLQ,
         ..Default::default()
@@ -204,6 +231,7 @@ async fn test_simple_dlq_entry_content() {
 
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 0,
         failure_strategy: FailureStrategy::SendToDLQ,
         ..Default::default()
@@ -232,6 +260,7 @@ async fn test_dlq_not_populated_on_success() {
 
     let config = JobProcessingConfig {
         enable_dlq: true,
+        dlq_max_size: Some(100),
         max_retries: 0,
         failure_strategy: FailureStrategy::SendToDLQ,
         ..Default::default()
@@ -247,6 +276,7 @@ async fn test_dlq_fallback_logging_on_disabled() {
 
     let config = JobProcessingConfig {
         enable_dlq: false,
+        dlq_max_size: Some(100),
         max_retries: 0,
         failure_strategy: FailureStrategy::SendToDLQ,
         ..Default::default()

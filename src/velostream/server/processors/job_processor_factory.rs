@@ -40,22 +40,71 @@ impl JobProcessorFactory {
     /// assert_eq!(adaptive.num_partitions(), 8);
     /// ```
     pub fn create(config: JobProcessorConfig) -> Arc<dyn JobProcessor> {
+        Self::create_with_config(config, None)
+    }
+
+    /// Create a job processor with explicit JobProcessingConfig
+    ///
+    /// This allows fine-grained control over processor behavior including:
+    /// - Batch size and timeout
+    /// - Failure strategy and retry behavior
+    /// - DLQ configuration
+    /// - Empty batch handling
+    ///
+    /// If job_processing_config is None, defaults based on processor type are used.
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use velostream::velostream::server::processors::{
+    ///     JobProcessorFactory, JobProcessorConfig, JobProcessingConfig, FailureStrategy
+    /// };
+    /// use std::time::Duration;
+    ///
+    /// let config = JobProcessingConfig {
+    ///     use_transactions: false,
+    ///     failure_strategy: FailureStrategy::LogAndContinue,
+    ///     max_batch_size: 100,
+    ///     batch_timeout: Duration::from_millis(100),
+    ///     max_retries: 2,
+    ///     retry_backoff: Duration::from_millis(50),
+    ///     progress_interval: 100,
+    ///     log_progress: false,
+    ///     empty_batch_count: 0,
+    ///     wait_on_empty_batch_ms: 100,
+    ///     enable_dlq: true,
+    ///     dlq_max_size: Some(100),
+    /// };
+    ///
+    /// let processor = JobProcessorFactory::create_with_config(
+    ///     JobProcessorConfig::Simple,
+    ///     Some(config)
+    /// );
+    /// ```
+    pub fn create_with_config(
+        config: JobProcessorConfig,
+        job_processing_config: Option<JobProcessingConfig>,
+    ) -> Arc<dyn JobProcessor> {
         match config {
             JobProcessorConfig::Simple => {
                 info!("Creating Simple processor (Single-threaded, Best-Effort delivery)");
-                Arc::new(SimpleJobProcessor::new(JobProcessingConfig {
-                    use_transactions: false,
-                    failure_strategy: FailureStrategy::LogAndContinue,
-                    ..Default::default()
-                }))
+                let processing_config =
+                    job_processing_config.unwrap_or_else(|| JobProcessingConfig {
+                        use_transactions: false,
+                        failure_strategy: FailureStrategy::LogAndContinue,
+                        ..Default::default()
+                    });
+                Arc::new(SimpleJobProcessor::new(processing_config))
             }
             JobProcessorConfig::Transactional => {
                 info!("Creating Transactional processor (Single-threaded, At-Least-Once delivery)");
-                Arc::new(TransactionalJobProcessor::new(JobProcessingConfig {
-                    use_transactions: true,
-                    failure_strategy: FailureStrategy::FailBatch,
-                    ..Default::default()
-                }))
+                let processing_config =
+                    job_processing_config.unwrap_or_else(|| JobProcessingConfig {
+                        use_transactions: true,
+                        failure_strategy: FailureStrategy::FailBatch,
+                        ..Default::default()
+                    });
+                Arc::new(TransactionalJobProcessor::new(processing_config))
             }
             JobProcessorConfig::Adaptive {
                 num_partitions,
@@ -77,6 +126,8 @@ impl JobProcessorFactory {
                     "Creating Adaptive processor (AdaptiveJobProcessor): {} partitions, affinity: {}",
                     actual_partitions, enable_core_affinity
                 );
+                // Note: Adaptive processor doesn't use JobProcessingConfig yet
+                // In the future, this can be extended to pass job_processing_config
                 Arc::new(AdaptiveJobProcessor::new(partitioned_config))
             }
         }
@@ -87,9 +138,19 @@ impl JobProcessorFactory {
         Self::create(JobProcessorConfig::Simple)
     }
 
+    /// Create a Simple mode processor with explicit configuration
+    pub fn create_simple_with_config(config: JobProcessingConfig) -> Arc<dyn JobProcessor> {
+        Self::create_with_config(JobProcessorConfig::Simple, Some(config))
+    }
+
     /// Create a Transactional mode processor (single-threaded, at-least-once)
     pub fn create_transactional() -> Arc<dyn JobProcessor> {
         Self::create(JobProcessorConfig::Transactional)
+    }
+
+    /// Create a Transactional mode processor with explicit configuration
+    pub fn create_transactional_with_config(config: JobProcessingConfig) -> Arc<dyn JobProcessor> {
+        Self::create_with_config(JobProcessorConfig::Transactional, Some(config))
     }
 
     /// Create an Adaptive mode processor with default configuration

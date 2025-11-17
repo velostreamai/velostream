@@ -359,6 +359,7 @@ async fn profile_tumbling_window_group_by_1m_records() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -485,6 +486,7 @@ async fn profile_group_by_aggregations_1m_records() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);

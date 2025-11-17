@@ -80,6 +80,7 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
     let log_continue_processor = TransactionalJobProcessorWrapper::new(log_continue_config);
 
@@ -105,6 +106,7 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
     let retry_backoff_processor = TransactionalJobProcessorWrapper::new(retry_backoff_config);
 
@@ -164,6 +166,7 @@ async fn test_transactional_processor_comprehensive_failure_scenarios() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
     let fail_batch_processor = TransactionalJobProcessorWrapper::new(fail_batch_config);
 
@@ -211,6 +214,7 @@ async fn test_transactional_processor_rollback_behavior() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -268,6 +272,7 @@ async fn test_transactional_processor_vs_simple_processor_behavior() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     // Test transactional processor
@@ -340,6 +345,7 @@ async fn test_transactional_processor_with_non_transactional_datasources() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -416,6 +422,7 @@ async fn test_transactional_processor_commit_ordering() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -478,6 +485,7 @@ async fn test_transactional_processor_sink_commit_failure() {
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
         enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);

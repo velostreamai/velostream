@@ -54,13 +54,14 @@ use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::types::StreamRecord;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use log::{debug, error, warn};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 /// Synchronous partition receiver with direct ownership model
 ///
@@ -235,7 +236,7 @@ impl PartitionReceiver {
                                         self.partition_id,
                                         self.config.retry_backoff.as_millis()
                                     );
-                                    tokio::time::sleep(self.config.retry_backoff).await;
+                                    sleep(self.config.retry_backoff).await;
                                 } else {
                                     // Max retries exceeded - send to DLQ if enabled
                                     debug!(
@@ -255,21 +256,15 @@ impl PartitionReceiver {
                                             let mut record_data = std::collections::HashMap::new();
                                             record_data.insert(
                                                 "error".to_string(),
-                                                crate::velostream::sql::execution::types::FieldValue::String(
-                                                    error_msg.clone(),
-                                                ),
+                                                FieldValue::String(error_msg.clone()),
                                             );
                                             record_data.insert(
                                                 "partition_id".to_string(),
-                                                crate::velostream::sql::execution::types::FieldValue::Integer(
-                                                    self.partition_id as i64,
-                                                ),
+                                                FieldValue::Integer(self.partition_id as i64),
                                             );
                                             record_data.insert(
                                                 "batch_size".to_string(),
-                                                crate::velostream::sql::execution::types::FieldValue::Integer(
-                                                    batch_size as i64,
-                                                ),
+                                                FieldValue::Integer(batch_size as i64),
                                             );
 
                                             let dlq_record =
@@ -408,17 +403,11 @@ impl PartitionReceiver {
                             );
                             // Create a DLQ record with error context
                             let mut record_data = std::collections::HashMap::new();
-                            record_data.insert(
-                                "error".to_string(),
-                                crate::velostream::sql::execution::types::FieldValue::String(
-                                    error_msg.clone(),
-                                ),
-                            );
+                            record_data
+                                .insert("error".to_string(), FieldValue::String(error_msg.clone()));
                             record_data.insert(
                                 "partition_id".to_string(),
-                                crate::velostream::sql::execution::types::FieldValue::Integer(
-                                    self.partition_id as i64,
-                                ),
+                                FieldValue::Integer(self.partition_id as i64),
                             );
 
                             let dlq_record =
