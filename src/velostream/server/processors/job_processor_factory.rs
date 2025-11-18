@@ -197,7 +197,6 @@ impl JobProcessorFactory {
         })
     }
 
-
     /// Create a processor from a configuration string
     ///
     /// Parses configuration string and creates the appropriate processor.

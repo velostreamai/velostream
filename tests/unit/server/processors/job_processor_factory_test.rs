@@ -249,4 +249,3 @@ fn test_mock_processor_testing_capabilities() {
     let mock_clone = mock.clone();
     assert_eq!(mock_clone.processor_version(), "Mock");
 }
-

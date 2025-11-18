@@ -872,11 +872,21 @@ async fn test_adaptive_processor_with_zero_empty_batch_count() {
 
     // This should NOT hang even with empty_batch_count=0
     // The timeout on run_process_job (5 seconds) will catch any hang
-    let result = run_process_job(processor.clone(), reader, writer.clone(), query, "test_zero_empty_batch")
-        .await;
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_zero_empty_batch",
+    )
+    .await;
 
     // Verify processing completed successfully (no hang, no timeout)
-    assert!(result.is_ok(), "process_job with empty_batch_count=0 failed or timed out: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "process_job with empty_batch_count=0 failed or timed out: {:?}",
+        result.err()
+    );
 
     let stats = result.unwrap();
     assert_eq!(

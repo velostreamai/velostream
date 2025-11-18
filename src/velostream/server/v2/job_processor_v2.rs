@@ -153,7 +153,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                         match reader.has_more().await {
                             Ok(has_more) => {
                                 if !has_more {
-                                    debug!("Read loop: Source has_more() = false, exiting read loop");
+                                    debug!(
+                                        "Read loop: Source has_more() = false, exiting read loop"
+                                    );
                                     break;
                                 }
                             }
@@ -321,12 +323,19 @@ impl JobProcessor for AdaptiveJobProcessor {
                             match reader.has_more().await {
                                 Ok(has_more) => {
                                     if !has_more {
-                                        debug!("Read loop (reader {}): Source has_more() = false, exiting", reader_name);
+                                        debug!(
+                                            "Read loop (reader {}): Source has_more() = false, exiting",
+                                            reader_name
+                                        );
                                         break;
                                     }
                                 }
                                 Err(e) => {
-                                    log::warn!("Error checking has_more() for {}: {:?}", reader_name, e);
+                                    log::warn!(
+                                        "Error checking has_more() for {}: {:?}",
+                                        reader_name,
+                                        e
+                                    );
                                 }
                             }
 
@@ -366,7 +375,10 @@ impl JobProcessor for AdaptiveJobProcessor {
                         // Continue on error - stop_flag will eventually be set to shutdown
                         consecutive_empty_batches += 1;
                         if consecutive_empty_batches >= max_empty_batches {
-                            debug!("Read loop (reader {}): Reached max error count, exiting", reader_name);
+                            debug!(
+                                "Read loop (reader {}): Reached max error count, exiting",
+                                reader_name
+                            );
                             break;
                         }
                         tokio::task::yield_now().await;
@@ -385,7 +397,10 @@ impl JobProcessor for AdaptiveJobProcessor {
                     warn!("Partition receiver task failed to complete: {:?}", e);
                 }
             }
-            debug!("All partition receiver tasks completed for source: {}", reader_name);
+            debug!(
+                "All partition receiver tasks completed for source: {}",
+                reader_name
+            );
 
             // Finalize writer and reader for this source
             if let Some(writer_arc) = shared_writer {

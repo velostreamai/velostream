@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
 };
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Shared test utilities
@@ -112,9 +112,9 @@ impl ScenarioResult {
                 ("AdaptiveJp@1c", self.adaptive_jp_1c_throughput),
                 ("AdaptiveJp@4c", self.adaptive_jp_4c_throughput),
             ]
-                .iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-                .map(|x| x.0);
+            .iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .map(|x| x.0);
 
             println!("│  Best: {}", best.unwrap_or("Unknown"));
         }

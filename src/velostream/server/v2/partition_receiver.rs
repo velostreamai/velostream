@@ -69,11 +69,11 @@ use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use crossbeam_queue::SegQueue;
 use log::{debug, error, warn};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 /// Synchronous partition receiver with direct ownership model
@@ -398,8 +398,7 @@ impl PartitionReceiver {
                                             FieldValue::Integer(batch_size as i64),
                                         );
 
-                                        let dlq_record =
-                                            StreamRecord::new(record_data);
+                                        let dlq_record = StreamRecord::new(record_data);
 
                                         // Add to DLQ
                                         let dlq_ref = Arc::clone(dlq);
@@ -411,11 +410,11 @@ impl PartitionReceiver {
                                         );
 
                                         // Use a blocking runtime to execute the async add_entry
-                                        if let Ok(runtime) = std::panic::catch_unwind(
-                                            std::panic::AssertUnwindSafe(|| {
-                                                tokio::runtime::Handle::current()
-                                            }),
-                                        ) {
+                                        if let Ok(runtime) =
+                                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                                                || tokio::runtime::Handle::current(),
+                                            ))
+                                        {
                                             if let Err(_) = std::panic::catch_unwind(
                                                 std::panic::AssertUnwindSafe(|| {
                                                     runtime.block_on(fut)
@@ -440,10 +439,7 @@ impl PartitionReceiver {
                                             );
                                             error!(
                                                 "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
-                                                self.partition_id,
-                                                self.partition_id,
-                                                batch_size,
-                                                e
+                                                self.partition_id, self.partition_id, batch_size, e
                                             );
                                         }
                                     }
@@ -531,10 +527,7 @@ impl PartitionReceiver {
                                 FieldValue::Integer(self.partition_id as i64),
                             );
 
-                            let dlq_record =
-                                StreamRecord::new(
-                                    record_data,
-                                );
+                            let dlq_record = StreamRecord::new(record_data);
 
                             // Add to DLQ (execute async block synchronously)
                             let dlq_ref = Arc::clone(dlq);
