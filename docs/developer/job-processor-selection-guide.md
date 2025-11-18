@@ -2,25 +2,27 @@
 
 **Choosing the right processor for your streaming SQL applications**
 
-This guide helps you select the appropriate job processor for your Velostream applications based on consistency requirements, performance characteristics, and operational needs. Choose the processor that best matches your requirements—there is no migration path or version progression.
+This guide helps you select the appropriate job processor for your Velostream applications based on consistency
+requirements, performance characteristics, and operational needs. Choose the processor that best matches your
+requirements—there is no migration path or version progression.
 
 ---
 
 ## 🎯 **Quick Decision Matrix**
 
-| **Use Case** | **Processor** | **Why** |
-|--------------|---------------|---------|
-| **High-throughput analytics (multi-core)** | **AdaptiveJobProcessor** | Multi-partition parallel, ~8x faster on 8 cores, zero-overhead routing |
-| **High-throughput, single-threaded** | **SimpleJobProcessor** | Maximum raw performance, best-effort processing |
-| **Financial transactions** | **TransactionalJobProcessor** | ACID transactions, at-least-once delivery, regulatory compliance |
-| **Real-time dashboards (throughput critical)** | **AdaptiveJobProcessor** | 8x improvement with multi-core parallelism |
-| **Real-time dashboards (simple setup)** | **SimpleJobProcessor** | Speed with minimal complexity |
-| **Audit trails** | **TransactionalJobProcessor** | No data loss, complete transaction boundaries |
-| **IoT sensor data (volume)** | **AdaptiveJobProcessor** | Scales to millions of records/sec |
-| **Payment processing** | **TransactionalJobProcessor** | Atomic processing, regulatory compliance |
-| **Development/testing** | **SimpleJobProcessor** | Fastest iteration, simplest debugging |
-| **Production mission-critical (fast)** | **AdaptiveJobProcessor** | 8x throughput improvement with proper parallelism |
-| **Production mission-critical (safe)** | **TransactionalJobProcessor** | Data integrity guarantees |
+| **Use Case**                                   | **Processor**                 | **Why**                                                                |
+|------------------------------------------------|-------------------------------|------------------------------------------------------------------------|
+| **High-throughput analytics (multi-core)**     | **AdaptiveJobProcessor**      | Multi-partition parallel, ~8x faster on 8 cores, zero-overhead routing |
+| **High-throughput, single-threaded**           | **SimpleJobProcessor**        | Maximum raw performance, best-effort processing                        |
+| **Financial transactions**                     | **TransactionalJobProcessor** | ACID transactions, at-least-once delivery, regulatory compliance       |
+| **Real-time dashboards (throughput critical)** | **AdaptiveJobProcessor**      | 8x improvement with multi-core parallelism                             |
+| **Real-time dashboards (simple setup)**        | **SimpleJobProcessor**        | Speed with minimal complexity                                          |
+| **Audit trails**                               | **TransactionalJobProcessor** | No data loss, complete transaction boundaries                          |
+| **IoT sensor data (volume)**                   | **AdaptiveJobProcessor**      | Scales to millions of records/sec                                      |
+| **Payment processing**                         | **TransactionalJobProcessor** | Atomic processing, regulatory compliance                               |
+| **Development/testing**                        | **SimpleJobProcessor**        | Fastest iteration, simplest debugging                                  |
+| **Production mission-critical (fast)**         | **AdaptiveJobProcessor**      | 8x throughput improvement with proper parallelism                      |
+| **Production mission-critical (safe)**         | **TransactionalJobProcessor** | Data integrity guarantees                                              |
 
 ---
 
@@ -31,6 +33,7 @@ This guide helps you select the appropriate job processor for your Velostream ap
 **Best for**: High-throughput workloads that can leverage multiple CPU cores
 
 #### **Characteristics**
+
 - **Processing Model**: Multi-partition parallel execution with pluggable routing strategies
 - **Performance**: ~8x improvement on 8-core systems vs single-threaded processors
 - **Complexity**: Medium (automatic partitioning strategy selection)
@@ -38,6 +41,7 @@ This guide helps you select the appropriate job processor for your Velostream ap
 - **Default Strategy**: StickyPartitionStrategy (zero-overhead, uses record.partition field)
 
 #### **Architecture Overview**
+
 ```
 ┌─────────────────┐
 │   Data Source   │ (Kafka, files, etc.)
@@ -77,21 +81,23 @@ This guide helps you select the appropriate job processor for your Velostream ap
 
 AdaptiveJobProcessor uses pluggable routing strategies selected automatically based on query characteristics:
 
-| **Strategy** | **Used For** | **Overhead** | **Performance** |
-|---|---|---|---|
-| **StickyPartitionStrategy** (default) | All queries | Zero (just reads record.partition field) | 42-67x faster than hash-based |
-| **AlwaysHashStrategy** | GROUP BY queries | Hash computation per record | Conservative but correct |
-| **SmartRepartitionStrategy** | Aligned GROUP BY | Detection + conditional routing | Hybrid (fast when aligned) |
-| **RoundRobinStrategy** | No GROUP BY queries | Minimal (counter increment) | Maximum throughput |
-| **FanInStrategy** | Broadcast operations | Minimal (counter increment) | Balanced distribution |
+| **Strategy**                          | **Used For**         | **Overhead**                             | **Performance**               |
+|---------------------------------------|----------------------|------------------------------------------|-------------------------------|
+| **StickyPartitionStrategy** (default) | All queries          | Zero (just reads record.partition field) | 42-67x faster than hash-based |
+| **AlwaysHashStrategy**                | GROUP BY queries     | Hash computation per record              | Conservative but correct      |
+| **SmartRepartitionStrategy**          | Aligned GROUP BY     | Detection + conditional routing          | Hybrid (fast when aligned)    |
+| **RoundRobinStrategy**                | No GROUP BY queries  | Minimal (counter increment)              | Maximum throughput            |
+| **FanInStrategy**                     | Broadcast operations | Minimal (counter increment)              | Balanced distribution         |
 
 **Auto-Selection Logic**:
+
 - Default: StickyPartitionStrategy (works with all query types)
 - GROUP BY without ORDER BY: Override to AlwaysHashStrategy (better aggregation locality)
 - Window without ORDER BY: Override to AlwaysHashStrategy (parallelization opportunity)
 - Window with ORDER BY: Use StickyPartitionStrategy (required for ordering)
 
 #### **Data Consistency Guarantees**
+
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Data Source   │───▶│  Adaptive Multi- │───▶│   Data Sink     │
@@ -107,14 +113,16 @@ AdaptiveJobProcessor uses pluggable routing strategies selected automatically ba
 ```
 
 #### **Performance Characteristics**
+
 - **Throughput**: 350K+ records/sec per partition (scales linearly across cores)
-  - Single core: ~16,000 rec/sec
-  - 8 cores: ~128,000+ rec/sec aggregate
+    - Single core: ~16,000 rec/sec
+    - 8 cores: ~128,000+ rec/sec aggregate
 - **Latency**: Excellent cache locality with StickyPartitionStrategy (zero repartitioning cost)
 - **Scalability**: Near-linear scaling with CPU cores
 - **Memory**: Base ~20-30MB per processor
 
 #### **When to Use AdaptiveJobProcessor**
+
 - ✅ Multi-core systems with available CPU capacity
 - ✅ High-throughput scenarios (>100K records/sec)
 - ✅ Kafka sources with partition information
@@ -125,6 +133,7 @@ AdaptiveJobProcessor uses pluggable routing strategies selected automatically ba
 - ❌ Minimal data volume (<1K records/sec)
 
 #### **Code Example**
+
 ```rust
 use velostream::velostream::server::processors::JobProcessorFactory;
 
@@ -148,6 +157,7 @@ println!("Processed {} records at {:.0} rec/sec",
 ```
 
 #### **Rust Code Configuration**
+
 ```rust
 use velostream::velostream::server::processors::{JobProcessorFactory, JobProcessorConfig};
 
@@ -165,6 +175,7 @@ let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(8));
 ```
 
 #### **SQL Annotation Configuration** (Future)
+
 ```sql
 -- @processor_mode: adaptive
 -- @partitions: 8
@@ -176,7 +187,9 @@ SELECT
 FROM kafka_trades
 GROUP BY trader_id;
 ```
-Note: SQL-level processor mode annotations are planned for future versions. Currently, processor selection is configured at the application level via JobProcessorFactory.
+
+Note: SQL-level processor mode annotations are planned for future versions. Currently, processor selection is configured
+at the application level via JobProcessorFactory.
 
 ---
 
@@ -185,6 +198,7 @@ Note: SQL-level processor mode annotations are planned for future versions. Curr
 **Best for**: High-throughput applications where occasional data loss is acceptable
 
 #### **Characteristics**
+
 - **Processing Model**: Best-effort, at-least-once delivery
 - **Performance**: Optimized for maximum throughput
 - **Complexity**: Minimal operational overhead
@@ -192,6 +206,7 @@ Note: SQL-level processor mode annotations are planned for future versions. Curr
 - **Resource Usage**: Lower memory and CPU overhead
 
 #### **Data Consistency Guarantees**
+
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Data Source   │───▶│  Simple Process  │───▶│   Data Sink     │
@@ -203,12 +218,14 @@ Note: SQL-level processor mode annotations are planned for future versions. Curr
 ```
 
 #### **Performance Characteristics**
+
 - **Throughput**: 350K+ records/sec (based on batch benchmarks)
 - **Latency**: ~6-7µs per record (simple processing)
 - **Memory**: Lower overhead, faster garbage collection
 - **CPU**: Minimal transaction coordination overhead
 
 #### **Code Example**
+
 ```rust
 use velostream::velo::server::processors::simple::SimpleJobProcessor;
 use velostream::velo::server::processors::common::JobProcessingConfig;
@@ -244,6 +261,7 @@ let stats = processor.process_multi_job(
 **Best for**: Mission-critical applications requiring ACID transaction guarantees and at-least-once delivery
 
 #### **Characteristics**
+
 - **Processing Model**: At-least-once delivery with full ACID transaction boundaries
 - **Performance**: Higher latency but guaranteed consistency
 - **Complexity**: Transaction coordination, rollback handling
@@ -251,6 +269,7 @@ let stats = processor.process_multi_job(
 - **Resource Usage**: Higher overhead for transaction state management
 
 #### **Data Consistency Guarantees**
+
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Data Source   │───▶│ Transactional    │───▶│   Data Sink     │
@@ -263,12 +282,14 @@ let stats = processor.process_multi_job(
 ```
 
 #### **Performance Characteristics**
+
 - **Throughput**: 200K-300K records/sec (estimated with transaction overhead)
 - **Latency**: ~10-15µs per record (including transaction coordination)
 - **Memory**: Higher overhead for transaction state tracking
 - **CPU**: Additional processing for commit coordination
 
 #### **Code Example**
+
 ```rust
 use velostream::velo::server::processors::transactional::TransactionalJobProcessor;
 use velostream::velo::server::processors::common::JobProcessingConfig;
@@ -302,9 +323,11 @@ let stats = processor.process_multi_job(
 
 ## ⚙️ **How Configuration Actually Works**
 
-Velostream automatically selects between SimpleJobProcessor and TransactionalJobProcessor based on SQL WITH clause properties. Here's how the system determines which processor to use:
+Velostream automatically selects between SimpleJobProcessor and TransactionalJobProcessor based on SQL WITH clause
+properties. Here's how the system determines which processor to use:
 
 ### **Processor Selection Logic**
+
 ```rust
 // From src/velo/server/stream_job_server.rs:809
 fn extract_job_config_from_query(query: &StreamingQuery) -> JobProcessingConfig {
@@ -337,9 +360,11 @@ if use_transactions {
 ```
 
 ### **SQL Configuration Syntax - Failure Strategies**
+
 The processor selection is controlled via SQL WITH clause using `sink.failure_strategy`:
 
 #### **Transactional Processing (FailBatch)**
+
 ```sql
 CREATE STREAM payment_processing AS
 SELECT * FROM kafka_payments
@@ -357,6 +382,7 @@ WITH (
 ```
 
 #### **Resilient Processing (LogAndContinue)**
+
 ```sql
 CREATE STREAM analytics_processing AS
 SELECT * FROM kafka_events
@@ -374,6 +400,7 @@ WITH (
 ```
 
 #### **Error Capture with DLQ (SendToDLQ)**
+
 ```sql
 CREATE STREAM orders_with_dlq AS
 SELECT * FROM kafka_orders
@@ -386,6 +413,7 @@ WITH (
 ```
 
 #### **Automatic Retry (RetryWithBackoff)**
+
 ```sql
 CREATE STREAM transient_failures AS
 SELECT * FROM kafka_data
@@ -398,6 +426,7 @@ WITH (
 ```
 
 #### **Default Behavior (No Configuration)**
+
 ```sql
 -- No WITH clause = LogAndContinue with defaults
 CREATE STREAM default_processing AS
@@ -415,7 +444,8 @@ WITH (
 
 ### **SQL Annotation: @processor_mode**
 
-In addition to WITH clause configuration, you can use the `@processor_mode` SQL annotation to specify which processor to use at the statement level. This annotation provides a declarative way to select the processor mode.
+In addition to WITH clause configuration, you can use the `@processor_mode` SQL annotation to specify which processor to
+use at the statement level. This annotation provides a declarative way to select the processor mode.
 
 #### **Annotation Syntax**
 
@@ -430,12 +460,14 @@ SELECT * FROM kafka_payments;
 ```
 
 #### **Valid Values**
+
 - **`simple`** - Use SimpleJobProcessor (high-throughput, best-effort)
 - **`transactional`** - Use TransactionalJobProcessor (ACID, atomic processing)
 
 #### **Practical Examples**
 
 **Example 1: Mark Stream for Transactional Processing**
+
 ```sql
 -- @processor_mode: transactional
 CREATE STREAM payment_processing AS
@@ -454,6 +486,7 @@ WITH (
 ```
 
 **Example 2: Mark Stream for High-Throughput Analytics**
+
 ```sql
 -- @processor_mode: simple
 CREATE STREAM event_analytics AS
@@ -468,6 +501,7 @@ WINDOW TUMBLING(1m);
 ```
 
 **Example 3: Combined with @job_name and @partitioning_strategy**
+
 ```sql
 -- @job_name: order-processing-pipeline
 -- @processor_mode: transactional
@@ -488,30 +522,32 @@ WITH (
 
 #### **Annotation vs WITH Clause**
 
-| **Aspect** | **@processor_mode Annotation** | **WITH Clause Configuration** |
-|-----------|--------------------------------|-----------------------------|
-| **Purpose** | Declare processor selection | Configure failure strategies and batching |
-| **Level** | Statement level | Sink/batch level |
-| **Usage** | Comments above CREATE STREAM | SQL WITH clause |
-| **Compatibility** | Works with any WITH clause | Standalone or with annotations |
-| **When to use** | Clear processor intent | Fine-grained tuning |
+| **Aspect**        | **@processor_mode Annotation** | **WITH Clause Configuration**             |
+|-------------------|--------------------------------|-------------------------------------------|
+| **Purpose**       | Declare processor selection    | Configure failure strategies and batching |
+| **Level**         | Statement level                | Sink/batch level                          |
+| **Usage**         | Comments above CREATE STREAM   | SQL WITH clause                           |
+| **Compatibility** | Works with any WITH clause     | Standalone or with annotations            |
+| **When to use**   | Clear processor intent         | Fine-grained tuning                       |
 
-**Recommendation**: Use `@processor_mode` for clarity and documentation, combine with `WITH` clause for detailed configuration.
+**Recommendation**: Use `@processor_mode` for clarity and documentation, combine with `WITH` clause for detailed
+configuration.
 
 ### **Complete Configuration Properties**
 
-| **Property** | **Type** | **Default** | **Description** |
-|--------------|----------|-------------|-----------------|
-| `use_transactions` | boolean | `false` | **Main switch**: `true` = TransactionalJobProcessor, `false` = SimpleJobProcessor |
-| `failure_strategy` | string | `"LogAndContinue"` | How to handle failures: `"RetryWithBackoff"`, `"LogAndContinue"`, `"FailBatch"`, `"SendToDLQ"` |
-| `max_retries` | integer | `3` | Maximum retry attempts for failed operations |
-| `retry_backoff` | integer | `1000` | Backoff delay in milliseconds between retries |
-| `max_batch_size` | integer | `1000` | Maximum number of records per batch |
-| `batch_timeout` | integer | `1000` | Maximum wait time in milliseconds before processing incomplete batch |
+| **Property**       | **Type** | **Default**        | **Description**                                                                                |
+|--------------------|----------|--------------------|------------------------------------------------------------------------------------------------|
+| `use_transactions` | boolean  | `false`            | **Main switch**: `true` = TransactionalJobProcessor, `false` = SimpleJobProcessor              |
+| `failure_strategy` | string   | `"LogAndContinue"` | How to handle failures: `"RetryWithBackoff"`, `"LogAndContinue"`, `"FailBatch"`, `"SendToDLQ"` |
+| `max_retries`      | integer  | `3`                | Maximum retry attempts for failed operations                                                   |
+| `retry_backoff`    | integer  | `1000`             | Backoff delay in milliseconds between retries                                                  |
+| `max_batch_size`   | integer  | `1000`             | Maximum number of records per batch                                                            |
+| `batch_timeout`    | integer  | `1000`             | Maximum wait time in milliseconds before processing incomplete batch                           |
 
 ### **Configuration Examples by Use Case**
 
 #### **Financial Services Configuration**
+
 ```sql
 CREATE STREAM bank_transfers AS
 SELECT
@@ -538,6 +574,7 @@ WITH (
 ```
 
 #### **Real-time Analytics Configuration**
+
 ```sql
 CREATE STREAM user_analytics AS
 SELECT
@@ -565,6 +602,7 @@ WITH (
 ### **Configuration Validation and Debugging**
 
 The system logs the processor selection decision:
+
 ```
 INFO Job 'payment-processing' processing configuration:
      use_transactions=true,
@@ -583,6 +621,7 @@ You can verify your configuration by checking the logs when starting a job.
 ## 🔧 **Configuration Differences**
 
 ### **SimpleJobProcessor Configuration**
+
 ```yaml
 # Optimized for throughput
 job_config:
@@ -595,6 +634,7 @@ job_config:
 ```
 
 ### **TransactionalJobProcessor Configuration**
+
 ```yaml
 # Optimized for consistency
 job_config:
@@ -612,15 +652,18 @@ job_config:
 ## 🎯 **Use Case Deep Dive**
 
 ### **Financial Services** 💰
+
 **Recommended**: TransactionalJobProcessor
 
 **Requirements**:
+
 - At-least-once processing with ACID boundaries for payment transactions
 - Audit trail compliance (SOX, PCI DSS)
 - No tolerance for duplicate or lost transactions
 - Regulatory reporting accuracy
 
 **Configuration Example**:
+
 ```sql
 -- Financial transaction processing
 CREATE STREAM payment_validation AS
@@ -640,15 +683,18 @@ WITH (
 ```
 
 ### **IoT Analytics** 📊
+
 **Recommended**: SimpleJobProcessor
 
 **Requirements**:
+
 - High-volume sensor data (millions of records/sec)
 - Real-time dashboard updates
 - Occasional data loss acceptable
 - Cost-optimized processing
 
 **Configuration Example**:
+
 ```sql
 -- IoT sensor aggregation
 CREATE STREAM sensor_metrics AS
@@ -667,15 +713,18 @@ WITH (
 ```
 
 ### **Real-time Analytics** ⚡
+
 **Recommended**: SimpleJobProcessor
 
 **Requirements**:
+
 - Sub-second latency for business dashboards
 - High throughput for user activity streams
 - Acceptable to lose some events during failures
 - Focus on speed over perfect accuracy
 
 **Configuration Example**:
+
 ```sql
 -- User activity analytics
 CREATE STREAM user_activity_summary AS
@@ -695,15 +744,18 @@ WITH (
 ```
 
 ### **Compliance & Audit** 📝
+
 **Recommended**: TransactionalJobProcessor
 
 **Requirements**:
+
 - Complete audit trail for regulatory compliance
 - At-least-once processing with transaction boundaries for legal record keeping
 - Data integrity for compliance reporting
 - Disaster recovery with no data loss
 
 **Configuration Example**:
+
 ```sql
 -- Compliance audit trail
 CREATE STREAM audit_trail AS
@@ -728,17 +780,19 @@ WITH (
 ## ⚡ **Performance Considerations**
 
 ### **Throughput Comparison**
+
 Based on Velostream benchmarks:
 
-| **Metric** | **SimpleJobProcessor** | **TransactionalJobProcessor** |
-|------------|----------------------|------------------------------|
-| **Peak Throughput** | 365,018 records/sec | ~250,000 records/sec (est.) |
-| **Batch Processing** | 1.1x improvement over single | Similar batch improvement |
-| **Memory Overhead** | Baseline | +20-30% for transaction state |
-| **CPU Overhead** | Baseline | +15-25% for coordination |
-| **Latency (P95)** | <10ms | <25ms |
+| **Metric**           | **SimpleJobProcessor**       | **TransactionalJobProcessor** |
+|----------------------|------------------------------|-------------------------------|
+| **Peak Throughput**  | 365,018 records/sec          | ~250,000 records/sec (est.)   |
+| **Batch Processing** | 1.1x improvement over single | Similar batch improvement     |
+| **Memory Overhead**  | Baseline                     | +20-30% for transaction state |
+| **CPU Overhead**     | Baseline                     | +15-25% for coordination      |
+| **Latency (P95)**    | <10ms                        | <25ms                         |
 
 ### **Resource Usage Patterns**
+
 ```
 SimpleJobProcessor Resource Profile:
 ├── CPU: ████░░░░░░ (40% during peak load)
@@ -754,6 +808,7 @@ TransactionalJobProcessor Resource Profile:
 ### **Scaling Characteristics**
 
 #### **SimpleJobProcessor Scaling**
+
 - **Near-linear scaling**: Performance scales directly with resources (CPU cores, memory)
 - **Optimal partitions**: 4-8 partitions per CPU core
 - **Parallelism**: Each partition processed independently
@@ -766,6 +821,7 @@ TransactionalJobProcessor Resource Profile:
   ```
 
 #### **TransactionalJobProcessor Scaling**
+
 - **Coordination overhead**: Transaction coordination limits horizontal scaling
 - **Optimal configuration**: 2-4 partitions per CPU core (vs 4-8 for Simple)
 - **Serialization points**: Commit coordination may bottleneck
@@ -778,6 +834,7 @@ TransactionalJobProcessor Resource Profile:
 - **Horizontal limit**: Coordination becomes bottleneck beyond 8-16 cores per job
 
 #### **Multi-Node Scaling**
+
 - **SimpleJobProcessor**: Excellent multi-node scaling with appropriate Kafka partitions
 - **TransactionalJobProcessor**: Single-node recommended; multi-node requires distributed transaction coordination
 
@@ -788,6 +845,7 @@ TransactionalJobProcessor Resource Profile:
 ### **How Partition IDs Are Handled**
 
 #### **SimpleJobProcessor**
+
 - **Behavior**: Processes each partition independently
 - **Partition affinity**: Maintained within a single task
 - **Load distribution**: One partition per processing thread
@@ -800,6 +858,7 @@ TransactionalJobProcessor Resource Profile:
   ```
 
 #### **TransactionalJobProcessor**
+
 - **Behavior**: May coordinate across partitions for atomicity
 - **Partition affinity**: Maintained but with transaction coordination overhead
 - **Load distribution**: Coordinated across partitions for consistency
@@ -831,12 +890,12 @@ WITH (
 
 ### **Partition-Aware Optimization**
 
-| **Scenario** | **Simple** | **Transactional** |
-|-------------|-----------|------------------|
-| Single partition stream | Optimal | Works but over-engineered |
-| Multi-partition with affinity requirement | ✅ Recommended | ✅ Acceptable |
-| Cross-partition joins | ⚠️ Requires repartition | ✅ Handles atomically |
-| Maintaining consumer group offsets | ✅ Per-partition | ✅ Per-partition |
+| **Scenario**                              | **Simple**              | **Transactional**         |
+|-------------------------------------------|-------------------------|---------------------------|
+| Single partition stream                   | Optimal                 | Works but over-engineered |
+| Multi-partition with affinity requirement | ✅ Recommended           | ✅ Acceptable              |
+| Cross-partition joins                     | ⚠️ Requires repartition | ✅ Handles atomically      |
+| Maintaining consumer group offsets        | ✅ Per-partition         | ✅ Per-partition           |
 
 ---
 
@@ -845,6 +904,7 @@ WITH (
 ### **Throughput Characteristics**
 
 #### **SimpleJobProcessor Throughput**
+
 ```
 Configuration: batch_size=1000, batch_timeout=100ms
 
@@ -868,6 +928,7 @@ Scenario 3: Low Volume (<1K records/sec)
 ```
 
 #### **TransactionalJobProcessor Throughput**
+
 ```
 Configuration: batch_size=500, batch_timeout=200ms
 
@@ -895,6 +956,7 @@ Scenario 3: Low Volume (<1K records/sec)
 ### **Latency Breakdown**
 
 #### **SimpleJobProcessor (P95 Latency)**
+
 ```
 Record ingestion:        0.1ms  ├─ Network + deserialization
 Processing:              2-3ms  ├─ SQL execution
@@ -909,6 +971,7 @@ Under high load:
 ```
 
 #### **TransactionalJobProcessor (P95 Latency)**
+
 ```
 Record ingestion:        0.1ms  ├─ Network + deserialization
 Processing:              2-3ms  ├─ SQL execution
@@ -926,11 +989,11 @@ Under high load:
 ### **Choosing Batch Size for Latency**
 
 | **Target Latency** | **Simple Batch Size** | **Transactional Batch Size** |
-|-------------|-----------|------------------|
-| < 5ms (real-time) | 100-500 | 50-200 |
-| 5-50ms | 1000 | 500 |
-| 50-200ms | 2000-5000 | 1000 |
-| > 200ms | 5000+ | 2000+ |
+|--------------------|-----------------------|------------------------------|
+| < 5ms (real-time)  | 100-500               | 50-200                       |
+| 5-50ms             | 1000                  | 500                          |
+| 50-200ms           | 2000-5000             | 1000                         |
+| > 200ms            | 5000+                 | 2000+                        |
 
 ---
 
@@ -939,6 +1002,7 @@ Under high load:
 ### **Memory Usage Analysis**
 
 #### **SimpleJobProcessor Memory Profile**
+
 ```
 Base Memory:             ~10MB
 ├── JVM overhead:        5MB
@@ -957,6 +1021,7 @@ Garbage Collection:
 ```
 
 #### **TransactionalJobProcessor Memory Profile**
+
 ```
 Base Memory:             ~15MB (+50%)
 ├── JVM overhead:        5MB
@@ -996,7 +1061,9 @@ TransactionalJobProcessor:
 ## 🚨 **Common Pitfalls & Solutions**
 
 ### **Using SimpleJobProcessor When Consistency Matters**
+
 ❌ **Wrong**:
+
 ```sql
 -- Financial data with simple processor - DATA LOSS RISK
 CREATE STREAM bank_transfers AS
@@ -1005,6 +1072,7 @@ WITH ('processor.type' = 'simple');  -- ❌ Wrong for financial data
 ```
 
 ✅ **Correct**:
+
 ```sql
 -- Financial data with transactional processor
 CREATE STREAM bank_transfers AS
@@ -1013,7 +1081,9 @@ WITH ('processor.type' = 'transactional');  -- ✅ At-least-once with ACID guara
 ```
 
 ### **Using TransactionalJobProcessor for High-Volume Analytics**
+
 ❌ **Wrong**:
+
 ```sql
 -- High-volume IoT with transactional - UNNECESSARY OVERHEAD
 CREATE STREAM sensor_analytics AS
@@ -1022,6 +1092,7 @@ WITH ('processor.type' = 'transactional');  -- ❌ Overkill for IoT analytics
 ```
 
 ✅ **Correct**:
+
 ```sql
 -- High-volume IoT with simple processor
 CREATE STREAM sensor_analytics AS
@@ -1030,7 +1101,9 @@ WITH ('processor.type' = 'simple');  -- ✅ Optimized for throughput
 ```
 
 ### **Incorrect Batch Size Configuration**
+
 ❌ **Wrong**:
+
 ```yaml
 # Large batches with transactional (slow rollback)
 processor:
@@ -1039,6 +1112,7 @@ processor:
 ```
 
 ✅ **Correct**:
+
 ```yaml
 # Appropriate batch sizes
 simple_processor:
@@ -1055,6 +1129,7 @@ transactional_processor:
 ### **Key Metrics to Monitor**
 
 #### **SimpleJobProcessor Metrics**
+
 ```rust
 // Key performance indicators
 metrics! {
@@ -1066,6 +1141,7 @@ metrics! {
 ```
 
 #### **TransactionalJobProcessor Metrics**
+
 ```rust
 // Key consistency indicators
 metrics! {
@@ -1079,11 +1155,13 @@ metrics! {
 ### **Alerting Recommendations**
 
 #### **SimpleJobProcessor Alerts**
+
 - **High Error Rate**: >5% failed records in 5-minute window
 - **Processing Lag**: Latency >100ms for 95th percentile
 - **Throughput Drop**: >20% decrease from baseline
 
 #### **TransactionalJobProcessor Alerts**
+
 - **Transaction Failures**: >1% failed transactions in 10-minute window
 - **Rollback Spike**: >10 rollbacks per hour
 - **Transaction Timeout**: Any transactions exceeding configured timeout
@@ -1093,6 +1171,7 @@ metrics! {
 ## 🔄 **Migration Guide**
 
 ### **Simple → Transactional Migration**
+
 ```bash
 # 1. Deploy transactional processor in parallel
 velo-sql --config transactional-config.yaml --job-name "payment-tx-v2"
@@ -1108,6 +1187,7 @@ velo-deploy --switch-to transactional --monitor-duration 24h
 ```
 
 ### **Transactional → Simple Migration**
+
 ```bash
 # 1. Verify data loss tolerance with business stakeholders
 echo "Confirm: Acceptable to lose <0.1% of records during failures? (y/N)"
@@ -1127,25 +1207,30 @@ velo-deploy --canary-percent 10 --rollback-trigger error_rate>2%
 ## 📚 **Additional Resources**
 
 ### **Detailed Configuration Guide**
-- **[SQL Job Processor Configuration Guide](../sql/job-processor-configuration-guide.md)** - Complete reference with:
-  - Default configuration values for all three processors
-  - SQL syntax and WITH clause properties
-  - Performance profiles and benchmarks
-  - Configuration examples by use case
-  - Annotations (@processor_mode) guide
+
+- **[SQL Job Processor Configuration Guide](../sql/ops/job-processor-configuration-guide.md)** - Complete reference
+  with:
+    - Default configuration values for all three processors
+    - SQL syntax and WITH clause properties
+    - Performance profiles and benchmarks
+    - Configuration examples by use case
+    - Annotations (@processor_mode) guide
 
 ### **Additional References**
+
 - [Kafka Transaction Configuration Guide](./kafka-transaction-configuration.md) - Detailed Kafka transaction setup
 - [Batch Configuration Guide](./batch-configuration-guide.md) - Batch processing optimization
 - [Testing and Benchmarks Guide](performance/testing-and-benchmarks-guide.md) - Performance validation
 
 ### **Code Examples**
+
 - `tests/unit/stream_job/stream_job_simple_test.rs` - SimpleJobProcessor test examples
 - `tests/unit/stream_job/stream_job_transactional_test.rs` - TransactionalJobProcessor test examples
 - `configs/transaction-consumer.yaml` - Production transactional configuration
 - `configs/transaction-producer.yaml` - Production transactional output
 
 ### **Performance Benchmarks**
+
 ```bash
 # Compare processor performance
 cargo run --bin test_sql_batch_performance --no-default-features

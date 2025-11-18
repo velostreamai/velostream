@@ -2,9 +2,11 @@
 
 ## Overview
 
-This document outlines the complete set of configurable properties in Velostream's job processors and identifies which are currently exposed as SQL annotations vs. which could be exposed in future releases.
+This document outlines the complete set of configurable properties in Velostream's job processors and identifies which
+are currently exposed as SQL annotations vs. which could be exposed in future releases.
 
 **Current Status (v0.1):**
+
 - ✅ 4 annotations implemented and fully tested
 - 📋 10+ additional annotations planned for future releases
 - 📚 All defaults documented in `job-processor-configuration-guide.md`
@@ -15,14 +17,15 @@ This document outlines the complete set of configurable properties in Velostream
 
 ### Implemented & Tested
 
-| Annotation | Type | Example | Impact |
-|-----------|------|---------|--------|
-| `@job_mode` | Enum | `simple`, `transactional`, `adaptive` | Processor architecture selection |
-| `@batch_size` | Integer | `10-1000` | Throughput vs. latency tradeoff |
-| `@num_partitions` | Integer | `1-16+` | Parallel partition count (adaptive mode) |
-| `@partitioning_strategy` | Enum | `sticky`, `hash`, `smart`, `roundrobin`, `fanin` | Record routing strategy |
+| Annotation               | Type    | Example                                          | Impact                                   |
+|--------------------------|---------|--------------------------------------------------|------------------------------------------|
+| `@job_mode`              | Enum    | `simple`, `transactional`, `adaptive`            | Processor architecture selection         |
+| `@batch_size`            | Integer | `10-1000`                                        | Throughput vs. latency tradeoff          |
+| `@num_partitions`        | Integer | `1-16+`                                          | Parallel partition count (adaptive mode) |
+| `@partitioning_strategy` | Enum    | `sticky`, `hash`, `smart`, `roundrobin`, `fanin` | Record routing strategy                  |
 
 **Code Status:**
+
 - ✅ Enums defined in `src/velostream/sql/ast.rs`
 - ✅ FromStr trait implementations
 - ✅ Parser integration in `annotation_parser.rs`
@@ -43,6 +46,7 @@ These properties control how failures are handled - critical for production reli
 **Purpose:** Specify how to handle failed records during processing
 
 **Values:**
+
 - `LogAndContinue` - Log error and skip record (default, best-effort)
 - `FailBatch` - Rollback entire batch on any failure (ACID)
 - `SendToDLQ` - Send to Dead Letter Queue
@@ -51,14 +55,16 @@ These properties control how failures are handled - critical for production reli
 **Default:** `LogAndContinue`
 
 **Example:**
+
 ```sql
 -- @job_mode: transactional
 -- @failure_strategy: FailBatch
 
 -- Entire batch rolls back if any record fails
-CREATE STREAM payment_processor AS
-SELECT * FROM payments
-EMIT CHANGES;
+CREATE
+STREAM payment_processor AS
+SELECT *
+FROM payments EMIT CHANGES;
 ```
 
 **Impact:** Determines delivery semantics and error recovery
@@ -72,6 +78,7 @@ EMIT CHANGES;
 **Purpose:** Maximum number of retries for failed batches
 
 **Values:**
+
 - Integer: 0-100 (typical: 1-10)
 - 0 = no retries
 - 10 = default (current)
@@ -79,13 +86,15 @@ EMIT CHANGES;
 **Default:** `10`
 
 **Example:**
+
 ```sql
 -- @job_mode: transactional
 -- @max_retries: 5
 
-CREATE STREAM resilient_processor AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM resilient_processor AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** Tradeoff between reliability (more retries) vs. latency (fewer retries)
@@ -99,17 +108,20 @@ EMIT CHANGES;
 **Purpose:** Wait time between retry attempts (milliseconds)
 
 **Values:**
+
 - Integer: 0-60000 (typical: 100-5000)
 - Default: 5000 (5 seconds)
 
 **Example:**
+
 ```sql
 -- @failure_strategy: RetryWithBackoff
 -- @retry_backoff_ms: 2000
 
-CREATE STREAM quick_retry_processor AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM quick_retry_processor AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** Controls recovery speed (lower = faster recovery, higher = more graceful degradation)
@@ -123,21 +135,24 @@ EMIT CHANGES;
 **Purpose:** Enable/disable Dead Letter Queue for error tracking
 
 **Values:**
+
 - `true` (default for LogAndContinue strategy)
 - `false` (for maximum throughput)
 
 **Default:** `true` (for SimpleJobProcessor), `false` (for TransactionalJobProcessor)
 
 **Example:**
+
 ```sql
 -- @job_mode: simple
 -- @failure_strategy: LogAndContinue
 -- @enable_dlq: false
 
 -- Disable DLQ for ultra-high throughput (trade off error visibility)
-CREATE STREAM high_throughput AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM high_throughput AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** Enables error tracking and recovery (with small overhead)
@@ -151,18 +166,21 @@ EMIT CHANGES;
 **Purpose:** Maximum number of entries to store in Dead Letter Queue
 
 **Values:**
+
 - Integer: 1-10000
 - Default: 100
 
 **Example:**
+
 ```sql
 -- @enable_dlq: true
 -- @dlq_max_size: 500
 
 -- Store up to 500 failed records for investigation
-CREATE STREAM debug_processor AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM debug_processor AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** Memory usage and error capture capacity (100 entries ≈ 10KB-100KB depending on record size)
@@ -180,23 +198,27 @@ Fine-grained control over batching behavior - important for latency-sensitive sy
 **Purpose:** Maximum wait time to collect a full batch (milliseconds)
 
 **Values:**
+
 - Integer: 1-10000 (typical: 10-5000)
 - Default: 1000 (1 second)
 
 **Example:**
+
 ```sql
 -- @batch_size: 500
 -- @batch_timeout_ms: 100
 
 -- Emit batches every 100ms OR when 500 records collected (whichever comes first)
-CREATE STREAM responsive_processor AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM responsive_processor AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** Directly controls end-to-end latency
 
 **Latency Calculation:**
+
 ```
 Worst-case latency ≈ batch_timeout_ms + processing_time
 
@@ -215,6 +237,7 @@ Example:
 **Purpose:** Number of consecutive empty batches before exiting (for finite sources)
 
 **Values:**
+
 - Integer: 0-10000
 - 0 = immediate EOF (for tests)
 - 1000 = default (wait for slow sources)
@@ -222,14 +245,16 @@ Example:
 **Default:** `1000`
 
 **Example:**
+
 ```sql
 -- For testing with finite datasets
 -- @empty_batch_count: 0
 
 -- Exit immediately when source exhausted (no polling)
-CREATE STREAM test_processor AS
-SELECT * FROM file_source
-EMIT CHANGES;
+CREATE
+STREAM test_processor AS
+SELECT *
+FROM file_source EMIT CHANGES;
 ```
 
 **Impact:** Affects shutdown time for finite data sources
@@ -243,18 +268,21 @@ EMIT CHANGES;
 **Purpose:** Wait time between empty batch checks (milliseconds)
 
 **Values:**
+
 - Integer: 1-10000
 - Default: 1000 (1 second)
 
 **Example:**
+
 ```sql
 -- For real-time systems
 -- @wait_on_empty_batch_ms: 100
 
 -- Check source every 100ms instead of 1000ms (more responsive)
-CREATE STREAM responsive_system AS
-SELECT * FROM kafka_stream
-EMIT CHANGES;
+CREATE
+STREAM responsive_system AS
+SELECT *
+FROM kafka_stream EMIT CHANGES;
 ```
 
 **Impact:** Tradeoff between responsiveness and CPU usage
@@ -272,19 +300,22 @@ Control over logging and monitoring behavior.
 **Purpose:** Enable/disable periodic progress logging
 
 **Values:**
+
 - `true` (default)
 - `false` (for low-overhead systems)
 
 **Default:** `true`
 
 **Example:**
+
 ```sql
 -- @log_progress: false
 
 -- No progress logging (reduced logging overhead)
-CREATE STREAM silent_processor AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM silent_processor AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** ~1-2% logging overhead reduction
@@ -298,18 +329,21 @@ EMIT CHANGES;
 **Purpose:** Batch count between progress log messages
 
 **Values:**
+
 - Integer: 1-1000
 - Default: 10 (log every 10 batches)
 
 **Example:**
+
 ```sql
 -- @log_progress: true
 -- @progress_interval: 100
 
 -- Log progress every 100 batches instead of 10 (reduced log volume)
-CREATE STREAM quiet_processor AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM quiet_processor AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:** Reduces log volume without disabling progress tracking
@@ -327,29 +361,34 @@ Configuration specific to the Adaptive (multi-partition) processor.
 **Purpose:** Pin partition threads to CPU cores for cache locality (Linux only)
 
 **Values:**
+
 - `true` (enable pinning)
 - `false` (default, no pinning)
 
 **Default:** `false`
 
 **Example:**
+
 ```sql
 -- @job_mode: adaptive
 -- @num_partitions: 8
 -- @enable_core_affinity: true
 
 -- Pin each partition to a specific CPU core
-CREATE STREAM cache_optimized AS
-SELECT * FROM events
-EMIT CHANGES;
+CREATE
+STREAM cache_optimized AS
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 **Impact:**
+
 - 5-10% throughput improvement on large systems
 - Reduced context switching
 - Requires Linux kernel support
 
 **Prerequisites:**
+
 - `libnuma` library
 - CPU affinity capabilities
 
@@ -361,24 +400,24 @@ EMIT CHANGES;
 
 Complete list of all configurable properties with their defaults:
 
-| Property | Type | Default | Min | Max | Unit | Used By |
-|----------|------|---------|-----|-----|------|---------|
-| `job_mode` | Enum | simple | - | - | - | All |
-| `batch_size` | Integer | 100 | 1 | 10000 | records | Simple, Trans |
-| `batch_timeout` | Duration | 1000 | 1 | 60000 | ms | Simple, Trans |
-| `use_transactions` | Boolean | false | - | - | - | All |
-| `failure_strategy` | Enum | LogAndContinue | - | - | - | All |
-| `max_retries` | Integer | 10 | 0 | 100 | attempts | Simple, Trans |
-| `retry_backoff` | Duration | 5000 | 0 | 300000 | ms | Simple, Trans |
-| `log_progress` | Boolean | true | - | - | - | All |
-| `progress_interval` | Integer | 10 | 1 | 1000 | batches | All |
-| `empty_batch_count` | Integer | 1000 | 0 | 10000 | batches | All |
-| `wait_on_empty_batch_ms` | Duration | 1000 | 1 | 10000 | ms | All |
-| `enable_dlq` | Boolean | true* | - | - | - | Simple, Trans |
-| `dlq_max_size` | Integer | 100 | 1 | 10000 | entries | Simple, Trans |
-| `num_partitions` | Integer | CPU count | 1 | 32 | partitions | Adaptive |
-| `enable_core_affinity` | Boolean | false | - | - | - | Adaptive |
-| `partitioning_strategy` | Enum | sticky | - | - | - | Adaptive |
+| Property                 | Type     | Default        | Min | Max    | Unit       | Used By       |
+|--------------------------|----------|----------------|-----|--------|------------|---------------|
+| `job_mode`               | Enum     | simple         | -   | -      | -          | All           |
+| `batch_size`             | Integer  | 100            | 1   | 10000  | records    | Simple, Trans |
+| `batch_timeout`          | Duration | 1000           | 1   | 60000  | ms         | Simple, Trans |
+| `use_transactions`       | Boolean  | false          | -   | -      | -          | All           |
+| `failure_strategy`       | Enum     | LogAndContinue | -   | -      | -          | All           |
+| `max_retries`            | Integer  | 10             | 0   | 100    | attempts   | Simple, Trans |
+| `retry_backoff`          | Duration | 5000           | 0   | 300000 | ms         | Simple, Trans |
+| `log_progress`           | Boolean  | true           | -   | -      | -          | All           |
+| `progress_interval`      | Integer  | 10             | 1   | 1000   | batches    | All           |
+| `empty_batch_count`      | Integer  | 1000           | 0   | 10000  | batches    | All           |
+| `wait_on_empty_batch_ms` | Duration | 1000           | 1   | 10000  | ms         | All           |
+| `enable_dlq`             | Boolean  | true*          | -   | -      | -          | Simple, Trans |
+| `dlq_max_size`           | Integer  | 100            | 1   | 10000  | entries    | Simple, Trans |
+| `num_partitions`         | Integer  | CPU count      | 1   | 32     | partitions | Adaptive      |
+| `enable_core_affinity`   | Boolean  | false          | -   | -      | -          | Adaptive      |
+| `partitioning_strategy`  | Enum     | sticky         | -   | -      | -          | Adaptive      |
 
 *DLQ default: `true` for Simple/Adaptive, `false` for Transactional
 
@@ -395,6 +434,7 @@ For each property, Velostream checks sources in this order:
 3. **System Default** - Hard-coded in `JobProcessingConfig::default()`
 
 **Example:**
+
 ```sql
 -- Annotation specifies: @batch_size: 500
 -- Server config specifies: batch_size: 200
@@ -424,6 +464,7 @@ If a property is never set at any level, the system default is used:
 ## Implementation Roadmap
 
 ### v0.1 (Current) ✅
+
 - ✅ `@job_mode` - Processor selection
 - ✅ `@batch_size` - Batch size control
 - ✅ `@num_partitions` - Partition count (adaptive)
@@ -432,6 +473,7 @@ If a property is never set at any level, the system default is used:
 - Full documentation
 
 ### v0.2 (Planned) 📋
+
 - `@failure_strategy` - Failure handling
 - `@max_retries` - Retry count
 - `@retry_backoff_ms` - Retry delay
@@ -439,17 +481,20 @@ If a property is never set at any level, the system default is used:
 - `@dlq_max_size` - DLQ capacity
 
 ### v0.3 (Planned) 📋
+
 - `@batch_timeout_ms` - Batch wait time
 - `@empty_batch_count` - EOF detection
 - `@wait_on_empty_batch_ms` - Empty batch wait
 - Fine-grained latency control
 
 ### v0.4 (Planned) 📋
+
 - `@log_progress` - Progress logging
 - `@progress_interval` - Logging frequency
 - Observability tuning
 
 ### v0.5 (Planned) 📋
+
 - `@enable_core_affinity` - CPU pinning
 - Adaptive mode optimization
 - Performance tuning annotations
@@ -461,17 +506,20 @@ If a property is never set at any level, the system default is used:
 Based on user impact and complexity:
 
 ### High Priority (Users Ask For These Often)
+
 1. **`@failure_strategy`** - Critical for reliability
 2. **`@max_retries`** - Common production need
 3. **`@batch_timeout_ms`** - Latency control (high demand)
 4. **`@enable_dlq`** - Debug/monitoring
 
 ### Medium Priority (Nice to Have)
+
 5. `@retry_backoff_ms` - Fine-tuning retries
 6. `@dlq_max_size` - Memory management
 7. `@log_progress` - Noise reduction
 
 ### Lower Priority (Advanced Use Cases)
+
 8. `@empty_batch_count` - Finite sources, tests
 9. `@wait_on_empty_batch_ms` - Fine-tuning
 10. `@enable_core_affinity` - Performance optimization
@@ -499,17 +547,16 @@ Once all annotations are available:
 -- @partitioning_strategy: hash      -- Hash on GROUP BY
 -- @enable_core_affinity: true       -- CPU pinning for performance
 
-SELECT
-    trader_id,
-    symbol,
-    SUM(quantity) as total_volume,
-    AVG(price) as avg_price
+SELECT trader_id,
+       symbol,
+       SUM(quantity) as total_volume,
+       AVG(price)    as avg_price
 FROM trade_events
-GROUP BY trader_id, symbol
-EMIT CHANGES;
+GROUP BY trader_id, symbol EMIT CHANGES;
 ```
 
 **Behavior:**
+
 - Processes in atomic batches (FailBatch)
 - Max 50 records per batch, 200ms timeout
 - Retries up to 5 times with 1s between retries
@@ -529,20 +576,23 @@ EMIT CHANGES;
 ```sql
 -- v0.1: Start simple
 -- @job_mode: transactional
-SELECT * FROM events EMIT CHANGES;
+SELECT *
+FROM events EMIT CHANGES;
 
 -- v0.2: Add reliability
 -- @job_mode: transactional
 -- @failure_strategy: FailBatch
 -- @max_retries: 5
-SELECT * FROM events EMIT CHANGES;
+SELECT *
+FROM events EMIT CHANGES;
 
 -- v0.3: Add latency control
 -- @job_mode: transactional
 -- @batch_timeout_ms: 100
 -- @failure_strategy: FailBatch
 -- @max_retries: 5
-SELECT * FROM events EMIT CHANGES;
+SELECT *
+FROM events EMIT CHANGES;
 
 -- v0.4: Add visibility
 -- @job_mode: transactional
@@ -551,7 +601,8 @@ SELECT * FROM events EMIT CHANGES;
 -- @max_retries: 5
 -- @log_progress: true
 -- @progress_interval: 100
-SELECT * FROM events EMIT CHANGES;
+SELECT *
+FROM events EMIT CHANGES;
 ```
 
 ---
@@ -559,11 +610,14 @@ SELECT * FROM events EMIT CHANGES;
 ## Documentation Strategy
 
 ### Current (v0.1)
-- ✅ [Job Annotations Guide](./job-annotations-guide.md) - 4 annotations
-- ✅ [Job Processor Configuration Guide](./job-processor-configuration-guide.md) - All defaults documented
+
+- ✅ [Job Annotations Guide](../job-annotations-guide.md) - 4 annotations
+- ✅ [Job Processor Configuration Guide](../job-processor-configuration-guide.md) - All defaults documented
 
 ### Future Updates
+
 Each new annotation release should:
+
 1. Update `job-annotations-guide.md` with new annotation sections
 2. Update defaults table in `job-processor-configuration-guide.md`
 3. Add usage examples
@@ -573,7 +627,7 @@ Each new annotation release should:
 
 ## See Also
 
-- [Job Annotations Guide](./job-annotations-guide.md) - Currently supported annotations
-- [Job Processor Configuration Guide](./job-processor-configuration-guide.md) - Complete defaults reference
+- [Job Annotations Guide](../job-annotations-guide.md) - Currently supported annotations
+- [Job Processor Configuration Guide](../job-processor-configuration-guide.md) - Complete defaults reference
 - [Failure Handling Guide](./by-task/failure-handling.md) - Planned document for failure strategies
 - [Performance Tuning Guide](../developer/performance-tuning.md) - Optimization techniques

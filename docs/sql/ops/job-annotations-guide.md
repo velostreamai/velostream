@@ -855,7 +855,7 @@ SELECT * FROM events EMIT CHANGES;
 
 ## Related Documentation
 
-- [Job Processor Configuration Guide](./job-processor-configuration-guide.md) - Detailed processor configuration
-- [SQL Application Annotations](./deployment/sql-application-annotations.md) - Application-level annotations
+- [Job Processor Configuration Guide](job-processor-configuration-guide.md) - Detailed processor configuration
+- [SQL Application Annotations](../deployment/sql-application-annotations.md) - Application-level annotations
 - [Performance Tuning Guide](../developer/performance-tuning.md) - Optimization techniques
-- [Job Processor Selection Guide](../developer/job-processor-selection-guide.md) - When to use each processor
+- [Job Processor Selection Guide](../../developer/job-processor-selection-guide.md) - When to use each processor

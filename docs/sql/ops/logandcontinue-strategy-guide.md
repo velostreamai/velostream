@@ -511,5 +511,5 @@ In this case:
 ## See Also
 
 - [DLQ Configuration Guide](./dlq-configuration-guide.md) - Complete DLQ reference
-- [Job Processor Configuration Guide](./job-processor-configuration-guide.md) - Failure strategies explained
+- [Job Processor Configuration Guide](job-processor-configuration-guide.md) - Failure strategies explained
 - [Future Annotations Roadmap](./future-annotations-roadmap.md) - Planned logging control annotations

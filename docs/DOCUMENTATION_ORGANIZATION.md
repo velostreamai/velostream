@@ -101,7 +101,7 @@ The DLQ is documented from **two perspectives**:
 
 ---
 
-### 2. SQL Configuration Level: `/sql/dlq-configuration-guide.md`
+### 2. SQL Configuration Level: `/sql/ops/dlq-configuration-guide.md`
 
 **Perspective:** SQL query configuration and error handling
 
@@ -122,9 +122,10 @@ The DLQ is documented from **two perspectives**:
 
 **Failure Strategy Documentation:**
 
-### In `/sql/`:
+### In `/sql/ops/`:
 - `logandcontinue-strategy-guide.md` - **SQL perspective:** What does LogAndContinue log to my application logs?
 - `future-annotations-roadmap.md` - **SQL perspective:** How can I configure @failure_strategy in SQL?
+- `error-metrics-reporting-guide.md` - **SQL perspective:** How do I monitor errors and failures via Prometheus/Grafana?
 
 ### Potential In `/developer/`:
 - (Planned) `failure-strategies.md` - **Developer perspective:** How is FailureStrategy implemented?
@@ -151,7 +152,7 @@ The DLQ is documented from **two perspectives**:
 
 Documents in different folders should cross-reference each other:
 
-### `/sql/dlq-configuration-guide.md`
+### `/sql/ops/dlq-configuration-guide.md`
 ```markdown
 See Also:
 - [Infrastructure DLQ Guide](../../data-sources/dlq-and-metrics-guide.md)
@@ -161,7 +162,7 @@ See Also:
 ### `/data-sources/dlq-and-metrics-guide.md`
 ```markdown
 See Also:
-- [SQL DLQ Configuration](../../sql/dlq-configuration-guide.md)
+- [SQL DLQ Configuration](../../sql/ops/dlq-configuration-guide.md)
   - For SQL-level configuration and error handling
 ```
 
@@ -277,11 +278,13 @@ When adding new documentation:
 
 **Current state: Properly organized** ✅
 
-- `/sql/` documents: SQL configuration and SQL-level behavior
+- `/sql/ops/` documents: SQL configuration and SQL-level behavior (operational)
   - `job-annotations-guide.md` - SQL annotations
   - `job-processor-configuration-guide.md` - Processor modes
   - `dlq-configuration-guide.md` - DLQ from SQL perspective
   - `logandcontinue-strategy-guide.md` - Error logging from query perspective
+  - `error-metrics-reporting-guide.md` - Prometheus/Grafana monitoring from SQL perspective
+  - `future-annotations-roadmap.md` - Future SQL annotations
 
 - `/data-sources/` documents: Infrastructure and operations
   - `dlq-and-metrics-guide.md` - DLQ infrastructure perspective

@@ -541,7 +541,7 @@ impl DeadLetterQueue {
 
 ## See Also
 
-- [Job Processor Configuration Guide](./job-processor-configuration-guide.md) - Complete processor configuration
-- [Job Annotations Guide](./job-annotations-guide.md) - Current SQL annotations
-- [Future Annotations Roadmap](./future-annotations-roadmap.md) - Planned `@enable_dlq` and `@dlq_max_size` annotations
+- [Job Processor Configuration Guide](../job-processor-configuration-guide.md) - Complete processor configuration
+- [Job Annotations Guide](../job-annotations-guide.md) - Current SQL annotations
+- [Future Annotations Roadmap](future-annotations-roadmap.md) - Planned `@enable_dlq` and `@dlq_max_size` annotations
 - [Failure Handling Strategy Guide](../developer/failure-strategies.md) - Planned document
