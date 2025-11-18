@@ -68,10 +68,6 @@ async fn test_stddev_functions() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -118,10 +114,6 @@ async fn test_stddev_pop_function() {
         limit: None,
         emit_mode: None,
         properties: None,
-        job_mode: None,
-        batch_size: None,
-        num_partitions: None,
-        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -169,10 +161,6 @@ async fn test_variance_functions() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -219,10 +207,6 @@ async fn test_var_pop_function() {
         limit: None,
         emit_mode: None,
         properties: None,
-        job_mode: None,
-        batch_size: None,
-        num_partitions: None,
-        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -277,10 +261,6 @@ async fn test_median_function() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -353,10 +333,6 @@ async fn test_statistical_function_null_handling() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -408,10 +384,6 @@ async fn test_statistical_function_error_cases() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -481,10 +453,6 @@ async fn test_statistical_functions_with_non_numeric_types() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -536,10 +504,6 @@ async fn test_statistical_functions_with_literal_values() {
             limit: None,
             emit_mode: None,
             properties: None,
-            job_mode: None,
-            batch_size: None,
-            num_partitions: None,
-            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -619,10 +583,6 @@ async fn test_multiple_statistical_functions_in_single_query() {
         limit: None,
         emit_mode: None,
         properties: None,
-        job_mode: None,
-        batch_size: None,
-        num_partitions: None,
-        partitioning_strategy: None,
     };
 
     let record = create_test_record();
