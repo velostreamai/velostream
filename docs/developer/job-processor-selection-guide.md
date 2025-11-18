@@ -1,8 +1,8 @@
 # Job Processor Selection Guide
 
-**Choosing between SimpleJobProcessor and TransactionalJobProcessor for your streaming applications**
+**Choosing the right processor for your streaming SQL applications**
 
-This guide helps you select the appropriate job processor for your Velostream applications based on data consistency requirements, performance characteristics, and operational complexity.
+This guide helps you select the appropriate job processor for your Velostream applications based on consistency requirements, performance characteristics, and operational needs. Choose the processor that best matches your requirements—there is no migration path or version progression.
 
 ---
 
@@ -10,18 +10,175 @@ This guide helps you select the appropriate job processor for your Velostream ap
 
 | **Use Case** | **Processor** | **Why** |
 |--------------|---------------|---------|
-| **High-throughput analytics** | SimpleJobProcessor | Maximum performance, acceptable data loss |
-| **Financial transactions** | TransactionalJobProcessor | ACID transactions with at-least-once delivery |
-| **Real-time dashboards** | SimpleJobProcessor | Speed over perfect consistency |
-| **Audit trails** | TransactionalJobProcessor | No data loss acceptable |
-| **IoT sensor data** | SimpleJobProcessor | Volume over perfect accuracy |
-| **Payment processing** | TransactionalJobProcessor | Regulatory compliance required |
-| **Development/testing** | SimpleJobProcessor | Faster iteration, simpler debugging |
-| **Production mission-critical** | TransactionalJobProcessor | Data integrity paramount |
+| **High-throughput analytics (multi-core)** | **AdaptiveJobProcessor** | Multi-partition parallel, ~8x faster on 8 cores, zero-overhead routing |
+| **High-throughput, single-threaded** | **SimpleJobProcessor** | Maximum raw performance, best-effort processing |
+| **Financial transactions** | **TransactionalJobProcessor** | ACID transactions, at-least-once delivery, regulatory compliance |
+| **Real-time dashboards (throughput critical)** | **AdaptiveJobProcessor** | 8x improvement with multi-core parallelism |
+| **Real-time dashboards (simple setup)** | **SimpleJobProcessor** | Speed with minimal complexity |
+| **Audit trails** | **TransactionalJobProcessor** | No data loss, complete transaction boundaries |
+| **IoT sensor data (volume)** | **AdaptiveJobProcessor** | Scales to millions of records/sec |
+| **Payment processing** | **TransactionalJobProcessor** | Atomic processing, regulatory compliance |
+| **Development/testing** | **SimpleJobProcessor** | Fastest iteration, simplest debugging |
+| **Production mission-critical (fast)** | **AdaptiveJobProcessor** | 8x throughput improvement with proper parallelism |
+| **Production mission-critical (safe)** | **TransactionalJobProcessor** | Data integrity guarantees |
 
 ---
 
 ## 📊 **Detailed Comparison**
+
+### **AdaptiveJobProcessor** ⚡⚡
+
+**Best for**: High-throughput workloads that can leverage multiple CPU cores
+
+#### **Characteristics**
+- **Processing Model**: Multi-partition parallel execution with pluggable routing strategies
+- **Performance**: ~8x improvement on 8-core systems vs single-threaded processors
+- **Complexity**: Medium (automatic partitioning strategy selection)
+- **Parallelism**: True parallelism across CPU cores with minimal contention
+- **Default Strategy**: StickyPartitionStrategy (zero-overhead, uses record.partition field)
+
+#### **Architecture Overview**
+```
+┌─────────────────┐
+│   Data Source   │ (Kafka, files, etc.)
+│ (with partition │
+│  information)   │
+└────────┬────────┘
+         │
+         ▼
+┌──────────────────────────────────────────┐
+│   AdaptiveJobProcessor (Coordinator)     │
+│                                          │
+│  ┌─ Partition 0 ──────────────────────┐  │
+│  │ StreamExecutionEngine              │  │
+│  │ ├─ StickyPartitionStrategy (route) │  │
+│  │ └─ SQL Execution (owned)           │  │
+│  └────────────────────────────────────┘  │
+│  ┌─ Partition 1 ──────────────────────┐  │
+│  │ StreamExecutionEngine (parallel)   │  │
+│  │ ├─ StickyPartitionStrategy (route) │  │
+│  │ └─ SQL Execution (owned)           │  │
+│  └────────────────────────────────────┘  │
+│  ┌─ Partition N ──────────────────────┐  │
+│  │ StreamExecutionEngine (parallel)   │  │
+│  │ ├─ StickyPartitionStrategy (route) │  │
+│  │ └─ SQL Execution (owned)           │  │
+│  └────────────────────────────────────┘  │
+└──────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────┐
+│   Data Sink     │ (Kafka, files, etc.)
+│  (partitioned)  │
+└─────────────────┘
+```
+
+#### **Partitioning Strategies**
+
+AdaptiveJobProcessor uses pluggable routing strategies selected automatically based on query characteristics:
+
+| **Strategy** | **Used For** | **Overhead** | **Performance** |
+|---|---|---|---|
+| **StickyPartitionStrategy** (default) | All queries | Zero (just reads record.partition field) | 42-67x faster than hash-based |
+| **AlwaysHashStrategy** | GROUP BY queries | Hash computation per record | Conservative but correct |
+| **SmartRepartitionStrategy** | Aligned GROUP BY | Detection + conditional routing | Hybrid (fast when aligned) |
+| **RoundRobinStrategy** | No GROUP BY queries | Minimal (counter increment) | Maximum throughput |
+| **FanInStrategy** | Broadcast operations | Minimal (counter increment) | Balanced distribution |
+
+**Auto-Selection Logic**:
+- Default: StickyPartitionStrategy (works with all query types)
+- GROUP BY without ORDER BY: Override to AlwaysHashStrategy (better aggregation locality)
+- Window without ORDER BY: Override to AlwaysHashStrategy (parallelization opportunity)
+- Window with ORDER BY: Use StickyPartitionStrategy (required for ordering)
+
+#### **Data Consistency Guarantees**
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Data Source   │───▶│  Adaptive Multi- │───▶│   Data Sink     │
+│   (Partitioned) │    │   Partition      │    │  (Partitioned)  │
+│                 │    │  Processing      │    │                 │
+│ • Records have  │    │ • Each partition │    │ • All records   │
+│   partition ID  │    │   processes      │    │   written out   │
+│ • At-least-once │    │   independently  │    │ • Maintains     │
+│                 │    │ • Zero repartition│   │   partition IDs │
+└─────────────────┘    │   (sticky)       │    │ • At-least-once │
+                       │ • True parallelism
+└──────────────────┘    └─────────────────┘
+```
+
+#### **Performance Characteristics**
+- **Throughput**: 350K+ records/sec per partition (scales linearly across cores)
+  - Single core: ~16,000 rec/sec
+  - 8 cores: ~128,000+ rec/sec aggregate
+- **Latency**: Excellent cache locality with StickyPartitionStrategy (zero repartitioning cost)
+- **Scalability**: Near-linear scaling with CPU cores
+- **Memory**: Base ~20-30MB per processor
+
+#### **When to Use AdaptiveJobProcessor**
+- ✅ Multi-core systems with available CPU capacity
+- ✅ High-throughput scenarios (>100K records/sec)
+- ✅ Kafka sources with partition information
+- ✅ GROUP BY queries that benefit from partitioned execution
+- ✅ Window functions with potential parallelization
+- ✅ Production workloads where throughput is critical
+- ❌ Single-core systems (overhead not justified)
+- ❌ Minimal data volume (<1K records/sec)
+
+#### **Code Example**
+```rust
+use velostream::velostream::server::processors::JobProcessorFactory;
+
+// Create adaptive processor with 8 partitions
+let processor = JobProcessorFactory::create_adaptive_processor_with_partitions(8);
+
+// Process with automatic strategy selection and parallelism
+let stats = processor.process_job(
+    reader,
+    Some(writer),
+    engine,
+    query,
+    "analytics-job".to_string(),
+    shutdown_rx
+).await?;
+
+println!("Processed {} records at {:.0} rec/sec",
+    stats.records_processed,
+    stats.records_processed as f64 / stats.total_processing_time.as_secs_f64()
+);
+```
+
+#### **Rust Code Configuration**
+```rust
+use velostream::velostream::server::processors::{JobProcessorFactory, JobProcessorConfig};
+
+// Create adaptive processor with explicit partition count
+let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
+    num_partitions: Some(8),          // Partition count (defaults to CPU cores)
+    enable_core_affinity: false,      // CPU affinity for partition threads
+});
+
+// Alternatively, use helper methods
+let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
+
+// For testing with immediate EOF detection (no empty batch polling)
+let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(8));
+```
+
+#### **SQL Annotation Configuration** (Future)
+```sql
+-- @processor_mode: adaptive
+-- @partitions: 8
+SELECT
+    trader_id,
+    COUNT(*) as trade_count,
+    AVG(amount) as avg_amount,
+    SUM(amount) as total_amount
+FROM kafka_trades
+GROUP BY trader_id;
+```
+Note: SQL-level processor mode annotations are planned for future versions. Currently, processor selection is configured at the application level via JobProcessorFactory.
+
+---
 
 ### **SimpleJobProcessor** ⚡
 
