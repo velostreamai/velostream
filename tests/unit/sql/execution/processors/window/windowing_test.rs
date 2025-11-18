@@ -93,11 +93,11 @@ async fn test_windowed_execution_tumbling() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
-
-    // Create records with specific timestamps to trigger window emission
-    let base_time = 1000; // Start at 1 second (1000ms)
-    let mut record = create_test_record(1, 100, 299.99, Some("pending"));
     record
         .fields
         .insert("timestamp".to_string(), FieldValue::Integer(base_time));
@@ -234,11 +234,11 @@ async fn test_sliding_window_execution() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
-
-    // Process multiple records to trigger sliding window output
-    let record1 = create_test_record_with_timestamp(1, 100, 100.0, Some("pending"), Some(0));
-    let record2 = create_test_record_with_timestamp(2, 101, 200.0, Some("active"), Some(300)); // 5 minutes later
     let record3 = create_test_record_with_timestamp(3, 102, 300.0, Some("completed"), Some(600)); // 10 minutes later
 
     // Execute first record
@@ -331,11 +331,11 @@ async fn test_session_window_execution() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
-
-    // Create records with controlled timestamps to test session windows properly
-    // Session window has 30 second gap, so we'll create records within and beyond the gap
-
     // First session: records within 30 seconds of each other
     let record1 = create_test_record_with_timestamp(1, 100, 100.0, Some("pending"), Some(0)); // 1000ms
     let record2 = create_test_record_with_timestamp(2, 100, 200.0, Some("active"), Some(10)); // 11000ms (10s gap)
@@ -455,11 +455,11 @@ async fn test_aggregation_functions() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
-
-    // Create records with specific timestamps to trigger window emission
-    let base_time = 1000; // Start at 1 second (1000ms)
-    let mut record = create_test_record(1, 100, 299.99, Some("pending"));
     record
         .fields
         .insert("timestamp".to_string(), FieldValue::Integer(base_time));
