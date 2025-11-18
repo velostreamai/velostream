@@ -13,15 +13,15 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use velostream::velostream::sql::SqlError;
 use velostream::velostream::sql::ast::{
-    BinaryOperator, Expr, LiteralValue, SelectField, StreamSource,
-    StreamingQuery, SubqueryType, UnaryOperator,
+    BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery, SubqueryType,
+    UnaryOperator,
 };
 use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
 use velostream::velostream::sql::execution::expression::subquery_executor::SubqueryExecutor;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
-use velostream::velostream::sql::SqlError;
 use velostream::velostream::table::streaming::{
     RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
 };
@@ -65,7 +65,7 @@ impl UnifiedTable for MockSubqueryTable {
         !self.exists_result
     }
 
-    fn iter_records(&self) -> Box<dyn Iterator<Item=(String, HashMap<String, FieldValue>)> + '_> {
+    fn iter_records(&self) -> Box<dyn Iterator<Item = (String, HashMap<String, FieldValue>)> + '_> {
         Box::new(std::iter::empty())
     }
 

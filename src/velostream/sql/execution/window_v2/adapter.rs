@@ -28,6 +28,7 @@ use super::strategies::{
 };
 use super::traits::{EmissionStrategy, WindowStrategy};
 use super::types::SharedRecord;
+use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{
     EmitMode, Expr, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
 };
@@ -38,7 +39,6 @@ use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
-use crate::velostream::sql::SqlError;
 use std::collections::HashMap;
 
 /// Window V2 state stored in ProcessorContext
@@ -347,9 +347,9 @@ impl WindowAdapter {
             } else {
                 // For ROWS windows, check the emit_mode in the window spec
                 if let Some(WindowSpec::Rows {
-                                emit_mode: rows_emit,
-                                ..
-                            }) = window
+                    emit_mode: rows_emit,
+                    ..
+                }) = window
                 {
                     matches!(rows_emit, RowsEmitMode::EveryRecord)
                 } else {
@@ -973,8 +973,8 @@ impl WindowAdapter {
                     // Prefer fields with relevant keywords
                     if func_lower == "sum"
                         && (field_lower.contains("total")
-                        || field_lower.contains("sum")
-                        || field_lower.contains("value"))
+                            || field_lower.contains("sum")
+                            || field_lower.contains("value"))
                     {
                         return Some(field_name.clone());
                     }

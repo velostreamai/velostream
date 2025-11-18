@@ -137,7 +137,11 @@ impl SqlAnnotationParser {
             .and_then(|v| Self::parse_partitioning_strategy(v));
 
         // Log parsed job annotations if any exist
-        if job_mode.is_some() || batch_size.is_some() || num_partitions.is_some() || partitioning_strategy.is_some() {
+        if job_mode.is_some()
+            || batch_size.is_some()
+            || num_partitions.is_some()
+            || partitioning_strategy.is_some()
+        {
             debug!(
                 "🔍 Job annotations parsed from SQL: job_mode={:?}, batch_size={:?}, \
                  num_partitions={:?}, strategy={:?}",
@@ -155,7 +159,10 @@ impl SqlAnnotationParser {
             "transactional" => Some(JobProcessorMode::Transactional),
             "adaptive" => Some(JobProcessorMode::Adaptive),
             _ => {
-                debug!("Unknown job_mode value: '{}'. Valid values are: simple, transactional, adaptive", value);
+                debug!(
+                    "Unknown job_mode value: '{}'. Valid values are: simple, transactional, adaptive",
+                    value
+                );
                 None
             }
         }
@@ -170,7 +177,10 @@ impl SqlAnnotationParser {
             "roundrobin" => Some(PartitioningStrategyType::RoundRobin),
             "fanin" => Some(PartitioningStrategyType::FanIn),
             _ => {
-                debug!("Unknown partitioning_strategy value: '{}'. Valid values are: sticky, hash, smart, roundrobin, fanin", value);
+                debug!(
+                    "Unknown partitioning_strategy value: '{}'. Valid values are: sticky, hash, smart, roundrobin, fanin",
+                    value
+                );
                 None
             }
         }
@@ -191,8 +201,10 @@ impl SqlAnnotationParser {
                 let rest = &trimmed[2..].trim_start();
 
                 // Match both deployment and job annotations
-                if rest.starts_with("@deployment.") || rest.starts_with("@job_mode")
-                    || rest.starts_with("@batch_size") || rest.starts_with("@num_partitions")
+                if rest.starts_with("@deployment.")
+                    || rest.starts_with("@job_mode")
+                    || rest.starts_with("@batch_size")
+                    || rest.starts_with("@num_partitions")
                     || rest.starts_with("@partitioning_strategy")
                 {
                     // Extract key and value
