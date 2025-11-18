@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use log::debug;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -94,17 +95,23 @@ impl DataReader for MockDataSource {
 #[derive(Clone)]
 pub struct MockDataWriter {
     count: Arc<AtomicUsize>,
+    last_record: Arc<Mutex<Option<StreamRecord>>>,
 }
 
 impl MockDataWriter {
     pub fn new() -> Self {
         Self {
             count: Arc::new(AtomicUsize::new(0)),
+            last_record: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn get_count(&self) -> usize {
         self.count.load(Ordering::SeqCst)
+    }
+
+    pub fn get_last_record(&self) -> Option<StreamRecord> {
+        self.last_record.lock().unwrap().clone()
     }
 }
 
@@ -112,9 +119,10 @@ impl MockDataWriter {
 impl DataWriter for MockDataWriter {
     async fn write(
         &mut self,
-        _record: StreamRecord,
+        record: StreamRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.count.fetch_add(1, Ordering::SeqCst);
+        *self.last_record.lock().unwrap() = Some(record);
         Ok(())
     }
 
@@ -123,6 +131,9 @@ impl DataWriter for MockDataWriter {
         records: Vec<Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.count.fetch_add(records.len(), Ordering::SeqCst);
+        if let Some(last) = records.last() {
+            *self.last_record.lock().unwrap() = Some((**last).clone());
+        }
         Ok(())
     }
 
@@ -404,5 +415,32 @@ impl JobServerMetrics {
             self.batches_processed,
             self.avg_latency_micros
         );
+    }
+}
+
+/// Validate that a benchmark result has meaningful content
+pub fn validate_benchmark_record(record: &Option<StreamRecord>, scenario_name: &str) -> bool {
+    match record {
+        Some(rec) => {
+            if rec.fields.is_empty() {
+                eprintln!("❌ {} - Last record has no fields!", scenario_name);
+                return false;
+            }
+
+            // Log the fields present in the last record for verification
+            let field_names: Vec<&String> = rec.fields.keys().collect();
+            println!(
+                "  ✓ {} - Last record has {} fields: {:?}",
+                scenario_name,
+                field_names.len(),
+                field_names
+            );
+
+            true
+        }
+        None => {
+            eprintln!("❌ {} - No records were written!", scenario_name);
+            false
+        }
     }
 }
