@@ -7,9 +7,7 @@ Tests both parsing and execution functionality.
 
 use std::collections::HashMap;
 use std::f64::consts::PI;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
@@ -71,6 +69,10 @@ async fn test_abs_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -119,6 +121,10 @@ async fn test_abs_function() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();

@@ -1,7 +1,8 @@
 # Velostream Development Guide for Claude
 
-
 ## Behaviour
+
+- Use ast-grep for large scale refactoring:
 - Dont make assumptions about the behaviour of the project.
 - Always run all of the tests, demos, examples and /bin' and check the documentation.
 - Always check the code formatting.
@@ -23,11 +24,14 @@
 
 ## Project Overview
 
-Velostream is a high-performance streaming SQL engine written in Rust that provides real-time data processing capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision, and compatibility, particularly for financial analytics use cases.
+Velostream is a high-performance streaming SQL engine written in Rust that provides real-time data processing
+capabilities with pluggable serialization formats (JSON, Avro, Protobuf). The project emphasizes performance, precision,
+and compatibility, particularly for financial analytics use cases.
 
 ## Key Components
 
 ### SQL Engine (`src/velostream/sql/`)
+
 - **Parser**: Streaming SQL query parsing with support for windows, aggregations, joins
 - **Execution Engine**: High-performance query execution with pluggable processors
 - **Types System**: FieldValue-based type system for SQL execution and serialization
@@ -35,11 +39,13 @@ Velostream is a high-performance streaming SQL engine written in Rust that provi
 - **Windowing**: Tumbling, sliding, and session windows with emit modes
 
 ### Serialization (`src/velostream/serialization/`)
+
 - **Pluggable Formats**: JSON, Avro, and Protobuf (all always available)
 - **Type Conversion**: Direct FieldValue serialization with enhanced error chaining
 - **Financial Precision**: ScaledInteger support for exact financial arithmetic
 
 ### Kafka Integration (`src/velostream/kafka/`)
+
 - **Consumers/Producers**: High-performance Kafka integration with configurable serialization
 - **Schema Support**: Avro schema registry integration
 - **Performance Presets**: Optimized configurations for different use cases
@@ -49,30 +55,32 @@ Velostream is a high-performance streaming SQL engine written in Rust that provi
 ### Advanced SQL Parser Features (Latest)
 
 **Problem Solved**
+
 - Limited SQL standard compliance for complex window functions
 - Missing support for table aliases in PARTITION BY clauses
 - No support for INTERVAL syntax in window frames
 - EXTRACT function only supported non-standard syntax
 
 **Solution Implemented**
+
 - **Table Alias Support**: Full support for `table.column` syntax in PARTITION BY and ORDER BY clauses
 - **INTERVAL Window Frames**: Native support for `RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW`
 - **Dual EXTRACT Syntax**: Both function call style `EXTRACT('YEAR', date)` and SQL standard `EXTRACT(YEAR FROM date)`
 - **Enhanced Financial SQL**: 100% compatibility with complex financial trading queries
 
 **Key Benefits**
+
 ```sql
 -- Table aliases in complex window functions (NEW)
-SELECT
-    p.trader_id,
-    LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price
+SELECT p.trader_id,
+       LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price
 FROM market_data m
-JOIN positions p ON m.symbol = p.symbol;
+         JOIN positions p ON m.symbol = p.symbol;
 
 -- INTERVAL-based window frames (NEW)
-SELECT
-    symbol, price,
-    AVG(price) OVER (
+SELECT symbol,
+       price,
+       AVG(price) OVER (
         PARTITION BY symbol
         ORDER BY event_time
         RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
@@ -80,36 +88,39 @@ SELECT
 FROM trades;
 
 -- SQL standard EXTRACT syntax (NEW)
-SELECT
-    EXTRACT(EPOCH FROM (end_time - start_time)) as duration_seconds,
-    EXTRACT(YEAR FROM order_date) as order_year
+SELECT EXTRACT(EPOCH FROM (end_time - start_time)) as duration_seconds,
+       EXTRACT(YEAR FROM order_date)               as order_year
 FROM orders;
 ```
 
-**Financial Trading Compatibility**: Achieved 100% parser compatibility with complex financial SQL (improved from 30% to 100%).
+**Financial Trading Compatibility**: Achieved 100% parser compatibility with complex financial SQL (improved from 30% to
+100%).
 
 See updated [SQL function documentation](docs/sql/functions/) for complete syntax reference.
 
 ### Compression Independence in Batch Configuration
 
 **Problem Solved**
+
 - Batch strategies were overriding explicit compression settings
 - Users couldn't configure compression independently from batch optimizations
 - Need for fine-grained control over compression vs automatic optimization
 
 **Solution Implemented**
+
 - **Suggestion vs Override Pattern**: Batch strategies suggest compression only when none is explicitly set
 - **Full Independence**: Explicit compression settings are never overridden by batch configurations
 - **Intelligent Defaults**: When no compression is specified, batch strategies provide optimal suggestions
 - **Comprehensive Logging**: Detailed logging shows final applied compression settings
 
 **Key Benefits**
+
 ```rust
 // Explicit compression is always preserved
 props.insert("compression.type".to_string(), "zstd".to_string());
 let batch_config = BatchConfig {
-    strategy: BatchStrategy::MemoryBased(1024 * 1024), // Would suggest gzip
-    // ... 
+strategy: BatchStrategy::MemoryBased(1024 * 1024), // Would suggest gzip
+// ... 
 };
 // Result: compression.type remains "zstd" (user choice preserved)
 ```
@@ -119,17 +130,20 @@ See [docs/compression-independence.md](docs/developer/compression-independence.m
 ### SerializationError Enhancement: Comprehensive Error Chaining
 
 **Problem Solved**
+
 - Limited error diagnostics for serialization failures
 - Loss of original error context in error chains
 - Difficult debugging of cross-format serialization issues
 
 **Solution Implemented**
+
 - **Enhanced Error Variants**: 6 new structured error types with full source chain preservation
 - **JSON/Avro/Protobuf Support**: All serialization formats now use enhanced error variants
 - **Error Chain Traversal**: Full error source chain information for debugging
 - **100% Backward Compatibility**: Existing error handling patterns continue to work
 
 **Enhanced Error Types**
+
 ```rust
 SerializationError::JsonError { message, source }          // JSON serialization with source
 SerializationError::AvroError { message, source }          // Avro serialization with source  
@@ -142,11 +156,13 @@ SerializationError::EncodingError { message, source }
 ### Financial Precision Enhancement
 
 ### Problem Solved
+
 - f64 floating-point precision errors in financial calculations
 - Need for exact arithmetic in financial analytics
 - Performance bottlenecks in financial computations
 
 ### Solution Implemented
+
 - **FieldValue::ScaledInteger(i64, u8)**: Stores scaled integer with decimal precision
 - **42x Performance Improvement**: ScaledInteger operations are 42x faster than f64
 - **Perfect Precision**: No floating-point rounding errors
@@ -155,15 +171,15 @@ SerializationError::EncodingError { message, source }
 ## Performance Benchmarks
 
 Financial calculation patterns (price × quantity):
+
 - **f64**: 83.458µs (with precision errors)
 - **ScaledInteger**: 1.958µs (exact precision) → **42x FASTER**
 - **Decimal**: 53.583µs (exact precision) → 1.5x faster than f64
 
 ## Development Commands
 
-
-
 ### Testing
+
 ```bash
 # Run all tests
 cargo test
@@ -182,6 +198,7 @@ cargo test windowing_test -- --nocapture
 ```
 
 ### Building
+
 ```bash
 # Build the project (all serialization formats included)
 cargo build
@@ -191,6 +208,7 @@ cargo build --bin velo-sql-multi
 ```
 
 ### Code Formatting
+
 ```bash
 # Format all code (required for CI/CD)
 cargo fmt --all
@@ -212,6 +230,7 @@ cargo clippy --no-default-features -- -D warnings
 ```
 
 ### Git Workflow
+
 ```bash
 # Commit after completing significant work units
 # Examples: 1 day's work, project milestone, or architectural phase
@@ -232,6 +251,7 @@ git push origin branch-name
 ### Performance Testing
 
 #### FR-082 Comprehensive Baseline Comparison
+
 ```bash
 # All scenarios, release build (recommended for final benchmarks)
 ./run_baseline.sh
@@ -251,11 +271,13 @@ git push origin branch-name
 ```
 
 **Documentation:** See [`docs/benchmarks/`](docs/benchmarks/) for:
+
 - [`SCRIPTS_README.md`](docs/benchmarks/SCRIPTS_README.md) - Complete reference guide
 - [`BASELINE_TESTING.md`](docs/benchmarks/BASELINE_TESTING.md) - Detailed methodology
 - [`BASELINE_QUICK_REFERENCE.md`](docs/benchmarks/BASELINE_QUICK_REFERENCE.md) - Quick cheat sheet
 
 #### Financial Precision & Compatibility Tests
+
 ```bash
 # Run financial precision tests
 cargo run --bin test_financial_precision
@@ -264,13 +286,14 @@ cargo run --bin test_financial_precision
 cargo run --bin test_serialization_compatibility
 ```
 
-
 ## Schema Configuration
 
 ### Kafka Schema Support
+
 Velostream now supports comprehensive schema configuration for Kafka data sources:
 
 **Avro Schema Configuration**:
+
 ```yaml
 # Inline schema
 avro.schema: |
@@ -285,6 +308,7 @@ avro.schema.file: "./schemas/example.avsc"
 ```
 
 **Protobuf Schema Configuration**:
+
 ```yaml
 # Inline schema
 protobuf.schema: |
@@ -298,6 +322,7 @@ protobuf.schema.file: "./schemas/example.proto"
 ```
 
 **Key Benefits**:
+
 - **Schema Enforcement**: Avro/Protobuf now require proper schemas (no more hardcoded fallbacks)
 - **Multiple Config Keys**: Support for various naming conventions (`avro.schema`, `value.avro.schema`, etc.)
 - **File Support**: Load schemas from external files for better maintainability
@@ -309,9 +334,11 @@ See [docs/kafka-schema-configuration.md](docs/developer/kafka-schema-configurati
 ## Code Organization
 
 ### Module Structure Guidelines
+
 **IMPORTANT**: Use `mod.rs` files ONLY for module construction and re-exports, NOT for struct/class definitions.
 
 ✅ **Correct mod.rs usage**:
+
 ```rust
 // mod.rs should only contain:
 pub mod error;          // Import submodules
@@ -324,15 +351,19 @@ pub use data_source::KafkaDataSource;
 ```
 
 ❌ **Incorrect mod.rs usage**:
+
 ```rust
 // DO NOT define structs/classes in mod.rs
-pub struct MyStruct { /* ... */ }
+pub struct MyStruct {
+    /* ... */
+}
 impl MyStruct { /* ... */ }
 ```
 
 **Best Practice**: Create dedicated files for each major struct/class and import them in mod.rs.
 
 ### Type System Architecture
+
 ```rust
 // Unified FieldValue Types (for both execution and serialization)
 FieldValue::ScaledInteger(i64, u8)  // 42x faster than f64, financial precision
@@ -344,6 +375,7 @@ FieldValue::Timestamp(NaiveDateTime) // Date/time values
 ```
 
 ### Serialization Patterns
+
 ```rust
 // ScaledInteger serialization for compatibility:
 // JSON: "123.4567" (decimal string)
@@ -354,19 +386,23 @@ FieldValue::Timestamp(NaiveDateTime) // Date/time values
 ## Critical Implementation Details
 
 ### Financial Arithmetic
+
 - **Internal Representation**: Scaled integers (e.g., $123.45 stored as 123450 with scale=3)
 - **Arithmetic Operations**: Direct integer operations preserve exact precision
 - **Display Formatting**: Converts back to decimal representation with trailing zero removal
 - **Type Coercion**: Automatic scaling alignment for operations between different scales
 
 ### Pattern Matching Requirements
+
 When adding new FieldValue variants, ensure all pattern matches are updated:
+
 - `src/velostream/sql/execution/types.rs` - Core type operations
 - `src/velostream/sql/execution/aggregation/` - Aggregation functions
 - `src/velostream/serialization/mod.rs` - Serialization conversion
 - Binary files: `src/bin/*.rs` - Server implementations
 
 ### Serialization Compatibility Strategy
+
 - **JSON**: Decimal strings for universal parsing (`"123.4567"`)
 - **Avro**: String fields with decimal logical type support
 - **Protobuf**: Structured Decimal message with units/scale fields (industry standard)
@@ -374,22 +410,26 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 ## Common Tasks
 
 ### Adding New SQL Functions
+
 1. Update `src/velostream/sql/execution/expression/functions.rs`
 2. Add pattern matches for all FieldValue variants
 3. Implement arithmetic preserving ScaledInteger precision
 4. Add tests in `tests/unit/sql/functions/`
 
 ### Adding New Aggregation Functions
+
 1. Update `src/velostream/sql/execution/aggregation/accumulator.rs`
 2. Handle ScaledInteger accumulation with proper scaling
 3. Add tests in `tests/unit/sql/execution/aggregation/`
 
 ### Adding New Serialization Support
+
 1. Implement conversion functions in `src/velostream/serialization/mod.rs`
 2. Handle ScaledInteger → compatible format mapping
 3. Add comprehensive tests in `tests/unit/serialization/`
 
 ### Adding New Configuration Features
+
 1. Update appropriate module in `src/velostream/sql/config/`
 2. Ensure public visibility for methods used in tests
 3. Add comprehensive tests in `tests/unit/sql/config/`
@@ -398,7 +438,9 @@ When adding new FieldValue variants, ensure all pattern matches are updated:
 ## Testing Strategy
 
 ### Test Organization
+
 **CRITICAL**: Tests MUST be organized into dedicated test files outside of implementation modules:
+
 - **NEVER add `#[cfg(test)]` blocks inside implementation files** - All tests must be in `tests/` directory
 - **NEVER add `#[test]` functions inside src files** - They belong in `tests/unit/` or `tests/integration/`
 - **Dedicated test files**: Tests are located in `tests/unit/` and `tests/integration/`
@@ -421,21 +463,25 @@ tests/
 ```
 
 ### Writing Tests - CORRECT Structure
+
 When adding new functionality:
+
 1. **Create test file** in `tests/unit/[module_path]/[feature]_test.rs`
 2. **⚠️ CRITICAL: Register test in mod.rs** - Add `pub mod [feature]_test;` to the parent `mod.rs`
 3. **Use proper imports** at the top of the test file
 4. **Write comprehensive test cases** covering:
-   - Happy path scenarios
-   - Error conditions
-   - Edge cases
-   - Performance considerations (if applicable)
+    - Happy path scenarios
+    - Error conditions
+    - Edge cases
+    - Performance considerations (if applicable)
 
 **⚠️ CRITICAL: Always Register New Test Files in mod.rs**
 
-When you create a new test file, you MUST add it to the parent module's `mod.rs` file, otherwise Cargo won't discover or run your tests!
+When you create a new test file, you MUST add it to the parent module's `mod.rs` file, otherwise Cargo won't discover or
+run your tests!
 
 Example workflow:
+
 ```bash
 # 1. Create new test file
 touch tests/unit/table/new_feature_test.rs
@@ -448,6 +494,7 @@ cargo test new_feature_test --no-default-features -- --list
 ```
 
 Example test file structure:
+
 ```rust
 // tests/unit/sql/query_analyzer_test.rs
 use velostream::velostream::sql::{
@@ -469,6 +516,7 @@ fn test_query_analyzer_error_handling() {
 ```
 
 Example mod.rs registration:
+
 ```rust
 // tests/unit/sql/mod.rs
 pub mod query_analyzer_test;  // ← ADD THIS LINE for each new test file
@@ -477,18 +525,21 @@ pub mod execution_test;
 ```
 
 ### Unit Tests
+
 - **Type Operations**: All arithmetic, casting, formatting
-- **SQL Functions**: Builtin functions with all type combinations  
+- **SQL Functions**: Builtin functions with all type combinations
 - **Aggregation**: Window functions, GROUP BY, HAVING clauses
 - **Serialization**: Round-trip compatibility tests
 - **Configuration**: URI parsing, validation, environment config
 
 ### Integration Tests
+
 - **End-to-End SQL**: Complete query processing
 - **Performance**: Benchmark critical paths
 - **Compatibility**: Cross-system serialization verification
 
 ### Performance Tests
+
 - **Financial Benchmarks**: ScaledInteger vs f64 vs Decimal
 - **Aggregation Performance**: Large dataset processing
 - **Serialization Speed**: Format comparison benchmarks
@@ -496,6 +547,7 @@ pub mod execution_test;
 ## Debugging Tips
 
 ### Common Issues
+
 1. **Pattern Match Exhaustiveness**: New FieldValue variants need matches everywhere
 2. **Scale Alignment**: Different scales in ScaledInteger arithmetic
 3. **Serialization Round-trips**: Ensure exact precision preservation
@@ -503,9 +555,12 @@ pub mod execution_test;
 5. **CI/CD Formatting Failures**: Always run `cargo fmt --all -- --check` before committing
 
 ### Critical Development Rule
-**NEVER mark tasks as completed when code doesn't compile.** Always verify compilation and basic functionality before marking work as done. This is essential for maintaining code quality and avoiding wasted time.
+
+**NEVER mark tasks as completed when code doesn't compile.** Always verify compilation and basic functionality before
+marking work as done. This is essential for maintaining code quality and avoiding wasted time.
 
 ### Useful Debug Commands
+
 ```bash
 # Debug specific test with full output
 RUST_BACKTRACE=1 cargo test test_name --no-default-features -- --nocapture
@@ -620,6 +675,7 @@ echo "   • Documentation tests: ✅"
 ### 🔧 Individual Check Commands
 
 #### Code Formatting (CRITICAL - GitHub Actions requirement)
+
 ```bash
 # Check formatting
 cargo fmt --all -- --check
@@ -629,6 +685,7 @@ cargo fmt --all
 ```
 
 #### Compilation and Linting
+
 ```bash
 # Check compilation
 cargo check --all-targets --no-default-features
@@ -638,6 +695,7 @@ cargo clippy --all-targets --no-default-features -- -D warnings
 ```
 
 #### Testing
+
 ```bash
 # Unit tests only
 cargo test --lib --no-default-features
@@ -650,6 +708,7 @@ cargo test --doc --no-default-features
 ```
 
 #### Build Verification
+
 ```bash
 # Examples
 cargo build --examples --no-default-features
@@ -661,6 +720,7 @@ cargo build --bins --no-default-features
 ### 📋 Pre-Commit Checklist
 
 Before every commit, ensure:
+
 - [ ] **Code formatting** passes (`cargo fmt --all -- --check`)
 - [ ] **Compilation** succeeds (`cargo check --all-targets --no-default-features`)
 - [ ] **Clippy linting** passes (`cargo clippy --all-targets --no-default-features`)
@@ -674,6 +734,7 @@ Before every commit, ensure:
 ### 🎯 One-Line Complete Check
 
 For quick verification, run this single command:
+
 ```bash
 cargo fmt --all -- --check && cargo check && cargo test --no-default-features && cargo build --examples --no-default-features && cargo build --bins --no-default-features
 ```
@@ -689,12 +750,14 @@ cargo fmt --all -- --check && cargo check && cargo test --no-default-features &&
 ### 🔄 CI/CD Pipeline Match
 
 These checks mirror the GitHub Actions pipeline:
+
 - **Stage 1**: Fast feedback (formatting, compilation, clippy, unit tests)
 - **Stage 2**: Comprehensive validation (full test suite, examples, binaries)
 
 Running these locally ensures CI/CD success and maintains code quality standards.
 
 ### Useful Debug Commands
+
 ```bash
 # Debug specific test with full output
 
@@ -769,42 +832,49 @@ let result = circuit_breaker.execute(move || {
 ### Latest Achievement: Reserved Keyword Fixes for Common Field Names
 
 **Problem Solved**: Reserved keywords conflicting with common field names in data streams
+
 - Fixed `STATUS`, `METRICS`, and `PROPERTIES` being globally reserved, preventing their use as field names
 - Enhanced `OptimizedTableImpl` to support SUM aggregation functions alongside existing COUNT support
 - Updated test expectations to reflect current parser capabilities (BETWEEN now supported)
 
 **Technical Implementation**:
+
 - **Contextual Keywords**: Converted global reserved keywords to contextual-only parsing
 - **Enhanced Aggregation**: Added SUM support to `sql_scalar` method with proper type handling
 - **Parser Compatibility**: Updated SQL parser to allow common field names while preserving command functionality
 
 **Key Benefits**:
+
 ```sql
 -- Now works perfectly! ✅ (Previously failed due to reserved keywords)
-SELECT
-    order_id,
-    status,              -- No longer globally reserved
-    metrics,             -- No longer globally reserved
-    properties,          -- No longer globally reserved
-    COUNT(*) OVER (PARTITION BY status) as status_count,
-    SUM(metrics) as total_metrics  -- SUM now fully supported
+SELECT order_id,
+       status,                                                                            -- No longer globally reserved
+       metrics,                                                                           -- No longer globally reserved
+       properties,                                                                        -- No longer globally reserved
+       COUNT(*) OVER (PARTITION BY status) as status_count, SUM(metrics) as total_metrics -- SUM now fully supported
 FROM data_stream
 WHERE status = 'active'
   AND metrics > 100
   AND properties IS NOT NULL;
 
 -- Command functionality preserved ✅
-SHOW STATUS;           -- Still works via contextual parsing
-SHOW METRICS;          -- Still works via contextual parsing
-SHOW PROPERTIES;       -- Still works via contextual parsing
+SHOW
+STATUS;           -- Still works via contextual parsing
+SHOW
+METRICS;          -- Still works via contextual parsing
+SHOW
+PROPERTIES;       -- Still works via contextual parsing
 ```
 
 **Reserved Keywords Fixed**:
+
 - **`STATUS`**: Most common status field (order status, job status, system status)
 - **`METRICS`**: Performance metrics, business metrics, system metrics
 - **`PROPERTIES`**: Configuration properties, object properties, metadata
 
 **Parser Improvements**: BETWEEN operator now fully supported, enhancing SQL standard compliance.
 
-The codebase is now **production-ready** for financial analytics use cases requiring exact precision and high performance. All performance testing infrastructure is operational and validated for continuous integration.
+The codebase is now **production-ready** for financial analytics use cases requiring exact precision and high
+performance. All performance testing infrastructure is operational and validated for continuous integration.
+
 - Always run clippy checks#

@@ -92,6 +92,10 @@ async fn test_like_operator() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -153,6 +157,10 @@ async fn test_not_like_operator() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -216,6 +224,10 @@ async fn test_like_operator_edge_cases() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -257,6 +269,10 @@ async fn test_like_operator_edge_cases() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let result = engine.execute_with_record(&query, &record).await;
@@ -292,6 +308,10 @@ async fn test_like_operator_edge_cases() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let result = engine.execute_with_record(&query, &record).await;
@@ -377,6 +397,10 @@ async fn test_in_operator_basic() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -447,6 +471,10 @@ async fn test_not_in_operator_basic() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -506,6 +534,10 @@ async fn test_in_operator_with_null_values() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let result = engine.execute_with_record(&query, &record).await;
@@ -539,6 +571,10 @@ async fn test_in_operator_with_null_values() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let result_not_in = engine.execute_with_record(&query_not_in, &record).await;
@@ -596,6 +632,10 @@ async fn test_in_operator_edge_cases() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let result_large = engine.execute_with_record(&query_large, &record).await;
@@ -630,6 +670,10 @@ async fn test_in_operator_edge_cases() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let result_duplicates = engine.execute_with_record(&query_duplicates, &record).await;

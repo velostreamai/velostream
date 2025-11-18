@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use velostream::velostream::server::v2::{
     AdaptiveJobProcessor, BackpressureConfig, PartitionedJobConfig, PartitionerSelector,
@@ -419,6 +418,10 @@ fn test_auto_selection_from_query_respects_user_explicit_choice() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Verify auto-selector would choose "sticky_partition" for this query

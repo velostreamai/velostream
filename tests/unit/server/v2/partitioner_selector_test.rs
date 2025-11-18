@@ -38,6 +38,10 @@ fn test_scenario_0_pure_select_should_use_hash() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -85,6 +89,10 @@ fn test_scenario_1_rows_window_with_order_by_should_use_sticky() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -130,6 +138,10 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -176,6 +188,10 @@ fn test_scenario_3a_tumbling_with_group_by_should_use_sticky() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -224,6 +240,10 @@ fn test_scenario_3b_emit_changes_with_group_by_should_use_hash() {
         limit: None,
         emit_mode: Some(velostream::velostream::sql::ast::EmitMode::Changes),
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -259,6 +279,10 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         properties: std::collections::HashMap::new(),
         emit_mode: None,
@@ -293,6 +317,10 @@ fn test_routing_keys_extracted_correctly_for_multi_column_group_by() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -334,6 +362,10 @@ fn test_user_explicit_choice_principle_documented() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Auto-select would choose Sticky

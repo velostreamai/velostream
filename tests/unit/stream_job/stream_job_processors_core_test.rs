@@ -224,6 +224,10 @@ fn create_test_query() -> StreamingQuery {
         limit: None,
         emit_mode: None,
         properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
     }
 }
 

@@ -5,9 +5,9 @@ This module provides utility functions for parsing SQL queries to extract table 
 WHERE clauses, and SELECT expressions for subquery execution with KTable/Table integration.
 */
 
-use crate::velostream::sql::StreamingQuery;
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::StreamingQuery;
 
 /// Extract table name from a SELECT query's FROM clause
 ///
@@ -374,9 +374,8 @@ fn unary_op_to_string(op: &crate::velostream::sql::ast::UnaryOperator) -> &'stat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::velostream::sql::StreamingQuery;
     use crate::velostream::sql::ast::{BinaryOperator, LiteralValue, SelectField, StreamSource};
-    use std::collections::HashMap;
+    use crate::velostream::sql::StreamingQuery;
 
     #[test]
     fn test_extract_table_name_from_stream() {
@@ -393,6 +392,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_table_name(&query).unwrap();
@@ -414,6 +417,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_table_name(&query).unwrap();
@@ -441,6 +448,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_where_clause(&query).unwrap();
@@ -462,6 +473,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_where_clause(&query).unwrap();
@@ -488,6 +503,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_select_column(&query).unwrap();
