@@ -1182,3 +1182,155 @@ impl TimeUnit {
         }
     }
 }
+
+/// Builder for constructing SelectQuery (StreamingQuery::Select) with optional fields.
+///
+/// This builder pattern provides a clean API for creating SELECT queries without
+/// requiring all fields to be explicitly specified. All annotation fields default to None.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use velostream::velostream::sql::ast::{SelectBuilder, StreamSource, SelectField};
+///
+/// let query = SelectBuilder::new(
+///     vec![SelectField::Wildcard],
+///     StreamSource::Stream("orders".to_string()),
+/// )
+/// .with_limit(100)
+/// .build();
+/// ```
+pub struct SelectBuilder {
+    fields: Vec<SelectField>,
+    from: StreamSource,
+    from_alias: Option<String>,
+    joins: Option<Vec<JoinClause>>,
+    where_clause: Option<Expr>,
+    group_by: Option<Vec<Expr>>,
+    having: Option<Expr>,
+    window: Option<WindowSpec>,
+    order_by: Option<Vec<OrderByExpr>>,
+    limit: Option<u64>,
+    emit_mode: Option<EmitMode>,
+    properties: Option<HashMap<String, String>>,
+    job_mode: Option<JobProcessorMode>,
+    batch_size: Option<usize>,
+    num_partitions: Option<usize>,
+    partitioning_strategy: Option<PartitioningStrategyType>,
+}
+
+impl SelectBuilder {
+    /// Create a new SelectBuilder with required fields.
+    pub fn new(fields: Vec<SelectField>, from: StreamSource) -> Self {
+        SelectBuilder {
+            fields,
+            from,
+            from_alias: None,
+            joins: None,
+            where_clause: None,
+            group_by: None,
+            having: None,
+            window: None,
+            order_by: None,
+            limit: None,
+            emit_mode: None,
+            properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
+        }
+    }
+
+    pub fn with_from_alias(mut self, alias: String) -> Self {
+        self.from_alias = Some(alias);
+        self
+    }
+
+    pub fn with_joins(mut self, joins: Vec<JoinClause>) -> Self {
+        self.joins = Some(joins);
+        self
+    }
+
+    pub fn with_where(mut self, clause: Expr) -> Self {
+        self.where_clause = Some(clause);
+        self
+    }
+
+    pub fn with_group_by(mut self, exprs: Vec<Expr>) -> Self {
+        self.group_by = Some(exprs);
+        self
+    }
+
+    pub fn with_having(mut self, clause: Expr) -> Self {
+        self.having = Some(clause);
+        self
+    }
+
+    pub fn with_window(mut self, spec: WindowSpec) -> Self {
+        self.window = Some(spec);
+        self
+    }
+
+    pub fn with_order_by(mut self, exprs: Vec<OrderByExpr>) -> Self {
+        self.order_by = Some(exprs);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_emit_mode(mut self, mode: EmitMode) -> Self {
+        self.emit_mode = Some(mode);
+        self
+    }
+
+    pub fn with_properties(mut self, props: HashMap<String, String>) -> Self {
+        self.properties = Some(props);
+        self
+    }
+
+    pub fn with_job_mode(mut self, mode: JobProcessorMode) -> Self {
+        self.job_mode = Some(mode);
+        self
+    }
+
+    pub fn with_batch_size(mut self, size: usize) -> Self {
+        self.batch_size = Some(size);
+        self
+    }
+
+    pub fn with_num_partitions(mut self, num: usize) -> Self {
+        self.num_partitions = Some(num);
+        self
+    }
+
+    pub fn with_partitioning_strategy(mut self, strategy: PartitioningStrategyType) -> Self {
+        self.partitioning_strategy = Some(strategy);
+        self
+    }
+
+    /// Build the final StreamingQuery::Select.
+    pub fn build(self) -> StreamingQuery {
+        StreamingQuery::Select {
+            fields: self.fields,
+            from: self.from,
+            from_alias: self.from_alias,
+            joins: self.joins,
+            where_clause: self.where_clause,
+            group_by: self.group_by,
+            having: self.having,
+            window: self.window,
+            order_by: self.order_by,
+            limit: self.limit,
+            emit_mode: self.emit_mode,
+            properties: self.properties,
+            job_mode: self.job_mode,
+            batch_size: self.batch_size,
+            num_partitions: self.num_partitions,
+            partitioning_strategy: self.partitioning_strategy,
+        }
+    }
+}
