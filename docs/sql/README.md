@@ -185,6 +185,7 @@ WHERE trader_id IN (
 ### Complete Documentation
 - [Job Annotations Guide](job-annotations-guide.md) - Configure job mode, batch size, partitions via SQL
 - [Job Processor Configuration](job-processor-configuration-guide.md) - Detailed processor modes and performance
+- [Dead Letter Queue (DLQ) Guide](dlq-configuration-guide.md) - Error tracking and failed record capture
 - [Annotations Roadmap](future-annotations-roadmap.md) - Future annotations (failure handling, batch timing, logging, etc.)
 - [Complete SQL Syntax](reference/complete-syntax.md) - Comprehensive syntax reference
 - [GROUP BY Reference](reference/group-by.md) - GROUP BY and aggregation operations
