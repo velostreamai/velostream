@@ -6,6 +6,7 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
@@ -33,6 +34,8 @@ pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
     observability_wrapper: ObservabilityWrapper,
+    /// Job execution metrics (failure tracking for Prometheus)
+    job_metrics: JobMetrics,
     /// Profiling helper for timing instrumentation
     profiling_helper: ProfilingHelper,
     /// Stop flag for graceful shutdown
@@ -58,6 +61,7 @@ impl TransactionalJobProcessor {
             observability_wrapper: ObservabilityWrapper::builder()
                 .with_dlq(false) // Always disabled for FailBatch strategy
                 .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -79,6 +83,7 @@ impl TransactionalJobProcessor {
                 .with_observability(observability)
                 .with_dlq(false) // Always disabled for FailBatch strategy
                 .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -1031,6 +1036,10 @@ impl TransactionalJobProcessor {
             total_records_processed += batch_result.records_processed;
             total_records_failed += batch_result.records_failed;
 
+            // Record processed records to metrics
+            self.job_metrics
+                .record_processed(batch_result.records_processed);
+
             debug!(
                 "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
                 job_name,
@@ -1045,6 +1054,18 @@ impl TransactionalJobProcessor {
 
             // Handle failures according to strategy
             if batch_result.records_failed > 0 {
+                // Record failed records to metrics (for all strategies)
+                self.job_metrics.record_failed(batch_result.records_failed);
+
+                // Record individual error messages to error tracker
+                for error in &batch_result.error_details {
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        &job_name,
+                        format!("[{}] {}", source_name, error.error_message),
+                    );
+                }
+
                 match self.config.failure_strategy {
                     FailureStrategy::FailBatch => {
                         error!(

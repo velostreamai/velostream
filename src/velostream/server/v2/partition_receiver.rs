@@ -61,6 +61,7 @@
 //! - Empty batch handling via `empty_batch_count` and `wait_on_empty_batch_ms`
 
 use crate::velostream::datasource::DataWriter;
+use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
@@ -99,6 +100,8 @@ pub struct PartitionReceiver {
     writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
     config: JobProcessingConfig,
     observability_wrapper: ObservabilityWrapper,
+    /// Job execution metrics (failure tracking for Prometheus)
+    job_metrics: JobMetrics,
     // Optional lock-free queue for Phase 6.8 batch delivery
     // When present, run() polls this queue instead of waiting on receiver
     queue: Option<Arc<SegQueue<Vec<StreamRecord>>>>,
@@ -151,6 +154,7 @@ impl PartitionReceiver {
             writer,
             config,
             observability_wrapper,
+            job_metrics: JobMetrics::new(),
             queue: None,
             eof_flag: None,
         }
@@ -207,6 +211,7 @@ impl PartitionReceiver {
             writer,
             config,
             observability_wrapper,
+            job_metrics: JobMetrics::new(),
             queue: Some(queue),
             eof_flag: Some(eof_flag),
         }
@@ -323,6 +328,9 @@ impl PartitionReceiver {
                             total_records += processed as u64;
                             batch_count += 1;
 
+                            // Record processed records to metrics
+                            self.job_metrics.record_processed(processed);
+
                             self.metrics.record_batch_processed(processed as u64);
                             self.metrics.record_latency(start.elapsed());
 
@@ -362,6 +370,9 @@ impl PartitionReceiver {
                                 self.config.max_retries + 1,
                                 e
                             );
+
+                            // Record failed batch to metrics (the entire batch failed)
+                            self.job_metrics.record_failed(batch.len());
 
                             retry_count += 1;
 
