@@ -67,13 +67,11 @@ use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
-use crossbeam_queue::SegQueue;
 use log::{debug, error, warn};
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::mpsc;
 use tokio::sync::Mutex;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 /// Synchronous partition receiver with direct ownership model
@@ -99,10 +97,6 @@ pub struct PartitionReceiver {
     writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
     config: JobProcessingConfig,
     observability_wrapper: ObservabilityWrapper,
-    // Optional lock-free queue for Phase 6.8 batch delivery
-    // When present, run() polls this queue instead of waiting on receiver
-    queue: Option<Arc<SegQueue<Vec<StreamRecord>>>>,
-    eof_flag: Option<Arc<AtomicBool>>,
 }
 
 impl PartitionReceiver {
@@ -151,8 +145,6 @@ impl PartitionReceiver {
             writer,
             config,
             observability_wrapper,
-            queue: None,
-            eof_flag: None,
         }
     }
 
@@ -177,8 +169,8 @@ impl PartitionReceiver {
         partition_id: usize,
         execution_engine: StreamExecutionEngine,
         query: Arc<StreamingQuery>,
-        queue: Arc<SegQueue<Vec<StreamRecord>>>,
-        eof_flag: Arc<AtomicBool>,
+        queue: Arc<crossbeam_queue::SegQueue<Vec<StreamRecord>>>,
+        eof_flag: Arc<std::sync::atomic::AtomicBool>,
         metrics: Arc<PartitionMetrics>,
         writer: Option<Arc<Mutex<Box<dyn DataWriter>>>>,
         config: JobProcessingConfig,
@@ -194,9 +186,49 @@ impl PartitionReceiver {
             .with_dlq(config.enable_dlq)
             .build();
 
-        // Create a dummy MPSC channel (never used since we poll the queue directly)
-        // This keeps the receiver field intact but unused
-        let (_, rx) = tokio::sync::mpsc::channel::<Vec<StreamRecord>>(1);
+        // Create a bridge: convert lock-free queue to MPSC for compatibility with receiver field
+        // This allows us to use the existing run() loop without major refactoring
+        let (tx, rx) = tokio::sync::mpsc::channel(256); // Reasonable buffer size
+
+        // Spawn a background task that polls the lock-free queue and forwards to MPSC
+        // This bridges the lock-free queue (used by process_batch_for_receivers) to the
+        // MPSC receiver used by the run() loop
+        tokio::spawn({
+            let queue = queue.clone();
+            let eof_flag = eof_flag.clone();
+            let tx = tx.clone();
+            let partition_id = partition_id;
+
+            async move {
+                let mut empty_count = 0u32;
+                loop {
+                    // Try to pop from the lock-free queue
+                    if let Some(batch) = queue.pop() {
+                        empty_count = 0; // Reset counter when we get data
+                        if let Err(_e) = tx.send(batch).await {
+                            // Channel receiver dropped, exit gracefully
+                            break;
+                        }
+                    } else if eof_flag.load(std::sync::atomic::Ordering::Acquire) {
+                        // Queue is empty and EOF flag is set, close the channel
+                        debug!(
+                            "PartitionReceiver {}: Lock-free queue bridge detected EOF after {} empty polls, closing channel",
+                            partition_id, empty_count
+                        );
+                        drop(tx);
+                        break;
+                    } else {
+                        // Queue is temporarily empty, sleep and check EOF more frequently
+                        empty_count += 1;
+                        sleep(std::time::Duration::from_millis(1)).await;
+                    }
+                }
+                debug!("PartitionReceiver {}: Lock-free queue bridge task exiting", partition_id);
+            }
+        });
+
+        // Drop our copy of tx so only the spawned task holds a reference
+        drop(tx);
 
         Self {
             partition_id,
@@ -207,8 +239,6 @@ impl PartitionReceiver {
             writer,
             config,
             observability_wrapper,
-            queue: Some(queue),
-            eof_flag: Some(eof_flag),
         }
     }
 
@@ -230,10 +260,10 @@ impl PartitionReceiver {
     /// Run the partition receiver synchronously (blocking)
     ///
     /// This is the main event loop for the partition receiver. It:
-    /// 1. Polls for batches from lock-free queue OR waits on MPSC channel
+    /// 1. Waits for batches on the input channel
     /// 2. Processes each record synchronously
     /// 3. Tracks metrics per batch
-    /// 4. Exits when EOF signal received
+    /// 4. Exits when channel closes (EOF signal)
     ///
     /// This is a **synchronous** implementation with no async/await overhead.
     ///
@@ -243,170 +273,143 @@ impl PartitionReceiver {
     /// - `Err(SqlError)` if a fatal error occurred
     pub async fn run(&mut self) -> Result<(), SqlError> {
         debug!(
-            "PartitionReceiver {}: Starting synchronous processing loop (Phase 6.8 queue mode: {})",
-            self.partition_id,
-            self.queue.is_some()
+            "PartitionReceiver {}: Starting synchronous processing loop",
+            self.partition_id
         );
 
         let mut total_records = 0u64;
         let mut batch_count = 0u64;
 
-        // Main processing loop - polling or blocking based on queue mode
         loop {
-            let batch_opt = if let Some(ref queue) = self.queue {
-                // Phase 6.8: Direct lock-free queue polling (no spawned bridge task)
-                match queue.pop() {
-                    Some(batch) => {
-                        // Got a batch from the queue
-                        Some(batch)
-                    }
-                    None => {
-                        // Queue is empty - check EOF flag
-                        if let Some(ref eof_flag) = self.eof_flag {
-                            if eof_flag.load(std::sync::atomic::Ordering::Acquire) {
-                                // EOF signaled and queue is empty - exit
+            // Wait for next batch (or EOF if channel closes)
+            match self.receiver.recv().await {
+                Some(batch) => {
+                    let start = Instant::now();
+                    let batch_size = batch.len();
+
+                    // Process batch with retry logic
+                    let mut retry_count = 0;
+
+                    while retry_count <= self.config.max_retries {
+                        // Process batch synchronously (Phase 6.7: no async overhead)
+                        match self.process_batch(&batch) {
+                            Ok((processed, output_records)) => {
+                                total_records += processed as u64;
+                                batch_count += 1;
+
+                                self.metrics.record_batch_processed(processed as u64);
+                                self.metrics.record_latency(start.elapsed());
+
                                 debug!(
-                                    "PartitionReceiver {}: Lock-free queue empty and EOF flag set, exiting",
-                                    self.partition_id
+                                    "PartitionReceiver {}: Processed batch of {} records ({} output), total: {}",
+                                    self.partition_id,
+                                    processed,
+                                    output_records.len(),
+                                    total_records
                                 );
-                                break;
-                            }
-                        }
-                        // Queue empty but more batches coming - yield and continue
-                        sleep(std::time::Duration::from_millis(1)).await;
-                        None
-                    }
-                }
-            } else {
-                // Legacy mode: Wait on MPSC channel
-                match self.receiver.recv().await {
-                    Some(batch) => Some(batch),
-                    None => {
-                        // Channel closed - EOF signal
-                        debug!(
-                            "PartitionReceiver {}: MPSC channel closed (EOF)",
-                            self.partition_id
-                        );
-                        break;
-                    }
-                }
-            };
 
-            // Process batch if we got one
-            if let Some(batch) = batch_opt {
-                let start = Instant::now();
-                let batch_size = batch.len();
-
-                // Process batch with retry logic
-                let mut retry_count = 0;
-
-                while retry_count <= self.config.max_retries {
-                    // Process batch synchronously (Phase 6.7: no async overhead)
-                    match self.process_batch(&batch) {
-                        Ok((processed, output_records)) => {
-                            total_records += processed as u64;
-                            batch_count += 1;
-
-                            self.metrics.record_batch_processed(processed as u64);
-                            self.metrics.record_latency(start.elapsed());
-
-                            debug!(
-                                "PartitionReceiver {}: Processed batch of {} records ({} output), total: {}",
-                                self.partition_id,
-                                processed,
-                                output_records.len(),
-                                total_records
-                            );
-
-                            // Write output records to sink if available
-                            if !output_records.is_empty() {
-                                if let Some(ref writer_arc) = self.writer {
-                                    let mut writer = writer_arc.lock().await;
-                                    if let Err(e) = writer.write_batch(output_records).await {
-                                        warn!(
-                                            "PartitionReceiver {}: Error writing {} output records to sink: {}",
-                                            self.partition_id, batch_size, e
-                                        );
+                                // Write output records to sink if available
+                                if !output_records.is_empty() {
+                                    if let Some(ref writer_arc) = self.writer {
+                                        let mut writer = writer_arc.lock().await;
+                                        if let Err(e) = writer.write_batch(output_records).await {
+                                            warn!(
+                                                "PartitionReceiver {}: Error writing {} output records to sink: {}",
+                                                self.partition_id, batch_size, e
+                                            );
+                                        }
                                     }
                                 }
+
+                                break; // Batch processed successfully, exit retry loop
                             }
-
-                            break; // Batch processed successfully, exit retry loop
-                        }
-                        Err(e) => {
-                            warn!(
-                                "PartitionReceiver {}: Error processing batch (attempt {}/{}): {}",
-                                self.partition_id,
-                                retry_count + 1,
-                                self.config.max_retries + 1,
-                                e
-                            );
-
-                            retry_count += 1;
-
-                            if retry_count <= self.config.max_retries {
-                                // Apply exponential backoff before retry
-                                debug!(
-                                    "PartitionReceiver {}: Applying backoff {} ms before retry",
+                            Err(e) => {
+                                warn!(
+                                    "PartitionReceiver {}: Error processing batch (attempt {}/{}): {}",
                                     self.partition_id,
-                                    self.config.retry_backoff.as_millis()
-                                );
-                                sleep(self.config.retry_backoff).await;
-                            } else {
-                                // Max retries exceeded - send to DLQ if enabled
-                                debug!(
-                                    "PartitionReceiver {}: Max retries ({}) exceeded, sending batch to DLQ",
-                                    self.partition_id, self.config.max_retries
+                                    retry_count + 1,
+                                    self.config.max_retries + 1,
+                                    e
                                 );
 
-                                // Send to DLQ if enabled
-                                if self.config.enable_dlq {
-                                    if let Some(dlq) = self.observability_wrapper.dlq() {
-                                        let error_msg = format!(
-                                            "PartitionReceiver {}: Batch processing failed after {} retries: {}",
-                                            self.partition_id, self.config.max_retries, e
-                                        );
+                                retry_count += 1;
 
-                                        // Create a batch-level DLQ record with error context
-                                        let mut record_data = std::collections::HashMap::new();
-                                        record_data.insert(
-                                            "error".to_string(),
-                                            FieldValue::String(error_msg.clone()),
-                                        );
-                                        record_data.insert(
-                                            "partition_id".to_string(),
-                                            FieldValue::Integer(self.partition_id as i64),
-                                        );
-                                        record_data.insert(
-                                            "batch_size".to_string(),
-                                            FieldValue::Integer(batch_size as i64),
-                                        );
+                                if retry_count <= self.config.max_retries {
+                                    // Apply exponential backoff before retry
+                                    debug!(
+                                        "PartitionReceiver {}: Applying backoff {} ms before retry",
+                                        self.partition_id,
+                                        self.config.retry_backoff.as_millis()
+                                    );
+                                    sleep(self.config.retry_backoff).await;
+                                } else {
+                                    // Max retries exceeded - send to DLQ if enabled
+                                    debug!(
+                                        "PartitionReceiver {}: Max retries ({}) exceeded, sending batch to DLQ",
+                                        self.partition_id, self.config.max_retries
+                                    );
 
-                                        let dlq_record =
-                                            StreamRecord::new(record_data);
+                                    // Send to DLQ if enabled
+                                    if self.config.enable_dlq {
+                                        if let Some(dlq) = self.observability_wrapper.dlq() {
+                                            let error_msg = format!(
+                                                "PartitionReceiver {}: Batch processing failed after {} retries: {}",
+                                                self.partition_id, self.config.max_retries, e
+                                            );
 
-                                        // Add to DLQ
-                                        let dlq_ref = Arc::clone(dlq);
-                                        let fut = dlq_ref.add_entry(
-                                            dlq_record,
-                                            error_msg,
-                                            retry_count as usize,
-                                            false, // not recoverable after max retries
-                                        );
+                                            // Create a batch-level DLQ record with error context
+                                            let mut record_data = std::collections::HashMap::new();
+                                            record_data.insert(
+                                                "error".to_string(),
+                                                FieldValue::String(error_msg.clone()),
+                                            );
+                                            record_data.insert(
+                                                "partition_id".to_string(),
+                                                FieldValue::Integer(self.partition_id as i64),
+                                            );
+                                            record_data.insert(
+                                                "batch_size".to_string(),
+                                                FieldValue::Integer(batch_size as i64),
+                                            );
 
-                                        // Use a blocking runtime to execute the async add_entry
-                                        if let Ok(runtime) = std::panic::catch_unwind(
-                                            std::panic::AssertUnwindSafe(|| {
-                                                tokio::runtime::Handle::current()
-                                            }),
-                                        ) {
-                                            if let Err(_) = std::panic::catch_unwind(
+                                            let dlq_record =
+                                                crate::velostream::sql::execution::types::StreamRecord::new(record_data);
+
+                                            // Add to DLQ
+                                            let dlq_ref = Arc::clone(dlq);
+                                            let fut = dlq_ref.add_entry(
+                                                dlq_record,
+                                                error_msg,
+                                                retry_count as usize,
+                                                false, // not recoverable after max retries
+                                            );
+
+                                            // Use a blocking runtime to execute the async add_entry
+                                            if let Ok(runtime) = std::panic::catch_unwind(
                                                 std::panic::AssertUnwindSafe(|| {
-                                                    runtime.block_on(fut)
+                                                    tokio::runtime::Handle::current()
                                                 }),
                                             ) {
+                                                if let Err(_) = std::panic::catch_unwind(
+                                                    std::panic::AssertUnwindSafe(|| {
+                                                        runtime.block_on(fut)
+                                                    }),
+                                                ) {
+                                                    error!(
+                                                        "PartitionReceiver {}: Panic occurred while adding batch DLQ entry after {} retries. Batch will be logged for manual recovery.",
+                                                        self.partition_id, self.config.max_retries
+                                                    );
+                                                    error!(
+                                                        "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
+                                                        self.partition_id,
+                                                        self.partition_id,
+                                                        batch_size,
+                                                        e
+                                                    );
+                                                }
+                                            } else {
                                                 error!(
-                                                    "PartitionReceiver {}: Panic occurred while adding batch DLQ entry after {} retries. Batch will be logged for manual recovery.",
+                                                    "PartitionReceiver {}: Failed to obtain Tokio runtime for batch DLQ write after {} retries. Batch will be logged for manual recovery.",
                                                     self.partition_id, self.config.max_retries
                                                 );
                                                 error!(
@@ -417,24 +420,20 @@ impl PartitionReceiver {
                                                     e
                                                 );
                                             }
-                                        } else {
-                                            error!(
-                                                "PartitionReceiver {}: Failed to obtain Tokio runtime for batch DLQ write after {} retries. Batch will be logged for manual recovery.",
-                                                self.partition_id, self.config.max_retries
-                                            );
-                                            error!(
-                                                "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Batch Size: {}, Error: '{}', Recoverable: false",
-                                                self.partition_id,
-                                                self.partition_id,
-                                                batch_size,
-                                                e
-                                            );
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
+                None => {
+                    // Channel closed - EOF signal
+                    debug!(
+                        "PartitionReceiver {}: Received EOF, shutting down (processed {} batches, {} records)",
+                        self.partition_id, batch_count, total_records
+                    );
+                    break;
                 }
             }
         }
@@ -516,7 +515,7 @@ impl PartitionReceiver {
                             );
 
                             let dlq_record =
-                                StreamRecord::new(
+                                crate::velostream::sql::execution::types::StreamRecord::new(
                                     record_data,
                                 );
 
