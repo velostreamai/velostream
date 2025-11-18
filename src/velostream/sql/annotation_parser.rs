@@ -1,12 +1,19 @@
-//! SQL Annotation Parser for Deployment Context Extraction
+//! SQL Annotation Parser for Deployment Context and Job Configuration Extraction
 //!
-//! This module provides functionality to parse deployment context annotations from SQL files
-//! and perform environment variable substitution.
+//! This module provides functionality to parse annotations from SQL files for both:
+//! - Deployment context configuration
+//! - Job processing and partitioning configuration
 //!
-//! Supported Annotations:
+//! Supported Deployment Annotations:
 //! - `@deployment.node_id`: Node identifier (e.g., "prod-trading-cluster-${TRADING_POD_ID:1}")
 //! - `@deployment.node_name`: Human-readable node name (e.g., "Production Trading Analytics Platform")
 //! - `@deployment.region`: AWS region or deployment region (e.g., "${AWS_REGION:us-east-1}")
+//!
+//! Supported Job Annotations (defaults listed):
+//! - `@job_mode`: Processor type - simple (default), transactional, or adaptive
+//! - `@batch_size`: Batch processing size (integer, default: None)
+//! - `@num_partitions`: Number of partitions for adaptive mode (integer, default: None)
+//! - `@partitioning_strategy`: Routing strategy - sticky, hash, smart, roundrobin, fanin (default: None)
 //!
 //! Environment Variable Substitution:
 //! - Format: `${VAR_NAME:default_value}`
@@ -15,6 +22,7 @@
 //! - If no default provided and env var not found, keeps the original string
 
 use crate::velostream::observability::error_tracker::DeploymentContext;
+use crate::velostream::sql::ast::{JobProcessorMode, PartitioningStrategyType};
 use log::{debug, info};
 use std::collections::HashMap;
 use std::env;
@@ -80,7 +88,98 @@ impl SqlAnnotationParser {
         }
     }
 
+    /// Parse job processing annotations from SQL content
+    ///
+    /// Extracts @job_mode, @batch_size, @num_partitions, and @partitioning_strategy annotations.
+    /// Returns a tuple of (job_mode, batch_size, num_partitions, partitioning_strategy).
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let sql = "-- @job_mode: adaptive
+    ///            -- @batch_size: 1000
+    ///            -- @num_partitions: 8
+    ///            -- @partitioning_strategy: hash
+    ///            SELECT * FROM market_data;";
+    ///
+    /// let (job_mode, batch_size, num_partitions, strategy) =
+    ///     SqlAnnotationParser::parse_job_annotations(sql);
+    /// // Returns:
+    /// // job_mode: Some(JobProcessorMode::Adaptive)
+    /// // batch_size: Some(1000)
+    /// // num_partitions: Some(8)
+    /// // strategy: Some(PartitioningStrategyType::Hash)
+    /// ```
+    pub fn parse_job_annotations(
+        sql_content: &str,
+    ) -> (
+        Option<JobProcessorMode>,
+        Option<usize>,
+        Option<usize>,
+        Option<PartitioningStrategyType>,
+    ) {
+        let annotations = Self::extract_annotations(sql_content);
+
+        let job_mode = annotations
+            .get("job_mode")
+            .and_then(|v| Self::parse_job_mode(v));
+
+        let batch_size = annotations
+            .get("batch_size")
+            .and_then(|v| v.parse::<usize>().ok());
+
+        let num_partitions = annotations
+            .get("num_partitions")
+            .and_then(|v| v.parse::<usize>().ok());
+
+        let partitioning_strategy = annotations
+            .get("partitioning_strategy")
+            .and_then(|v| Self::parse_partitioning_strategy(v));
+
+        // Log parsed job annotations if any exist
+        if job_mode.is_some() || batch_size.is_some() || num_partitions.is_some() || partitioning_strategy.is_some() {
+            debug!(
+                "🔍 Job annotations parsed from SQL: job_mode={:?}, batch_size={:?}, \
+                 num_partitions={:?}, strategy={:?}",
+                job_mode, batch_size, num_partitions, partitioning_strategy
+            );
+        }
+
+        (job_mode, batch_size, num_partitions, partitioning_strategy)
+    }
+
+    /// Parse a job mode string into JobProcessorMode enum
+    fn parse_job_mode(value: &str) -> Option<JobProcessorMode> {
+        match value.to_lowercase().trim() {
+            "simple" => Some(JobProcessorMode::Simple),
+            "transactional" => Some(JobProcessorMode::Transactional),
+            "adaptive" => Some(JobProcessorMode::Adaptive),
+            _ => {
+                debug!("Unknown job_mode value: '{}'. Valid values are: simple, transactional, adaptive", value);
+                None
+            }
+        }
+    }
+
+    /// Parse a partitioning strategy string into PartitioningStrategyType enum
+    fn parse_partitioning_strategy(value: &str) -> Option<PartitioningStrategyType> {
+        match value.to_lowercase().trim() {
+            "sticky" => Some(PartitioningStrategyType::Sticky),
+            "hash" => Some(PartitioningStrategyType::Hash),
+            "smart" => Some(PartitioningStrategyType::Smart),
+            "roundrobin" => Some(PartitioningStrategyType::RoundRobin),
+            "fanin" => Some(PartitioningStrategyType::FanIn),
+            _ => {
+                debug!("Unknown partitioning_strategy value: '{}'. Valid values are: sticky, hash, smart, roundrobin, fanin", value);
+                None
+            }
+        }
+    }
+
     /// Extract all @annotation keys from SQL content
+    ///
+    /// Supports both deployment annotations (@deployment.*) and job annotations
+    /// (@job_mode, @batch_size, @num_partitions, @partitioning_strategy)
     fn extract_annotations(sql_content: &str) -> HashMap<String, String> {
         let mut annotations = HashMap::new();
 
@@ -91,7 +190,11 @@ impl SqlAnnotationParser {
             if trimmed.starts_with("--") {
                 let rest = &trimmed[2..].trim_start();
 
-                if rest.starts_with("@deployment.") {
+                // Match both deployment and job annotations
+                if rest.starts_with("@deployment.") || rest.starts_with("@job_mode")
+                    || rest.starts_with("@batch_size") || rest.starts_with("@num_partitions")
+                    || rest.starts_with("@partitioning_strategy")
+                {
                     // Extract key and value
                     if let Some(colon_pos) = rest.find(':') {
                         let key = &rest[1..colon_pos]; // Skip the @ prefix
