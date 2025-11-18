@@ -183,6 +183,8 @@ WHERE trader_id IN (
 - [Real-World Examples](examples/) - Copy-paste patterns for common use cases
 
 ### Complete Documentation
+- [Job Annotations Guide](job-annotations-guide.md) - Configure job mode, batch size, partitions via SQL
+- [Job Processor Configuration](job-processor-configuration-guide.md) - Detailed processor modes and performance
 - [Complete SQL Syntax](reference/complete-syntax.md) - Comprehensive syntax reference
 - [GROUP BY Reference](reference/group-by.md) - GROUP BY and aggregation operations
 - [EMIT Modes Reference](reference/emit-modes.md) - Window emission control
@@ -195,6 +197,7 @@ WHERE trader_id IN (
 | Need | Go To |
 |------|-------|
 | **First time using SQL** | [Hello World](quickstart/hello-world.md) |
+| **Configure job performance** | [Job Annotations Guide](job-annotations-guide.md) |
 | **Basic filtering** | [Filter Data](by-task/filter-data.md) |
 | **Calculations** | [Aggregate Data](by-task/aggregate-data.md) |
 | **Function help** | [Functions](functions/essential.md) |
