@@ -258,19 +258,35 @@ impl PartitionReceiver {
                 match queue.pop() {
                     Some(batch) => {
                         // Got a batch from the queue
+                        debug!(
+                            "PartitionReceiver {}: Got batch from lock-free queue, size: {}",
+                            self.partition_id,
+                            batch.len()
+                        );
                         Some(batch)
                     }
                     None => {
                         // Queue is empty - check EOF flag
                         if let Some(ref eof_flag) = self.eof_flag {
-                            if eof_flag.load(std::sync::atomic::Ordering::Acquire) {
+                            let eof_set = eof_flag.load(std::sync::atomic::Ordering::Acquire);
+                            if eof_set {
                                 // EOF signaled and queue is empty - exit
                                 debug!(
-                                    "PartitionReceiver {}: Lock-free queue empty and EOF flag set, exiting",
-                                    self.partition_id
+                                    "PartitionReceiver {}: Lock-free queue empty and EOF flag SET, exiting with stats: {} batches, {} records",
+                                    self.partition_id, batch_count, total_records
                                 );
                                 break;
+                            } else {
+                                debug!(
+                                    "PartitionReceiver {}: Queue empty, EOF flag NOT set, sleeping...",
+                                    self.partition_id
+                                );
                             }
+                        } else {
+                            debug!(
+                                "PartitionReceiver {}: Queue empty but NO EOF flag present, sleeping...",
+                                self.partition_id
+                            );
                         }
                         // Queue empty but more batches coming - yield and continue
                         sleep(std::time::Duration::from_millis(1)).await;
