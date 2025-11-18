@@ -829,3 +829,75 @@ async fn test_mock_reader_functionality() {
         "Should have no more records"
     );
 }
+
+/// Test that AdaptiveJobProcessor with empty_batch_count=0 doesn't hang
+/// This verifies that the processor exits immediately when all data is exhausted
+#[tokio::test]
+async fn test_adaptive_processor_with_zero_empty_batch_count() {
+    // Create test data: 50 records
+    let test_records = {
+        let mut records = Vec::with_capacity(50);
+        for i in 0..50 {
+            let mut fields = HashMap::new();
+            fields.insert("id".to_string(), FieldValue::Integer(i as i64));
+            fields.insert("value".to_string(), FieldValue::Integer((i * 100) as i64));
+            records.push(StreamRecord::new(fields));
+        }
+        records
+    };
+
+    // Create mock reader and writer
+    let reader = MockDataSource::new(test_records.clone(), 10);
+    let writer = MockDataWriter::new();
+
+    // Simple SELECT query
+    let query_str = "SELECT id, value FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    // Create AdaptiveJobProcessor with 2 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
+    let mut job_config = PartitionedJobConfig {
+        num_partitions: Some(2),
+        enable_core_affinity: false,
+        ..Default::default()
+    };
+    // CRITICAL TEST: Set empty_batch_count to 0 for immediate exit
+    job_config.empty_batch_count = 0;
+
+    let processor = Arc::new(
+        AdaptiveJobProcessor::new(job_config)
+            .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+    );
+
+    // This should NOT hang even with empty_batch_count=0
+    // The timeout on run_process_job (5 seconds) will catch any hang
+    let result = run_process_job(processor.clone(), reader, writer.clone(), query, "test_zero_empty_batch")
+        .await;
+
+    // Verify processing completed successfully (no hang, no timeout)
+    assert!(result.is_ok(), "process_job with empty_batch_count=0 failed or timed out: {:?}", result.err());
+
+    let stats = result.unwrap();
+    assert_eq!(
+        stats.records_processed, 50,
+        "Expected 50 records processed with empty_batch_count=0, got {}",
+        stats.records_processed
+    );
+
+    // Give async tasks time to finish writing
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Verify records were written to sink
+    let written_count = writer.get_count();
+    println!(
+        "Test zero_empty_batch_count: {} records processed, {} records written",
+        stats.records_processed, written_count
+    );
+
+    assert_eq!(
+        written_count, 50,
+        "Expected 50 records written with empty_batch_count=0, got {}",
+        written_count
+    );
+}

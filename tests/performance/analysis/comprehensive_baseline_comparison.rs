@@ -19,8 +19,8 @@ use tokio::sync::mpsc;
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
 };
-use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Shared test utilities
@@ -112,9 +112,9 @@ impl ScenarioResult {
                 ("AdaptiveJp@1c", self.adaptive_jp_1c_throughput),
                 ("AdaptiveJp@4c", self.adaptive_jp_4c_throughput),
             ]
-            .iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-            .map(|x| x.0);
+                .iter()
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|x| x.0);
 
             println!("│  Best: {}", best.unwrap_or("Unknown"));
         }
@@ -205,7 +205,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
         progress_interval: 100,
         log_progress: false,
         empty_batch_count: 0, // Exit immediately when sources exhausted
-        wait_on_empty_batch_ms: 100,
+        wait_on_empty_batch_ms: 10,
         enable_dlq: true,
         dlq_max_size: Some(100),
     };
@@ -285,7 +285,7 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
 }
 
 /// Measure JobServer V2 @ 1-core
-async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
+async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
     // See: docs/developer/adaptive_processor_performance_analysis.md
     let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
@@ -329,7 +329,7 @@ async fn measure_v2_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usiz
 }
 
 /// Measure JobServer V2 @ 4-core
-async fn measure_v2_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
+async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
     // See: docs/developer/adaptive_processor_performance_analysis.md
     let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(4));
@@ -526,14 +526,14 @@ async fn comprehensive_baseline_comparison() {
     );
 
     let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
-        measure_v2_1core(records.clone(), query).await;
+        measure_adaptive_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
         adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
     );
 
     let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
-        measure_v2_4core(records.clone(), query).await;
+        measure_adaptive_4core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
         adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
@@ -601,14 +601,14 @@ async fn comprehensive_baseline_comparison() {
     );
 
     let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
-        measure_v2_1core(records.clone(), query).await;
+        measure_adaptive_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
         adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
     );
 
     let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
-        measure_v2_4core(records.clone(), query).await;
+        measure_adaptive_4core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
         adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
@@ -676,14 +676,14 @@ async fn comprehensive_baseline_comparison() {
     );
 
     let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
-        measure_v2_1core(records.clone(), query).await;
+        measure_adaptive_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
         adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
     );
 
     let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
-        measure_v2_4core(records.clone(), query).await;
+        measure_adaptive_4core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
         adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
@@ -751,14 +751,14 @@ async fn comprehensive_baseline_comparison() {
     );
 
     let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
-        measure_v2_1core(records.clone(), query).await;
+        measure_adaptive_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
         adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
     );
 
     let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
-        measure_v2_4core(records.clone(), query).await;
+        measure_adaptive_4core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
         adaptive_jp_4c_throughput, adaptive_jp_4c_records_written
@@ -826,14 +826,14 @@ async fn comprehensive_baseline_comparison() {
     );
 
     let (adaptive_jp_1c_throughput, adaptive_jp_1c_records_written) =
-        measure_v2_1core(records.clone(), query).await;
+        measure_adaptive_1core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@1c:  {:.0} rec/sec (written: {})",
         adaptive_jp_1c_throughput, adaptive_jp_1c_records_written
     );
 
     let (adaptive_jp_4c_throughput, adaptive_jp_4c_records_written) =
-        measure_v2_4core(records.clone(), query).await;
+        measure_adaptive_4core(records.clone(), query).await;
     println!(
         "  ✓ AdaptiveJp@4c:  {:.0} rec/sec (written: {})",
         adaptive_jp_4c_throughput, adaptive_jp_4c_records_written

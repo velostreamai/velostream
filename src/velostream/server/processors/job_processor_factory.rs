@@ -7,7 +7,7 @@ use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, MockJobProcessor,
     SimpleJobProcessor, TransactionalJobProcessor,
 };
-use crate::velostream::server::v2::AdaptiveJobProcessor;
+use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig};
 use log::info;
 use std::sync::Arc;
 use std::time::Duration;
@@ -110,7 +110,7 @@ impl JobProcessorFactory {
                 num_partitions,
                 enable_core_affinity,
             } => {
-                let partitioned_config = crate::velostream::server::v2::PartitionedJobConfig {
+                let partitioned_config = PartitionedJobConfig {
                     num_partitions,
                     enable_core_affinity,
                     ..Default::default()
@@ -160,7 +160,7 @@ impl JobProcessorFactory {
     ///
     /// See docs/developer/adaptive_processor_performance_analysis.md for details.
     pub fn create_adaptive_test_optimized(num_partitions: Option<usize>) -> Arc<dyn JobProcessor> {
-        let partitioned_config = crate::velostream::server::v2::PartitionedJobConfig {
+        let partitioned_config = PartitionedJobConfig {
             num_partitions,
             enable_core_affinity: false,
             empty_batch_count: 0, // Immediate EOF detection for test datasets
@@ -197,32 +197,6 @@ impl JobProcessorFactory {
         })
     }
 
-    /// Legacy: Create a V1 Simple processor (single-threaded, best-effort)
-    #[deprecated(since = "0.2.0", note = "use create_simple() instead")]
-    pub fn create_v1_simple() -> Arc<dyn JobProcessor> {
-        Self::create_simple()
-    }
-
-    /// Legacy: Create a V1 Transactional processor (single-threaded, at-least-once)
-    #[deprecated(since = "0.2.0", note = "use create_transactional() instead")]
-    pub fn create_v1_transactional() -> Arc<dyn JobProcessor> {
-        Self::create_transactional()
-    }
-
-    /// Legacy: Create a V2 processor with default configuration
-    #[deprecated(since = "0.2.0", note = "use create_adaptive_default() instead")]
-    pub fn create_v2_default() -> Arc<dyn JobProcessor> {
-        Self::create_adaptive_default()
-    }
-
-    /// Legacy: Create a V2 processor with specific partition count
-    #[deprecated(
-        since = "0.2.0",
-        note = "use create_adaptive_with_partitions() instead"
-    )]
-    pub fn create_v2_with_partitions(num_partitions: usize) -> Arc<dyn JobProcessor> {
-        Self::create_adaptive_with_partitions(num_partitions)
-    }
 
     /// Create a processor from a configuration string
     ///
@@ -333,34 +307,5 @@ mod tests {
         assert_eq!(mock.processor_version(), "Mock");
         assert_eq!(mock.processor_name(), "Mock Test Processor");
         assert_eq!(mock.num_partitions(), 1);
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_legacy_v1_simple() {
-        let processor = JobProcessorFactory::create_v1_simple();
-        assert_eq!(processor.processor_version(), "V1");
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_legacy_v1_transactional() {
-        let processor = JobProcessorFactory::create_v1_transactional();
-        assert_eq!(processor.processor_version(), "V1-Transactional");
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_legacy_v2_default() {
-        let processor = JobProcessorFactory::create_v2_default();
-        assert_eq!(processor.processor_version(), "V2");
-    }
-
-    #[test]
-    #[allow(deprecated)]
-    fn test_legacy_v2_with_partitions() {
-        let processor = JobProcessorFactory::create_v2_with_partitions(8);
-        assert_eq!(processor.processor_version(), "V2");
-        assert_eq!(processor.num_partitions(), 8);
     }
 }

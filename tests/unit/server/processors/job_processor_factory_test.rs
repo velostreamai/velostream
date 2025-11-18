@@ -250,32 +250,3 @@ fn test_mock_processor_testing_capabilities() {
     assert_eq!(mock_clone.processor_version(), "Mock");
 }
 
-// Legacy API tests - verify backward compatibility with deprecated methods
-#[test]
-fn test_legacy_create_v1_simple() {
-    #[allow(deprecated)]
-    let processor = JobProcessorFactory::create_v1_simple();
-    assert_eq!(processor.processor_version(), "V1");
-}
-
-#[test]
-fn test_legacy_create_v1_transactional() {
-    #[allow(deprecated)]
-    let processor = JobProcessorFactory::create_v1_transactional();
-    assert_eq!(processor.processor_version(), "V1-Transactional");
-}
-
-#[test]
-fn test_legacy_create_v2_default() {
-    #[allow(deprecated)]
-    let processor = JobProcessorFactory::create_v2_default();
-    assert_eq!(processor.processor_version(), "V2");
-}
-
-#[test]
-fn test_legacy_create_v2_with_partitions() {
-    #[allow(deprecated)]
-    let processor = JobProcessorFactory::create_v2_with_partitions(8);
-    assert_eq!(processor.processor_version(), "V2");
-    assert_eq!(processor.num_partitions(), 8);
-}
