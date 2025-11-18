@@ -82,6 +82,10 @@ fn test_select_query_analysis() {
         limit: None,
         emit_mode: None,
         properties: Some(properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();
@@ -129,6 +133,10 @@ fn test_select_query_with_table_source() {
         limit: None,
         emit_mode: None,
         properties: Some(properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();
@@ -185,6 +193,10 @@ fn test_create_stream_analysis() {
         limit: None,
         emit_mode: None,
         properties: Some(select_properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let query = StreamingQuery::CreateStream {
@@ -372,6 +384,10 @@ fn test_empty_query_analysis() {
         limit: None,
         emit_mode: None,
         properties: Some(properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();
@@ -407,6 +423,10 @@ fn test_subquery_analysis() {
         limit: None,
         emit_mode: None,
         properties: Some(inner_properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let outer_query = StreamingQuery::Select {
@@ -422,6 +442,10 @@ fn test_subquery_analysis() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let analysis = analyzer.analyze(&outer_query).unwrap();
@@ -459,6 +483,10 @@ fn test_analyzer_with_custom_group_id() {
         limit: None,
         emit_mode: None,
         properties: Some(properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();
@@ -503,6 +531,10 @@ fn test_file_source_inference() {
         limit: None,
         emit_mode: None,
         properties: Some(properties),
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let analysis = analyzer.analyze(&query).unwrap();

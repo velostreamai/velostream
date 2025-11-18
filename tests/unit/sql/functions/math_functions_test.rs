@@ -164,6 +164,10 @@ async fn test_round_function() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -205,6 +209,10 @@ async fn test_round_function() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -257,6 +265,10 @@ async fn test_ceil_floor_functions() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -313,6 +325,10 @@ async fn test_mod_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -360,6 +376,10 @@ async fn test_mod_function() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -408,6 +428,10 @@ async fn test_power_function() {
                 limit: None,
                 emit_mode: None,
                 properties: None,
+                job_mode: None,
+                batch_size: None,
+                num_partitions: None,
+                partitioning_strategy: None,
             };
 
             let record = create_test_record();
@@ -483,6 +507,10 @@ async fn test_sqrt_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -524,6 +552,10 @@ async fn test_sqrt_function() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -570,6 +602,10 @@ async fn test_math_function_error_cases() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -616,6 +652,10 @@ async fn test_math_function_null_handling() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -657,6 +697,10 @@ async fn test_math_function_null_handling() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -697,6 +741,10 @@ async fn test_math_function_null_handling() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();

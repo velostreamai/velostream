@@ -278,6 +278,10 @@ async fn test_null_value_handling() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record(1, 100, 299.99, None); // No status (null)
