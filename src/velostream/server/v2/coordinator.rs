@@ -1295,6 +1295,7 @@ impl AdaptiveJobProcessor {
     /// - Vec of PartitionReceiver instances (owned by spawned tasks)
     /// - Vec of batch senders (for feeding batches to receivers)
     /// - Vec of PartitionMetrics (for monitoring)
+    /// - Vec of task JoinHandles for waiting on receiver completion
     pub fn initialize_partitions_v6_6(
         &self,
         query: Arc<StreamingQuery>,
@@ -1303,10 +1304,12 @@ impl AdaptiveJobProcessor {
         Vec<Arc<SegQueue<Vec<StreamRecord>>>>,
         Vec<Arc<PartitionMetrics>>,
         Vec<Arc<AtomicBool>>,
+        Vec<tokio::task::JoinHandle<()>>,
     ) {
         let mut batch_queues = Vec::with_capacity(self.num_partitions);
         let mut metrics_list = Vec::with_capacity(self.num_partitions);
         let mut eof_flags = Vec::with_capacity(self.num_partitions);
+        let mut task_handles = Vec::with_capacity(self.num_partitions);
 
         debug!(
             "Phase 6.8: Initializing {} partitions with lock-free queue receivers",
@@ -1330,7 +1333,7 @@ impl AdaptiveJobProcessor {
             let writer_clone = writer.clone();
 
             // Spawn partition receiver task (Phase 6.8 - lock-free queue optimization)
-            tokio::spawn(async move {
+            let task_handle = tokio::spawn(async move {
                 // OPTIMIZATION: Avoid cloning query - use Arc directly
                 // Create owned execution engine for this partition
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
@@ -1374,6 +1377,7 @@ impl AdaptiveJobProcessor {
                     );
                 }
             });
+            task_handles.push(task_handle);
         }
 
         debug!(
@@ -1381,7 +1385,7 @@ impl AdaptiveJobProcessor {
             self.num_partitions
         );
 
-        (batch_queues, metrics_list, eof_flags)
+        (batch_queues, metrics_list, eof_flags, task_handles)
     }
 
     /// Phase 6.8: Process batch with lock-free queues (for PartitionReceiver model)

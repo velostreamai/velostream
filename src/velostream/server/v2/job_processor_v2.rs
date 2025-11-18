@@ -34,7 +34,7 @@ use crate::velostream::server::processors::{
 use crate::velostream::server::v2::AdaptiveJobProcessor;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
-use log::info;
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -110,7 +110,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Wrap writer in Arc<Mutex<>> for sharing across partitions
         let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-        let (batch_queues, _metrics, eof_flags) =
+        let (batch_queues, _metrics, eof_flags, task_handles) =
             self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
@@ -184,7 +184,13 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Step 5: Wait for receiver tasks to complete
         // The partition receiver tasks spawned in initialize_partitions_v6_6() will
         // process all queued batches and then exit when EOF is signaled
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // Join on all task handles to ensure they complete
+        for handle in task_handles {
+            if let Err(e) = handle.await {
+                warn!("Partition receiver task failed to complete: {:?}", e);
+            }
+        }
+        debug!("All partition receiver tasks completed");
 
         // Step 6: Finalize writer
         // Partition receivers process records internally and update per-partition state
@@ -245,7 +251,7 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Wrap writer in Arc<Mutex<>> for sharing across partitions
             let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-            let (batch_queues, _metrics, eof_flags) =
+            let (batch_queues, _metrics, eof_flags, task_handles) =
                 self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
@@ -309,8 +315,13 @@ impl JobProcessor for AdaptiveJobProcessor {
                 eof_flag.store(true, std::sync::atomic::Ordering::Release);
             }
 
-            // Wait for receiver tasks to complete
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // Wait for receiver tasks to complete by joining on task handles
+            for handle in task_handles {
+                if let Err(e) = handle.await {
+                    warn!("Partition receiver task failed to complete: {:?}", e);
+                }
+            }
+            debug!("All partition receiver tasks completed for source: {}", reader_name);
 
             // Finalize writer and reader for this source
             if let Some(writer_arc) = shared_writer {
