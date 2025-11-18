@@ -200,29 +200,30 @@ impl PartitionReceiver {
             let partition_id = partition_id;
 
             async move {
+                let mut empty_count = 0u32;
                 loop {
                     // Try to pop from the lock-free queue
                     if let Some(batch) = queue.pop() {
-                        if let Err(e) = tx.send(batch).await {
-                            warn!(
-                                "PartitionReceiver {}: Failed to forward batch from lock-free queue: {}",
-                                partition_id, e
-                            );
+                        empty_count = 0; // Reset counter when we get data
+                        if let Err(_e) = tx.send(batch).await {
+                            // Channel receiver dropped, exit gracefully
                             break;
                         }
                     } else if eof_flag.load(std::sync::atomic::Ordering::Acquire) {
                         // Queue is empty and EOF flag is set, close the channel
                         debug!(
-                            "PartitionReceiver {}: Lock-free queue bridge detected EOF, closing channel",
-                            partition_id
+                            "PartitionReceiver {}: Lock-free queue bridge detected EOF after {} empty polls, closing channel",
+                            partition_id, empty_count
                         );
                         drop(tx);
                         break;
                     } else {
-                        // Queue is temporarily empty, yield to other tasks
-                        tokio::task::yield_now().await;
+                        // Queue is temporarily empty, sleep and check EOF more frequently
+                        empty_count += 1;
+                        sleep(std::time::Duration::from_millis(1)).await;
                     }
                 }
+                debug!("PartitionReceiver {}: Lock-free queue bridge task exiting", partition_id);
             }
         });
 
