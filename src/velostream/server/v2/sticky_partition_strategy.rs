@@ -124,12 +124,11 @@ impl PartitioningStrategy for StickyPartitionStrategy {
     }
 
     fn validate(&self, metadata: &QueryMetadata) -> Result<(), String> {
-        if metadata.group_by_columns.is_empty() {
-            return Err(
-                "StickyPartitionStrategy requires GROUP BY columns for proper aggregation"
-                    .to_string(),
-            );
-        }
+        // StickyPartitionStrategy works with ANY query type
+        // - Pure SELECT: Uses record.partition directly (zero overhead)
+        // - GROUP BY: Groups records by their source partition (natural affinity)
+        // - Windows: Maintains ordering within source partitions
+        // No validation needed - this is the safest default for all cases
         Ok(())
     }
 }
@@ -151,23 +150,24 @@ mod tests {
     fn test_sticky_partition_strategy_validates() {
         let strategy = StickyPartitionStrategy::new();
 
-        // Valid: has GROUP BY columns
-        let valid_metadata = QueryMetadata {
+        // StickyPartitionStrategy accepts ALL query types (it's the safest default)
+        // Valid: with GROUP BY columns
+        let with_group_by = QueryMetadata {
             group_by_columns: vec!["trader_id".to_string()],
             has_window: false,
             num_partitions: 8,
             num_cpu_slots: 8,
         };
-        assert!(strategy.validate(&valid_metadata).is_ok());
+        assert!(strategy.validate(&with_group_by).is_ok());
 
-        // Invalid: no GROUP BY columns
-        let invalid_metadata = QueryMetadata {
+        // Also valid: pure SELECT without GROUP BY (no validation restriction)
+        let pure_select = QueryMetadata {
             group_by_columns: vec![],
             has_window: false,
             num_partitions: 8,
             num_cpu_slots: 8,
         };
-        assert!(strategy.validate(&invalid_metadata).is_err());
+        assert!(strategy.validate(&pure_select).is_ok());
     }
 
     #[test]

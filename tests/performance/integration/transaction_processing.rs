@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::{
     datasource::{DataReader, DataWriter},
     server::processors::{JobProcessor, common::*, simple::*, transactional::*},

@@ -1407,20 +1407,29 @@ impl AdaptiveJobProcessor {
         records: Vec<StreamRecord>,
         batch_queues: &[Arc<SegQueue<Vec<StreamRecord>>>],
     ) -> Result<usize, SqlError> {
-        // Validate strategy compatibility
-        let query_metadata = QueryMetadata {
-            group_by_columns: self.group_by_columns.clone(),
-            has_window: false,
-            num_partitions: self.num_partitions,
-            num_cpu_slots: self.num_cpu_slots,
-        };
+        // NOTE: group_by_columns should be extracted by the caller (process_job) and passed in via
+        // strategy.route_record(). If the coordinator's group_by_columns are empty, we skip validation
+        // because queries without GROUP BY can route to any partition (simple projections).
+        //
+        // The validation is intentionally skipped when group_by_columns are empty because:
+        // 1. Non-aggregating queries (SELECT without GROUP BY) don't need partitioning
+        // 2. Round-robin or any strategy works fine for simple projections
+        // 3. Validation would incorrectly block valid use cases
+        if !self.group_by_columns.is_empty() {
+            let query_metadata = QueryMetadata {
+                group_by_columns: self.group_by_columns.clone(),
+                has_window: false,
+                num_partitions: self.num_partitions,
+                num_cpu_slots: self.num_cpu_slots,
+            };
 
-        self.strategy
-            .validate(&query_metadata)
-            .map_err(|err| SqlError::ExecutionError {
-                message: format!("Strategy validation failed: {}", err),
-                query: None,
-            })?;
+            self.strategy
+                .validate(&query_metadata)
+                .map_err(|err| SqlError::ExecutionError {
+                    message: format!("Strategy validation failed: {}", err),
+                    query: None,
+                })?;
+        }
 
         // OPTIMIZATION: Pre-allocate partitions with capacity to reduce reallocations
         // Use with_capacity to avoid reallocation overhead in hot path
