@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use velostream::velostream::sql::StreamingSqlParser;
 use velostream::velostream::sql::annotation_parser::SqlAnnotationParser;
 /// Comprehensive tests for SQL-level job annotation parsing
@@ -164,20 +165,20 @@ fn test_parse_invalid_partitioning_strategy() {
 fn test_job_processor_mode_from_str() {
     assert_eq!(
         JobProcessorMode::from_str("simple"),
-        Some(JobProcessorMode::Simple)
+        Ok(JobProcessorMode::Simple)
     );
     assert_eq!(
         JobProcessorMode::from_str("transactional"),
-        Some(JobProcessorMode::Transactional)
+        Ok(JobProcessorMode::Transactional)
     );
     assert_eq!(
         JobProcessorMode::from_str("adaptive"),
-        Some(JobProcessorMode::Adaptive)
+        Ok(JobProcessorMode::Adaptive)
     );
-    assert_eq!(JobProcessorMode::from_str("invalid"), None);
+    assert!(JobProcessorMode::from_str("invalid").is_err());
     assert_eq!(
         JobProcessorMode::from_str("SIMPLE"),
-        Some(JobProcessorMode::Simple)
+        Ok(JobProcessorMode::Simple)
     ); // Case insensitive
 }
 
@@ -192,25 +193,25 @@ fn test_job_processor_mode_as_str() {
 fn test_partitioning_strategy_type_from_str() {
     assert_eq!(
         PartitioningStrategyType::from_str("sticky"),
-        Some(PartitioningStrategyType::Sticky)
+        Ok(PartitioningStrategyType::Sticky)
     );
     assert_eq!(
         PartitioningStrategyType::from_str("hash"),
-        Some(PartitioningStrategyType::Hash)
+        Ok(PartitioningStrategyType::Hash)
     );
     assert_eq!(
         PartitioningStrategyType::from_str("smart"),
-        Some(PartitioningStrategyType::Smart)
+        Ok(PartitioningStrategyType::Smart)
     );
     assert_eq!(
         PartitioningStrategyType::from_str("roundrobin"),
-        Some(PartitioningStrategyType::RoundRobin)
+        Ok(PartitioningStrategyType::RoundRobin)
     );
     assert_eq!(
         PartitioningStrategyType::from_str("fanin"),
-        Some(PartitioningStrategyType::FanIn)
+        Ok(PartitioningStrategyType::FanIn)
     );
-    assert_eq!(PartitioningStrategyType::from_str("invalid"), None);
+    assert!(PartitioningStrategyType::from_str("invalid").is_err());
 }
 
 #[test]
@@ -218,15 +219,15 @@ fn test_partitioning_strategy_type_from_str_alternate_names() {
     // Test alternate names that might be used in documentation
     assert_eq!(
         PartitioningStrategyType::from_str("stickypartition"),
-        Some(PartitioningStrategyType::Sticky)
+        Ok(PartitioningStrategyType::Sticky)
     );
     assert_eq!(
         PartitioningStrategyType::from_str("alwayshash"),
-        Some(PartitioningStrategyType::Hash)
+        Ok(PartitioningStrategyType::Hash)
     );
     assert_eq!(
         PartitioningStrategyType::from_str("smartrepartition"),
-        Some(PartitioningStrategyType::Smart)
+        Ok(PartitioningStrategyType::Smart)
     );
 }
 

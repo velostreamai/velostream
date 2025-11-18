@@ -50,6 +50,7 @@ The AST is designed to be:
 */
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
 
 /// Job processor mode for selecting execution strategy
@@ -68,17 +69,20 @@ pub enum JobProcessorMode {
     Adaptive,
 }
 
-impl JobProcessorMode {
-    /// Parse from string (case-insensitive)
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for JobProcessorMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "simple" => Some(JobProcessorMode::Simple),
-            "transactional" => Some(JobProcessorMode::Transactional),
-            "adaptive" => Some(JobProcessorMode::Adaptive),
-            _ => None,
+            "simple" => Ok(JobProcessorMode::Simple),
+            "transactional" => Ok(JobProcessorMode::Transactional),
+            "adaptive" => Ok(JobProcessorMode::Adaptive),
+            _ => Err(format!("Invalid job processor mode: {}", s)),
         }
     }
+}
 
+impl JobProcessorMode {
     /// Convert to string representation
     pub fn as_str(&self) -> &str {
         match self {
@@ -111,19 +115,22 @@ pub enum PartitioningStrategyType {
     FanIn,
 }
 
-impl PartitioningStrategyType {
-    /// Parse from string (case-insensitive)
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for PartitioningStrategyType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "sticky" | "stickypartition" => Some(PartitioningStrategyType::Sticky),
-            "hash" | "alwayshash" => Some(PartitioningStrategyType::Hash),
-            "smart" | "smartrepartition" => Some(PartitioningStrategyType::Smart),
-            "roundrobin" => Some(PartitioningStrategyType::RoundRobin),
-            "fanin" => Some(PartitioningStrategyType::FanIn),
-            _ => None,
+            "sticky" | "stickypartition" => Ok(PartitioningStrategyType::Sticky),
+            "hash" | "alwayshash" => Ok(PartitioningStrategyType::Hash),
+            "smart" | "smartrepartition" => Ok(PartitioningStrategyType::Smart),
+            "roundrobin" => Ok(PartitioningStrategyType::RoundRobin),
+            "fanin" => Ok(PartitioningStrategyType::FanIn),
+            _ => Err(format!("Invalid partitioning strategy: {}", s)),
         }
     }
+}
 
+impl PartitioningStrategyType {
     /// Convert to string representation
     pub fn as_str(&self) -> &str {
         match self {
