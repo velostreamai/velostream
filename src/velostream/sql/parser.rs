@@ -1335,6 +1335,10 @@ impl<'a> TokenParser<'a> {
                 limit,
                 emit_mode,
                 properties: combined_properties,
+                job_mode: None,
+                batch_size: None,
+                num_partitions: None,
+                partitioning_strategy: None,
             };
 
             // Consume optional semicolon
@@ -1391,6 +1395,10 @@ impl<'a> TokenParser<'a> {
             limit,
             emit_mode,
             properties: combined_properties,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         // Check for UNION after SELECT
@@ -1621,6 +1629,10 @@ impl<'a> TokenParser<'a> {
             limit,
             emit_mode: None, // EMIT is parsed at CREATE STREAM/TABLE level
             properties: _from_with_options, // WITH clause options from FROM source
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         })
     }
 
@@ -1854,6 +1866,10 @@ impl<'a> TokenParser<'a> {
             limit,
             emit_mode,
             properties: _from_with_options, // WITH clause options from FROM source
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         // Check for UNION after SELECT

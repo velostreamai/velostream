@@ -52,6 +52,90 @@ The AST is designed to be:
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// Job processor mode for selecting execution strategy
+///
+/// Controls which job processor type is used for query execution:
+/// - Simple: Basic processor for simple operations (DEFAULT)
+/// - Transactional: Processor with transaction support
+/// - Adaptive: High-performance processor with multi-partition parallel execution
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobProcessorMode {
+    /// Default processor for simple operations (no transaction support)
+    Simple,
+    /// Processor with transaction support
+    Transactional,
+    /// High-performance processor with multi-partition parallel execution
+    Adaptive,
+}
+
+impl JobProcessorMode {
+    /// Parse from string (case-insensitive)
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "simple" => Some(JobProcessorMode::Simple),
+            "transactional" => Some(JobProcessorMode::Transactional),
+            "adaptive" => Some(JobProcessorMode::Adaptive),
+            _ => None,
+        }
+    }
+
+    /// Convert to string representation
+    pub fn as_str(&self) -> &str {
+        match self {
+            JobProcessorMode::Simple => "simple",
+            JobProcessorMode::Transactional => "transactional",
+            JobProcessorMode::Adaptive => "adaptive",
+        }
+    }
+}
+
+/// Partitioning strategy type for adaptive processor
+///
+/// Controls how records are routed to partitions in adaptive mode:
+/// - Sticky: Uses record's source partition field (default, zero-overhead)
+/// - Hash: Consistent hashing on GROUP BY columns
+/// - Smart: Hybrid approach (automatic optimization)
+/// - RoundRobin: Uniform distribution across partitions
+/// - FanIn: Broadcast to all partitions (for joins)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitioningStrategyType {
+    /// Use record's source partition field (default, zero-overhead)
+    Sticky,
+    /// Consistent hashing on GROUP BY columns
+    Hash,
+    /// Hybrid approach with automatic optimization
+    Smart,
+    /// Uniform distribution across partitions
+    RoundRobin,
+    /// Broadcast to all partitions (for joins)
+    FanIn,
+}
+
+impl PartitioningStrategyType {
+    /// Parse from string (case-insensitive)
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "sticky" | "stickypartition" => Some(PartitioningStrategyType::Sticky),
+            "hash" | "alwayshash" => Some(PartitioningStrategyType::Hash),
+            "smart" | "smartrepartition" => Some(PartitioningStrategyType::Smart),
+            "roundrobin" => Some(PartitioningStrategyType::RoundRobin),
+            "fanin" => Some(PartitioningStrategyType::FanIn),
+            _ => None,
+        }
+    }
+
+    /// Convert to string representation
+    pub fn as_str(&self) -> &str {
+        match self {
+            PartitioningStrategyType::Sticky => "sticky",
+            PartitioningStrategyType::Hash => "hash",
+            PartitioningStrategyType::Smart => "smart",
+            PartitioningStrategyType::RoundRobin => "roundrobin",
+            PartitioningStrategyType::FanIn => "fanin",
+        }
+    }
+}
+
 /// Emission mode for streaming query results
 ///
 /// Controls when and how results are emitted from streaming queries.
@@ -93,7 +177,12 @@ pub enum EmitMode {
 ///         order_by: None,
 ///         limit: Some(100),
 ///         emit_mode: None,
-///         properties: None};
+///         properties: None,
+///         job_mode: None,
+///         batch_size: None,
+///         num_partitions: None,
+///         partitioning_strategy: None,
+///     };
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +223,18 @@ pub enum StreamingQuery {
         emit_mode: Option<EmitMode>,
         /// Optional WITH clause properties for configuration
         properties: Option<HashMap<String, String>>,
+        /// Job processor mode annotation (@job_mode: simple|transactional|adaptive)
+        /// Defaults to Simple if not specified
+        job_mode: Option<JobProcessorMode>,
+        /// Batch size configuration annotation (@batch_size: <integer>)
+        /// Applicable to any job mode
+        batch_size: Option<usize>,
+        /// Number of partitions for adaptive mode annotation (@num_partitions: <integer>)
+        /// Only valid with adaptive mode
+        num_partitions: Option<usize>,
+        /// Partitioning strategy for adaptive mode (@partitioning_strategy: sticky|hash|smart|roundrobin|fanin)
+        /// Only valid with adaptive mode, defaults to sticky
+        partitioning_strategy: Option<PartitioningStrategyType>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.
     ///
