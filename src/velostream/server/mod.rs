@@ -29,6 +29,7 @@ pub mod config;
 pub mod dependency_graph;
 pub mod graceful_degradation;
 pub mod health_dashboard;
+pub mod instance_id;
 pub mod job_manager;
 pub mod metrics;
 pub mod observability_config_extractor;

@@ -617,6 +617,7 @@ pub struct DataSourceConfig {
     pub default_topic: String,
     pub job_name: String,
     pub app_name: Option<String>, // For multi-JobServer consumer group coordination
+    pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
 }
 
@@ -624,6 +625,7 @@ pub struct DataSourceConfig {
 pub struct DataSinkConfig {
     pub requirement: DataSinkRequirement,
     pub job_name: String,
+    pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
 }
 
@@ -716,6 +718,7 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
                 &requirement.name, // Use source name, not default_topic
                 &config.job_name,
                 config.app_name.as_deref(),
+                config.instance_id.as_deref(),
                 &config.batch_config,
             )
             .await
@@ -736,6 +739,7 @@ async fn create_kafka_reader(
     source_name: &str,
     job_name: &str,
     app_name: Option<&str>,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSourceCreationResult {
     // Extract topic name from properties, or use source name as default
@@ -747,14 +751,16 @@ async fn create_kafka_reader(
         .unwrap_or_else(|| source_name.to_string());
 
     info!(
-        "Creating Kafka reader for source '{}' with topic '{}' (app: {})",
+        "Creating Kafka reader for source '{}' with topic '{}' (app: {}, instance: {})",
         source_name,
         topic,
-        app_name.unwrap_or("none")
+        app_name.unwrap_or("none"),
+        instance_id.unwrap_or("none")
     );
 
     // Let KafkaDataSource handle its own configuration extraction
-    let mut datasource = KafkaDataSource::from_properties(props, &topic, job_name, app_name);
+    let mut datasource =
+        KafkaDataSource::from_properties(props, &topic, job_name, app_name, instance_id);
 
     // Self-initialize with the extracted configuration
     datasource
@@ -829,6 +835,8 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
             create_kafka_writer(
                 &requirement.properties,
                 &requirement.name, // Use sink name, not job name
+                &config.job_name,
+                config.instance_id.as_deref(),
                 &config.batch_config,
             )
             .await
@@ -847,6 +855,8 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
 async fn create_kafka_writer(
     props: &HashMap<String, String>,
     sink_name: &str,
+    job_name: &str,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
     // Extract brokers from properties
@@ -866,12 +876,15 @@ async fn create_kafka_writer(
         .unwrap_or_else(|| sink_name.to_string());
 
     info!(
-        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}'",
-        sink_name, brokers, topic
+        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}', instance: {}",
+        sink_name,
+        brokers,
+        topic,
+        instance_id.unwrap_or("none")
     );
 
     // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(props, sink_name);
+    let mut datasink = KafkaDataSink::from_properties(props, job_name, instance_id);
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
     let config = SinkConfig::Kafka {
@@ -959,6 +972,7 @@ pub async fn create_multi_source_readers(
     sources: &[DataSourceRequirement],
     job_name: &str,
     app_name: Option<&str>,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSourceCreationResult {
     let mut readers = HashMap::new();
@@ -982,6 +996,7 @@ pub async fn create_multi_source_readers(
             default_topic: requirement.name.clone(), // Use source name as default
             job_name: job_name.to_string(),
             app_name: app_name.map(|a| a.to_string()),
+            instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
         };
 
@@ -1015,6 +1030,7 @@ pub async fn create_multi_source_readers(
 pub async fn create_multi_sink_writers(
     sinks: &[DataSinkRequirement],
     job_name: &str,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSinkCreationResult {
     let mut writers = HashMap::new();
@@ -1039,6 +1055,7 @@ pub async fn create_multi_sink_writers(
         let sink_config = DataSinkConfig {
             requirement: requirement.clone(),
             job_name: job_name.to_string(),
+            instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
         };
 

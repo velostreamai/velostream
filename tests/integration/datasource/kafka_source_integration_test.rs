@@ -27,7 +27,7 @@ async fn test_kafka_source_from_properties_with_config_file() {
     );
 
     // Create KafkaDataSource
-    let source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Verify properties were loaded
     println!("✓ KafkaDataSource created successfully");
@@ -65,7 +65,7 @@ async fn test_kafka_source_with_prefixed_config_file() {
     );
 
     // Create KafkaDataSource
-    let source = KafkaDataSource::from_properties(&props, "market_data_ts", "test_job", None);
+    let source = KafkaDataSource::from_properties(&props, "market_data_ts", "test_job", None, None);
 
     println!("✓ KafkaDataSource with prefixed config created successfully");
     println!("  Brokers: {}", source.brokers());
@@ -96,7 +96,7 @@ async fn test_kafka_source_can_initialize() {
         "localhost:9092".to_string(),
     );
 
-    let mut source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let mut source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Try to initialize (this creates the actual reader)
     let result = source.self_initialize().await;

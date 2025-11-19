@@ -37,6 +37,7 @@ impl KafkaDataSource {
         default_topic: &str,
         job_name: &str,
         app_name: Option<&str>,
+        instance_id: Option<&str>,
     ) -> Self {
         // DEBUG: Log all properties being passed
         log::info!(
@@ -122,6 +123,19 @@ impl KafkaDataSource {
             "Kafka consumer group ID: '{}' (source: {}, job: {}, app: {})",
             group_id,
             source_type,
+            job_name,
+            app_name.unwrap_or("none")
+        );
+
+        // Generate client ID with instance identifier for per-client observability
+        let client_id = instance_id
+            .map(|inst| format!("velo-{}-{}-src", inst, job_name))
+            .unwrap_or_else(|| format!("velo-{}-src", job_name));
+
+        log::info!(
+            "Kafka consumer client.id: '{}' (instance: {}, job: {}, app: {})",
+            client_id,
+            instance_id.unwrap_or("unknown"),
             job_name,
             app_name.unwrap_or("none")
         );
@@ -252,6 +266,10 @@ impl KafkaDataSource {
                 );
             }
         }
+
+        // Add client.id to config for per-client observability
+        source_config.insert("client.id".to_string(), client_id);
+
         log::info!(
             "KafkaDataSource: Final source config has {} properties",
             source_config.len()

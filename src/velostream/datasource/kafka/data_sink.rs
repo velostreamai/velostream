@@ -34,7 +34,11 @@ impl KafkaDataSink {
     }
 
     /// Create a Kafka data sink from properties
-    pub fn from_properties(props: &HashMap<String, String>, job_name: &str) -> Self {
+    pub fn from_properties(
+        props: &HashMap<String, String>,
+        job_name: &str,
+        instance_id: Option<&str>,
+    ) -> Self {
         // Load and merge config file with provided properties
         // Uses common config_loader helper
         let merged_props = merge_config_file_properties(props, "KafkaDataSink");
@@ -91,6 +95,21 @@ impl KafkaDataSink {
                 sink_config.insert(key.clone(), value.clone());
             }
         }
+
+        // Generate client ID with instance identifier for per-client observability
+        let client_id = instance_id
+            .map(|inst| format!("velo-{}-{}-snk", inst, job_name))
+            .unwrap_or_else(|| format!("velo-{}-snk", job_name));
+
+        log::info!(
+            "Kafka producer client.id: '{}' (instance: {}, job: {})",
+            client_id,
+            instance_id.unwrap_or("unknown"),
+            job_name
+        );
+
+        // Add client.id to config for per-client observability
+        sink_config.insert("client.id".to_string(), client_id);
 
         Self {
             brokers,

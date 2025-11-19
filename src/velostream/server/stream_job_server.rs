@@ -9,6 +9,7 @@ use crate::velostream::observability::{
     ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
 };
 use crate::velostream::server::config::StreamJobServerConfig;
+use crate::velostream::server::instance_id::get_instance_id;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
@@ -510,6 +511,7 @@ impl StreamJobServer {
         query: String,
         topic: String,
         app_name: Option<String>,
+        instance_id: Option<String>,
     ) -> Result<(), SqlError> {
         info!(
             "Deploying job '{}' version '{}' on topic '{}': {}",
@@ -805,10 +807,12 @@ impl StreamJobServer {
 
             // Use multi-source processing for all jobs (handles single-source as special case)
             // Thread app_name from SqlApplication metadata for coordinated consumer groups
+            // Thread instance_id for unique client.id generation
             match create_multi_source_readers(
                 &analysis.required_sources,
                 &job_name,
                 app_name.as_deref(),
+                instance_id.as_deref(),
                 &batch_config_clone,
             )
             .await
@@ -821,9 +825,11 @@ impl StreamJobServer {
                     );
 
                     // Create all sinks
+                    // Thread instance_id for unique client.id generation
                     match create_multi_sink_writers(
                         &analysis.required_sinks,
                         &job_name,
+                        instance_id.as_deref(),
                         &batch_config_clone,
                     )
                     .await
@@ -1356,6 +1362,7 @@ impl StreamJobServer {
                             merged_sql,
                             topic,
                             app.metadata.application.clone(),
+                            Some(get_instance_id()),
                         )
                         .await
                     {

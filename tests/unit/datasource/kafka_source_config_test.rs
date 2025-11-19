@@ -54,7 +54,8 @@ fn test_avro_codec_loaded_from_inline_schema() {
     props.insert("topic".to_string(), "test_topic".to_string());
 
     // When: Creating data source from properties
-    let data_source = KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
     // Then: Config should contain avro schema
     assert_eq!(
@@ -88,7 +89,8 @@ fn test_avro_codec_loaded_from_schema_file() {
     );
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Then: Config should contain schema file path
     assert_eq!(
@@ -117,7 +119,8 @@ fn test_protobuf_codec_loaded_from_inline_schema() {
     props.insert("topic".to_string(), "test_topic".to_string());
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
     // Then: Config should contain protobuf schema
     assert_eq!(
@@ -149,7 +152,8 @@ fn test_protobuf_codec_loaded_from_schema_file() {
     );
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Then: Config should contain protobuf schema file path
     assert_eq!(
@@ -173,7 +177,8 @@ fn test_json_format_when_no_serializer_specified() {
     props.insert("topic".to_string(), "test_topic".to_string());
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Then: value.serializer should not be set (defaults to JSON in reader)
     assert!(
@@ -209,7 +214,8 @@ fn test_schema_file_property_variations() {
         );
 
         // When: Creating data source
-        let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+        let data_source =
+            KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
         // Then: Config should contain the property
         assert!(
@@ -244,7 +250,8 @@ fn test_datasource_config_inheritance() {
     );
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
     // Then: Should extract nested properties correctly
     assert_eq!(data_source.brokers(), "localhost:9092");
@@ -270,7 +277,7 @@ fn test_value_serializer_property_variations() {
 
             // When: Creating data source
             let data_source =
-                KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+                KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
             // Then: Config should contain the serializer
             let config_value = data_source
@@ -314,7 +321,8 @@ fn test_schema_registry_url_not_interfering_with_file_schemas() {
     );
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Then: File-based schema should still be accessible
     assert_eq!(
@@ -350,7 +358,8 @@ fn test_config_preserves_all_schema_properties() {
     );
 
     // When: Creating data source
-    let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+    let data_source =
+        KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
     // Then: All schema-related properties should be preserved
     assert!(data_source.config().contains_key("avro.schema"));
@@ -377,7 +386,8 @@ fn test_bootstrap_servers_from_various_property_names() {
         );
 
         // When: Creating data source
-        let data_source = KafkaDataSource::from_properties(&props, "test_topic", "test_job", None);
+        let data_source =
+            KafkaDataSource::from_properties(&props, "test_topic", "test_job", None, None);
 
         // Then: Brokers should be extracted correctly
         assert_eq!(
@@ -420,7 +430,7 @@ datasource:
 
     // When: Creating data source
     let data_source =
-        KafkaDataSource::from_properties(&props, "market_data_ts", "financial_trading", None);
+        KafkaDataSource::from_properties(&props, "market_data_ts", "financial_trading", None, None);
 
     // Then: Config should be loaded from file
     assert!(

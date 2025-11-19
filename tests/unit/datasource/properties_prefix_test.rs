@@ -21,7 +21,7 @@ mod properties_prefix_tests {
         props.insert("source.value.format".to_string(), "json".to_string());
 
         let kafka_source =
-            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
         // Verify that prefixed properties are used
         assert_eq!(kafka_source.brokers(), "broker1:9092,broker2:9092");
@@ -46,7 +46,7 @@ mod properties_prefix_tests {
         props.insert("group_id".to_string(), "fallback_group".to_string());
 
         let kafka_source =
-            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
         // Verify that unprefixed properties are used as fallback
         assert_eq!(kafka_source.brokers(), "localhost:9092");
@@ -67,7 +67,7 @@ mod properties_prefix_tests {
         props.insert("topic".to_string(), "unprefixed_topic".to_string());
 
         let kafka_source =
-            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
         // Prefixed properties should take priority
         assert_eq!(kafka_source.brokers(), "prefixed_broker:9092");
@@ -95,7 +95,7 @@ mod properties_prefix_tests {
         );
 
         let kafka_source =
-            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
         // bootstrap.servers should be recognized as broker alias
         assert_eq!(kafka_source.brokers(), "bootstrap_broker:9092");
@@ -106,7 +106,7 @@ mod properties_prefix_tests {
         let props = HashMap::new();
 
         let kafka_source =
-            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
+            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
 
         // Verify defaults
         assert_eq!(kafka_source.brokers(), "localhost:9092");
@@ -124,7 +124,7 @@ mod properties_prefix_tests {
         props.insert("sink.topic".to_string(), "sink_topic".to_string());
         props.insert("sink.value.format".to_string(), "avro".to_string());
 
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job");
+        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None);
 
         // Verify that prefixed properties are used
         assert_eq!(kafka_sink.brokers(), "sink_broker:9092");
@@ -147,7 +147,7 @@ mod properties_prefix_tests {
             "fallback_broker:9092".to_string(),
         );
 
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job");
+        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None);
 
         // Verify fallback and defaults
         assert_eq!(kafka_sink.brokers(), "fallback_broker:9092");
@@ -298,8 +298,8 @@ mod properties_prefix_tests {
         props.insert("batch_size".to_string(), "1000".to_string());
 
         let kafka_source =
-            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None);
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job");
+            KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
+        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None);
 
         // Source should use source-prefixed properties and defaults
         assert_eq!(kafka_source.brokers(), "kafka1:9092");

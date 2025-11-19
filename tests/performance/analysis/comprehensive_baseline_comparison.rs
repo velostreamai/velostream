@@ -373,15 +373,14 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
 }
 
 /// Generate scenario 0 records (Pure SELECT)
+/// Partitions by customer_id for realistic distribution across 32 partitions
 fn generate_scenario_0_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
+            let customer_id = (i % 1000) as i64;
             fields.insert("order_id".to_string(), FieldValue::Integer(i as i64));
-            fields.insert(
-                "customer_id".to_string(),
-                FieldValue::Integer((i % 1000) as i64),
-            );
+            fields.insert("customer_id".to_string(), FieldValue::Integer(customer_id));
             fields.insert(
                 "order_date".to_string(),
                 FieldValue::String("2024-01-15".to_string()),
@@ -390,20 +389,20 @@ fn generate_scenario_0_records(count: usize) -> Vec<StreamRecord> {
                 "total_amount".to_string(),
                 FieldValue::Float(150.0 + (i % 100) as f64),
             );
-            StreamRecord::new(fields)
+            // Partition by customer_id: 1000 unique customers → well distributed across 32 partitions
+            StreamRecord::new(fields).with_partition_from_key(&customer_id.to_string(), 32)
         })
         .collect()
 }
 
 /// Generate scenario 1 records (ROWS WINDOW)
+/// Partitions by symbol for proper PARTITION BY symbol handling across 32 partitions
 fn generate_scenario_1_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            fields.insert(
-                "symbol".to_string(),
-                FieldValue::String(format!("SYM{}", i % 10)),
-            );
+            let symbol = format!("SYM{}", i % 10);
+            fields.insert("symbol".to_string(), FieldValue::String(symbol.clone()));
             fields.insert(
                 "price".to_string(),
                 FieldValue::Float(100.0 + (i % 50) as f64),
@@ -412,20 +411,20 @@ fn generate_scenario_1_records(count: usize) -> Vec<StreamRecord> {
                 "timestamp".to_string(),
                 FieldValue::Integer((i * 1000) as i64),
             );
-            StreamRecord::new(fields)
+            // Partition by symbol: 10 unique symbols → consistent distribution for sticky partition strategy
+            StreamRecord::new(fields).with_partition_from_key(&symbol, 32)
         })
         .collect()
 }
 
 /// Generate scenario 2 records (GROUP BY)
+/// Partitions by symbol for proper GROUP BY symbol handling with excellent distribution
 fn generate_scenario_2_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            fields.insert(
-                "symbol".to_string(),
-                FieldValue::String(format!("SYM{}", i % 200)),
-            );
+            let symbol = format!("SYM{}", i % 200);
+            fields.insert("symbol".to_string(), FieldValue::String(symbol.clone()));
             fields.insert(
                 "price".to_string(),
                 FieldValue::Float(100.0 + (i % 100) as f64),
@@ -434,26 +433,28 @@ fn generate_scenario_2_records(count: usize) -> Vec<StreamRecord> {
                 "quantity".to_string(),
                 FieldValue::Integer((i % 1000) as i64),
             );
-            StreamRecord::new(fields)
+            // Partition by symbol: 200 unique symbols → excellent distribution across 32 partitions
+            StreamRecord::new(fields).with_partition_from_key(&symbol, 32)
         })
         .collect()
 }
 
 /// Generate scenario 3a/3b records (TUMBLING WINDOW)
-/// CRITICAL: Must distribute records across source partitions (0-3) to test sticky_partition properly
-/// Without this: all records → partition 0, cores 1-3 idle, 4-core slower than 1-core due to merge overhead
+/// CRITICAL: Must distribute records across source partitions to test sticky_partition properly
+/// Partitions by composite key (trader_id + symbol): 50 traders × 100 symbols = 5000 unique keys
+/// This ensures perfect distribution across 32 partitions with balanced parallelism
 fn generate_scenario_3_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
+            let trader_id = format!("T{}", i % 50);
+            let symbol = format!("SYM{}", i % 100);
+
             fields.insert(
                 "trader_id".to_string(),
-                FieldValue::String(format!("T{}", i % 50)),
+                FieldValue::String(trader_id.clone()),
             );
-            fields.insert(
-                "symbol".to_string(),
-                FieldValue::String(format!("SYM{}", i % 100)),
-            );
+            fields.insert("symbol".to_string(), FieldValue::String(symbol.clone()));
             fields.insert(
                 "price".to_string(),
                 FieldValue::Float(100.0 + (i % 50) as f64),
@@ -466,8 +467,11 @@ fn generate_scenario_3_records(count: usize) -> Vec<StreamRecord> {
                 "trade_time".to_string(),
                 FieldValue::Integer((1000000 + (i * 1000)) as i64),
             );
-            let record = StreamRecord::new(fields);
-            record
+
+            // Partition by composite key (trader_id + symbol): ~5000 unique combinations
+            // Ensures perfect distribution across 32 partitions and tests parallelism properly
+            let composite_key = format!("{}:{}", trader_id, symbol);
+            StreamRecord::new(fields).with_partition_from_key(&composite_key, 32)
         })
         .collect()
 }
@@ -551,7 +555,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("always_hash".to_string()),
+        partitioner: Some("hash(customer_id, 32)".to_string()),
     });
 
     // ========================================================================
@@ -626,7 +630,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("sticky_partition".to_string()),
+        partitioner: Some("hash(symbol, 32)".to_string()),
     });
 
     // ========================================================================
@@ -701,7 +705,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("always_hash".to_string()),
+        partitioner: Some("hash(symbol, 32)".to_string()),
     });
 
     // ========================================================================
@@ -776,7 +780,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("sticky_partition".to_string()),
+        partitioner: Some("hash(trader_id:symbol, 32)".to_string()),
     });
 
     // ========================================================================
@@ -851,7 +855,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("sticky_partition".to_string()),
+        partitioner: Some("hash(trader_id:symbol, 32)".to_string()),
     });
 
     // ========================================================================
