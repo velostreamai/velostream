@@ -21,9 +21,6 @@ use std::time::Instant;
 use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::types::SourceOffset;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::common::{
-    FailureStrategy, JobProcessingConfig as SimpleJobProcessingConfig,
-};
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory,
 };
@@ -32,7 +29,7 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Import validation utilities
-use super::super::validation::{MetricsValidation, print_validation_results, validate_records};
+use super::super::validation::MetricsValidation;
 // Import shared metrics helper
 use super::test_helpers::JobServerMetrics;
 

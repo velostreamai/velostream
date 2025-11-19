@@ -282,6 +282,118 @@ spec:
           claimName: velostream-data
 ```
 
+### Horizontal Scaling with @application Annotation
+
+Velostream supports automatic multi-server coordination through the `@application` annotation. Multiple JobServer instances share Kafka consumer groups and automatically balance the partition workload.
+
+**Enable automatic coordination:**
+
+```sql
+-- my-application.sql
+@application trading_platform
+@phase production
+
+CREATE STREAM market_data AS
+SELECT symbol, price, volume, trade_time
+FROM kafka_market_data
+EMIT CHANGES;
+
+CREATE STREAM trade_aggregates AS
+SELECT symbol, SUM(volume) as total_volume
+FROM market_data
+GROUP BY symbol
+EMIT CHANGES;
+```
+
+**Deploy on multiple servers:**
+
+```bash
+# Each server runs the same SQL application
+# Kafka automatically coordinates through consumer groups
+
+# Server 1
+velostream-server --app trading-platform.sql --port 8081
+
+# Server 2 (automatic partition sharing)
+velostream-server --app trading-platform.sql --port 8081
+
+# Server 3 (automatic partition sharing)
+velostream-server --app trading-platform.sql --port 8081
+```
+
+**Automatic behavior:**
+
+- Consumer groups: `velo-{app_name}-{job_name}` (e.g., `velo-trading_platform-market_data`)
+- Kafka distributes partitions across all 3 servers
+- Each server processes ~1/3 of data automatically
+- When servers join/leave, partitions are rebalanced transparently
+
+**Kubernetes HPA (Horizontal Pod Autoscaler):**
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: velostream-hpa
+  namespace: stream-processing
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: velostream
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 15
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 2
+        periodSeconds: 15
+      selectPolicy: Max
+```
+
+**Monitoring partition distribution:**
+
+```bash
+# Check consumer group status
+kafka-consumer-groups --bootstrap-server kafka:9092 \
+    --group velo-trading_platform-market_data \
+    --describe
+
+# Expected output (3 servers, 12 partitions):
+# TOPIC           PARTITION  CURRENT-OFFSET  CONSUMER-ID
+# market_data     0          1000            server1-consumer
+# market_data     1          1000            server2-consumer
+# market_data     2          1000            server3-consumer
+# market_data     3          1000            server1-consumer
+# ... (evenly distributed)
+```
+
+For detailed information on multi-server coordination, see [Multi-Server Coordination Guide](../sql/ops/multi-server-coordination-guide.md).
+
 ### Blue-Green Deployment
 
 ```bash

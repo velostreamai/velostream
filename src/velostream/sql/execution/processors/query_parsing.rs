@@ -376,7 +376,6 @@ mod tests {
     use super::*;
     use crate::velostream::sql::StreamingQuery;
     use crate::velostream::sql::ast::{BinaryOperator, LiteralValue, SelectField, StreamSource};
-    use std::collections::HashMap;
 
     #[test]
     fn test_extract_table_name_from_stream() {
@@ -393,6 +392,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_table_name(&query).unwrap();
@@ -414,6 +417,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_table_name(&query).unwrap();
@@ -441,6 +448,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_where_clause(&query).unwrap();
@@ -462,6 +473,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_where_clause(&query).unwrap();
@@ -488,6 +503,10 @@ mod tests {
             window: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let result = extract_select_column(&query).unwrap();

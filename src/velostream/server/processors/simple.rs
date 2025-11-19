@@ -6,6 +6,7 @@
 use super::common::DeadLetterQueue;
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
@@ -25,12 +26,15 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 /// Simple (non-transactional) job processor
 pub struct SimpleJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
     observability_wrapper: ObservabilityWrapper,
+    /// Job execution metrics (failure tracking for Prometheus)
+    job_metrics: JobMetrics,
     /// Profiling helper for timing instrumentation
     profiling_helper: ProfilingHelper,
     /// Stop flag for graceful shutdown
@@ -38,10 +42,22 @@ pub struct SimpleJobProcessor {
 }
 
 impl SimpleJobProcessor {
+    /// Create a new Simple processor with optional DLQ based on config
+    ///
+    /// # Failure Handling Strategy
+    /// SimpleJobProcessor uses `FailureStrategy::LogAndContinue` to process records
+    /// even if some fail. Failed records can be sent to DLQ for analysis if enabled.
+    ///
+    /// # DLQ Configuration
+    /// DLQ is enabled by default (config.enable_dlq == true) to support error recovery
+    /// and debugging in production environments. Disable if overhead is a concern.
     pub fn new(config: JobProcessingConfig) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_dlq(),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_dlq(config.enable_dlq)
+                .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -52,21 +68,34 @@ impl SimpleJobProcessor {
         observability: Option<SharedObservabilityManager>,
     ) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_observability(observability)
+                .with_dlq(config.enable_dlq)
+                .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Create processor with observability support
+    ///
+    /// # Failure Handling Strategy
+    /// SimpleJobProcessor uses `FailureStrategy::LogAndContinue` which continues
+    /// processing even when records fail. With observability enabled, errors are
+    /// tracked for monitoring and debugging.
     pub fn with_observability(
         config: JobProcessingConfig,
         observability: Option<SharedObservabilityManager>,
     ) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_observability(observability)
+                .with_dlq(config.enable_dlq)
+                .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -115,10 +144,31 @@ impl SimpleJobProcessor {
         query: &StreamingQuery,
         job_name: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.register_all_metrics(query, job_name).await
+    }
+
+    /// Register all metrics (counter, gauge, histogram) in a single pass
+    async fn register_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        job_name: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let obs = self.observability_wrapper.observability().cloned();
+
+        // Register all metric types with a single clone
         self.observability_wrapper
             .metrics_helper()
             .register_counter_metrics(query, &obs, job_name)
+            .await?;
+
+        self.observability_wrapper
+            .metrics_helper()
+            .register_gauge_metrics(query, &obs, job_name)
+            .await?;
+
+        self.observability_wrapper
+            .metrics_helper()
+            .register_histogram_metrics(query, &obs, job_name)
             .await
     }
 
@@ -129,14 +179,37 @@ impl SimpleJobProcessor {
         output_records: &[std::sync::Arc<StreamRecord>],
         job_name: &str,
     ) {
+        self.emit_all_metrics(query, output_records, job_name).await
+    }
+
+    /// Emit all metrics (counter, gauge, histogram) in a single pass
+    async fn emit_all_metrics(
+        &self,
+        query: &StreamingQuery,
+        output_records: &[std::sync::Arc<StreamRecord>],
+        job_name: &str,
+    ) {
         let obs = self.observability_wrapper.observability().cloned();
+
+        // Emit all metric types with a single clone
         self.observability_wrapper
             .metrics_helper()
             .emit_counter_metrics(query, output_records, &obs, job_name)
+            .await;
+
+        self.observability_wrapper
+            .metrics_helper()
+            .emit_gauge_metrics(query, output_records, &obs, job_name)
+            .await;
+
+        self.observability_wrapper
+            .metrics_helper()
+            .emit_histogram_metrics(query, output_records, &obs, job_name)
             .await
     }
 
     /// Register gauge metrics from SQL annotations
+    /// Note: Use register_all_metrics() for efficient batch registration
     async fn register_gauge_metrics(
         &self,
         query: &StreamingQuery,
@@ -150,6 +223,7 @@ impl SimpleJobProcessor {
     }
 
     /// Emit gauge metrics for processed records
+    /// Note: Use emit_all_metrics() for efficient batch emission
     async fn emit_gauge_metrics(
         &self,
         query: &StreamingQuery,
@@ -164,6 +238,7 @@ impl SimpleJobProcessor {
     }
 
     /// Register histogram metrics from SQL annotations
+    /// Note: Use register_all_metrics() for efficient batch registration
     async fn register_histogram_metrics(
         &self,
         query: &StreamingQuery,
@@ -177,6 +252,7 @@ impl SimpleJobProcessor {
     }
 
     /// Emit histogram metrics for processed records
+    /// Note: Use emit_all_metrics() for efficient batch emission
     async fn emit_histogram_metrics(
         &self,
         query: &StreamingQuery,
@@ -188,6 +264,62 @@ impl SimpleJobProcessor {
             .metrics_helper()
             .emit_histogram_metrics(query, output_records, &obs, job_name)
             .await
+    }
+
+    /// Check if all sources have finished processing (no more data available)
+    /// Returns true if all sources are exhausted, false if any have data or on error
+    async fn check_all_sources_finished(&self, context: &ProcessorContext, job_name: &str) -> bool {
+        let source_names = context.list_sources();
+        for source_name in source_names {
+            match context.has_more_data(&source_name).await {
+                Ok(has_more) => {
+                    if has_more {
+                        // Found a source with more data
+                        return false;
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Job '{}': Failed to check has_more for source '{}': {:?}",
+                        job_name, source_name, e
+                    );
+                    // On error, assume source has more data to avoid premature exit
+                    return false;
+                }
+            }
+        }
+        // All sources are exhausted
+        true
+    }
+
+    /// Handle batch processing results (success or failure)
+    /// Logs progress and records failures
+    fn handle_batch_result(
+        &self,
+        result: Result<(), Box<dyn std::error::Error + Send + Sync>>,
+        stats: &mut JobExecutionStats,
+        job_name: &str,
+    ) -> bool {
+        match result {
+            Ok(()) => {
+                if self.config.log_progress
+                    && stats
+                        .batches_processed
+                        .is_multiple_of(self.config.progress_interval)
+                {
+                    log_job_progress(job_name, stats);
+                }
+                false // No error
+            }
+            Err(e) => {
+                warn!(
+                    "Job '{}' multi-source batch processing failed: {:?}",
+                    job_name, e
+                );
+                stats.batches_failed += 1;
+                true // Had error
+            }
+        }
     }
 
     pub async fn process_job(
@@ -241,28 +373,9 @@ impl SimpleJobProcessor {
             job_name
         );
 
-        // Register counter metrics from SQL annotations
-        if let Err(e) = self.register_counter_metrics(&query, &job_name).await {
-            warn!(
-                "Job '{}': Failed to register counter metrics: {:?}",
-                job_name, e
-            );
-        }
-
-        // Register gauge metrics from SQL annotations
-        if let Err(e) = self.register_gauge_metrics(&query, &job_name).await {
-            warn!(
-                "Job '{}': Failed to register gauge metrics: {:?}",
-                job_name, e
-            );
-        }
-
-        // Register histogram metrics from SQL annotations
-        if let Err(e) = self.register_histogram_metrics(&query, &job_name).await {
-            warn!(
-                "Job '{}': Failed to register histogram metrics: {:?}",
-                job_name, e
-            );
+        // Register all metrics (counter, gauge, histogram) from SQL annotations in a single pass
+        if let Err(e) = self.register_all_metrics(&query, &job_name).await {
+            warn!("Job '{}': Failed to register metrics: {:?}", job_name, e);
         }
 
         // FR-082 Phase 6.5: Initialize QueryExecution in the engine
@@ -278,11 +391,9 @@ impl SimpleJobProcessor {
         // FR-081 Phase 2A: Enable window_v2 architecture for high-performance window processing
         context.streaming_config = Some(StreamingConfig::default());
 
-        // Copy engine state to context
-        {
-            let _engine_lock = engine.read().await;
-            // Context is already prepared by engine.prepare_context() above
-        }
+        // Track consecutive empty batches to detect when all sources are truly exhausted
+        let mut consecutive_empty_batches = 0;
+        let max_empty_batches = self.config.empty_batch_count;
 
         loop {
             // Check for stop signal from processor or shutdown channel
@@ -301,66 +412,43 @@ impl SimpleJobProcessor {
             }
 
             // Check if all sources have finished processing (consistent with transactional)
-            let sources_finished = {
-                let source_names = context.list_sources();
-                let mut all_finished = true;
-                for source_name in source_names {
-                    match context.has_more_data(&source_name).await {
-                        Ok(has_more) => {
-                            if has_more {
-                                all_finished = false;
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            warn!(
-                                "Job '{}': Failed to check has_more for source '{}': {:?}",
-                                job_name, source_name, e
-                            );
-                            // On error, assume source has more data to avoid premature exit
-                            all_finished = false;
-                            break;
-                        }
-                    }
-                }
-                all_finished
-            };
+            if self.check_all_sources_finished(&context, &job_name).await {
+                // Sources are exhausted
+                consecutive_empty_batches += 1;
 
-            if sources_finished {
-                info!(
-                    "Job '{}': All sources have finished - no more data to process",
-                    job_name
+                // If we've hit the threshold, exit gracefully
+                if consecutive_empty_batches >= max_empty_batches {
+                    info!(
+                        "Job '{}' all sources exhausted after {} empty batches, exiting gracefully",
+                        job_name, consecutive_empty_batches
+                    );
+                    break;
+                }
+
+                // Otherwise, sleep briefly to allow more data to arrive
+                debug!(
+                    "Job '{}' empty batch {}/{}, waiting before retry",
+                    job_name, consecutive_empty_batches, max_empty_batches
                 );
-                break;
+                sleep(self.config.retry_backoff).await;
+                continue;
             }
+
+            // Reset empty batch counter since we found data
+            consecutive_empty_batches = 0;
 
             // Track records processed before this batch
             let records_before = stats.records_processed;
 
             // Process from all sources
-            match self
+            let result = self
                 .process_data(&mut context, &engine, &query, &job_name, &mut stats)
-                .await
-            {
-                Ok(()) => {
-                    if self.config.log_progress
-                        && stats
-                            .batches_processed
-                            .is_multiple_of(self.config.progress_interval)
-                    {
-                        log_job_progress(&job_name, &stats);
-                    }
-                }
-                Err(e) => {
-                    warn!(
-                        "Job '{}' multi-source batch processing failed: {:?}",
-                        job_name, e
-                    );
-                    stats.batches_failed += 1;
+                .await;
 
-                    // Apply retry backoff
-                    tokio::time::sleep(self.config.retry_backoff).await;
-                }
+            // Handle batch result (logs progress or errors)
+            if self.handle_batch_result(result, &mut stats, &job_name) {
+                // On error, apply retry backoff
+                sleep(self.config.retry_backoff).await;
             }
         }
 
@@ -467,8 +555,8 @@ impl SimpleJobProcessor {
 
         let source_names = context.list_sources();
         if source_names.is_empty() {
-            warn!("Job '{}': No sources available for processing", job_name);
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            debug!("Job '{}': No sources available for processing", job_name);
+            sleep(Duration::from_millis(100)).await;
             return Ok(());
         }
 
@@ -572,6 +660,10 @@ impl SimpleJobProcessor {
             total_records_processed += batch_result.records_processed;
             total_records_failed += batch_result.records_failed;
 
+            // Record processed records to metrics
+            self.job_metrics
+                .record_processed(batch_result.records_processed);
+
             debug!(
                 "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
                 job_name,
@@ -587,15 +679,24 @@ impl SimpleJobProcessor {
 
             // FR-073: Emit SQL-native metrics for processed records from this source
             // PERF(FR-082 Phase 2): Use Arc records directly for metrics - no clone!
-            self.emit_counter_metrics(query, &batch_result.output_records, job_name)
-                .await;
-            self.emit_gauge_metrics(query, &batch_result.output_records, job_name)
-                .await;
-            self.emit_histogram_metrics(query, &batch_result.output_records, job_name)
+            // Consolidation: Emit all metrics in a single pass with one observability clone
+            self.emit_all_metrics(query, &batch_result.output_records, job_name)
                 .await;
 
             // Handle failures according to strategy
             if batch_result.records_failed > 0 {
+                // Record failed records to metrics (for all strategies)
+                self.job_metrics.record_failed(batch_result.records_failed);
+
+                // Record individual error messages to error tracker
+                for error in &batch_result.error_details {
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        &job_name,
+                        format!("[{}] {}", source_name, error.error_message),
+                    );
+                }
+
                 match self.config.failure_strategy {
                     FailureStrategy::LogAndContinue => {
                         warn!(
@@ -631,13 +732,90 @@ impl SimpleJobProcessor {
                             job_name, source_name, batch_result.records_failed
                         );
                         // Add all failed records to the DLQ
-                        for error in &batch_result.error_details {
-                            // Note: We don't have the original record here, but error_details has the index
-                            // In a full implementation, we'd pass the records through the batch processor
-                            info!(
-                                "DLQ Entry: Record {} - {}",
-                                error.record_index, error.error_message
-                            );
+                        if let Some(dlq) = self.observability_wrapper.dlq() {
+                            for error in &batch_result.error_details {
+                                // Create a record with error context
+                                let mut record_data = std::collections::HashMap::new();
+                                record_data.insert(
+                                    "error".to_string(),
+                                    crate::velostream::sql::execution::types::FieldValue::String(
+                                        error.error_message.clone(),
+                                    ),
+                                );
+                                record_data.insert(
+                                    "source".to_string(),
+                                    crate::velostream::sql::execution::types::FieldValue::String(
+                                        source_name.clone(),
+                                    ),
+                                );
+
+                                let record =
+                                    crate::velostream::sql::execution::types::StreamRecord::new(
+                                        record_data,
+                                    );
+
+                                // Attempt to add entry to DLQ with error handling
+                                // (add_entry returns (), so we just await it and catch any panics)
+                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    tokio::runtime::Handle::current()
+                                })) {
+                                    Ok(handle) => {
+                                        let dlq_ref = Arc::clone(dlq);
+                                        let fut = dlq_ref.add_entry(
+                                            record,
+                                            error.error_message.clone(),
+                                            error.record_index,
+                                            error.recoverable,
+                                        );
+
+                                        if let Err(_) = std::panic::catch_unwind(
+                                            std::panic::AssertUnwindSafe(|| handle.block_on(fut)),
+                                        ) {
+                                            error!(
+                                                "Job '{}': Panic occurred while adding DLQ entry for Source '{}', Record {}. Record will be logged for manual recovery.",
+                                                job_name, source_name, error.record_index
+                                            );
+                                            error!(
+                                                "Job '{}': DLQ Failure Context - Source: '{}', Record Index: {}, Error: '{}', Recoverable: {}",
+                                                job_name,
+                                                source_name,
+                                                error.record_index,
+                                                error.error_message,
+                                                error.recoverable
+                                            );
+                                        } else {
+                                            debug!(
+                                                "DLQ Entry Added: Record {} from Source '{}' - {}",
+                                                error.record_index,
+                                                source_name,
+                                                error.error_message
+                                            );
+                                        }
+                                    }
+                                    Err(_) => {
+                                        error!(
+                                            "Job '{}': Failed to obtain Tokio runtime for DLQ write for Source '{}', Record {}. Record will be logged for manual recovery.",
+                                            job_name, source_name, error.record_index
+                                        );
+                                        error!(
+                                            "Job '{}': DLQ Failure Context - Source: '{}', Record Index: {}, Error: '{}', Recoverable: {}",
+                                            job_name,
+                                            source_name,
+                                            error.record_index,
+                                            error.error_message,
+                                            error.recoverable
+                                        );
+                                    }
+                                }
+                            }
+                        } else {
+                            warn!("DLQ not enabled, logging failures only");
+                            for error in &batch_result.error_details {
+                                info!(
+                                    "Failed Record {}: {}",
+                                    error.record_index, error.error_message
+                                );
+                            }
                         }
                     }
                 }

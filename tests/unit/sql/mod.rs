@@ -20,3 +20,6 @@ pub mod config;
 
 // SQL validation tests
 pub mod validation;
+
+// SQL annotation parsing tests
+pub mod annotation_parsing_test;

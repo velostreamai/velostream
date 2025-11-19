@@ -6,6 +6,7 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
+use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
@@ -33,6 +34,8 @@ pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
     observability_wrapper: ObservabilityWrapper,
+    /// Job execution metrics (failure tracking for Prometheus)
+    job_metrics: JobMetrics,
     /// Profiling helper for timing instrumentation
     profiling_helper: ProfilingHelper,
     /// Stop flag for graceful shutdown
@@ -40,23 +43,47 @@ pub struct TransactionalJobProcessor {
 }
 
 impl TransactionalJobProcessor {
+    /// Create a new Transactional processor
+    ///
+    /// # Failure Handling Strategy
+    /// TransactionalJobProcessor uses `FailureStrategy::FailBatch` which rolls back
+    /// the entire batch on any record failure. DLQ is intentionally disabled since
+    /// failed records are already rolled back and not persisted.
+    ///
+    /// # Note on DLQ
+    /// DLQ is disabled by default (config.enable_dlq == false) because:
+    /// - FailBatch rolls back entire batch on error
+    /// - Failed records are not written to the sink
+    /// - DLQ is only useful for LogAndContinue strategies where records partially succeed
     pub fn new(config: JobProcessingConfig) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_dlq(),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_dlq(false) // Always disabled for FailBatch strategy
+                .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Create processor with observability support
+    ///
+    /// # Failure Handling Strategy
+    /// TransactionalJobProcessor uses `FailureStrategy::FailBatch` - any record failure
+    /// causes the entire batch to be rolled back. Observability tracks metrics but
+    /// errors don't create DLQ entries (batch is atomic).
     pub fn with_observability(
         config: JobProcessingConfig,
         observability: Option<SharedObservabilityManager>,
     ) -> Self {
         Self {
-            config,
-            observability_wrapper: ObservabilityWrapper::with_observability_and_dlq(observability),
+            config: config.clone(),
+            observability_wrapper: ObservabilityWrapper::builder()
+                .with_observability(observability)
+                .with_dlq(false) // Always disabled for FailBatch strategy
+                .build(),
+            job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -1009,6 +1036,10 @@ impl TransactionalJobProcessor {
             total_records_processed += batch_result.records_processed;
             total_records_failed += batch_result.records_failed;
 
+            // Record processed records to metrics
+            self.job_metrics
+                .record_processed(batch_result.records_processed);
+
             debug!(
                 "Job '{}': Source '{}' - processed {} records, {} failed, {} output records",
                 job_name,
@@ -1023,6 +1054,18 @@ impl TransactionalJobProcessor {
 
             // Handle failures according to strategy
             if batch_result.records_failed > 0 {
+                // Record failed records to metrics (for all strategies)
+                self.job_metrics.record_failed(batch_result.records_failed);
+
+                // Record individual error messages to error tracker
+                for error in &batch_result.error_details {
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        &job_name,
+                        format!("[{}] {}", source_name, error.error_message),
+                    );
+                }
+
                 match self.config.failure_strategy {
                     FailureStrategy::FailBatch => {
                         error!(
@@ -1047,11 +1090,15 @@ impl TransactionalJobProcessor {
                         break; // Exit to retry
                     }
                     FailureStrategy::SendToDLQ => {
+                        // Note: SendToDLQ should never occur for TransactionalJobProcessor
+                        // because it always uses FailBatch strategy. This case is here for
+                        // completeness to handle misconfigurations gracefully.
                         warn!(
-                            "Job '{}': Source '{}' had {} failures, would send to DLQ (not implemented)",
+                            "Job '{}': Source '{}' had {} failures - SendToDLQ not applicable for transactional mode (treating as FailBatch)",
                             job_name, source_name, batch_result.records_failed
                         );
-                        // TODO: Implement DLQ functionality
+                        processing_successful = false;
+                        break; // Treat as FailBatch - fail the transaction
                     }
                 }
             }

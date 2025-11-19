@@ -13,7 +13,7 @@ use tokio::time::timeout;
 
 use velostream::velostream::datasource::{DataReader, DataWriter};
 use velostream::velostream::server::processors::{
-    JobProcessor, JobProcessorConfig, JobProcessorFactory,
+    FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
 };
 use velostream::velostream::sql::execution::{
     StreamExecutionEngine,
@@ -169,7 +169,21 @@ fn create_test_query() -> String {
 async fn test_simple_processor_completes() {
     println!("\n=== TEST: Simple Processor Lifecycle ===");
 
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Simple);
+    let config = JobProcessingConfig {
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_batch_size: 100,
+        batch_timeout: Duration::from_millis(100),
+        max_retries: 2,
+        retry_backoff: Duration::from_millis(50),
+        progress_interval: 100,
+        log_progress: false,
+        empty_batch_count: 0,
+        wait_on_empty_batch_ms: 100,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
+    };
+    let processor = JobProcessorFactory::create_simple_with_config(config);
     let records = create_test_records(100);
     let data_source = SimpleMockDataSource::new(records.clone(), 10);
     let data_writer = SimpleMockDataWriter::new();

@@ -911,7 +911,7 @@ impl WindowAdapter {
                 result.fields.get(&field_name).cloned().ok_or_else(|| {
                     SqlError::ExecutionError {
                         message: format!("HAVING: Aggregate field '{}' not found in result. Available fields: {:?}",
-                                       field_name, result.fields.keys().collect::<Vec<_>>()),
+                                         field_name, result.fields.keys().collect::<Vec<_>>()),
                         query: None,
                     }
                 })
@@ -1103,6 +1103,10 @@ mod tests {
             limit: None,
             emit_mode: Some(EmitMode::Changes), // EMIT CHANGES
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         assert!(WindowAdapter::is_emit_changes(&query_emit_changes));
@@ -1124,6 +1128,10 @@ mod tests {
             limit: None,
             emit_mode: Some(EmitMode::Final), // EMIT FINAL
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         assert!(!WindowAdapter::is_emit_changes(&query_emit_final));

@@ -136,6 +136,10 @@ async fn test_tumbling_window_with_v2() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let mut context = create_context_with_window_v2_enabled();
@@ -184,6 +188,10 @@ async fn test_rows_window_with_v2() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let mut context = create_context_with_window_v2_enabled();
@@ -232,6 +240,10 @@ async fn test_session_window_with_v2() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let mut context = create_context_with_window_v2_enabled();
@@ -277,6 +289,10 @@ async fn test_sliding_window_with_v2() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let mut context = create_context_with_window_v2_enabled();
@@ -321,6 +337,10 @@ async fn test_emit_changes_with_v2() {
         limit: None,
         emit_mode: Some(EmitMode::Changes), // EMIT CHANGES
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let mut context = create_context_with_window_v2_enabled();
@@ -359,6 +379,10 @@ async fn test_group_by_with_v2() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let mut context = create_context_with_window_v2_enabled();

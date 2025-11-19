@@ -26,6 +26,10 @@ fn create_basic_select() -> StreamingQuery {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     }
 }
 
@@ -390,6 +394,10 @@ fn test_aggregation_without_group_by_warning() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Changes),
@@ -435,6 +443,10 @@ fn test_aggregation_with_group_by_valid() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         properties: HashMap::new(),
         emit_mode: Some(EmitMode::Changes),

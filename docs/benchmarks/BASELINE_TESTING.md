@@ -6,16 +6,18 @@ Scripts for running the comprehensive baseline comparison test with optimal perf
 
 ### Fastest Runtime Performance (Recommended)
 ```bash
+cd benchmarks
 ./run_baseline.sh
 ```
 
 Produces:
 - **Compilation time**: ~60 seconds (release build)
 - **Runtime performance**: 3-5x faster than debug build
-- **Output**: Full benchmark results with record counts for all 5 scenarios × 4 implementations
+- **Output**: Full benchmark results with record counts for all 5 scenarios × 5 implementations
 
 ### Multiple Modes
 ```bash
+cd benchmarks
 ./run_baseline_options.sh [mode]
 ```
 
@@ -33,6 +35,8 @@ Available modes:
 ## Usage Examples
 
 ```bash
+cd benchmarks
+
 # Release mode (fastest runtime, recommended)
 ./run_baseline.sh
 
@@ -57,17 +61,18 @@ Available modes:
 The comprehensive baseline test measures:
 
 **5 Scenarios:**
-1. Scenario 0: Pure SELECT (baseline)
-2. Scenario 1: ROWS window
-3. Scenario 2: Pure GROUP BY
-4. Scenario 3a: TUMBLING window (standard emit)
-5. Scenario 3b: TUMBLING window (emit changes)
+1. Scenario 1: Pure SELECT (baseline)
+2. Scenario 2: ROWS window
+3. Scenario 3: Pure GROUP BY
+4. Scenario 4: TUMBLING window (standard emit)
+5. Scenario 5: TUMBLING window (emit changes)
 
-**4 Implementations:**
-1. SQL Engine (no job server)
-2. V1 SimpleJobProcessor (single-threaded)
-3. V2 AdaptiveJobProcessor @ 1-core
-4. V2 AdaptiveJobProcessor @ 4-core
+**5 Implementations:**
+1. SQL Engine (baseline)
+2. V1 SimpleJobProcessor (single-threaded, best-effort)
+3. Transactional JobProcessor (single-threaded, at-least-once)
+4. V2 AdaptiveJobProcessor @ 1-core
+5. V2 AdaptiveJobProcessor @ 4-core
 
 **Output shows:**
 - Records sent and processed for each test
@@ -118,6 +123,7 @@ Debug Build:
 
 For CI/CD pipelines, use:
 ```bash
+cd benchmarks
 ./run_baseline.sh
 ```
 
@@ -130,10 +136,14 @@ The script:
 ## Troubleshooting
 
 ### "Command not found"
-Make sure the script is executable:
+Make sure you're in the benchmarks directory:
 ```bash
-chmod +x run_baseline.sh
-chmod +x run_baseline_options.sh
+cd benchmarks
+```
+
+The scripts should already be executable, but if needed:
+```bash
+chmod +x run_baseline*.sh
 ```
 
 ### Slow compilation

@@ -218,6 +218,8 @@ async fn test_multi_source_processor_writes_to_sinks() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);

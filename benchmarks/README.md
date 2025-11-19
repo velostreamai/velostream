@@ -22,7 +22,72 @@ benchmarks/
 
 ## Running Benchmarks
 
-### All Benchmarks
+### Baseline Scenario Comparison (FR-082)
+
+**Comprehensive baseline comparison test** measuring all 5 scenarios with query-aware strategy selection:
+
+```bash
+# Quick iteration with incremental compilation (5-10 seconds on cached builds)
+./run_baseline_quick.sh
+
+# Full release build with optimizations
+./run_baseline.sh
+
+# Flexible mode: choose build profile and scenarios
+./run_baseline_flexible.sh release    # Release build, all scenarios
+./run_baseline_flexible.sh debug 1    # Debug build, scenario 1 only
+./run_baseline_flexible.sh profile 2  # Profile build, scenario 2 only
+
+# Run comprehensive baseline comparison test directly
+cargo test --test comprehensive_benchmark_test --release --no-default-features comprehensive_baseline_comparison -- --nocapture
+```
+
+**Scenarios Tested** (1-indexed):
+- **Scenario 1**: Pure SELECT (passthrough, no aggregation)
+- **Scenario 2**: ROWS WINDOW (analytic function, memory-bounded buffers)
+- **Scenario 3**: GROUP BY (hash aggregation)
+- **Scenario 4**: TUMBLING WINDOW + GROUP BY (batch emission)
+- **Scenario 5**: TUMBLING WINDOW + EMIT CHANGES (continuous emission)
+
+**Implementations Compared**:
+- SQL Engine (baseline)
+- SimpleJobProcessor (single-threaded, best-effort)
+- TransactionalJobProcessor (single-threaded, at-least-once)
+- AdaptiveJobProcessor @ 1-core (partitioned, 1 core)
+- AdaptiveJobProcessor @ 4-core (partitioned, 4 cores)
+
+**Query-Aware Strategy Selection**:
+Each scenario automatically selects optimal partitioning strategy:
+- Pure SELECT → sticky_partition (no rekeying)
+- ROWS WINDOW → sticky_partition (analytic, no rekeying)
+- GROUP BY → always_hash (aggregation requires rekeying)
+- TUMBLING/SLIDING/SESSION WINDOW → always_hash (window boundaries require rekeying)
+
+**Output Example**:
+```
+┌─ Scenario 1: Pure SELECT
+│
+│  SQL Engine Sync (sent: 5000, processed: 5000)
+│    461727 rec/sec
+│
+│  SimpleJp:          345000 rec/sec
+│  TransactionalJp:   340000 rec/sec
+│  AdaptiveJp@1c:     390000 rec/sec
+│  AdaptiveJp@4c:     420000 rec/sec
+│
+│  Partitioner:       sticky_partition (no rekeying required)
+│
+│  Ratios vs SQL Engine Sync:
+│    SimpleJp:        0.75x
+│    AdaptiveJp@4c:   0.91x
+│
+│  Best: AdaptiveJp@4c
+└
+```
+
+### Criterion.rs Benchmarks
+
+#### All Benchmarks
 ```bash
 # Run all benchmarks with detailed output
 cargo bench
@@ -31,7 +96,7 @@ cargo bench
 cargo bench -- --verbose
 ```
 
-### Specific Benchmark Categories
+#### Specific Benchmark Categories
 ```bash
 # Financial precision benchmarks
 cargo bench financial_precision
@@ -53,6 +118,33 @@ cargo bench memory_allocation --features jemalloc
 ```
 
 ## Benchmark Categories
+
+### 0. Baseline Scenario Comparison (`tests/performance/analysis/comprehensive_baseline_comparison.rs`)
+
+**FR-082: Comprehensive Baseline Comparison** - Multi-implementation performance testing with automatic strategy selection.
+
+Features:
+- **5 realistic scenarios** covering Pure SELECT, ROWS WINDOW, GROUP BY, TUMBLING windows
+- **6 implementations** from SQL Engine baseline to partitioned AdaptiveJobProcessor
+- **Query-aware partitioning** auto-selects optimal strategy per scenario
+- **Kafka-like delivery** with KafkaSimulatorDataSource providing partition-grouped batches
+- **Detailed metrics** including throughput, sent/processed records, and performance ratios
+
+Key benchmarks:
+- **Data loading**: 5000+ rec/sec with pre-allocated batches
+- **Query throughput**: Varies by scenario and implementation (290K-420K rec/sec)
+- **Aggregation throughput**: 150K-280K rec/sec with proper partitioning
+
+Test infrastructure:
+- `KafkaSimulatorDataSource`: Lock-free data delivery with partition grouping
+- `MockDataWriter`: Tracks output records for verification
+- Automatic strategy selection via PartitionerSelector (no hardcoded partitioners)
+
+Related documentation:
+- `run_baseline_quick.sh` - Quick iteration (5-10 seconds with cache)
+- `run_baseline.sh` - Full release build with all scenarios
+- `run_baseline_flexible.sh` - Configurable profile and scenario selection
+- See `docs/benchmarks/BASELINE_TESTING.md` for detailed methodology
 
 ### 1. Financial Precision (`benches/financial_precision.rs`)
 - ScaledInteger vs f64 performance comparison
@@ -104,6 +196,12 @@ cargo bench memory_allocation --features jemalloc
 | Kafka Throughput | 100K+ records/sec | 142K records/sec | ✅ Excellent |
 | Memory Efficiency | <1MB/1K records | TBD | 📊 Measuring |
 | Financial Precision | Zero error | Zero error | ✅ Perfect |
+
+## Related Documentation
+
+For in-depth performance analysis and architectural details:
+- [`docs/architecture/stream-table-join-performance.md`](../docs/architecture/stream-table-join-performance.md) - Stream-table join performance analysis and optimization strategies
+- [`docs/architecture/table_benchmark_results.md`](../docs/architecture/table_benchmark_results.md) - Detailed table operation benchmark results and findings
 
 ## Contributing
 

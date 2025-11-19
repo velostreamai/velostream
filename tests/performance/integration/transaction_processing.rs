@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::{
     datasource::{DataReader, DataWriter},
     server::processors::{JobProcessor, common::*, simple::*, transactional::*},
@@ -275,6 +275,10 @@ fn create_benchmark_query() -> StreamingQuery {
         limit: None,
         emit_mode: Some(EmitMode::Changes),
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     }
 }
 

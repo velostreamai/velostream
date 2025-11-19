@@ -16,9 +16,7 @@ In real windowed implementations, these would calculate actual statistics across
 */
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
-use velostream::velostream::serialization::JsonFormat;
 use velostream::velostream::sql::ast::{
     Expr, LiteralValue, SelectField, StreamSource, StreamingQuery,
 };
@@ -77,6 +75,10 @@ async fn test_percentile_cont_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -136,6 +138,10 @@ async fn test_percentile_disc_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -196,6 +202,10 @@ async fn test_percentile_functions_validation() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -251,6 +261,10 @@ async fn test_corr_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -308,6 +322,10 @@ async fn test_covar_pop_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -364,6 +382,10 @@ async fn test_covar_samp_function() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -410,6 +432,10 @@ async fn test_regression_functions() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -521,6 +547,10 @@ async fn test_analytics_functions_null_handling() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -602,6 +632,10 @@ async fn test_analytics_functions_error_cases() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();
@@ -678,6 +712,10 @@ async fn test_multiple_analytics_functions_in_single_query() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let record = create_test_record();
@@ -792,6 +830,10 @@ async fn test_analytics_functions_with_literal_values() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         let record = create_test_record();

@@ -7,7 +7,50 @@
 //! - Unified initialization of observability infrastructure
 //! - Shared metrics collection and aggregation
 //! - Consistent error tracking across processors
-//! - Optional Dead Letter Queue support (for non-transactional processors)
+//! - Optional Dead Letter Queue (DLQ) support for failed record capture
+//!
+//! ## Dead Letter Queue (DLQ) Integration
+//!
+//! The ObservabilityWrapper manages the optional Dead Letter Queue which captures
+//! failed records for inspection, debugging, and recovery:
+//!
+//! ### When to Enable DLQ
+//! - **LogAndContinue strategy**: Records processed individually; failed records preserved
+//! - **SendToDLQ strategy**: Batch-level failures sent to DLQ for retry
+//! - **RetryWithBackoff**: Records exceeding max retries added to DLQ
+//! - **FailBatch strategy**: DLQ should be disabled (batch rolls back atomically)
+//!
+//! ### Key Features
+//! - **Capacity Management**: Optional size limits prevent unbounded growth
+//! - **Atomic Operations**: Thread-safe entry addition and retrieval
+//! - **Error Context Preservation**: Full record data and error messages stored
+//! - **Metrics Integration**: Tracks entries added, rejected, and health status
+//! - **Recovery Support**: Enables re-processing of failed records
+//!
+//! ### Usage Examples
+//!
+//! Enable DLQ for SimpleJobProcessor:
+//! ```ignore
+//! let wrapper = ObservabilityWrapper::with_dlq();
+//! if let Some(dlq) = wrapper.dlq() {
+//!     dlq.add_entry(record, error_msg, record_index, true).await;
+//! }
+//! ```
+//!
+//! Enable DLQ with observability:
+//! ```ignore
+//! let wrapper = ObservabilityWrapper::with_observability_and_dlq(Some(obs_manager));
+//! let dlq = wrapper.dlq();  // Returns Option<&Arc<DeadLetterQueue>>
+//! ```
+//!
+//! Check DLQ health:
+//! ```ignore
+//! if let Some(dlq) = wrapper.dlq() {
+//!     let size = dlq.len().await;
+//!     let capacity = dlq.capacity_usage_percent();
+//!     let at_capacity = dlq.is_at_capacity();
+//! }
+//! ```
 
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::common::DeadLetterQueue;
@@ -138,8 +181,75 @@ impl ObservabilityWrapper {
     }
 
     /// Check if DLQ is enabled
+    ///
+    /// # Returns
+    /// `true` if DLQ is enabled, `false` otherwise
+    ///
+    /// # Example
+    /// ```ignore
+    /// if wrapper.has_dlq() {
+    ///     println!("DLQ is enabled");
+    /// }
+    /// ```
     pub fn has_dlq(&self) -> bool {
         self.dlq.is_some()
+    }
+
+    /// Get reference to DLQ (if enabled)
+    ///
+    /// Returns None if DLQ is not enabled, otherwise returns a reference to the
+    /// Dead Letter Queue. The returned Arc allows shared ownership across threads.
+    ///
+    /// # Returns
+    /// `Option<&Arc<DeadLetterQueue>>` - DLQ reference or None if disabled
+    ///
+    /// # Example: Adding Failed Record to DLQ
+    /// ```ignore
+    /// if let Some(dlq) = wrapper.dlq() {
+    ///     let added = dlq.add_entry(
+    ///         record,
+    ///         "SQL execution error".to_string(),
+    ///         record_index,
+    ///         true  // recoverable
+    ///     ).await;
+    ///
+    ///     if added {
+    ///         debug!("Record added to DLQ");
+    ///     } else {
+    ///         error!("DLQ at capacity, entry rejected");
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Example: Checking DLQ Health
+    /// ```ignore
+    /// if let Some(dlq) = wrapper.dlq() {
+    ///     let size = dlq.len().await;
+    ///     let max = dlq.max_size();
+    ///     let usage = dlq.capacity_usage_percent();
+    ///
+    ///     if dlq.is_at_capacity() {
+    ///         error!("DLQ at maximum capacity!");
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Example: Retrieving Failed Records
+    /// ```ignore
+    /// if let Some(dlq) = wrapper.dlq() {
+    ///     let entries = dlq.get_entries().await;
+    ///     for entry in entries {
+    ///         println!("Failed Record {}: {}", entry.record_index, entry.error_message);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Processor Compatibility
+    /// - SimpleJobProcessor: DLQ enabled by default
+    /// - PartitionReceiver: DLQ enabled for debugging per-partition failures
+    /// - TransactionalJobProcessor: DLQ disabled (FailBatch strategy, no partial failures)
+    pub fn dlq(&self) -> Option<&Arc<DeadLetterQueue>> {
+        self.dlq.as_ref()
     }
 
     // ===== Metrics Methods =====

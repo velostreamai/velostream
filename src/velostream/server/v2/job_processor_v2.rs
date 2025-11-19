@@ -34,7 +34,7 @@ use crate::velostream::server::processors::{
 use crate::velostream::server::v2::AdaptiveJobProcessor;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
-use log::info;
+use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -110,7 +110,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Wrap writer in Arc<Mutex<>> for sharing across partitions
         let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-        let (batch_queues, _metrics, eof_flags) =
+        let (batch_queues, _metrics, eof_flags, task_handles) =
             self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
@@ -125,8 +125,10 @@ impl JobProcessor for AdaptiveJobProcessor {
         tokio::task::yield_now().await;
 
         // Step 3: Read batches and route to receivers (busy-spin pattern)
-        // Shutdown is controlled via stop_flag, not artificial EOF detection
+        // Shutdown is controlled via stop_flag, EOF detection via has_more()
         let mut total_routed = 0u64;
+        let mut consecutive_empty_batches = 0;
+        let max_empty_batches = self.config().empty_batch_count as usize;
 
         loop {
             // Check if processor stop signal was raised
@@ -144,13 +146,40 @@ impl JobProcessor for AdaptiveJobProcessor {
             match reader.read().await {
                 Ok(batch) => {
                     if batch.is_empty() {
-                        // Data source returned empty batch - continue polling
-                        // Partition receivers use the same pattern: yield and continue
-                        // Real EOF comes from stop_flag or successful commit
+                        // Data source returned empty batch
+                        consecutive_empty_batches += 1;
+
+                        // Check if source has indicated no more data (true EOF)
+                        match reader.has_more().await {
+                            Ok(has_more) => {
+                                if !has_more {
+                                    debug!(
+                                        "Read loop: Source has_more() = false, exiting read loop"
+                                    );
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("Error checking has_more(): {:?}", e);
+                            }
+                        }
+
+                        // Source says it has more data - check if we've polled too many times
+                        if consecutive_empty_batches >= max_empty_batches {
+                            debug!(
+                                "Read loop: Received {} consecutive empty batches (max: {}), assuming EOF",
+                                consecutive_empty_batches, max_empty_batches
+                            );
+                            break;
+                        }
+
+                        // Yield and continue polling
                         tokio::task::yield_now().await;
                         continue;
                     }
 
+                    // Got non-empty batch - reset empty counter
+                    consecutive_empty_batches = 0;
                     let batch_size = batch.len();
 
                     // Route batch to receivers (Phase 6.8 lock-free queue routing)
@@ -170,6 +199,11 @@ impl JobProcessor for AdaptiveJobProcessor {
                 Err(e) => {
                     log::warn!("Error reading batch: {:?}", e);
                     // Continue on error - stop_flag will eventually be set to shutdown
+                    consecutive_empty_batches += 1;
+                    if consecutive_empty_batches >= max_empty_batches {
+                        debug!("Read loop: Reached max error count, exiting");
+                        break;
+                    }
                     tokio::task::yield_now().await;
                 }
             }
@@ -184,7 +218,13 @@ impl JobProcessor for AdaptiveJobProcessor {
         // Step 5: Wait for receiver tasks to complete
         // The partition receiver tasks spawned in initialize_partitions_v6_6() will
         // process all queued batches and then exit when EOF is signaled
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // Join on all task handles to ensure they complete
+        for handle in task_handles {
+            if let Err(e) = handle.await {
+                warn!("Partition receiver task failed to complete: {:?}", e);
+            }
+        }
+        debug!("All partition receiver tasks completed");
 
         // Step 6: Finalize writer
         // Partition receivers process records internally and update per-partition state
@@ -245,7 +285,7 @@ impl JobProcessor for AdaptiveJobProcessor {
             // Wrap writer in Arc<Mutex<>> for sharing across partitions
             let shared_writer = writer.map(|w| Arc::new(tokio::sync::Mutex::new(w)));
 
-            let (batch_queues, _metrics, eof_flags) =
+            let (batch_queues, _metrics, eof_flags, task_handles) =
                 self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
@@ -260,6 +300,8 @@ impl JobProcessor for AdaptiveJobProcessor {
 
             // Read batches and route to receivers (busy-spin pattern)
             let mut total_routed = 0u64;
+            let mut consecutive_empty_batches = 0;
+            let max_empty_batches = self.config().empty_batch_count as usize;
 
             loop {
                 // Check if processor stop signal was raised
@@ -274,13 +316,45 @@ impl JobProcessor for AdaptiveJobProcessor {
                 match reader.read().await {
                     Ok(batch) => {
                         if batch.is_empty() {
-                            // Data source returned empty batch - continue polling
-                            // Partition receivers use the same pattern: yield and continue
-                            // Real EOF comes from stop_flag or successful commit
+                            // Data source returned empty batch
+                            consecutive_empty_batches += 1;
+
+                            // Check if source has indicated no more data (true EOF)
+                            match reader.has_more().await {
+                                Ok(has_more) => {
+                                    if !has_more {
+                                        debug!(
+                                            "Read loop (reader {}): Source has_more() = false, exiting",
+                                            reader_name
+                                        );
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "Error checking has_more() for {}: {:?}",
+                                        reader_name,
+                                        e
+                                    );
+                                }
+                            }
+
+                            // Source says it has more data - check if we've polled too many times
+                            if consecutive_empty_batches >= max_empty_batches {
+                                debug!(
+                                    "Read loop (reader {}): Received {} consecutive empty batches (max: {}), assuming EOF",
+                                    reader_name, consecutive_empty_batches, max_empty_batches
+                                );
+                                break;
+                            }
+
+                            // Yield and continue polling
                             tokio::task::yield_now().await;
                             continue;
                         }
 
+                        // Got non-empty batch - reset empty counter
+                        consecutive_empty_batches = 0;
                         let batch_size = batch.len();
 
                         // Route batch to receivers (Phase 6.8 lock-free queue routing)
@@ -299,6 +373,14 @@ impl JobProcessor for AdaptiveJobProcessor {
                     Err(e) => {
                         log::warn!("Error reading batch: {:?}", e);
                         // Continue on error - stop_flag will eventually be set to shutdown
+                        consecutive_empty_batches += 1;
+                        if consecutive_empty_batches >= max_empty_batches {
+                            debug!(
+                                "Read loop (reader {}): Reached max error count, exiting",
+                                reader_name
+                            );
+                            break;
+                        }
                         tokio::task::yield_now().await;
                     }
                 }
@@ -309,8 +391,16 @@ impl JobProcessor for AdaptiveJobProcessor {
                 eof_flag.store(true, std::sync::atomic::Ordering::Release);
             }
 
-            // Wait for receiver tasks to complete
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // Wait for receiver tasks to complete by joining on task handles
+            for handle in task_handles {
+                if let Err(e) = handle.await {
+                    warn!("Partition receiver task failed to complete: {:?}", e);
+                }
+            }
+            debug!(
+                "All partition receiver tasks completed for source: {}",
+                reader_name
+            );
 
             // Finalize writer and reader for this source
             if let Some(writer_arc) = shared_writer {

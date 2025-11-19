@@ -98,6 +98,7 @@ The parser provides detailed error messages with position information:
 All errors implement the `SqlError` type for consistent error handling throughout the system.
 */
 
+use crate::velostream::sql::annotation_parser::SqlAnnotationParser;
 use crate::velostream::sql::ast::*;
 use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
@@ -454,7 +455,38 @@ impl StreamingSqlParser {
     pub fn parse(&self, sql: &str) -> Result<StreamingQuery, SqlError> {
         // Use tokenize_with_comments to extract annotations
         let (tokens, comments) = self.tokenize_with_comments(sql)?;
-        let query = self.parse_tokens_with_context(tokens, sql, comments)?;
+        let mut query = self.parse_tokens_with_context(tokens, sql, comments)?;
+
+        // Extract job-related annotations from SQL comments and apply them to the query
+        let (job_mode, batch_size, num_partitions, partitioning_strategy) =
+            SqlAnnotationParser::parse_job_annotations(sql);
+
+        // Apply annotations to SELECT queries
+        match &mut query {
+            StreamingQuery::Select {
+                job_mode: qry_job_mode,
+                batch_size: qry_batch_size,
+                num_partitions: qry_num_partitions,
+                partitioning_strategy: qry_partitioning_strategy,
+                ..
+            } => {
+                if job_mode.is_some() {
+                    *qry_job_mode = job_mode;
+                }
+                if batch_size.is_some() {
+                    *qry_batch_size = batch_size;
+                }
+                if num_partitions.is_some() {
+                    *qry_num_partitions = num_partitions;
+                }
+                if partitioning_strategy.is_some() {
+                    *qry_partitioning_strategy = partitioning_strategy;
+                }
+            }
+            _ => {
+                // Other query types (StartJob, StopJob, etc.) don't support annotations
+            }
+        }
 
         // IMPORTANT: Aggregate function validation is NOT done here at parse time.
         //
@@ -1335,6 +1367,10 @@ impl<'a> TokenParser<'a> {
                 limit,
                 emit_mode,
                 properties: combined_properties,
+                job_mode: None,
+                batch_size: None,
+                num_partitions: None,
+                partitioning_strategy: None,
             };
 
             // Consume optional semicolon
@@ -1391,6 +1427,10 @@ impl<'a> TokenParser<'a> {
             limit,
             emit_mode,
             properties: combined_properties,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         // Check for UNION after SELECT
@@ -1621,6 +1661,10 @@ impl<'a> TokenParser<'a> {
             limit,
             emit_mode: None, // EMIT is parsed at CREATE STREAM/TABLE level
             properties: _from_with_options, // WITH clause options from FROM source
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         })
     }
 
@@ -1854,6 +1898,10 @@ impl<'a> TokenParser<'a> {
             limit,
             emit_mode,
             properties: _from_with_options, // WITH clause options from FROM source
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         };
 
         // Check for UNION after SELECT

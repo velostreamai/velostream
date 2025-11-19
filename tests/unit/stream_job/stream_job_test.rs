@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::server::processors::common::{
     DataSourceConfig, JobExecutionStats, JobProcessingConfig,
 };
@@ -46,6 +46,8 @@ async fn test_datasource_config_creation() {
         requirement,
         default_topic: "default".to_string(),
         job_name: "test-job".to_string(),
+        app_name: None,
+        instance_id: None,
         batch_config: None,
     };
 
@@ -61,6 +63,8 @@ async fn test_kafka_datasource_creation_mock() {
         requirement: requirement.clone(),
         default_topic: "fallback-topic".to_string(),
         job_name: "kafka-test".to_string(),
+        app_name: None,
+        instance_id: None,
         batch_config: None,
     };
 
@@ -82,6 +86,8 @@ async fn test_file_datasource_config() {
         requirement: requirement.clone(),
         default_topic: "unused".to_string(),
         job_name: "file-test".to_string(),
+        app_name: None,
+        instance_id: None,
         batch_config: None,
     };
 
@@ -218,8 +224,12 @@ async fn test_process_datasource_with_shutdown() {
     // Create mock reader
     let reader = Box::new(MockReader { count: 5 });
 
-    // Create default processor using trait
-    let processor = SimpleJobProcessor::new(JobProcessingConfig::default());
+    // Create processor with fast exit on exhausted sources for test
+    let config = JobProcessingConfig {
+        empty_batch_count: 0, // Exit immediately when sources exhausted
+        ..Default::default()
+    };
+    let processor = SimpleJobProcessor::new(config);
 
     // Process records with job processor trait
     let stats = processor
@@ -258,6 +268,8 @@ async fn test_datasource_config_properties() {
         requirement,
         default_topic: "default".to_string(),
         job_name: "unsupported-test".to_string(),
+        app_name: None,
+        instance_id: None,
         batch_config: None,
     };
 
@@ -285,6 +297,8 @@ fn test_default_values_extraction() {
         requirement,
         default_topic: "my-default-topic".to_string(),
         job_name: "default-test".to_string(),
+        app_name: None,
+        instance_id: None,
         batch_config: None,
     };
 

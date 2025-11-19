@@ -93,6 +93,10 @@ async fn test_windowed_execution_tumbling() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Create records with specific timestamps to trigger window emission
@@ -234,6 +238,10 @@ async fn test_sliding_window_execution() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Process multiple records to trigger sliding window output
@@ -331,6 +339,10 @@ async fn test_session_window_execution() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Create records with controlled timestamps to test session windows properly
@@ -455,6 +467,10 @@ async fn test_aggregation_functions() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Create records with specific timestamps to trigger window emission

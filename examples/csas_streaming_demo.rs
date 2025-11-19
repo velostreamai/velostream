@@ -84,6 +84,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             fraud_alerts_csas.to_string(),
             "transactions".to_string(),
+            None,
+            None,
         )
         .await
     {
@@ -123,6 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             high_value_orders_csas.to_string(),
             "orders".to_string(),
+            None,
+            None,
         )
         .await
     {
@@ -158,6 +162,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             customers_table_ctas.to_string(),
             "customers_stream".to_string(),
+            None,
+            None,
         )
         .await
     {
@@ -201,6 +207,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             enriched_orders_csas.to_string(),
             "orders".to_string(),
+            None,
+            None,
         )
         .await
     {
@@ -243,6 +251,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             metrics_stream_csas.to_string(),
             "orders".to_string(),
+            None,
+            None,
         )
         .await
     {
@@ -313,6 +323,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "v1".to_string(),
                 csas.to_string(),
                 "orders".to_string(),
+                None,
+                None,
             )
             .await
         {
@@ -356,6 +368,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             avro_orders_csas.to_string(),
             "orders_json_stream".to_string(),
+            None,
+            None,
         )
         .await
     {

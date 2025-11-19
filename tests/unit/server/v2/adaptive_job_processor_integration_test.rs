@@ -829,3 +829,227 @@ async fn test_mock_reader_functionality() {
         "Should have no more records"
     );
 }
+
+/// Test that AdaptiveJobProcessor with empty_batch_count=0 doesn't hang
+/// This verifies that the processor exits immediately when all data is exhausted
+#[tokio::test]
+async fn test_adaptive_processor_with_zero_empty_batch_count() {
+    // Create test data: 50 records
+    let test_records = {
+        let mut records = Vec::with_capacity(50);
+        for i in 0..50 {
+            let mut fields = HashMap::new();
+            fields.insert("id".to_string(), FieldValue::Integer(i as i64));
+            fields.insert("value".to_string(), FieldValue::Integer((i * 100) as i64));
+            records.push(StreamRecord::new(fields));
+        }
+        records
+    };
+
+    // Create mock reader and writer
+    let reader = MockDataSource::new(test_records.clone(), 10);
+    let writer = MockDataWriter::new();
+
+    // Simple SELECT query
+    let query_str = "SELECT id, value FROM input_stream";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    // Create AdaptiveJobProcessor with 2 partitions
+    use velostream::velostream::server::v2::{PartitionedJobConfig, RoundRobinStrategy};
+    let mut job_config = PartitionedJobConfig {
+        num_partitions: Some(2),
+        enable_core_affinity: false,
+        ..Default::default()
+    };
+    // CRITICAL TEST: Set empty_batch_count to 0 for immediate exit
+    job_config.empty_batch_count = 0;
+
+    let processor = Arc::new(
+        AdaptiveJobProcessor::new(job_config)
+            .with_strategy(std::sync::Arc::new(RoundRobinStrategy::new())),
+    );
+
+    // This should NOT hang even with empty_batch_count=0
+    // The timeout on run_process_job (5 seconds) will catch any hang
+    let result = run_process_job(
+        processor.clone(),
+        reader,
+        writer.clone(),
+        query,
+        "test_zero_empty_batch",
+    )
+    .await;
+
+    // Verify processing completed successfully (no hang, no timeout)
+    assert!(
+        result.is_ok(),
+        "process_job with empty_batch_count=0 failed or timed out: {:?}",
+        result.err()
+    );
+
+    let stats = result.unwrap();
+    assert_eq!(
+        stats.records_processed, 50,
+        "Expected 50 records processed with empty_batch_count=0, got {}",
+        stats.records_processed
+    );
+
+    // Give async tasks time to finish writing
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Verify records were written to sink
+    let written_count = writer.get_count();
+    println!(
+        "Test zero_empty_batch_count: {} records processed, {} records written",
+        stats.records_processed, written_count
+    );
+
+    assert_eq!(
+        written_count, 50,
+        "Expected 50 records written with empty_batch_count=0, got {}",
+        written_count
+    );
+}
+
+/// Test AdaptiveJobProcessor with JobProcessorFactory::create_adaptive_test_optimized()
+/// This reproduces the bug where written_count shows 0 in comprehensive_baseline_comparison
+#[tokio::test]
+async fn test_adaptive_processor_factory_test_optimized() {
+    use velostream::velostream::server::processors::JobProcessorFactory;
+
+    // Create 5000 records to match comprehensive_baseline_comparison test
+    let test_records = {
+        let mut records = Vec::with_capacity(5000);
+        let base_time = 1700000000i64;
+        for i in 0..5000 {
+            let mut fields = HashMap::new();
+            let trader_id = format!("TRADER{}", i % 20);
+            let symbol = format!("SYM{}", i % 10);
+            let price = 100.0 + (i as f64 % 50.0);
+            let quantity = 100 + (i % 1000);
+            let timestamp = base_time + (i as i64);
+
+            fields.insert("trader_id".to_string(), FieldValue::String(trader_id));
+            fields.insert("symbol".to_string(), FieldValue::String(symbol));
+            fields.insert("price".to_string(), FieldValue::Float(price));
+            fields.insert("quantity".to_string(), FieldValue::Integer(quantity as i64));
+            fields.insert("trade_time".to_string(), FieldValue::Integer(timestamp));
+
+            records.push(StreamRecord::new(fields));
+        }
+        records
+    };
+
+    // Create mock reader and writer
+    let reader = MockDataSource::new(test_records.clone(), 5000); // Single batch
+    let writer = MockDataWriter::new();
+
+    // Create GROUP BY query (matching comprehensive test Scenario 3 - group by strategy compatible)
+    // The AdaptiveJobProcessor uses AlwaysHashStrategy which requires GROUP BY columns
+    let query_str = r#"
+        SELECT symbol,
+            COUNT(*) as trade_count,
+            SUM(quantity) as total_quantity,
+            AVG(price) as avg_price
+        FROM market_data
+        GROUP BY symbol
+    "#;
+
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    // Create AdaptiveJobProcessor using JobProcessorFactory::create_adaptive_test_optimized()
+    // with 1 partition (matching comprehensive test)
+    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
+
+    // Create the underlying trait object processor for process_job
+    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
+    ));
+
+    let start = std::time::Instant::now();
+
+    // Use the same pattern as the working tests - spawn as a separate task
+    let processor_clone = processor.clone();
+    let writer_for_task = writer.clone();
+    let job_handle = tokio::spawn(async move {
+        let result = processor_clone
+            .process_job(
+                Box::new(reader),
+                Some(Box::new(writer_for_task)),
+                dummy_engine,
+                query,
+                "test_factory_optimized".to_string(),
+                {
+                    let (_tx, rx) = tokio::sync::mpsc::channel(1);
+                    rx
+                },
+            )
+            .await;
+        result
+    });
+
+    // Wait a moment for async tasks to start
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    // Process task to completion
+    let result = job_handle.await.expect("process_job task panicked");
+
+    let elapsed = start.elapsed();
+
+    // Wait for async partition receiver tasks to complete (same as comprehensive test)
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Get results
+    let records_written = writer.get_count();
+
+    // Print results in same format as comprehensive test
+    println!("\n═══════════════════════════════════════════════════════════");
+    println!("TEST: AdaptiveJobProcessor with Factory (Test-Optimized)");
+    println!("═══════════════════════════════════════════════════════════");
+    println!("Input records:        {}", test_records.len());
+    println!("Output records:       {}", records_written);
+    println!("Elapsed time:         {:.3}s", elapsed.as_secs_f64());
+    if records_written > 0 {
+        println!(
+            "Throughput (actual):  {:.0} out_rec/sec",
+            (records_written as f64) / elapsed.as_secs_f64()
+        );
+    } else {
+        println!("Throughput (actual):  0 out_rec/sec (NO RECORDS WRITTEN)");
+    }
+    println!(
+        "Throughput (reported): {:.0} rec/sec (based on input)",
+        (test_records.len() as f64) / elapsed.as_secs_f64()
+    );
+    println!(
+        "Output multiplier:    {:.1}x",
+        (records_written as f64) / (test_records.len() as f64)
+    );
+    println!("═══════════════════════════════════════════════════════════\n");
+
+    // Verify processing completed
+    assert!(result.is_ok(), "process_job failed: {:?}", result.err());
+
+    // THIS IS THE CRITICAL ASSERTION THAT SHOULD FAIL WITH THE CURRENT BUG
+    // In comprehensive_baseline_comparison, records_written always shows 0 for AdaptiveJp
+    // This test should FAIL if the bug exists
+    assert!(
+        records_written > 0,
+        "BUG REPRODUCED: No records were written to sink! \
+         Input: {}, Output: {}, Elapsed: {:.3}s. \
+         This is the same bug seen in comprehensive_baseline_comparison.",
+        test_records.len(),
+        records_written,
+        elapsed.as_secs_f64()
+    );
+
+    // For EMIT CHANGES, output should have results (windowed aggregates)
+    // The exact count depends on window boundaries, but should not be 0
+    println!(
+        "✓ Records written correctly: {} records processed and written",
+        records_written
+    );
+}

@@ -37,6 +37,8 @@ async fn deploy_test_job(
                 )"#
             .to_string(),
             "test_topic".to_string(),
+            None,
+            None,
         )
         .await
 }
@@ -292,6 +294,8 @@ async fn test_input_validation_empty_name() {
                 )"#
             .to_string(),
             "test_topic".to_string(),
+            None,
+            None,
         )
         .await;
 
@@ -324,6 +328,8 @@ async fn test_input_validation_empty_version() {
                 )"#
             .to_string(),
             "test_topic".to_string(),
+            None,
+            None,
         )
         .await;
 
@@ -350,6 +356,8 @@ async fn test_input_validation_empty_query() {
             "1.0".to_string(),
             "".to_string(), // Empty query
             "test_topic".to_string(),
+            None,
+            None,
         )
         .await;
 
@@ -382,6 +390,8 @@ async fn test_input_validation_empty_topic() {
                 )"#
             .to_string(),
             "".to_string(), // Empty topic
+            None,
+            None,
         )
         .await;
 

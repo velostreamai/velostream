@@ -52,9 +52,9 @@ the channel - so emissions are lost.
 use serial_test::serial;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::sync::mpsc;
-use velostream::velostream::datasource::{DataReader, DataWriter};
+use velostream::velostream::datasource::DataWriter;
 use velostream::velostream::server::processors::{
     JobProcessor, JobProcessorConfig, JobProcessorFactory,
 };

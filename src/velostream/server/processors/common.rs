@@ -12,16 +12,13 @@ use crate::velostream::server::processors::SimpleJobProcessor;
 use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
-    execution::{
-        config::StreamingConfig,
-        processors::{QueryProcessor, context::ProcessorContext},
-        types::StreamRecord,
-    },
+    execution::{config::StreamingConfig, types::StreamRecord},
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
 
@@ -57,24 +54,57 @@ pub struct DLQEntry {
 #[derive(Debug, Clone)]
 pub struct DeadLetterQueue {
     pub entries: Arc<Mutex<Vec<DLQEntry>>>,
+    /// Optional maximum size limit for DLQ. If None, no limit is enforced.
+    max_size: Option<usize>,
+    /// Atomic flag indicating if DLQ has reached max capacity
+    max_size_reached: Arc<AtomicBool>,
+    /// Current count of entries (updated atomically for fast capacity checks)
+    entry_count: Arc<AtomicUsize>,
 }
 
 impl DeadLetterQueue {
-    /// Create a new DLQ
+    /// Create a new DLQ without size limits
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(Vec::new())),
+            max_size: None,
+            max_size_reached: Arc::new(AtomicBool::new(false)),
+            entry_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Create a new DLQ with a maximum size limit
+    pub fn with_max_size(max_size: usize) -> Self {
+        Self {
+            entries: Arc::new(Mutex::new(Vec::new())),
+            max_size: Some(max_size),
+            max_size_reached: Arc::new(AtomicBool::new(false)),
+            entry_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     /// Add a failed record to the DLQ
+    /// Returns true if entry was added, false if at capacity or other error
     pub async fn add_entry(
         &self,
         record: StreamRecord,
         error_message: String,
         record_index: usize,
         recoverable: bool,
-    ) {
+    ) -> bool {
+        // Check capacity before adding
+        if let Some(max) = self.max_size {
+            let current_count = self.entry_count.load(Ordering::SeqCst);
+            if current_count >= max {
+                self.max_size_reached.store(true, Ordering::SeqCst);
+                debug!(
+                    "DLQ at capacity: {}/{} entries. Rejecting new entry.",
+                    current_count, max
+                );
+                return false;
+            }
+        }
+
         let entry = DLQEntry {
             record,
             error_message,
@@ -82,7 +112,20 @@ impl DeadLetterQueue {
             recoverable,
             timestamp: Instant::now(),
         };
+
         self.entries.lock().await.push(entry);
+
+        // Update atomic count
+        let new_count = self.entry_count.fetch_add(1, Ordering::SeqCst) + 1;
+
+        // Update max_size_reached flag
+        if let Some(max) = self.max_size {
+            if new_count >= max {
+                self.max_size_reached.store(true, Ordering::SeqCst);
+            }
+        }
+
+        true
     }
 
     /// Get all DLQ entries
@@ -100,9 +143,11 @@ impl DeadLetterQueue {
         self.entries.lock().await.is_empty()
     }
 
-    /// Clear the DLQ
+    /// Clear the DLQ and reset counters
     pub async fn clear(&self) {
         self.entries.lock().await.clear();
+        self.entry_count.store(0, Ordering::SeqCst);
+        self.max_size_reached.store(false, Ordering::SeqCst);
     }
 
     /// Print all DLQ entries for debugging
@@ -131,6 +176,35 @@ impl DeadLetterQueue {
             );
             println!();
         }
+    }
+
+    /// Get the maximum size limit for this DLQ
+    pub fn max_size(&self) -> Option<usize> {
+        self.max_size
+    }
+
+    /// Check if DLQ has reached maximum capacity
+    pub fn is_at_capacity(&self) -> bool {
+        self.max_size_reached.load(Ordering::SeqCst)
+    }
+
+    /// Reset the max_size_reached flag (useful after clearing DLQ)
+    pub fn reset_max_size_flag(&self) {
+        self.max_size_reached.store(false, Ordering::SeqCst);
+    }
+
+    /// Get current capacity usage as a percentage (0.0 - 100.0)
+    /// Returns None if no max_size is configured
+    pub fn capacity_usage_percent(&self) -> Option<f64> {
+        self.max_size.map(|max| {
+            let current = self.entry_count.load(Ordering::SeqCst);
+            (current as f64 / max as f64) * 100.0
+        })
+    }
+
+    /// Get current entry count (fast, non-blocking)
+    pub fn current_size(&self) -> usize {
+        self.entry_count.load(Ordering::SeqCst)
     }
 }
 
@@ -245,6 +319,15 @@ pub struct JobProcessingConfig {
     /// Wait time in milliseconds between empty batches
     /// Default: 1000ms (1 second) to avoid busy-waiting on empty data sources
     pub wait_on_empty_batch_ms: u64,
+    /// Enable Dead Letter Queue for failed records (only used with LogAndContinue strategy)
+    /// - SimpleJobProcessor: Default true (supports error recovery)
+    /// - TransactionalJobProcessor: Default false (FailBatch rolls back, DLQ not applicable)
+    /// - PartitionReceiver: Default true (enables debug tracking for partition-level failures)
+    pub enable_dlq: bool,
+    /// Maximum size limit for the Dead Letter Queue
+    /// If None, no limit is enforced. If Some(max), DLQ will reject entries once capacity is reached.
+    /// Default: Some(100) - 100 items max to prevent unbounded growth
+    pub dlq_max_size: Option<usize>,
 }
 
 impl Default for JobProcessingConfig {
@@ -258,8 +341,10 @@ impl Default for JobProcessingConfig {
             retry_backoff: Duration::from_millis(5000),
             log_progress: true,
             progress_interval: 10,
-            empty_batch_count: 1000,
+            empty_batch_count: 1000, // Exit immediately when all sources exhausted (no retry delay)
             wait_on_empty_batch_ms: 1000,
+            enable_dlq: true,        // Default: enabled for LogAndContinue strategy
+            dlq_max_size: Some(100), // Default: 100 items max DLQ size
         }
     }
 }
@@ -289,37 +374,16 @@ pub struct BatchProcessingResultWithOutput {
 }
 
 /// Process a batch of records through the SQL execution engine
-pub async fn process_batch_common(
-    batch: Vec<StreamRecord>,
-    engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
-    query: &StreamingQuery,
-    job_name: &str,
-) -> BatchProcessingResult {
-    let result = process_batch(batch, engine, query, job_name).await;
-
-    // Convert to the original result type (without output records)
-    BatchProcessingResult {
-        records_processed: result.records_processed,
-        records_failed: result.records_failed,
-        processing_time: result.processing_time,
-        batch_size: result.batch_size,
-        error_details: result.error_details,
-    }
-}
-
-/// Process a batch of records and capture SQL engine output for sink writing
 ///
-/// Uses direct QueryProcessor calls for low-latency processing without holding
-/// engine locks during batch processing. This approach:
-/// - Eliminates per-record engine lock contention
-/// - Returns actual SQL query results (not input passthroughs)
-/// - Supports GROUP BY/Window aggregations via ProcessorContext state
-/// - Achieves 2x+ performance improvement over execute_with_record()
+/// Uses engine.execute_with_record_sync() for proper abstraction layer and architecture.
+/// This approach:
+/// - Maintains clean separation between processor and engine layers
+/// - Engine handles windowing, GROUP BY, state management, EMIT CHANGES
+/// - Returns actual SQL query results (0 or more per input record)
+/// - Consistent with PartitionReceiver (V2 architecture)
 ///
-/// ## Architecture Pattern
-/// 1. Get state once at batch start (minimal lock time)
-/// 2. Process batch with local state copies (no locks)
-/// 3. Sync state back once at batch end (minimal lock time)
+/// The engine manages all complexity: context initialization, state persistence,
+/// window emission, GROUP BY queue draining, EMIT CHANGES routing.
 pub async fn process_batch(
     batch: Vec<StreamRecord>,
     engine: &Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
@@ -333,300 +397,66 @@ pub async fn process_batch(
     let mut error_details = Vec::new();
     let mut output_records = Vec::new();
 
-    // Generate query ID for state management
-    let query_id = generate_query_id(query);
+    debug!(
+        "Job '{}': Processing batch of {} records",
+        job_name, batch_size
+    );
 
-    // FR-082 Phase 5: Detect EMIT CHANGES mode for hybrid routing
-    let uses_emit_changes = is_emit_changes_query(query);
-
-    if uses_emit_changes {
-        // FR-082 Week 8 Optimization 2: Lock-free batch processing for EMIT CHANGES
-        // Previous: Per-record locking (1,000 locks per 1,000 records)
-        // New: 2 locks total (batch start + batch end), process without lock
-        // Expected improvement: 2-3x from reduced lock contention
-        debug!(
-            "Job '{}': Using lock-free EMIT CHANGES path for {} records (Optimization 2)",
-            job_name, batch_size
-        );
-
-        // Lock 1: Get output channel ONCE at batch start
-        let mut temp_receiver = {
-            let mut engine_lock = engine.write().await;
-            engine_lock.take_output_receiver()
-        };
-
-        // Get output sender (cheap clone operation, minimal lock time)
-        let output_sender = {
-            let engine_lock = engine.read().await;
-            engine_lock.get_output_sender_for_batch()
-        };
-
-        // Phase 6.5: Get mutable context from QueryExecution
-        // Context persists for the lifetime of the query, accumulating state
-        // Get streaming config once at batch start
-        let streaming_config = {
-            let engine_lock = engine.read().await;
-            engine_lock.streaming_config().clone()
-        };
-
-        let output_sender = {
-            let engine_lock = engine.read().await;
-            engine_lock.get_output_sender_for_batch()
-        };
-
-        // Get Arc<Mutex<ProcessorContext>> from QueryExecution - NOT holding engine lock during processing
-        // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
-        // FR-082 Phase 6.8: Try read-only first, fall back to lazy init if needed
-        // This eliminates the write lock for queries that have been initialized at startup
-        let processor_context_arc = {
-            // Try to get without lazy initialization (fast path for normal operation)
-            {
-                let engine_lock = engine.read().await;
-                if let Some(context_arc) = engine_lock.get_query_execution_context(query) {
-                    context_arc
-                } else {
-                    // Slow path: query not yet initialized, need write lock for lazy init
-                    // This happens when process_batch() is called directly without process_job()
-                    drop(engine_lock); // Release read lock before acquiring write lock
-                    let mut engine_lock = engine.write().await;
-                    match engine_lock.ensure_query_execution(query) {
-                        Some(context_arc) => context_arc,
-                        None => {
-                            error!("Failed to initialize query execution: {}", query_id);
-                            return BatchProcessingResultWithOutput {
-                                records_processed: 0,
-                                records_failed: batch.len(),
-                                processing_time: Duration::from_secs(0),
-                                batch_size: batch.len(),
-                                error_details: vec![ProcessingError {
-                                    record_index: 0,
-                                    error_message: format!(
-                                        "Failed to initialize query execution: {}",
-                                        query_id
-                                    ),
-                                    recoverable: false,
-                                }],
-                                output_records: vec![],
-                            };
-                        }
-                    }
-                }
-            }
-        };
-
-        // Set streaming config on the persistent context
-        {
-            let mut ctx = processor_context_arc.lock().unwrap();
-            ctx.streaming_config = Some(streaming_config.clone());
-        }
-
-        // Acquire Mutex lock only during record processing (minimal contention)
-        // CRITICAL: Lock is held only during batch processing, released before any await
-        {
-            let mut ctx = processor_context_arc.lock().unwrap();
-
-            // FR-082 Week 8 Optimization 1+2: Batch emission with lock-free processing
-            // Process all records WITHOUT holding engine lock
-            for (index, record) in batch.into_iter().enumerate() {
-                match QueryProcessor::process_query(query, &record, &mut ctx) {
-                    Ok(result) => {
-                        records_processed += 1;
-
-                        // For EMIT CHANGES: emit each output record through the channel
-                        if let Some(output) = result.record {
-                            let _ = output_sender.send(output);
-                        }
-                    }
-                    Err(e) => {
-                        records_failed += 1;
-
-                        let detailed_msg = extract_error_context(&e);
-                        let recoverable = is_recoverable_error(&e);
-
-                        error_details.push(ProcessingError {
-                            record_index: index,
-                            error_message: detailed_msg.clone(),
-                            recoverable,
-                        });
-
-                        warn!(
-                            "Job '{}' EMIT CHANGES (lock-free) failed to process record {}: {} [Recoverable: {}]",
-                            job_name, index, detailed_msg, recoverable
-                        );
-                        debug!("Full error details: {:?}", e);
-                    }
-                }
-            }
-        } // MutexGuard explicitly dropped here before any await
-
-        // Collect any emitted results from receiver if still available
-        if let Some(rx) = &mut temp_receiver {
-            while let Ok(emitted_record) = rx.try_recv() {
-                output_records.push(Arc::new(emitted_record));
-            }
-        }
-
-        // No sync needed - context is Arc<Mutex>, mutations are already persisted in-place
-        if let Some(rx) = temp_receiver {
-            let mut engine_lock = engine.write().await;
-            engine_lock.return_output_receiver(rx);
-        }
-    } else {
-        // Standard Path: Batch optimization for non-EMIT queries (high performance)
-        // Track null output records for debugging
-        let mut null_output_count = 0;
-        let mut null_output_example_idx = None;
-
-        // Phase 6.5: Get Arc<Mutex<ProcessorContext>> from QueryExecution
-        // Context persists for lifetime of query - acquired by reference, never cloned
-        // FR-082 STP: Arc is cheap to clone for ownership transfer, Mutex lock held only during processing
-        // FR-082 Phase 6.8: Try read-only first, fall back to lazy init if needed
-        // This eliminates the write lock for queries that have been initialized at startup
-        let processor_context_arc = {
-            // Try to get without lazy initialization (fast path for normal operation)
-            {
-                let engine_lock = engine.read().await;
-                if let Some(context_arc) = engine_lock.get_query_execution_context(query) {
-                    context_arc
-                } else {
-                    // Slow path: query not yet initialized, need write lock for lazy init
-                    // This happens when process_batch() is called directly without process_job()
-                    drop(engine_lock); // Release read lock before acquiring write lock
-                    let mut engine_lock = engine.write().await;
-                    match engine_lock.ensure_query_execution(query) {
-                        Some(context_arc) => context_arc,
-                        None => {
-                            error!("Failed to initialize query execution: {}", query_id);
-                            return BatchProcessingResultWithOutput {
-                                records_processed: 0,
-                                records_failed: batch.len(),
-                                processing_time: Duration::from_secs(0),
-                                batch_size: batch.len(),
-                                error_details: vec![ProcessingError {
-                                    record_index: 0,
-                                    error_message: format!(
-                                        "Failed to initialize query execution: {}",
-                                        query_id
-                                    ),
-                                    recoverable: false,
-                                }],
-                                output_records: vec![],
-                            };
-                        }
-                    }
-                }
-            }
-        };
-
-        // Set streaming config on the persistent context
-        {
-            let streaming_config = {
-                let engine_lock = engine.read().await;
-                engine_lock.streaming_config().clone()
-            };
-            let mut ctx = processor_context_arc.lock().unwrap();
-            ctx.streaming_config = Some(streaming_config);
-        }
-
-        // Process batch WITHOUT holding engine lock (high performance)
-        debug!(
-            "Job '{}': Standard path processing {} records (uses_emit_changes = false)",
-            job_name, batch_size
-        );
-
-        // Acquire Mutex lock only during record processing (minimal contention)
-        // CRITICAL: Lock is held only during batch processing, released before any await
-        // Context state accumulates (GROUP BY, window state) across all records
-        {
-            let mut ctx = processor_context_arc.lock().unwrap();
-
-            for (index, record) in batch.into_iter().enumerate() {
-                match QueryProcessor::process_query(query, &record, &mut ctx) {
-                    Ok(result) => {
-                        records_processed += 1;
-
-                        // Collect ACTUAL SQL query results for sink writing
-                        // (not input passthrough - this is the critical fix!)
-                        // PERF: Wrap in Arc for zero-copy multi-sink writes (7x faster)
-                        if let Some(output) = result.record {
-                            output_records.push(Arc::new(output));
-                        } else {
-                            // DIAGNOSTIC: Record when result.record is None
-                            // This indicates the query executed but produced no output for this record
-                            null_output_count += 1;
-                            if null_output_example_idx.is_none() {
-                                null_output_example_idx = Some(index);
-                            }
-
-                            debug!(
-                                "Job '{}' record {} processed successfully but produced no output (result.record is None)",
-                                job_name, index
-                            );
-                        }
-
-                        // NOTE: State accumulation happens automatically in context
-                        // No need to copy state back - it's already mutated in place
-                    }
-                    Err(e) => {
-                        records_failed += 1;
-
-                        // Extract and log detailed error context
-                        let detailed_msg = extract_error_context(&e);
-                        let recoverable = is_recoverable_error(&e);
-
-                        error_details.push(ProcessingError {
-                            record_index: index,
-                            error_message: detailed_msg.clone(),
-                            recoverable,
-                        });
-
-                        // Log with human-readable context and full debug info
-                        if index < 3 {
-                            // Log first 3 errors to avoid log spam
-                            warn!(
-                                "Job '{}' failed to process record {}: {} [Recoverable: {}]",
-                                job_name, index, detailed_msg, recoverable
-                            );
-                            debug!("Full error details: {:?}", e);
-                        } else if index == 3 {
-                            warn!(
-                                "Job '{}' (suppressing further error logs for batch, {} errors total)",
-                                job_name, batch_size
-                            );
-                        }
-                    }
-                }
-            }
-        } // MutexGuard explicitly dropped here
-
-        debug!(
-            "Job '{}': Standard path completed: {} processed, {} failed",
-            job_name, records_processed, records_failed
-        );
-
-        // DIAGNOSTIC: Log summary of null output records
-        if null_output_count > 0 {
-            warn!(
-                "Job '{}': ⚠️  DIAGNOSTIC: {} out of {} processed records produced no output (result.record was None)",
-                job_name, null_output_count, records_processed
-            );
-            if let Some(idx) = null_output_example_idx {
-                warn!(
-                    "Job '{}': First example of null output at record index {}",
-                    job_name, idx
-                );
-                warn!("Job '{}': Possible causes:", job_name);
-                warn!(
-                    "   1. Query produces no output (e.g., no rows match filters, window not complete)"
-                );
-                warn!("   2. Stream/JOIN produces no output by design");
-                warn!("   3. Aggregation hasn't collected enough records to emit");
-                warn!("   4. Record is filtered out (WHERE/HAVING clauses exclude it)");
-            }
-        }
-
-        // No sync needed - context is Arc<Mutex>, mutations are already persisted in-place
+    // Initialize query execution (engine prepares all state)
+    {
+        let mut engine_lock = engine.write().await;
+        engine_lock.init_query_execution(query.clone());
     }
+
+    // Process all records through engine abstraction layer
+    for (index, record) in batch.into_iter().enumerate() {
+        match engine
+            .write()
+            .await
+            .execute_with_record_sync(query, &record)
+        {
+            Ok(outputs) => {
+                records_processed += 1;
+
+                // Collect results (0 or more per input record)
+                // Engine handles windows, GROUP BY, EMIT CHANGES internally
+                for output in outputs {
+                    output_records.push(Arc::new(output));
+                }
+            }
+            Err(e) => {
+                records_failed += 1;
+
+                let detailed_msg = extract_error_context(&e);
+                let recoverable = is_recoverable_error(&e);
+
+                error_details.push(ProcessingError {
+                    record_index: index,
+                    error_message: detailed_msg.clone(),
+                    recoverable,
+                });
+
+                // Log first 3 errors to avoid log spam
+                if index < 3 {
+                    warn!(
+                        "Job '{}' failed to process record {}: {} [Recoverable: {}]",
+                        job_name, index, detailed_msg, recoverable
+                    );
+                    debug!("Full error details: {:?}", e);
+                } else if index == 3 {
+                    warn!(
+                        "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                        job_name, batch_size
+                    );
+                }
+            }
+        }
+    }
+
+    debug!(
+        "Job '{}': Batch completed: {} processed, {} failed",
+        job_name, records_processed, records_failed
+    );
 
     BatchProcessingResultWithOutput {
         records_processed,
@@ -635,209 +465,6 @@ pub async fn process_batch(
         batch_size,
         error_details,
         output_records,
-    }
-}
-
-/// Phase 6.8 Optimization: Process batch with pre-cached ProcessorContext
-///
-/// This optimized version eliminates write lock acquisitions on the engine by accepting
-/// a pre-initialized Arc<Mutex<ProcessorContext>> directly. This is the recommended path
-/// when processing multiple batches with the same query.
-///
-/// ## Performance Benefits
-/// - **Zero engine write locks**: Eliminates engine.write().await() call
-/// - **Per-batch cost**: Only mutex lock on ProcessorContext (already optimized in Phase 6.7)
-/// - **Expected improvement**: Eliminates 100-200 write lock acquisitions per second at typical throughput
-///
-/// ## Usage Pattern
-/// ```rust,ignore
-/// // Initialize once at startup (with engine lock)
-/// let processor_context_arc = {
-///     let mut engine_lock = engine.write().await;
-///     engine_lock.init_query_execution(query.clone());
-///     let qe = engine_lock.get_query_execution(&query_id)?;
-///     Arc::clone(&qe.processor_context)
-/// };
-///
-/// // Process batches without engine lock
-/// loop {
-///     let batch = reader.read().await?;
-///     let result = process_batch_with_cached_context(
-///         batch,
-///         &processor_context_arc,
-///         &query,
-///         &streaming_config,
-///         &job_name,
-///     ).await;
-/// }
-/// ```
-pub async fn process_batch_with_cached_context(
-    batch: Vec<StreamRecord>,
-    processor_context_arc: &Arc<std::sync::Mutex<ProcessorContext>>,
-    query: &StreamingQuery,
-    streaming_config: &StreamingConfig,
-    job_name: &str,
-) -> BatchProcessingResultWithOutput {
-    let batch_start = Instant::now();
-    let batch_size = batch.len();
-    let mut records_processed = 0;
-    let mut records_failed = 0;
-    let mut error_details = Vec::new();
-    let mut output_records = Vec::new();
-
-    // Detect EMIT CHANGES mode
-    let uses_emit_changes = is_emit_changes_query(query);
-
-    if uses_emit_changes {
-        // EMIT CHANGES path - with channel-based output
-        debug!(
-            "Job '{}': Using cached context EMIT CHANGES path for {} records (Phase 6.8)",
-            job_name, batch_size
-        );
-
-        // Lock context once for entire batch
-        {
-            let mut ctx = processor_context_arc.lock().unwrap();
-            ctx.streaming_config = Some(streaming_config.clone());
-
-            // Process all records with lock held
-            for (index, record) in batch.into_iter().enumerate() {
-                match QueryProcessor::process_query(query, &record, &mut ctx) {
-                    Ok(result) => {
-                        records_processed += 1;
-                        if let Some(output) = result.record {
-                            // For EMIT CHANGES, record would be emitted via channel
-                            output_records.push(Arc::new(output));
-                        }
-                    }
-                    Err(e) => {
-                        records_failed += 1;
-                        let detailed_msg = extract_error_context(&e);
-                        let recoverable = is_recoverable_error(&e);
-                        error_details.push(ProcessingError {
-                            record_index: index,
-                            error_message: detailed_msg.clone(),
-                            recoverable,
-                        });
-                        warn!(
-                            "Job '{}' cached context EMIT CHANGES failed at record {}: {} [Recoverable: {}]",
-                            job_name, index, detailed_msg, recoverable
-                        );
-                        debug!("Full error details: {:?}", e);
-                    }
-                }
-            }
-        } // MutexGuard dropped here before any await
-    } else {
-        // Standard path - with direct output collection
-        debug!(
-            "Job '{}': Using cached context standard path for {} records (Phase 6.8)",
-            job_name, batch_size
-        );
-
-        // Lock context once for entire batch
-        {
-            let mut ctx = processor_context_arc.lock().unwrap();
-            ctx.streaming_config = Some(streaming_config.clone());
-
-            // Process all records with lock held
-            for (index, record) in batch.into_iter().enumerate() {
-                match QueryProcessor::process_query(query, &record, &mut ctx) {
-                    Ok(result) => {
-                        records_processed += 1;
-                        if let Some(output) = result.record {
-                            output_records.push(Arc::new(output));
-                        }
-                    }
-                    Err(e) => {
-                        records_failed += 1;
-                        let detailed_msg = extract_error_context(&e);
-                        let recoverable = is_recoverable_error(&e);
-                        error_details.push(ProcessingError {
-                            record_index: index,
-                            error_message: detailed_msg.clone(),
-                            recoverable,
-                        });
-                        if index < 3 {
-                            warn!(
-                                "Job '{}' cached context failed at record {}: {} [Recoverable: {}]",
-                                job_name, index, detailed_msg, recoverable
-                            );
-                            debug!("Full error details: {:?}", e);
-                        } else if index == 3 {
-                            warn!(
-                                "Job '{}' (suppressing further error logs for batch, {} errors total)",
-                                job_name, batch_size
-                            );
-                        }
-                    }
-                }
-            }
-        } // MutexGuard dropped here
-    }
-
-    BatchProcessingResultWithOutput {
-        records_processed,
-        records_failed,
-        processing_time: batch_start.elapsed(),
-        batch_size,
-        error_details,
-        output_records,
-    }
-}
-
-/// Check if a query uses EMIT CHANGES mode
-///
-/// EMIT CHANGES queries require special handling because they emit results
-/// through the output_sender channel rather than returning them directly.
-/// This is critical for streaming semantics where each input record can
-/// trigger multiple output emissions.
-///
-/// ## FR-082 Phase 5: EMIT CHANGES Architectural Fix
-///
-/// Queries with EMIT CHANGES must use `engine.execute_with_record()` instead
-/// of `QueryProcessor::process_query()` to properly drain the output_sender channel.
-fn is_emit_changes_query(query: &StreamingQuery) -> bool {
-    match query {
-        StreamingQuery::Select { emit_mode, .. } => {
-            matches!(
-                emit_mode,
-                Some(crate::velostream::sql::ast::EmitMode::Changes)
-            )
-        }
-        _ => false,
-    }
-}
-
-/// Generate a consistent query ID for state management
-///
-/// Creates a stable identifier for queries to track their GROUP BY and Window state.
-/// The ID remains consistent across batches for the same query.
-fn generate_query_id(query: &StreamingQuery) -> String {
-    match query {
-        StreamingQuery::Select { from, window, .. } => {
-            let base = format!(
-                "select_{}",
-                match from {
-                    StreamSource::Stream(name) | StreamSource::Table(name) => name.as_str(),
-                    StreamSource::Uri(uri) => uri.as_str(),
-                    StreamSource::Subquery(_) => "subquery",
-                }
-            );
-            if window.is_some() {
-                format!("{}_windowed", base)
-            } else {
-                base
-            }
-        }
-        StreamingQuery::CreateStream { name, .. } => format!("create_stream_{}", name),
-        StreamingQuery::CreateTable { name, .. } => format!("create_table_{}", name),
-        StreamingQuery::Show { resource_type, .. } => format!("show_{:?}", resource_type),
-        StreamingQuery::StartJob { name, .. } => format!("start_job_{}", name),
-        StreamingQuery::StopJob { name, .. } => format!("stop_job_{}", name),
-        StreamingQuery::PauseJob { name } => format!("pause_job_{}", name),
-        StreamingQuery::ResumeJob { name } => format!("resume_job_{}", name),
-        _ => "query".to_string(),
     }
 }
 
@@ -989,6 +616,8 @@ pub struct DataSourceConfig {
     pub requirement: DataSourceRequirement,
     pub default_topic: String,
     pub job_name: String,
+    pub app_name: Option<String>, // For multi-JobServer consumer group coordination
+    pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
 }
 
@@ -996,6 +625,8 @@ pub struct DataSourceConfig {
 pub struct DataSinkConfig {
     pub requirement: DataSinkRequirement,
     pub job_name: String,
+    pub app_name: Option<String>, // For hierarchical client.id generation
+    pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
 }
 
@@ -1087,6 +718,8 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
                 &requirement.properties,
                 &requirement.name, // Use source name, not default_topic
                 &config.job_name,
+                config.app_name.as_deref(),
+                config.instance_id.as_deref(),
                 &config.batch_config,
             )
             .await
@@ -1106,6 +739,8 @@ async fn create_kafka_reader(
     props: &HashMap<String, String>,
     source_name: &str,
     job_name: &str,
+    app_name: Option<&str>,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSourceCreationResult {
     // Extract topic name from properties, or use source name as default
@@ -1117,12 +752,16 @@ async fn create_kafka_reader(
         .unwrap_or_else(|| source_name.to_string());
 
     info!(
-        "Creating Kafka reader for source '{}' with topic '{}'",
-        source_name, topic
+        "Creating Kafka reader for source '{}' with topic '{}' (app: {}, instance: {})",
+        source_name,
+        topic,
+        app_name.unwrap_or("none"),
+        instance_id.unwrap_or("none")
     );
 
     // Let KafkaDataSource handle its own configuration extraction
-    let mut datasource = KafkaDataSource::from_properties(props, &topic, job_name);
+    let mut datasource =
+        KafkaDataSource::from_properties(props, &topic, job_name, app_name, instance_id);
 
     // Self-initialize with the extracted configuration
     datasource
@@ -1197,6 +836,9 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
             create_kafka_writer(
                 &requirement.properties,
                 &requirement.name, // Use sink name, not job name
+                &config.job_name,
+                config.app_name.as_deref(),
+                config.instance_id.as_deref(),
                 &config.batch_config,
             )
             .await
@@ -1215,6 +857,9 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
 async fn create_kafka_writer(
     props: &HashMap<String, String>,
     sink_name: &str,
+    job_name: &str,
+    app_name: Option<&str>,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
     // Extract brokers from properties
@@ -1234,12 +879,15 @@ async fn create_kafka_writer(
         .unwrap_or_else(|| sink_name.to_string());
 
     info!(
-        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}'",
-        sink_name, brokers, topic
+        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}', instance: {}",
+        sink_name,
+        brokers,
+        topic,
+        instance_id.unwrap_or("none")
     );
 
     // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(props, sink_name);
+    let mut datasink = KafkaDataSink::from_properties(props, job_name, app_name, instance_id);
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
     let config = SinkConfig::Kafka {
@@ -1317,9 +965,17 @@ async fn create_file_writer(
 }
 
 /// Create multiple datasource readers from analysis requirements
+///
+/// # Arguments
+/// * `sources` - Data source requirements
+/// * `job_name` - Name of the job
+/// * `app_name` - Optional SQL Application name for consumer group coordination
+/// * `batch_config` - Optional batch configuration
 pub async fn create_multi_source_readers(
     sources: &[DataSourceRequirement],
     job_name: &str,
+    app_name: Option<&str>,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSourceCreationResult {
     let mut readers = HashMap::new();
@@ -1342,6 +998,8 @@ pub async fn create_multi_source_readers(
             requirement: requirement.clone(),
             default_topic: requirement.name.clone(), // Use source name as default
             job_name: job_name.to_string(),
+            app_name: app_name.map(|a| a.to_string()),
+            instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
         };
 
@@ -1375,6 +1033,8 @@ pub async fn create_multi_source_readers(
 pub async fn create_multi_sink_writers(
     sinks: &[DataSinkRequirement],
     job_name: &str,
+    app_name: Option<&str>,
+    instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSinkCreationResult {
     let mut writers = HashMap::new();
@@ -1399,6 +1059,8 @@ pub async fn create_multi_sink_writers(
         let sink_config = DataSinkConfig {
             requirement: requirement.clone(),
             job_name: job_name.to_string(),
+            app_name: app_name.map(|a| a.to_string()),
+            instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
         };
 

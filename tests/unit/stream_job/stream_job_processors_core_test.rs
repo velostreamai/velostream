@@ -8,15 +8,12 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::mpsc;
 use velostream::velostream::datasource::{DataReader, DataWriter};
-use velostream::velostream::server::processors::{
-    JobProcessor, common::*, simple::SimpleJobProcessor, transactional::TransactionalJobProcessor,
-};
-use velostream::velostream::sql::ast::DataType;
+use velostream::velostream::server::processors::JobProcessor;
 use velostream::velostream::sql::{
     StreamExecutionEngine,
-    ast::{SelectField, StreamSource, StreamingQuery, WindowSpec},
+    ast::{SelectField, StreamSource, StreamingQuery},
     execution::types::{FieldValue, StreamRecord},
 };
 
@@ -227,6 +224,10 @@ fn create_test_query() -> StreamingQuery {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     }
 }
 

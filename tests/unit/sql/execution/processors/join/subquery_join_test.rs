@@ -8,23 +8,18 @@ Comprehensive test suite for JOIN operations involving subqueries:
 - Complex combinations and error cases
 */
 
-use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::serialization::JsonFormat;
-use velostream::velostream::sql::error::SqlError;
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
-use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::execution::{StreamExecutionEngine, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
-use velostream::velostream::table::streaming::{
-    RecordBatch, RecordStream, SimpleStreamRecord as StreamingRecord, StreamResult,
-};
-use velostream::velostream::table::unified_table::{TableResult, UnifiedTable};
+use velostream::velostream::table::unified_table::UnifiedTable;
 
 // Import shared test utilities
 use crate::unit::sql::execution::common_test_utils::{
-    CommonTestRecords, MockTable, StandardTestData, TestExecutor,
+    CommonTestRecords, StandardTestData, TestExecutor,
 };
 
 // ============================================================================

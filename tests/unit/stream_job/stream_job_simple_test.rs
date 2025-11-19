@@ -294,6 +294,8 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
     let log_continue_processor = SimpleJobProcessorWrapper::new(log_continue_config);
 
@@ -323,6 +325,8 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
     let retry_backoff_processor = SimpleJobProcessorWrapper::new(retry_backoff_config);
 
@@ -411,6 +415,8 @@ async fn test_simple_processor_comprehensive_failure_scenarios() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
     let fail_batch_processor = SimpleJobProcessorWrapper::new(fail_batch_config);
     run_comprehensive_failure_tests(&fail_batch_processor, "SimpleJobProcessor_FailBatch").await;
@@ -452,6 +458,8 @@ async fn test_simple_processor_with_different_failure_strategies() {
             log_progress: true,
             empty_batch_count: 1,
             wait_on_empty_batch_ms: 1000,
+            enable_dlq: true,
+            dlq_max_size: Some(100),
         };
 
         let processor = SimpleJobProcessor::new(config);
@@ -519,6 +527,8 @@ async fn test_simple_processor_transaction_detection() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -581,6 +591,8 @@ async fn test_sink_failure_with_log_and_continue_strategy() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -651,6 +663,8 @@ async fn test_sink_failure_with_retry_with_backoff_strategy() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -714,6 +728,8 @@ async fn test_sink_failure_with_fail_batch_strategy() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -795,6 +811,8 @@ async fn test_simple_processor_with_10000_records() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessorWrapper::new(config);

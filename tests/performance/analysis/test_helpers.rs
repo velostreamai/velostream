@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use log::debug;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -94,17 +95,23 @@ impl DataReader for MockDataSource {
 #[derive(Clone)]
 pub struct MockDataWriter {
     count: Arc<AtomicUsize>,
+    last_record: Arc<Mutex<Option<StreamRecord>>>,
 }
 
 impl MockDataWriter {
     pub fn new() -> Self {
         Self {
             count: Arc::new(AtomicUsize::new(0)),
+            last_record: Arc::new(Mutex::new(None)),
         }
     }
 
     pub fn get_count(&self) -> usize {
         self.count.load(Ordering::SeqCst)
+    }
+
+    pub fn get_last_record(&self) -> Option<StreamRecord> {
+        self.last_record.lock().unwrap().clone()
     }
 }
 
@@ -112,9 +119,10 @@ impl MockDataWriter {
 impl DataWriter for MockDataWriter {
     async fn write(
         &mut self,
-        _record: StreamRecord,
+        record: StreamRecord,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.count.fetch_add(1, Ordering::SeqCst);
+        *self.last_record.lock().unwrap() = Some(record);
         Ok(())
     }
 
@@ -123,6 +131,9 @@ impl DataWriter for MockDataWriter {
         records: Vec<Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.count.fetch_add(records.len(), Ordering::SeqCst);
+        if let Some(last) = records.last() {
+            *self.last_record.lock().unwrap() = Some((**last).clone());
+        }
         Ok(())
     }
 
@@ -404,5 +415,155 @@ impl JobServerMetrics {
             self.batches_processed,
             self.avg_latency_micros
         );
+    }
+}
+
+/// Validate that a benchmark result has meaningful content
+pub fn validate_benchmark_record(record: &Option<StreamRecord>, scenario_name: &str) -> bool {
+    match record {
+        Some(rec) => {
+            if rec.fields.is_empty() {
+                eprintln!("❌ {} - Last record has no fields!", scenario_name);
+                return false;
+            }
+
+            // Log the fields present in the last record for verification
+            let field_names: Vec<&String> = rec.fields.keys().collect();
+            println!(
+                "  ✓ {} - Last record has {} fields: {:?}",
+                scenario_name,
+                field_names.len(),
+                field_names
+            );
+
+            true
+        }
+        None => {
+            eprintln!("❌ {} - No records were written!", scenario_name);
+            false
+        }
+    }
+}
+
+/// Kafka Simulator Data Source
+///
+/// High-performance simulation of real Kafka consumer behavior by delivering records
+/// grouped by partition. In real Kafka, a consumer receives all records from one
+/// partition in a poll() call before moving to the next partition. This data source
+/// ensures realistic partition grouping while optimizing for test performance.
+///
+/// # Performance Optimizations
+///
+/// - **Pre-allocated batches**: All batches are created during initialization
+/// - **Lock-free reads**: Uses only atomic operations after initialization
+/// - **Zero-copy iteration**: Uses indices instead of draining/reallocating
+/// - **Cache-friendly**: Sequential batch access minimizes cache misses
+///
+/// # Key Behavior
+///
+/// Records are grouped by their `record.partition` field into pre-allocated batches.
+/// Each read() call returns the next pre-allocated batch, maintaining Kafka's
+/// delivery semantics without dynamic allocations.
+#[derive(Clone)]
+pub struct KafkaSimulatorDataSource {
+    /// Pre-allocated batches ready for delivery
+    /// Each batch contains up to batch_size records from a single partition
+    batches: Arc<Vec<Vec<StreamRecord>>>,
+    /// Current batch index for read() operations
+    current_batch_idx: Arc<AtomicUsize>,
+}
+
+impl KafkaSimulatorDataSource {
+    /// Create a new KafkaSimulatorDataSource from records
+    ///
+    /// Pre-allocates all batches during initialization, enabling lock-free reads
+    /// with minimal allocations during test execution.
+    pub fn new(records: Vec<StreamRecord>, batch_size: usize) -> Self {
+        // Group records by partition with pre-allocated capacity
+        let mut partition_map: HashMap<i32, Vec<StreamRecord>> = HashMap::new();
+        for record in records {
+            partition_map
+                .entry(record.partition)
+                .or_insert_with(Vec::new)
+                .push(record);
+        }
+
+        // Create ordered partition list (sorted for deterministic ordering)
+        let mut partition_order: Vec<i32> = partition_map.keys().copied().collect();
+        partition_order.sort_unstable();
+
+        // Pre-allocate all batches
+        let mut all_batches = Vec::new();
+        for partition_id in partition_order {
+            if let Some(mut partition_records) = partition_map.remove(&partition_id) {
+                // Create batches from this partition's records
+                while !partition_records.is_empty() {
+                    let batch_len = batch_size.min(partition_records.len());
+                    let batch: Vec<StreamRecord> = partition_records.drain(0..batch_len).collect();
+                    all_batches.push(batch);
+                }
+            }
+        }
+
+        Self {
+            batches: Arc::new(all_batches),
+            current_batch_idx: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    /// Returns true when all records have been consumed
+    pub fn all_consumed(&self) -> bool {
+        self.current_batch_idx.load(Ordering::Acquire) >= self.batches.len()
+    }
+
+    /// Get delivery statistics
+    pub fn get_stats(&self) -> (usize, usize) {
+        let current = self.current_batch_idx.load(Ordering::Acquire);
+        let total = self.batches.len();
+        (current, total)
+    }
+}
+
+#[async_trait]
+impl DataReader for KafkaSimulatorDataSource {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+        let idx = self.current_batch_idx.load(Ordering::Acquire);
+
+        if idx >= self.batches.len() {
+            return Ok(vec![]);
+        }
+
+        // Get the next pre-allocated batch and advance index atomically
+        let batch = self.batches[idx].clone();
+        self.current_batch_idx
+            .compare_exchange(idx, idx + 1, Ordering::Release, Ordering::Acquire)
+            .ok();
+
+        debug!(
+            "KafkaSimulator: Read {} records (batch {}/{})",
+            batch.len(),
+            idx + 1,
+            self.batches.len()
+        );
+
+        Ok(batch)
+    }
+
+    async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn seek(
+        &mut self,
+        _offset: SourceOffset,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let idx = self.current_batch_idx.load(Ordering::Acquire);
+        Ok(idx < self.batches.len())
     }
 }

@@ -230,6 +230,8 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);

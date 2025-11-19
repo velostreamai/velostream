@@ -34,7 +34,12 @@ impl KafkaDataSink {
     }
 
     /// Create a Kafka data sink from properties
-    pub fn from_properties(props: &HashMap<String, String>, job_name: &str) -> Self {
+    pub fn from_properties(
+        props: &HashMap<String, String>,
+        job_name: &str,
+        app_name: Option<&str>,
+        instance_id: Option<&str>,
+    ) -> Self {
         // Load and merge config file with provided properties
         // Uses common config_loader helper
         let merged_props = merge_config_file_properties(props, "KafkaDataSink");
@@ -91,6 +96,27 @@ impl KafkaDataSink {
                 sink_config.insert(key.clone(), value.clone());
             }
         }
+
+        // Generate client ID with hierarchical format for observability in Kafka UI
+        // Format: velo-{app_name}-{job_name}-{instance_id}-snk
+        // This ensures jobs from same app sort together, then by instance/run
+        let client_id = match (app_name, instance_id) {
+            (Some(app), Some(inst)) => format!("velo-{}-{}-{}-snk", app, job_name, inst),
+            (Some(app), None) => format!("velo-{}-{}-snk", app, job_name),
+            (None, Some(inst)) => format!("velo-{}-{}-snk", inst, job_name),
+            (None, None) => format!("velo-{}-snk", job_name),
+        };
+
+        log::info!(
+            "Kafka producer client.id: '{}' (app: {}, job: {}, instance: {})",
+            client_id,
+            app_name.unwrap_or("none"),
+            job_name,
+            instance_id.unwrap_or("none")
+        );
+
+        // Add client.id to config for per-client observability
+        sink_config.insert("client.id".to_string(), client_id);
 
         Self {
             brokers,

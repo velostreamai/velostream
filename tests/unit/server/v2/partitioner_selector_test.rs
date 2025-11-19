@@ -38,6 +38,10 @@ fn test_scenario_0_pure_select_should_use_hash() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -49,11 +53,10 @@ fn test_scenario_0_pure_select_should_use_hash() {
 }
 
 #[test]
-fn test_scenario_1_rows_window_with_order_by_should_use_sticky() {
-    // Scenario 1: ROWS WINDOW with ORDER BY timestamp
-    // Expected: Sticky partition by timestamp (prevents out-of-order buffering)
-    // Current Performance: 62% slower (Hash strategy is WRONG)
-    // Optimal Performance: Should match SQL Engine with Sticky
+fn test_scenario_1_rows_window_without_group_by_should_use_sticky() {
+    // Scenario 1: ROWS WINDOW (analytic) with ORDER BY timestamp, no GROUP BY
+    // Expected: Sticky partition (analytic operations don't require rekeying)
+    // Performance: Optimal with source partition affinity
 
     let query = StreamingQuery::Select {
         fields: vec![
@@ -64,7 +67,7 @@ fn test_scenario_1_rows_window_with_order_by_should_use_sticky() {
         from_alias: None,
         joins: None,
         where_clause: None,
-        group_by: Some(vec![Expr::Column("symbol".to_string())]),
+        group_by: None, // NO GROUP BY - pure analytic
         having: None,
         window: Some(WindowSpec::Rows {
             buffer_size: 100,
@@ -85,13 +88,17 @@ fn test_scenario_1_rows_window_with_order_by_should_use_sticky() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
     assert_eq!(selection.strategy_name, "sticky_partition");
     assert!(
         selection.is_optimal,
-        "ROWS WINDOW with ORDER BY should use Sticky partitioning"
+        "ROWS WINDOW (analytic) should use Sticky partitioning"
     );
 }
 
@@ -130,6 +137,10 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -145,11 +156,11 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
 }
 
 #[test]
-fn test_scenario_3a_tumbling_with_group_by_should_use_sticky() {
-    // Scenario 3a: TUMBLING WINDOW + GROUP BY (double mismatch!)
-    // Expected: Sticky partition by time (ORDER BY priority)
-    // Current Performance: 92% slower (Hash strategy is VERY WRONG)
-    // Optimal Performance: Should be on-par with SQL Engine
+fn test_scenario_3a_tumbling_with_group_by_should_use_hash() {
+    // Scenario 3a: TUMBLING WINDOW + GROUP BY
+    // Expected: Always hash (Tumbling windows ALWAYS require rekeying by window boundaries)
+    // Window boundaries require rekeying regardless of ORDER BY clause
+    // GROUP BY keys define how data is grouped within each window
 
     let query = StreamingQuery::Select {
         fields: vec![
@@ -176,16 +187,20 @@ fn test_scenario_3a_tumbling_with_group_by_should_use_sticky() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
     assert_eq!(
-        selection.strategy_name, "sticky_partition",
-        "TUMBLING WINDOW with ORDER BY should use Sticky partitioning"
+        selection.strategy_name, "always_hash",
+        "TUMBLING WINDOW ALWAYS requires hash (window boundaries require rekeying)"
     );
     assert!(
         selection.is_optimal,
-        "Sticky partition is optimal for time-ordered windows"
+        "Hash partition is required for correct window boundary semantics"
     );
 }
 
@@ -224,6 +239,10 @@ fn test_scenario_3b_emit_changes_with_group_by_should_use_hash() {
         limit: None,
         emit_mode: Some(velostream::velostream::sql::ast::EmitMode::Changes),
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -259,6 +278,10 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         properties: std::collections::HashMap::new(),
         emit_mode: None,
@@ -293,6 +316,10 @@ fn test_routing_keys_extracted_correctly_for_multi_column_group_by() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     let selection = PartitionerSelector::select(&query);
@@ -312,8 +339,8 @@ fn test_user_explicit_choice_principle_documented() {
     // PRINCIPLE: User explicit configuration is ALWAYS respected
     // Auto-selection should NEVER override user's choice
     //
-    // Scenario: User explicitly chooses Hash for a window query (unusual but valid)
-    // Even though optimal would be Sticky, we must respect user's explicit choice
+    // Scenario: Tumbling window query (auto-selection would choose Hash)
+    // If user explicitly chooses Sticky in config, that choice must be RESPECTED
 
     let window_query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
@@ -334,22 +361,26 @@ fn test_user_explicit_choice_principle_documented() {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
-    // Auto-select would choose Sticky
+    // Auto-select would choose Hash (Tumbling windows ALWAYS require rekeying)
     let auto_selection = PartitionerSelector::select(&window_query);
-    assert_eq!(auto_selection.strategy_name, "sticky_partition");
+    assert_eq!(auto_selection.strategy_name, "always_hash");
 
-    // DOCUMENTATION: If user explicitly specified Hash in config, that should be RESPECTED
+    // DOCUMENTATION: If user explicitly specified Sticky in config, that should be RESPECTED
     // AdaptiveJobProcessor logic (not tested here):
-    // if config.partitioning_strategy == Some("always_hash") {
-    //     Use AlwaysHashStrategy  // ← User's choice wins
+    // if config.partitioning_strategy == Some("sticky_partition") {
+    //     Use StickyPartitionStrategy  // ← User's choice wins (overrides auto-selection)
     // } else if config.auto_select_from_query == Some(query) {
-    //     Use auto-selected strategy
+    //     Use auto-selected strategy (always_hash for Tumbling windows)
     // }
 
     assert!(
         auto_selection.is_optimal,
-        "Sticky is optimal for TUMBLING with ORDER BY"
+        "Hash is required for Tumbling windows (window boundary rekeying)"
     );
 }

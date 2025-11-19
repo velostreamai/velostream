@@ -15,8 +15,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use velostream::velostream::sql::SqlError;
 use velostream::velostream::sql::ast::{
-    BinaryOperator, BinaryOperator as ComparisonOp, Expr, LiteralValue, SelectField, StreamSource,
-    StreamingQuery, SubqueryType, UnaryOperator,
+    BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery, SubqueryType,
+    UnaryOperator,
 };
 use velostream::velostream::sql::execution::expression::evaluator::ExpressionEvaluator;
 use velostream::velostream::sql::execution::expression::subquery_executor::SubqueryExecutor;
@@ -365,6 +365,10 @@ fn test_exists_and_aggregate_function() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         subquery_type: SubqueryType::Exists,
     };
@@ -414,6 +418,10 @@ fn test_complex_nested_expression_with_subqueries() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         subquery_type: SubqueryType::Exists,
     };
@@ -478,6 +486,10 @@ fn test_not_exists_with_aggregate() {
             limit: None,
             emit_mode: None,
             properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
         }),
         subquery_type: SubqueryType::NotExists,
     };

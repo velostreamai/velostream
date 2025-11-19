@@ -298,6 +298,10 @@ async fn test_window_processor_watermark_aware_processing() {
         window: Some(window),
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     };
 
     // Process records with watermark-aware processing

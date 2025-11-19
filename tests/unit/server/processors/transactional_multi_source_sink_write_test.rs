@@ -221,6 +221,8 @@ async fn test_transactional_multi_source_processor_writes_to_sinks() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);

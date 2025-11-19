@@ -115,6 +115,8 @@ async fn test_job_processor_with_tracing_enabled() {
         log_progress: true,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);

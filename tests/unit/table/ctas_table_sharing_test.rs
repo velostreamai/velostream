@@ -87,6 +87,8 @@ async fn test_table_dependency_detection() {
                 "v1.0".to_string(),
                 query.to_string(),
                 "test-topic".to_string(),
+                None,
+                None,
             )
             .await;
 

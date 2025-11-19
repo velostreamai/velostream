@@ -9,6 +9,7 @@ use crate::velostream::observability::{
     ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
 };
 use crate::velostream::server::config::StreamJobServerConfig;
+use crate::velostream::server::instance_id::get_instance_id;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
@@ -21,8 +22,10 @@ use crate::velostream::server::table_registry::{
 use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
-    ast::StreamingQuery, config::with_clause_parser::WithClauseParser,
-    execution::config::StreamingConfig, execution::performance::PerformanceMonitor,
+    ast::{JobProcessorMode, StreamingQuery},
+    config::with_clause_parser::WithClauseParser,
+    execution::config::StreamingConfig,
+    execution::performance::PerformanceMonitor,
     query_analyzer::QueryAnalyzer,
 };
 use log::{debug, error, info, warn};
@@ -507,6 +510,8 @@ impl StreamJobServer {
         version: String,
         query: String,
         topic: String,
+        app_name: Option<String>,
+        instance_id: Option<String>,
     ) -> Result<(), SqlError> {
         info!(
             "Deploying job '{}' version '{}' on topic '{}': {}",
@@ -774,7 +779,11 @@ impl StreamJobServer {
         let topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
-        let processor_config_for_spawn = self.processor_config.clone();
+
+        // Wire job_mode annotation from query to processor configuration
+        // Per-query job_mode takes precedence over server-level configuration
+        let processor_config_for_spawn =
+            Self::get_processor_config_from_query(&parsed_query, &self.processor_config);
 
         // FR-082 Phase 5: Output handler task no longer needed
         // The engine now owns the output_receiver for EMIT CHANGES support.
@@ -797,9 +806,13 @@ impl StreamJobServer {
             );
 
             // Use multi-source processing for all jobs (handles single-source as special case)
+            // Thread app_name from SqlApplication metadata for coordinated consumer groups
+            // Thread instance_id for unique client.id generation
             match create_multi_source_readers(
                 &analysis.required_sources,
                 &job_name,
+                app_name.as_deref(),
+                instance_id.as_deref(),
                 &batch_config_clone,
             )
             .await
@@ -812,9 +825,12 @@ impl StreamJobServer {
                     );
 
                     // Create all sinks
+                    // Thread app_name and instance_id for hierarchical client.id generation
                     match create_multi_sink_writers(
                         &analysis.required_sinks,
                         &job_name,
+                        app_name.as_deref(),
+                        instance_id.as_deref(),
                         &batch_config_clone,
                     )
                     .await
@@ -1128,7 +1144,7 @@ impl StreamJobServer {
         );
 
         // Log SQL application annotations (top-level metadata)
-        if let Some(application) = app.metadata.application {
+        if let Some(application) = &app.metadata.application {
             info!("  @application: {}", application);
         }
         if let Some(phase) = app.metadata.phase {
@@ -1346,6 +1362,8 @@ impl StreamJobServer {
                             app.metadata.version.clone(),
                             merged_sql,
                             topic,
+                            app.metadata.application.clone(),
+                            Some(get_instance_id()),
                         )
                         .await
                     {
@@ -1612,6 +1630,63 @@ impl StreamJobServer {
     fn extract_partitioning_strategy_from_query(query: &StreamingQuery) -> Option<String> {
         let properties = Self::get_query_properties(query);
         properties.get("partitioning_strategy").cloned()
+    }
+
+    /// Wire job_mode annotation from StreamingQuery to JobProcessorConfig
+    ///
+    /// Per-query job_mode takes precedence over the server-level default configuration.
+    /// This allows individual SQL queries to specify their execution strategy:
+    /// - Simple: Single-threaded, best-effort delivery
+    /// - Transactional: Single-threaded, at-least-once with transactions
+    /// - Adaptive: Multi-partition parallel execution with configurable strategy
+    ///
+    /// # Arguments
+    /// * `query` - The parsed StreamingQuery to extract job_mode from
+    /// * `default_config` - The server-level default JobProcessorConfig (fallback)
+    ///
+    /// # Returns
+    /// The JobProcessorConfig to use for this query (either from query annotation or default)
+    fn get_processor_config_from_query(
+        query: &StreamingQuery,
+        default_config: &JobProcessorConfig,
+    ) -> JobProcessorConfig {
+        // Only SELECT queries can have job_mode annotations
+        if let StreamingQuery::Select {
+            job_mode,
+            num_partitions,
+            ..
+        } = query
+        {
+            // If the query has a job_mode annotation, use it
+            if let Some(mode) = job_mode {
+                match mode {
+                    JobProcessorMode::Simple => {
+                        info!("Using Simple processor mode from query annotation");
+                        JobProcessorConfig::Simple
+                    }
+                    JobProcessorMode::Transactional => {
+                        info!("Using Transactional processor mode from query annotation");
+                        JobProcessorConfig::Transactional
+                    }
+                    JobProcessorMode::Adaptive => {
+                        info!(
+                            "Using Adaptive processor mode from query annotation with {} partitions",
+                            num_partitions.unwrap_or(0)
+                        );
+                        JobProcessorConfig::Adaptive {
+                            num_partitions: *num_partitions,
+                            enable_core_affinity: false,
+                        }
+                    }
+                }
+            } else {
+                // No job_mode annotation, use server default
+                default_config.clone()
+            }
+        } else {
+            // Non-SELECT queries use server default
+            default_config.clone()
+        }
     }
 
     /// Extract properties from different query types

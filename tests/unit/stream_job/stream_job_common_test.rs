@@ -44,6 +44,10 @@ fn create_simple_query() -> velostream::velostream::sql::ast::StreamingQuery {
         limit: None,
         emit_mode: None,
         properties: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
     }
 }
 
@@ -172,7 +176,7 @@ async fn test_batch_processing_result_creation() {
 }
 
 #[tokio::test]
-async fn test_process_batch_common_success() {
+async fn test_process_batch_success() {
     // Create test data
     let records = vec![
         create_test_record(1, "alice", 100.0),
@@ -187,13 +191,15 @@ async fn test_process_batch_common_success() {
     let query = create_simple_query();
     let job_name = "test_batch_processing";
 
-    let result = process_batch_common(records, &engine, &query, job_name).await;
+    let result = process_batch(records, &engine, &query, job_name).await;
 
     assert_eq!(result.batch_size, 3);
     assert_eq!(result.records_processed, 3);
     assert_eq!(result.records_failed, 0);
     assert!(result.processing_time > Duration::from_nanos(0));
     assert!(result.error_details.is_empty());
+    // process_batch returns output records (unlike the deleted process_batch_common)
+    assert_eq!(result.output_records.len(), 3);
 }
 
 #[test]
@@ -424,6 +430,8 @@ async fn test_concurrent_operations() {
                 )"#
                     .to_string(),
                     "test_topic".to_string(),
+                    None,
+                    None,
                 )
                 .await;
             (job_name, result)
@@ -468,6 +476,8 @@ async fn test_resource_cleanup() {
                 )"#
                 .to_string(),
                 "test_topic".to_string(),
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -504,6 +514,8 @@ async fn test_job_metrics() {
                 )"#
             .to_string(),
             "test_topic".to_string(),
+            None,
+            None,
         )
         .await
         .unwrap();

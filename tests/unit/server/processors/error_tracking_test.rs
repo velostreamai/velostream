@@ -250,6 +250,8 @@ async fn test_simple_processor_handles_read_errors() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -305,6 +307,8 @@ async fn test_simple_processor_handles_write_errors_with_retry() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -362,6 +366,8 @@ async fn test_transactional_processor_handles_write_errors() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -419,6 +425,8 @@ async fn test_error_tracking_without_observability_manager() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -477,6 +485,8 @@ async fn test_simple_processor_log_and_continue_strategy() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);
@@ -540,6 +550,8 @@ async fn test_transactional_processor_fail_batch_strategy() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: false,
+        dlq_max_size: Some(100),
     };
 
     let processor = TransactionalJobProcessor::new(config);
@@ -594,6 +606,8 @@ async fn test_error_tracking_performance_impact() {
         log_progress: false,
         empty_batch_count: 1,
         wait_on_empty_batch_ms: 1000,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
     };
 
     let processor = SimpleJobProcessor::new(config);

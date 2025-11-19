@@ -5,7 +5,7 @@
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::MetricsCollector;
-use crate::velostream::server::processors::common::JobExecutionStats;
+use crate::velostream::server::processors::common::{JobExecutionStats, JobProcessingConfig};
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
 use crate::velostream::server::v2::{
@@ -1295,6 +1295,7 @@ impl AdaptiveJobProcessor {
     /// - Vec of PartitionReceiver instances (owned by spawned tasks)
     /// - Vec of batch senders (for feeding batches to receivers)
     /// - Vec of PartitionMetrics (for monitoring)
+    /// - Vec of task JoinHandles for waiting on receiver completion
     pub fn initialize_partitions_v6_6(
         &self,
         query: Arc<StreamingQuery>,
@@ -1303,10 +1304,12 @@ impl AdaptiveJobProcessor {
         Vec<Arc<SegQueue<Vec<StreamRecord>>>>,
         Vec<Arc<PartitionMetrics>>,
         Vec<Arc<AtomicBool>>,
+        Vec<tokio::task::JoinHandle<()>>,
     ) {
         let mut batch_queues = Vec::with_capacity(self.num_partitions);
         let mut metrics_list = Vec::with_capacity(self.num_partitions);
         let mut eof_flags = Vec::with_capacity(self.num_partitions);
+        let mut task_handles = Vec::with_capacity(self.num_partitions);
 
         debug!(
             "Phase 6.8: Initializing {} partitions with lock-free queue receivers",
@@ -1330,7 +1333,7 @@ impl AdaptiveJobProcessor {
             let writer_clone = writer.clone();
 
             // Spawn partition receiver task (Phase 6.8 - lock-free queue optimization)
-            tokio::spawn(async move {
+            let task_handle = tokio::spawn(async move {
                 // OPTIMIZATION: Avoid cloning query - use Arc directly
                 // Create owned execution engine for this partition
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
@@ -1349,6 +1352,7 @@ impl AdaptiveJobProcessor {
                 // ProcessorContext is owned by the engine's QueryExecution internally
 
                 // Create PartitionReceiver with lock-free queue and writer
+                let job_config = JobProcessingConfig::default();
                 let mut receiver = PartitionReceiver::new_with_queue(
                     partition_id,
                     local_engine,
@@ -1357,6 +1361,8 @@ impl AdaptiveJobProcessor {
                     eof_flag,
                     metrics,
                     writer_clone,
+                    job_config,
+                    None, // No observability manager for partition receiver
                 );
 
                 // Run synchronous batch processing loop
@@ -1371,6 +1377,7 @@ impl AdaptiveJobProcessor {
                     );
                 }
             });
+            task_handles.push(task_handle);
         }
 
         debug!(
@@ -1378,7 +1385,7 @@ impl AdaptiveJobProcessor {
             self.num_partitions
         );
 
-        (batch_queues, metrics_list, eof_flags)
+        (batch_queues, metrics_list, eof_flags, task_handles)
     }
 
     /// Phase 6.8: Process batch with lock-free queues (for PartitionReceiver model)
@@ -1400,20 +1407,29 @@ impl AdaptiveJobProcessor {
         records: Vec<StreamRecord>,
         batch_queues: &[Arc<SegQueue<Vec<StreamRecord>>>],
     ) -> Result<usize, SqlError> {
-        // Validate strategy compatibility
-        let query_metadata = QueryMetadata {
-            group_by_columns: self.group_by_columns.clone(),
-            has_window: false,
-            num_partitions: self.num_partitions,
-            num_cpu_slots: self.num_cpu_slots,
-        };
+        // NOTE: group_by_columns should be extracted by the caller (process_job) and passed in via
+        // strategy.route_record(). If the coordinator's group_by_columns are empty, we skip validation
+        // because queries without GROUP BY can route to any partition (simple projections).
+        //
+        // The validation is intentionally skipped when group_by_columns are empty because:
+        // 1. Non-aggregating queries (SELECT without GROUP BY) don't need partitioning
+        // 2. Round-robin or any strategy works fine for simple projections
+        // 3. Validation would incorrectly block valid use cases
+        if !self.group_by_columns.is_empty() {
+            let query_metadata = QueryMetadata {
+                group_by_columns: self.group_by_columns.clone(),
+                has_window: false,
+                num_partitions: self.num_partitions,
+                num_cpu_slots: self.num_cpu_slots,
+            };
 
-        self.strategy
-            .validate(&query_metadata)
-            .map_err(|err| SqlError::ExecutionError {
-                message: format!("Strategy validation failed: {}", err),
-                query: None,
-            })?;
+            self.strategy
+                .validate(&query_metadata)
+                .map_err(|err| SqlError::ExecutionError {
+                    message: format!("Strategy validation failed: {}", err),
+                    query: None,
+                })?;
+        }
 
         // OPTIMIZATION: Pre-allocate partitions with capacity to reduce reallocations
         // Use with_capacity to avoid reallocation overhead in hot path

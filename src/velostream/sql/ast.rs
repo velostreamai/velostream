@@ -50,7 +50,98 @@ The AST is designed to be:
 */
 
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
+
+/// Job processor mode for selecting execution strategy
+///
+/// Controls which job processor type is used for query execution:
+/// - Simple: Basic processor for simple operations (DEFAULT)
+/// - Transactional: Processor with transaction support
+/// - Adaptive: High-performance processor with multi-partition parallel execution
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobProcessorMode {
+    /// Default processor for simple operations (no transaction support)
+    Simple,
+    /// Processor with transaction support
+    Transactional,
+    /// High-performance processor with multi-partition parallel execution
+    Adaptive,
+}
+
+impl FromStr for JobProcessorMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "simple" => Ok(JobProcessorMode::Simple),
+            "transactional" => Ok(JobProcessorMode::Transactional),
+            "adaptive" => Ok(JobProcessorMode::Adaptive),
+            _ => Err(format!("Invalid job processor mode: {}", s)),
+        }
+    }
+}
+
+impl JobProcessorMode {
+    /// Convert to string representation
+    pub fn as_str(&self) -> &str {
+        match self {
+            JobProcessorMode::Simple => "simple",
+            JobProcessorMode::Transactional => "transactional",
+            JobProcessorMode::Adaptive => "adaptive",
+        }
+    }
+}
+
+/// Partitioning strategy type for adaptive processor
+///
+/// Controls how records are routed to partitions in adaptive mode:
+/// - Sticky: Uses record's source partition field (default, zero-overhead)
+/// - Hash: Consistent hashing on GROUP BY columns
+/// - Smart: Hybrid approach (automatic optimization)
+/// - RoundRobin: Uniform distribution across partitions
+/// - FanIn: Broadcast to all partitions (for joins)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitioningStrategyType {
+    /// Use record's source partition field (default, zero-overhead)
+    Sticky,
+    /// Consistent hashing on GROUP BY columns
+    Hash,
+    /// Hybrid approach with automatic optimization
+    Smart,
+    /// Uniform distribution across partitions
+    RoundRobin,
+    /// Broadcast to all partitions (for joins)
+    FanIn,
+}
+
+impl FromStr for PartitioningStrategyType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "sticky" | "stickypartition" => Ok(PartitioningStrategyType::Sticky),
+            "hash" | "alwayshash" => Ok(PartitioningStrategyType::Hash),
+            "smart" | "smartrepartition" => Ok(PartitioningStrategyType::Smart),
+            "roundrobin" => Ok(PartitioningStrategyType::RoundRobin),
+            "fanin" => Ok(PartitioningStrategyType::FanIn),
+            _ => Err(format!("Invalid partitioning strategy: {}", s)),
+        }
+    }
+}
+
+impl PartitioningStrategyType {
+    /// Convert to string representation
+    pub fn as_str(&self) -> &str {
+        match self {
+            PartitioningStrategyType::Sticky => "sticky",
+            PartitioningStrategyType::Hash => "hash",
+            PartitioningStrategyType::Smart => "smart",
+            PartitioningStrategyType::RoundRobin => "roundrobin",
+            PartitioningStrategyType::FanIn => "fanin",
+        }
+    }
+}
 
 /// Emission mode for streaming query results
 ///
@@ -93,7 +184,12 @@ pub enum EmitMode {
 ///         order_by: None,
 ///         limit: Some(100),
 ///         emit_mode: None,
-///         properties: None};
+///         properties: None,
+///         job_mode: None,
+///         batch_size: None,
+///         num_partitions: None,
+///         partitioning_strategy: None,
+///     };
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +230,18 @@ pub enum StreamingQuery {
         emit_mode: Option<EmitMode>,
         /// Optional WITH clause properties for configuration
         properties: Option<HashMap<String, String>>,
+        /// Job processor mode annotation (@job_mode: simple|transactional|adaptive)
+        /// Defaults to Simple if not specified
+        job_mode: Option<JobProcessorMode>,
+        /// Batch size configuration annotation (@batch_size: <integer>)
+        /// Applicable to any job mode
+        batch_size: Option<usize>,
+        /// Number of partitions for adaptive mode annotation (@num_partitions: <integer>)
+        /// Only valid with adaptive mode
+        num_partitions: Option<usize>,
+        /// Partitioning strategy for adaptive mode (@partitioning_strategy: sticky|hash|smart|roundrobin|fanin)
+        /// Only valid with adaptive mode, defaults to sticky
+        partitioning_strategy: Option<PartitioningStrategyType>,
     },
     /// CREATE STREAM AS SELECT statement for stream transformations.
     ///
@@ -1078,6 +1186,158 @@ impl TimeUnit {
             TimeUnit::Week => Duration::from_secs(value as u64 * 604800),
             TimeUnit::Month => Duration::from_secs(value as u64 * 2592000), // Approximate: 30 days
             TimeUnit::Year => Duration::from_secs(value as u64 * 31536000), // Approximate: 365 days
+        }
+    }
+}
+
+/// Builder for constructing SelectQuery (StreamingQuery::Select) with optional fields.
+///
+/// This builder pattern provides a clean API for creating SELECT queries without
+/// requiring all fields to be explicitly specified. All annotation fields default to None.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use velostream::velostream::sql::ast::{SelectBuilder, StreamSource, SelectField};
+///
+/// let query = SelectBuilder::new(
+///     vec![SelectField::Wildcard],
+///     StreamSource::Stream("orders".to_string()),
+/// )
+/// .with_limit(100)
+/// .build();
+/// ```
+pub struct SelectBuilder {
+    fields: Vec<SelectField>,
+    from: StreamSource,
+    from_alias: Option<String>,
+    joins: Option<Vec<JoinClause>>,
+    where_clause: Option<Expr>,
+    group_by: Option<Vec<Expr>>,
+    having: Option<Expr>,
+    window: Option<WindowSpec>,
+    order_by: Option<Vec<OrderByExpr>>,
+    limit: Option<u64>,
+    emit_mode: Option<EmitMode>,
+    properties: Option<HashMap<String, String>>,
+    job_mode: Option<JobProcessorMode>,
+    batch_size: Option<usize>,
+    num_partitions: Option<usize>,
+    partitioning_strategy: Option<PartitioningStrategyType>,
+}
+
+impl SelectBuilder {
+    /// Create a new SelectBuilder with required fields.
+    pub fn new(fields: Vec<SelectField>, from: StreamSource) -> Self {
+        SelectBuilder {
+            fields,
+            from,
+            from_alias: None,
+            joins: None,
+            where_clause: None,
+            group_by: None,
+            having: None,
+            window: None,
+            order_by: None,
+            limit: None,
+            emit_mode: None,
+            properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
+        }
+    }
+
+    pub fn with_from_alias(mut self, alias: String) -> Self {
+        self.from_alias = Some(alias);
+        self
+    }
+
+    pub fn with_joins(mut self, joins: Vec<JoinClause>) -> Self {
+        self.joins = Some(joins);
+        self
+    }
+
+    pub fn with_where(mut self, clause: Expr) -> Self {
+        self.where_clause = Some(clause);
+        self
+    }
+
+    pub fn with_group_by(mut self, exprs: Vec<Expr>) -> Self {
+        self.group_by = Some(exprs);
+        self
+    }
+
+    pub fn with_having(mut self, clause: Expr) -> Self {
+        self.having = Some(clause);
+        self
+    }
+
+    pub fn with_window(mut self, spec: WindowSpec) -> Self {
+        self.window = Some(spec);
+        self
+    }
+
+    pub fn with_order_by(mut self, exprs: Vec<OrderByExpr>) -> Self {
+        self.order_by = Some(exprs);
+        self
+    }
+
+    pub fn with_limit(mut self, limit: u64) -> Self {
+        self.limit = Some(limit);
+        self
+    }
+
+    pub fn with_emit_mode(mut self, mode: EmitMode) -> Self {
+        self.emit_mode = Some(mode);
+        self
+    }
+
+    pub fn with_properties(mut self, props: HashMap<String, String>) -> Self {
+        self.properties = Some(props);
+        self
+    }
+
+    pub fn with_job_mode(mut self, mode: JobProcessorMode) -> Self {
+        self.job_mode = Some(mode);
+        self
+    }
+
+    pub fn with_batch_size(mut self, size: usize) -> Self {
+        self.batch_size = Some(size);
+        self
+    }
+
+    pub fn with_num_partitions(mut self, num: usize) -> Self {
+        self.num_partitions = Some(num);
+        self
+    }
+
+    pub fn with_partitioning_strategy(mut self, strategy: PartitioningStrategyType) -> Self {
+        self.partitioning_strategy = Some(strategy);
+        self
+    }
+
+    /// Build the final StreamingQuery::Select.
+    pub fn build(self) -> StreamingQuery {
+        StreamingQuery::Select {
+            fields: self.fields,
+            from: self.from,
+            from_alias: self.from_alias,
+            joins: self.joins,
+            where_clause: self.where_clause,
+            group_by: self.group_by,
+            having: self.having,
+            window: self.window,
+            order_by: self.order_by,
+            limit: self.limit,
+            emit_mode: self.emit_mode,
+            properties: self.properties,
+            job_mode: self.job_mode,
+            batch_size: self.batch_size,
+            num_partitions: self.num_partitions,
+            partitioning_strategy: self.partitioning_strategy,
         }
     }
 }

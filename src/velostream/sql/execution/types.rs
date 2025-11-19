@@ -1146,6 +1146,31 @@ impl StreamRecord {
         self.event_time.is_some()
     }
 
+    /// Set partition based on a hash of the provided key (fluent API)
+    ///
+    /// This method assigns a partition number to the record based on a consistent hash
+    /// of the provided key string. Records with the same key will always be assigned
+    /// to the same partition, enabling proper grouping for sticky partition strategies.
+    ///
+    /// This is useful for test data generation to simulate realistic Kafka partition
+    /// distribution based on message keys.
+    ///
+    /// # Arguments
+    /// * `key` - The partition key (e.g., symbol, customer_id, trader_id)
+    /// * `max_partitions` - Maximum partition number (typically 32 for testing)
+    ///
+    /// # Returns
+    /// Self with partition field set based on hash(key) % max_partitions
+    pub fn with_partition_from_key(mut self, key: &str, max_partitions: i32) -> Self {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        key.hash(&mut hasher);
+        self.partition = (hasher.finish() % max_partitions as u64) as i32;
+        self
+    }
+
     /// Extract event-time from a field if present
     ///
     /// This method attempts to extract event-time from a specific field in the record.

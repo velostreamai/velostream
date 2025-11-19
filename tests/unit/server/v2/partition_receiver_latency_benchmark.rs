@@ -14,6 +14,7 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 
 use velostream::velostream::datasource::DataWriter;
+use velostream::velostream::server::processors::common::JobProcessingConfig;
 use velostream::velostream::server::v2::{PartitionMetrics, PartitionReceiver};
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -131,6 +132,7 @@ async fn partition_receiver_latency_benchmark() {
     let eof_flag = Arc::new(AtomicBool::new(false));
 
     // Create partition receiver with queue mode
+    let job_config = JobProcessingConfig::default();
     let mut receiver = PartitionReceiver::new_with_queue(
         0,
         engine,
@@ -139,6 +141,8 @@ async fn partition_receiver_latency_benchmark() {
         eof_flag.clone(),
         metrics.clone(),
         Some(writer.clone()),
+        job_config,
+        None,
     );
 
     println!("Running benchmark with 10,000 records in 100-record batches\n");

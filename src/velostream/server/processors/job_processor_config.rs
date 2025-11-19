@@ -2,6 +2,9 @@
 //!
 //! This module provides configuration types for selecting between different
 //! job processing architectures (V1, V2, etc.) at runtime.
+//!
+//! For detailed information on Dead Letter Queue (DLQ) and metrics configuration,
+//! see the [DLQ & Metrics Guide](../../../docs/data-sources/dlq-and-metrics-guide.md).
 
 use crate::velostream::server::v2::PartitionedJobConfig;
 use std::str::FromStr;
