@@ -14,6 +14,7 @@ This directory contains 4 optimized shell scripts for running the FR-082 compreh
 **Most versatile - choose both mode AND scenarios**
 
 ```bash
+cd benchmarks
 ./run_baseline_flexible.sh [mode] [scenario]
 ```
 
@@ -23,6 +24,8 @@ This directory contains 4 optimized shell scripts for running the FR-082 compreh
 
 **Examples:**
 ```bash
+cd benchmarks
+
 # All scenarios, release build (fastest runtime)
 ./run_baseline_flexible.sh
 
@@ -49,6 +52,7 @@ This directory contains 4 optimized shell scripts for running the FR-082 compreh
 **Simplest - release build, all scenarios**
 
 ```bash
+cd benchmarks
 ./run_baseline.sh
 ```
 
@@ -66,6 +70,7 @@ This directory contains 4 optimized shell scripts for running the FR-082 compreh
 **Incremental compilation - uses cache aggressively**
 
 ```bash
+cd benchmarks
 ./run_baseline_quick.sh
 ```
 
@@ -84,6 +89,7 @@ This directory contains 4 optimized shell scripts for running the FR-082 compreh
 **Multiple compilation modes - all scenarios only**
 
 ```bash
+cd benchmarks
 ./run_baseline_options.sh [mode]
 ```
 
@@ -100,6 +106,8 @@ This directory contains 4 optimized shell scripts for running the FR-082 compreh
 ## Quick Decision Tree
 
 ```
+cd benchmarks
+
 Want to test SINGLE scenario?
 ├─ YES, want fastest runtime? → ./run_baseline_flexible.sh release 1
 ├─ YES, want fastest compile? → ./run_baseline_flexible.sh debug 1
@@ -122,9 +130,10 @@ Want to test SINGLE scenario?
 | **4** | TUMBLING window (standard emit) | Complex windowing |
 | **5** | TUMBLING window (emit changes) | Late-arriving data handling |
 
-Each scenario tests 4 implementations:
-- SQL Engine (baseline, no job server)
-- V1 SimpleJobProcessor (single-threaded)
+Each scenario tests 5 implementations:
+- SQL Engine (baseline)
+- V1 SimpleJobProcessor (single-threaded, best-effort)
+- Transactional JobProcessor (single-threaded, at-least-once)
 - V2 AdaptiveJobProcessor @ 1-core (minimal parallelism)
 - V2 AdaptiveJobProcessor @ 4-core (maximum parallelism)
 
@@ -165,7 +174,7 @@ Each scenario tests 4 implementations:
 
 ## Performance Expectations
 
-### Complete Benchmark (All 5 Scenarios × 4 Implementations = 20 tests)
+### Complete Benchmark (All 5 Scenarios × 5 Implementations = 25 tests)
 
 | Mode | Compile | Test | Total | Best For |
 |------|---------|------|----------|----------|
@@ -175,7 +184,7 @@ Each scenario tests 4 implementations:
 | Quick (warm) | 5–10s | 30–40s | ~35–50s | Subsequent runs |
 | Profile | 60s | 8–12s | ~70–72s | Profiling analysis |
 
-### Single Scenario Test (1 Scenario × 4 Implementations = 4 tests)
+### Single Scenario Test (1 Scenario × 5 Implementations = 5 tests)
 
 | Mode | Compile | Test | Total | Best For |
 |------|---------|------|----------|----------|
@@ -189,8 +198,10 @@ Each scenario tests 4 implementations:
 
 ### Development & Debugging
 ```bash
+cd benchmarks
+
 # Quick iteration with single scenario
-./run_baseline_flexible.sh debug 0
+./run_baseline_flexible.sh debug 1
 
 # Or all scenarios with quick compile
 ./run_baseline_flexible.sh debug
@@ -198,15 +209,19 @@ Each scenario tests 4 implementations:
 
 ### Before Commit
 ```bash
+cd benchmarks
+
 # Full benchmark with best performance
 ./run_baseline.sh
 
 # Or just verify one scenario
-./run_baseline_flexible.sh release 0
+./run_baseline_flexible.sh release 1
 ```
 
 ### Performance Analysis
 ```bash
+cd benchmarks
+
 # With profiling symbols for flamegraph
 ./run_baseline_flexible.sh profile
 
@@ -216,6 +231,8 @@ Each scenario tests 4 implementations:
 
 ### CI/CD Verification
 ```bash
+cd benchmarks
+
 # In Makefile or CI config
 ./run_baseline.sh
 ```
@@ -269,7 +286,7 @@ chmod +x run_baseline*.sh
 - Or use debug for quick feedback: `./run_baseline_flexible.sh debug`
 
 ### Very Large Output
-- All output is expected - 20 benchmarks × multiple metrics
+- All output is expected - 25 benchmarks × multiple metrics
 - Redirect to file if needed: `./run_baseline.sh > results.txt 2>&1`
 
 ---

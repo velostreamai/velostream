@@ -4,24 +4,28 @@
 
 ### 🏆 Best Overall Performance
 ```bash
+cd benchmarks
 ./run_baseline.sh
 ```
 **60s compile → 8-12s test** (all 5 scenarios, 3-5x faster than debug)
 
 ### ⚡ Fastest Iteration (if code unchanged)
 ```bash
+cd benchmarks
 ./run_baseline_quick.sh
 ```
 **~15s first run → ~5-10s on cache hits** (incremental compilation, all scenarios)
 
 ### 🐞 Quick Debug/Dev
 ```bash
+cd benchmarks
 ./run_baseline_options.sh debug
 ```
 **15s compile → 30-40s test** (best for quick feedback loops, all scenarios)
 
 ### 🎯 Flexible: Choose Mode + Scenarios
 ```bash
+cd benchmarks
 ./run_baseline_flexible.sh [mode] [scenario]
 ```
 Pick compilation mode AND which scenario(s) to run:
@@ -44,8 +48,8 @@ Pick compilation mode AND which scenario(s) to run:
 | `run_baseline_options.sh profile` | 60s | 8–12s (all) | Flamegraph profiling |
 
 \* ~60s if code changed, ~5–10s if unchanged (cache hit)
-(all) = all 5 scenarios × 4 implementations = 20 benchmarks
-(one) = 1 scenario × 4 implementations = 4 benchmarks
+(all) = all 5 scenarios × 5 implementations = 25 benchmarks
+(one) = 1 scenario × 5 implementations = 5 benchmarks
 
 ---
 
@@ -53,6 +57,8 @@ Pick compilation mode AND which scenario(s) to run:
 
 ### During Development
 ```bash
+cd benchmarks
+
 # Fast iteration
 ./run_baseline_quick.sh
 
@@ -62,12 +68,16 @@ Pick compilation mode AND which scenario(s) to run:
 
 ### Before Commit
 ```bash
+cd benchmarks
+
 # Verify actual performance
 ./run_baseline.sh
 ```
 
 ### Performance Analysis
 ```bash
+cd benchmarks
+
 # With profiling data
 ./run_baseline_options.sh profile
 ```
@@ -78,7 +88,7 @@ Pick compilation mode AND which scenario(s) to run:
 
 The test automatically prints:
 - Records sent vs processed for each implementation
-- Throughput (records/sec) for all 20 combinations (5 scenarios × 4 impls)
+- Throughput (records/sec) for all 25 combinations (5 scenarios × 5 impls)
 - Performance ratios vs SQL Engine baseline
 - Total test runtime
 
@@ -121,9 +131,10 @@ chmod +x run_baseline*.sh
 
 ## What Gets Tested
 
-5 scenarios × 4 implementations = 20 benchmarks
+5 scenarios × 5 implementations = 25 benchmarks
 - SQL Engine (baseline)
 - V1 SimpleJobProcessor
+- Transactional JobProcessor
 - V2 AdaptiveJobProcessor @ 1-core
 - V2 AdaptiveJobProcessor @ 4-core
 

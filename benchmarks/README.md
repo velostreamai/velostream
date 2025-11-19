@@ -42,16 +42,15 @@ benchmarks/
 cargo test --test comprehensive_benchmark_test --release --no-default-features comprehensive_baseline_comparison -- --nocapture
 ```
 
-**Scenarios Tested**:
-- **Scenario 0**: Pure SELECT (passthrough, no aggregation)
-- **Scenario 1**: ROWS WINDOW (analytic function, memory-bounded buffers)
-- **Scenario 2**: GROUP BY (hash aggregation)
-- **Scenario 3a**: TUMBLING WINDOW + GROUP BY (batch emission)
-- **Scenario 3b**: TUMBLING WINDOW + EMIT CHANGES (continuous emission)
+**Scenarios Tested** (1-indexed):
+- **Scenario 1**: Pure SELECT (passthrough, no aggregation)
+- **Scenario 2**: ROWS WINDOW (analytic function, memory-bounded buffers)
+- **Scenario 3**: GROUP BY (hash aggregation)
+- **Scenario 4**: TUMBLING WINDOW + GROUP BY (batch emission)
+- **Scenario 5**: TUMBLING WINDOW + EMIT CHANGES (continuous emission)
 
 **Implementations Compared**:
-- SQL Engine Sync (baseline, synchronous)
-- SQL Engine Async (baseline, asynchronous)
+- SQL Engine (baseline)
 - SimpleJobProcessor (single-threaded, best-effort)
 - TransactionalJobProcessor (single-threaded, at-least-once)
 - AdaptiveJobProcessor @ 1-core (partitioned, 1 core)
@@ -197,6 +196,12 @@ Related documentation:
 | Kafka Throughput | 100K+ records/sec | 142K records/sec | ✅ Excellent |
 | Memory Efficiency | <1MB/1K records | TBD | 📊 Measuring |
 | Financial Precision | Zero error | Zero error | ✅ Perfect |
+
+## Related Documentation
+
+For in-depth performance analysis and architectural details:
+- [`docs/architecture/stream-table-join-performance.md`](../docs/architecture/stream-table-join-performance.md) - Stream-table join performance analysis and optimization strategies
+- [`docs/architecture/table_benchmark_results.md`](../docs/architecture/table_benchmark_results.md) - Detailed table operation benchmark results and findings
 
 ## Contributing
 
