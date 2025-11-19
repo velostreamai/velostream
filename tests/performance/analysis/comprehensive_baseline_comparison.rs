@@ -24,7 +24,7 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Shared test utilities
-use super::test_helpers::{MockDataSource, MockDataWriter};
+use super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 
 /// Scenario baseline measurements with partitioner tracking and result validation
 #[derive(Clone, Debug)]
@@ -210,7 +210,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
         dlq_max_size: Some(100),
     };
     let processor = JobProcessorFactory::create_simple_with_config(config);
-    let data_source = MockDataSource::new(records.clone(), records.len());
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
     // Engine is managed internally by processor, no need to create/manage it here
@@ -249,7 +249,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 /// Measure Transactional Job Processor (single-threaded with transactions)
 async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
-    let data_source = MockDataSource::new(records.clone(), records.len());
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
     let mut parser = StreamingSqlParser::new();
@@ -289,7 +289,7 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
     // See: docs/developer/adaptive_processor_performance_analysis.md
     let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
-    let data_source = MockDataSource::new(records.clone(), records.len());
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
     let mut parser = StreamingSqlParser::new();
@@ -333,7 +333,7 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
     // See: docs/developer/adaptive_processor_performance_analysis.md
     let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(4));
-    let data_source = MockDataSource::new(records.clone(), records.len());
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
     let mut parser = StreamingSqlParser::new();
