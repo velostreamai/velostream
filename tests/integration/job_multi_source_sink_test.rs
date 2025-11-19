@@ -468,6 +468,7 @@ async fn test_multi_source_job_server_integration() {
             "1.0.0".to_string(),
             multi_source_sql.to_string(),
             "orders".to_string(), // default topic
+            None,
         )
         .await;
 

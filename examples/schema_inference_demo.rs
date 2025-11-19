@@ -90,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             full_inference_ctas.to_string(),
             "orders_stream".to_string(),
+            None,
         )
         .await
     {
@@ -132,6 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             partial_inference_ctas.to_string(),
             "orders_stream".to_string(),
+            None,
         )
         .await
     {
@@ -176,6 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             explicit_ctas.to_string(),
             "orders_stream".to_string(),
+            None,
         )
         .await
     {
@@ -213,6 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             partial_csas.to_string(),
             "orders_stream".to_string(),
+            None,
         )
         .await
     {
@@ -256,6 +260,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             explicit_csas.to_string(),
             "transactions_stream".to_string(),
+            None,
         )
         .await
     {
@@ -294,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1".to_string(),
             hybrid_ctas.to_string(),
             "orders_stream".to_string(),
+            None,
         )
         .await
     {

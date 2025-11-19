@@ -509,6 +509,7 @@ impl StreamJobServer {
         version: String,
         query: String,
         topic: String,
+        app_name: Option<String>,
     ) -> Result<(), SqlError> {
         info!(
             "Deploying job '{}' version '{}' on topic '{}': {}",
@@ -803,11 +804,11 @@ impl StreamJobServer {
             );
 
             // Use multi-source processing for all jobs (handles single-source as special case)
-            // For now, pass None for app_name - will be added from SqlApplication metadata in future
+            // Thread app_name from SqlApplication metadata for coordinated consumer groups
             match create_multi_source_readers(
                 &analysis.required_sources,
                 &job_name,
-                None, // TODO: Thread app_name from SqlApplication metadata
+                app_name.as_deref(),
                 &batch_config_clone,
             )
             .await
@@ -1136,7 +1137,7 @@ impl StreamJobServer {
         );
 
         // Log SQL application annotations (top-level metadata)
-        if let Some(application) = app.metadata.application {
+        if let Some(application) = &app.metadata.application {
             info!("  @application: {}", application);
         }
         if let Some(phase) = app.metadata.phase {
@@ -1354,6 +1355,7 @@ impl StreamJobServer {
                             app.metadata.version.clone(),
                             merged_sql,
                             topic,
+                            app.metadata.application.clone(),
                         )
                         .await
                     {

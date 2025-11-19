@@ -125,6 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "v1.0".to_string(),
             enrichment_query.to_string(),
             "enriched-orders-topic".to_string(),
+            None,
         )
         .await
     {

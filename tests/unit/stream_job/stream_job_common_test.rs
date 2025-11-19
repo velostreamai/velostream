@@ -430,6 +430,7 @@ async fn test_concurrent_operations() {
                 )"#
                     .to_string(),
                     "test_topic".to_string(),
+                    None,
                 )
                 .await;
             (job_name, result)
@@ -474,6 +475,7 @@ async fn test_resource_cleanup() {
                 )"#
                 .to_string(),
                 "test_topic".to_string(),
+                None,
             )
             .await
             .unwrap();
@@ -510,6 +512,7 @@ async fn test_job_metrics() {
                 )"#
             .to_string(),
             "test_topic".to_string(),
+            None,
         )
         .await
         .unwrap();
