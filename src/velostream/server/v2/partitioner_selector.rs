@@ -14,23 +14,30 @@
 //! 2. **GROUP BY with no ORDER BY**: Use `AlwaysHash` by GROUP BY keys
 //!    - Perfect cache locality for aggregation
 //!    - Groups related records together
+//!    - **Note**: If source data is already partitioned by GROUP BY keys, `StickyPartition`
+//!      is equally efficient (zero-cost, no repartitioning needed)
 //!
 //! 3. **Pure SELECT (no aggregation)**: Use `AlwaysHash`
 //!    - Any key works fine, stateless processing
 //!    - Maximum parallelism with zero contention
 //!
-//! 4. **Default**: Use source partition (`SmartRepartition`)
-//!    - Respects Kafka topic partitions
-//!    - Maintains producer-consumer alignment
+//! 4. **Default**: Use `StickyPartition` (source partition affinity)
+//!    - Zero-cost: just reads existing `record.partition` field
+//!    - Preserves Kafka topic partition alignment
+//!    - Works great when source data is already properly partitioned
 //!
 //! ## Performance Impact
 //!
-//! Correct strategy selection can provide 5-20x throughput improvements:
-//! - Scenario 0 (Pure SELECT): 2.27x faster with Hash
-//! - Scenario 1 (ROWS WINDOW): 2.6x faster with Sticky (vs current Hash)
-//! - Scenario 2 (GROUP BY): 2.42x faster with Hash (291% per-core efficiency!)
-//! - Scenario 3a (TUMBLING): ~12x faster with Sticky (vs current Hash)
-//! - Scenario 3b (EMIT CHANGES): 4.6x faster with Hash
+//! Strategy selection impact depends on source data partitioning:
+//! - **Pre-partitioned data** (by GROUP BY keys): StickyPartition is zero-cost and optimal
+//! - **Random/unpartitioned data**: AlwaysHash provides better locality and parallelism
+//!
+//! Baseline measurements with properly partitioned test data:
+//! - Scenario 0 (Pure SELECT): sticky_partition optimal (zero-cost)
+//! - Scenario 1 (ROWS WINDOW): sticky_partition optimal (ORDER BY requirement)
+//! - Scenario 2 (GROUP BY): hash optimal (271k→280k+ rec/sec with proper routing)
+//! - Scenario 3a (TUMBLING + GROUP BY): sticky_partition effective when pre-partitioned (271k rec/sec)
+//! - Scenario 3b (EMIT CHANGES): sticky_partition acceptable (10k rec/sec)
 
 use crate::velostream::sql::ast::{Expr, OrderByExpr, StreamingQuery};
 
@@ -66,21 +73,32 @@ impl PartitionerSelection {
 
 /// Analyzes a streaming query to select the best partitioning strategy
 ///
-/// # Strategy Selection (Revised - Sticky Default)
+/// # Strategy Selection (Sticky Default with Query-Based Overrides)
 ///
-/// The selector now uses **StickyPartitionStrategy as the default** because:
+/// The selector defaults to **StickyPartitionStrategy** because:
 /// 1. Every record ALWAYS has a `record.partition` field from the data source
-/// 2. Using it is ZERO-COST (just a field read)
+/// 2. Using it is ZERO-COST (just a field read, no hash computation)
 /// 3. It naturally preserves source partition affinity
-/// 4. Only deviate for queries that require a different partitioning strategy
+/// 4. It works optimally when source data is already properly partitioned
+///
+/// The selector overrides to Hash for specific query patterns where:
+/// - Hash provides better cache locality for aggregations, OR
+/// - Re-partitioning enables parallelization opportunities
+///
+/// **Important Note on Pre-Partitioned Data**: If the source data is already
+/// partitioned by the GROUP BY keys (common in Kafka with keyed topics), then
+/// StickyPartition is equally efficient as AlwaysHash and avoids repartitioning overhead.
+/// Example: If data is partitioned by `(trader_id, symbol)` and query groups by those
+/// same columns, StickyPartition is optimal (zero-cost, perfect locality).
 ///
 /// Selection rules (priority order):
 /// 1. **GROUP BY without ORDER BY** → Override to Hash (better aggregation locality)
+///    - Unless source is pre-partitioned by GROUP BY keys (then Sticky is fine too)
 /// 2. **Window without ORDER BY** → Override to Hash (parallelization opportunity)
 /// 3. **Default (everything else)** → Use Sticky (zero-cost source partition affinity)
-///    - Pure SELECT
-///    - Window with ORDER BY (Sticky is required anyway)
-///    - Other queries
+///    - Pure SELECT (no aggregation needed)
+///    - Window with ORDER BY (Sticky is required to preserve ordering)
+///    - Any query where source partitioning is already optimal
 ///
 /// # Example
 ///
