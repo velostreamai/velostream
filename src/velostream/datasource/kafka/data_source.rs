@@ -26,16 +26,24 @@ pub struct KafkaDataSource {
 
 impl KafkaDataSource {
     /// Create a Kafka data source from properties
+    ///
+    /// # Arguments
+    /// * `props` - Configuration properties (from YAML or SQL)
+    /// * `default_topic` - Default topic name if not in properties
+    /// * `job_name` - Name of the job (source/stream name)
+    /// * `app_name` - Optional SQL Application name for consumer group generation
     pub fn from_properties(
         props: &HashMap<String, String>,
         default_topic: &str,
         job_name: &str,
+        app_name: Option<&str>,
     ) -> Self {
         // DEBUG: Log all properties being passed
         log::info!(
-            "KafkaDataSource::from_properties for topic '{}', job '{}'",
+            "KafkaDataSource::from_properties for topic '{}', job '{}', app '{}'",
             default_topic,
-            job_name
+            job_name,
+            app_name.unwrap_or("none")
         );
         log::info!("  Received {} properties:", props.len());
         for (k, v) in props.iter() {
@@ -90,8 +98,33 @@ impl KafkaDataSource {
         // FAIL FAST validation for suspicious topic names
         Self::validate_topic_name(&topic).expect("Topic validation failed");
 
-        let group_id =
-            get_source_prop("group_id").unwrap_or_else(|| format!("velo-sql-{}", job_name));
+        // Generate consumer group ID with app-level coordination support
+        // Priority: explicit config > app_name prefix > default fallback
+        let group_id = get_source_prop("group_id")
+            .or_else(|| {
+                // Generate app-aware consumer group for multi-JobServer coordination
+                app_name.map(|app| format!("velo-{}-{}", app, job_name))
+            })
+            .unwrap_or_else(|| {
+                // Fallback to job-only grouping for backward compatibility
+                format!("velo-sql-{}", job_name)
+            });
+
+        // Log consumer group assignment for visibility
+        let source_type = if get_source_prop("group_id").is_some() {
+            "explicit config"
+        } else if app_name.is_some() {
+            "app-aware auto-generated"
+        } else {
+            "legacy fallback"
+        };
+        log::info!(
+            "Kafka consumer group ID: '{}' (source: {}, job: {}, app: {})",
+            group_id,
+            source_type,
+            job_name,
+            app_name.unwrap_or("none")
+        );
 
         // Create filtered config with source. properties
         // Filter out producer-only properties that shouldn't be passed to consumers

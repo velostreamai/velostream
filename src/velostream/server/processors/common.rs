@@ -616,6 +616,7 @@ pub struct DataSourceConfig {
     pub requirement: DataSourceRequirement,
     pub default_topic: String,
     pub job_name: String,
+    pub app_name: Option<String>, // For multi-JobServer consumer group coordination
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
 }
 
@@ -714,6 +715,7 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
                 &requirement.properties,
                 &requirement.name, // Use source name, not default_topic
                 &config.job_name,
+                config.app_name.as_deref(),
                 &config.batch_config,
             )
             .await
@@ -733,6 +735,7 @@ async fn create_kafka_reader(
     props: &HashMap<String, String>,
     source_name: &str,
     job_name: &str,
+    app_name: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSourceCreationResult {
     // Extract topic name from properties, or use source name as default
@@ -744,12 +747,14 @@ async fn create_kafka_reader(
         .unwrap_or_else(|| source_name.to_string());
 
     info!(
-        "Creating Kafka reader for source '{}' with topic '{}'",
-        source_name, topic
+        "Creating Kafka reader for source '{}' with topic '{}' (app: {})",
+        source_name,
+        topic,
+        app_name.unwrap_or("none")
     );
 
     // Let KafkaDataSource handle its own configuration extraction
-    let mut datasource = KafkaDataSource::from_properties(props, &topic, job_name);
+    let mut datasource = KafkaDataSource::from_properties(props, &topic, job_name, app_name);
 
     // Self-initialize with the extracted configuration
     datasource
@@ -944,9 +949,16 @@ async fn create_file_writer(
 }
 
 /// Create multiple datasource readers from analysis requirements
+///
+/// # Arguments
+/// * `sources` - Data source requirements
+/// * `job_name` - Name of the job
+/// * `app_name` - Optional SQL Application name for consumer group coordination
+/// * `batch_config` - Optional batch configuration
 pub async fn create_multi_source_readers(
     sources: &[DataSourceRequirement],
     job_name: &str,
+    app_name: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSourceCreationResult {
     let mut readers = HashMap::new();
@@ -969,6 +981,7 @@ pub async fn create_multi_source_readers(
             requirement: requirement.clone(),
             default_topic: requirement.name.clone(), // Use source name as default
             job_name: job_name.to_string(),
+            app_name: app_name.map(|a| a.to_string()),
             batch_config: batch_config.clone(),
         };
 

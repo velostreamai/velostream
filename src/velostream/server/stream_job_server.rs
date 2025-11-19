@@ -803,9 +803,11 @@ impl StreamJobServer {
             );
 
             // Use multi-source processing for all jobs (handles single-source as special case)
+            // For now, pass None for app_name - will be added from SqlApplication metadata in future
             match create_multi_source_readers(
                 &analysis.required_sources,
                 &job_name,
+                None, // TODO: Thread app_name from SqlApplication metadata
                 &batch_config_clone,
             )
             .await

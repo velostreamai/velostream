@@ -46,6 +46,7 @@ async fn test_datasource_config_creation() {
         requirement,
         default_topic: "default".to_string(),
         job_name: "test-job".to_string(),
+        app_name: None,
         batch_config: None,
     };
 
@@ -61,6 +62,7 @@ async fn test_kafka_datasource_creation_mock() {
         requirement: requirement.clone(),
         default_topic: "fallback-topic".to_string(),
         job_name: "kafka-test".to_string(),
+        app_name: None,
         batch_config: None,
     };
 
@@ -82,6 +84,7 @@ async fn test_file_datasource_config() {
         requirement: requirement.clone(),
         default_topic: "unused".to_string(),
         job_name: "file-test".to_string(),
+        app_name: None,
         batch_config: None,
     };
 
@@ -262,6 +265,7 @@ async fn test_datasource_config_properties() {
         requirement,
         default_topic: "default".to_string(),
         job_name: "unsupported-test".to_string(),
+        app_name: None,
         batch_config: None,
     };
 
@@ -289,6 +293,7 @@ fn test_default_values_extraction() {
         requirement,
         default_topic: "my-default-topic".to_string(),
         job_name: "default-test".to_string(),
+        app_name: None,
         batch_config: None,
     };
 
