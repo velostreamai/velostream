@@ -13,6 +13,10 @@ This guide covers the complete annotation system for job configuration:
 ## Quick Start
 
 ```sql
+-- Application-level annotation for multi-server coordination
+@application trading_platform
+@phase production
+
 -- Simple example: Use transactional mode with 8 partitions
 -- @job_mode: transactional
 -- @num_partitions: 8
@@ -23,6 +27,147 @@ FROM market_data
 GROUP BY symbol
 EMIT CHANGES;
 ```
+
+---
+
+## Application-Level Annotations (`@application`, `@phase`)
+
+### Overview
+
+Application-level annotations enable coordination across multiple JobServer instances running the same SQL application. These are defined at the **top of the SQL file** before any CREATE/SELECT statements.
+
+### @application Annotation
+
+Identifies your application and enables **automatic consumer group coordination** across multiple JobServer instances.
+
+**Syntax:**
+```sql
+@application <app_name>
+```
+
+**Purpose:**
+- Enables automatic Kafka consumer group naming: `velo-{app_name}-{job_name}`
+- Multiple JobServer instances share this group name and automatically coordinate partition distribution
+- No additional configuration required - Kafka handles partition assignment transparently
+
+**Example:**
+
+```sql
+@application financial_trading
+
+CREATE STREAM market_data_stream AS
+SELECT * FROM kafka_market_data
+EMIT CHANGES;
+```
+
+With 3 JobServer instances deployed:
+- Consumer group: `velo-financial_trading-market_data_stream`
+- Each instance gets ~1/3 of the partitions automatically
+- Partition rebalancing happens transparently
+
+### @phase Annotation
+
+Marks the deployment phase (informational, helps with deployment tracking).
+
+**Syntax:**
+```sql
+@phase <phase>
+```
+
+**Valid values:**
+- `development` - Local development
+- `staging` - Pre-production testing
+- `production` - Production deployment
+
+**Example:**
+```sql
+@application financial_trading
+@phase production
+
+CREATE STREAM market_trades AS
+SELECT * FROM trades
+EMIT CHANGES;
+```
+
+### Multi-Server Deployment Example
+
+**Scenario:** 3 JobServer instances running the same SQL application
+
+```sql
+@application trading_platform
+@phase production
+
+-- This job will have consumer group: velo-trading_platform-order_processor
+-- All 3 servers share this group; Kafka auto-distributes partitions
+CREATE STREAM order_processor AS
+SELECT order_id, SUM(amount) as total_value
+FROM kafka_orders
+GROUP BY order_id
+EMIT CHANGES;
+
+-- This job will have consumer group: velo-trading_platform-payment_processor
+-- All 3 servers share this group; Kafka auto-distributes partitions
+CREATE STREAM payment_processor AS
+SELECT payment_id, status
+FROM kafka_payments
+WHERE amount > 1000
+EMIT CHANGES;
+```
+
+**Deployment:**
+```bash
+# Server 1
+velostream --app trading_platform.sql
+
+# Server 2
+velostream --app trading_platform.sql
+
+# Server 3
+velostream --app trading_platform.sql
+```
+
+**Result:**
+- Automatic consumer group: `velo-trading_platform-order_processor`
+- Kafka distributes 3 partitions to 3 servers (1 each) or 12 partitions to 3 servers (4 each)
+- No manual configuration needed
+- Transparent partition rebalancing when servers join/leave
+
+### Fallback Strategy
+
+If `@application` is not specified:
+1. Check explicit Kafka consumer group config in YAML
+2. Use legacy default: `velo-sql-{job_name}`
+
+```sql
+-- No @application annotation
+CREATE STREAM events AS
+SELECT * FROM kafka_events
+EMIT CHANGES;
+
+-- Consumer group will be: velo-sql-events (legacy naming)
+```
+
+### Combined with Job Mode Annotations
+
+```sql
+@application payment_system
+@phase production
+
+-- @job_mode: transactional for ACID guarantees
+-- @batch_size: 100 for balanced latency/throughput
+SELECT
+    payment_id,
+    SUM(amount) as total,
+    COUNT(*) as transaction_count
+FROM payments
+GROUP BY payment_id
+EMIT CHANGES;
+```
+
+All three levels work together:
+- **Application level** (`@application`) → Controls consumer group naming for multi-server coordination
+- **Job level** (`-- @job_mode`) → Controls processor selection and partitioning
+- **Configuration level** (YAML) → Can override both with explicit settings
 
 ## Annotation Syntax
 

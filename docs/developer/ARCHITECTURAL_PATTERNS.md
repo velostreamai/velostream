@@ -249,3 +249,216 @@ NOT Blocking:
 - `tests/unit/sql/execution/processors/select_validation_test.rs` (NEW)
 - Register in: `tests/unit/sql/execution/processors/mod.rs`
 
+---
+
+## Consumer Group Coordination Pattern
+
+### Problem Statement
+
+When running multiple JobServer instances with the same SQL application, we need:
+1. Automatic consumer group naming without explicit configuration
+2. Transparent partition distribution via Kafka's built-in rebalancing
+3. No coordination overhead between servers
+4. Backward compatibility with existing deployments
+
+### Solution Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│         SQL Application (trading.sql)            │
+│                                                  │
+│  @application trading_platform                  │
+│  @phase production                               │
+│                                                  │
+│  CREATE STREAM orders AS SELECT ...;             │
+│  CREATE STREAM payments AS SELECT ...;           │
+└──────────┬───────────────────────────────────────┘
+           │
+           ├─────────────────────────────────────┐
+           │                                     │
+           ▼                                     ▼
+    ┌─────────────┐                      ┌─────────────┐
+    │ SqlApplication                     │ SqlApplication
+    │ metadata:                          │ metadata:
+    │ application:                       │ application:
+    │  "trading_platform"                │  "trading_platform"
+    └──────┬──────┘                      └──────┬──────┘
+           │                                     │
+           ▼                                     ▼
+    ┌─────────────────────┐          ┌─────────────────────┐
+    │  deploy_job()       │          │  deploy_job()       │
+    │  app_name:          │          │  app_name:          │
+    │   "trading_platform"│          │   "trading_platform"│
+    └──────┬──────────────┘          └──────┬──────────────┘
+           │                                 │
+           ▼                                 ▼
+    ┌────────────────────────┐      ┌────────────────────────┐
+    │ create_multi_source_   │      │ create_multi_source_   │
+    │ readers()              │      │ readers()              │
+    │ app_name: Some("..") │      │ app_name: Some("..") │
+    └──────┬─────────────────┘      └──────┬─────────────────┘
+           │                                 │
+           ▼                                 ▼
+    ┌────────────────────────┐      ┌────────────────────────┐
+    │ KafkaDataSource        │      │ KafkaDataSource        │
+    │ ::from_properties()    │      │ ::from_properties()    │
+    │                        │      │                        │
+    │ 3-tier fallback:       │      │ 3-tier fallback:       │
+    │ 1. Explicit config     │      │ 1. Explicit config     │
+    │ 2. App-aware:          │      │ 2. App-aware:          │
+    │    velo-trading_..     │      │    velo-trading_..     │
+    │ 3. Legacy:             │      │ 3. Legacy:             │
+    │    velo-sql-orders     │      │    velo-sql-orders     │
+    └──────┬─────────────────┘      └──────┬─────────────────┘
+           │                                 │
+           └────────────────┬────────────────┘
+                            ▼
+                    ┌────────────────┐
+                    │ Kafka Broker   │
+                    │                │
+                    │ Consumer Groups│
+                    │ - velo-trading │
+                    │   _platform-   │
+                    │   orders       │
+                    │                │
+                    │ Partitions:    │
+                    │ - P0→Server1   │
+                    │ - P1→Server2   │
+                    │ - P2→Server3   │
+                    │ - P3→Server1   │
+                    │ (auto-balanced)│
+                    └────────────────┘
+```
+
+### Implementation Flow
+
+```
+1. User specifies @application annotation
+   └─ Enables multi-server coordination
+
+2. Deploy on Multiple Servers
+   └─ Each server loads same SQL file
+
+3. SqlApplication metadata extracted
+   ├─ app.metadata.application = "trading_platform"
+   └─ Available in deploy_sql_application_with_filename()
+
+4. Pass app_name through call chain
+   ├─ deploy_job(job_name, version, query, topic, app_name)
+   │  └─ create_multi_source_readers(sources, job_name, app_name, ...)
+   │     └─ KafkaDataSource::from_properties(..., app_name)
+
+5. Consumer Group Naming (3-tier fallback)
+   ├─ Tier 1: Explicit consumer.group.id in YAML
+   │  └─ If present, use as-is
+   ├─ Tier 2: App-aware naming
+   │  └─ If app_name provided: velo-{app_name}-{job_name}
+   └─ Tier 3: Legacy fallback
+      └─ If no app_name: velo-sql-{job_name}
+
+6. Kafka Automatic Partition Distribution
+   ├─ Consumers join same group
+   ├─ Kafka detects member count change
+   ├─ Rebalancing assigns partitions
+   └─ Each member gets equal share (or as close as possible)
+
+7. Transparent Coordination
+   └─ No explicit server-to-server communication needed
+      (Kafka handles it all via consumer group protocol)
+```
+
+### Code Locations
+
+**SQL Application Metadata:**
+- `src/velostream/sql/app_parser.rs` - Metadata parsing
+- `SqlApplication.metadata.application` - Application name field
+
+**Job Deployment:**
+- `src/velostream/server/stream_job_server.rs:1127` - `deploy_sql_application_with_filename()`
+- Extracts: `app.metadata.application`
+- Passes to: `deploy_job(..., app_name)`
+
+**Job Processing:**
+- `src/velostream/server/stream_job_server.rs:506` - `deploy_job()` signature
+- Added parameter: `app_name: Option<String>`
+- Passes to: `create_multi_source_readers(..., app_name)`
+
+**DataSource Creation:**
+- `src/velostream/server/processors/common.rs:956` - `create_multi_source_readers()`
+- Added parameter: `app_name: Option<&str>`
+- Passes to: `KafkaDataSource::from_properties(..., app_name)`
+
+**Consumer Group Naming:**
+- `src/velostream/datasource/kafka/data_source.rs:93` - `from_properties()`
+- Added parameter: `app_name: Option<&str>`
+- Logic (lines 73-128):
+  ```rust
+  let group_id = get_source_prop("group_id")
+      .or_else(|| {
+          app_name.map(|app| format!("velo-{}-{}", app, job_name))
+      })
+      .unwrap_or_else(|| {
+          format!("velo-sql-{}", job_name)
+      });
+  ```
+
+### Backward Compatibility
+
+**Without @application annotation:**
+```sql
+CREATE STREAM events AS SELECT * FROM kafka;
+-- Consumer group: velo-sql-events (legacy)
+```
+
+**With explicit consumer.group.id:**
+```sql
+-- With YAML config:
+consumer.group.id: custom_group_id
+-- Consumer group: custom_group_id (explicit takes priority)
+```
+
+**With @application annotation:**
+```sql
+@application myapp
+CREATE STREAM events AS SELECT * FROM kafka;
+-- Consumer group: velo-myapp-events (new feature)
+```
+
+### Benefits
+
+✅ **Zero-configuration multi-server coordination**
+- Just add @application annotation
+- Kafka handles everything else
+
+✅ **Transparent partition distribution**
+- Kafka's built-in rebalancing
+- No custom coordination code
+
+✅ **Backward compatible**
+- Existing deployments work unchanged
+- Optional feature (requires @application)
+
+✅ **Observable**
+- Clear consumer group names show app/job relationship
+- Easy to monitor with standard Kafka tools
+
+✅ **Scalable**
+- Add/remove servers dynamically
+- Automatic partition redistribution
+
+### Testing Strategy
+
+**Unit Tests:**
+- Consumer group naming logic (3-tier fallback)
+- Option handling and edge cases
+
+**Integration Tests:**
+- Multiple servers with same app_name
+- Partition distribution verification
+- Server join/leave scenarios
+
+**End-to-End Tests:**
+- Deploy across 3 servers
+- Verify balanced partition assignment
+- Monitor lag and throughput
+
