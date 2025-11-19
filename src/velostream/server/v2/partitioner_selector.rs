@@ -154,15 +154,24 @@ impl PartitionerSelector {
                     }
                 }
 
-                // Check for window functions without ORDER BY → override to Hash
+                // Check for window functions and ORDER BY
                 if let Some(window_spec) = window {
-                    if order_by.is_none() {
-                        // Window without ORDER BY: use Hash for parallelism opportunity
-                        return Self::select_hash_partition(group_by.as_ref());
-                    }
-                    // Window with ORDER BY: Sticky is already default, confirm explicitly
-                    if order_by.is_some() {
+                    // Check if window has internal ORDER BY (e.g., ROWS window with ORDER BY)
+                    let has_window_order_by = match window_spec {
+                        crate::velostream::sql::ast::WindowSpec::Rows {
+                            order_by: window_order, ..
+                        } => !window_order.is_empty(),
+                        _ => false,
+                    };
+
+                    // If window has ORDER BY (internal or top-level), use Sticky
+                    if order_by.is_some() || has_window_order_by {
                         return Self::select_sticky_partition(order_by.as_ref());
+                    }
+
+                    // Window without any ORDER BY: use Hash for parallelism opportunity
+                    if order_by.is_none() && !has_window_order_by {
+                        return Self::select_hash_partition(group_by.as_ref());
                     }
                 }
 
