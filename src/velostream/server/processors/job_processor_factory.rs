@@ -181,6 +181,36 @@ impl JobProcessorFactory {
         Arc::new(AdaptiveJobProcessor::new(partitioned_config))
     }
 
+    /// Create an Adaptive mode processor with query-based strategy auto-selection
+    ///
+    /// Enables automatic partitioning strategy selection based on query analysis.
+    /// Used in baselines/benchmarks to measure with optimal strategy selection.
+    pub fn create_adaptive_test_optimized_with_auto_select(
+        num_partitions: Option<usize>,
+        query: Arc<crate::velostream::sql::ast::StreamingQuery>,
+    ) -> Arc<dyn JobProcessor> {
+        let partitioned_config = PartitionedJobConfig {
+            num_partitions,
+            enable_core_affinity: false,
+            empty_batch_count: 0, // Immediate EOF detection for test datasets
+            wait_on_empty_batch_ms: 0, // No wait needed
+            auto_select_from_query: Some(query),
+            ..Default::default()
+        };
+
+        let actual_partitions = num_partitions.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(8)
+        });
+
+        info!(
+            "Creating Adaptive processor (Test-optimized with auto-selection): {} partitions, immediate EOF detection",
+            actual_partitions
+        );
+        Arc::new(AdaptiveJobProcessor::new(partitioned_config))
+    }
+
     /// Create an Adaptive mode processor with default configuration
     pub fn create_adaptive_default() -> Arc<dyn JobProcessor> {
         Self::create(JobProcessorConfig::Adaptive {

@@ -499,8 +499,7 @@ impl KafkaSimulatorDataSource {
                 // Create batches from this partition's records
                 while !partition_records.is_empty() {
                     let batch_len = batch_size.min(partition_records.len());
-                    let batch: Vec<StreamRecord> =
-                        partition_records.drain(0..batch_len).collect();
+                    let batch: Vec<StreamRecord> = partition_records.drain(0..batch_len).collect();
                     all_batches.push(batch);
                 }
             }
@@ -514,8 +513,7 @@ impl KafkaSimulatorDataSource {
 
     /// Returns true when all records have been consumed
     pub fn all_consumed(&self) -> bool {
-        self.current_batch_idx.load(Ordering::Acquire)
-            >= self.batches.len()
+        self.current_batch_idx.load(Ordering::Acquire) >= self.batches.len()
     }
 
     /// Get delivery statistics
@@ -539,12 +537,9 @@ impl DataReader for KafkaSimulatorDataSource {
 
         // Get the next pre-allocated batch and advance index atomically
         let batch = self.batches[idx].clone();
-        self.current_batch_idx.compare_exchange(
-            idx,
-            idx + 1,
-            Ordering::Release,
-            Ordering::Acquire,
-        ).ok();
+        self.current_batch_idx
+            .compare_exchange(idx, idx + 1, Ordering::Release, Ordering::Acquire)
+            .ok();
 
         debug!(
             "KafkaSimulator: Read {} records (batch {}/{})",

@@ -287,14 +287,18 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
 /// Measure JobServer V2 @ 1-core
 async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
+    // With query-based auto-selection for optimal strategy
     // See: docs/developer/adaptive_processor_performance_analysis.md
-    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(1));
-    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
-    let data_writer = MockDataWriter::new();
-
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
+
+    let processor = JobProcessorFactory::create_adaptive_test_optimized_with_auto_select(
+        Some(1),
+        query_arc.clone(),
+    );
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
@@ -331,14 +335,18 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
 /// Measure JobServer V2 @ 4-core
 async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     // Use test-optimized configuration to eliminate EOF detection overhead (200-300ms)
+    // With query-based auto-selection for optimal strategy
     // See: docs/developer/adaptive_processor_performance_analysis.md
-    let processor = JobProcessorFactory::create_adaptive_test_optimized(Some(4));
-    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
-    let data_writer = MockDataWriter::new();
-
     let mut parser = StreamingSqlParser::new();
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let query_arc = Arc::new(parsed_query);
+
+    let processor = JobProcessorFactory::create_adaptive_test_optimized_with_auto_select(
+        Some(4),
+        query_arc.clone(),
+    );
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
 
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
