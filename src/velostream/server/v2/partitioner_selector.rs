@@ -142,50 +142,37 @@ impl PartitionerSelector {
         match query {
             StreamingQuery::Select {
                 group_by,
-                order_by,
+                order_by: _,
                 window,
                 ..
             } => {
-                // Check for GROUP BY without ORDER BY → override to Hash
+                // PRIORITY 1: GROUP BY ALWAYS requires rekeying by GROUP BY keys
                 if let Some(group_cols) = group_by {
-                    if !group_cols.is_empty() && order_by.is_none() {
-                        // GROUP BY without ORDER BY needs Hash for aggregation locality
+                    if !group_cols.is_empty() {
+                        // GROUP BY present → ALWAYS use Hash (rekeying required)
+                        // This applies to:
+                        // - Pure GROUP BY aggregations
+                        // - GROUP BY with windows (Tumbling, Sliding, Session)
+                        // - GROUP BY with EMIT CHANGES
+                        // The GROUP BY keys determine the rekeying, regardless of window type
                         return Self::select_hash_partition(Some(group_cols));
                     }
                 }
 
-                // Check for ROWS window - always use sticky partition (analytic window, no rekeying)
+                // PRIORITY 2: ROWS window (analytic, no rekeying)
                 if let Some(window_spec) = window {
-                    match window_spec {
-                        crate::velostream::sql::ast::WindowSpec::Rows { .. } => {
-                            // ROWS OVER windows are analytic windows that don't rekey data
-                            // Always use sticky_partition to preserve source partitions
-                            return Self::select_sticky_partition(order_by.as_ref());
-                        }
-                        _ => {
-                            // Other window types (Tumbling, Sliding, Session)
-                            if order_by.is_none() {
-                                // Window without ORDER BY: use Hash for parallelism opportunity
-                                return Self::select_hash_partition(group_by.as_ref());
-                            }
-                            // Window with top-level ORDER BY: use Sticky
-                            if order_by.is_some() {
-                                return Self::select_sticky_partition(order_by.as_ref());
-                            }
-                        }
+                    if let crate::velostream::sql::ast::WindowSpec::Rows { .. } = window_spec {
+                        // ROWS OVER windows are analytic windows that don't rekey data
+                        // Always use sticky_partition to preserve source partitions
+                        return Self::select_sticky_partition_default();
                     }
-                }
-
-                // Check for window functions in SELECT expressions without ORDER BY
-                if Self::has_window_functions(query) && order_by.is_none() {
-                    return Self::select_hash_partition(group_by.as_ref());
                 }
 
                 // DEFAULT: StickyPartitionStrategy (use record.partition field)
                 // This applies to:
                 // - Pure SELECT (no aggregation or windowing)
-                // - Window with ORDER BY (Sticky is required)
-                // - Other queries
+                // - ROWS window (analytic, no rekeying)
+                // - Tumbling/Sliding/Session without GROUP BY
                 Self::select_sticky_partition_default()
             }
             _ => {
