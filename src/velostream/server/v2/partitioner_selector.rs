@@ -146,25 +146,27 @@ impl PartitionerSelector {
                 window,
                 ..
             } => {
-                // PRIORITY 1: GROUP BY ALWAYS requires rekeying by GROUP BY keys
-                if let Some(group_cols) = group_by {
-                    if !group_cols.is_empty() {
-                        // GROUP BY present → ALWAYS use Hash (rekeying required)
-                        // This applies to:
-                        // - Pure GROUP BY aggregations
-                        // - GROUP BY with windows (Tumbling, Sliding, Session)
-                        // - GROUP BY with EMIT CHANGES
-                        // The GROUP BY keys determine the rekeying, regardless of window type
-                        return Self::select_hash_partition(Some(group_cols));
+                // PRIORITY 1: Tumbling/Sliding/Session windows ALWAYS require rekeying
+                if let Some(window_spec) = window {
+                    match window_spec {
+                        crate::velostream::sql::ast::WindowSpec::Rows { .. } => {
+                            // ROWS window is analytic (no rekeying) - proceed to check GROUP BY
+                        }
+                        crate::velostream::sql::ast::WindowSpec::Tumbling { .. }
+                        | crate::velostream::sql::ast::WindowSpec::Sliding { .. }
+                        | crate::velostream::sql::ast::WindowSpec::Session { .. } => {
+                            // Tumbling/Sliding/Session windows ALWAYS require rekeying
+                            // Use GROUP BY keys if present, otherwise use hash with any key
+                            return Self::select_hash_partition(group_by.as_ref());
+                        }
                     }
                 }
 
-                // PRIORITY 2: ROWS window (analytic, no rekeying)
-                if let Some(window_spec) = window {
-                    if let crate::velostream::sql::ast::WindowSpec::Rows { .. } = window_spec {
-                        // ROWS OVER windows are analytic windows that don't rekey data
-                        // Always use sticky_partition to preserve source partitions
-                        return Self::select_sticky_partition_default();
+                // PRIORITY 2: GROUP BY requires rekeying by GROUP BY keys
+                if let Some(group_cols) = group_by {
+                    if !group_cols.is_empty() {
+                        // GROUP BY present → use Hash (rekeying required)
+                        return Self::select_hash_partition(Some(group_cols));
                     }
                 }
 
@@ -172,7 +174,6 @@ impl PartitionerSelector {
                 // This applies to:
                 // - Pure SELECT (no aggregation or windowing)
                 // - ROWS window (analytic, no rekeying)
-                // - Tumbling/Sliding/Session without GROUP BY
                 Self::select_sticky_partition_default()
             }
             _ => {
