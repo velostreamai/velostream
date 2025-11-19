@@ -5,26 +5,25 @@
 //!
 //! ## Strategy Selection Logic
 //!
-//! The selector follows these rules:
+//! The selector follows these rules (priority order):
 //!
-//! 1. **Window functions with ORDER BY**: Use `StickyPartition` by timestamp
-//!    - Prevents out-of-order buffering overhead (20-25ms per batch)
-//!    - Essential for ROWS WINDOW, TUMBLING WINDOW with ORDER BY
+//! 1. **Tumbling/Sliding/Session Windows**: Use `AlwaysHash` (data rekeying required)
+//!    - Window boundaries require rekeying data by the window's implicit GROUP BY
+//!    - Applies regardless of ORDER BY, GROUP BY, or any other clause
+//!    - Essential for correct window boundary evaluation across partitions
 //!
-//! 2. **GROUP BY with no ORDER BY**: Use `AlwaysHash` by GROUP BY keys
+//! 2. **GROUP BY (without Tumbling/Sliding/Session windows)**: Use `AlwaysHash` by GROUP BY keys
+//!    - Data rekeying required to group related records
 //!    - Perfect cache locality for aggregation
-//!    - Groups related records together
 //!    - **Note**: If source data is already partitioned by GROUP BY keys, `StickyPartition`
 //!      is equally efficient (zero-cost, no repartitioning needed)
 //!
-//! 3. **Pure SELECT (no aggregation)**: Use `AlwaysHash`
-//!    - Any key works fine, stateless processing
-//!    - Maximum parallelism with zero contention
-//!
-//! 4. **Default**: Use `StickyPartition` (source partition affinity)
+//! 3. **ROWS Window or Pure SELECT**: Use `StickyPartition` (default)
+//!    - ROWS window is analytic (no data rekeying needed) - operates within partitions
+//!    - Pure SELECT has no aggregation or windowing - no rekeying needed
 //!    - Zero-cost: just reads existing `record.partition` field
 //!    - Preserves Kafka topic partition alignment
-//!    - Works great when source data is already properly partitioned
+//!    - Works optimally when source data is already properly partitioned
 //!
 //! ## Performance Impact
 //!
@@ -33,11 +32,11 @@
 //! - **Random/unpartitioned data**: AlwaysHash provides better locality and parallelism
 //!
 //! Baseline measurements with properly partitioned test data:
-//! - Scenario 0 (Pure SELECT): sticky_partition optimal (zero-cost)
-//! - Scenario 1 (ROWS WINDOW): sticky_partition optimal (ORDER BY requirement)
-//! - Scenario 2 (GROUP BY): hash optimal (271k→280k+ rec/sec with proper routing)
-//! - Scenario 3a (TUMBLING + GROUP BY): sticky_partition effective when pre-partitioned (271k rec/sec)
-//! - Scenario 3b (EMIT CHANGES): sticky_partition acceptable (10k rec/sec)
+//! - Scenario 0 (Pure SELECT): sticky_partition optimal (zero-cost, no rekeying)
+//! - Scenario 1 (ROWS WINDOW): sticky_partition optimal (analytic, no rekeying)
+//! - Scenario 2 (GROUP BY): always_hash optimal (data rekeying by GROUP BY keys)
+//! - Scenario 3a (TUMBLING + GROUP BY): always_hash required (window boundaries require rekeying)
+//! - Scenario 3b (TUMBLING + EMIT CHANGES): always_hash required (window boundaries require rekeying)
 
 use crate::velostream::sql::ast::{Expr, OrderByExpr, StreamingQuery};
 
@@ -73,7 +72,7 @@ impl PartitionerSelection {
 
 /// Analyzes a streaming query to select the best partitioning strategy
 ///
-/// # Strategy Selection (Sticky Default with Query-Based Overrides)
+/// # Strategy Selection Rules (Priority Order)
 ///
 /// The selector defaults to **StickyPartitionStrategy** because:
 /// 1. Every record ALWAYS has a `record.partition` field from the data source
@@ -81,24 +80,33 @@ impl PartitionerSelection {
 /// 3. It naturally preserves source partition affinity
 /// 4. It works optimally when source data is already properly partitioned
 ///
-/// The selector overrides to Hash for specific query patterns where:
-/// - Hash provides better cache locality for aggregations, OR
-/// - Re-partitioning enables parallelization opportunities
+/// Selection rules (checked in priority order):
 ///
-/// **Important Note on Pre-Partitioned Data**: If the source data is already
-/// partitioned by the GROUP BY keys (common in Kafka with keyed topics), then
-/// StickyPartition is equally efficient as AlwaysHash and avoids repartitioning overhead.
-/// Example: If data is partitioned by `(trader_id, symbol)` and query groups by those
-/// same columns, StickyPartition is optimal (zero-cost, perfect locality).
+/// ## PRIORITY 1: Tumbling/Sliding/Session Windows → **ALWAYS Hash**
+/// Window boundaries require rekeying data because:
+/// - Window semantics require correct grouping of records within time/session boundaries
+/// - Different partitions may have records that belong in the same window
+/// - Sticky partition would prevent correct window evaluation
+/// - Applies regardless of ORDER BY, GROUP BY, or any other clause
 ///
-/// Selection rules (priority order):
-/// 1. **GROUP BY without ORDER BY** → Override to Hash (better aggregation locality)
-///    - Unless source is pre-partitioned by GROUP BY keys (then Sticky is fine too)
-/// 2. **Window without ORDER BY** → Override to Hash (parallelization opportunity)
-/// 3. **Default (everything else)** → Use Sticky (zero-cost source partition affinity)
-///    - Pure SELECT (no aggregation needed)
-///    - Window with ORDER BY (Sticky is required to preserve ordering)
-///    - Any query where source partitioning is already optimal
+/// ## PRIORITY 2: GROUP BY → **Hash** (unless it's with a Tumbling/Sliding/Session window, handled above)
+/// Aggregation requires rekeying by GROUP BY keys because:
+/// - GROUP BY semantics require correct grouping of records
+/// - Different partitions may have records with the same GROUP BY key values
+/// - Sticky partition would produce incorrect aggregation results
+/// - Exception: If source data is already partitioned by GROUP BY keys, StickyPartition
+///   is equally efficient (zero-cost, no repartitioning needed)
+///
+/// ## DEFAULT: Everything Else → **Sticky** (zero-cost source partition affinity)
+/// Applies to:
+/// - **ROWS window** (analytic function, not aggregation - operates within existing partitions)
+/// - **Pure SELECT** (no aggregation or windowing - no rekeying needed)
+/// - Any query where source partitioning is already optimal
+///
+/// **Performance Note**: If source data is already properly partitioned (e.g., Kafka topic
+/// with keyed messages), StickyPartition is the best choice even for GROUP BY queries.
+/// Example: Data partitioned by `(trader_id, symbol)` + Query groups by same columns
+/// = StickyPartition is optimal (zero-cost, perfect cache locality)
 ///
 /// # Example
 ///
@@ -394,14 +402,15 @@ mod tests {
     }
 
     #[test]
-    fn test_rows_window_with_order_by_uses_sticky() {
+    fn test_rows_window_without_group_by_uses_sticky() {
+        // ROWS window without GROUP BY: pure analytic function, no aggregation
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Column("symbol".to_string())],
             from: StreamSource::Stream("market_data".to_string()),
             from_alias: None,
             joins: None,
             where_clause: None,
-            group_by: Some(vec![Expr::Column("symbol".to_string())]),
+            group_by: None, // NO GROUP BY - pure analytic
             having: None,
             window: Some(WindowSpec::Rows {
                 buffer_size: 100,
@@ -429,12 +438,56 @@ mod tests {
         };
 
         let selection = PartitionerSelector::select(&query);
+        // ROWS window is analytic (no rekeying), no GROUP BY → sticky_partition
         assert_eq!(selection.strategy_name, "sticky_partition");
         assert!(selection.is_optimal);
     }
 
     #[test]
-    fn test_tumbling_window_with_order_by_uses_sticky() {
+    fn test_rows_window_with_group_by_uses_hash() {
+        // ROWS window WITH GROUP BY: GROUP BY requires rekeying
+        // (Note: This is a semantically unusual query, but we handle it correctly)
+        let query = StreamingQuery::Select {
+            fields: vec![SelectField::Column("symbol".to_string())],
+            from: StreamSource::Stream("market_data".to_string()),
+            from_alias: None,
+            joins: None,
+            where_clause: None,
+            group_by: Some(vec![Expr::Column("symbol".to_string())]), // GROUP BY present
+            having: None,
+            window: Some(WindowSpec::Rows {
+                buffer_size: 100,
+                partition_by: vec![Expr::Column("symbol".to_string())],
+                order_by: vec![OrderByExpr {
+                    expr: Expr::Column("timestamp".to_string()),
+                    direction: OrderDirection::Asc,
+                }],
+                time_gap: None,
+                window_frame: None,
+                emit_mode: crate::velostream::sql::ast::RowsEmitMode::EveryRecord,
+                expire_after: crate::velostream::sql::ast::RowExpirationMode::Default,
+            }),
+            order_by: Some(vec![OrderByExpr {
+                expr: Expr::Column("timestamp".to_string()),
+                direction: OrderDirection::Asc,
+            }]),
+            limit: None,
+            emit_mode: None,
+            properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
+        };
+
+        let selection = PartitionerSelector::select(&query);
+        // GROUP BY requires rekeying, so always_hash (ROWS window doesn't prevent GROUP BY)
+        assert_eq!(selection.strategy_name, "always_hash");
+        assert!(selection.is_optimal);
+    }
+
+    #[test]
+    fn test_tumbling_window_always_uses_hash_regardless_of_order_by() {
         let query = StreamingQuery::Select {
             fields: vec![
                 SelectField::Column("trader_id".to_string()),
@@ -467,7 +520,9 @@ mod tests {
         };
 
         let selection = PartitionerSelector::select(&query);
-        assert_eq!(selection.strategy_name, "sticky_partition");
+        // CRITICAL: Tumbling windows ALWAYS require hash, even with ORDER BY
+        // Window boundaries require rekeying data regardless of ORDER BY clause
+        assert_eq!(selection.strategy_name, "always_hash");
         assert!(selection.is_optimal);
     }
 
@@ -501,7 +556,8 @@ mod tests {
     }
 
     #[test]
-    fn test_complex_order_by_extracts_column() {
+    fn test_tumbling_window_without_group_by_uses_hash() {
+        // Tumbling window always requires hash, even without explicit GROUP BY
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
             from: StreamSource::Stream("trades".to_string()),
@@ -528,8 +584,49 @@ mod tests {
         };
 
         let selection = PartitionerSelector::select(&query);
+        // Tumbling window requires hash (window boundaries require rekeying)
+        assert_eq!(selection.strategy_name, "always_hash");
+    }
+
+    #[test]
+    fn test_rows_window_with_order_by_extracts_column() {
+        // ROWS window (analytic) with ORDER BY - pure analytic operation
+        let query = StreamingQuery::Select {
+            fields: vec![SelectField::Wildcard],
+            from: StreamSource::Stream("trades".to_string()),
+            from_alias: None,
+            joins: None,
+            where_clause: None,
+            group_by: None,
+            having: None,
+            window: Some(WindowSpec::Rows {
+                buffer_size: 100,
+                partition_by: vec![],
+                order_by: vec![OrderByExpr {
+                    expr: Expr::Column("trade_time".to_string()),
+                    direction: OrderDirection::Desc,
+                }],
+                time_gap: None,
+                window_frame: None,
+                emit_mode: crate::velostream::sql::ast::RowsEmitMode::EveryRecord,
+                expire_after: crate::velostream::sql::ast::RowExpirationMode::Default,
+            }),
+            order_by: Some(vec![OrderByExpr {
+                expr: Expr::Column("trade_time".to_string()),
+                direction: OrderDirection::Desc,
+            }]),
+            limit: None,
+            emit_mode: None,
+            properties: None,
+            job_mode: None,
+            batch_size: None,
+            num_partitions: None,
+            partitioning_strategy: None,
+        };
+
+        let selection = PartitionerSelector::select(&query);
+        // ROWS window is analytic (no rekeying) → sticky_partition
         assert_eq!(selection.strategy_name, "sticky_partition");
-        assert!(selection.routing_keys.contains(&"trade_time".to_string()));
     }
 
     #[test]

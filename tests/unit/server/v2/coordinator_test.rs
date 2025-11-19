@@ -390,31 +390,17 @@ fn test_auto_selection_from_query_respects_user_explicit_choice() {
     // Test CRITICAL REQUIREMENT: User explicit config ALWAYS takes priority
     // Even if query is provided for auto-selection, explicit partitioning_strategy wins
 
-    // Create a query that would select "sticky_partition" (ROWS WINDOW with ORDER BY)
+    // Create a query that would select "sticky_partition" (Pure SELECT, no aggregation)
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
         where_clause: None,
-        group_by: Some(vec![Expr::Column("symbol".to_string())]),
+        group_by: None, // Pure SELECT - auto-selects sticky_partition
         having: None,
-        window: Some(WindowSpec::Rows {
-            buffer_size: 100,
-            partition_by: vec![Expr::Column("symbol".to_string())],
-            order_by: vec![OrderByExpr {
-                expr: Expr::Column("timestamp".to_string()),
-                direction: OrderDirection::Asc,
-            }],
-            time_gap: None,
-            window_frame: None,
-            emit_mode: velostream::velostream::sql::ast::RowsEmitMode::EveryRecord,
-            expire_after: velostream::velostream::sql::ast::RowExpirationMode::Default,
-        }),
-        order_by: Some(vec![OrderByExpr {
-            expr: Expr::Column("timestamp".to_string()),
-            direction: OrderDirection::Asc,
-        }]),
+        window: None,
+        order_by: None,
         limit: None,
         emit_mode: None,
         properties: None,
@@ -424,11 +410,12 @@ fn test_auto_selection_from_query_respects_user_explicit_choice() {
         partitioning_strategy: None,
     };
 
-    // Verify auto-selector would choose "sticky_partition" for this query
+    // Verify auto-selector would choose "sticky_partition" for pure SELECT
     let auto_selection = PartitionerSelector::select(&query);
     assert_eq!(auto_selection.strategy_name, "sticky_partition");
 
     // Now create config WITH explicit user choice overriding auto-selection
+    // User explicitly chooses "always_hash" even though auto-selection would pick sticky
     let explicit_strategy = Some("always_hash".to_string());
     let config = PartitionedJobConfig {
         num_partitions: Some(2),
