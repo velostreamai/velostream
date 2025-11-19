@@ -506,7 +506,8 @@ async fn test_multi_sink_creation_helpers() {
 
     let batch_config = None;
 
-    let result = create_multi_sink_writers(&sinks, "test-sink-creation", None, None, &batch_config).await;
+    let result =
+        create_multi_sink_writers(&sinks, "test-sink-creation", None, None, &batch_config).await;
 
     match result {
         Ok(writers) => {
