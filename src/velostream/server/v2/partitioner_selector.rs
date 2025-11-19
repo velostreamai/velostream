@@ -154,24 +154,25 @@ impl PartitionerSelector {
                     }
                 }
 
-                // Check for window functions and ORDER BY
+                // Check for ROWS window - always use sticky partition (analytic window, no rekeying)
                 if let Some(window_spec) = window {
-                    // Check if window has internal ORDER BY (e.g., ROWS window with ORDER BY)
-                    let has_window_order_by = match window_spec {
-                        crate::velostream::sql::ast::WindowSpec::Rows {
-                            order_by: window_order, ..
-                        } => !window_order.is_empty(),
-                        _ => false,
-                    };
-
-                    // If window has ORDER BY (internal or top-level), use Sticky
-                    if order_by.is_some() || has_window_order_by {
-                        return Self::select_sticky_partition(order_by.as_ref());
-                    }
-
-                    // Window without any ORDER BY: use Hash for parallelism opportunity
-                    if order_by.is_none() && !has_window_order_by {
-                        return Self::select_hash_partition(group_by.as_ref());
+                    match window_spec {
+                        crate::velostream::sql::ast::WindowSpec::Rows { .. } => {
+                            // ROWS OVER windows are analytic windows that don't rekey data
+                            // Always use sticky_partition to preserve source partitions
+                            return Self::select_sticky_partition(order_by.as_ref());
+                        }
+                        _ => {
+                            // Other window types (Tumbling, Sliding, Session)
+                            if order_by.is_none() {
+                                // Window without ORDER BY: use Hash for parallelism opportunity
+                                return Self::select_hash_partition(group_by.as_ref());
+                            }
+                            // Window with top-level ORDER BY: use Sticky
+                            if order_by.is_some() {
+                                return Self::select_sticky_partition(order_by.as_ref());
+                            }
+                        }
                     }
                 }
 
