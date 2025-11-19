@@ -625,6 +625,7 @@ pub struct DataSourceConfig {
 pub struct DataSinkConfig {
     pub requirement: DataSinkRequirement,
     pub job_name: String,
+    pub app_name: Option<String>, // For hierarchical client.id generation
     pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
 }
@@ -836,6 +837,7 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
                 &requirement.properties,
                 &requirement.name, // Use sink name, not job name
                 &config.job_name,
+                config.app_name.as_deref(),
                 config.instance_id.as_deref(),
                 &config.batch_config,
             )
@@ -856,6 +858,7 @@ async fn create_kafka_writer(
     props: &HashMap<String, String>,
     sink_name: &str,
     job_name: &str,
+    app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
@@ -884,7 +887,7 @@ async fn create_kafka_writer(
     );
 
     // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(props, job_name, instance_id);
+    let mut datasink = KafkaDataSink::from_properties(props, job_name, app_name, instance_id);
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
     let config = SinkConfig::Kafka {
@@ -1030,6 +1033,7 @@ pub async fn create_multi_source_readers(
 pub async fn create_multi_sink_writers(
     sinks: &[DataSinkRequirement],
     job_name: &str,
+    app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> MultiSinkCreationResult {
@@ -1055,6 +1059,7 @@ pub async fn create_multi_sink_writers(
         let sink_config = DataSinkConfig {
             requirement: requirement.clone(),
             job_name: job_name.to_string(),
+            app_name: app_name.map(|a| a.to_string()),
             instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
         };

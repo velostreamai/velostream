@@ -124,7 +124,7 @@ mod properties_prefix_tests {
         props.insert("sink.topic".to_string(), "sink_topic".to_string());
         props.insert("sink.value.format".to_string(), "avro".to_string());
 
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None);
+        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None, None);
 
         // Verify that prefixed properties are used
         assert_eq!(kafka_sink.brokers(), "sink_broker:9092");
@@ -147,7 +147,7 @@ mod properties_prefix_tests {
             "fallback_broker:9092".to_string(),
         );
 
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None);
+        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None, None);
 
         // Verify fallback and defaults
         assert_eq!(kafka_sink.brokers(), "fallback_broker:9092");
@@ -299,7 +299,7 @@ mod properties_prefix_tests {
 
         let kafka_source =
             KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None);
+        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None, None);
 
         // Source should use source-prefixed properties and defaults
         assert_eq!(kafka_source.brokers(), "kafka1:9092");

@@ -825,10 +825,11 @@ impl StreamJobServer {
                     );
 
                     // Create all sinks
-                    // Thread instance_id for unique client.id generation
+                    // Thread app_name and instance_id for hierarchical client.id generation
                     match create_multi_sink_writers(
                         &analysis.required_sinks,
                         &job_name,
+                        app_name.as_deref(),
                         instance_id.as_deref(),
                         &batch_config_clone,
                     )

@@ -20,7 +20,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let server = StreamJobServer::new("localhost:9092".to_string(), "myapp".to_string(), 10);
 //! server.deploy_job("job1".to_string(), "1.0".to_string(),
-//!                  "SELECT * FROM events".to_string(), "events".to_string()).await?;
+//!                  "SELECT * FROM events".to_string(), "events".to_string(), None, None).await?;
 //! # Ok(())
 //! # }
 //! ```
