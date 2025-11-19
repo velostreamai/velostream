@@ -19,12 +19,25 @@ use tokio::sync::mpsc;
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
 };
+use velostream::velostream::server::v2::PartitionerSelector;
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 // Shared test utilities
 use super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
+
+/// Get the selected partitioning strategy for a query
+fn get_selected_strategy(query_str: &str) -> String {
+    let mut parser = StreamingSqlParser::new();
+    match parser.parse(query_str) {
+        Ok(query) => {
+            let selection = PartitionerSelector::select(&query);
+            format!("{} ({})", selection.strategy_name, selection.reason)
+        }
+        Err(_) => "unknown (parse error)".to_string(),
+    }
+}
 
 /// Scenario baseline measurements with partitioner tracking and result validation
 #[derive(Clone, Debug)]
@@ -563,7 +576,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("hash(customer_id, 32)".to_string()),
+        partitioner: Some(get_selected_strategy(query)),
     });
 
     // ========================================================================
@@ -638,7 +651,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("hash(symbol, 32)".to_string()),
+        partitioner: Some(get_selected_strategy(query)),
     });
 
     // ========================================================================
@@ -713,7 +726,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("hash(symbol, 32)".to_string()),
+        partitioner: Some(get_selected_strategy(query)),
     });
 
     // ========================================================================
@@ -788,7 +801,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("hash(trader_id:symbol, 32)".to_string()),
+        partitioner: Some(get_selected_strategy(query)),
     });
 
     // ========================================================================
@@ -863,7 +876,7 @@ async fn comprehensive_baseline_comparison() {
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
         adaptive_jp_4c_throughput,
-        partitioner: Some("hash(trader_id:symbol, 32)".to_string()),
+        partitioner: Some(get_selected_strategy(query)),
     });
 
     // ========================================================================
