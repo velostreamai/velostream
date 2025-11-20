@@ -13,10 +13,11 @@ cd "$PROJECT_DIR"
 # Parse arguments
 MODE="${1:-release}"
 SCENARIO="${2:-all}"
+EVENTS=""
 
 print_usage() {
   cat << 'USAGE'
-Usage: ./run_baseline_flexible.sh [mode] [scenario]
+Usage: ./run_baseline_flexible.sh [mode] [scenario] [-events <count>]
 
 Modes:
   release       (default) - Release build (fastest runtime, ~60s compile)
@@ -32,12 +33,16 @@ Scenarios:
   4             - TUMBLING window (standard emit)
   5             - TUMBLING window (emit changes)
 
+Event Count:
+  -events <count>         - Number of events to process (default: 100,000)
+                            Supports: -events 1m, -events 10m, -events 500k, etc.
+
 Examples:
-  ./run_baseline_flexible.sh                    # Release, all scenarios
-  ./run_baseline_flexible.sh debug              # Debug, all scenarios
-  ./run_baseline_flexible.sh release 1          # Release, scenario 1 only
-  ./run_baseline_flexible.sh debug 2            # Debug, scenario 2 only
-  ./run_baseline_flexible.sh release 4          # Release, scenario 4 only
+  ./run_baseline_flexible.sh                         # Release, all scenarios, 100K events
+  ./run_baseline_flexible.sh debug                   # Debug, all scenarios, 100K events
+  ./run_baseline_flexible.sh release 1               # Release, scenario 1 only, 100K events
+  ./run_baseline_flexible.sh release all -events 1m  # Release, all scenarios, 1M events
+  ./run_baseline_flexible.sh debug 3 -events 500k    # Debug, scenario 3, 500K events
 USAGE
 }
 
@@ -45,6 +50,56 @@ if [ "$MODE" = "help" ] || [ "$MODE" = "-h" ] || [ "$MODE" = "--help" ]; then
   print_usage
   exit 0
 fi
+
+# Helper function to convert event count to number
+convert_event_count() {
+  local count_str="$1"
+
+  # Remove 'events' prefix if present
+  count_str="${count_str#events}"
+
+  # Convert m/M to millions, k/K to thousands
+  case "$count_str" in
+    *m|*M)
+      count_num="${count_str%[mM]}"
+      echo $((count_num * 1000000))
+      ;;
+    *k|*K)
+      count_num="${count_str%[kK]}"
+      echo $((count_num * 1000))
+      ;;
+    *)
+      # Assume it's a plain number
+      echo "$count_str"
+      ;;
+  esac
+}
+
+# Parse optional -events parameter
+shift 2 || true  # Skip mode and scenario arguments
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -events)
+      if [ -z "$2" ]; then
+        echo "❌ Error: -events requires a value"
+        print_usage
+        exit 1
+      fi
+      EVENTS=$(convert_event_count "$2")
+      if ! [[ "$EVENTS" =~ ^[0-9]+$ ]]; then
+        echo "❌ Error: Invalid event count: $2"
+        print_usage
+        exit 1
+      fi
+      shift 2
+      ;;
+    *)
+      echo "❌ Unknown option: $1"
+      print_usage
+      exit 1
+      ;;
+  esac
+done
 
 # Validate scenario
 case "$SCENARIO" in
@@ -66,9 +121,18 @@ else
   SCENARIO_DESC="scenario $SCENARIO only"
 fi
 
+# Set default event count if not specified
+if [ -z "$EVENTS" ]; then
+  EVENTS=100000
+  EVENTS_DESC="100,000 (default)"
+else
+  EVENTS_DESC="$(printf '%'\'',d' "$EVENTS")"
+fi
+
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║ FR-082: COMPREHENSIVE BASELINE COMPARISON TEST             ║"
-echo "║ Mode: $MODE | Scenarios: $SCENARIO_DESC"
+echo "║ Mode: $MODE | Scenarios: $SCENARIO_DESC                   ║"
+echo "║ Events: $EVENTS_DESC"
 echo "╚════════════════════════════════════════════════════════════╝"
 echo ""
 
@@ -120,7 +184,7 @@ if [ "$SCENARIO" = "all" ]; then
   echo ""
 
   if [ -n "$RUST_FLAGS" ]; then
-    RUSTFLAGS="$RUST_FLAGS" cargo test \
+    VELOSTREAM_BASELINE_RECORDS="$EVENTS" RUSTFLAGS="$RUST_FLAGS" cargo test \
       --tests $TEST_FILTER \
       $BUILD_ARGS \
       --no-default-features \
@@ -128,7 +192,7 @@ if [ "$SCENARIO" = "all" ]; then
       --nocapture \
       --test-threads=1
   else
-    cargo test \
+    VELOSTREAM_BASELINE_RECORDS="$EVENTS" cargo test \
       --tests $TEST_FILTER \
       $BUILD_ARGS \
       --no-default-features \
@@ -145,7 +209,7 @@ else
   # For single scenarios, we need to run the full test but only show that scenario
   # The comprehensive test includes all scenarios, but we're running it as a filter
   if [ -n "$RUST_FLAGS" ]; then
-    RUSTFLAGS="$RUST_FLAGS" cargo test \
+    VELOSTREAM_BASELINE_RECORDS="$EVENTS" RUSTFLAGS="$RUST_FLAGS" cargo test \
       --tests $TEST_FILTER \
       $BUILD_ARGS \
       --no-default-features \
@@ -153,7 +217,7 @@ else
       --nocapture \
       --test-threads=1
   else
-    cargo test \
+    VELOSTREAM_BASELINE_RECORDS="$EVENTS" cargo test \
       --tests $TEST_FILTER \
       $BUILD_ARGS \
       --no-default-features \

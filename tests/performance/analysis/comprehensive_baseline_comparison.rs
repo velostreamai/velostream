@@ -497,6 +497,14 @@ fn generate_scenario_3_records(count: usize) -> Vec<StreamRecord> {
         .collect()
 }
 
+/// Helper function to parse event count from environment variable
+fn get_baseline_record_count() -> usize {
+    std::env::var("VELOSTREAM_BASELINE_RECORDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100_000) // Default to 100,000 records
+}
+
 /// Test: Comprehensive baseline comparison for all scenarios
 #[tokio::test]
 #[serial_test::serial]
@@ -506,7 +514,9 @@ async fn comprehensive_baseline_comparison() {
     println!("║ Measuring 5 Scenarios × 4 Implementations                ║");
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
-    let num_records = 5000;
+    let num_records = get_baseline_record_count();
+    println!("📊 Record count: {} records", num_records);
+    println!("   (Set via VELOSTREAM_BASELINE_RECORDS env var)\n");
     let mut results = Vec::new();
 
     // ========================================================================
