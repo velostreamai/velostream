@@ -234,8 +234,10 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let start = Instant::now();
-    let _result = processor
-        .process_job(
+    let timeout_duration = Duration::from_secs(120); // 2-minute timeout for windowed queries
+    let timeout_result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
             Box::new(data_source),
             Some(Box::new(data_writer.clone())),
             // Engine is created internally by processor
@@ -245,8 +247,9 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
             (*query_arc).clone(),
             "v1_test".to_string(),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
 
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
@@ -254,6 +257,14 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 
     // Get actual records written to the sink via MockDataWriter
     let records_written = data_writer.get_count();
+
+    // Handle timeout failure
+    if timeout_result.is_err() {
+        eprintln!("\n❌ FAILURE: SimpleJp (V1) - Test exceeded 120 seconds");
+        eprintln!("   Expected records: {}", records.len());
+        eprintln!("   Records processed: {}", records_written);
+        eprintln!("   Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    }
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     (throughput, records_written)
@@ -272,8 +283,10 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
     let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
 
     let start = Instant::now();
-    let _result = processor
-        .process_job(
+    let timeout_duration = Duration::from_secs(120); // 2-minute timeout for windowed queries
+    let timeout_result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
             Box::new(data_source),
             Some(Box::new(data_writer.clone())),
             // Engine is created internally by processor
@@ -283,8 +296,9 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
             (*query_arc).clone(),
             "transactional_test".to_string(),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
 
     // Now stop the processor after all messages have been consumed
     processor.stop().await.ok();
@@ -292,6 +306,14 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
 
     // Get actual records written to the sink via MockDataWriter
     let records_written = data_writer.get_count();
+
+    // Handle timeout failure
+    if timeout_result.is_err() {
+        eprintln!("\n❌ FAILURE: TransactionalJp - Test exceeded 120 seconds");
+        eprintln!("   Expected records: {}", records.len());
+        eprintln!("   Records processed: {}", records_written);
+        eprintln!("   Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    }
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     (throughput, records_written)
@@ -319,8 +341,10 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
     let data_writer_clone = data_writer.clone();
 
     // Run process_job directly instead of spawning (no need for background task in test)
-    let _stats = processor
-        .process_job(
+    let timeout_duration = Duration::from_secs(120); // 2-minute timeout for windowed queries
+    let timeout_result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
             Box::new(data_source.clone()),
             Some(Box::new(data_writer_clone.clone())),
             Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
@@ -329,8 +353,9 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
             (*query_arc).clone(),
             "v2_1core_test".to_string(),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
 
     let elapsed = start.elapsed();
 
@@ -340,6 +365,14 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
 
     // Get actual records written to the sink via MockDataWriter
     let records_written = data_writer_clone.get_count();
+
+    // Handle timeout failure
+    if timeout_result.is_err() {
+        eprintln!("\n❌ FAILURE: AdaptiveJp @ 1-core - Test exceeded 120 seconds");
+        eprintln!("   Expected records: {}", records.len());
+        eprintln!("   Records processed: {}", records_written);
+        eprintln!("   Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    }
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     (throughput, records_written)
@@ -367,8 +400,10 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
     let data_writer_clone = data_writer.clone();
 
     // Run process_job directly instead of spawning (no need for background task in test)
-    let _stats = processor
-        .process_job(
+    let timeout_duration = Duration::from_secs(120); // 2-minute timeout for windowed queries
+    let timeout_result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
             Box::new(data_source.clone()),
             Some(Box::new(data_writer_clone.clone())),
             Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
@@ -377,8 +412,9 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
             (*query_arc).clone(),
             "v2_4core_test".to_string(),
             shutdown_rx,
-        )
-        .await;
+        ),
+    )
+    .await;
 
     let elapsed = start.elapsed();
 
@@ -388,6 +424,14 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
 
     // Get actual records written to the sink via MockDataWriter
     let records_written = data_writer_clone.get_count();
+
+    // Handle timeout failure
+    if timeout_result.is_err() {
+        eprintln!("\n❌ FAILURE: AdaptiveJp @ 4-core - Test exceeded 120 seconds");
+        eprintln!("   Expected records: {}", records.len());
+        eprintln!("   Records processed: {}", records_written);
+        eprintln!("   Time elapsed: {:.2}s", elapsed.as_secs_f64());
+    }
 
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
     (throughput, records_written)
@@ -515,8 +559,13 @@ async fn comprehensive_baseline_comparison() {
     println!("╚════════════════════════════════════════════════════════════╝\n");
 
     let num_records = get_baseline_record_count();
-    println!("📊 Record count: {} records", num_records);
-    println!("   (Set via VELOSTREAM_BASELINE_RECORDS env var)\n");
+
+    println!("\n📊 Test Parameters:");
+    println!("   Record Count: {} records", num_records);
+    println!("   Scenarios: 5 (SELECT, ROWS WINDOW, GROUP BY, TUMBLING, EMIT CHANGES)");
+    println!("   Implementations: 4 (SimpleJp, TransactionalJp, AdaptiveJp@1c, AdaptiveJp@4c)");
+    println!("   Environment Variable: VELOSTREAM_BASELINE_RECORDS (default: 100,000)");
+    println!();
     let mut results = Vec::new();
 
     // ========================================================================

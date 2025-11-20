@@ -47,13 +47,20 @@ if ! [[ "$EVENTS_NUM" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-EVENTS_DESC="$(printf '%'\'',d' "$EVENTS_NUM")"
+EVENTS_DESC="$EVENTS_NUM"
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║ FR-082: COMPREHENSIVE BASELINE COMPARISON TEST             ║"
 echo "║ Optimized for Maximum Performance                          ║"
-echo "║ Events: $EVENTS_DESC"
 echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "📊 Test Parameters:"
+echo "   Build Mode: Release (LTO enabled, codegen-units=1)"
+echo "   Scenarios: All 5 scenarios"
+echo "   Event Count: $EVENTS_DESC"
+echo "   Implementations: 4 (SimpleJp, TransactionalJp, AdaptiveJp@1c, AdaptiveJp@4c)"
+echo ""
+echo "⏱️  Expected Runtime: ~60s compile + ~8-12s test"
 echo ""
 
 # Build with release optimizations (fastest runtime)

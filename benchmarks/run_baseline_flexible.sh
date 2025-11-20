@@ -126,14 +126,19 @@ if [ -z "$EVENTS" ]; then
   EVENTS=100000
   EVENTS_DESC="100,000 (default)"
 else
-  EVENTS_DESC="$(printf '%'\'',d' "$EVENTS")"
+  # Just display the number as-is (thousands separator less important than functionality)
+  EVENTS_DESC="$EVENTS"
 fi
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║ FR-082: COMPREHENSIVE BASELINE COMPARISON TEST             ║"
-echo "║ Mode: $MODE | Scenarios: $SCENARIO_DESC                   ║"
-echo "║ Events: $EVENTS_DESC"
 echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "📊 Test Parameters:"
+echo "   Build Mode: $MODE"
+echo "   Scenarios: $SCENARIO_DESC"
+echo "   Event Count: $EVENTS_DESC"
+echo "   Implementations: 4 (SimpleJp, TransactionalJp, AdaptiveJp@1c, AdaptiveJp@4c)"
 echo ""
 
 # Determine compilation settings based on mode

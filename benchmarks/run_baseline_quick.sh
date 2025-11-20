@@ -48,13 +48,17 @@ if ! [[ "$EVENTS_NUM" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-EVENTS_DESC="$(printf '%'\'',d' "$EVENTS_NUM")"
+EVENTS_DESC="$EVENTS_NUM"
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║ FR-082: BASELINE COMPARISON (QUICK MODE)                   ║"
-echo "║ Optimized for fastest possible iteration                   ║"
-echo "║ Events: $EVENTS_DESC"
 echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "📊 Test Parameters:"
+echo "   Build Mode: Debug with incremental compilation (fast compile)"
+echo "   Scenarios: All 5 scenarios"
+echo "   Event Count: $EVENTS_DESC"
+echo "   Implementations: 4 (SimpleJp, TransactionalJp, AdaptiveJp@1c, AdaptiveJp@4c)"
 echo ""
 
 # Use incremental compilation + parallel jobs for fastest recompilation

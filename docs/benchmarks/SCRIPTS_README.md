@@ -5,38 +5,44 @@
 This directory contains 4 optimized shell scripts for running the FR-082 comprehensive baseline comparison test with flexible control over:
 - **Compilation mode** (release, debug, profile, incremental)
 - **Test coverage** (all 5 scenarios or individual scenarios)
+- **Event count** (100K default, supports 1m, 10m, 500k, etc.)
 - **Performance targets** (fastest runtime, fastest compile, best cache usage)
 
 ## Scripts at a Glance
 
 ### 1. `run_baseline_flexible.sh` ⭐ **RECOMMENDED**
 
-**Most versatile - choose both mode AND scenarios**
+**Most versatile - choose mode, scenarios, AND event count**
 
 ```bash
 cd benchmarks
-./run_baseline_flexible.sh [mode] [scenario]
+./run_baseline_flexible.sh [mode] [scenario] [-events <count>]
 ```
 
 **Parameters:**
 - `mode`: `release` (default), `debug`, `profile`, `fast-release`
 - `scenario`: `all` (default), `1`, `2`, `3`, `4`, `5`
+- `-events <count>`: Event count (default: 100,000)
+  - Supports: plain numbers, `1m`, `10m`, `500k`, etc.
 
 **Examples:**
 ```bash
 cd benchmarks
 
-# All scenarios, release build (fastest runtime)
+# All scenarios, release build, 100K events (fastest runtime)
 ./run_baseline_flexible.sh
 
-# Single scenario, debug build (fastest compile)
+# Single scenario, debug build, 100K events (fastest compile)
 ./run_baseline_flexible.sh debug 1
 
-# Scenario 4 with profiling
+# Scenario 4 with profiling, 100K events
 ./run_baseline_flexible.sh profile 4
 
-# All scenarios, fast incremental release
-./run_baseline_flexible.sh fast-release
+# All scenarios, fast incremental release, 1M events
+./run_baseline_flexible.sh fast-release all -events 1m
+
+# Scenario 3, debug mode, 500K events
+./run_baseline_flexible.sh debug 3 -events 500k
 ```
 
 **Performance:**
@@ -49,16 +55,34 @@ cd benchmarks
 
 ### 2. `run_baseline.sh` 🏆
 
-**Simplest - release build, all scenarios**
+**Simplest - release build, all scenarios, optional event count**
 
 ```bash
 cd benchmarks
+./run_baseline.sh [event_count]
+```
+
+**Parameters:**
+- `event_count`: Event count (default: 100,000)
+  - Supports: plain numbers, `1m`, `10m`, `500k`, etc.
+
+**Examples:**
+```bash
+cd benchmarks
+
+# Default 100K events
 ./run_baseline.sh
+
+# 1M events for stress testing
+./run_baseline.sh 1m
+
+# 500K events
+./run_baseline.sh 500k
 ```
 
 **Best for:** Final benchmarks, CI/CD, production measurements
 
-**Performance:**
+**Performance (100K events):**
 - Compile: ~60s
 - Test: ~8-12s
 - Runtime: 3-5x faster than debug
@@ -67,16 +91,34 @@ cd benchmarks
 
 ### 3. `run_baseline_quick.sh` ⚡
 
-**Incremental compilation - uses cache aggressively**
+**Incremental compilation - uses cache aggressively, optional event count**
 
 ```bash
 cd benchmarks
+./run_baseline_quick.sh [event_count]
+```
+
+**Parameters:**
+- `event_count`: Event count (default: 100,000)
+  - Supports: plain numbers, `1m`, `10m`, `500k`, etc.
+
+**Examples:**
+```bash
+cd benchmarks
+
+# Default 100K events
 ./run_baseline_quick.sh
+
+# 1M events for stress testing
+./run_baseline_quick.sh 1m
+
+# 500K events
+./run_baseline_quick.sh 500k
 ```
 
 **Best for:** Rapid iteration when code hasn't changed much
 
-**Performance:**
+**Performance (100K events):**
 - First run: ~15s compile
 - Cache hits: ~5-10s compile
 - Test: ~30-40s (debug-like speeds but with some optimization)
@@ -86,20 +128,43 @@ cd benchmarks
 
 ### 4. `run_baseline_options.sh` 🔧
 
-**Multiple compilation modes - all scenarios only**
+**Multiple compilation modes - all scenarios, optional event count**
 
 ```bash
 cd benchmarks
-./run_baseline_options.sh [mode]
+./run_baseline_options.sh [mode] [event_count]
 ```
 
-**Modes:**
-- `release`: Full optimizations (LTO, codegen-units=1)
-- `debug`: No optimizations (fastest compile)
-- `profile`: Release + debug symbols (for flamegraph)
-- `fast-release`: Incremental with parallel compilation
+**Parameters:**
+- `mode`: Compilation mode (default: `release`)
+  - `release`: Full optimizations (LTO, codegen-units=1)
+  - `debug`: No optimizations (fastest compile)
+  - `profile`: Release + debug symbols (for flamegraph)
+  - `fast-release`: Incremental with parallel compilation
+- `event_count`: Event count (default: 100,000)
+  - Supports: plain numbers, `1m`, `10m`, `500k`, etc.
 
-**Best for:** Exploring different compilation strategies
+**Examples:**
+```bash
+cd benchmarks
+
+# Release mode, 100K events (default)
+./run_baseline_options.sh
+
+# Debug mode, 100K events
+./run_baseline_options.sh debug
+
+# Release mode, 1M events
+./run_baseline_options.sh release 1m
+
+# Debug mode, 500K events
+./run_baseline_options.sh debug 500k
+
+# Profile mode, 100K events
+./run_baseline_options.sh profile
+```
+
+**Best for:** Exploring different compilation strategies and event counts
 
 ---
 
