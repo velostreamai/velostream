@@ -353,11 +353,6 @@ impl PartitionReceiver {
                                         );
                                     }
                                 }
-                            } else {
-                                println!(
-                                    "DEBUG PR {}: No output records to write (output_records.is_empty())",
-                                    self.partition_id
-                                );
                             }
 
                             break; // Batch processed successfully, exit retry loop
