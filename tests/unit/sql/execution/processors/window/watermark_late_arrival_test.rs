@@ -10,13 +10,13 @@
 //! - Historical window/session state is maintained
 //! - Memory cleanup removes expired windows/sessions
 
+use std::collections::HashMap;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::execution::window_v2::strategies::{
-    SlidingWindowStrategy, SessionWindowStrategy, TumblingWindowStrategy,
+    SessionWindowStrategy, SlidingWindowStrategy, TumblingWindowStrategy,
 };
 use velostream::velostream::sql::execution::window_v2::traits::WindowStrategy;
 use velostream::velostream::sql::execution::window_v2::types::SharedRecord;
-use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use std::collections::HashMap;
 
 /// Helper function to create a test record with timestamp
 fn create_record_with_timestamp(timestamp: i64, id: i32) -> SharedRecord {
@@ -182,16 +182,10 @@ fn test_sliding_grace_period_with_multiple_windows() {
     strategy.set_allowed_lateness_ms(50000);
 
     // Create records across multiple windows
-    let records: Vec<_> = vec![
-        (10000, 1),
-        (30000, 2),
-        (50000, 3),
-        (70000, 4),
-        (90000, 5),
-    ]
-    .into_iter()
-    .map(|(ts, id)| create_record_with_timestamp(ts, id))
-    .collect();
+    let records: Vec<_> = vec![(10000, 1), (30000, 2), (50000, 3), (70000, 4), (90000, 5)]
+        .into_iter()
+        .map(|(ts, id)| create_record_with_timestamp(ts, id))
+        .collect();
 
     for record in records {
         let _ = strategy.add_record(record);
