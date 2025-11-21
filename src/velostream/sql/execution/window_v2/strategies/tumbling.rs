@@ -244,10 +244,27 @@ impl TumblingWindowStrategy {
         );
     }
 
-    /// Check if timestamp belongs to current window.
+    /// Check if timestamp belongs to current window or is within allowed lateness.
+    ///
+    /// This is critical for partition-batched data handling:
+    /// - On-time: ts >= start && ts < end (belongs to this window)
+    /// - Late but acceptable: ts < end && ts >= (end - allowed_lateness) (within grace period)
+    /// - Too late: ts < (end - allowed_lateness) (discarded)
     fn is_in_current_window(&self, timestamp: i64) -> bool {
         match (self.window_start_time, self.window_end_time) {
-            (Some(start), Some(end)) => timestamp >= start && timestamp < end,
+            (Some(start), Some(end)) => {
+                if timestamp >= start && timestamp < end {
+                    // On-time record
+                    true
+                } else if self.window_emitted && timestamp < end {
+                    // Window has been emitted, check if record is within allowed lateness
+                    // Late records should still be added to the current (emitted) window's buffer
+                    // They will be re-aggregated when grace period expires
+                    timestamp >= end - self.allowed_lateness_ms
+                } else {
+                    false
+                }
+            }
             _ => false,
         }
     }
@@ -333,52 +350,62 @@ impl WindowStrategy for TumblingWindowStrategy {
         }
 
         // Check if record belongs to current window
+        // This now includes late arrivals within allowed_lateness!
         let should_emit = !self.is_in_current_window(timestamp);
 
-        // CHECK FOR LATE ARRIVAL: Is this record arriving in a historical window?
-        // Late arrival = timestamp <= current_window_end (arrived after window boundary)
-        // but timestamp > window_end - allowed_lateness (still within grace period)
-        let is_late_arrival = timestamp <= self.window_end_time.unwrap_or(i64::MAX);
+        if self.is_in_current_window(timestamp) {
+            // Record belongs to current window (on-time or within grace period)
+            self.buffer.push_back(record);
 
-        if is_late_arrival && !self.historical_windows.is_empty() {
-            // Try to find the historical window this record belongs to
-            let window_key = self.find_historical_window_for_timestamp(timestamp);
-            if let Some(window_end) = window_key {
-                // Check if this window is still within allowed lateness
-                if self.is_within_allowed_lateness(window_end) {
-                    // Add to historical window for late firing
-                    if let Some(hist_window) = self.historical_windows.get_mut(&window_end) {
-                        hist_window.buffer.push_back(record);
-                        if let Ok(mut m) = self.metrics.lock() {
-                            m.late_firing_records += 1;
-                        }
-                        return Ok(false); // No immediate emission for late arrivals
-                    }
-                } else {
-                    // Outside allowed lateness - discard
-                    if let Ok(mut m) = self.metrics.lock() {
-                        m.late_arrival_discards += 1;
-                    }
-                    return Ok(false);
+            // Track if this is a late arrival for metrics
+            if self.window_emitted && timestamp < self.window_end_time.unwrap_or(i64::MAX) {
+                if let Ok(mut m) = self.metrics.lock() {
+                    m.late_firing_records += 1;
                 }
             }
+
+            return Ok(should_emit);
         }
 
-        // Always add record to buffer (it belongs to next window if beyond current)
-        self.buffer.push_back(record);
+        // Record is too late (outside allowed_lateness) or belongs to different window
+        if timestamp > self.window_end_time.unwrap_or(i64::MAX) {
+            // Belongs to future window - add to current buffer for next window
+            self.buffer.push_back(record);
+            return Ok(should_emit);
+        }
 
-        Ok(should_emit)
+        // Record is too old - outside allowed_lateness and belongs to a previous window
+        // Discard it
+        if let Ok(mut m) = self.metrics.lock() {
+            m.late_arrival_discards += 1;
+        }
+
+        Ok(false)
     }
 
     fn get_window_records(&self) -> Vec<SharedRecord> {
         // Filter records that are within the current window bounds
-        // This is important because add_record may add records beyond the current window
+        // Includes both on-time records AND late arrivals within allowed_lateness
         if let (Some(start), Some(end)) = (self.window_start_time, self.window_end_time) {
+            let grace_threshold = if self.window_emitted {
+                end - self.allowed_lateness_ms
+            } else {
+                end
+            };
+
             self.buffer
                 .iter()
                 .filter(|record| {
                     if let Ok(ts) = self.extract_timestamp(record) {
-                        ts >= start && ts < end
+                        // Include on-time records
+                        if ts >= start && ts < end {
+                            return true;
+                        }
+                        // Include late arrivals if window has emitted and record is within grace period
+                        if self.window_emitted && ts < end && ts >= grace_threshold {
+                            return true;
+                        }
+                        false
                     } else {
                         false
                     }
