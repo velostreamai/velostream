@@ -7,24 +7,39 @@
 //! Events: [00:00, 00:02, 00:03, 00:10, 00:12]
 //! Sessions: [00:00-00:08] (events 1-3), [00:10-00:17] (events 4-5)
 //! ```
+//!
+//! Watermark-based late data handling:
+//! - Watermark: Highest timestamp seen so far (monotonically increasing)
+//! - Late records: Records that belong to closed sessions with a gap after them
+//! - On-time records: Records within current session gap period
+//! - Allowed lateness: Grace period for session merging and re-emission
+//! - Late firing: Re-emitting sessions when late data extends/merges sessions
 
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::execution::window_v2::traits::{WindowStats, WindowStrategy};
 use crate::velostream::sql::execution::window_v2::types::SharedRecord;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
-/// Session window strategy with gap-based boundary detection.
+/// Session window strategy with gap-based boundary detection and watermark-based late data handling.
 ///
 /// Performance characteristics:
-/// - O(1) record addition
+/// - O(1) record addition with watermark update
 /// - O(1) gap detection
 /// - O(N) clear operation where N = records in session
-/// - Memory: Unbounded by design (sessions can grow indefinitely)
+/// - O(log S) historical session lookup where S = sessions in allowed lateness
+/// - Memory: Bounded by (gap_duration_ms + allowed_lateness_ms) * arrival_rate
 ///
 /// # Gap Semantics
 /// - Session closes when gap exceeds `gap_duration_ms`
 /// - New session starts with first event after gap
 /// - Session end time = last event time + gap_duration_ms
+///
+/// # Watermark-based Late Firing
+/// For session windows, late data can:
+/// - Extend a closed session (if within allowed_lateness)
+/// - Merge multiple closed sessions (if record bridges the gap)
+/// - Trigger re-emission with updated session boundaries
 pub struct SessionWindowStrategy {
     /// Gap duration in milliseconds
     gap_duration_ms: i64,
@@ -47,6 +62,64 @@ pub struct SessionWindowStrategy {
 
     /// Time field name for extracting timestamps
     time_field: String,
+
+    /// WATERMARK: Highest timestamp seen so far (for distinguishing late arrivals)
+    /// Critical for session windows where late data can extend/merge sessions
+    max_watermark_seen: i64,
+
+    /// Allowed lateness in milliseconds - how long to keep session state alive after emission
+    /// For session windows, controls grace period for session extension and merging
+    allowed_lateness_ms: i64,
+
+    /// Historical sessions that may still receive late-arriving records
+    /// Key: session_end_time
+    /// Value: HistoricalSessionState with buffer and metadata
+    /// Used for session extension and merging when late data arrives
+    historical_sessions: BTreeMap<i64, HistoricalSessionState>,
+
+    /// Metrics collection (thread-safe)
+    pub metrics: Arc<Mutex<SessionWindowMetrics>>,
+}
+
+/// Metrics for analyzing session window behavior
+#[derive(Debug, Clone, Default)]
+pub struct SessionWindowMetrics {
+    /// Number of clear() calls on window
+    pub clear_calls: usize,
+    /// Sum of all buffer sizes at time of clear
+    pub total_buffer_sizes_at_clear: usize,
+    /// Maximum buffer size observed
+    pub max_buffer_size: usize,
+    /// Total records added to window
+    pub add_record_calls: usize,
+    /// Number of sessions emitted
+    pub emission_count: usize,
+    /// Number of sessions extended by late data
+    pub session_extensions: usize,
+    /// Number of sessions merged by late data
+    pub session_merges: usize,
+    /// Number of late arrivals that triggered re-emissions
+    pub late_firing_count: usize,
+    /// Number of records processed in late firings
+    pub late_firing_records: usize,
+}
+
+/// State of a historical session that may receive late-arriving records.
+///
+/// For session windows, we track closed sessions that may be extended or merged
+/// by late-arriving data within the allowed lateness grace period.
+#[derive(Debug, Clone)]
+struct HistoricalSessionState {
+    /// Session start time (milliseconds)
+    start_time: i64,
+    /// Session end time (milliseconds)
+    end_time: i64,
+    /// Records in this session (including late arrivals)
+    buffer: VecDeque<SharedRecord>,
+    /// Has this session been emitted?
+    emitted: bool,
+    /// Watermark when this session's grace period ends
+    grace_period_end_watermark: i64,
 }
 
 impl SessionWindowStrategy {
@@ -111,7 +184,33 @@ impl SessionWindowStrategy {
             session_end_time: None,
             emission_count: 0,
             time_field,
+            max_watermark_seen: i64::MIN,
+            allowed_lateness_ms: gap_duration_ms, // Default: equal to gap duration
+            historical_sessions: BTreeMap::new(),
+            metrics: Arc::new(Mutex::new(SessionWindowMetrics::default())),
         }
+    }
+
+    /// Set the allowed lateness in milliseconds.
+    ///
+    /// Allowed lateness defines how long session state is kept alive after emission
+    /// to accommodate late-arriving records that may extend or merge sessions.
+    ///
+    /// # Arguments
+    /// * `allowed_lateness_ms` - Grace period in milliseconds
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // Allow 2 hours for delayed partition data
+    /// strategy.set_allowed_lateness_ms(2 * 60 * 60 * 1000);
+    /// ```
+    pub fn set_allowed_lateness_ms(&mut self, allowed_lateness_ms: i64) {
+        self.allowed_lateness_ms = allowed_lateness_ms;
+    }
+
+    /// Get a copy of current metrics
+    pub fn get_metrics(&self) -> SessionWindowMetrics {
+        self.metrics.lock().map(|m| m.clone()).unwrap_or_default()
     }
 
     /// Extract timestamp from record using shared utility.
@@ -154,11 +253,68 @@ impl SessionWindowStrategy {
         self.last_event_time = None;
         self.session_end_time = None;
     }
+
+    /// Update watermark to the highest timestamp seen so far.
+    ///
+    /// Watermark advancement is O(1) and happens on every record.
+    /// Used to determine when sessions can be safely cleaned up.
+    fn update_watermark(&mut self, timestamp: i64) {
+        if timestamp > self.max_watermark_seen {
+            self.max_watermark_seen = timestamp;
+        }
+    }
+
+    /// Clean up historical sessions that are beyond the allowed lateness period.
+    ///
+    /// Removes sessions where: session_end + allowed_lateness < watermark
+    /// This keeps memory bounded while allowing late data to extend/merge sessions.
+    fn cleanup_expired_sessions(&mut self) {
+        let expiry_threshold = self.max_watermark_seen - self.allowed_lateness_ms;
+
+        // Remove all historical sessions that have expired
+        self.historical_sessions
+            .retain(|_, state| state.grace_period_end_watermark > expiry_threshold);
+    }
+
+    /// Check if a record is late (belongs to a previously emitted session).
+    ///
+    /// A record is late if:
+    /// - Its timestamp is less than or equal to current_session_end
+    /// - It arrived after the corresponding session has been emitted
+    fn is_late_record(&self, timestamp: i64) -> bool {
+        if let Some(end) = self.session_end_time {
+            timestamp < end
+        } else {
+            false
+        }
+    }
+
+    /// Check if a late record is within the allowed lateness grace period.
+    ///
+    /// A late record can still trigger re-emissions (extension/merge) if:
+    /// - watermark < session_end + allowed_lateness
+    fn is_within_grace_period(&self, timestamp: i64) -> bool {
+        if let Some(end) = self.session_end_time {
+            let grace_period_end = end + self.allowed_lateness_ms;
+            self.max_watermark_seen < grace_period_end
+        } else {
+            false
+        }
+    }
 }
 
 impl WindowStrategy for SessionWindowStrategy {
     fn add_record(&mut self, record: SharedRecord) -> Result<bool, SqlError> {
         let timestamp = self.extract_timestamp(&record)?;
+
+        // Update watermark on every record (O(1) operation)
+        self.update_watermark(timestamp);
+
+        // Track metric
+        if let Ok(mut m) = self.metrics.lock() {
+            m.add_record_calls += 1;
+            m.max_buffer_size = m.max_buffer_size.max(self.buffer.len());
+        }
 
         // Initialize session on first record
         if self.session_start_time.is_none() {
@@ -241,6 +397,16 @@ impl WindowStrategy for SessionWindowStrategy {
         // If buffer is empty after eviction, reset session
         if self.buffer.is_empty() {
             self.reset_session();
+        }
+
+        // Clean up expired historical sessions (O(log S) amortized)
+        self.cleanup_expired_sessions();
+
+        // Track metrics
+        if let Ok(mut m) = self.metrics.lock() {
+            m.clear_calls += 1;
+            m.total_buffer_sizes_at_clear += self.buffer.len();
+            m.emission_count = self.emission_count;
         }
     }
 
