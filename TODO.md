@@ -167,6 +167,39 @@ Previously hanging scenario 4 tests now complete successfully in reasonable time
 
 **Data Loss Status**: 90% data loss remains (architectural blocker identified)
 
+### Session 3: Watermark and Late Arrival Test Coverage
+
+**Achievement**: Created comprehensive test suite for watermark and late arrival handling
+
+**Test Coverage** (15 tests total, all passing ✅):
+
+**TumblingWindowStrategy Tests** (4 tests):
+- `test_tumbling_watermark_monotonically_increases` ✅ - Verifies watermark never decreases
+- `test_tumbling_late_arrival_buffering` ✅ - Verifies late records buffered within grace period
+- `test_tumbling_grace_period_cleanup` ✅ - Verifies historical windows cleaned after grace period
+- `test_tumbling_metrics_tracking` ✅ - Verifies metrics accuracy
+
+**SlidingWindowStrategy Tests** (4 tests):
+- `test_sliding_watermark_with_overlapping_windows` ✅ - Watermark with overlapping windows
+- `test_sliding_late_record_with_overlap` ✅ - Late records in overlapping scenario
+- `test_sliding_grace_period_with_multiple_windows` ✅ - Multiple windows in grace period
+- `test_sliding_metrics_with_overlapping_windows` ✅ - Metrics with overlapping windows
+
+**SessionWindowStrategy Tests** (5 tests):
+- `test_session_watermark_gap_detection` ✅ - Gap-based session boundaries
+- `test_session_late_arrival_extending_session` ✅ - Late data extending closed session
+- `test_session_late_arrival_merging_sessions` ✅ - Late data merging multiple sessions
+- `test_session_grace_period_cleanup` ✅ - Historical session cleanup
+- `test_session_metrics_tracking` ✅ - Session-specific metrics
+
+**Comparative Tests** (2 tests):
+- `test_all_window_types_watermark_updates` ✅ - Watermark consistency across types
+- `test_all_window_types_metrics_consistency` ✅ - Metrics consistency across types
+
+**Test Status**: All 15 tests passing ✅
+**Location**: `tests/unit/sql/execution/processors/window/watermark_late_arrival_test.rs`
+**Run Command**: `cargo test --test mod watermark_late_arrival_test --no-default-features`
+
 ---
 
 ## 🎯 Current Session: Window Adapter Performance Analysis
