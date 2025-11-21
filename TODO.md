@@ -727,6 +727,433 @@ AFTER FIX (with watermarks + 2-minute allowed lateness):
 
 ---
 
+## ⚡ PERFORMANCE CONSIDERATIONS FOR WATERMARK + ALLOWED LATENESS
+
+### 1. Memory Management (CRITICAL)
+
+**The Problem:**
+With allowed lateness, we need to keep multiple windows' state alive simultaneously.
+
+Example: With 2-hour lateness and 1-minute windows:
+```
+Number of concurrent windows = (allowed_lateness + window_size) / window_size
+                             = (7,200,000 ms + 60,000 ms) / 60,000 ms
+                             = ~120 windows in flight
+```
+
+**Current Naive Implementation (❌ WRONG):**
+```rust
+pub struct TumblingWindowStrategy {
+    historical_windows: HashMap<i64, WindowState>,  // ← Unbounded growth!
+}
+
+// Without automatic cleanup, this grows indefinitely:
+// After 1 day:  ~1,440 windows (1 per minute)
+// After 30 days: ~43,200 windows
+// Memory = 43,200 × ~1MB per window = 43GB !!!
+```
+
+**Correct Implementation (✅ FAST):**
+```rust
+pub struct TumblingWindowStrategy {
+    // Only keep windows within allowed_lateness window
+    historical_windows: BTreeMap<i64, WindowState>,  // ← Ordered for fast cleanup
+
+    // Use BTreeMap (not HashMap) because:
+    // - Can efficiently remove expired windows
+    // - Can iterate in order: O(log N) vs O(N)
+    // - Example: Remove all windows with start_time < watermark - allowed_lateness
+}
+
+// Cleanup on every record arrival:
+fn cleanup_expired_windows(&mut self, watermark: i64) {
+    let expiry_threshold = watermark - self.allowed_lateness_ms;
+
+    // BTreeMap allows range deletion: O(log N + removed_count)
+    // Much faster than HashMap which requires O(N) iteration
+    while let Some((start_time, _)) = self.historical_windows.iter().next() {
+        if *start_time < expiry_threshold {
+            self.historical_windows.remove(start_time);
+        } else {
+            break;  // Remaining windows are within grace period
+        }
+    }
+}
+
+// Result: Always O(log N + num_expired_windows) per record
+// NOT O(N) or O(N²)!
+```
+
+### 2. Group State Storage (CRITICAL)
+
+**The Problem:**
+Each window has potentially thousands of group accumulators. With 120 concurrent windows:
+```
+Total accumulators = 120 windows × 5,000 groups = 600,000 accumulators
+Each accumulator = ~200 bytes (multiple field values, count, sum, etc.)
+Total memory = 600,000 × 200 bytes = 120 MB (ACCEPTABLE)
+```
+
+**Correct Implementation (✅ FAST):**
+```rust
+pub struct WindowState {
+    // Use Arc-based reference counting (zero-copy)
+    groups: Arc<Mutex<HashMap<GroupKey, GroupAccumulator>>>,
+
+    // GroupKey should be Arc<[FieldValue]> not Vec<String>
+    // - Arc is cheap to clone (atomic increment)
+    // - [FieldValue] is sized based on actual data
+    // - Lookup is O(1) with good hash function
+}
+
+// When late record arrives:
+fn add_record_to_historical_window(&mut self, record: &SharedRecord, ts: i64) {
+    let window_start = (ts / self.window_size_ms) * self.window_size_ms;
+
+    if let Some(window_state) = self.historical_windows.get_mut(&window_start) {
+        // Lock only the specific window's group map
+        let mut groups = window_state.groups.lock().unwrap();
+
+        // Generate group key (should be cached if possible)
+        let group_key = generate_group_key(&record);
+
+        // O(1) lookup + insert
+        let accumulator = groups.entry(group_key).or_insert_with(GroupAccumulator::new);
+
+        // Add record to accumulator (in-place, no copy)
+        accumulator.add_record(record);
+    }
+}
+
+// Performance: O(1) per late record
+```
+
+### 3. Watermark Advancement (CRITICAL - Most Frequent)
+
+**The Problem:**
+Watermark updates on EVERY record arrival. With 10K records/second:
+```
+Watermark updates = 10,000 per second
+Each update must NOT be expensive!
+```
+
+**Correct Implementation (✅ FAST):**
+```rust
+fn process_record(&mut self, record: &SharedRecord) -> Result<EmitDecision, SqlError> {
+    let ts = extract_timestamp(record)?;
+
+    // ✅ FAST: Watermark update is O(1) compare + assign
+    if ts > self.max_watermark_seen {
+        self.max_watermark_seen = ts;
+
+        // ✅ OPTIONAL: Lazy cleanup on watermark advancement
+        // Only cleanup every N records to amortize cost
+        if self.records_since_last_cleanup > 1000 {
+            self.cleanup_expired_windows();
+            self.records_since_last_cleanup = 0;
+        }
+    }
+
+    // ✅ FAST: Classify record in O(1)
+    let classification = classify_record(ts);  // on-time, late, or too-late
+
+    // ... rest of processing
+}
+
+// Performance: O(1) per record + O(1) amortized cleanup
+```
+
+### 4. Late Firing Detection (HIGH PRIORITY)
+
+**The Problem:**
+Need to quickly detect "this record belongs to a past window" without iterating all windows.
+
+**Correct Implementation (✅ FAST):**
+```rust
+fn classify_record(&self, ts: i64) -> RecordClassification {
+    // ✅ FAST: Calculate which window this belongs to in O(1)
+    let target_window_start = (ts / self.window_size_ms) * self.window_size_ms;
+    let target_window_end = target_window_start + self.window_size_ms;
+
+    let current_window_end = self.window_end_time.unwrap_or(0);
+
+    if ts >= current_window_end {
+        // On-time: belongs to current or future window
+        RecordClassification::OnTime
+    } else if ts >= current_window_end - self.allowed_lateness_ms {
+        // Late but within grace period: belongs to past window we still track
+        RecordClassification::Late
+    } else {
+        // Too late: belongs to window we've already deleted
+        RecordClassification::TooLate
+    }
+}
+
+// Performance: O(1) division + comparison, NO iteration!
+```
+
+### 5. Late Firing Re-emission (MODERATE PRIORITY)
+
+**The Problem:**
+When late record arrives, must re-compute entire window's aggregations.
+
+**Correct Implementation (✅ AMORTIZED FAST):**
+```rust
+fn handle_late_record(&mut self, record: &SharedRecord, ts: i64) -> Result<Option<StreamRecord>, SqlError> {
+    let window_start = (ts / self.window_size_ms) * self.window_size_ms;
+
+    // ✅ FAST: BTreeMap O(log N) lookup
+    if let Some(window_state) = self.historical_windows.get_mut(&window_start) {
+        // ✅ FAST: Add to specific group accumulator
+        let group_key = generate_group_key(&record)?;
+        let mut groups = window_state.groups.lock().unwrap();
+
+        let accumulator = groups.entry(group_key).or_insert_with(GroupAccumulator::new);
+        accumulator.add_record(record);
+
+        // ✅ SLOW: Re-compute aggregations (unavoidable)
+        // But only for THIS window, not all windows
+        let updated_result = self.compute_window_aggregations(window_start, &groups)?;
+
+        // Mark as "late firing" (multiple emissions for same window OK)
+        return Ok(Some(updated_result));
+    }
+
+    Ok(None)
+}
+
+// Performance: O(log N + G) where N=windows, G=groups
+// G is much smaller than total groups (only affected groups)
+```
+
+### 6. Buffer Management for Multiple Windows (OPTIMIZATION)
+
+**The Problem:**
+Current single-window buffer might not handle multiple concurrent windows well.
+
+**Correct Implementation (✅ FAST & MEMORY-EFFICIENT):**
+```rust
+pub struct TumblingWindowStrategy {
+    // Instead of single VecDeque for entire buffer:
+    // Use separate buffers per window
+
+    historical_windows: BTreeMap<i64, WindowState>,
+
+    pub struct WindowState {
+        // Each window gets its own record buffer (efficient cleanup)
+        buffer: Arc<VecDeque<SharedRecord>>,
+
+        // Group accumulators (shared via Arc for cheap cloning)
+        groups: Arc<Mutex<HashMap<GroupKey, GroupAccumulator>>>,
+
+        // When this window expires, both buffer and groups are dropped together
+        // No need to iterate and manually remove records
+    }
+}
+
+// Cleanup benefit:
+// Old approach: Iterate 10,000 records, check each timestamp - O(N)
+// New approach: Drop entire window Arc - O(1)
+//              (Arc destructor handles cleanup atomically)
+```
+
+### 7. Group Key Generation (OPTIMIZATION)
+
+**The Problem:**
+Group key is generated for EVERY record. With 10K records/sec:
+```
+Group key generation = 10,000 per second
+String concatenation or Vec allocation is expensive!
+```
+
+**Current (❌ SLOW):**
+```rust
+// This happens in compute_aggregations_over_window for EVERY record
+let group_key = format!("{}:{}", trader_id, symbol);  // String allocation!
+```
+
+**Correct (✅ FAST):**
+```rust
+// Use Arc<[FieldValue]> instead of String
+type GroupKey = Arc<[FieldValue]>;
+
+// Generate once, then just clone the Arc (atomic increment, ~16 bytes)
+fn generate_group_key(exprs: &[Expr], record: &StreamRecord) -> Result<GroupKey, SqlError> {
+    let mut key_values = Vec::with_capacity(exprs.len());
+
+    for expr in exprs {
+        let value = evaluate_expression(expr, record)?;
+        key_values.push(value);
+    }
+
+    // Return as Arc - cheap cloning after this
+    Ok(Arc::from(key_values.into_boxed_slice()))
+}
+
+// Performance: String version ~500ns, Arc version ~50ns (10x faster)
+```
+
+### 8. Batch Processing Optimization
+
+**The Problem:**
+Processing records one-at-a-time through the window system is inefficient.
+
+**Correct Implementation (✅ FAST):**
+```rust
+// Process records in batches to amortize overhead
+fn process_batch(&mut self, records: &[StreamRecord]) -> Result<Vec<StreamRecord>, SqlError> {
+    let mut results = Vec::new();
+    let mut max_watermark = self.max_watermark_seen;
+
+    // ✅ Fast: Single watermark update for batch
+    for record in records {
+        let ts = extract_timestamp(record)?;
+        if ts > max_watermark {
+            max_watermark = ts;
+        }
+    }
+    self.max_watermark_seen = max_watermark;
+
+    // ✅ Fast: Single cleanup pass for entire batch
+    self.cleanup_expired_windows();
+
+    // ✅ Fast: Process all records with hot cache
+    for record in records {
+        if let Some(result) = self.process_record(record)? {
+            results.push(result);
+        }
+    }
+
+    Ok(results)
+}
+
+// Performance: Single cleanup vs cleanup per-record
+//             Watermark comparison: 1 vs 10,000
+```
+
+### 9. Lock Contention Minimization (CRITICAL)
+
+**The Problem:**
+Multiple windows' groups are behind Arc<Mutex>, potential contention.
+
+**Correct Implementation (✅ LOCK-FREE WHERE POSSIBLE):**
+```rust
+pub struct WindowState {
+    // Use RwLock instead of Mutex for group reads
+    // (group updates are rare during late firing)
+    groups: Arc<RwLock<HashMap<GroupKey, GroupAccumulator>>>,
+
+    // For initial window: Single lock is fine (no reads during processing)
+    // For late windows: RwLock allows multiple readers (emit + late record)
+}
+
+// Benefits:
+// - Multiple threads can read group state simultaneously
+// - Only exclusive lock for updates (late records)
+// - ~50-70% less contention than Mutex
+```
+
+### 10. Expected Performance Characteristics
+
+**Memory Usage:**
+```
+Base per window: ~1KB (metadata)
+Per group: ~200 bytes (count, sum, avg, min, max, etc.)
+Per concurrent window: 60 avg records = ~12KB
+
+Total with 2-hour lateness:
+= 120 windows × (1KB + 60 × 200 bytes)
+= 120 × 13KB
+= ~1.5 MB (ACCEPTABLE for large-scale streaming)
+```
+
+**CPU Cost per Record:**
+```
+On-time record:
+├─ Watermark update: O(1) - ~1ns
+├─ Record classification: O(1) - ~5ns
+├─ Add to current window: O(1) - ~10ns
+└─ Total: ~20ns per record
+
+Late record:
+├─ Window lookup: O(log N) - ~5ns (120 windows)
+├─ Group lookup: O(1) - ~10ns
+├─ Accumulator update: O(1) - ~10ns
+└─ Total: ~30ns per record
+
+Cleanup (amortized every 1000 records):
+├─ Expire windows: O(log N + expired) - ~200ns total
+├─ Per-record cost: ~0.2ns
+└─ Total amortized: ~0.2ns per record
+
+TOTAL: ~20-30ns per record (EXCELLENT - 1 microsecond = 1000ns)
+```
+
+**Throughput Expectations:**
+```
+Current (87% degraded): 1,082 rec/sec
+
+With proper watermark + allowed lateness:
+├─ Base rate (linear batching): 66,238 rec/sec
+├─ Late firing overhead: ~10% (re-computation)
+├─ Memory/lock contention: ~5% (multiple windows)
+└─ Expected rate: ~55,000 rec/sec (still 49x faster than current broken state!)
+```
+
+### 11. Data Structure Choices (SUMMARY)
+
+| Component | Data Structure | Why | Performance |
+|-----------|-----------------|-----|-------------|
+| Historical windows | BTreeMap<i64, WindowState> | Ordered deletion | O(log N) lookup, O(log N) cleanup |
+| Group accumulators | HashMap<GroupKey, Accumulator> | Fast lookup | O(1) group lookup per record |
+| Group key | Arc<[FieldValue]> | Cheap cloning | Atomic increment vs String allocation |
+| Groups lock | Arc<RwLock<...>> | Multi-reader | ~70% less contention vs Mutex |
+| Group values | FieldValue enum | Direct computation | Inline arithmetic vs String ops |
+| Watermark | i64 | Primitive | O(1) compare + assign |
+| Buffer per window | Arc<VecDeque<...>> | Automatic cleanup | O(1) drop vs O(N) iteration |
+
+### 12. Benchmark Targets (After Implementation)
+
+```
+Test: 10K records, partition-batched, 5000 unique groups
+
+BASELINE (current broken state):
+├─ Throughput: 1,082 rec/sec
+├─ Results: 1,000 (90% loss)
+└─ Memory: ~5 MB
+
+TARGET (with watermark + optimizations):
+├─ Throughput: ~50,000+ rec/sec (46x improvement!)
+├─ Results: 9,980 (0% loss)
+├─ Memory: ~2 MB (multiple windows)
+├─ Late firings: ~100 (expected, deduplicated at sink)
+└─ Lock contention: <5% (RwLock optimization)
+
+STRESS TEST (100K records):
+├─ Throughput: ~45,000 rec/sec (consistent)
+├─ Memory: ~5 MB (still bounded)
+├─ Cleanup overhead: <1% (amortized)
+└─ Late firing cost: ~5% (only affected windows)
+```
+
+### Implementation Checklist (Performance-Focused)
+
+- [ ] Use BTreeMap (not HashMap) for historical_windows - enable O(log N) cleanup
+- [ ] Use Arc<[FieldValue]> (not String) for group keys - 10x faster
+- [ ] Use RwLock (not Mutex) for group accumulators - reduce contention
+- [ ] Implement lazy cleanup (every N records) - amortize cost
+- [ ] Add batch processing mode - single watermark/cleanup per batch
+- [ ] Cache group key computation - avoid re-generating for same groups
+- [ ] Implement metrics for:
+  - Concurrent window count
+  - Late record processing time
+  - Cleanup duration
+  - Lock contention (RwLock acquisitions)
+  - Memory usage tracking
+- [ ] Benchmark against targets above - document actual vs expected
+
+---
+
 ### Next Steps (Testing Phase)
 - Run partition batching test with grace period enabled
 - Compare metrics: before vs after
