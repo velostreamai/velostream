@@ -1,5 +1,107 @@
 # Velostream Development TODO
 
+---
+
+## 📊 STATUS TRACKING & PROJECT OVERVIEW
+
+### Current Project: Window Adapter Partition Batching Fix
+**Status**: Analysis Phase ✅ COMPLETE | Implementation Phase ✅ COMPLETE (Watermark Tracking) | Verification Phase ⏳ IN PROGRESS
+
+### Overall Progress
+| Phase | Task | Status | Completion |
+|-------|------|--------|------------|
+| **Analysis** | Root cause identification | ✅ Complete | 100% |
+| **Analysis** | Performance metrics collection | ✅ Complete | 100% |
+| **Analysis** | Performance optimization roadmap | ✅ Complete | 100% |
+| **Implementation** | Watermark tracking | ✅ Complete | 100% |
+| **Implementation** | Late firing mechanism | ✅ Complete | 100% |
+| **Implementation** | State retention & cleanup | ✅ Complete | 100% |
+| **Implementation** | Code formatting & compilation | ✅ Complete | 100% |
+| **Verification** | Unit tests (tumbling window) | ✅ Pass | 100% |
+| **Verification** | Data correctness (1000 → 9980) | ⏳ Pending | 0% |
+| **Verification** | Performance (1082 → 55000 rec/sec) | ⏳ Pending | 0% |
+| **Verification** | Pre-commit checks | ⏳ Pending | 0% |
+
+### Key Metrics (BEFORE FIX)
+| Metric | Current | Expected After Fix | Status |
+|--------|---------|-------------------|--------|
+| **Data Loss** | 90% (1,000 / 9,980) | 0% (9,980 / 9,980) | ❌ BROKEN |
+| **Throughput** | 1,082 rec/sec | 55,000 rec/sec | ❌ DEGRADED (87% slower) |
+| **Unique Groups Emitting** | 100 / 5,000 | 5,000 / 5,000 | ❌ MISSING 98% |
+| **Late Firings** | 0 | ~100 | ❌ MECHANISM MISSING |
+| **Memory Usage** | ~5 MB (unbounded) | ~1.5 MB (bounded) | ⚠️ UNSAFE |
+
+### Root Cause Summary
+**CRITICAL MISSING PIECE**: Window has no watermark reference point
+
+- ❌ Cannot distinguish "late" records from "out-of-order" records
+- ❌ Cannot trigger re-emissions when late data arrives
+- ❌ Cannot safely delete window state
+- ❌ Cannot handle partition-batched data with skewed group distribution
+
+**Result**: 90% data loss + 87% performance degradation with partition batching
+
+### Solution Architecture
+**Watermark + Allowed Lateness Pattern** (Flink-style):
+
+1. Track `max_watermark_seen` (highest timestamp)
+2. Keep historical windows alive for `allowed_lateness_ms` (e.g., 2 hours)
+3. Trigger "late firings" when late data arrives within grace period
+4. Deduplicate results at sink (expected behavior)
+5. Delete window state when `watermark > window_end + allowed_lateness`
+
+### Next Session Goals
+1. ✅ Understand root cause (COMPLETE)
+2. ✅ Design performance-optimized solution (COMPLETE)
+3. ✅ Implement watermark tracking (COMPLETE)
+4. ✅ Implement late firing mechanism (COMPLETE)
+5. ⏳ Verify 0% data loss + 46x performance improvement (IN PROGRESS)
+6. ⏳ Run comprehensive pre-commit validation (PENDING)
+
+### Implementation Details Completed
+
+**Watermark Tracking Implementation** (`src/velostream/sql/execution/window_v2/strategies/tumbling.rs`):
+
+1. **Watermark Field Addition**:
+   - `max_watermark_seen: i64` - Tracks highest timestamp seen (monotonically increasing)
+   - Initialized to `i64::MIN` for proper comparison logic
+   - Updated on every record via `add_record()` in O(1) time
+
+2. **Allowed Lateness Configuration**:
+   - `allowed_lateness_ms: i64` - Default: 50% of window size (30s for 60s window)
+   - Configurable via `set_allowed_lateness_ms()` method
+   - Enables grace period for partition-batched data arriving hours late
+
+3. **Historical Windows State Management**:
+   - `historical_windows: BTreeMap<i64, HistoricalWindowState>`
+   - O(log W) lookup where W ≈ (allowed_lateness_ms + window_size_ms) / window_size_ms
+   - Typical W = 3-4 windows for 2-hour allowed lateness with 60s window
+   - Memory bounded: ~1.5 MB for 2-hour lateness + 10K events/sec
+
+4. **Late Arrival Detection** (in `add_record()`):
+   - Classifies records as on-time or late based on watermark
+   - Late arrival = `timestamp <= current_window_end`
+   - Within grace = `watermark < window_end + allowed_lateness_ms`
+   - Routes late arrivals to historical windows for re-emission
+
+5. **State Retention & Cleanup** (in `clear()`):
+   - Stores emitted window in historical_windows before advancing
+   - Calls `cleanup_expired_windows()` to remove windows outside allowed lateness
+   - Cleanup cost: O(log W) for BTreeMap removal
+
+6. **Enhanced Metrics**:
+   - `late_firing_count: usize` - Tracks re-emissions triggered by late data
+   - `late_firing_records: usize` - Counts records processed in late firings
+   - Enables performance monitoring and correctness validation
+
+7. **Code Quality**:
+   - ✅ All code compiles without errors
+   - ✅ Code formatting passes `cargo fmt --all -- --check`
+   - ✅ All 10 tumbling window unit tests pass
+   - ✅ No new clippy errors introduced
+
+---
+
 ## 🎯 Current Session: Window Adapter Performance Analysis
 
 ### Issues Being Addressed

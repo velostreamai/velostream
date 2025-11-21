@@ -190,10 +190,9 @@ async fn profile_adapter_execution_10k() {
 
     for (idx, record) in records.iter().enumerate() {
         // Extract the group key from this record (trader_id:symbol)
-        if let (Some(FieldValue::String(trader_id)), Some(FieldValue::String(symbol))) = (
-            record.fields.get("trader_id"),
-            record.fields.get("symbol"),
-        ) {
+        if let (Some(FieldValue::String(trader_id)), Some(FieldValue::String(symbol))) =
+            (record.fields.get("trader_id"), record.fields.get("symbol"))
+        {
             let group_key = format!("{}:{}", trader_id, symbol);
             all_groups_seen.insert(group_key);
         }
@@ -275,8 +274,14 @@ async fn profile_adapter_execution_10k() {
     println!("  Window boundaries fire every ~60 records");
     println!("  Expected emissions: ~167 (10000 / 60)");
     println!("  Results produced: {}", results_produced);
-    println!("  Average results per emission: {:.1}", results_produced as f64 / 167.0);
-    println!("  Results per GROUP: ~{:.1}", results_produced as f64 / (5000.0)); // 5000 unique groups
+    println!(
+        "  Average results per emission: {:.1}",
+        results_produced as f64 / 167.0
+    );
+    println!(
+        "  Results per GROUP: ~{:.1}",
+        results_produced as f64 / (5000.0)
+    ); // 5000 unique groups
 
     println!("\n❓ CRITICAL QUESTION:");
     println!("─────────────────────────────────────────────────────────");
@@ -303,13 +308,18 @@ async fn profile_adapter_execution_10k() {
     let data_loss = expected_results - results_produced;
     let loss_percent = (data_loss as f64 / expected_results as f64) * 100.0;
     println!("  Expected results (linear batching): {}", expected_results);
-    println!("  Actual results (partition batching): {}", results_produced);
+    println!(
+        "  Actual results (partition batching): {}",
+        results_produced
+    );
     println!("  Missing results: {}", data_loss);
     println!("  Data loss: {:.1}%", loss_percent);
 
     println!("\n🔎 EMISSION TRACKING (First 20 emissions):");
     println!("─────────────────────────────────────────────────────────");
-    println!("Emission # | Record Index | Records in Window | Groups Emitted | Total Unique Groups");
+    println!(
+        "Emission # | Record Index | Records in Window | Groups Emitted | Total Unique Groups"
+    );
     println!("──────────────────────────────────────────────────────────────────────────────────");
 
     for (i, (record_idx, records_in_window, unique_groups)) in
@@ -334,7 +344,10 @@ async fn profile_adapter_execution_10k() {
     println!("  Total emissions: {}", emission_count);
     println!("  Total unique groups in input: {}", all_groups_seen.len());
     println!("  Expected emissions: ~167 (10000 / 60 records per window)");
-    println!("  Results per emission: {:.1}", results_produced as f64 / emission_count as f64);
+    println!(
+        "  Results per emission: {:.1}",
+        results_produced as f64 / emission_count as f64
+    );
 
     // Analyze emission pattern
     if emission_records.len() > 0 {
@@ -343,8 +356,15 @@ async fn profile_adapter_execution_10k() {
 
         println!("\n📈 EMISSION PATTERN:");
         println!("─────────────────────────────────────────────────────────");
-        println!("  First emission: {} results at record index {}", first_emit_records, emission_records[0].0);
-        println!("  Last emission: {} results at record index {}", last_emit_records, emission_records[emission_records.len() - 1].0);
+        println!(
+            "  First emission: {} results at record index {}",
+            first_emit_records, emission_records[0].0
+        );
+        println!(
+            "  Last emission: {} results at record index {}",
+            last_emit_records,
+            emission_records[emission_records.len() - 1].0
+        );
 
         // Group emissions by results
         let mut single_result_emissions = 0;
@@ -357,12 +377,16 @@ async fn profile_adapter_execution_10k() {
             }
         }
 
-        println!("  Emissions with 1 result: {} ({:.1}%)",
+        println!(
+            "  Emissions with 1 result: {} ({:.1}%)",
             single_result_emissions,
-            (single_result_emissions as f64 / emission_count as f64) * 100.0);
-        println!("  Emissions with >1 result: {} ({:.1}%)",
+            (single_result_emissions as f64 / emission_count as f64) * 100.0
+        );
+        println!(
+            "  Emissions with >1 result: {} ({:.1}%)",
             multi_result_emissions,
-            (multi_result_emissions as f64 / emission_count as f64) * 100.0);
+            (multi_result_emissions as f64 / emission_count as f64) * 100.0
+        );
 
         println!("\n⚠️  KEY INSIGHT:");
         println!("─────────────────────────────────────────────────────────");

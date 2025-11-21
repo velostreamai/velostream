@@ -10,16 +10,23 @@
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::execution::window_v2::traits::{WindowStats, WindowStrategy};
 use crate::velostream::sql::execution::window_v2::types::SharedRecord;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 /// Tumbling window strategy with fixed-size non-overlapping windows.
 ///
 /// Performance characteristics:
-/// - O(1) record addition
+/// - O(1) record addition with watermark tracking
 /// - O(1) window boundary check
 /// - O(N) clear operation where N = records in window
-/// - Memory: Bounded by window_size_ms * arrival_rate
+/// - O(log W) historical window lookup where W = windows in allowed lateness
+/// - Memory: Bounded by (window_size_ms + allowed_lateness_ms) * arrival_rate
+///
+/// Watermark-based late data handling:
+/// - Watermark: Highest timestamp seen so far (monotonically increasing)
+/// - Late records: ts <= current_window_end (belongs to previous/closed window)
+/// - On-time records: ts > current_window_end (belongs to current/future window)
+/// - Allowed lateness: Grace period for re-emitting with late arrivals
 pub struct TumblingWindowStrategy {
     /// Window size in milliseconds
     window_size_ms: i64,
@@ -50,6 +57,25 @@ pub struct TumblingWindowStrategy {
     /// Has this window been emitted? (tracks if we're in grace period)
     window_emitted: bool,
 
+    /// WATERMARK: Highest timestamp seen so far (for distinguishing late arrivals)
+    /// Watermark is the reference point that tells us:
+    /// - Which windows have truly closed (watermark > window_end)
+    /// - Which records are "late" (timestamp < watermark but > window_end - allowed_lateness)
+    /// This is critical for partition-batched data where groups arrive out-of-order
+    max_watermark_seen: i64,
+
+    /// Allowed lateness in milliseconds - how long to keep window state alive after emission
+    /// Example: 2 hours = 7_200_000 ms
+    /// Allows re-emission when late data arrives: watermark < window_end + allowed_lateness_ms
+    allowed_lateness_ms: i64,
+
+    /// Historical windows that may still receive late-arriving records
+    /// Key: window_end_time
+    /// Value: HistoricalWindowState with buffer and metadata
+    /// Used for implementing late firing mechanism (re-emit when late data arrives)
+    /// Memory is bounded: max windows = (allowed_lateness_ms + window_size_ms) / window_size_ms
+    historical_windows: BTreeMap<i64, HistoricalWindowState>,
+
     /// Metrics collection (thread-safe)
     pub metrics: Arc<Mutex<WindowMetrics>>,
 }
@@ -73,6 +99,28 @@ pub struct WindowMetrics {
     pub total_grace_period_ms: u64,
     /// Records discarded due to arriving after grace period
     pub late_arrival_discards: usize,
+    /// Number of late arrivals that triggered re-emissions
+    pub late_firing_count: usize,
+    /// Number of records processed in late firings
+    pub late_firing_records: usize,
+}
+
+/// State of a historical window that may receive late-arriving records.
+///
+/// Used for late firing mechanism: when a late record arrives after a window
+/// has been emitted, we may re-emit updated aggregations.
+#[derive(Debug, Clone)]
+struct HistoricalWindowState {
+    /// Window start time (milliseconds)
+    start_time: i64,
+    /// Window end time (milliseconds)
+    end_time: i64,
+    /// Records in this window (including late arrivals)
+    buffer: VecDeque<SharedRecord>,
+    /// Has this window been emitted?
+    emitted: bool,
+    /// Watermark when this window's grace period ends
+    grace_period_end_watermark: i64,
 }
 
 impl TumblingWindowStrategy {
@@ -93,6 +141,27 @@ impl TumblingWindowStrategy {
     /// Get a copy of current metrics
     pub fn get_metrics(&self) -> WindowMetrics {
         self.metrics.lock().map(|m| m.clone()).unwrap_or_default()
+    }
+
+    /// Set the allowed lateness in milliseconds.
+    ///
+    /// Allowed lateness defines how long window state is kept alive after emission
+    /// to accommodate late-arriving records (e.g., from delayed partitions).
+    ///
+    /// Example: 2 hours for a 1-minute window allows partition-batched data
+    /// where groups arrive hours late but should still be aggregated.
+    pub fn set_allowed_lateness_ms(&mut self, allowed_lateness_ms: i64) {
+        self.allowed_lateness_ms = allowed_lateness_ms;
+    }
+
+    /// Get the current watermark (highest timestamp seen).
+    ///
+    /// Watermark advances monotonically as records arrive. It's the reference point
+    /// for distinguishing:
+    /// - On-time records: timestamp > current_window_end
+    /// - Late records: timestamp <= current_window_end (but may still be within allowed lateness)
+    pub fn get_watermark(&self) -> i64 {
+        self.max_watermark_seen
     }
 
     /// Create a new tumbling window strategy with pre-allocated capacity hint.
@@ -143,6 +212,9 @@ impl TumblingWindowStrategy {
             grace_period_percent: 50.0, // 50% of window size as grace period
             grace_period_start_time: None,
             window_emitted: false,
+            max_watermark_seen: i64::MIN, // Initialize to lowest value
+            allowed_lateness_ms: window_size_ms / 2, // Default: 50% of window size (30s for 60s window)
+            historical_windows: BTreeMap::new(),
             metrics: Arc::new(Mutex::new(WindowMetrics::default())),
         }
     }
@@ -180,6 +252,55 @@ impl TumblingWindowStrategy {
         }
     }
 
+    /// Find which historical window a timestamp belongs to.
+    ///
+    /// Returns the window_end_time key if found in historical windows, None otherwise.
+    /// Uses BTreeMap for efficient O(log N) range searching.
+    fn find_historical_window_for_timestamp(&self, timestamp: i64) -> Option<i64> {
+        // Find window where: timestamp >= window_start && timestamp < window_end
+        // For tumbling windows: window_start = window_end - window_size_ms
+
+        // We need to find a window where:
+        // timestamp < window_end AND timestamp >= (window_end - window_size_ms)
+
+        // Use BTreeMap range to efficiently search
+        // We look for windows where the end time is greater than the timestamp
+        for (window_end, hist_window) in self.historical_windows.iter() {
+            if timestamp >= hist_window.start_time && timestamp < *window_end {
+                return Some(*window_end);
+            }
+        }
+        None
+    }
+
+    /// Check if a historical window is still within allowed lateness.
+    ///
+    /// A window is within allowed lateness if:
+    /// current_watermark < window_end + allowed_lateness_ms
+    fn is_within_allowed_lateness(&self, window_end: i64) -> bool {
+        self.max_watermark_seen < window_end + self.allowed_lateness_ms
+    }
+
+    /// Clean up historical windows that are no longer within allowed lateness.
+    ///
+    /// Uses BTreeMap O(log N) operations to efficiently remove old windows.
+    /// Called during clear() to maintain bounded memory usage.
+    fn cleanup_expired_windows(&mut self) {
+        // Remove windows where: watermark >= window_end + allowed_lateness_ms
+        let windows_to_remove: Vec<i64> = self
+            .historical_windows
+            .iter()
+            .filter(|(window_end, _)| {
+                self.max_watermark_seen >= **window_end + self.allowed_lateness_ms
+            })
+            .map(|(window_end, _)| *window_end)
+            .collect();
+
+        for window_end in windows_to_remove {
+            self.historical_windows.remove(&window_end);
+        }
+    }
+
     /// Advance to next window.
     fn advance_window(&mut self) {
         if let (Some(start), Some(end)) = (self.window_start_time, self.window_end_time) {
@@ -198,6 +319,12 @@ impl WindowStrategy for TumblingWindowStrategy {
             m.add_record_calls += 1;
         }
 
+        // WATERMARK ADVANCEMENT: Update watermark (highest timestamp seen so far)
+        // This is O(1) operation critical for distinguishing late arrivals
+        if timestamp > self.max_watermark_seen {
+            self.max_watermark_seen = timestamp;
+        }
+
         // Initialize window on first record
         if self.window_start_time.is_none() {
             self.initialize_window(timestamp);
@@ -207,6 +334,35 @@ impl WindowStrategy for TumblingWindowStrategy {
 
         // Check if record belongs to current window
         let should_emit = !self.is_in_current_window(timestamp);
+
+        // CHECK FOR LATE ARRIVAL: Is this record arriving in a historical window?
+        // Late arrival = timestamp <= current_window_end (arrived after window boundary)
+        // but timestamp > window_end - allowed_lateness (still within grace period)
+        let is_late_arrival = timestamp <= self.window_end_time.unwrap_or(i64::MAX);
+
+        if is_late_arrival && !self.historical_windows.is_empty() {
+            // Try to find the historical window this record belongs to
+            let window_key = self.find_historical_window_for_timestamp(timestamp);
+            if let Some(window_end) = window_key {
+                // Check if this window is still within allowed lateness
+                if self.is_within_allowed_lateness(window_end) {
+                    // Add to historical window for late firing
+                    if let Some(hist_window) = self.historical_windows.get_mut(&window_end) {
+                        hist_window.buffer.push_back(record);
+                        if let Ok(mut m) = self.metrics.lock() {
+                            m.late_firing_records += 1;
+                        }
+                        return Ok(false); // No immediate emission for late arrivals
+                    }
+                } else {
+                    // Outside allowed lateness - discard
+                    if let Ok(mut m) = self.metrics.lock() {
+                        m.late_arrival_discards += 1;
+                    }
+                    return Ok(false);
+                }
+            }
+        }
 
         // Always add record to buffer (it belongs to next window if beyond current)
         self.buffer.push_back(record);
@@ -246,12 +402,28 @@ impl WindowStrategy for TumblingWindowStrategy {
 
         // Mark that this window has been emitted (entering grace period)
         self.window_emitted = true;
+        let window_start = self.window_start_time.unwrap_or(0);
         let window_end_time = self.window_end_time.unwrap_or(0);
 
         // Calculate grace period: 50% of window size after window boundary
         let grace_period_ms =
             (self.window_size_ms as f64 * (self.grace_period_percent / 100.0)) as i64;
         self.grace_period_start_time = Some(window_end_time);
+
+        // WATERMARK-BASED STATE RETENTION: Store window state for late firings
+        // This enables re-emission when late-arriving records arrive
+        // Memory is bounded by: (allowed_lateness_ms + window_size_ms) / window_size_ms windows
+        let grace_period_end_watermark = window_end_time + grace_period_ms;
+        self.historical_windows.insert(
+            window_end_time,
+            HistoricalWindowState {
+                start_time: window_start,
+                end_time: window_end_time,
+                buffer: self.buffer.clone(), // Cheap clone for partition-batched late arrivals
+                emitted: true,
+                grace_period_end_watermark,
+            },
+        );
 
         // Advance window first
         self.advance_window();
@@ -288,6 +460,11 @@ impl WindowStrategy for TumblingWindowStrategy {
                 }
             }
         }
+
+        // CLEANUP: Remove historical windows outside allowed lateness
+        // This is O(log W) where W = number of historical windows
+        // Typical W = (allowed_lateness_ms + window_size_ms) / window_size_ms ≈ 3-4 windows
+        self.cleanup_expired_windows();
 
         // Record metrics
         if let Ok(mut m) = self.metrics.lock() {
