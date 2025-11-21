@@ -45,10 +45,10 @@ struct ScenarioResult {
     name: String,
     sql_engine_sync_throughput: f64,
     sql_engine_sync_records_sent: usize,
-    sql_engine_sync_records_processed: usize,
+    sql_engine_sync_results_produced: usize, // Output results, not input records processed
     sql_engine_async_throughput: f64,
     sql_engine_async_records_sent: usize,
-    sql_engine_async_records_processed: usize,
+    sql_engine_async_results_produced: usize, // Output results, not input records processed
     simple_jp_throughput: f64,
     transactional_jp_throughput: f64,
     adaptive_jp_1c_throughput: f64,
@@ -62,14 +62,14 @@ impl ScenarioResult {
         println!("\n┌─ {}", self.name);
         println!("│");
         println!(
-            "│  SQL Engine Sync (sent: {}, processed: {})",
-            self.sql_engine_sync_records_sent, self.sql_engine_sync_records_processed
+            "│  SQL Engine Sync (sent: {}, produced: {})",
+            self.sql_engine_sync_records_sent, self.sql_engine_sync_results_produced
         );
         println!("│    {:>8.0} rec/sec", self.sql_engine_sync_throughput);
         println!("│");
         println!(
-            "│  SQL Engine Async (sent: {}, processed: {})",
-            self.sql_engine_async_records_sent, self.sql_engine_async_records_processed
+            "│  SQL Engine Async (sent: {}, produced: {})",
+            self.sql_engine_async_records_sent, self.sql_engine_async_results_produced
         );
         println!("│    {:>8.0} rec/sec", self.sql_engine_async_throughput);
         println!("│");
@@ -144,7 +144,7 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
     let mut engine = StreamExecutionEngine::new(tx);
 
     let mut records_sent = 0;
-    let mut records_processed = 0;
+    let mut results_produced = 0;
 
     let start = Instant::now();
     for record in records.iter() {
@@ -152,7 +152,7 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
         match engine.execute_with_record_sync(&parsed_query, &record) {
             Ok(results) => {
                 // Count each result returned (0 or more per record)
-                records_processed += results.len();
+                results_produced += results.len();
                 // Validate results are valid StreamRecords with expected fields
                 // Additional validation happens in assertions
             }
@@ -164,12 +164,13 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
 
     // Drain any remaining results from channel (for async completions)
     while let Ok(_) = rx.try_recv() {
-        records_processed += 1;
+        results_produced += 1;
     }
 
     let elapsed = start.elapsed();
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
-    (throughput, records_sent, records_processed)
+    // Return: throughput, records_sent (input), results_produced (output)
+    (throughput, records_sent, results_produced)
 }
 
 /// Measure SQL Engine (async version) - execute_with_record
@@ -180,7 +181,7 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, us
     let mut engine = StreamExecutionEngine::new(tx);
 
     let mut records_sent = 0;
-    let mut records_processed = 0;
+    let mut results_produced = 0;
 
     let start = Instant::now();
     for record in records.iter() {
@@ -197,12 +198,13 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, us
 
     // Drain all results from channel
     while let Ok(_) = rx.try_recv() {
-        records_processed += 1;
+        results_produced += 1;
     }
 
     let elapsed = start.elapsed();
     let throughput = (records.len() as f64) / elapsed.as_secs_f64();
-    (throughput, records_sent, records_processed)
+    // Return: throughput, records_sent (input), results_produced (output)
+    (throughput, records_sent, results_produced)
 }
 
 /// Measure JobServer V1 (returns throughput and actual records written)
@@ -581,18 +583,18 @@ async fn comprehensive_baseline_comparison() {
         WHERE total_amount > 100
     "#;
 
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_processed) =
+    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
         measure_sql_engine_sync(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, processed: {})",
-        sql_sync_throughput, sql_sync_sent, sql_sync_processed
+        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, produced: {})",
+        sql_sync_throughput, sql_sync_sent, sql_sync_produced
     );
 
-    let (sql_async_throughput, sql_async_sent, sql_async_processed) =
+    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
         measure_sql_engine(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, processed: {})",
-        sql_async_throughput, sql_async_sent, sql_async_processed
+        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, produced: {})",
+        sql_async_throughput, sql_async_sent, sql_async_produced
     );
 
     let (simple_jp_throughput, simple_jp_records_written) =
@@ -627,10 +629,10 @@ async fn comprehensive_baseline_comparison() {
         name: "Scenario 1: Pure SELECT".to_string(),
         sql_engine_sync_throughput: sql_sync_throughput,
         sql_engine_sync_records_sent: sql_sync_sent,
-        sql_engine_sync_records_processed: sql_sync_processed,
+        sql_engine_sync_results_produced: sql_sync_produced,
         sql_engine_async_throughput: sql_async_throughput,
         sql_engine_async_records_sent: sql_async_sent,
-        sql_engine_async_records_processed: sql_async_processed,
+        sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
@@ -656,18 +658,18 @@ async fn comprehensive_baseline_comparison() {
         FROM market_data
     "#;
 
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_processed) =
+    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
         measure_sql_engine_sync(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, processed: {})",
-        sql_sync_throughput, sql_sync_sent, sql_sync_processed
+        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, produced: {})",
+        sql_sync_throughput, sql_sync_sent, sql_sync_produced
     );
 
-    let (sql_async_throughput, sql_async_sent, sql_async_processed) =
+    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
         measure_sql_engine(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, processed: {})",
-        sql_async_throughput, sql_async_sent, sql_async_processed
+        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, produced: {})",
+        sql_async_throughput, sql_async_sent, sql_async_produced
     );
 
     let (simple_jp_throughput, simple_jp_records_written) =
@@ -702,10 +704,10 @@ async fn comprehensive_baseline_comparison() {
         name: "Scenario 2: ROWS WINDOW".to_string(),
         sql_engine_sync_throughput: sql_sync_throughput,
         sql_engine_sync_records_sent: sql_sync_sent,
-        sql_engine_sync_records_processed: sql_sync_processed,
+        sql_engine_sync_results_produced: sql_sync_produced,
         sql_engine_async_throughput: sql_async_throughput,
         sql_engine_async_records_sent: sql_async_sent,
-        sql_engine_async_records_processed: sql_async_processed,
+        sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
@@ -731,18 +733,18 @@ async fn comprehensive_baseline_comparison() {
         GROUP BY symbol
     "#;
 
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_processed) =
+    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
         measure_sql_engine_sync(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, processed: {})",
-        sql_sync_throughput, sql_sync_sent, sql_sync_processed
+        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, produced: {})",
+        sql_sync_throughput, sql_sync_sent, sql_sync_produced
     );
 
-    let (sql_async_throughput, sql_async_sent, sql_async_processed) =
+    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
         measure_sql_engine(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, processed: {})",
-        sql_async_throughput, sql_async_sent, sql_async_processed
+        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, produced: {})",
+        sql_async_throughput, sql_async_sent, sql_async_produced
     );
 
     let (simple_jp_throughput, simple_jp_records_written) =
@@ -777,10 +779,10 @@ async fn comprehensive_baseline_comparison() {
         name: "Scenario 3: GROUP BY".to_string(),
         sql_engine_sync_throughput: sql_sync_throughput,
         sql_engine_sync_records_sent: sql_sync_sent,
-        sql_engine_sync_records_processed: sql_sync_processed,
+        sql_engine_sync_results_produced: sql_sync_produced,
         sql_engine_async_throughput: sql_async_throughput,
         sql_engine_async_records_sent: sql_async_sent,
-        sql_engine_async_records_processed: sql_async_processed,
+        sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
@@ -806,18 +808,18 @@ async fn comprehensive_baseline_comparison() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
     "#;
 
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_processed) =
+    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
         measure_sql_engine_sync(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, processed: {})",
-        sql_sync_throughput, sql_sync_sent, sql_sync_processed
+        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, produced: {})",
+        sql_sync_throughput, sql_sync_sent, sql_sync_produced
     );
 
-    let (sql_async_throughput, sql_async_sent, sql_async_processed) =
+    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
         measure_sql_engine(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, processed: {})",
-        sql_async_throughput, sql_async_sent, sql_async_processed
+        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, produced: {})",
+        sql_async_throughput, sql_async_sent, sql_async_produced
     );
 
     let (simple_jp_throughput, simple_jp_records_written) =
@@ -852,10 +854,10 @@ async fn comprehensive_baseline_comparison() {
         name: "Scenario 4: TUMBLING + GROUP BY".to_string(),
         sql_engine_sync_throughput: sql_sync_throughput,
         sql_engine_sync_records_sent: sql_sync_sent,
-        sql_engine_sync_records_processed: sql_sync_processed,
+        sql_engine_sync_results_produced: sql_sync_produced,
         sql_engine_async_throughput: sql_async_throughput,
         sql_engine_async_records_sent: sql_async_sent,
-        sql_engine_async_records_processed: sql_async_processed,
+        sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
@@ -881,18 +883,18 @@ async fn comprehensive_baseline_comparison() {
         WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE) EMIT CHANGES
     "#;
 
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_processed) =
+    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
         measure_sql_engine_sync(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, processed: {})",
-        sql_sync_throughput, sql_sync_sent, sql_sync_processed
+        "  ✓ SQLEngineSync:  {:.0} rec/sec (sent: {}, produced: {})",
+        sql_sync_throughput, sql_sync_sent, sql_sync_produced
     );
 
-    let (sql_async_throughput, sql_async_sent, sql_async_processed) =
+    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
         measure_sql_engine(records.clone(), query).await;
     println!(
-        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, processed: {})",
-        sql_async_throughput, sql_async_sent, sql_async_processed
+        "  ✓ SQLEngineAsync: {:.0} rec/sec (sent: {}, produced: {})",
+        sql_async_throughput, sql_async_sent, sql_async_produced
     );
 
     let (simple_jp_throughput, simple_jp_records_written) =
@@ -927,10 +929,10 @@ async fn comprehensive_baseline_comparison() {
         name: "Scenario 5: TUMBLING + EMIT CHANGES".to_string(),
         sql_engine_sync_throughput: sql_sync_throughput,
         sql_engine_sync_records_sent: sql_sync_sent,
-        sql_engine_sync_records_processed: sql_sync_processed,
+        sql_engine_sync_results_produced: sql_sync_produced,
         sql_engine_async_throughput: sql_async_throughput,
         sql_engine_async_records_sent: sql_async_sent,
-        sql_engine_async_records_processed: sql_async_processed,
+        sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
         transactional_jp_throughput,
         adaptive_jp_1c_throughput,
