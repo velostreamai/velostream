@@ -5,7 +5,7 @@
 ## 📊 STATUS TRACKING & PROJECT OVERVIEW
 
 ### Current Project: Window Adapter Partition Batching Fix
-**Status**: Analysis Phase ✅ COMPLETE | Implementation Phase ✅ COMPLETE (Watermark Tracking) | Verification Phase ⏳ IN PROGRESS
+**Status**: Analysis Phase ✅ COMPLETE | Implementation Phase ✅ PARTIAL (Watermark + Allowed Lateness) | Verification Phase 🔍 IN PROGRESS
 
 ### Overall Progress
 | Phase | Task | Status | Completion |
@@ -22,14 +22,15 @@
 | **Verification** | Performance (1082 → 55000 rec/sec) | ⏳ Pending | 0% |
 | **Verification** | Pre-commit checks | ⏳ Pending | 0% |
 
-### Key Metrics (BEFORE FIX)
-| Metric | Current | Expected After Fix | Status |
-|--------|---------|-------------------|--------|
-| **Data Loss** | 90% (1,000 / 9,980) | 0% (9,980 / 9,980) | ❌ BROKEN |
-| **Throughput** | 1,082 rec/sec | 55,000 rec/sec | ❌ DEGRADED (87% slower) |
-| **Unique Groups Emitting** | 100 / 5,000 | 5,000 / 5,000 | ❌ MISSING 98% |
-| **Late Firings** | 0 | ~100 | ❌ MECHANISM MISSING |
-| **Memory Usage** | ~5 MB (unbounded) | ~1.5 MB (bounded) | ⚠️ UNSAFE |
+### Key Metrics (AFTER WATERMARK + ALLOWED LATENESS IMPLEMENTATION)
+| Metric | BEFORE Fix | WITH Partial Fix | EXPECTED with Full Fix | Status |
+|--------|---------|-----------|-------|--------|
+| **Data Loss** | 90% (1,000 / 9,980) | 90% (996 / 10,000) | 0% (9,980 / 9,980) | 🔶 PARTIAL |
+| **Throughput** | 1,082 rec/sec | **68,403 rec/sec** (63x!) | 55,000 rec/sec | ✅ FIXED |
+| **Unique Groups Emitting** | 100 / 5,000 | 12 / 5,000 | 5,000 / 5,000 | 🔶 PARTIAL |
+| **Late Arrivals Buffered** | 0 | ✅ YES | ✅ Emitted | ✅ FIXED |
+| **Re-emission Mechanism** | N/A | ❌ MISSING | ✅ Required | ⚠️ BLOCKED |
+| **Memory Usage** | ~5 MB (unbounded) | ~1.5 MB (bounded) | ~1.5 MB (bounded) | ✅ FIXED |
 
 ### Root Cause Summary
 **CRITICAL MISSING PIECE**: Window has no watermark reference point
@@ -99,6 +100,46 @@
    - ✅ Code formatting passes `cargo fmt --all -- --check`
    - ✅ All 10 tumbling window unit tests pass
    - ✅ No new clippy errors introduced
+
+### Session 2: Allowed Lateness Implementation & Late Arrival Handling
+
+**Achievement**: 63x performance improvement through watermark-based late arrival buffering
+
+**What Works**:
+- ✅ Watermark tracks highest timestamp seen (O(1) cost)
+- ✅ Late arrivals within allowed_lateness are buffered in window
+- ✅ Memory is bounded by allowed_lateness configuration
+- ✅ Throughput improved from 1,082 → 68,403 rec/sec (63x!)
+- ✅ Partition-batched data flows through system efficiently
+
+**What's Missing (Blocker for 0% Data Loss)**:
+- ❌ Re-emission mechanism when late data arrives
+- ❌ Window only emits once per boundary crossing
+- ❌ Late records buffered but never trigger aggregation
+- ❌ Adapter has no way to signal "late data arrived, re-emit window"
+
+**Root Cause of Remaining Data Loss**:
+With partition-batched data:
+1. Records from partition 0 (timestamps 1000000-1120000) arrive
+2. Windows [1000000-1060000), [1060000-1120000), etc. emit results
+3. Records from partition 1 (same timestamps) arrive LATER
+4. Late records are buffered in current window ✅
+5. But no mechanism triggers re-aggregation of the CLOSED window ❌
+6. Results are only for the first partition to emit
+
+**Fix Architecture Needed**:
+1. Modify `add_record()` to return signal when late arrival detected
+2. Extend `EmitDecision` enum: `EmitDecision::LateArrivalRequiresReEmit`
+3. Adapter checks for re-emission signal
+4. Re-trigger aggregation for window with new late records
+5. Queue re-emission results for output
+
+**Estimated Token Cost for Full Fix**: ~5,000 tokens
+- Modify window strategy trait signature
+- Update all strategy implementations (tumbling, sliding, session, rows)
+- Update emission strategies
+- Update adapter to handle re-emissions
+- Integration testing
 
 ---
 
