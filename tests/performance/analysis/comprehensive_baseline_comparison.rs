@@ -50,9 +50,14 @@ struct ScenarioResult {
     sql_engine_async_records_sent: usize,
     sql_engine_async_results_produced: usize, // Output results, not input records processed
     simple_jp_throughput: f64,
+    simple_jp_records_written: usize,
     transactional_jp_throughput: f64,
+    transactional_jp_records_written: usize,
     adaptive_jp_1c_throughput: f64,
+    adaptive_jp_1c_records_written: usize,
     adaptive_jp_4c_throughput: f64,
+    adaptive_jp_4c_records_written: usize,
+    records_count: usize, // Total records processed (for MB/s calculation)
     /// Partitioner strategy used for AdaptiveJp (helps understand performance characteristics)
     partitioner: Option<String>,
 }
@@ -73,21 +78,35 @@ impl ScenarioResult {
         );
         println!("│    {:>8.0} rec/sec", self.sql_engine_async_throughput);
         println!("│");
+        // Helper function to calculate MB/s (assuming ~200 bytes per record)
+        let calculate_mb_s = |throughput: f64| {
+            let record_size_bytes = 200.0; // Estimated size per record
+            (throughput * record_size_bytes) / (1024.0 * 1024.0)
+        };
+
         println!(
-            "│  SimpleJp:         {:>8.0} rec/sec",
-            self.simple_jp_throughput
+            "│  SimpleJp:         {:>8.0} rec/sec ({:>7} records, {:>6.1} MB/s)",
+            self.simple_jp_throughput,
+            self.simple_jp_records_written,
+            calculate_mb_s(self.simple_jp_throughput)
         );
         println!(
-            "│  TransactionalJp:  {:>8.0} rec/sec",
-            self.transactional_jp_throughput
+            "│  TransactionalJp:  {:>8.0} rec/sec ({:>7} records, {:>6.1} MB/s)",
+            self.transactional_jp_throughput,
+            self.transactional_jp_records_written,
+            calculate_mb_s(self.transactional_jp_throughput)
         );
         println!(
-            "│  AdaptiveJp@1c:    {:>8.0} rec/sec",
-            self.adaptive_jp_1c_throughput
+            "│  AdaptiveJp@1c:    {:>8.0} rec/sec ({:>7} records, {:>6.1} MB/s)",
+            self.adaptive_jp_1c_throughput,
+            self.adaptive_jp_1c_records_written,
+            calculate_mb_s(self.adaptive_jp_1c_throughput)
         );
         println!(
-            "│  AdaptiveJp@4c:    {:>8.0} rec/sec",
-            self.adaptive_jp_4c_throughput
+            "│  AdaptiveJp@4c:    {:>8.0} rec/sec ({:>7} records, {:>6.1} MB/s)",
+            self.adaptive_jp_4c_throughput,
+            self.adaptive_jp_4c_records_written,
+            calculate_mb_s(self.adaptive_jp_4c_throughput)
         );
 
         // Show partitioner strategy if available
@@ -634,9 +653,14 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
+        simple_jp_records_written,
         transactional_jp_throughput,
+        transactional_jp_records_written,
         adaptive_jp_1c_throughput,
+        adaptive_jp_1c_records_written,
         adaptive_jp_4c_throughput,
+        adaptive_jp_4c_records_written,
+        records_count: records.len(),
         partitioner: Some(get_selected_strategy(query)),
     });
 
@@ -709,9 +733,14 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
+        simple_jp_records_written,
         transactional_jp_throughput,
+        transactional_jp_records_written,
         adaptive_jp_1c_throughput,
+        adaptive_jp_1c_records_written,
         adaptive_jp_4c_throughput,
+        adaptive_jp_4c_records_written,
+        records_count: records.len(),
         partitioner: Some(get_selected_strategy(query)),
     });
 
@@ -784,9 +813,14 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
+        simple_jp_records_written,
         transactional_jp_throughput,
+        transactional_jp_records_written,
         adaptive_jp_1c_throughput,
+        adaptive_jp_1c_records_written,
         adaptive_jp_4c_throughput,
+        adaptive_jp_4c_records_written,
+        records_count: records.len(),
         partitioner: Some(get_selected_strategy(query)),
     });
 
@@ -859,9 +893,14 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
+        simple_jp_records_written,
         transactional_jp_throughput,
+        transactional_jp_records_written,
         adaptive_jp_1c_throughput,
+        adaptive_jp_1c_records_written,
         adaptive_jp_4c_throughput,
+        adaptive_jp_4c_records_written,
+        records_count: records.len(),
         partitioner: Some(get_selected_strategy(query)),
     });
 
@@ -934,9 +973,14 @@ async fn comprehensive_baseline_comparison() {
         sql_engine_async_records_sent: sql_async_sent,
         sql_engine_async_results_produced: sql_async_produced,
         simple_jp_throughput,
+        simple_jp_records_written,
         transactional_jp_throughput,
+        transactional_jp_records_written,
         adaptive_jp_1c_throughput,
+        adaptive_jp_1c_records_written,
         adaptive_jp_4c_throughput,
+        adaptive_jp_4c_records_written,
+        records_count: records.len(),
         partitioner: Some(get_selected_strategy(query)),
     });
 
