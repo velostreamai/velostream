@@ -220,7 +220,11 @@ async fn test_watermark_fixes_partition_batching_data_loss() {
          WITH watermark + allowed lateness, should capture late-arriving groups.",
         groups_seen.len()
     );
-    println!("✅ Group capture acceptable: {}/{} groups", groups_seen.len(), 5000);
+    println!(
+        "✅ Group capture acceptable: {}/{} groups",
+        groups_seen.len(),
+        5000
+    );
 
     println!("\n🎉 Watermark implementation successfully fixes partition batching issues!");
 }
@@ -260,7 +264,11 @@ async fn test_watermark_pure_select_performance() {
     let elapsed = start.elapsed();
     let throughput = all_records.len() as f64 / elapsed.as_secs_f64();
 
-    println!("Pure SELECT: {} records in {:.2}s", records_processed, elapsed.as_secs_f64());
+    println!(
+        "Pure SELECT: {} records in {:.2}s",
+        records_processed,
+        elapsed.as_secs_f64()
+    );
     println!("Throughput: {:.0} rec/sec", throughput);
 
     // Should be very fast (baseline for comparison)

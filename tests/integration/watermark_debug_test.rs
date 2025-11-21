@@ -27,13 +27,16 @@ async fn debug_watermark_late_arrivals() {
     // Generate 120 records: 50 traders, 100 symbols → will map to fewer partitions
     for i in 0..120 {
         let mut fields = HashMap::new();
-        let trader_id = format!("T{}", i % 5);  // 5 traders for simplicity
+        let trader_id = format!("T{}", i % 5); // 5 traders for simplicity
         let symbol = format!("SYM{}", i % 10); // 10 symbols for simplicity
         let price = 100.0 + (i % 5) as f64;
         let quantity = (i % 10) as i64;
         let trade_time = 1000000 + (i as i64 * 1000); // Times: 1000000, 1001000, 1002000, ...
 
-        fields.insert("trader_id".to_string(), FieldValue::String(trader_id.clone()));
+        fields.insert(
+            "trader_id".to_string(),
+            FieldValue::String(trader_id.clone()),
+        );
         fields.insert("symbol".to_string(), FieldValue::String(symbol.clone()));
         fields.insert("price".to_string(), FieldValue::Float(price));
         fields.insert("quantity".to_string(), FieldValue::Integer(quantity));
@@ -80,7 +83,10 @@ async fn debug_watermark_late_arrivals() {
                 _ => None,
             })
             .unwrap_or_default();
-        println!("  {}: partition={}, time={}, trader={}", idx, partition, ts, trader);
+        println!(
+            "  {}: partition={}, time={}, trader={}",
+            idx, partition, ts, trader
+        );
     }
     println!();
 

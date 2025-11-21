@@ -40,8 +40,8 @@ pub mod observability_job_processor_trace_test;
 pub mod observability_trace_propagation_test;
 
 // Watermark implementation verification tests
-pub mod watermark_partition_batching_verification_test;
 pub mod watermark_debug_test;
+pub mod watermark_partition_batching_verification_test;
 
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;
