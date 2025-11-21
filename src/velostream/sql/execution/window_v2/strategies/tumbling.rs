@@ -11,6 +11,7 @@ use crate::velostream::sql::SqlError;
 use crate::velostream::sql::execution::window_v2::traits::{WindowStats, WindowStrategy};
 use crate::velostream::sql::execution::window_v2::types::SharedRecord;
 use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 
 /// Tumbling window strategy with fixed-size non-overlapping windows.
 ///
@@ -37,6 +38,41 @@ pub struct TumblingWindowStrategy {
 
     /// Time field name for extracting timestamps
     time_field: String,
+
+    /// Grace period for late-arriving records (percentage of window_size_ms)
+    /// Default: 50% of window size - records arriving within this period after
+    /// window boundary will still be accepted
+    grace_period_percent: f64,
+
+    /// Timestamp when grace period started (if in grace period)
+    grace_period_start_time: Option<i64>,
+
+    /// Has this window been emitted? (tracks if we're in grace period)
+    window_emitted: bool,
+
+    /// Metrics collection (thread-safe)
+    pub metrics: Arc<Mutex<WindowMetrics>>,
+}
+
+/// Metrics for analyzing window behavior
+#[derive(Debug, Clone, Default)]
+pub struct WindowMetrics {
+    /// Number of clear() calls on window
+    pub clear_calls: usize,
+    /// Sum of all buffer sizes at time of clear
+    pub total_buffer_sizes_at_clear: usize,
+    /// Maximum buffer size observed
+    pub max_buffer_size: usize,
+    /// Total records added to window
+    pub add_record_calls: usize,
+    /// Number of emissions (window boundaries crossed)
+    pub emission_count: usize,
+    /// Number of times grace period delayed clearing
+    pub grace_period_delays: usize,
+    /// Total time spent in grace period (ms)
+    pub total_grace_period_ms: u64,
+    /// Records discarded due to arriving after grace period
+    pub late_arrival_discards: usize,
 }
 
 impl TumblingWindowStrategy {
@@ -52,6 +88,11 @@ impl TumblingWindowStrategy {
     /// ```
     pub fn new(window_size_ms: i64, time_field: String) -> Self {
         Self::with_estimated_capacity(window_size_ms, time_field, 1000)
+    }
+
+    /// Get a copy of current metrics
+    pub fn get_metrics(&self) -> WindowMetrics {
+        self.metrics.lock().map(|m| m.clone()).unwrap_or_default()
     }
 
     /// Create a new tumbling window strategy with pre-allocated capacity hint.
@@ -99,6 +140,10 @@ impl TumblingWindowStrategy {
             window_end_time: None,
             emission_count: 0,
             time_field,
+            grace_period_percent: 50.0, // 50% of window size as grace period
+            grace_period_start_time: None,
+            window_emitted: false,
+            metrics: Arc::new(Mutex::new(WindowMetrics::default())),
         }
     }
 
@@ -148,6 +193,11 @@ impl WindowStrategy for TumblingWindowStrategy {
     fn add_record(&mut self, record: SharedRecord) -> Result<bool, SqlError> {
         let timestamp = self.extract_timestamp(&record)?;
 
+        // Record metric
+        if let Ok(mut m) = self.metrics.lock() {
+            m.add_record_calls += 1;
+        }
+
         // Initialize window on first record
         if self.window_start_time.is_none() {
             self.initialize_window(timestamp);
@@ -192,25 +242,62 @@ impl WindowStrategy for TumblingWindowStrategy {
     }
 
     fn clear(&mut self) {
+        let buffer_size_before = self.buffer.len();
+
+        // Mark that this window has been emitted (entering grace period)
+        self.window_emitted = true;
+        let window_end_time = self.window_end_time.unwrap_or(0);
+
+        // Calculate grace period: 50% of window size after window boundary
+        let grace_period_ms =
+            (self.window_size_ms as f64 * (self.grace_period_percent / 100.0)) as i64;
+        self.grace_period_start_time = Some(window_end_time);
+
         // Advance window first
         self.advance_window();
         self.emission_count += 1;
 
-        // Evict records that are before the new window start
-        // (for tumbling windows, this should be all records from previous window)
+        // DO NOT evict records yet - wait for grace period
+        // Only remove records that are definitely outside grace period window
+        // Grace period: allow records up to (window_end_time + grace_period_ms)
+        let grace_period_end = window_end_time + grace_period_ms;
+
         if let Some(start) = self.window_start_time {
+            let mut records_removed = 0;
             while let Some(record) = self.buffer.front() {
                 if let Ok(ts) = self.extract_timestamp(record) {
-                    if ts < start {
+                    // Only remove if record is before start of current window
+                    // AND outside grace period of previous window
+                    if ts < start && ts < grace_period_end - self.window_size_ms {
                         self.buffer.pop_front();
+                        records_removed += 1;
                     } else {
                         break; // Records are time-ordered
                     }
                 } else {
                     // If we can't extract timestamp, remove it
                     self.buffer.pop_front();
+                    records_removed += 1;
                 }
             }
+
+            // Track late arrivals that are still in buffer
+            if records_removed == 0 && buffer_size_before > 0 {
+                if let Ok(mut m) = self.metrics.lock() {
+                    m.grace_period_delays += 1;
+                }
+            }
+        }
+
+        // Record metrics
+        if let Ok(mut m) = self.metrics.lock() {
+            m.clear_calls += 1;
+            m.total_buffer_sizes_at_clear += buffer_size_before;
+            m.emission_count = self.emission_count;
+            if buffer_size_before > m.max_buffer_size {
+                m.max_buffer_size = buffer_size_before;
+            }
+            m.total_grace_period_ms += grace_period_ms as u64;
         }
     }
 

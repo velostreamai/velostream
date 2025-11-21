@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use velostream::velostream::datasource::{BatchConfig, DataReader, DataWriter};
 use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorFactory,
@@ -40,7 +40,10 @@ impl Scenario4MockReader {
             // Increment by 1000ms (1 second) per record → 60 records = 1 minute
             let trade_time = 1000000 + (i as i64 * 1000);
 
-            fields.insert("trader_id".to_string(), FieldValue::String(trader_id.clone()));
+            fields.insert(
+                "trader_id".to_string(),
+                FieldValue::String(trader_id.clone()),
+            );
             fields.insert("symbol".to_string(), FieldValue::String(symbol.clone()));
             fields.insert("price".to_string(), FieldValue::Float(price));
             fields.insert("quantity".to_string(), FieldValue::Integer(quantity));
@@ -66,7 +69,9 @@ impl Scenario4MockReader {
 
 #[async_trait]
 impl DataReader for Scenario4MockReader {
-    async fn read(&mut self) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+    async fn read(
+        &mut self,
+    ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
         let mut idx = self.current_index.lock().await;
         let batch_size = 100.min(self.records.len() - *idx);
 
@@ -119,7 +124,10 @@ impl Scenario4MockWriter {
 
 #[async_trait]
 impl DataWriter for Scenario4MockWriter {
-    async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn write(
+        &mut self,
+        record: StreamRecord,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.records.lock().await.push(record);
         Ok(())
     }
@@ -408,6 +416,287 @@ async fn test_scenario_4_simple_jp_large_dataset() {
                 record_count
             );
             panic!("Test timed out - SimpleJobProcessor hangs on Scenario 4 with 50K dataset");
+        }
+    }
+}
+
+/// Test with 1 million records to confirm hang is fixed at scale
+#[tokio::test]
+async fn test_scenario_4_simple_jp_1m_dataset() {
+    let record_count = 1000000;
+    let mut reader = Scenario4MockReader::new(record_count);
+    let mut writer = Scenario4MockWriter::new();
+
+    let query = r#"
+        SELECT trader_id, symbol,
+            COUNT(*) as trade_count,
+            AVG(price) as avg_price,
+            SUM(quantity) as total_quantity,
+            SUM(price * quantity) as total_value
+        FROM market_data
+        GROUP BY trader_id, symbol
+        WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
+    "#;
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let config = JobProcessingConfig {
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_batch_size: 100,
+        batch_timeout: Duration::from_millis(100),
+        max_retries: 2,
+        retry_backoff: Duration::from_millis(50),
+        progress_interval: 100,
+        log_progress: false,
+        empty_batch_count: 0,
+        wait_on_empty_batch_ms: 10,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
+    };
+
+    let processor = JobProcessorFactory::create_simple_with_config(config);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = std::time::Instant::now();
+    let timeout_duration = Duration::from_secs(300); // 5-minute timeout for 1M records
+
+    let timeout_result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
+            Box::new(reader),
+            Some(Box::new(writer.clone())),
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
+            (*query_arc).clone(),
+            "test_scenario_4_1m".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
+
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+
+    let records_written = writer.get_count().await;
+
+    match timeout_result {
+        Ok(_) => {
+            println!(
+                "✓ Test passed in {:.2}s - wrote {} records",
+                elapsed.as_secs_f64(),
+                records_written
+            );
+            assert!(records_written > 0, "Expected at least some output records");
+        }
+        Err(_) => {
+            eprintln!(
+                "❌ Test TIMEOUT after {:.2}s - only wrote {} out of {} records",
+                elapsed.as_secs_f64(),
+                records_written,
+                record_count
+            );
+            panic!("Test timed out - SimpleJobProcessor hangs on Scenario 4 with 1M dataset");
+        }
+    }
+}
+
+/// Test SimpleJobProcessor with KafkaSimulator-style partition-batched data (reproduces comprehensive baseline hang)
+#[tokio::test]
+async fn test_scenario_4_with_partition_batching() {
+    use std::collections::HashMap;
+    use velostream::velostream::datasource::SourceOffset;
+
+    let record_count = 100000; // Use 100K like comprehensive baseline default
+
+    // Generate records with partition distribution (like comprehensive_baseline_comparison)
+    let mut all_records = Vec::new();
+    for i in 0..record_count {
+        let mut fields = HashMap::new();
+        let trader_id = format!("T{}", i % 50);
+        let symbol = format!("SYM{}", i % 100);
+        let price = 100.0 + (i % 50) as f64;
+        let quantity = (i % 1000) as i64;
+        let trade_time = 1000000 + (i as i64 * 1000);
+
+        fields.insert(
+            "trader_id".to_string(),
+            FieldValue::String(trader_id.clone()),
+        );
+        fields.insert("symbol".to_string(), FieldValue::String(symbol.clone()));
+        fields.insert("price".to_string(), FieldValue::Float(price));
+        fields.insert("quantity".to_string(), FieldValue::Integer(quantity));
+        fields.insert("trade_time".to_string(), FieldValue::Integer(trade_time));
+
+        let composite_key = format!("{}:{}", trader_id, symbol);
+        let record = StreamRecord::new(fields).with_partition_from_key(&composite_key, 32);
+        all_records.push(record);
+    }
+
+    // Group records by partition (like KafkaSimulatorDataSource does)
+    let mut partition_map: HashMap<i32, Vec<StreamRecord>> = HashMap::new();
+    for record in all_records {
+        partition_map
+            .entry(record.partition)
+            .or_insert_with(Vec::new)
+            .push(record);
+    }
+
+    // Create ordered partition list (sorted for deterministic ordering)
+    let mut partition_order: Vec<i32> = partition_map.keys().copied().collect();
+    partition_order.sort_unstable();
+
+    // Pre-allocate batches per partition
+    let mut all_batches = Vec::new();
+    for partition_id in partition_order {
+        if let Some(mut partition_records) = partition_map.remove(&partition_id) {
+            while !partition_records.is_empty() {
+                let batch_len = 100.min(partition_records.len());
+                let batch: Vec<StreamRecord> = partition_records.drain(0..batch_len).collect();
+                all_batches.push(batch);
+            }
+        }
+    }
+
+    // Create partition-aware reader
+    #[derive(Clone)]
+    struct PartitionBatchedReader {
+        batches: Vec<Vec<StreamRecord>>,
+        current_batch_idx: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl DataReader for PartitionBatchedReader {
+        async fn read(
+            &mut self,
+        ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+            let idx = self
+                .current_batch_idx
+                .load(std::sync::atomic::Ordering::Acquire);
+            if idx >= self.batches.len() {
+                return Ok(vec![]);
+            }
+            let batch = self.batches[idx].clone();
+            self.current_batch_idx
+                .compare_exchange(
+                    idx,
+                    idx + 1,
+                    std::sync::atomic::Ordering::Release,
+                    std::sync::atomic::Ordering::Acquire,
+                )
+                .ok();
+            Ok(batch)
+        }
+
+        async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn seek(
+            &mut self,
+            _offset: SourceOffset,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+            let idx = self
+                .current_batch_idx
+                .load(std::sync::atomic::Ordering::Acquire);
+            Ok(idx < self.batches.len())
+        }
+    }
+
+    let mut reader = PartitionBatchedReader {
+        batches: all_batches,
+        current_batch_idx: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let mut writer = Scenario4MockWriter::new();
+
+    let query = r#"
+        SELECT trader_id, symbol,
+            COUNT(*) as trade_count,
+            AVG(price) as avg_price,
+            SUM(quantity) as total_quantity,
+            SUM(price * quantity) as total_value
+        FROM market_data
+        GROUP BY trader_id, symbol
+        WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
+    "#;
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let config = JobProcessingConfig {
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_batch_size: 100,
+        batch_timeout: Duration::from_millis(100),
+        max_retries: 2,
+        retry_backoff: Duration::from_millis(50),
+        progress_interval: 100,
+        log_progress: false,
+        empty_batch_count: 0,
+        wait_on_empty_batch_ms: 10,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
+    };
+
+    let processor = JobProcessorFactory::create_simple_with_config(config);
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = std::time::Instant::now();
+    let timeout_duration = Duration::from_secs(180); // 3-minute timeout
+
+    println!(
+        "\n[TEST] Starting partition-batched test with {} records in ~{} batches",
+        record_count,
+        reader.batches.len()
+    );
+
+    let timeout_result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
+            Box::new(reader),
+            Some(Box::new(writer.clone())),
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
+            (*query_arc).clone(),
+            "test_partition_batched".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
+
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+
+    let records_written = writer.get_count().await;
+
+    match timeout_result {
+        Ok(_) => {
+            println!(
+                "✓ Test PASSED in {:.2}s - wrote {}/{} records (throughput: {:.0} rec/s)",
+                elapsed.as_secs_f64(),
+                records_written,
+                record_count,
+                records_written as f64 / elapsed.as_secs_f64()
+            );
+            assert!(records_written > 0, "Expected at least some output records");
+        }
+        Err(_) => {
+            println!(
+                "❌ Test TIMEOUT after {:.2}s - only wrote {} out of {} records",
+                elapsed.as_secs_f64(),
+                records_written,
+                record_count
+            );
+            panic!("Test TIMEOUT: SimpleJobProcessor hung with partition-batched data");
         }
     }
 }
