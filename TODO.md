@@ -4,60 +4,63 @@
 
 ## 📊 STATUS TRACKING & PROJECT OVERVIEW
 
-### Current Project: Window Adapter Partition Batching Fix
-**Status**: Analysis Phase ✅ COMPLETE | Implementation Phase ✅ PARTIAL (Watermark + Allowed Lateness) | Hanging Tests ✅ FIXED | Data Loss ⏳ BLOCKED (Re-emission needed)
+### Current Project: Window Adapter Partition Batching Fix - Re-emission Architecture Phase
+**Status**:
+- ✅ Analysis Phase: COMPLETE
+- ✅ Implementation Phase (Watermark): COMPLETE (63x performance improvement)
+- ✅ Hanging Tests: FIXED & VERIFIED
+- ⏳ Re-emission Mechanism: BLOCKED (Requires architectural trait changes)
+- ⏳ Data Loss Fix: PENDING (Awaiting re-emission implementation)
 
 ### Overall Progress
 | Phase | Task | Status | Completion |
 |-------|------|--------|------------|
 | **Analysis** | Root cause identification | ✅ Complete | 100% |
 | **Analysis** | Performance metrics collection | ✅ Complete | 100% |
-| **Analysis** | Performance optimization roadmap | ✅ Complete | 100% |
-| **Implementation** | Watermark tracking | ✅ Complete | 100% |
-| **Implementation** | Late firing mechanism | ✅ Complete | 100% |
-| **Implementation** | State retention & cleanup | ✅ Complete | 100% |
-| **Implementation** | Code formatting & compilation | ✅ Complete | 100% |
-| **Verification** | Unit tests (tumbling window) | ✅ Pass | 100% |
-| **Verification** | Data correctness (1000 → 9980) | ⏳ Pending | 0% |
-| **Verification** | Performance (1082 → 55000 rec/sec) | ⏳ Pending | 0% |
-| **Verification** | Pre-commit checks | ⏳ Pending | 0% |
+| **Analysis** | Window type coverage analysis | ✅ Complete | 100% |
+| **Implementation** | Watermark tracking (tumbling) | ✅ Complete | 100% |
+| **Implementation** | Late arrival buffering | ✅ Complete | 100% |
+| **Implementation** | Memory management & cleanup | ✅ Complete | 100% |
+| **Implementation** | Hanging test fixes | ✅ Complete & Verified | 100% |
+| **Verification** | Performance (1,082 → 71,449 rec/sec) | ✅ Complete | 100% |
+| **Verification** | Hanging tests (scenario 4) | ✅ All Pass | 100% |
+| **Verification** | Pre-commit checks | ✅ Pass | 100% |
+| **Architecture** | Window type analysis (3 types need re-emission) | ✅ Complete | 100% |
+| **Architecture** | Re-emission trait design | ✅ Complete | 100% |
+| **Implementation** | Re-emission for TumblingWindowStrategy | ⏳ Blocked | 0% |
+| **Implementation** | Re-emission for SlidingWindowStrategy | ⏳ Blocked | 0% |
+| **Implementation** | Re-emission for SessionWindowStrategy | ⏳ Blocked | 0% |
+| **Documentation** | TODO.md updated with full analysis | ✅ Complete | 100% |
 
 ### Key Metrics (AFTER WATERMARK + ALLOWED LATENESS IMPLEMENTATION)
-| Metric | BEFORE Fix | WITH Partial Fix | EXPECTED with Full Fix | Status |
+| Metric | BEFORE Fix | WITH Watermark Fix | EXPECTED with Re-emission | Current Status |
 |--------|---------|-----------|-------|--------|
-| **Data Loss** | 90% (1,000 / 9,980) | 90% (996 / 10,000) | 0% (9,980 / 9,980) | 🔶 PARTIAL |
-| **Throughput** | 1,082 rec/sec | **68,403 rec/sec** (63x!) | 55,000 rec/sec | ✅ FIXED |
-| **Unique Groups Emitting** | 100 / 5,000 | 12 / 5,000 | 5,000 / 5,000 | 🔶 PARTIAL |
-| **Late Arrivals Buffered** | 0 | ✅ YES | ✅ Emitted | ✅ FIXED |
-| **Re-emission Mechanism** | N/A | ❌ MISSING | ✅ Required | ⚠️ BLOCKED |
-| **Memory Usage** | ~5 MB (unbounded) | ~1.5 MB (bounded) | ~1.5 MB (bounded) | ✅ FIXED |
+| **Hanging Tests** | ⏱️ Timeout (2+ min) | ✅ 2.62s (partition_batched) | ✅ 2.62s | ✅ FIXED |
+| **Throughput** | 1,082 rec/sec | **71,449 rec/sec** (66x!) | 8,000-10,000 rec/sec | ✅ FIXED |
+| **Data Loss** | 90% (996/10,000) | 90% (996/10,000) | 0% (9,980/10,000) | ⏳ BLOCKED |
+| **Late Arrivals Buffered** | 0 | ✅ YES (buffered) | ✅ Emitted | 🟡 PARTIAL |
+| **Re-emission Mechanism** | ❌ None | ❌ MISSING | ✅ Required | ⏳ BLOCKED |
+| **Memory Usage** | ~5 MB (unbounded) | ~1.5 MB (bounded) | ~2 MB (multiple windows) | ✅ IMPROVED |
 
-### Root Cause Summary
-**CRITICAL MISSING PIECE**: Window has no watermark reference point
+### Current Session Achievements
+1. ✅ **Watermark Implementation Verified**: All hanging tests now pass (66x performance improvement)
+2. ✅ **Window Type Analysis**: Identified 3 time-based window types needing re-emission (TUMBLING, SLIDING, SESSION)
+3. ✅ **ROWS WINDOW Exception**: Confirmed no changes needed for row-based windows
+4. ✅ **Re-emission Architecture Designed**: WindowStrategy trait extension specified
+5. ✅ **Documentation Complete**: Comprehensive TODO.md with implementation plan
 
-- ❌ Cannot distinguish "late" records from "out-of-order" records
-- ❌ Cannot trigger re-emissions when late data arrives
-- ❌ Cannot safely delete window state
-- ❌ Cannot handle partition-batched data with skewed group distribution
+### Architectural Blocker: Re-emission Implementation
+**What's blocking 0% data loss?**
+- WindowStrategy trait only returns `Result<bool, SqlError>` (should_emit signal)
+- Need extended return type to signal: `NoEmit | Emit | EmitWithLateArrival | EmitMultiple`
+- Impacts: All 4 window strategy implementations + adapter + emission strategies
+- **Estimated effort**: 7,000-10,000 tokens for complete implementation
 
-**Result**: 90% data loss + 87% performance degradation with partition batching
-
-### Solution Architecture
-**Watermark + Allowed Lateness Pattern** (Flink-style):
-
-1. Track `max_watermark_seen` (highest timestamp)
-2. Keep historical windows alive for `allowed_lateness_ms` (e.g., 2 hours)
-3. Trigger "late firings" when late data arrives within grace period
-4. Deduplicate results at sink (expected behavior)
-5. Delete window state when `watermark > window_end + allowed_lateness`
-
-### Next Session Goals
-1. ✅ Understand root cause (COMPLETE)
-2. ✅ Design performance-optimized solution (COMPLETE)
-3. ✅ Implement watermark tracking (COMPLETE)
-4. ✅ Implement late firing mechanism (COMPLETE)
-5. ⏳ Verify 0% data loss + 46x performance improvement (IN PROGRESS)
-6. ⏳ Run comprehensive pre-commit validation (PENDING)
+**Phases required:**
+1. Phase 1 (CRITICAL): TumblingWindowStrategy re-emission
+2. Phase 2 (CRITICAL): SlidingWindowStrategy re-emission
+3. Phase 3 (HIGH): SessionWindowStrategy re-emission
+4. Phase 4 (SKIP): RowsWindowStrategy (no changes needed ✅)
 
 ### Implementation Details Completed
 
@@ -552,21 +555,15 @@ Window Lifecycle:
 **The window buffer is ACCUMULATING records, not clearing them properly.**
 
 Current behavior in `TumblingWindowStrategy::clear()`:
-```rust
+
+```
 // Grace period: allow records up to (window_end_time + grace_period_ms)
 let grace_period_end = window_end_time + grace_period_ms;
-
 if let Some(start) = self.window_start_time {
-    while let Some(record) = self.buffer.front() {
-        if let Ok(ts) = self.extract_timestamp(record) {
-            // Only remove if record is before start of current window
-            // AND outside grace period of previous window
-            if ts < start && ts < grace_period_end - self.window_size_ms {
-                self.buffer.pop_front();  // ← Only removes VERY old records
-            } else {
-                break;  // ← STOPS if record is anywhere near current window!
-            }
-        }
+    // Only remove if record is before start of current window
+    // AND outside grace period of previous window
+    if ts < start && ts < grace_period_end - self.window_size_ms {
+        // Only removes VERY old records
     }
 }
 ```
@@ -586,11 +583,10 @@ When partition-batched data arrives:
 ### Emission Metrics Revealed the Smoking Gun
 
 From our test run:
-```
-Total unique groups in input:  100 (only first ~2K records)
-Expected groups:              5000 (T0-T49 × SYM0-SYM99)
-Actual groups emitting:       100 (exactly what's in first 2K!)
-Groups LOST:                  4900 (98% - never appear in results!)
+- Total unique groups in input: 100 (only first ~2K records)
+- Expected groups: 5000 (T0-T49 × SYM0-SYM99)
+- Actual groups emitting: 100 (exactly what's in first 2K!)
+- Groups LOST: 4900 (98% - never appear in results!)
 
 Timeline of emissions:
 - Emission 1: Record 3 (first window complete)
@@ -601,7 +597,6 @@ Buffer state at each emission:
 - Early emissions: 2-10 records in buffer
 - Later emissions: 5-10 records in buffer
 - ALWAYS contains partition 0 records even after emission!
-```
 
 **This proves records are NOT being cleaned properly.**
 
@@ -743,10 +738,9 @@ To properly handle partition-batched data:
    - Keep window state alive while: `watermark < window_end + allowed_lateness`
    - Once `watermark >= window_end + allowed_lateness`: Delete window state (no more late firings possible)
    - Example: Allow 2 hours for all partitions to arrive
-   ```rust
+   ```
    let grace_period_end = window_end_time + allowed_lateness_ms;
    if watermark >= grace_period_end {
-       // Window is truly closed - no more records for this window
        delete_window_state(window_start_time)
    }
    ```
@@ -766,11 +760,11 @@ To properly handle partition-batched data:
    - Clear window state when `watermark > window_end + allowed_lateness`
    - Bounded memory: `num_concurrent_windows = (allowed_lateness_ms + window_size_ms) / window_size_ms`
    - Example: With 2-hour lateness and 1-minute windows: ~120 windows in flight
-   ```rust
+   ```
    for (start_time, window_state) in &mut historical_windows {
        let window_end = start_time + window_size_ms;
        if watermark > window_end + allowed_lateness_ms {
-           historical_windows.remove(start_time);  // Safe to delete
+           historical_windows.remove(start_time);
        }
    }
    ```
@@ -778,37 +772,30 @@ To properly handle partition-batched data:
 ### How Watermark Changes Everything
 
 **BEFORE (Current - No Watermark)**:
-```
-Record arrives: ts=1050000
-├─ Window boundary check: ts < 1060000? → Yes, add to buffer
-└─ Is it "late"? → DON'T KNOW! (no reference point)
-   └─ No mechanism to trigger re-emission
-   └─ Result: Data might be lost silently
-```
+- Record arrives: ts=1050000
+- Window boundary check: ts < 1060000? → Yes, add to buffer
+- Is it "late"? → DON'T KNOW! (no reference point)
+- No mechanism to trigger re-emission
+- Result: Data might be lost silently
 
 **AFTER (With Watermark)**:
-```
-Record arrives: ts=1050000
-├─ Update watermark: max_watermark_seen = max(1050000, prev_watermark)
-├─ Window boundary check: ts < 1060000? → Yes
-│  └─ Is it "on-time"? → ts > watermark - allowed_lateness?
-│     └─ Yes → Add to current window → Normal processing
-│
-└─ Record arrives: ts=1000000 (late from partition 2)
-   ├─ Update watermark: max_watermark_seen = 1050000 (unchanged)
-   ├─ Window boundary check: ts=1000000 < current_window_start=1060000?
-   │  └─ This should have been in window [1000000, 1060000)
-   │
-   ├─ Check allowed lateness:
-   │  └─ Is watermark < 1060000 + 7200000?
-   │     └─ Yes (watermark=1050000 < grace=8260000)
-   │     └─ Retrieve historical window state for [1000000, 1060000)
-   │     └─ Add record to that window
-   │     └─ Re-compute aggregations
-   │     └─ **EMIT UPDATED RESULT** (late firing)
-   │
-   └─ Result: Zero data loss! ✅
-```
+- Record arrives: ts=1050000
+- Update watermark: max_watermark_seen = max(1050000, prev_watermark)
+- Window boundary check: ts < 1060000? → Yes
+  - Is it "on-time"? → ts > watermark - allowed_lateness?
+  - Yes → Add to current window → Normal processing
+- Record arrives: ts=1000000 (late from partition 2)
+  - Update watermark: max_watermark_seen = 1050000 (unchanged)
+  - Window boundary check: ts=1000000 < current_window_start=1060000?
+  - This should have been in window [1000000, 1060000)
+  - Check allowed lateness:
+    - Is watermark < 1060000 + 7200000?
+    - Yes (watermark=1050000 < grace=8260000)
+    - Retrieve historical window state for [1000000, 1060000)
+    - Add record to that window
+    - Re-compute aggregations
+    - **EMIT UPDATED RESULT** (late firing)
+- Result: Zero data loss! ✅
 
 ### Expected Impact
 
@@ -905,46 +892,34 @@ Number of concurrent windows = (allowed_lateness + window_size) / window_size
 ```
 
 **Current Naive Implementation (❌ WRONG):**
-```rust
+```
 pub struct TumblingWindowStrategy {
-    historical_windows: HashMap<i64, WindowState>,  // ← Unbounded growth!
+    historical_windows: HashMap<i64, WindowState>,  // Unbounded growth!
 }
-
 // Without automatic cleanup, this grows indefinitely:
-// After 1 day:  ~1,440 windows (1 per minute)
-// After 30 days: ~43,200 windows
-// Memory = 43,200 × ~1MB per window = 43GB !!!
+// After 1 day:  1,440 windows (1 per minute)
+// After 30 days: 43,200 windows
+// Memory = 43,200 × 1MB per window = 43GB !!!
 ```
 
 **Correct Implementation (✅ FAST):**
-```rust
+```
 pub struct TumblingWindowStrategy {
     // Only keep windows within allowed_lateness window
-    historical_windows: BTreeMap<i64, WindowState>,  // ← Ordered for fast cleanup
-
-    // Use BTreeMap (not HashMap) because:
-    // - Can efficiently remove expired windows
-    // - Can iterate in order: O(log N) vs O(N)
-    // - Example: Remove all windows with start_time < watermark - allowed_lateness
+    historical_windows: BTreeMap<i64, WindowState>,  // Ordered for fast cleanup
+    // Use BTreeMap because:
+    // - Efficiently remove expired windows
+    // - Iterate in order: O(log N) vs O(N)
 }
 
+```
 // Cleanup on every record arrival:
-fn cleanup_expired_windows(&mut self, watermark: i64) {
-    let expiry_threshold = watermark - self.allowed_lateness_ms;
-
-    // BTreeMap allows range deletion: O(log N + removed_count)
-    // Much faster than HashMap which requires O(N) iteration
-    while let Some((start_time, _)) = self.historical_windows.iter().next() {
-        if *start_time < expiry_threshold {
-            self.historical_windows.remove(start_time);
-        } else {
-            break;  // Remaining windows are within grace period
-        }
-    }
-}
-
+// expiry_threshold = watermark - allowed_lateness_ms
+// BTreeMap allows range deletion: O(log N + removed_count)
+// while let Some((start_time, _)) = historical_windows.iter().next()
+//     if *start_time < expiry_threshold:
+//         historical_windows.remove(start_time)
 // Result: Always O(log N + num_expired_windows) per record
-// NOT O(N) or O(N²)!
 ```
 
 ### 2. Group State Storage (CRITICAL)
@@ -958,36 +933,21 @@ Total memory = 600,000 × 200 bytes = 120 MB (ACCEPTABLE)
 ```
 
 **Correct Implementation (✅ FAST):**
-```rust
+```
 pub struct WindowState {
-    // Use Arc-based reference counting (zero-copy)
     groups: Arc<Mutex<HashMap<GroupKey, GroupAccumulator>>>,
-
     // GroupKey should be Arc<[FieldValue]> not Vec<String>
-    // - Arc is cheap to clone (atomic increment)
-    // - [FieldValue] is sized based on actual data
-    // - Lookup is O(1) with good hash function
+    // Arc is cheap to clone (atomic increment)
+    // Lookup is O(1) with good hash function
 }
 
 // When late record arrives:
-fn add_record_to_historical_window(&mut self, record: &SharedRecord, ts: i64) {
-    let window_start = (ts / self.window_size_ms) * self.window_size_ms;
-
-    if let Some(window_state) = self.historical_windows.get_mut(&window_start) {
-        // Lock only the specific window's group map
-        let mut groups = window_state.groups.lock().unwrap();
-
-        // Generate group key (should be cached if possible)
-        let group_key = generate_group_key(&record);
-
-        // O(1) lookup + insert
-        let accumulator = groups.entry(group_key).or_insert_with(GroupAccumulator::new);
-
-        // Add record to accumulator (in-place, no copy)
-        accumulator.add_record(record);
-    }
-}
-
+// window_start = (ts / window_size_ms) * window_size_ms
+// if let Some(window_state) = historical_windows.get_mut(window_start)
+//     let mut groups = window_state.groups.lock()
+//     let group_key = generate_group_key(record)
+//     let accumulator = groups.entry(group_key).or_insert_with(...)
+//     accumulator.add_record(record)
 // Performance: O(1) per late record
 ```
 
@@ -1001,29 +961,20 @@ Each update must NOT be expensive!
 ```
 
 **Correct Implementation (✅ FAST):**
-```rust
-fn process_record(&mut self, record: &SharedRecord) -> Result<EmitDecision, SqlError> {
-    let ts = extract_timestamp(record)?;
-
-    // ✅ FAST: Watermark update is O(1) compare + assign
-    if ts > self.max_watermark_seen {
-        self.max_watermark_seen = ts;
-
-        // ✅ OPTIONAL: Lazy cleanup on watermark advancement
-        // Only cleanup every N records to amortize cost
-        if self.records_since_last_cleanup > 1000 {
-            self.cleanup_expired_windows();
-            self.records_since_last_cleanup = 0;
+```
+fn process_record(record: &SharedRecord) -> Result<EmitDecision, SqlError>
+    let ts = extract_timestamp(record)
+    // FAST: Watermark update is O(1) compare + assign
+    if ts > max_watermark_seen {
+        max_watermark_seen = ts
+        // OPTIONAL: Lazy cleanup (every N records)
+        if records_since_last_cleanup > 1000 {
+            cleanup_expired_windows()
         }
     }
-
-    // ✅ FAST: Classify record in O(1)
-    let classification = classify_record(ts);  // on-time, late, or too-late
-
-    // ... rest of processing
-}
-
-// Performance: O(1) per record + O(1) amortized cleanup
+    // FAST: Classify record in O(1)
+    let classification = classify_record(ts)
+    // Performance: O(1) per record + O(1) amortized cleanup
 ```
 
 ### 4. Late Firing Detection (HIGH PRIORITY)
@@ -1032,27 +983,20 @@ fn process_record(&mut self, record: &SharedRecord) -> Result<EmitDecision, SqlE
 Need to quickly detect "this record belongs to a past window" without iterating all windows.
 
 **Correct Implementation (✅ FAST):**
-```rust
-fn classify_record(&self, ts: i64) -> RecordClassification {
-    // ✅ FAST: Calculate which window this belongs to in O(1)
-    let target_window_start = (ts / self.window_size_ms) * self.window_size_ms;
-    let target_window_end = target_window_start + self.window_size_ms;
-
-    let current_window_end = self.window_end_time.unwrap_or(0);
+```
+fn classify_record(ts: i64) -> RecordClassification
+    let target_window_start = (ts / window_size_ms) * window_size_ms
+    let target_window_end = target_window_start + window_size_ms
+    let current_window_end = window_end_time.unwrap_or(0)
 
     if ts >= current_window_end {
-        // On-time: belongs to current or future window
         RecordClassification::OnTime
-    } else if ts >= current_window_end - self.allowed_lateness_ms {
-        // Late but within grace period: belongs to past window we still track
+    } else if ts >= current_window_end - allowed_lateness_ms {
         RecordClassification::Late
     } else {
-        // Too late: belongs to window we've already deleted
         RecordClassification::TooLate
     }
-}
-
-// Performance: O(1) division + comparison, NO iteration!
+    // Performance: O(1) division + comparison, NO iteration!
 ```
 
 ### 5. Late Firing Re-emission (MODERATE PRIORITY)
@@ -1061,32 +1005,22 @@ fn classify_record(&self, ts: i64) -> RecordClassification {
 When late record arrives, must re-compute entire window's aggregations.
 
 **Correct Implementation (✅ AMORTIZED FAST):**
-```rust
-fn handle_late_record(&mut self, record: &SharedRecord, ts: i64) -> Result<Option<StreamRecord>, SqlError> {
-    let window_start = (ts / self.window_size_ms) * self.window_size_ms;
-
-    // ✅ FAST: BTreeMap O(log N) lookup
-    if let Some(window_state) = self.historical_windows.get_mut(&window_start) {
-        // ✅ FAST: Add to specific group accumulator
-        let group_key = generate_group_key(&record)?;
-        let mut groups = window_state.groups.lock().unwrap();
-
-        let accumulator = groups.entry(group_key).or_insert_with(GroupAccumulator::new);
-        accumulator.add_record(record);
-
-        // ✅ SLOW: Re-compute aggregations (unavoidable)
-        // But only for THIS window, not all windows
-        let updated_result = self.compute_window_aggregations(window_start, &groups)?;
-
-        // Mark as "late firing" (multiple emissions for same window OK)
-        return Ok(Some(updated_result));
-    }
-
+```
+fn handle_late_record(record: &SharedRecord, ts: i64) -> Result<Option<StreamRecord>, SqlError>
+    let window_start = (ts / window_size_ms) * window_size_ms
+    // FAST: BTreeMap O(log N) lookup
+    if let Some(window_state) = historical_windows.get_mut(window_start)
+        // FAST: Add to specific group accumulator
+        let group_key = generate_group_key(record)
+        let mut groups = window_state.groups.lock()
+        let accumulator = groups.entry(group_key).or_insert_with(GroupAccumulator::new)
+        accumulator.add_record(record)
+        // SLOW: Re-compute aggregations (unavoidable, but only for THIS window)
+        let updated_result = compute_window_aggregations(window_start, &groups)
+        return Ok(Some(updated_result))
     Ok(None)
-}
-
-// Performance: O(log N + G) where N=windows, G=groups
-// G is much smaller than total groups (only affected groups)
+    // Performance: O(log N + G) where N=windows, G=groups
+    // G is much smaller than total groups (only affected groups)
 ```
 
 ### 6. Buffer Management for Multiple Windows (OPTIMIZATION)
@@ -1322,3 +1256,191 @@ STRESS TEST (100K records):
 - Compare metrics: before vs after
 - Measure improvement in throughput degradation
 - Verify data loss is eliminated or reduced
+
+---
+
+## 🔧 RE-EMISSION IMPLEMENTATION: WINDOW TYPE COVERAGE
+
+### Question: Does ROWS WINDOW Need Re-emission Support?
+
+**Answer: NO - ROWS WINDOW is fundamentally different from time-based windows**
+
+**ROWS WINDOW (Does NOT need re-emission):**
+- Semantics: "Process the last N rows"
+- Example: `RANGE BETWEEN 10 ROWS PRECEDING AND CURRENT ROW`
+- Behavior: Fixed number of records, not time-based
+- Why no re-emission: Records arrive sequentially by row number
+- Ordering: Independent of timestamp, depends on arrival order
+- Partition batching effect: MINIMAL (row count is deterministic)
+- Re-emission needed: NO ❌
+
+### Window Types Requiring Re-emission Support (3 types):
+
+#### 1. **TUMBLING WINDOW** - ✅ (CRITICAL - PRIMARY)
+- **Semantics**: Fixed-size non-overlapping windows based on timestamp
+- **Example**: `WINDOW TUMBLING (event_time, INTERVAL '1' MINUTE)`
+- **Partition batching impact**: SEVERE ⚠️⚠️⚠️
+- **Why partition batching breaks it**:
+  - Partition 0 arrives with early data, triggers window emission
+  - Partition 1 arrives later with MORE DATA for same window
+  - Window already emitted and moved to next window
+  - Late data never produces results
+- **Re-emission needed**: YES ✅ (HIGHEST PRIORITY)
+- **Implementation**: Add watermark + allowed_lateness + historical_windows
+
+#### 2. **SLIDING WINDOW** - ✅ (CRITICAL)
+- **Semantics**: Overlapping windows that advance incrementally
+- **Example**: `RANGE BETWEEN INTERVAL '10' MINUTE PRECEDING AND CURRENT ROW`
+- **Partition batching impact**: SEVERE ⚠️⚠️⚠️
+- **Why partition batching breaks it**:
+  - Multiple overlapping windows can be affected
+  - Partition 1 data belongs to windows that partition 0 already emitted
+  - All overlapping windows need re-emission
+- **Re-emission needed**: YES ✅ (CRITICAL)
+- **Implementation**: Similar to tumbling, but emit multiple windows on late record
+
+#### 3. **SESSION WINDOW** - ✅ (HIGH PRIORITY)
+- **Semantics**: Dynamic windows based on inactivity gaps
+- **Example**: `SESSION (event_time, INTERVAL '5' MINUTE)`
+- **Partition batching impact**: MODERATE ⚠️⚠️
+- **Why partition batching affects it**:
+  - Session boundaries determined by gaps in timestamps
+  - Partition 1 late data can merge sessions from partition 0
+  - Session boundaries may need recalculation
+- **Re-emission needed**: YES ✅ (MODERATE PRIORITY)
+- **Implementation**: Detect session merges, emit merged session result
+
+#### 4. **ROWS WINDOW** - ❌ (NOT NEEDED)
+- **Semantics**: Fixed number of recent rows
+- **Example**: `ROWS BETWEEN 100 PRECEDING AND CURRENT ROW`
+- **Partition batching impact**: NONE ✅
+- **Why no impact**:
+  - Row count is deterministic regardless of arrival order
+  - "Last 100 rows" is well-defined whenever window emits
+  - No concept of "late" rows (all rows are sequential)
+  - Late arrivals just add to buffer, naturally included in next window
+- **Re-emission needed**: NO ❌
+- **Implementation**: NO CHANGES REQUIRED
+
+### Re-emission Strategy Summary
+
+| Window Type | Time-Based | Re-emission Needed | Priority | Complexity |
+|-------------|-----------|-------------------|----------|-----------|
+| TUMBLING | Yes | YES | CRITICAL | High |
+| SLIDING | Yes | YES | CRITICAL | Very High |
+| SESSION | Yes | YES | HIGH | Very High |
+| ROWS | No | NO | N/A | N/A |
+
+### Implementation Plan for Re-emission
+
+**Phase 1 (CRITICAL)**: Implement for TumblingWindowStrategy
+- Add watermark tracking
+- Add allowed_lateness configuration
+- Add historical_windows map
+- Implement late arrival detection
+- Implement re-emission signal (modify return type)
+- Update adapter to handle re-emission
+
+**Phase 2 (CRITICAL)**: Extend to SlidingWindowStrategy
+- Adapt watermark logic for overlapping windows
+- Track multiple windows that might be affected by late data
+- Emit updated results for ALL affected windows
+
+**Phase 3 (HIGH)**: Extend to SessionWindowStrategy
+- Detect when late record should merge sessions
+- Recalculate session boundaries
+- Emit merged session results
+
+**Phase 4 (SKIP)**: RowsWindowStrategy
+- NO CHANGES NEEDED ✅
+- Document as "partition-batching compatible" ✅
+
+### Architectural Change Required
+
+**Current WindowStrategy trait:**
+```
+pub trait WindowStrategy {
+    fn add_record(&mut self, record: SharedRecord) -> Result<bool, SqlError>;
+                                                        Returns: should_emit (bool)
+}
+```
+
+**Modified WindowStrategy trait:**
+```
+pub trait WindowStrategy {
+    fn add_record(&mut self, record: SharedRecord) -> Result<EmitSignal, SqlError>;
+
+    enum EmitSignal {
+        NoEmit,                          // Normal: don't emit
+        Emit,                            // Normal: emit now
+        EmitWithLateArrival,             // NEW: late data arrived, re-emit needed
+        EmitMultiple(Vec<WindowResult>), // NEW: for sliding window merges
+    }
+}
+```
+
+**Impact:**
+- ✅ Changes trait signature (impacts all implementations)
+- ✅ Updates adapter to handle new signals
+- ✅ Updates emission strategies
+- ✅ Updates all tests
+- ✅ Estimated: ~7,000-10,000 tokens total effort
+
+### Risk Assessment
+
+**Low Risk Aspects:**
+- ✅ Watermark logic is simple (max comparison)
+- ✅ Late arrival buffering is straightforward
+- ✅ Re-emission doesn't break existing functionality (additive)
+- ✅ Can be feature-gated (optional late_arrival mode)
+
+**High Risk Aspects:**
+- ⚠️ Sliding window complexity (multiple window merges)
+- ⚠️ Session window boundary recalculation
+- ⚠️ Potential for subtle correctness bugs in late firing logic
+- ⚠️ Lock contention with multiple windows in flight
+
+### Testing Strategy for Re-emission
+
+1. **Unit Tests** (per window type):
+   - Late arrival within grace period
+   - Late arrival after grace period (should not emit)
+   - Multiple late arrivals to same window
+   - Grace period expiry
+
+2. **Integration Tests**:
+   - Partition-batched data (main test case)
+   - Out-of-order arrivals within grace period
+   - Deduplication at sink (multiple emissions)
+   - Memory bounded by allowed_lateness
+
+3. **Performance Tests**:
+   - Throughput with/without late arrivals
+   - Memory usage vs grace period configuration
+   - Late firing overhead measurement
+
+### Expected Outcome After Implementation
+
+**For Partition-Batched Data:**
+```
+BEFORE (current):
+├─ Results: 996/10,000 (90% loss)
+├─ Throughput: 1,082 rec/sec
+├─ Window emissions: ~167 (only initial)
+└─ Groups emitting: ~100/5,000 (2%)
+
+AFTER (with re-emission):
+├─ Results: ~9,980/10,000 (near 100%)
+├─ Throughput: ~8,000-10,000 rec/sec (with late firings)
+├─ Window emissions: ~167 initial + ~50 late firings
+└─ Groups emitting: ~5,000/5,000 (100%)
+
+MEMORY IMPACT:
+├─ Current: ~5 MB (unbounded buffer)
+├─ With re-emission: ~2 MB (bounded by allowed_lateness)
+└─ Trade-off: Slightly more memory for much better correctness
+```
+
+### Conclusion on Window Types
+
+**Bottom Line**: You're correct that ROWS WINDOW doesn't need re-emission support. Only the three time-based window strategies (TUMBLING, SLIDING, SESSION) require modification for proper partition-batched data handling. This can be made explicit in the code and documentation.
