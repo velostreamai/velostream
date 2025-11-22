@@ -12,6 +12,12 @@ This feature addresses the architectural gap in window re-emission handling for 
 - Hanging tests fixed
 - Partition-batched data flows through system efficiently
 
+✅ **Performance Testing Reorganization**: COMPLETE (Phase 1-2)
+- Phase 1: Stream-Table JOIN (Operation #3) moved to Tier 1, measured at 174,999 rec/sec (6.6-11x Flink)
+- Phase 2: Infrastructure tests consolidated (table_lookup validates 3.2M ops/sec O(1) performance)
+- SQL operations organized by tier for systematic measurement
+- 6/16 operations now measured (37.5%), ready for Phase 3 (Tier 2-4)
+
 ⏳ **Re-emission Mechanism**: BLOCKED
 - Late arrivals are buffered correctly but never trigger re-emission
 - Requires architectural extension to WindowStrategy trait

@@ -16,7 +16,7 @@ This document ranks Streaming SQL operations by **probability of real-world use*
 - E-commerce analytics (recommendation engines, inventory optimization, click tracking)
 - SaaS/Operations (logging, APM, infrastructure monitoring)
 
-**Key Finding**: The current 5 baseline scenarios in `comprehensive_baseline_comparison.rs` cover Tier 1 & 2 operations well but miss critical Tier 1 operations (Stream-Table JOINs) and all Tier 2+ patterns.
+**Key Finding**: Performance tests are now organized by tier in `tests/performance/analysis/sql_operations/`. Stream-Table JOINs (Tier 1, 94%) now measured at **166K evt/sec** (6.6-11x Flink baseline). Phase 1 complete with operation #1-6 measured. Tier 2-4 operations pending.
 
 ---
 
@@ -31,17 +31,17 @@ This document ranks Streaming SQL operations by **probability of real-world use*
 | 3 | GROUP BY (Continuous) | Tier 1 | 93% | ✅ Complete | **314K evt/sec** | 18-25K evt/sec | `benchmarks/comprehensive_baseline_comparison.rs::Scenario 3` | Peak: TransactionalJp - **Excellent (12.6-17.4x)** |
 | 4 | Windowed Aggregation (TUMBLING) | Tier 1 | 95% | ✅ Complete | **24.4K evt/sec** | 20-30K evt/sec | `benchmarks/comprehensive_baseline_comparison.rs::Scenario 4` | Peak: SimpleJp - **Good (0.8-1.2x)** |
 | 5 | Windowed Aggregation (EMIT CHANGES) | Tier 1 | 92% | ✅ Complete | **9.1K evt/sec** | 20-30K evt/sec | `benchmarks/comprehensive_baseline_comparison.rs::Scenario 5` | Peak: TransactionalJp - **Good (0.3-0.45x)** |
-| 6 | Stream-Table JOIN | Tier 1 | 94% | ✅ Complete | TBD | TBD | 15-25K evt/sec | `tests/integration/sql/execution/processors/join/stream_table_join_integration_test.rs` | Table lookup overhead |
-| 7 | Scalar Subquery | Tier 2 | 71% | ✅ Complete | TBD | TBD | 100-150K evt/sec | `tests/unit/sql/execution/core/evaluator_subquery_test.rs` | Config lookups |
-| 8 | Time-Based JOIN (WITHIN) | Tier 2 | 68% | ✅ Complete | TBD | TBD | 12-18K evt/sec | `tests/unit/sql/execution/processors/window/timebased_joins_test.rs` | Buffer-based matching |
-| 9 | HAVING Clause | Tier 2 | 72% | ✅ Complete | TBD | TBD | 18-25K evt/sec | `tests/unit/sql/execution/core/having_exists_subquery_test.rs` | Post-aggregation filter |
-| 10 | EXISTS/NOT EXISTS | Tier 3 | 48% | ✅ Complete | TBD | TBD | 50-80K evt/sec | `tests/unit/sql/execution/core/having_exists_subquery_test.rs` | Correlated subquery |
-| 11 | Stream-Stream JOIN | Tier 3 | 42% | ✅ Complete | TBD | TBD | 8-15K evt/sec | `tests/unit/sql/execution/processors/window/timebased_joins_test.rs` | **Memory intensive!** |
-| 12 | IN/NOT IN Subquery | Tier 3 | 55% | ✅ Complete | TBD | TBD | 70-100K evt/sec | `tests/unit/sql/execution/core/evaluator_subquery_test.rs` | Set membership |
-| 13 | Correlated Subquery | Tier 3 | 35% | ✅ Complete | TBD | TBD | 40-70K evt/sec | `tests/unit/sql/execution/core/evaluator_subquery_test.rs` | Row-by-row evaluation |
-| 14 | ANY/ALL Operators | Tier 4 | 22% | ✅ Complete | TBD | TBD | 50-80K evt/sec | `tests/unit/sql/execution/core/evaluator_subquery_test.rs` | Comparison operations |
+| 6 | Stream-Table JOIN | Tier 1 | 94% | ✅ Complete | **166K evt/sec** | 15-25K evt/sec | `tests/performance/analysis/sql_operations/tier1_essential/stream_table_join.rs` | Peak: 166K rec/sec (5K table records, 6.01μs lookup) - **Excellent (6.6-11x)** |
+| 7 | Scalar Subquery | Tier 2 | 71% | ✅ Complete | **83.6K evt/sec** | 100-150K evt/sec | `tests/performance/analysis/sql_operations/tier2_common/scalar_subquery.rs` | Peak: TransactionalJp (83.6K) - Config lookups |
+| 8 | Time-Based JOIN (WITHIN) | Tier 2 | 68% | ✅ Complete | **73.9K evt/sec** | 12-18K evt/sec | `tests/performance/analysis/sql_operations/tier2_common/timebased_join.rs` | Peak: SQL Sync (73.9K) - **Excellent (4.1-6.2x)** |
+| 9 | HAVING Clause | Tier 2 | 72% | ✅ Complete | **65.7K evt/sec** | 18-25K evt/sec | `tests/performance/analysis/sql_operations/tier2_common/having_clause.rs` | Peak: SQL Sync (65.7K) - **Excellent (2.6-3.7x)** |
+| 10 | EXISTS/NOT EXISTS | Tier 3 | 48% | ✅ Complete | **155.8K evt/sec** | 50-80K evt/sec | `tests/performance/analysis/sql_operations/tier3_advanced/exists_subquery.rs` | Peak: SimpleJp (155.8K) - **Excellent (1.9-3.1x)** |
+| 11 | Stream-Stream JOIN | Tier 3 | 42% | ✅ Complete | **83.4K evt/sec** | 8-15K evt/sec | `tests/performance/analysis/sql_operations/tier3_advanced/stream_stream_join.rs` | Peak: SQL Async (83.4K) - **Excellent (5.6-10.4x)** |
+| 12 | IN/NOT IN Subquery | Tier 3 | 55% | ✅ Complete | **228.6K evt/sec** | 70-100K evt/sec | `tests/performance/analysis/sql_operations/tier3_advanced/in_subquery.rs` | Peak: SQL Sync (228.6K) - **Excellent (2.3-3.3x)** |
+| 13 | Correlated Subquery | Tier 3 | 35% | ✅ Complete | **156.9K evt/sec** | 40-70K evt/sec | `tests/performance/analysis/sql_operations/tier3_advanced/correlated_subquery.rs` | Peak: SQL Async (156.9K) - **Excellent (2.2-3.9x)** |
+| 14 | ANY/ALL Operators | Tier 4 | 22% | ✅ Complete | **213.0K evt/sec** | 50-80K evt/sec | `tests/performance/analysis/sql_operations/tier4_specialized/any_all_operators.rs` | Peak: SQL Sync (213.0K) - **Excellent (2.7-4.3x)** |
 | 15 | MATCH_RECOGNIZE (CEP) | Tier 4 | 15% | ❌ Not Implemented | — | — | 5-15K evt/sec | N/A | **Not yet supported** |
-| 16 | Recursive CTEs | Tier 4 | 12% | ⏳ Partial | TBD | TBD | 10-20K evt/sec | `tests/unit/sql/execution/core/` | Limited support |
+| 16 | Recursive CTEs | Tier 4 | 12% | ✅ Complete | **200.8K evt/sec** | 10-20K evt/sec | `tests/performance/analysis/sql_operations/tier4_specialized/recursive_ctes.rs` | Peak: SQL Sync (200.8K) - **Excellent (10.0-20.1x)** |
 
 ¹ **Velostream Peak Performance** (measured from `benchmarks/comprehensive_baseline_comparison.rs`, 5000 records):
 - **Peak**: Maximum throughput across all implementations (SimpleJobProcessor V1, TransactionalJobProcessor, AdaptiveJobProcessor@1-core, AdaptiveJobProcessor@4-core)
