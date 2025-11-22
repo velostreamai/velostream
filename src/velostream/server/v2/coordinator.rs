@@ -19,6 +19,7 @@ use crate::velostream::sql::execution::processors::context::ProcessorContext;
 use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::parser::annotations::PartitionAnnotations;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
+use crate::velostream::table::UnifiedTable;
 use crossbeam_queue::SegQueue;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -28,7 +29,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 /// Configuration for partitioned job execution
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PartitionedJobConfig {
     /// Number of partitions (defaults to CPU count if None)
     pub num_partitions: Option<usize>,
@@ -70,6 +71,10 @@ pub struct PartitionedJobConfig {
     /// Wait time in milliseconds between empty batches
     /// Default: 1000ms (1 second) to avoid busy-waiting on empty data sources
     pub wait_on_empty_batch_ms: u64,
+
+    /// Optional table registry for SQL queries that reference tables
+    /// Tables will be injected into each partition's execution context
+    pub table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
 }
 
 impl Default for PartitionedJobConfig {
@@ -86,6 +91,7 @@ impl Default for PartitionedJobConfig {
             annotation_partition_count: None, // No annotation override by default
             empty_batch_count: 3,
             wait_on_empty_batch_ms: 100,
+            table_registry: None, // No tables by default
         }
     }
 }
@@ -1331,6 +1337,7 @@ impl AdaptiveJobProcessor {
 
             let query = Arc::clone(&query);
             let writer_clone = writer.clone();
+            let table_registry = self.config.table_registry.clone();
 
             // Spawn partition receiver task (Phase 6.8 - lock-free queue optimization)
             let task_handle = tokio::spawn(async move {
@@ -1338,6 +1345,17 @@ impl AdaptiveJobProcessor {
                 // Create owned execution engine for this partition
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
                 let mut local_engine = StreamExecutionEngine::new(output_tx);
+
+                // Inject tables into execution context if provided
+                if let Some(ref tables) = table_registry {
+                    let tables_clone = tables.clone();
+                    local_engine.context_customizer = Some(Arc::new(move |context| {
+                        for (table_name, table) in &tables_clone {
+                            context.load_reference_table(table_name, table.clone());
+                        }
+                    }));
+                }
+
                 // OPTIMIZATION: Pass query by reference via Arc to avoid clone
                 local_engine.init_query_execution((*query).clone());
 

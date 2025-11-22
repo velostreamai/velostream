@@ -19,6 +19,7 @@ use velostream::velostream::server::processors::{
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
+use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
@@ -41,6 +42,26 @@ fn generate_any_all_records(count: usize) -> Vec<StreamRecord> {
             StreamRecord::new(fields)
         })
         .collect()
+}
+
+/// Create the sales table for the any/all operators test
+fn create_sales_table() -> Arc<dyn UnifiedTable> {
+    let mut table = OptimizedTableImpl::new();
+    for i in 0..10 {
+        let mut fields = HashMap::new();
+        fields.insert("sale_id".to_string(), FieldValue::Integer(i as i64));
+        fields.insert(
+            "amount".to_string(),
+            FieldValue::Float(100.0 + (i % 1000) as f64),
+        );
+        fields.insert(
+            "timestamp".to_string(),
+            FieldValue::Integer((i * 1000) as i64),
+        );
+        let key = i.to_string();
+        let _ = table.insert(key, fields);
+    }
+    Arc::new(table)
 }
 
 /// SQL query with ANY: sales exceeding ANY approved threshold
@@ -191,7 +212,15 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
         dlq_max_size: Some(100),
     };
 
-    let processor = JobProcessorFactory::create_simple_with_config(config);
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("sales".to_string(), create_sales_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Simple,
+        Some(config),
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
@@ -228,7 +257,15 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 
 /// Measure TransactionalJp
 async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("sales".to_string(), create_sales_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Transactional,
+        None,
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
@@ -268,10 +305,18 @@ async fn measure_adaptive_jp(
     query: &str,
     num_cores: usize,
 ) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(num_cores),
-        enable_core_affinity: false,
-    });
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("sales".to_string(), create_sales_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Adaptive {
+            num_partitions: Some(num_cores),
+            enable_core_affinity: false,
+        },
+        None,
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 

@@ -8,7 +8,9 @@ use crate::velostream::server::processors::{
     SimpleJobProcessor, TransactionalJobProcessor,
 };
 use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig};
+use crate::velostream::table::UnifiedTable;
 use log::info;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -85,36 +87,91 @@ impl JobProcessorFactory {
         config: JobProcessorConfig,
         job_processing_config: Option<JobProcessingConfig>,
     ) -> Arc<dyn JobProcessor> {
+        Self::create_with_config_and_tables(config, job_processing_config, None)
+    }
+
+    /// Create a job processor with explicit JobProcessingConfig and optional table registry
+    ///
+    /// This is the main factory method that supports table injection for SQL queries.
+    /// Tables will be available to all SQL queries executed by the processor.
+    ///
+    /// # Arguments
+    /// * `config` - JobProcessorConfig specifying the processor type
+    /// * `job_processing_config` - Optional JobProcessingConfig for fine-grained control
+    /// * `table_registry` - Optional HashMap of tables to inject into query execution context
+    ///
+    /// ## Example
+    ///
+    /// ```rust,no_run
+    /// use std::collections::HashMap;
+    /// use std::sync::Arc;
+    /// use velostream::velostream::server::processors::{JobProcessorFactory, JobProcessorConfig};
+    /// use velostream::velostream::table::OptimizedTableImpl;
+    ///
+    /// // Create table
+    /// let mut table = OptimizedTableImpl::new("employees");
+    /// // Populate table...
+    ///
+    /// // Create registry
+    /// let mut tables = HashMap::new();
+    /// tables.insert("employees".to_string(), Arc::new(table) as Arc<dyn _>);
+    ///
+    /// let processor = JobProcessorFactory::create_with_config_and_tables(
+    ///     JobProcessorConfig::Adaptive { num_partitions: Some(4), enable_core_affinity: false },
+    ///     None,
+    ///     Some(tables),
+    /// );
+    /// ```
+    pub fn create_with_config_and_tables(
+        config: JobProcessorConfig,
+        job_processing_config: Option<JobProcessingConfig>,
+        table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
+    ) -> Arc<dyn JobProcessor> {
         match config {
             JobProcessorConfig::Simple => {
                 info!("Creating Simple processor (Single-threaded, Best-Effort delivery)");
-                let processing_config =
-                    job_processing_config.unwrap_or_else(|| JobProcessingConfig {
-                        use_transactions: false,
-                        failure_strategy: FailureStrategy::LogAndContinue,
-                        ..Default::default()
-                    });
-                Arc::new(SimpleJobProcessor::new(processing_config))
+                let mut processor =
+                    SimpleJobProcessor::new(job_processing_config.unwrap_or_else(|| {
+                        JobProcessingConfig {
+                            use_transactions: false,
+                            failure_strategy: FailureStrategy::LogAndContinue,
+                            ..Default::default()
+                        }
+                    }));
+                if let Some(tables) = table_registry {
+                    processor.set_table_registry(tables);
+                }
+                Arc::new(processor)
             }
             JobProcessorConfig::Transactional => {
                 info!("Creating Transactional processor (Single-threaded, At-Least-Once delivery)");
-                let processing_config =
-                    job_processing_config.unwrap_or_else(|| JobProcessingConfig {
-                        use_transactions: true,
-                        failure_strategy: FailureStrategy::FailBatch,
-                        ..Default::default()
-                    });
-                Arc::new(TransactionalJobProcessor::new(processing_config))
+                let mut processor =
+                    TransactionalJobProcessor::new(job_processing_config.unwrap_or_else(|| {
+                        JobProcessingConfig {
+                            use_transactions: true,
+                            failure_strategy: FailureStrategy::FailBatch,
+                            ..Default::default()
+                        }
+                    }));
+                if let Some(tables) = table_registry {
+                    processor.set_table_registry(tables);
+                }
+                Arc::new(processor)
             }
             JobProcessorConfig::Adaptive {
                 num_partitions,
                 enable_core_affinity,
             } => {
-                let partitioned_config = PartitionedJobConfig {
+                let mut partitioned_config = PartitionedJobConfig {
                     num_partitions,
                     enable_core_affinity,
                     ..Default::default()
                 };
+
+                // Inject table registry if provided
+                if let Some(tables) = table_registry {
+                    partitioned_config.table_registry = Some(tables);
+                }
 
                 let actual_partitions = num_partitions.unwrap_or_else(|| {
                     std::thread::available_parallelism()

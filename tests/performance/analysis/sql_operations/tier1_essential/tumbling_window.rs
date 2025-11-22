@@ -19,6 +19,7 @@ use velostream::velostream::server::processors::{
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
+use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
@@ -59,6 +60,34 @@ fn generate_tumbling_window_records(count: usize) -> Vec<StreamRecord> {
             StreamRecord::new(fields).with_partition_from_key(&composite_key, 32)
         })
         .collect()
+}
+
+/// Create the market_data table for the tumbling window test
+fn create_market_data_table() -> Arc<dyn UnifiedTable> {
+    let mut table = OptimizedTableImpl::new();
+    // Pre-populate with a small sample for reference lookups
+    for i in 0..10 {
+        let mut fields = HashMap::new();
+        let trader_id = format!("T{}", i % 5);
+        let symbol = format!("SYM{}", i % 10);
+        fields.insert("trader_id".to_string(), FieldValue::String(trader_id));
+        fields.insert("symbol".to_string(), FieldValue::String(symbol));
+        fields.insert(
+            "price".to_string(),
+            FieldValue::Float(100.0 + (i % 50) as f64),
+        );
+        fields.insert(
+            "quantity".to_string(),
+            FieldValue::Integer((i % 100) as i64),
+        );
+        fields.insert(
+            "trade_time".to_string(),
+            FieldValue::Integer((1000000 + (i * 1000)) as i64),
+        );
+        let key = i.to_string();
+        let _ = table.insert(key, fields);
+    }
+    Arc::new(table)
 }
 
 const TUMBLING_WINDOW_SQL: &str = r#"
@@ -259,7 +288,15 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
         dlq_max_size: Some(100),
     };
 
-    let processor = JobProcessorFactory::create_simple_with_config(config);
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("market_data".to_string(), create_market_data_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Simple,
+        Some(config),
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
@@ -295,7 +332,15 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 }
 
 async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("market_data".to_string(), create_market_data_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Transactional,
+        None,
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
@@ -335,10 +380,18 @@ async fn measure_adaptive_jp(
     query: &str,
     num_cores: usize,
 ) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(num_cores),
-        enable_core_affinity: false,
-    });
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("market_data".to_string(), create_market_data_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Adaptive {
+            num_partitions: Some(num_cores),
+            enable_core_affinity: false,
+        },
+        None,
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 

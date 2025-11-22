@@ -26,6 +26,7 @@ use velostream::velostream::server::v2::PartitionerSelector;
 use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
+use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
@@ -70,6 +71,35 @@ struct BenchmarkResult {
     records_sent: usize,
     results_produced: usize,
     duration_ms: f64,
+}
+
+/// Create the trades table for the scalar subquery test
+fn create_trades_table() -> Arc<dyn UnifiedTable> {
+    let mut table = OptimizedTableImpl::new();
+    // Pre-populate with a small sample for reference lookups
+    for i in 0..10 {
+        let mut fields = HashMap::new();
+        let trader_id = (i % 10) as i64;
+        let symbol = format!("SYM{}", i % 5);
+        fields.insert("trade_id".to_string(), FieldValue::Integer(i as i64));
+        fields.insert("trader_id".to_string(), FieldValue::Integer(trader_id));
+        fields.insert("symbol".to_string(), FieldValue::String(symbol));
+        fields.insert(
+            "quantity".to_string(),
+            FieldValue::Integer((i % 100) as i64),
+        );
+        fields.insert(
+            "price".to_string(),
+            FieldValue::Float(100.0 + (i % 10) as f64),
+        );
+        fields.insert(
+            "timestamp".to_string(),
+            FieldValue::Integer((i * 1000) as i64),
+        );
+        let key = i.to_string();
+        let _ = table.insert(key, fields);
+    }
+    Arc::new(table)
 }
 
 /// SQL query using scalar subquery for trader risk limits
@@ -292,7 +322,15 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
         dlq_max_size: Some(100),
     };
 
-    let processor = JobProcessorFactory::create_simple_with_config(config);
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("trades".to_string(), create_trades_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Simple,
+        Some(config),
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
@@ -329,7 +367,15 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 
 /// Measure TransactionalJp
 async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("trades".to_string(), create_trades_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Transactional,
+        None,
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
@@ -369,10 +415,18 @@ async fn measure_adaptive_jp(
     query: &str,
     num_cores: usize,
 ) -> (f64, usize) {
-    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
-        num_partitions: Some(num_cores),
-        enable_core_affinity: false,
-    });
+    // Create table registry
+    let mut table_registry = HashMap::new();
+    table_registry.insert("trades".to_string(), create_trades_table());
+
+    let processor = JobProcessorFactory::create_with_config_and_tables(
+        JobProcessorConfig::Adaptive {
+            num_partitions: Some(num_cores),
+            enable_core_affinity: false,
+        },
+        None,
+        Some(table_registry),
+    );
     let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
     let data_writer = MockDataWriter::new();
 
