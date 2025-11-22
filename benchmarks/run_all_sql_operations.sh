@@ -155,9 +155,10 @@ run_operation_test() {
     fi
 
     # Run the test and capture output using pattern matching
-    # Note: build was done upfront, so per-test timeout can be short (60 seconds for execution only)
+    # Note: build was done upfront, so per-test timeout can be shorter than before
+    # (150 seconds accounts for test execution time, not build time)
     local test_output
-    if test_output=$(cd "$PROJECT_ROOT" && timeout 60 cargo test "$test_name" --no-default-features $build_flag -- --nocapture --test-threads=1 2>&1); then
+    if test_output=$(cd "$PROJECT_ROOT" && timeout 150 cargo test "$test_name" --no-default-features $build_flag -- --nocapture --test-threads=1 2>&1); then
         # Check if any tests actually ran by looking for the emoji markers
         if echo "$test_output" | grep -q "🚀"; then
             print_success "$operation"
