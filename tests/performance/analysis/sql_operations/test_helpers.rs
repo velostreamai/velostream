@@ -2,9 +2,11 @@
 //!
 //! Provides configurable record counts, cardinality, and AdaptiveJobProcessor helpers for benchmarking
 
-pub use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig};
 pub use std::sync::Arc;
 pub use std::time::Duration;
+pub use velostream::velostream::server::v2::coordinator::{
+    AdaptiveJobProcessor, PartitionedJobConfig,
+};
 
 /// Get the number of records for performance tests
 ///

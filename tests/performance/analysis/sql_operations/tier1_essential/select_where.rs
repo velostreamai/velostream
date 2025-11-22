@@ -21,7 +21,9 @@ use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
-use super::super::test_helpers::{get_perf_record_count, print_perf_config};
+use super::super::test_helpers::{
+    create_adaptive_processor, get_perf_record_count, print_perf_config,
+};
 
 /// Generate test data: orders
 fn generate_select_where_records(count: usize) -> Vec<StreamRecord> {
@@ -118,16 +120,45 @@ async fn test_select_where_performance() {
     println!("   Time: {:.2}ms", transactional_jp_ms);
     println!();
 
+    let start = Instant::now();
+    let (adaptive_1c_throughput, adaptive_1c_produced) =
+        measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 1).await;
+    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ AdaptiveJp (1 core):");
+    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
+    println!("   Results: {}", adaptive_1c_produced);
+    println!("   Time: {:.2}ms", adaptive_1c_ms);
+    println!();
+
+    let start = Instant::now();
+    let (adaptive_4c_throughput, adaptive_4c_produced) =
+        measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 4).await;
+    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ AdaptiveJp (4 cores):");
+    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
+    println!("   Results: {}", adaptive_4c_produced);
+    println!("   Time: {:.2}ms", adaptive_4c_ms);
+    println!();
+
     println!("📊 Summary:");
     println!("─────────────────────────────────────────");
-    println!("Best Implementation:");
+    println!("Performance by Implementation:");
 
     let implementations = vec![
         ("SQL Sync", sql_sync_throughput),
         ("SQL Async", sql_async_throughput),
         ("SimpleJp", simple_jp_throughput),
         ("TransactionalJp", transactional_jp_throughput),
+        ("AdaptiveJp (1c)", adaptive_1c_throughput),
+        ("AdaptiveJp (4c)", adaptive_4c_throughput),
     ];
+
+    for (name, throughput) in &implementations {
+        println!("   {} {:.0} rec/sec", name, throughput);
+    }
+    println!();
 
     let best = implementations
         .iter()
@@ -270,6 +301,49 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
             ))),
             (*query_arc).clone(),
             "select_where_transactional_test".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
+
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+    let records_written = data_writer.get_count();
+
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    (throughput, records_written)
+}
+
+async fn measure_adaptive_jp(
+    records: Vec<StreamRecord>,
+    query: &str,
+    num_cores: usize,
+) -> (f64, usize) {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
+        num_partitions: Some(num_cores),
+        enable_core_affinity: false,
+    });
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = Instant::now();
+    let timeout_duration = Duration::from_secs(60);
+    let _result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer.clone())),
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
+            (*query_arc).clone(),
+            format!("select_where_adaptive_{}c_test", num_cores),
             shutdown_rx,
         ),
     )

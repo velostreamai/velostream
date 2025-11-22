@@ -18,13 +18,21 @@ use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+use velostream::velostream::server::processors::{
+    FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
+};
 use velostream::velostream::sql::ast::{BinaryOperator, Expr, JoinClause, JoinType, StreamSource};
 use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::processors::stream_table_join::StreamTableJoinProcessor;
-use velostream::velostream::sql::execution::{FieldValue, StreamRecord};
+use velostream::velostream::sql::execution::{FieldValue, StreamExecutionEngine, StreamRecord};
+use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::OptimizedTableImpl;
 
-use super::super::test_helpers::{get_perf_record_count, print_perf_config};
+use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
+use super::super::test_helpers::{
+    create_adaptive_processor, get_perf_record_count, print_perf_config,
+};
 
 /// Baseline benchmark configuration
 #[derive(Debug, Clone)]
@@ -257,9 +265,21 @@ fn estimate_memory_usage(config: &BenchmarkConfig) -> usize {
     stream_memory + table_memory + processing_overhead
 }
 
+/// SQL query for stream-table join benchmark
+const STREAM_TABLE_JOIN_SQL: &str = r#"
+    SELECT
+        trade_id,
+        user_id,
+        symbol,
+        quantity,
+        price
+    FROM trades
+"#;
+
 /// Test: Stream-Table JOIN baseline performance measurement
-#[test]
-fn test_stream_table_join_baseline_performance() {
+#[tokio::test]
+#[serial_test::serial]
+async fn test_stream_table_join_baseline_performance() {
     let stream_record_count = get_perf_record_count();
     let table_record_count = stream_record_count * 5; // Keep 5:1 ratio
 
@@ -374,10 +394,294 @@ fn test_stream_table_join_baseline_performance() {
 
     println!("\n✅ Baseline measurements collected for STREAMING_SQL_OPERATION_RANKING.md");
 
+    // Measure SQL Engine (sync baseline)
+    let start = Instant::now();
+    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
+        measure_sql_engine_sync(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("\n✅ SQL Engine Sync:");
+    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
+    println!(
+        "   Sent: {}, Produced: {}",
+        sql_sync_sent, sql_sync_produced
+    );
+    println!("   Time: {:.2}ms", sql_sync_ms);
+    println!();
+
+    // Measure SQL Engine (async)
+    let start = Instant::now();
+    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
+        measure_sql_engine(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ SQL Engine Async:");
+    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
+    println!(
+        "   Sent: {}, Produced: {}",
+        sql_async_sent, sql_async_produced
+    );
+    println!("   Time: {:.2}ms", sql_async_ms);
+    println!();
+
+    // Measure SimpleJp (V1)
+    let start = Instant::now();
+    let (simple_jp_throughput, simple_jp_produced) =
+        measure_v1(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ SimpleJp:");
+    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
+    println!("   Results: {}", simple_jp_produced);
+    println!("   Time: {:.2}ms", simple_jp_ms);
+    println!();
+
+    // Measure TransactionalJp
+    let start = Instant::now();
+    let (transactional_jp_throughput, transactional_jp_produced) =
+        measure_transactional_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ TransactionalJp:");
+    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
+    println!("   Results: {}", transactional_jp_produced);
+    println!("   Time: {:.2}ms", transactional_jp_ms);
+    println!();
+
+    let start = Instant::now();
+    let (adaptive_1c_throughput, adaptive_1c_produced) =
+        measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 1).await;
+    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ AdaptiveJp (1 core):");
+    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
+    println!("   Results: {}", adaptive_1c_produced);
+    println!("   Time: {:.2}ms", adaptive_1c_ms);
+    println!();
+
+    let start = Instant::now();
+    let (adaptive_4c_throughput, adaptive_4c_produced) =
+        measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 4).await;
+    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+    println!("✅ AdaptiveJp (4 cores):");
+    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
+    println!("   Results: {}", adaptive_4c_produced);
+    println!("   Time: {:.2}ms", adaptive_4c_ms);
+    println!();
+
+    // Summary
+    println!("📊 Summary:");
+    println!("─────────────────────────────────────────────");
+    println!("Best Implementation:");
+
+    let implementations = vec![
+        ("SQL Sync", sql_sync_throughput),
+        ("SQL Async", sql_async_throughput),
+        ("SimpleJp", simple_jp_throughput),
+        ("TransactionalJp", transactional_jp_throughput),
+        ("AdaptiveJp (1c)", adaptive_1c_throughput),
+        ("AdaptiveJp (4c)", adaptive_4c_throughput),
+    ];
+
+    let best = implementations
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap();
+
+    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
+    println!();
+
     // Assert minimum performance thresholds
     assert!(
         baseline.throughput_records_per_sec > 5000.0,
         "Stream-Table JOIN throughput below acceptable threshold: {:.0} rec/sec",
         baseline.throughput_records_per_sec
     );
+}
+
+/// Measure SQL Engine (sync version)
+async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f64, usize, usize) {
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let (_tx, mut _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(_tx);
+
+    let mut records_sent = 0;
+    let mut results_produced = 0;
+
+    let start = Instant::now();
+    for record in records.iter() {
+        records_sent += 1;
+        match engine.execute_with_record_sync(&parsed_query, record) {
+            Ok(results) => {
+                results_produced += results.len();
+            }
+            Err(_e) => {}
+        }
+    }
+
+    let elapsed = start.elapsed();
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    (throughput, records_sent, results_produced)
+}
+
+/// Measure SQL Engine (async version)
+async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, usize, usize) {
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let (_tx, mut _rx) = mpsc::unbounded_channel();
+    let mut engine = StreamExecutionEngine::new(_tx);
+
+    let mut records_sent = 0;
+    let mut results_produced = 0;
+
+    let start = Instant::now();
+    for record in records.iter() {
+        records_sent += 1;
+        match engine.execute_with_record(&parsed_query, record).await {
+            Ok(()) => {}
+            Err(_e) => {}
+        }
+    }
+
+    while let Ok(_) = _rx.try_recv() {
+        results_produced += 1;
+    }
+
+    let elapsed = start.elapsed();
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    (throughput, records_sent, results_produced)
+}
+
+/// Measure SimpleJp (V1)
+async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
+    let config = JobProcessingConfig {
+        use_transactions: false,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_batch_size: 100,
+        batch_timeout: Duration::from_millis(100),
+        max_retries: 2,
+        retry_backoff: Duration::from_millis(50),
+        progress_interval: 100,
+        log_progress: false,
+        empty_batch_count: 0,
+        wait_on_empty_batch_ms: 10,
+        enable_dlq: true,
+        dlq_max_size: Some(100),
+    };
+
+    let processor = JobProcessorFactory::create_simple_with_config(config);
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = Instant::now();
+    let timeout_duration = Duration::from_secs(60);
+    let _result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer.clone())),
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
+            (*query_arc).clone(),
+            "stream_table_join_v1_test".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
+
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+    let records_written = data_writer.get_count();
+
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    (throughput, records_written)
+}
+
+/// Measure TransactionalJp
+async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Transactional);
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = Instant::now();
+    let timeout_duration = Duration::from_secs(60);
+    let _result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer.clone())),
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
+            (*query_arc).clone(),
+            "stream_table_join_transactional_test".to_string(),
+            shutdown_rx,
+        ),
+    )
+    .await;
+
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+    let records_written = data_writer.get_count();
+
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    (throughput, records_written)
+}
+
+async fn measure_adaptive_jp(
+    records: Vec<StreamRecord>,
+    query: &str,
+    num_cores: usize,
+) -> (f64, usize) {
+    let processor = JobProcessorFactory::create(JobProcessorConfig::Adaptive {
+        num_partitions: Some(num_cores),
+        enable_core_affinity: false,
+    });
+    let data_source = KafkaSimulatorDataSource::new(records.clone(), 100);
+    let data_writer = MockDataWriter::new();
+
+    let mut parser = StreamingSqlParser::new();
+    let parsed_query = parser.parse(query).expect("Failed to parse SQL");
+    let query_arc = Arc::new(parsed_query);
+
+    let (_shutdown_tx, shutdown_rx) = mpsc::channel(1);
+
+    let start = Instant::now();
+    let timeout_duration = Duration::from_secs(60);
+    let _result = tokio::time::timeout(
+        timeout_duration,
+        processor.process_job(
+            Box::new(data_source),
+            Some(Box::new(data_writer.clone())),
+            Arc::new(tokio::sync::RwLock::new(StreamExecutionEngine::new(
+                mpsc::unbounded_channel().0,
+            ))),
+            (*query_arc).clone(),
+            format!("stream_table_join_adaptive_{}c_test", num_cores),
+            shutdown_rx,
+        ),
+    )
+    .await;
+
+    processor.stop().await.ok();
+    let elapsed = start.elapsed();
+    let records_written = data_writer.get_count();
+
+    let throughput = (records.len() as f64) / elapsed.as_secs_f64();
+    (throughput, records_written)
 }
