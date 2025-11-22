@@ -77,7 +77,7 @@ const HAVING_CLAUSE_SQL: &str = r#"
 "#;
 
 /// Test: HAVING clause performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_having_clause_performance() {
     println!("\n🚀 HAVING Clause Performance Benchmark");

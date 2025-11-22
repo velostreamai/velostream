@@ -58,7 +58,7 @@ const GROUP_BY_CONTINUOUS_SQL: &str = r#"
     GROUP BY symbol
 "#;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_group_by_continuous_performance() {
     println!("\n🚀 GROUP BY (Continuous) Performance Benchmark");

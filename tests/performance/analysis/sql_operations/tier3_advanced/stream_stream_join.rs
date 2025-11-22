@@ -98,7 +98,7 @@ const STREAM_STREAM_JOIN_SQL: &str = r#"
 "#;
 
 /// Test: Stream-Stream JOIN performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_stream_stream_join_performance() {
     println!("\n🚀 Stream-Stream JOIN Performance Benchmark");

@@ -277,7 +277,7 @@ const STREAM_TABLE_JOIN_SQL: &str = r#"
 "#;
 
 /// Test: Stream-Table JOIN baseline performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_stream_table_join_baseline_performance() {
     let stream_record_count = get_perf_record_count();

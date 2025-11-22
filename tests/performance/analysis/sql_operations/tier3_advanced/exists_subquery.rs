@@ -77,7 +77,7 @@ const EXISTS_SQL: &str = r#"
 "#;
 
 /// Test: EXISTS/NOT EXISTS performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_exists_subquery_performance() {
     println!("\n🚀 EXISTS/NOT EXISTS Performance Benchmark");

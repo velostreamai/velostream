@@ -76,7 +76,7 @@ const IN_SUBQUERY_SQL: &str = r#"
 "#;
 
 /// Test: IN/NOT IN subquery performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_in_subquery_performance() {
     println!("\n🚀 IN/NOT IN Subquery Performance Benchmark");

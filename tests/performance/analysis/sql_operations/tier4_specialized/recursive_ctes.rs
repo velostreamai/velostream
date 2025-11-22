@@ -53,7 +53,7 @@ const RECURSIVE_CTE_SQL: &str = r#"
 "#;
 
 /// Test: Recursive CTE performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_recursive_cte_performance() {
     println!("\n🚀 Recursive CTE Performance Benchmark");

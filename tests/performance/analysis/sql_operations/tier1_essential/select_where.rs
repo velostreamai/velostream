@@ -52,7 +52,7 @@ const SELECT_WHERE_SQL: &str = r#"
     WHERE total_amount > 100
 "#;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_select_where_performance() {
     println!("\n🚀 SELECT + WHERE Performance Benchmark");

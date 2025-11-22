@@ -53,7 +53,7 @@ const ANY_ALL_SQL: &str = r#"
 "#;
 
 /// Test: ANY/ALL operators performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_any_all_operators_performance() {
     println!("\n🚀 ANY/ALL Operators Performance Benchmark");

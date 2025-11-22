@@ -102,7 +102,7 @@ const TIMEBASED_JOIN_SQL: &str = r#"
 "#;
 
 /// Test: Time-based JOIN performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_timebased_join_performance() {
     println!("\n🚀 Time-Based JOIN (WITHIN) Performance Benchmark");

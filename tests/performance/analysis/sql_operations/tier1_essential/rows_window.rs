@@ -58,7 +58,7 @@ const ROWS_WINDOW_SQL: &str = r#"
     FROM market_data
 "#;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_rows_window_performance() {
     println!("\n🚀 ROWS WINDOW Performance Benchmark");

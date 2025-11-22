@@ -72,7 +72,7 @@ const TUMBLING_WINDOW_SQL: &str = r#"
     WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
 "#;
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_tumbling_window_performance() {
     println!("\n🚀 TUMBLING WINDOW Performance Benchmark");

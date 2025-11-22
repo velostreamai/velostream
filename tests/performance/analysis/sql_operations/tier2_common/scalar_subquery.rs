@@ -90,7 +90,7 @@ const SCALAR_SUBQUERY_SQL: &str = r#"
 "#;
 
 /// Test: Scalar subquery performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_scalar_subquery_performance() {
     println!("\n🚀 Scalar Subquery Performance Benchmark");

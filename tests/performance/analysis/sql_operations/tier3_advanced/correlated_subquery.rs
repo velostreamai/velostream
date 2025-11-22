@@ -81,7 +81,7 @@ const CORRELATED_SUBQUERY_SQL: &str = r#"
 "#;
 
 /// Test: Correlated subquery performance measurement
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_correlated_subquery_performance() {
     println!("\n🚀 Correlated Subquery Performance Benchmark");
