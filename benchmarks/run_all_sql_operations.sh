@@ -156,7 +156,7 @@ run_operation_test() {
 
     # Run the test and capture output using pattern matching
     local test_output
-    if test_output=$(cd "$PROJECT_ROOT" && timeout 300 cargo test --tests "$test_name" --no-default-features $build_flag -- --nocapture --test-threads=1 2>&1); then
+    if test_output=$(cd "$PROJECT_ROOT" && timeout 300 cargo test "$test_name" --no-default-features $build_flag -- --nocapture --test-threads=1 2>&1); then
         # Check if any tests actually ran by looking for the emoji markers
         if echo "$test_output" | grep -q "🚀"; then
             print_success "$operation"

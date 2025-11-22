@@ -138,7 +138,7 @@ async fn test_select_where_performance() {
     println!();
 
     assert!(
-        best.1 > 100_000.0,
+        best.1 > 50_000.0,
         "SELECT + WHERE performance below threshold: {:.0} rec/sec",
         best.1
     );

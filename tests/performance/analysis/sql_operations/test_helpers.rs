@@ -20,10 +20,14 @@
 /// VELOSTREAM_PERF_RECORDS=1000000 VELOSTREAM_PERF_CARDINALITY=10000 cargo test
 /// ```
 pub fn get_perf_record_count() -> usize {
-    std::env::var("VELOSTREAM_PERF_RECORDS")
+    let count = std::env::var("VELOSTREAM_PERF_RECORDS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000) // Default to 10,000 records
+        .unwrap_or(10_000); // Default to 10,000 records
+
+    // Enforce minimum of 10,000 for accurate performance measurement
+    // (smaller datasets have significant measurement overhead)
+    count.max(10_000)
 }
 
 /// Get the cardinality (number of unique groups) for GROUP BY operations
