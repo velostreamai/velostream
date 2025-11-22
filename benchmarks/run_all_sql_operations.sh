@@ -155,8 +155,9 @@ run_operation_test() {
     fi
 
     # Run the test and capture output using pattern matching
+    # Note: build was done upfront, so per-test timeout can be short (60 seconds for execution only)
     local test_output
-    if test_output=$(cd "$PROJECT_ROOT" && timeout 300 cargo test "$test_name" --no-default-features $build_flag -- --nocapture --test-threads=1 2>&1); then
+    if test_output=$(cd "$PROJECT_ROOT" && timeout 60 cargo test "$test_name" --no-default-features $build_flag -- --nocapture --test-threads=1 2>&1); then
         # Check if any tests actually ran by looking for the emoji markers
         if echo "$test_output" | grep -q "🚀"; then
             print_success "$operation"
@@ -196,6 +197,16 @@ echo "Configuration:"
 echo "  Mode: $MODE"
 echo "  Tier Filter: $TIER_FILTER"
 echo "  Results File: $RESULTS_FILE"
+echo ""
+
+# Build once upfront to avoid rebuild overhead on each test
+echo "Building project ($MODE mode)..."
+if [[ "$MODE" == "release" ]]; then
+    cd "$PROJECT_ROOT" && cargo test --no-default-features --release --no-run 2>&1 | grep -E "(Compiling|Finished)" || true
+else
+    cd "$PROJECT_ROOT" && cargo test --no-default-features --no-run 2>&1 | grep -E "(Compiling|Finished)" || true
+fi
+echo "Build complete."
 echo ""
 
 # Initialize results file
