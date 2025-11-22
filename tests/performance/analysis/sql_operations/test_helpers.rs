@@ -1,6 +1,10 @@
 //! Shared helpers for SQL operation performance tests
 //!
-//! Provides configurable record counts and cardinality for benchmarking
+//! Provides configurable record counts, cardinality, and AdaptiveJobProcessor helpers for benchmarking
+
+pub use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig};
+pub use std::sync::Arc;
+pub use std::time::Duration;
 
 /// Get the number of records for performance tests
 ///
@@ -56,4 +60,20 @@ pub fn print_perf_config(record_count: usize, cardinality: Option<usize>) {
     }
     println!("   Tip: Set VELOSTREAM_PERF_RECORDS=100000 for higher-volume testing");
     println!("   Tip: Set VELOSTREAM_PERF_CARDINALITY=100 for group count override");
+}
+
+/// Create AdaptiveJobProcessor with specified number of partitions
+///
+/// # Arguments
+/// - `num_partitions`: Number of partitions/cores (e.g., 1 or 4 for benchmarking)
+///
+/// # Returns
+/// Arc-wrapped AdaptiveJobProcessor configured for the specified partition count
+pub fn create_adaptive_processor(num_partitions: usize) -> Arc<AdaptiveJobProcessor> {
+    let config = PartitionedJobConfig {
+        num_partitions: Some(num_partitions),
+        annotation_partition_count: None,
+        ..Default::default()
+    };
+    Arc::new(AdaptiveJobProcessor::new(config))
 }
