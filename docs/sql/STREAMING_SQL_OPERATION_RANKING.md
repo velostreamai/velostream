@@ -442,11 +442,29 @@ WHERE amount > ANY (SELECT threshold FROM risk_thresholds WHERE category = order
 
 ## Operation Implementation Status
 
-### Currently Fully Implemented & Tested
-- ✅ Tier 1: All 5 operations (SELECT+WHERE, ROWS WINDOW, GROUP BY Continuous, TUMBLING WINDOW, Stream-Table JOIN)
-- ✅ Tier 2: Scalar Subquery, EXISTS/NOT EXISTS, IN/NOT IN
-- ✅ Tier 3: Time-Based JOIN, Stream-Stream JOIN, Correlated Subquery
-- ✅ Tier 4: Recursive CTEs, ANY/ALL Operators
+### ✅ All 15 SQL Operations - Fully Implemented & Performance Tested
+
+**Tier 1 (Essential - 5 operations)**:
+- ✅ SELECT + WHERE - Simple filtering & projection
+- ✅ ROWS WINDOW - Row-based analytic functions (LAG, LEAD, ROW_NUMBER)
+- ✅ GROUP BY Continuous - Indefinite aggregation without time windows
+- ✅ TUMBLING WINDOW - Fixed time-based windows
+- ✅ Stream-Table JOIN - Enrichment from reference tables
+
+**Tier 2 (Common - 4 operations)**:
+- ✅ Scalar Subquery - Single-value lookups
+- ✅ Scalar Subquery with EXISTS - Existence checks in scalar context
+- ✅ Time-Based JOIN - Temporal correlation with WITHIN constraints
+- ✅ HAVING Clause - Post-aggregation filtering
+
+**Tier 3 (Advanced - 3 operations)**:
+- ✅ Stream-Stream JOIN - Temporal matching between streams
+- ✅ Correlated Subquery - Row-by-row evaluation
+- ✅ EXISTS Subquery - Existence validation in WHERE clauses
+
+**Tier 4 (Specialized - 2 operations)**:
+- ✅ Recursive CTEs - Hierarchical query processing
+- ✅ ANY/ALL Operators - Multi-value comparisons
 
 ### Performance Notes
 
