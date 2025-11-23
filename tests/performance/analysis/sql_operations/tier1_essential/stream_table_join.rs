@@ -341,15 +341,27 @@ async fn test_stream_table_join_baseline_performance() {
     let record_count = get_perf_record_count();
     let stream_records = generate_stream_records(record_count, record_count * 5);
 
-    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let (sql_async_throughput, _, _) = measure_sql_engine(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (sql_sync_throughput, _, _) =
+        measure_sql_engine_sync(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (sql_async_throughput, _, _) =
+        measure_sql_engine(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
     let (simple_jp_throughput, _) = measure_v1(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let (transactional_jp_throughput, _) = measure_transactional_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let (adaptive_1c_throughput, _) = measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 1).await;
-    let (adaptive_4c_throughput, _) = measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 4).await;
+    let (transactional_jp_throughput, _) =
+        measure_transactional_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (adaptive_1c_throughput, _) =
+        measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 1).await;
+    let (adaptive_4c_throughput, _) =
+        measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 4).await;
 
-    println!("🚀 BENCHMARK_RESULT | stream_table_join | tier1 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
-        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
+    println!(
+        "🚀 BENCHMARK_RESULT | stream_table_join | tier1 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput,
+        sql_async_throughput,
+        simple_jp_throughput,
+        transactional_jp_throughput,
+        adaptive_1c_throughput,
+        adaptive_4c_throughput
+    );
 }
 
 /// Measure SQL Engine (sync version)

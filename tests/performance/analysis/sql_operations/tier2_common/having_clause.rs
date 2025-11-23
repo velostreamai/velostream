@@ -112,15 +112,26 @@ async fn test_having_clause_performance() {
     let cardinality = get_perf_cardinality(record_count / 10);
     let records = generate_having_records(record_count, cardinality);
 
-    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(records.clone(), HAVING_CLAUSE_SQL).await;
+    let (sql_sync_throughput, _, _) =
+        measure_sql_engine_sync(records.clone(), HAVING_CLAUSE_SQL).await;
     let (sql_async_throughput, _, _) = measure_sql_engine(records.clone(), HAVING_CLAUSE_SQL).await;
     let (simple_jp_throughput, _) = measure_v1(records.clone(), HAVING_CLAUSE_SQL).await;
-    let (transactional_jp_throughput, _) = measure_transactional_jp(records.clone(), HAVING_CLAUSE_SQL).await;
-    let (adaptive_1c_throughput, _) = measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 1).await;
-    let (adaptive_4c_throughput, _) = measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 4).await;
+    let (transactional_jp_throughput, _) =
+        measure_transactional_jp(records.clone(), HAVING_CLAUSE_SQL).await;
+    let (adaptive_1c_throughput, _) =
+        measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 1).await;
+    let (adaptive_4c_throughput, _) =
+        measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 4).await;
 
-    println!("🚀 BENCHMARK_RESULT | having_clause | tier2 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
-        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
+    println!(
+        "🚀 BENCHMARK_RESULT | having_clause | tier2 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput,
+        sql_async_throughput,
+        simple_jp_throughput,
+        transactional_jp_throughput,
+        adaptive_1c_throughput,
+        adaptive_4c_throughput
+    );
 }
 
 /// Measure SQL Engine (sync version)

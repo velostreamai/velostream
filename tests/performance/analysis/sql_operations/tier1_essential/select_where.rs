@@ -82,15 +82,26 @@ async fn test_select_where_performance() {
     let record_count = get_perf_record_count();
     let records = generate_select_where_records(record_count);
 
-    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(records.clone(), SELECT_WHERE_SQL).await;
+    let (sql_sync_throughput, _, _) =
+        measure_sql_engine_sync(records.clone(), SELECT_WHERE_SQL).await;
     let (sql_async_throughput, _, _) = measure_sql_engine(records.clone(), SELECT_WHERE_SQL).await;
     let (simple_jp_throughput, _) = measure_v1(records.clone(), SELECT_WHERE_SQL).await;
-    let (transactional_jp_throughput, _) = measure_transactional_jp(records.clone(), SELECT_WHERE_SQL).await;
-    let (adaptive_1c_throughput, _) = measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 1).await;
-    let (adaptive_4c_throughput, _) = measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 4).await;
+    let (transactional_jp_throughput, _) =
+        measure_transactional_jp(records.clone(), SELECT_WHERE_SQL).await;
+    let (adaptive_1c_throughput, _) =
+        measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 1).await;
+    let (adaptive_4c_throughput, _) =
+        measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 4).await;
 
-    println!("🚀 BENCHMARK_RESULT | select_where | tier1 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
-        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
+    println!(
+        "🚀 BENCHMARK_RESULT | select_where | tier1 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput,
+        sql_async_throughput,
+        simple_jp_throughput,
+        transactional_jp_throughput,
+        adaptive_1c_throughput,
+        adaptive_4c_throughput
+    );
 }
 
 async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f64, usize, usize) {
