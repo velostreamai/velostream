@@ -47,17 +47,6 @@ All 14 SQL operations have benchmark tests and proven performance metrics:
 
 <!-- BENCHMARK_TABLE_END -->
 
-### Not Yet Implemented
-
-The following operations are documented but do not yet have dedicated performance benchmarks:
-
-| Operation | Tier | Status | Notes |
-|-----------|------|--------|-------|
-| Scalar Subquery with EXISTS | tier2 | ❌ Not Tested | EXISTS functionality is tested in Tier 3 (exists_subquery), but not as a dedicated Tier 2 scalar subquery pattern |
-
-**Why Separate Tests Matter**: While EXISTS is supported and benchmarked as `exists_subquery` in Tier 3, the specific Tier 2 pattern of EXISTS within scalar subqueries (as opposed to general WHERE clause conditions) has not been isolated and benchmarked separately.
-
----
 
 ¹ **Velostream Peak Performance** (measured from `tests/performance/analysis/sql_operations/`, per-operation benchmarks):
 - **Peak**: Maximum throughput across all 6 implementations:
