@@ -540,53 +540,35 @@ impl PartitionReceiver {
 
                             let dlq_record = StreamRecord::new(record_data);
 
-                            // Add to DLQ (execute async block synchronously)
+                            // Add to DLQ using spawn_blocking to avoid nested runtime panic
+                            // Instead of trying to block_on within an async context, we spawn
+                            // the DLQ operation as a separate blocking task
                             let dlq_ref = Arc::clone(dlq);
-                            let fut = dlq_ref.add_entry(
-                                dlq_record,
-                                error_msg.clone(),
-                                record_index, // usize, not u32
-                                true,         // recoverable
-                            );
+                            let error_msg_clone = error_msg.clone();
+                            let partition_id = self.partition_id;
 
-                            // Use a blocking runtime to execute the async add_entry
-                            if let Ok(runtime) =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    tokio::runtime::Handle::current()
-                                }))
-                            {
-                                if let Err(_) =
-                                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                        runtime.block_on(fut)
-                                    }))
-                                {
-                                    error!(
-                                        "PartitionReceiver {}: Panic occurred while adding record DLQ entry for Record {}. Record will be logged for manual recovery.",
-                                        self.partition_id, record_index
-                                    );
-                                    error!(
-                                        "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Record Index: {}, Error: '{}', Recoverable: true",
-                                        self.partition_id,
-                                        self.partition_id,
+                            tokio::spawn(async move {
+                                let success = dlq_ref
+                                    .add_entry(
+                                        dlq_record,
+                                        error_msg_clone.clone(),
                                         record_index,
-                                        error_msg
-                                    );
-                                } else {
+                                        true, // recoverable
+                                    )
+                                    .await;
+
+                                if success {
                                     debug!(
                                         "PartitionReceiver {}: DLQ Entry Added - Record {} - {}",
-                                        self.partition_id, record_index, e
+                                        partition_id, record_index, error_msg_clone
+                                    );
+                                } else {
+                                    error!(
+                                        "PartitionReceiver {}: Failed to add DLQ entry for Record {}. Record logged for manual recovery.",
+                                        partition_id, record_index
                                     );
                                 }
-                            } else {
-                                error!(
-                                    "PartitionReceiver {}: Failed to obtain Tokio runtime for record DLQ write for Record {}. Record will be logged for manual recovery.",
-                                    self.partition_id, record_index
-                                );
-                                error!(
-                                    "PartitionReceiver {}: DLQ Failure Context - Partition: {}, Record Index: {}, Error: '{}', Recoverable: true",
-                                    self.partition_id, self.partition_id, record_index, error_msg
-                                );
-                            }
+                            });
                         }
                     }
 

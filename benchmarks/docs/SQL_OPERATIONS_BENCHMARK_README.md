@@ -78,26 +78,40 @@ TIER_FILTER (optional):
 
 Results are saved to: `benchmarks/results/sql_operations_results_YYYYMMDD_HHMMSS.txt`
 
-Example output format:
+### Result Format
+
+Each test outputs a single-line BENCHMARK_RESULT entry with all processor metrics:
 
 ```
-════════════════════════════════════════════════════════════════
-Tier 1: Essential Operations (90-100% Probability)
-════════════════════════════════════════════════════════════════
+🚀 BENCHMARK_RESULT | select_where | tier1 | SQL Sync: 135020 | SQL Async: 111715 | SimpleJp: 98500 | TransactionalJp: 92300 | AdaptiveJp (1c): 87600 | AdaptiveJp (4c): 82400
+🚀 BENCHMARK_RESULT | rows_window | tier1 | SQL Sync: 178534 | SQL Async: 132711 | SimpleJp: 120000 | TransactionalJp: 110000 | AdaptiveJp (1c): 105000 | AdaptiveJp (4c): 98000
+```
 
-📊 Operation: select_where
-   Throughput (best): 135,020 rec/sec
-   SQL Sync: 135020 rec/sec
-   SQL Async: 111715 rec/sec
-   Best Implementation: SQL Sync: 135,020 rec/sec
+### Summary Report
 
-📊 Operation: rows_window
-   Throughput (best): 178,534 rec/sec
-   SQL Sync: 178534 rec/sec
-   SQL Async: 132711 rec/sec
-   Best Implementation: SQL Sync: 178,534 rec/sec
+After all tests complete, a performance summary is automatically generated:
 
+```
+════════════════════════════════════════════════════════════════════════════
+        Velostream SQL Operations Performance Summary
+════════════════════════════════════════════════════════════════════════════
+
+📊 Results from: /path/to/sql_operations_results_*.txt
+   Total operations: 14
+
+──────────────────────────────────────────────────────────────────────────────────────────────
+Operation                      | Tier            | Throughput (rec/sec)
+──────────────────────────────────────────────────────────────────────────────────────────────
+select_where                   | tier1           | SQL Sync: 135020 | SQL Async: 111715 | SimpleJp: 98500 | TransactionalJp: 92300 | AdaptiveJp (1c): 87600 | AdaptiveJp (4c): 82400
+rows_window                    | tier1           | SQL Sync: 178534 | SQL Async: 132711 | SimpleJp: 120000 | TransactionalJp: 110000 | AdaptiveJp (1c): 105000 | AdaptiveJp (4c): 98000
 [... more operations ...]
+────────────────────────────────────────────────────────────────────────────
+
+📈 Performance Metrics:
+   Results captured: 14 lines
+   Expected: 14 operations
+
+✅ All 14 SQL operations completed successfully!
 ```
 
 ## Tier Coverage
@@ -129,17 +143,20 @@ Tier 1: Essential Operations (90-100% Probability)
 
 After collecting benchmark results, update the documentation:
 
-### 1. Extract Peak Throughput Values
+### 1. Extract Performance Metrics
+
+The summary report is automatically generated and shows all processor implementations in a clean table format. You can also extract raw BENCHMARK_RESULT lines:
 
 ```bash
-# Get all throughput measurements
-grep "Throughput (best):" results/sql_operations_results_*.txt
+# View the automatically generated summary
+cat results/sql_operations_results_*.txt | grep "^" | head -20
+
+# Extract just BENCHMARK_RESULT lines for processing
+grep "BENCHMARK_RESULT" results/sql_operations_results_*.txt
 
 # Example output:
-# 📊 Operation: select_where
-#    Throughput (best): 135,020 rec/sec
-# 📊 Operation: rows_window
-#    Throughput (best): 178,534 rec/sec
+# 🚀 BENCHMARK_RESULT | select_where | tier1 | SQL Sync: 135020 | SQL Async: 111715 | SimpleJp: 98500 | TransactionalJp: 92300 | AdaptiveJp (1c): 87600 | AdaptiveJp (4c): 82400
+# 🚀 BENCHMARK_RESULT | rows_window | tier1 | SQL Sync: 178534 | SQL Async: 132711 | SimpleJp: 120000 | TransactionalJp: 110000 | AdaptiveJp (1c): 105000 | AdaptiveJp (4c): 98000
 ```
 
 ### 2. Update the Quick Reference Table
@@ -184,6 +201,22 @@ Benchmark results: $(ls -t results/sql_operations_results_*.txt | head -1)
 
 ## Performance Metrics Guide
 
+### Understanding BENCHMARK_RESULT Format
+
+Each BENCHMARK_RESULT line shows throughput (records/second) for all processor implementations:
+
+```
+🚀 BENCHMARK_RESULT | operation_name | tier | SQL Sync: X | SQL Async: Y | SimpleJp: Z | TransactionalJp: A | AdaptiveJp (1c): B | AdaptiveJp (4c): C
+```
+
+**Processor Types**:
+- **SQL Sync**: Synchronous SQL engine execution
+- **SQL Async**: Asynchronous SQL engine execution
+- **SimpleJp**: Simple Job Processor (V1)
+- **TransactionalJp**: Transactional Job Processor
+- **AdaptiveJp (1c)**: Adaptive Job Processor with 1 core
+- **AdaptiveJp (4c)**: Adaptive Job Processor with 4 cores
+
 ### Interpreting Throughput Numbers
 
 **Excellent (>150K rec/sec)**
@@ -208,10 +241,11 @@ Benchmark results: $(ls -t results/sql_operations_results_*.txt | head -1)
 
 ### Key Performance Factors
 
-1. **Record Count**: Tests use 10K records (adjustable via VELOSTREAM_BASELINE_RECORDS)
+1. **Record Count**: Tests use 10K records by default (adjustable via VELOSTREAM_PERF_RECORDS)
 2. **Cardinality**: Number of unique groups/keys affects throughput
 3. **Window Size**: Larger windows → lower throughput
 4. **Aggregation Complexity**: More aggregates → lower throughput
+5. **Processor Type**: Different implementations have varying overhead
 
 ## Troubleshooting
 

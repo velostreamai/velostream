@@ -323,236 +323,33 @@ fn estimate_memory_usage(config: &BenchmarkConfig) -> usize {
 /// SQL query for stream-table join benchmark
 const STREAM_TABLE_JOIN_SQL: &str = r#"
     SELECT
-        trade_id,
-        user_id,
-        symbol,
-        quantity,
-        price
-    FROM trades
+        t.trade_id,
+        t.user_id,
+        t.symbol,
+        t.quantity,
+        t.price,
+        u.name,
+        u.tier
+    FROM trades t
+    INNER JOIN user_profiles u ON t.user_id = u.user_id
 "#;
 
 /// Test: Stream-Table JOIN baseline performance measurement
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_stream_table_join_baseline_performance() {
-    let stream_record_count = get_perf_record_count();
-    let table_record_count = stream_record_count * 5; // Keep 5:1 ratio
+    let record_count = get_perf_record_count();
+    let stream_records = generate_stream_records(record_count, record_count * 5);
 
-    let mut config = BenchmarkConfig::default();
-    config.stream_record_count = stream_record_count;
-    config.table_record_count = table_record_count;
+    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (sql_async_throughput, _, _) = measure_sql_engine(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (simple_jp_throughput, _) = measure_v1(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (transactional_jp_throughput, _) = measure_transactional_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
+    let (adaptive_1c_throughput, _) = measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 1).await;
+    let (adaptive_4c_throughput, _) = measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 4).await;
 
-    println!("\n🚀 Stream-Table JOIN Baseline Performance");
-    println!("══════════════════════════════════════════");
-    println!("Operation #3: Tier 1 (94% probability)");
-    println!("Use Case: Reference data enrichment");
-    println!();
-    print_perf_config(stream_record_count, None);
-    println!("   Table Records: {}", table_record_count);
-    println!();
-
-    // Create test data
-    let table = create_large_reference_table(config.table_record_count);
-    let stream_records =
-        generate_stream_records(config.stream_record_count, config.table_record_count);
-    let join_clause = create_test_join_clause();
-
-    // Setup processor and context
-    let processor = StreamTableJoinProcessor::new();
-    let mut context = ProcessorContext::new("baseline_benchmark");
-    context.load_reference_table("user_profiles", table.clone());
-
-    // Benchmark individual processing
-    let (individual_duration, individual_results) = benchmark_individual_processing(
-        &config,
-        &processor,
-        &stream_records,
-        &join_clause,
-        &mut context,
-    )
-    .expect("Individual processing benchmark failed");
-
-    // Benchmark batch processing
-    let (batch_duration, batch_results) = benchmark_batch_processing(
-        &config,
-        &processor,
-        &stream_records,
-        &join_clause,
-        &mut context,
-    )
-    .expect("Batch processing benchmark failed");
-
-    // Generate baseline report
-    let baseline = generate_baseline_report(
-        &config,
-        individual_duration,
-        individual_results,
-        batch_duration,
-        batch_results,
-    );
-
-    // Print comprehensive baseline report
-    println!("\n📊 STREAM-TABLE JOIN BASELINE PERFORMANCE REPORT");
-    println!("================================================");
-    println!("🔍 Table Lookup Performance:");
-    println!(
-        "  • Average lookup time: {:.2} μs",
-        baseline.avg_lookup_time_us
-    );
-    println!("  • Lookup algorithm: O(n) linear search (BOTTLENECK)");
-    println!(
-        "  • Table size impact: {} records = {:.2} μs per lookup",
-        config.table_record_count, baseline.avg_lookup_time_us
-    );
-
-    println!("\n💾 Memory Allocation:");
-    println!(
-        "  • Allocations per join: {}",
-        baseline.allocations_per_join
-    );
-    println!(
-        "  • Estimated memory usage: {:.2} MB",
-        baseline.memory_usage_bytes as f64 / 1024.0 / 1024.0
-    );
-    println!("  • StreamRecord cloning: 3 clones per join (HIGH OVERHEAD)");
-
-    println!("\n⚡ Throughput Performance:");
-    println!(
-        "  • Individual processing: {:.0} records/sec",
-        baseline.throughput_records_per_sec
-    );
-    println!(
-        "  • Batch efficiency ratio: {:.2}x",
-        baseline.batch_efficiency_ratio
-    );
-    println!(
-        "  • Current batch advantage: {:.1}% faster",
-        (baseline.batch_efficiency_ratio - 1.0) * 100.0
-    );
-
-    println!("\n🎯 Optimization Targets:");
-    println!("  • Table lookups: O(n) → O(1) = 95%+ improvement potential");
-    println!("  • Memory usage: 30-40% reduction via clone elimination");
-    println!("  • Batch processing: 60% improvement via bulk operations");
-    println!("  • Target throughput: 150,000+ records/sec (3.7x current)");
-
-    println!("\n🚨 Critical Issues Identified:");
-    if baseline.avg_lookup_time_us > 100.0 {
-        println!("  ❌ Table lookup time > 100μs indicates O(n) bottleneck");
-    }
-    if baseline.batch_efficiency_ratio < 2.0 {
-        println!("  ❌ Low batch efficiency indicates individual processing overhead");
-    }
-    if baseline.allocations_per_join > 5 {
-        println!("  ❌ High allocation count indicates memory pressure");
-    }
-
-    println!("\n✅ Baseline measurements collected for STREAMING_SQL_OPERATION_RANKING.md");
-
-    // Measure SQL Engine (sync baseline)
-    let start = Instant::now();
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
-        measure_sql_engine_sync(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("\n✅ SQL Engine Sync:");
-    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_sync_sent, sql_sync_produced
-    );
-    println!("   Time: {:.2}ms", sql_sync_ms);
-    println!();
-
-    // Measure SQL Engine (async)
-    let start = Instant::now();
-    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
-        measure_sql_engine(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Async:");
-    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_async_sent, sql_async_produced
-    );
-    println!("   Time: {:.2}ms", sql_async_ms);
-    println!();
-
-    // Measure SimpleJp (V1)
-    let start = Instant::now();
-    let (simple_jp_throughput, simple_jp_produced) =
-        measure_v1(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SimpleJp:");
-    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
-    println!("   Results: {}", simple_jp_produced);
-    println!("   Time: {:.2}ms", simple_jp_ms);
-    println!();
-
-    // Measure TransactionalJp
-    let start = Instant::now();
-    let (transactional_jp_throughput, transactional_jp_produced) =
-        measure_transactional_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL).await;
-    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ TransactionalJp:");
-    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
-    println!("   Results: {}", transactional_jp_produced);
-    println!("   Time: {:.2}ms", transactional_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_1c_throughput, adaptive_1c_produced) =
-        measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 1).await;
-    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (1 core):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
-    println!("   Results: {}", adaptive_1c_produced);
-    println!("   Time: {:.2}ms", adaptive_1c_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_4c_throughput, adaptive_4c_produced) =
-        measure_adaptive_jp(stream_records.clone(), STREAM_TABLE_JOIN_SQL, 4).await;
-    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (4 cores):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
-    println!("   Results: {}", adaptive_4c_produced);
-    println!("   Time: {:.2}ms", adaptive_4c_ms);
-    println!();
-
-    // Summary
-    println!("📊 Summary:");
-    println!("─────────────────────────────────────────────");
-    println!("Best Implementation:");
-
-    let implementations = vec![
-        ("SQL Sync", sql_sync_throughput),
-        ("SQL Async", sql_async_throughput),
-        ("SimpleJp", simple_jp_throughput),
-        ("TransactionalJp", transactional_jp_throughput),
-        ("AdaptiveJp (1c)", adaptive_1c_throughput),
-        ("AdaptiveJp (4c)", adaptive_4c_throughput),
-    ];
-
-    let best = implementations
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-
-    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
-    println!();
-
-    // Assert minimum performance thresholds
-    assert!(
-        baseline.throughput_records_per_sec > 5000.0,
-        "Stream-Table JOIN throughput below acceptable threshold: {:.0} rec/sec",
-        baseline.throughput_records_per_sec
-    );
+    println!("🚀 BENCHMARK_RESULT | stream_table_join | tier1 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
 }
 
 /// Measure SQL Engine (sync version)

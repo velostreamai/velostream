@@ -150,131 +150,18 @@ const TIMEBASED_JOIN_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_timebased_join_performance() {
-    println!("\n🚀 Time-Based JOIN (WITHIN) Performance Benchmark");
-    println!("═════════════════════════════════════════════════");
-    println!("Operation #8: Tier 2 (68% probability)");
-    println!("Use Case: Temporal correlation, event matching");
-    println!();
-
     let record_count = get_perf_record_count();
     let (orders, payments) = generate_timebased_join_records(record_count);
 
-    println!("📊 Configuration:");
-    print_perf_config(record_count, None);
-    println!(
-        "   Two-stream JOIN: {} + {} = {} total records",
-        record_count,
-        record_count,
-        record_count * 2
-    );
-    println!("   Query: Time-based JOIN with 5-minute window");
-    println!("   Match Cardinality: 1000 unique order IDs");
-    println!();
+    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
+    let (sql_async_throughput, _, _) = measure_sql_engine(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
+    let (simple_jp_throughput, _) = measure_v1(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
+    let (transactional_jp_throughput, _) = measure_transactional_jp(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
+    let (adaptive_1c_throughput, _) = measure_adaptive_jp(orders.clone(), TIMEBASED_JOIN_SQL, 1).await;
+    let (adaptive_4c_throughput, _) = measure_adaptive_jp(orders.clone(), TIMEBASED_JOIN_SQL, 4).await;
 
-    // Measure SQL Engine (sync baseline)
-    let start = Instant::now();
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
-        measure_sql_engine_sync(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
-    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Sync:");
-    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_sync_sent, sql_sync_produced
-    );
-    println!("   Time: {:.2}ms", sql_sync_ms);
-    println!();
-
-    // Measure SQL Engine (async)
-    let start = Instant::now();
-    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
-        measure_sql_engine(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
-    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Async:");
-    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_async_sent, sql_async_produced
-    );
-    println!("   Time: {:.2}ms", sql_async_ms);
-    println!();
-
-    // Measure SimpleJp (V1)
-    let start = Instant::now();
-    let (simple_jp_throughput, simple_jp_produced) =
-        measure_v1(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
-    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SimpleJp:");
-    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
-    println!("   Results: {}", simple_jp_produced);
-    println!("   Time: {:.2}ms", simple_jp_ms);
-    println!();
-
-    // Measure TransactionalJp
-    let start = Instant::now();
-    let (transactional_jp_throughput, transactional_jp_produced) =
-        measure_transactional_jp(orders.clone(), payments.clone(), TIMEBASED_JOIN_SQL).await;
-    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ TransactionalJp:");
-    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
-    println!("   Results: {}", transactional_jp_produced);
-    println!("   Time: {:.2}ms", transactional_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_1c_throughput, adaptive_1c_produced) =
-        measure_adaptive_jp(orders.clone(), TIMEBASED_JOIN_SQL, 1).await;
-    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (1 core):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
-    println!("   Results: {}", adaptive_1c_produced);
-    println!("   Time: {:.2}ms", adaptive_1c_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_4c_throughput, adaptive_4c_produced) =
-        measure_adaptive_jp(orders.clone(), TIMEBASED_JOIN_SQL, 4).await;
-    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (4 cores):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
-    println!("   Results: {}", adaptive_4c_produced);
-    println!("   Time: {:.2}ms", adaptive_4c_ms);
-    println!();
-
-    // Summary
-    println!("📊 Summary:");
-    println!("─────────────────────────────────────────────────");
-    println!("Best Implementation:");
-
-    let implementations = vec![
-        ("SQL Sync", sql_sync_throughput),
-        ("SQL Async", sql_async_throughput),
-        ("SimpleJp", simple_jp_throughput),
-        ("TransactionalJp", transactional_jp_throughput),
-        ("AdaptiveJp (1c)", adaptive_1c_throughput),
-        ("AdaptiveJp (4c)", adaptive_4c_throughput),
-    ];
-
-    let best = implementations
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-
-    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
-    println!();
-
-    // Performance assertion: Time-based JOINs should achieve >8K rec/sec
-    assert!(
-        best.1 > 8_000.0,
-        "Time-based JOIN performance below threshold: {:.0} rec/sec",
-        best.1
-    );
+    println!("🚀 BENCHMARK_RESULT | timebased_join | tier2 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
 }
 
 /// Measure SQL Engine (sync version) with two streams

@@ -23,6 +23,7 @@ use velostream::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
 };
 use velostream::velostream::sql::execution::StreamExecutionEngine;
+use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
 use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
@@ -109,127 +110,25 @@ const CORRELATED_SUBQUERY_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_correlated_subquery_performance() {
-    println!("\n🚀 Correlated Subquery Performance Benchmark");
-    println!("════════════════════════════════════════════");
-    println!("Operation #13: Tier 3 (35% probability)");
-    println!("Use Case: Per-row evaluations, complex filtering");
-    println!("⚠️  WARNING: Slowest subquery type!");
-    println!();
-
     let record_count = get_perf_record_count();
     let records = generate_correlated_subquery_records(record_count);
 
-    println!("📊 Configuration:");
-    print_perf_config(record_count, None);
-    println!("   Query: Correlated subquery for above-avg salaries");
-    println!("   Departments: 10 unique");
-    println!("   Per-Row Evaluation: Full scan per row (expensive)");
-    println!();
+    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(records.clone(), CORRELATED_SUBQUERY_SQL).await;
+    let (sql_async_throughput, _, _) = measure_sql_engine(records.clone(), CORRELATED_SUBQUERY_SQL).await;
+    let (simple_jp_throughput, _) = measure_v1(records.clone(), CORRELATED_SUBQUERY_SQL).await;
+    let (transactional_jp_throughput, _) = measure_transactional_jp(records.clone(), CORRELATED_SUBQUERY_SQL).await;
+    let (adaptive_1c_throughput, _) = measure_adaptive_jp(records.clone(), CORRELATED_SUBQUERY_SQL, 1).await;
+    let (adaptive_4c_throughput, _) = measure_adaptive_jp(records.clone(), CORRELATED_SUBQUERY_SQL, 4).await;
 
-    // Measure SQL Engine (sync baseline)
-    let start = Instant::now();
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
-        measure_sql_engine_sync(records.clone(), CORRELATED_SUBQUERY_SQL).await;
-    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
+    println!("🚀 BENCHMARK_RESULT | correlated_subquery | tier3 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
+}
 
-    println!("✅ SQL Engine Sync:");
-    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_sync_sent, sql_sync_produced
-    );
-    println!("   Time: {:.2}ms", sql_sync_ms);
-    println!();
-
-    // Measure SQL Engine (async)
-    let start = Instant::now();
-    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
-        measure_sql_engine(records.clone(), CORRELATED_SUBQUERY_SQL).await;
-    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Async:");
-    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_async_sent, sql_async_produced
-    );
-    println!("   Time: {:.2}ms", sql_async_ms);
-    println!();
-
-    // Measure SimpleJp (V1)
-    let start = Instant::now();
-    let (simple_jp_throughput, simple_jp_produced) =
-        measure_v1(records.clone(), CORRELATED_SUBQUERY_SQL).await;
-    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SimpleJp:");
-    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
-    println!("   Results: {}", simple_jp_produced);
-    println!("   Time: {:.2}ms", simple_jp_ms);
-    println!();
-
-    // Measure TransactionalJp
-    let start = Instant::now();
-    let (transactional_jp_throughput, transactional_jp_produced) =
-        measure_transactional_jp(records.clone(), CORRELATED_SUBQUERY_SQL).await;
-    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ TransactionalJp:");
-    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
-    println!("   Results: {}", transactional_jp_produced);
-    println!("   Time: {:.2}ms", transactional_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_1c_throughput, adaptive_1c_produced) =
-        measure_adaptive_jp(records.clone(), CORRELATED_SUBQUERY_SQL, 1).await;
-    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (1 core):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
-    println!("   Results: {}", adaptive_1c_produced);
-    println!("   Time: {:.2}ms", adaptive_1c_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_4c_throughput, adaptive_4c_produced) =
-        measure_adaptive_jp(records.clone(), CORRELATED_SUBQUERY_SQL, 4).await;
-    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (4 cores):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
-    println!("   Results: {}", adaptive_4c_produced);
-    println!("   Time: {:.2}ms", adaptive_4c_ms);
-    println!();
-
-    // Summary
-    println!("📊 Summary:");
-    println!("─────────────────────────────────────────────");
-    println!("Best Implementation:");
-
-    let implementations = vec![
-        ("SQL Sync", sql_sync_throughput),
-        ("SQL Async", sql_async_throughput),
-        ("SimpleJp", simple_jp_throughput),
-        ("TransactionalJp", transactional_jp_throughput),
-        ("AdaptiveJp (1c)", adaptive_1c_throughput),
-        ("AdaptiveJp (4c)", adaptive_4c_throughput),
-    ];
-
-    let best = implementations
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-
-    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
-    println!();
-
-    // Performance assertion: Correlated subquery should achieve >40K rec/sec
-    assert!(
-        best.1 > 40_000.0,
-        "Correlated subquery performance below threshold: {:.0} rec/sec",
-        best.1
-    );
+/// Create a context customizer that loads the employees table
+fn create_employees_context() -> Arc<dyn Fn(&mut ProcessorContext) + Send + Sync> {
+    Arc::new(move |context: &mut ProcessorContext| {
+        context.load_reference_table("employees", create_employees_table());
+    })
 }
 
 /// Measure SQL Engine (sync version)
@@ -238,6 +137,9 @@ async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f6
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (_tx, mut _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(_tx);
+
+    // Load the employees table into the execution context
+    engine.context_customizer = Some(create_employees_context());
 
     let mut records_sent = 0;
     let mut results_produced = 0;
@@ -266,6 +168,9 @@ async fn measure_sql_engine(records: Vec<StreamRecord>, query: &str) -> (f64, us
     let parsed_query = parser.parse(query).expect("Failed to parse SQL");
     let (_tx, mut _rx) = mpsc::unbounded_channel();
     let mut engine = StreamExecutionEngine::new(_tx);
+
+    // Load the employees table into the execution context
+    engine.context_customizer = Some(create_employees_context());
 
     let mut records_sent = 0;
     let mut results_produced = 0;

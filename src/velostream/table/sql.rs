@@ -149,8 +149,7 @@ impl TableDataSource {
 
     /// Check if records exist matching WHERE clause
     pub fn sql_exists(&self, where_clause: &str) -> Result<bool, SqlError> {
-        let values = self.sql_column_values("*", where_clause)?;
-        Ok(!values.is_empty())
+        <OptimizedTableImpl as UnifiedTable>::sql_exists(&self.table, where_clause)
     }
 
     /// High-performance record streaming

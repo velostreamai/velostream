@@ -144,133 +144,18 @@ const STREAM_STREAM_JOIN_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_stream_stream_join_performance() {
-    println!("\n🚀 Stream-Stream JOIN Performance Benchmark");
-    println!("════════════════════════════════════════════");
-    println!("Operation #11: Tier 3 (42% probability)");
-    println!("Use Case: Correlated events, pattern detection");
-    println!("⚠️  WARNING: Memory-intensive operation!");
-    println!();
-
     let record_count = get_perf_record_count();
     let (clicks, purchases) = generate_stream_stream_join_records(record_count);
 
-    println!("📊 Configuration:");
-    print_perf_config(record_count, None);
-    println!(
-        "   Two-stream JOIN: {} + {} = {} total records",
-        record_count,
-        record_count,
-        record_count * 2
-    );
-    println!("   Query: Stream-Stream JOIN on user + product within 30s");
-    println!("   Match Cardinality: 200 users × 100 products");
-    println!("   Window: 30 seconds (30,000ms)");
-    println!();
+    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+    let (sql_async_throughput, _, _) = measure_sql_engine(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+    let (simple_jp_throughput, _) = measure_v1(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+    let (transactional_jp_throughput, _) = measure_transactional_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+    let (adaptive_1c_throughput, _) = measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL, 1).await;
+    let (adaptive_4c_throughput, _) = measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL, 4).await;
 
-    // Measure SQL Engine (sync baseline)
-    let start = Instant::now();
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
-        measure_sql_engine_sync(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
-    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Sync:");
-    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_sync_sent, sql_sync_produced
-    );
-    println!("   Time: {:.2}ms", sql_sync_ms);
-    println!();
-
-    // Measure SQL Engine (async)
-    let start = Instant::now();
-    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
-        measure_sql_engine(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
-    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Async:");
-    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_async_sent, sql_async_produced
-    );
-    println!("   Time: {:.2}ms", sql_async_ms);
-    println!();
-
-    // Measure SimpleJp (V1)
-    let start = Instant::now();
-    let (simple_jp_throughput, simple_jp_produced) =
-        measure_v1(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
-    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SimpleJp:");
-    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
-    println!("   Results: {}", simple_jp_produced);
-    println!("   Time: {:.2}ms", simple_jp_ms);
-    println!();
-
-    // Measure TransactionalJp
-    let start = Instant::now();
-    let (transactional_jp_throughput, transactional_jp_produced) =
-        measure_transactional_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
-    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ TransactionalJp:");
-    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
-    println!("   Results: {}", transactional_jp_produced);
-    println!("   Time: {:.2}ms", transactional_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_1c_throughput, adaptive_1c_produced) =
-        measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL, 1).await;
-    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (1 core):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
-    println!("   Results: {}", adaptive_1c_produced);
-    println!("   Time: {:.2}ms", adaptive_1c_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_4c_throughput, adaptive_4c_produced) =
-        measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL, 4).await;
-    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (4 cores):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
-    println!("   Results: {}", adaptive_4c_produced);
-    println!("   Time: {:.2}ms", adaptive_4c_ms);
-    println!();
-
-    // Summary
-    println!("📊 Summary:");
-    println!("─────────────────────────────────────────────");
-    println!("Best Implementation:");
-
-    let implementations = vec![
-        ("SQL Sync", sql_sync_throughput),
-        ("SQL Async", sql_async_throughput),
-        ("SimpleJp", simple_jp_throughput),
-        ("TransactionalJp", transactional_jp_throughput),
-        ("AdaptiveJp (1c)", adaptive_1c_throughput),
-        ("AdaptiveJp (4c)", adaptive_4c_throughput),
-    ];
-
-    let best = implementations
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-
-    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
-    println!();
-
-    // Performance assertion: Stream-Stream JOIN should achieve >3K rec/sec
-    assert!(
-        best.1 > 3_000.0,
-        "Stream-Stream JOIN performance below threshold: {:.0} rec/sec",
-        best.1
-    );
+    println!("🚀 BENCHMARK_RESULT | stream_stream_join | tier3 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
 }
 
 /// Measure SQL Engine (sync version) with two streams

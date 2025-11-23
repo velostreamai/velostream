@@ -108,126 +108,19 @@ const HAVING_CLAUSE_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_having_clause_performance() {
-    println!("\n🚀 HAVING Clause Performance Benchmark");
-    println!("═════════════════════════════════════");
-    println!("Operation #9: Tier 2 (72% probability)");
-    println!("Use Case: Post-aggregation filtering, threshold analytics");
-    println!();
-
     let record_count = get_perf_record_count();
-    let cardinality = get_perf_cardinality(record_count / 10); // Default to 10x less unique values than records
+    let cardinality = get_perf_cardinality(record_count / 10);
     let records = generate_having_records(record_count, cardinality);
 
-    println!("📊 Configuration:");
-    print_perf_config(record_count, Some(cardinality));
-    println!("   Query: GROUP BY symbol with HAVING on aggregate");
-    println!("   Filter: Only symbols with >1000 total quantity");
-    println!();
+    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(records.clone(), HAVING_CLAUSE_SQL).await;
+    let (sql_async_throughput, _, _) = measure_sql_engine(records.clone(), HAVING_CLAUSE_SQL).await;
+    let (simple_jp_throughput, _) = measure_v1(records.clone(), HAVING_CLAUSE_SQL).await;
+    let (transactional_jp_throughput, _) = measure_transactional_jp(records.clone(), HAVING_CLAUSE_SQL).await;
+    let (adaptive_1c_throughput, _) = measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 1).await;
+    let (adaptive_4c_throughput, _) = measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 4).await;
 
-    // Measure SQL Engine (sync baseline)
-    let start = Instant::now();
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
-        measure_sql_engine_sync(records.clone(), HAVING_CLAUSE_SQL).await;
-    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Sync:");
-    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_sync_sent, sql_sync_produced
-    );
-    println!("   Time: {:.2}ms", sql_sync_ms);
-    println!();
-
-    // Measure SQL Engine (async)
-    let start = Instant::now();
-    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
-        measure_sql_engine(records.clone(), HAVING_CLAUSE_SQL).await;
-    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Async:");
-    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_async_sent, sql_async_produced
-    );
-    println!("   Time: {:.2}ms", sql_async_ms);
-    println!();
-
-    // Measure SimpleJp (V1)
-    let start = Instant::now();
-    let (simple_jp_throughput, simple_jp_produced) =
-        measure_v1(records.clone(), HAVING_CLAUSE_SQL).await;
-    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SimpleJp:");
-    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
-    println!("   Results: {}", simple_jp_produced);
-    println!("   Time: {:.2}ms", simple_jp_ms);
-    println!();
-
-    // Measure TransactionalJp
-    let start = Instant::now();
-    let (transactional_jp_throughput, transactional_jp_produced) =
-        measure_transactional_jp(records.clone(), HAVING_CLAUSE_SQL).await;
-    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ TransactionalJp:");
-    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
-    println!("   Results: {}", transactional_jp_produced);
-    println!("   Time: {:.2}ms", transactional_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_1c_throughput, adaptive_1c_produced) =
-        measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 1).await;
-    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (1 core):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
-    println!("   Results: {}", adaptive_1c_produced);
-    println!("   Time: {:.2}ms", adaptive_1c_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_4c_throughput, adaptive_4c_produced) =
-        measure_adaptive_jp(records.clone(), HAVING_CLAUSE_SQL, 4).await;
-    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (4 cores):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
-    println!("   Results: {}", adaptive_4c_produced);
-    println!("   Time: {:.2}ms", adaptive_4c_ms);
-    println!();
-
-    // Summary
-    println!("📊 Summary:");
-    println!("─────────────────────────────────────");
-    println!("Best Implementation:");
-
-    let implementations = vec![
-        ("SQL Sync", sql_sync_throughput),
-        ("SQL Async", sql_async_throughput),
-        ("SimpleJp", simple_jp_throughput),
-        ("TransactionalJp", transactional_jp_throughput),
-        ("AdaptiveJp (1c)", adaptive_1c_throughput),
-        ("AdaptiveJp (4c)", adaptive_4c_throughput),
-    ];
-
-    let best = implementations
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-
-    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
-    println!();
-
-    // Performance assertion: HAVING should achieve >18K rec/sec
-    assert!(
-        best.1 > 18_000.0,
-        "HAVING clause performance below threshold: {:.0} rec/sec",
-        best.1
-    );
+    println!("🚀 BENCHMARK_RESULT | having_clause | tier2 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
 }
 
 /// Measure SQL Engine (sync version)

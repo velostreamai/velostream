@@ -163,13 +163,21 @@ run_operation_test() {
         if echo "$test_output" | grep -q "🚀"; then
             print_success "$operation"
 
+            # Extract just the BENCHMARK_RESULT line and display it concisely
+            local benchmark_line=$(echo "$test_output" | grep "🚀 BENCHMARK_RESULT")
+            if [ -n "$benchmark_line" ]; then
+                # Show concise output: just the emoji + BENCHMARK_RESULT data (strip test path)
+                # Format: 🚀 operation_name | tier | metrics
+                echo "$benchmark_line" | sed 's/.*test result://' | grep -o "🚀 BENCHMARK_RESULT.*" | sed 's/🚀 /  🚀 /'
+            fi
+
             # Log all output related to the test results
             log_to_file "📊 Operation: $operation ($tier)"
             log_to_file "─────────────────────────────────────────────────────────────"
 
-            # Save the test output, stripping out compiler warnings
-            echo "$test_output" | sed -n '/^running 1 test/,/^test result:/p' >> "$RESULTS_FILE" 2>/dev/null || true
-            echo "$test_output" | grep -v "^warning" | grep -E "(🚀|✅|📊|Operation|Tier|Throughput|Implementation|Summary|Configuration|rec/sec|passed)" >> "$RESULTS_FILE" 2>/dev/null || true
+            # Capture all BENCHMARK_RESULT lines (they start with 🚀 emoji) for report parsing
+            # Extract just the emoji + BENCHMARK_RESULT part, stripping the test path prefix
+            echo "$test_output" | grep "BENCHMARK_RESULT" | sed 's/.*🚀 /🚀 /' >> "$RESULTS_FILE" 2>/dev/null || true
 
             log_to_file ""
         else
@@ -268,8 +276,20 @@ echo ""
 echo "📊 Results Summary:"
 echo "─────────────────────────────────────────────────────────────────"
 echo ""
-tail -30 "$RESULTS_FILE"
-echo ""
+
+# Automatically generate and display the clean summary
+SUMMARY_SCRIPT="$SCRIPT_DIR/generate_performance_summary.sh"
+if [ -f "$SUMMARY_SCRIPT" ]; then
+    echo ""
+    "$SUMMARY_SCRIPT" "$RESULTS_FILE"
+    echo ""
+else
+    echo "⚠️  Summary generator not found at $SUMMARY_SCRIPT"
+    echo ""
+    tail -30 "$RESULTS_FILE"
+    echo ""
+fi
+
 echo "─────────────────────────────────────────────────────────────────"
 echo ""
 echo "Complete results saved to:"
@@ -279,5 +299,5 @@ echo "To view results:"
 echo "  cat $RESULTS_FILE"
 echo ""
 echo "To extract performance data for documentation:"
-echo "  grep -E 'Throughput|Best Implementation' $RESULTS_FILE"
+echo "  grep -E 'BENCHMARK_RESULT' $RESULTS_FILE"
 echo ""

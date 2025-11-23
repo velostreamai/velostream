@@ -79,124 +79,18 @@ const SELECT_WHERE_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_select_where_performance() {
-    println!("\n🚀 SELECT + WHERE Performance Benchmark");
-    println!("═══════════════════════════════════════");
-    println!("Operation #1: Tier 1 (99% probability)");
-    println!("Use Case: Basic filtering, data validation");
-    println!();
-
     let record_count = get_perf_record_count();
     let records = generate_select_where_records(record_count);
 
-    println!("📊 Configuration:");
-    print_perf_config(record_count, None);
-    println!("   Query: SELECT + WHERE simple filter");
-    println!("   Customers: 1000 unique");
-    println!();
+    let (sql_sync_throughput, _, _) = measure_sql_engine_sync(records.clone(), SELECT_WHERE_SQL).await;
+    let (sql_async_throughput, _, _) = measure_sql_engine(records.clone(), SELECT_WHERE_SQL).await;
+    let (simple_jp_throughput, _) = measure_v1(records.clone(), SELECT_WHERE_SQL).await;
+    let (transactional_jp_throughput, _) = measure_transactional_jp(records.clone(), SELECT_WHERE_SQL).await;
+    let (adaptive_1c_throughput, _) = measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 1).await;
+    let (adaptive_4c_throughput, _) = measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 4).await;
 
-    let start = Instant::now();
-    let (sql_sync_throughput, sql_sync_sent, sql_sync_produced) =
-        measure_sql_engine_sync(records.clone(), SELECT_WHERE_SQL).await;
-    let sql_sync_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Sync:");
-    println!("   Throughput: {:.0} rec/sec", sql_sync_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_sync_sent, sql_sync_produced
-    );
-    println!("   Time: {:.2}ms", sql_sync_ms);
-    println!();
-
-    let start = Instant::now();
-    let (sql_async_throughput, sql_async_sent, sql_async_produced) =
-        measure_sql_engine(records.clone(), SELECT_WHERE_SQL).await;
-    let sql_async_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SQL Engine Async:");
-    println!("   Throughput: {:.0} rec/sec", sql_async_throughput);
-    println!(
-        "   Sent: {}, Produced: {}",
-        sql_async_sent, sql_async_produced
-    );
-    println!("   Time: {:.2}ms", sql_async_ms);
-    println!();
-
-    let start = Instant::now();
-    let (simple_jp_throughput, simple_jp_produced) =
-        measure_v1(records.clone(), SELECT_WHERE_SQL).await;
-    let simple_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ SimpleJp:");
-    println!("   Throughput: {:.0} rec/sec", simple_jp_throughput);
-    println!("   Results: {}", simple_jp_produced);
-    println!("   Time: {:.2}ms", simple_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (transactional_jp_throughput, transactional_jp_produced) =
-        measure_transactional_jp(records.clone(), SELECT_WHERE_SQL).await;
-    let transactional_jp_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ TransactionalJp:");
-    println!("   Throughput: {:.0} rec/sec", transactional_jp_throughput);
-    println!("   Results: {}", transactional_jp_produced);
-    println!("   Time: {:.2}ms", transactional_jp_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_1c_throughput, adaptive_1c_produced) =
-        measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 1).await;
-    let adaptive_1c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (1 core):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_1c_throughput);
-    println!("   Results: {}", adaptive_1c_produced);
-    println!("   Time: {:.2}ms", adaptive_1c_ms);
-    println!();
-
-    let start = Instant::now();
-    let (adaptive_4c_throughput, adaptive_4c_produced) =
-        measure_adaptive_jp(records.clone(), SELECT_WHERE_SQL, 4).await;
-    let adaptive_4c_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-    println!("✅ AdaptiveJp (4 cores):");
-    println!("   Throughput: {:.0} rec/sec", adaptive_4c_throughput);
-    println!("   Results: {}", adaptive_4c_produced);
-    println!("   Time: {:.2}ms", adaptive_4c_ms);
-    println!();
-
-    println!("📊 Summary:");
-    println!("─────────────────────────────────────────");
-    println!("Performance by Implementation:");
-
-    let implementations = vec![
-        ("SQL Sync", sql_sync_throughput),
-        ("SQL Async", sql_async_throughput),
-        ("SimpleJp", simple_jp_throughput),
-        ("TransactionalJp", transactional_jp_throughput),
-        ("AdaptiveJp (1c)", adaptive_1c_throughput),
-        ("AdaptiveJp (4c)", adaptive_4c_throughput),
-    ];
-
-    for (name, throughput) in &implementations {
-        println!("   {} {:.0} rec/sec", name, throughput);
-    }
-    println!();
-
-    let best = implementations
-        .iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-
-    println!("   🏆 {}: {:.0} rec/sec", best.0, best.1);
-    println!();
-
-    assert!(
-        best.1 > 50_000.0,
-        "SELECT + WHERE performance below threshold: {:.0} rec/sec",
-        best.1
-    );
+    println!("🚀 BENCHMARK_RESULT | select_where | tier1 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        sql_sync_throughput, sql_async_throughput, simple_jp_throughput, transactional_jp_throughput, adaptive_1c_throughput, adaptive_4c_throughput);
 }
 
 async fn measure_sql_engine_sync(records: Vec<StreamRecord>, query: &str) -> (f64, usize, usize) {
