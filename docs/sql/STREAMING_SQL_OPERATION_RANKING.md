@@ -26,22 +26,22 @@ This document ranks Streaming SQL operations by **probability of real-world use*
 
 <!-- BENCHMARK_TABLE_START -->
 
-| Operation | Tier | Peak Throughput (evt/sec) | Implementation |
-|-----------|------|---------------------------|-----------------|
-| any_all_operators | tier4 | **1,728,709** | SQL Sync |
-| correlated_subquery | tier3 | **689,413** | SQL Sync |
-| exists_subquery | tier3 | **1,331,719** | SQL Sync |
-| group_by_continuous | tier1 | **104,762** | AdaptiveJp (4c) |
-| having_clause | tier2 | **104,853** | AdaptiveJp (4c) |
-| in_subquery | tier3 | **1,524,455** | SQL Sync |
-| recursive_ctes | tier4 | **1,506,732** | SQL Sync |
-| rows_window | tier1 | **1,025,060** | SQL Sync |
-| scalar_subquery | tier2 | **525,328** | SQL Sync |
-| select_where | tier1 | **920,762** | SQL Sync |
-| stream_stream_join | tier3 | **561,891** | SQL Async |
-| stream_table_join | tier1 | **876,884** | SQL Sync |
-| timebased_join | tier2 | **495,571** | SQL Async |
-| tumbling_window | tier1 | **396,304** | SQL Sync |
+| Operation | Tier | Velostream (evt/sec) | Flink Baseline | Multiplier | Status |
+|-----------|------|----------------------|-----------------|------------|--------|
+| any_all_operators    | tier4 | **1,728,709** |     70K |      24.7x | ✅ Exceeds    |
+| correlated_subquery  | tier3 | **689,413** |     55K |      12.5x | ✅ Exceeds    |
+| exists_subquery      | tier3 | **1,331,719** |     65K |      20.5x | ✅ Exceeds    |
+| group_by_continuous  | tier1 | **103,992** |     18K |       5.8x | ✅ Exceeds    |
+| having_clause        | tier2 | **104,055** |     20K |       5.2x | ✅ Exceeds    |
+| in_subquery          | tier3 | **1,524,455** |     80K |      19.1x | ✅ Exceeds    |
+| recursive_ctes       | tier4 | **1,506,732** |     15K |     100.4x | ✅ Exceeds    |
+| rows_window          | tier1 | **1,025,060** |    140K |       7.3x | ✅ Exceeds    |
+| scalar_subquery      | tier2 | **525,328** |    120K |       4.4x | ✅ Exceeds    |
+| select_where         | tier1 | **920,762** |    150K |       6.1x | ✅ Exceeds    |
+| stream_stream_join   | tier3 | **519,371** |     12K |      43.3x | ✅ Exceeds    |
+| stream_table_join    | tier1 | **876,884** |     18K |      48.7x | ✅ Exceeds    |
+| timebased_join       | tier2 | **459,740** |     15K |      30.6x | ✅ Exceeds    |
+| tumbling_window      | tier1 | **396,304** |     25K |      15.9x | ✅ Exceeds    |
 
 <!-- BENCHMARK_TABLE_END -->
 
