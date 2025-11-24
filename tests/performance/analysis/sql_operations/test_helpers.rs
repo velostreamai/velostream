@@ -6,14 +6,12 @@
 pub use std::sync::Arc;
 pub use std::time::{Duration, Instant};
 pub use tokio::sync::mpsc;
-pub use velostream::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig,
-};
+pub use velostream::velostream::server::processors::{FailureStrategy, JobProcessingConfig};
 pub use velostream::velostream::server::v2::coordinator::{
     AdaptiveJobProcessor, PartitionedJobConfig,
 };
-pub use velostream::velostream::sql::execution::types::StreamRecord;
 pub use velostream::velostream::sql::execution::StreamExecutionEngine;
+pub use velostream::velostream::sql::execution::types::StreamRecord;
 pub use velostream::velostream::sql::parser::StreamingSqlParser;
 pub use velostream::velostream::sql::validation::QueryValidator;
 pub use velostream::velostream::table::UnifiedTable;

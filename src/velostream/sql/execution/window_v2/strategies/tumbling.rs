@@ -367,11 +367,12 @@ impl WindowStrategy for TumblingWindowStrategy {
             return Ok(should_emit);
         }
 
-        // Record is too late (outside allowed_lateness) or belongs to different window
-        if timestamp > self.window_end_time.unwrap_or(i64::MAX) {
+        // Record belongs to future window - tumbling windows are half-open [start, end)
+        // Records at timestamp == window_end belong to NEXT window, must trigger current window's emission
+        if timestamp >= self.window_end_time.unwrap_or(i64::MAX) {
             // Belongs to future window - add to current buffer for next window
             self.buffer.push_back(record);
-            return Ok(should_emit);
+            return Ok(true); // Must emit current window when next window's record arrives
         }
 
         // Record is too old - outside allowed_lateness and belongs to a previous window

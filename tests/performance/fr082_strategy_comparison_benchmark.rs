@@ -16,11 +16,10 @@
 //! - Demonstrate V2 scaling improvements
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Instant;
 use velostream::velostream::server::v2::{
     AlwaysHashStrategy, PartitioningStrategy, RoundRobinStrategy, RoutingContext,
-    SmartRepartitionStrategy, StickyPartitionStrategy, StrategyConfig, StrategyFactory,
+    SmartRepartitionStrategy, StickyPartitionStrategy,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
