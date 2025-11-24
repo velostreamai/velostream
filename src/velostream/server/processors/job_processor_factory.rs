@@ -102,25 +102,27 @@ impl JobProcessorFactory {
     ///
     /// ## Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use std::collections::HashMap;
     /// use std::sync::Arc;
     /// use velostream::velostream::server::processors::{JobProcessorFactory, JobProcessorConfig};
-    /// use velostream::velostream::table::OptimizedTableImpl;
+    /// use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
     ///
-    /// // Create table
-    /// let mut table = OptimizedTableImpl::new("employees");
-    /// // Populate table...
+    /// fn main() {
+    ///     // Create table
+    ///     let table = OptimizedTableImpl::new();
+    ///     // Populate table...
     ///
-    /// // Create registry
-    /// let mut tables = HashMap::new();
-    /// tables.insert("employees".to_string(), Arc::new(table) as Arc<dyn _>);
+    ///     // Create registry
+    ///     let mut tables: HashMap<String, Arc<dyn UnifiedTable>> = HashMap::new();
+    ///     tables.insert("employees".to_string(), Arc::new(table));
     ///
-    /// let processor = JobProcessorFactory::create_with_config_and_tables(
-    ///     JobProcessorConfig::Adaptive { num_partitions: Some(4), enable_core_affinity: false },
-    ///     None,
-    ///     Some(tables),
-    /// );
+    ///     let processor = JobProcessorFactory::create_with_config_and_tables(
+    ///         JobProcessorConfig::Adaptive { num_partitions: Some(4), enable_core_affinity: false },
+    ///         None,
+    ///         Some(tables),
+    ///     );
+    /// }
     /// ```
     pub fn create_with_config_and_tables(
         config: JobProcessorConfig,
