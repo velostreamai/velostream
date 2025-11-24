@@ -55,9 +55,9 @@ fn create_user_profiles_table() -> Arc<OptimizedTableImpl> {
     user3.insert("tier".to_string(), FieldValue::String("BRONZE".to_string()));
     user3.insert("risk_score".to_string(), FieldValue::Integer(60));
 
-    table.insert("1".to_string(), user1);
-    table.insert("2".to_string(), user2);
-    table.insert("3".to_string(), user3);
+    let _ = table.insert("1".to_string(), user1);
+    let _ = table.insert("2".to_string(), user2);
+    let _ = table.insert("3".to_string(), user3);
 
     table
 }

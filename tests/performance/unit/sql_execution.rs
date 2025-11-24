@@ -10,20 +10,9 @@ use super::super::common::{
     BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use serial_test::serial;
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-use tokio::sync::{Mutex, mpsc};
-use velostream::velostream::{
-    datasource::{DataReader, DataWriter},
-    server::processors::{common::*, simple::*},
-    sql::{
-        StreamExecutionEngine,
-        execution::types::{FieldValue, StreamRecord},
-    },
-};
+use std::{collections::HashMap, time::Duration};
+use tokio::sync::mpsc;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 
 /// Unified simple SELECT benchmark combining basic and enhanced modes
 #[tokio::test]

@@ -24,18 +24,11 @@ use super::super::common::{
     BenchmarkConfig, BenchmarkMode, MetricsCollector, TestRecordConfig, generate_test_records,
 };
 use serial_test::serial;
-use std::{
-    collections::HashMap,
-    time::{Duration, Instant},
-};
+use std::{collections::HashMap, time::Instant};
 use tokio::sync::mpsc;
 use velostream::velostream::{
-    sql::{
-        StreamExecutionEngine,
-        execution::types::{FieldValue, StreamRecord},
-        parser::StreamingSqlParser,
-    },
-    table::unified_table::{CachedPredicate, parse_where_clause_cached},
+    sql::execution::types::{FieldValue, StreamRecord},
+    table::unified_table::parse_where_clause_cached,
 };
 
 // ============================================================================
