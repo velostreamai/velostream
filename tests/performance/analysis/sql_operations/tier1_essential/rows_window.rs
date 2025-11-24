@@ -23,7 +23,7 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
-    create_adaptive_processor, get_perf_record_count, print_perf_config,
+    create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
 };
 
 /// Generate test data: market data with symbols and prices
@@ -73,10 +73,9 @@ fn create_market_data_table() -> Arc<dyn UnifiedTable> {
 const ROWS_WINDOW_SQL: &str = r#"
     SELECT symbol, price,
         AVG(price) OVER (
-            ROWS WINDOW
-                BUFFER 100 ROWS
-                PARTITION BY symbol
-                ORDER BY timestamp
+            ROWS WINDOW BUFFER 100 ROWS
+            PARTITION BY symbol
+            ORDER BY timestamp
         ) as moving_avg
     FROM market_data
 "#;
@@ -84,6 +83,9 @@ const ROWS_WINDOW_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_rows_window_performance() {
+    // Validate SQL query
+    validate_sql_query(ROWS_WINDOW_SQL);
+
     let record_count = get_perf_record_count();
     let records = generate_rows_window_records(record_count);
 

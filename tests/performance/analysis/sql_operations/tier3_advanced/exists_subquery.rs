@@ -29,7 +29,7 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
-    create_adaptive_processor, get_perf_record_count, print_perf_config,
+    create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
 };
 
 /// Generate test data for EXISTS: customers with orders
@@ -107,6 +107,7 @@ const EXISTS_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_exists_subquery_performance() {
+    validate_sql_query(EXISTS_SQL);
     let record_count = get_perf_record_count();
     let records = generate_exists_records(record_count);
 

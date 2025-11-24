@@ -30,7 +30,7 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
-    create_adaptive_processor, get_perf_record_count, print_perf_config,
+    create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
 };
 
 /// Generate test data for scalar subquery: trades with config lookups
@@ -123,6 +123,9 @@ const SCALAR_SUBQUERY_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_scalar_subquery_performance() {
+    // Validate SQL query
+    validate_sql_query(SCALAR_SUBQUERY_SQL);
+
     let record_count = get_perf_record_count();
     let records = generate_scalar_subquery_records(record_count);
 

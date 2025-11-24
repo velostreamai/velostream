@@ -23,7 +23,7 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
-    create_adaptive_processor, get_perf_record_count, print_perf_config,
+    create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
 };
 
 /// Generate test data: trading data with trader_id, symbol, and price
@@ -98,12 +98,15 @@ const TUMBLING_WINDOW_SQL: &str = r#"
         SUM(price * quantity) as total_value
     FROM market_data
     GROUP BY trader_id, symbol
-    WINDOW TUMBLING (trade_time, INTERVAL '1' MINUTE)
+    WINDOW TUMBLING(trade_time, INTERVAL '1' MINUTE)
 "#;
 
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_tumbling_window_performance() {
+    // Validate SQL query
+    validate_sql_query(TUMBLING_WINDOW_SQL);
+
     let record_count = get_perf_record_count();
     let records = generate_tumbling_window_records(record_count);
 

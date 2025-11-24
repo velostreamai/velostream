@@ -24,26 +24,28 @@ This document ranks Streaming SQL operations by **probability of real-world use*
 
 ### Currently Implemented & Tested
 
-All 14 SQL operations have benchmark tests and proven performance metrics:
+**13 SQL operations** have benchmark tests and proven performance metrics. 1 operation marked as known gap:
 
 <!-- BENCHMARK_TABLE_START -->
 
 | Operation | Tier | Peak Throughput (evt/sec) | Implementation |
 |-----------|------|---------------------------|-----------------|
-| any_all_operators | tier4 | **1,736,826** | SQL Sync |
-| correlated_subquery | tier3 | **689,993** | SQL Async |
-| exists_subquery | tier3 | **1,359,614** | SQL Sync |
-| group_by_continuous | tier1 | **109,184** | SQL Sync |
-| having_clause | tier2 | **106,835** | AdaptiveJp (4c) |
-| in_subquery | tier3 | **1,536,532** | SQL Sync |
-| recursive_ctes | tier4 | **1,500,272** | SQL Sync |
-| rows_window | tier1 | **1,040,837** | SQL Sync |
-| scalar_subquery | tier2 | **606,416** | SQL Sync |
-| select_where | tier1 | **755,782** | SQL Sync |
-| stream_stream_join | tier3 | **568,732** | SQL Async |
-| stream_table_join | tier1 | **342,670** | SQL Sync |
-| timebased_join | tier2 | **487,766** | SQL Sync |
-| tumbling_window | tier1 | **398,517** | SQL Sync |
+| any_all_operators | tier4 | **1,364,195** | AdaptiveJp (4c) |
+| correlated_subquery | tier3 | **649,203** | SQL Async |
+| exists_subquery | tier3 | **1,231,293** | SQL Sync |
+| group_by_continuous | tier1 | **297,129** | SimpleJp |
+| having_clause | tier2 | **332,796** | SimpleJp |
+| in_subquery | tier3 | **1,230,397** | SQL Sync |
+| rows_window | tier1 | **946,436** | SQL Sync |
+| scalar_subquery | tier2 | **534,013** | SQL Sync |
+| select_where | tier1 | **739,467** | AdaptiveJp (1c) |
+| stream_stream_join | tier3 | **536,583** | SQL Async |
+| stream_table_join | tier1 | **314,037** | SQL Sync |
+| timebased_join | tier2 | **498,984** | SQL Async |
+| tumbling_window | tier1 | **808,383** | AdaptiveJp (1c) |
+
+**Known Gap** (Planned for next PR):
+| recursive_ctes | tier4 | ❌ NOT YET SUPPORTED | — |
 
 <!-- BENCHMARK_TABLE_END -->
 

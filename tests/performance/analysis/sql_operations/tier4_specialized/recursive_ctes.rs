@@ -23,20 +23,23 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
-    create_adaptive_processor, get_perf_record_count, print_perf_config,
+    create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
 };
 
-/// Generate test data for CTEs: simple hierarchical data
+/// Generate test data for CTEs: employee hierarchy data with manager_id relationships
 fn generate_recursive_cte_records(count: usize) -> Vec<StreamRecord> {
     (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            let id = i as i64;
-            let level = (i % 5) as i64;
+            let employee_id = i as i64;
+            // Create a tree structure: each employee (except root) reports to employee % 5
+            let manager_id = if i == 0 { -1 } else { (i % 5) as i64 };
+            let name = format!("Employee_{}", i);
             let timestamp = (i * 1000) as i64;
 
-            fields.insert("id".to_string(), FieldValue::Integer(id));
-            fields.insert("level".to_string(), FieldValue::Integer(level));
+            fields.insert("employee_id".to_string(), FieldValue::Integer(employee_id));
+            fields.insert("manager_id".to_string(), FieldValue::Integer(manager_id));
+            fields.insert("name".to_string(), FieldValue::String(name));
             fields.insert("timestamp".to_string(), FieldValue::Integer(timestamp));
 
             StreamRecord::new(fields)
@@ -44,13 +47,18 @@ fn generate_recursive_cte_records(count: usize) -> Vec<StreamRecord> {
         .collect()
 }
 
-/// Create the data table for the recursive CTE test
+/// Create the employees table for the recursive CTE test (hierarchical organization)
 fn create_data_table() -> Arc<dyn UnifiedTable> {
     let mut table = OptimizedTableImpl::new();
     for i in 0..10 {
         let mut fields = HashMap::new();
-        fields.insert("id".to_string(), FieldValue::Integer(i as i64));
-        fields.insert("level".to_string(), FieldValue::Integer((i % 5) as i64));
+        let manager_id = if i == 0 { -1 } else { (i % 5) as i64 };
+        fields.insert("employee_id".to_string(), FieldValue::Integer(i as i64));
+        fields.insert("manager_id".to_string(), FieldValue::Integer(manager_id));
+        fields.insert(
+            "name".to_string(),
+            FieldValue::String(format!("Employee_{}", i)),
+        );
         fields.insert(
             "timestamp".to_string(),
             FieldValue::Integer((i * 1000) as i64),
@@ -61,19 +69,46 @@ fn create_data_table() -> Arc<dyn UnifiedTable> {
     Arc::new(table)
 }
 
-/// SQL query with CTE: simple common table expression
+/// SQL query with Recursive CTE: traverses employee hierarchy up to CEO
+/// Tests ability to walk hierarchical structures using WITH RECURSIVE syntax
 const RECURSIVE_CTE_SQL: &str = r#"
+    WITH RECURSIVE org_hierarchy AS (
+        -- Anchor: start with employees who report to root (manager_id = 0)
+        SELECT
+            employee_id,
+            manager_id,
+            name,
+            1 as hierarchy_level
+        FROM employees
+        WHERE manager_id = 0
+
+        UNION ALL
+
+        -- Recursive: find employees reporting to each level
+        SELECT
+            e.employee_id,
+            e.manager_id,
+            e.name,
+            oh.hierarchy_level + 1
+        FROM employees e
+        JOIN org_hierarchy oh ON e.manager_id = oh.employee_id
+        WHERE oh.hierarchy_level < 5
+    )
     SELECT
-        id,
-        level
-    FROM data
-    WHERE level > 0
+        employee_id,
+        manager_id,
+        name,
+        hierarchy_level
+    FROM org_hierarchy
 "#;
 
 /// Test: Recursive CTE performance measurement
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_recursive_cte_performance() {
+    // Validate SQL query
+    validate_sql_query(RECURSIVE_CTE_SQL);
+
     let record_count = get_perf_record_count();
     let records = generate_recursive_cte_records(record_count);
 
@@ -118,7 +153,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 
     // Create table registry
     let mut table_registry = HashMap::new();
-    table_registry.insert("data".to_string(), create_data_table());
+    table_registry.insert("employees".to_string(), create_data_table());
 
     let processor = JobProcessorFactory::create_with_config_and_tables(
         JobProcessorConfig::Simple,
@@ -163,7 +198,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
 async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
     // Create table registry
     let mut table_registry = HashMap::new();
-    table_registry.insert("data".to_string(), create_data_table());
+    table_registry.insert("employees".to_string(), create_data_table());
 
     let processor = JobProcessorFactory::create_with_config_and_tables(
         JobProcessorConfig::Transactional,
@@ -211,7 +246,7 @@ async fn measure_adaptive_jp(
 ) -> (f64, usize) {
     // Create table registry
     let mut table_registry = HashMap::new();
-    table_registry.insert("data".to_string(), create_data_table());
+    table_registry.insert("employees".to_string(), create_data_table());
 
     let processor = JobProcessorFactory::create_with_config_and_tables(
         JobProcessorConfig::Adaptive {

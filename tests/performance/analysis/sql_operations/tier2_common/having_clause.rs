@@ -29,6 +29,7 @@ use velostream::velostream::table::{OptimizedTableImpl, UnifiedTable};
 use super::super::super::test_helpers::{KafkaSimulatorDataSource, MockDataWriter};
 use super::super::test_helpers::{
     create_adaptive_processor, get_perf_cardinality, get_perf_record_count, print_perf_config,
+    validate_sql_query,
 };
 
 /// Generate test data for HAVING: trades grouped by symbol
@@ -108,6 +109,7 @@ const HAVING_CLAUSE_SQL: &str = r#"
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
 async fn test_having_clause_performance() {
+    validate_sql_query(HAVING_CLAUSE_SQL);
     let record_count = get_perf_record_count();
     let cardinality = get_perf_cardinality(record_count / 10);
     let records = generate_having_records(record_count, cardinality);
