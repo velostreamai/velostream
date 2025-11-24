@@ -224,12 +224,10 @@ async fn test_tumbling_window_group_by_multiple_boundaries_emit_final() {
         );
 
         // Verify count value
-        // NOTE: Window emission correctness (FR-083) is in progress
-        // Currently receiving partial emissions, will be fixed in next iteration
         if let Some(FieldValue::Integer(cnt)) = emission.fields.get("count") {
-            assert!(
-                *cnt >= 1,
-                "Emission {} should have count >= 1, got {}",
+            assert_eq!(
+                *cnt, 2,
+                "Emission {} should have count=2 (2 records per group per window), got {}",
                 i, cnt
             );
         }
