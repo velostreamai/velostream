@@ -7,13 +7,13 @@ pub use std::sync::Arc;
 pub use std::time::{Duration, Instant};
 pub use tokio::sync::mpsc;
 pub use velostream::velostream::server::processors::{
-    FailureStrategy, JobProcessingConfig, JobProcessorConfig, JobProcessorFactory,
+    FailureStrategy, JobProcessingConfig,
 };
 pub use velostream::velostream::server::v2::coordinator::{
     AdaptiveJobProcessor, PartitionedJobConfig,
 };
-pub use velostream::velostream::sql::execution::StreamExecutionEngine;
 pub use velostream::velostream::sql::execution::types::StreamRecord;
+pub use velostream::velostream::sql::execution::StreamExecutionEngine;
 pub use velostream::velostream::sql::parser::StreamingSqlParser;
 pub use velostream::velostream::sql::validation::QueryValidator;
 pub use velostream::velostream::table::UnifiedTable;
@@ -139,8 +139,10 @@ pub fn validate_sql_query(sql: &str) {
     } else {
         println!("✅ SQL Syntax: OK - {}", sql);
         if !validation_result.semantic_errors.is_empty() {
-            println!("   ℹ️  Semantic analysis note: {} issues (may be expected in performance tests)",
-                     validation_result.semantic_errors.len());
+            println!(
+                "   ℹ️  Semantic analysis note: {} issues (may be expected in performance tests)",
+                validation_result.semantic_errors.len()
+            );
         }
     }
 }
