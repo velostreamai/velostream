@@ -1,0 +1,43 @@
+# Desk-Level Risk Limits Table Configuration
+# Reference table for trading desk exposure limits and sector concentrations
+# Used by ANY/ALL operators for multi-tier risk validation
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "desk_limits"
+  type: "lookup_table"
+
+consumer.group: "desk_limits_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: desk_id
+    value.serializer: json
+
+  # Example structure for desk limit records
+  # {
+  #   "desk_id": "DESK_EQUITIES",
+  #   "desk_name": "Equities Trading Desk",
+  #   "business_unit": "EQUITIES",
+  #   "desk_notional_limit": 250000000,
+  #   "sector_concentration_limit": 0.30,
+  #   "daily_loss_limit": 1000000,
+  #   "max_leverage": 3.0,
+  #   "risk_manager": "RISK_OFFICER_001",
+  #   "effective_date": "2025-01-01"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 3600  # 1 hour
+  refresh_interval_ms: 300000  # Refresh every 5 minutes
+
+metadata:
+  description: "Desk-level exposure limits and sector concentration controls"
+  data.classification: "compliance_sensitive"
+  update.frequency: "daily"
+  primary_key: "desk_id"
+  use_case: "ANY/ALL operators for desk-level risk validation"

@@ -1,0 +1,45 @@
+# Trader Risk Limits Table Configuration
+# Reference table for individual trader notional exposure and risk limits
+# Used by ANY/ALL operators for multi-tier risk validation
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "trader_limits"
+  type: "lookup_table"
+
+consumer.group: "trader_limits_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: trader_id
+    value.serializer: json
+
+  # Example structure for trader limit records
+  # {
+  #   "trader_id": "TRADER_001",
+  #   "trader_name": "John Smith",
+  #   "role_name": "Senior Trader",
+  #   "desk_id": "DESK_EQUITIES",
+  #   "trader_notional_limit": 50000000,
+  #   "daily_loss_limit": 100000,
+  #   "concentration_limit": 0.25,
+  #   "max_positions": 100,
+  #   "authorized_instruments": ["EQUITIES", "OPTIONS"],
+  #   "risk_level": "HIGH",
+  #   "effective_date": "2025-01-01"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 3600  # 1 hour - trader limits change infrequently
+  refresh_interval_ms: 300000  # Refresh every 5 minutes
+
+metadata:
+  description: "Individual trader risk limits and authorization levels"
+  data.classification: "compliance_sensitive"
+  update.frequency: "daily"
+  primary_key: "trader_id"
+  use_case: "ANY/ALL operators for hierarchical risk validation"

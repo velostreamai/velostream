@@ -115,6 +115,76 @@ WITH (
 );
 
 -- ====================================================================================
+-- TIER 1: STREAM-TABLE JOIN - Instrument Reference Data Enrichment
+-- ====================================================================================
+-- Enriches market data with instrument metadata from reference table
+-- Demonstrates classic lookup pattern used in 94% of trading systems
+-- References: Line 284 in STREAMING_SQL_OPERATION_RANKING.md
+
+-- FR-073 SQL-Native Observability: Enriched Records Counter
+-- @metric: velo_trading_enriched_records_total
+-- @metric_type: counter
+-- @metric_help: "Market data records enriched with instrument metadata"
+-- @metric_labels: symbol, trading_venue
+
+-- FR-073 SQL-Native Observability: Enrichment Latency
+-- @metric: velo_trading_enrichment_latency_seconds
+-- @metric_type: histogram
+-- @metric_help: "Latency of instrument reference lookups"
+-- @metric_buckets: 0.001, 0.005, 0.01, 0.05, 0.1
+-- @dashboard: velostream-trading.json (Enrichment Performance panel)
+
+-- @job_name: enriched_market_data
+-- @partitioning_strategy: always_hash
+CREATE STREAM enriched_market_data AS
+SELECT
+    m.symbol,
+    m.exchange,
+    m.price,
+    m.bid_price,
+    m.ask_price,
+    m.volume,
+    m.event_time,
+    m.timestamp,
+
+    -- Enrichment from reference table (Tier 1: Stream-Table JOIN)
+    r.instrument_name,
+    r.isin_code,
+    r.tick_size,
+    r.lot_size,
+    r.trading_venue as instrument_venue,
+    r.settlement_currency,
+    r.margin_requirement,
+    r.position_limit,
+    r.restricted_trading_hours,
+
+    -- Calculated fields using reference data
+    FLOOR(m.price / r.tick_size) * r.tick_size as normalized_price,
+    m.volume / r.lot_size as lot_count,
+
+    NOW() as enrichment_time
+
+FROM market_data_ts m
+LEFT JOIN instrument_reference r ON m.symbol = r.symbol
+
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'instrument_reference.type' = 'table',
+    'instrument_reference.config_file' = 'configs/instrument_reference_table.yaml',
+
+    'enriched_market_data.type' = 'kafka_sink',
+    'enriched_market_data.config_file' = 'configs/enriched_market_data_sink.yaml',
+
+    -- Optimization for reference table lookups
+    'join.timeout' = '30s',
+    'cache.enabled' = 'true',
+    'cache.ttl_seconds' = '3600'
+);
+
+-- ====================================================================================
 -- PHASE 3: ADVANCED WINDOW FUNCTIONS - Price Movement Detection
 -- ====================================================================================
 -- Uses advanced window functions with event-time based windowing
@@ -244,6 +314,56 @@ WITH (
 );
 
 -- ====================================================================================
+-- TIER 2: EXISTS SUBQUERY - Regulatory Compliance & Watchlist Filtering
+-- ====================================================================================
+-- Filters out trades involving restricted traders or blocked instruments
+-- Critical for OFAC compliance, insider trading prevention, sanctions enforcement
+-- References: Line 342 in STREAMING_SQL_OPERATION_RANKING.md
+
+-- FR-073 SQL-Native Observability: Compliance Blocks Counter
+-- @metric: velo_trading_compliance_blocks_total
+-- @metric_type: counter
+-- @metric_help: "Trades blocked by compliance rules"
+-- @metric_labels: block_reason, symbol
+
+-- FR-073 SQL-Native Observability: Watchlist Checks Total
+-- @metric: velo_trading_watchlist_checks_total
+-- @metric_type: counter
+-- @metric_help: "Total compliance watchlist checks performed"
+-- @metric_labels: check_type
+-- @dashboard: velostream-trading.json (Compliance panel)
+
+-- @job_name: compliant_market_data
+-- @partitioning_strategy: always_hash
+CREATE STREAM compliant_market_data AS
+SELECT
+    m.*,
+    'COMPLIANT' as compliance_status
+FROM market_data_ts m
+WHERE NOT EXISTS (
+    SELECT 1 FROM regulatory_watchlist w
+    WHERE (w.symbol = m.symbol OR w.trader_id IS NOT NULL)
+      AND w.restriction_type IN ('BLOCKED', 'SUSPENDED')
+      AND w.effective_date <= m.event_time
+      AND (w.expiry_date IS NULL OR w.expiry_date > m.event_time)
+)
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'regulatory_watchlist.type' = 'table',
+    'regulatory_watchlist.config_file' = 'configs/regulatory_watchlist_table.yaml',
+
+    'compliant_market_data.type' = 'kafka_sink',
+    'compliant_market_data.config_file' = 'configs/compliant_market_data_sink.yaml',
+
+    -- Compliance-critical settings (maximum safety)
+    'delivery.guarantee' = 'exactly_once',
+    'circuit.breaker.failure.threshold' = '1'
+);
+
+-- ====================================================================================
 -- DEBUG STREAM: Price Movement Analysis Filter Visibility
 -- ====================================================================================
 -- Diagnostic stream to show which records pass/fail the HAVING filter conditions
@@ -300,6 +420,70 @@ WITH (
     'price_movement_debug.type' = 'kafka_sink',
     'price_movement_debug.topic.name' = 'price_movement_debug',
     'price_movement_debug.config_file' = 'configs/price_alerts_sink.yaml'
+);
+
+-- ====================================================================================
+-- TIER 2: IN/NOT IN SUBQUERY - Active Market Hours Filtering
+-- ====================================================================================
+-- Filters market data to only include instruments actively trading
+-- Handles: pre-market, regular hours, after-hours, halted instruments
+-- References: Line 363 in STREAMING_SQL_OPERATION_RANKING.md
+
+-- FR-073 SQL-Native Observability: Active Hours Records Counter
+-- @metric: velo_trading_active_hours_records_total
+-- @metric_type: counter
+-- @metric_help: "Records processed during active market hours"
+-- @metric_labels: symbol, market_session
+
+-- FR-073 SQL-Native Observability: Halted Symbols Current
+-- @metric: velo_trading_halted_symbols_current
+-- @metric_type: gauge
+-- @metric_help: "Current count of halted symbols"
+-- @metric_labels: halt_reason
+-- @dashboard: velostream-trading.json (Market Status panel)
+
+-- @job_name: active_hours_market_data
+-- @partitioning_strategy: always_hash
+CREATE STREAM active_hours_market_data AS
+SELECT
+    m.*,
+    'ACTIVE_TRADING' as market_session,
+    CASE
+        WHEN h.halt_start_time IS NOT NULL THEN 'HALTED'
+        WHEN i.session_type = 'REGULAR' THEN 'REGULAR_HOURS'
+        WHEN i.session_type = 'PRE_MARKET' THEN 'PRE_MARKET'
+        WHEN i.session_type = 'POST_MARKET' THEN 'POST_MARKET'
+        ELSE 'UNKNOWN'
+    END as current_session
+FROM market_data_ts m
+WHERE m.symbol IN (
+    SELECT symbol FROM instrument_schedules i
+    WHERE market_status = 'OPEN'
+      AND session_type IN ('REGULAR', 'PRE_MARKET', 'POST_MARKET')
+)
+AND m.symbol NOT IN (
+    SELECT symbol FROM trading_halts h
+    WHERE halt_status = 'HALTED'
+      AND halt_start_time <= m.event_time
+      AND (halt_end_time IS NULL OR halt_end_time > m.event_time)
+)
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+
+    'instrument_schedules.type' = 'table',
+    'instrument_schedules.config_file' = 'configs/instrument_schedules_table.yaml',
+
+    'trading_halts.type' = 'table',
+    'trading_halts.config_file' = 'configs/trading_halts_table.yaml',
+
+    'active_hours_market_data.type' = 'kafka_sink',
+    'active_hours_market_data.config_file' = 'configs/active_hours_market_data_sink.yaml',
+
+    -- Market hours critical - no delays
+    'linger.ms' = '0',
+    'performance_profile' = 'ultra_low_latency'
 );
 
 -- ====================================================================================
@@ -548,6 +732,122 @@ WITH (
     -- Dead letter queue for failed risk calculations
     'dead.letter.queue.enabled' = 'true',
     'dead.letter.queue.topic' = 'risk-calculation-failures'
+);
+
+-- ====================================================================================
+-- TIER 4: ANY/ALL OPERATORS - Multi-Tier Hierarchical Risk Limit Validation
+-- ====================================================================================
+-- @metric velo_trading_risk_limit_breaches_total 'Total count of risk limit breaches by tier'
+-- @metric_type Counter
+-- @metric_labels tier,breach_type,trader_id
+-- @metric_help Tracks hard limit breaches (firm, desk, trader levels) and warning thresholds
+-- @dashboard velostream-trading:risk-limits-hierarchical
+-- @job_name tier4_any_all_risk_validation
+-- @partitioning_strategy position_type,trader_id
+--
+-- This query validates positions against hierarchical risk limits:
+-- - ALL operator: Hard limits that MUST NOT be breached (firm, desk, trader)
+-- - ANY operator: Warning thresholds (can trigger alerts but not block trades)
+--
+-- Use case: Multi-tier risk governance where positions must comply with:
+-- - Firm-wide exposure limits (strictest)
+-- - Desk-level concentration limits
+-- - Individual trader notional limits
+-- - ALL must pass for trade acceptance; ANY breach triggers escalation alerts
+
+CREATE STREAM risk_hierarchy_validation AS
+SELECT
+    p.trader_id,
+    p.desk_id,
+    p.position_id,
+    p.symbol,
+    p.quantity,
+    p.entry_price,
+    p.current_price,
+    p.notional_exposure,
+    p.position_type,
+    p.event_time,
+    p.timestamp,
+
+    -- ALL operator: Hard limits (all must pass)
+    CASE
+        WHEN ALL (
+            p.notional_exposure <= fl.firm_notional_limit,
+            p.notional_exposure / fl.firm_total_exposure <= fl.max_concentration_ratio,
+            (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
+                                    WHERE t2.trader_id = p.trader_id AND t2.position_type = p.position_type)) <= tl.trader_notional_limit
+        ) THEN 'PASSED'
+        ELSE 'BREACH'
+    END as hierarchy_validation_result,
+
+    -- ANY operator: Warning thresholds (any breach triggers escalation)
+    CASE
+        WHEN ANY (
+            p.notional_exposure > fl.firm_notional_limit * 0.85,
+            p.notional_exposure / fl.firm_total_exposure > fl.max_concentration_ratio * 0.9,
+            (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
+                                    WHERE t2.trader_id = p.trader_id AND t2.position_type = p.position_type)) > tl.trader_notional_limit * 0.8
+        ) THEN 'WARNING'
+        ELSE 'SAFE'
+    END as escalation_status,
+
+    -- Detailed breach classification
+    CASE
+        WHEN p.notional_exposure > fl.firm_notional_limit THEN 'FIRM_NOTIONAL_BREACH'
+        WHEN p.notional_exposure / fl.firm_total_exposure > fl.max_concentration_ratio THEN 'CONCENTRATION_BREACH'
+        WHEN (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
+                                     WHERE t2.trader_id = p.trader_id AND t2.position_type = p.position_type)) > tl.trader_notional_limit THEN 'TRADER_NOTIONAL_BREACH'
+        ELSE 'NO_BREACH'
+    END as breach_type,
+
+    -- Breach severity (for escalation)
+    CASE
+        WHEN (p.notional_exposure / fl.firm_notional_limit) > 1.1 THEN 'CRITICAL'
+        WHEN (p.notional_exposure / fl.firm_notional_limit) > 1.0 THEN 'SEVERE'
+        WHEN (p.notional_exposure / fl.firm_notional_limit) > 0.9 THEN 'HIGH'
+        WHEN (p.notional_exposure / fl.firm_notional_limit) > 0.8 THEN 'MEDIUM'
+        ELSE 'LOW'
+    END as breach_severity,
+
+    NOW() as validation_time,
+    f.firm_name,
+    d.desk_name,
+    tl.role_name
+
+FROM trading_positions_with_event_time p
+LEFT JOIN firm_limits f ON true  -- Cartesian join for firm limits (single row)
+LEFT JOIN desk_limits d ON p.desk_id = d.desk_id
+LEFT JOIN trader_limits tl ON p.trader_id = tl.trader_id
+EMIT CHANGES
+WITH (
+    -- Source configurations
+    'trading_positions_with_event_time.type' = 'kafka_source',
+    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_source.yaml',
+
+    'firm_limits.type' = 'table',
+    'firm_limits.config_file' = 'configs/firm_limits_table.yaml',
+
+    'desk_limits.type' = 'table',
+    'desk_limits.config_file' = 'configs/desk_limits_table.yaml',
+
+    'trader_limits.type' = 'table',
+    'trader_limits.config_file' = 'configs/trader_limits_table.yaml',
+
+    'risk_hierarchy_validation.type' = 'kafka_sink',
+    'risk_hierarchy_validation.config_file' = 'configs/risk_hierarchy_validation_sink.yaml',
+
+    -- Resource configuration for multi-tier validation
+    'max.memory.mb' = '1024',
+    'join.timeout' = '45s',
+    'cache.enabled' = 'true',
+    'cache.ttl_seconds' = '300',
+
+    -- Observability: FR-073 metrics
+    '@metric' = 'velo_trading_risk_limit_breaches_total',
+    '@metric_type' = 'Counter',
+    '@metric_labels' = 'tier,breach_type,trader_id',
+    '@metric_help' = 'Total count of risk limit breaches by tier and type',
+    '@dashboard' = 'velostream-trading:risk-limits-hierarchical'
 );
 
 -- ====================================================================================

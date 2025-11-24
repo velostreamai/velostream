@@ -1,0 +1,36 @@
+# Risk Hierarchy Validation Sink Configuration
+# Output topic for ANY/ALL operators risk validation results
+# Contains position validation results at firm, desk, and trader levels
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "risk_hierarchy_validation"
+
+producer.group: "risk_validation_producer_group"
+
+# Delivery profile: Critical for risk alerts
+delivery_profile: critical
+
+datasink:
+  schema:
+    key.field: position_id
+    value.serializer: json
+
+  topic_config:
+    partitions: 8
+    replication.factor: 3
+    retention.ms: 604800000  # 7 days - longer retention for audit
+    compression.type: lz4
+
+  headers:
+    data_source: "risk_hierarchy_validator"
+    validation_type: "multi_tier_any_all"
+    risk_critical: "true"
+
+metadata:
+  description: "Risk validation results using ANY/ALL operators for hierarchical checks"
+  data.classification: "compliance_sensitive"
+  producer.type: "risk_validator"
+  target_consumers: ["risk_monitor", "compliance_system", "trader_alerts"]
+  update.frequency: "real-time"

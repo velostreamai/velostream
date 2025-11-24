@@ -1,0 +1,42 @@
+# Regulatory Watchlist Table Configuration
+# Reference table for regulatory restrictions: blocked symbols, suspended traders, etc.
+# Used by EXISTS subquery to filter out restricted trading opportunities
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "regulatory_watchlist"
+  type: "lookup_table"
+
+consumer.group: "regulatory_watchlist_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: watchlist_id
+    value.serializer: json
+
+  # Example structure for watchlist records
+  # {
+  #   "watchlist_id": "REG001",
+  #   "symbol": "MEME",
+  #   "trader_id": null,
+  #   "restriction_type": "BLOCKED",
+  #   "effective_date": "2025-01-01T00:00:00Z",
+  #   "expiry_date": "2026-12-31T23:59:59Z",
+  #   "reason": "Market manipulation concerns",
+  #   "enforcing_authority": "SEC"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 1800  # 30 minutes - regulatory changes should be frequent
+  refresh_interval_ms: 60000  # Refresh every minute
+
+metadata:
+  description: "Regulatory watchlist with blocked/suspended instruments and traders"
+  data.classification: "compliance_sensitive"
+  update.frequency: "real-time"
+  primary_key: "watchlist_id"
+  use_case: "EXISTS subquery filtering for compliance validation"

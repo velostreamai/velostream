@@ -1,0 +1,42 @@
+# Trading Halts Table Configuration
+# Reference table for temporary trading halts and suspensions
+# Used by IN/NOT IN subquery to filter out halted instruments
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "trading_halts"
+  type: "lookup_table"
+
+consumer.group: "trading_halts_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: halt_id
+    value.serializer: json
+
+  # Example structure for halt records
+  # {
+  #   "halt_id": "HALT_001",
+  #   "symbol": "XYZ",
+  #   "exchange": "NYSE",
+  #   "halt_status": "HALTED",
+  #   "halt_start_time": "2025-01-15T10:30:00Z",
+  #   "halt_end_time": "2025-01-15T11:00:00Z",
+  #   "halt_reason": "NEWS_PENDING",
+  #   "regulatory_authority": "SEC"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 300  # 5 minutes - halts can change rapidly
+  refresh_interval_ms: 10000  # Refresh every 10 seconds
+
+metadata:
+  description: "Trading halt records with timing and regulatory reasons"
+  data.classification: "non_sensitive"
+  update.frequency: "real-time"
+  primary_key: "halt_id"
+  use_case: "IN/NOT IN subquery filtering for halted securities"

@@ -1,0 +1,44 @@
+# Instrument Trading Schedule Table Configuration
+# Reference table for market hours, session types, and holiday calendars
+# Used by IN/NOT IN subquery to filter active trading hours and sessions
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "instrument_schedules"
+  type: "lookup_table"
+
+consumer.group: "instrument_schedules_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: schedule_id
+    value.serializer: json
+
+  # Example structure for schedule records
+  # {
+  #   "schedule_id": "AAPL_NASDAQ_2025",
+  #   "symbol": "AAPL",
+  #   "exchange": "NASDAQ",
+  #   "market_status": "OPEN",
+  #   "session_type": "REGULAR",
+  #   "session_start": "09:30:00",
+  #   "session_end": "16:00:00",
+  #   "timezone": "America/New_York",
+  #   "effective_date": "2025-01-01",
+  #   "expiry_date": "2025-12-31"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 86400  # 24 hours - schedule rarely changes
+  refresh_interval_ms: 3600000  # Refresh every hour
+
+metadata:
+  description: "Instrument trading schedules with session types and market hours"
+  data.classification: "non_sensitive"
+  update.frequency: "daily"
+  primary_key: "schedule_id"
+  use_case: "IN/NOT IN subquery filtering for active trading sessions"

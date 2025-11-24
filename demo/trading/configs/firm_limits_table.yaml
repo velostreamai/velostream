@@ -1,0 +1,43 @@
+# Firm-Wide Risk Limits Table Configuration
+# Reference table for firm-wide exposure limits and concentration controls
+# Used by ANY/ALL operators for multi-tier risk validation
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "firm_limits"
+  type: "lookup_table"
+
+consumer.group: "firm_limits_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: firm_id
+    value.serializer: json
+
+  # Example structure for firm limit records
+  # {
+  #   "firm_id": "FIRM_001",
+  #   "firm_name": "Acme Trading Inc",
+  #   "firm_notional_limit": 1000000000,
+  #   "firm_total_exposure": 500000000,
+  #   "max_concentration_ratio": 0.20,
+  #   "max_single_position": 100000000,
+  #   "daily_loss_hard_limit": 5000000,
+  #   "risk_governance_level": "INSTITUTIONAL",
+  #   "effective_date": "2025-01-01"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 3600  # 1 hour
+  refresh_interval_ms: 300000  # Refresh every 5 minutes
+
+metadata:
+  description: "Firm-wide exposure limits and concentration controls"
+  data.classification: "compliance_sensitive"
+  update.frequency: "daily"
+  primary_key: "firm_id"
+  use_case: "ANY/ALL operators for firm-level risk validation"

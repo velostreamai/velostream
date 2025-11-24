@@ -1,0 +1,42 @@
+# Risk Limits Table Configuration
+# Reference table for global risk thresholds and alert levels
+# Used for risk validation and escalation alerting
+
+extends: common_kafka_source.yaml
+
+table:
+  name: "risk_limits"
+  type: "lookup_table"
+
+consumer.group: "risk_limits_group"
+
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: limit_id
+    value.serializer: json
+
+  # Example structure for risk limit records
+  # {
+  #   "limit_id": "RISK_EQUITY_001",
+  #   "limit_name": "Equity Daily Loss Limit",
+  #   "asset_class": "EQUITIES",
+  #   "hard_limit": 500000,
+  #   "warning_threshold": 250000,
+  #   "alert_level": "CRITICAL",
+  #   "escalation_recipient": "RISK_TEAM",
+  #   "effective_date": "2025-01-01"
+  # }
+
+table_config:
+  cache_enabled: true
+  cache_ttl_seconds: 7200  # 2 hours - risk limits are stable
+  refresh_interval_ms: 600000  # Refresh every 10 minutes
+
+metadata:
+  description: "Global risk limits and alert thresholds by asset class"
+  data.classification: "compliance_sensitive"
+  update.frequency: "weekly"
+  primary_key: "limit_id"
+  use_case: "Risk threshold reference for escalation logic"

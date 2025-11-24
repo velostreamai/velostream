@@ -1,0 +1,52 @@
+# Instrument Reference Data Table Configuration
+# Static reference table for instrument metadata (symbols, exchange, trading rules, etc.)
+# Used by Stream-Table JOIN to enrich market data with instrument properties
+
+extends: common_kafka_source.yaml
+
+# Table-specific settings (not a live topic, but a lookup table)
+table:
+  name: "instrument_reference"
+  type: "static_lookup"
+
+# Consumer group for this specific lookup
+consumer.group: "instrument_reference_group"
+
+# Performance profile - balanced for lookup operations
+performance_profile: balanced
+
+# Table schema - instruments with trading rules
+datasource:
+  schema:
+    key.field: symbol
+    value.serializer: json
+
+  # Example structure for instrument records
+  # {
+  #   "symbol": "AAPL",
+  #   "instrument_name": "Apple Inc",
+  #   "isin_code": "US0378331005",
+  #   "exchange": "NASDAQ",
+  #   "tick_size": 0.01,
+  #   "lot_size": 100,
+  #   "trading_venue": "NYSE",
+  #   "settlement_currency": "USD",
+  #   "margin_requirement": 0.15,
+  #   "position_limit": 10000000,
+  #   "restricted_trading_hours": false
+  # }
+
+# Table properties
+table_config:
+  # Cache-friendly configuration for fast lookups
+  cache_enabled: true
+  cache_ttl_seconds: 3600
+  refresh_interval_ms: 300000  # Refresh every 5 minutes
+
+# Business context
+metadata:
+  description: "Static instrument reference data with trading rules and limits"
+  data.classification: "non_sensitive"
+  update.frequency: "daily"
+  primary_key: "symbol"
+  use_case: "Stream-Table JOIN enrichment for market data"
