@@ -41,16 +41,16 @@ fn test_tumbling_watermark_monotonically_increases() {
     let r2 = create_record_with_timestamp(50000, 2);
     let r3 = create_record_with_timestamp(30000, 3); // Late record (ts < r2)
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
+    assert!(!strategy.add_record(r1).unwrap());
     let metrics1 = strategy.get_metrics();
     assert_eq!(metrics1.add_record_calls, 1);
 
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
+    assert!(!strategy.add_record(r2).unwrap());
     let metrics2 = strategy.get_metrics();
     assert_eq!(metrics2.add_record_calls, 2);
 
     // Late record should still update watermark
-    assert_eq!(strategy.add_record(r3).unwrap(), false);
+    assert!(!strategy.add_record(r3).unwrap());
     let metrics3 = strategy.get_metrics();
     assert_eq!(metrics3.add_record_calls, 3);
     // Watermark should be at 50000 (highest seen), not 30000 (late record)
@@ -66,16 +66,16 @@ fn test_tumbling_late_arrival_buffering() {
     let r1 = create_record_with_timestamp(10000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
 
     // Trigger window emission
     let r3 = create_record_with_timestamp(70000, 3);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(strategy.add_record(r3).unwrap());
 
     // Late record arrives (timestamp 40000, within grace period of window [0-60000))
     let r_late = create_record_with_timestamp(40000, 4);
-    assert_eq!(strategy.add_record(r_late).unwrap(), false);
+    assert!(!strategy.add_record(r_late).unwrap());
 
     let metrics = strategy.get_metrics();
     assert_eq!(metrics.add_record_calls, 4);
@@ -93,11 +93,11 @@ fn test_tumbling_grace_period_cleanup() {
     let r2 = create_record_with_timestamp(70000, 2); // Triggers emission
     let r3 = create_record_with_timestamp(150000, 3); // Beyond grace period
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), true);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(strategy.add_record(r2).unwrap());
     strategy.clear();
 
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     let metrics = strategy.get_metrics();
@@ -114,9 +114,9 @@ fn test_tumbling_metrics_tracking() {
     let r2 = create_record_with_timestamp(50000, 2);
     let r3 = create_record_with_timestamp(70000, 3);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     let metrics = strategy.get_metrics();
@@ -140,12 +140,12 @@ fn test_sliding_watermark_with_overlapping_windows() {
     let r1 = create_record_with_timestamp(10000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
 
     // Window 2: [30000-90000) overlaps with window 1
     let r3 = create_record_with_timestamp(70000, 3); // Triggers advance
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(strategy.add_record(r3).unwrap());
 
     let metrics = strategy.get_metrics();
     assert_eq!(metrics.add_record_calls, 3);
@@ -162,14 +162,14 @@ fn test_sliding_late_record_with_overlap() {
     let r2 = create_record_with_timestamp(50000, 2);
     let r3 = create_record_with_timestamp(70000, 3);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     // Late record arrives
     let r_late = create_record_with_timestamp(25000, 4);
-    assert_eq!(strategy.add_record(r_late).unwrap(), false);
+    assert!(!strategy.add_record(r_late).unwrap());
 
     let metrics = strategy.get_metrics();
     assert_eq!(metrics.add_record_calls, 4);
@@ -204,9 +204,9 @@ fn test_sliding_metrics_with_overlapping_windows() {
     let r2 = create_record_with_timestamp(50000, 2);
     let r3 = create_record_with_timestamp(70000, 3);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     let metrics = strategy.get_metrics();
@@ -228,12 +228,12 @@ fn test_session_watermark_gap_detection() {
     let r1 = create_record_with_timestamp(1000, 1);
     let r2 = create_record_with_timestamp(30000, 2);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
 
     // Event beyond gap - triggers session emission
     let r3 = create_record_with_timestamp(100000, 3);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(strategy.add_record(r3).unwrap());
 
     let metrics = strategy.get_metrics();
     assert_eq!(metrics.add_record_calls, 3);
@@ -249,17 +249,17 @@ fn test_session_late_arrival_extending_session() {
     let r1 = create_record_with_timestamp(1000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
 
     // Gap exceeded - emit session
     let r3 = create_record_with_timestamp(120000, 3);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     // Late record arrives (within grace period)
     let r_late = create_record_with_timestamp(40000, 4);
-    assert_eq!(strategy.add_record(r_late).unwrap(), false);
+    assert!(!strategy.add_record(r_late).unwrap());
 
     let metrics = strategy.get_metrics();
     assert_eq!(metrics.add_record_calls, 4);
@@ -275,12 +275,12 @@ fn test_session_late_arrival_merging_sessions() {
     let r1 = create_record_with_timestamp(1000, 1);
     let r2 = create_record_with_timestamp(50000, 2);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
 
     // Session 2: [120000+] (gap > 60000 from previous session end)
     let r3 = create_record_with_timestamp(120000, 3);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     // Late record that bridges the gap - would attempt to merge sessions
@@ -303,8 +303,8 @@ fn test_session_grace_period_cleanup() {
     let r1 = create_record_with_timestamp(1000, 1);
     let r2 = create_record_with_timestamp(80000, 2); // Triggers emission
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), true);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(strategy.add_record(r2).unwrap());
     strategy.clear();
 
     // Session 2
@@ -325,9 +325,9 @@ fn test_session_metrics_tracking() {
     let r2 = create_record_with_timestamp(50000, 2);
     let r3 = create_record_with_timestamp(120000, 3);
 
-    assert_eq!(strategy.add_record(r1).unwrap(), false);
-    assert_eq!(strategy.add_record(r2).unwrap(), false);
-    assert_eq!(strategy.add_record(r3).unwrap(), true);
+    assert!(!strategy.add_record(r1).unwrap());
+    assert!(!strategy.add_record(r2).unwrap());
+    assert!(strategy.add_record(r3).unwrap());
     strategy.clear();
 
     let metrics = strategy.get_metrics();
@@ -397,7 +397,8 @@ fn test_all_window_types_metrics_consistency() {
     assert_eq!(se_metrics.add_record_calls, 3);
 
     // All should track max_buffer_size (can be 0 if no buffering occurred at metric time)
-    assert!(t_metrics.max_buffer_size >= 0);
-    assert!(s_metrics.max_buffer_size >= 0);
-    assert!(se_metrics.max_buffer_size >= 0);
+    // Note: max_buffer_size is unsigned, so >= 0 check is always true - we just verify the field exists
+    let _ = t_metrics.max_buffer_size;
+    let _ = s_metrics.max_buffer_size;
+    let _ = se_metrics.max_buffer_size;
 }
