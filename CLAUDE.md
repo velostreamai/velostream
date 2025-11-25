@@ -2,6 +2,7 @@
 
 ## Behaviour
 
+- **🚫 CRITICAL: DO NOT commit changes unless the user has explicitly reviewed them first**
 - Use ast-grep for large scale refactoring:
 - Dont make assumptions about the behaviour of the project.
 - Always run all of the tests, demos, examples and /bin' and check the documentation.

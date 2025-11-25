@@ -131,6 +131,7 @@ WITH (
 -- @metric: velo_trading_enrichment_latency_seconds
 -- @metric_type: histogram
 -- @metric_help: "Latency of instrument reference lookups"
+-- @metric_field: enrichment_latency_seconds
 -- @metric_buckets: 0.001, 0.005, 0.01, 0.05, 0.1
 -- @dashboard: velostream-trading.json (Enrichment Performance panel)
 
@@ -162,7 +163,8 @@ SELECT
     FLOOR(m.price / r.tick_size) * r.tick_size as normalized_price,
     m.volume / r.lot_size as lot_count,
 
-    NOW() as enrichment_time
+    NOW() as enrichment_time,
+    EXTRACT(EPOCH FROM (NOW() - m.event_time)) as enrichment_latency_seconds
 
 FROM market_data_ts m
 LEFT JOIN instrument_reference r ON m.symbol = r.symbol
@@ -172,7 +174,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
-    'instrument_reference.type' = 'table',
+    'instrument_reference.type' = 'file_source',
     'instrument_reference.config_file' = 'configs/instrument_reference_table.yaml',
 
     'enriched_market_data.type' = 'kafka_sink',
@@ -263,9 +265,9 @@ SELECT
     
     -- Statistical measures over sliding window
     STDDEV(price) OVER (
-        PARTITION BY symbol 
-        ORDER BY event_time 
-        ROWS BETWEEN 9 PRECEDING AND CURRENT ROW
+        ROWS WINDOW BUFFER 10 ROWS
+        PARTITION BY symbol
+        ORDER BY event_time
     ) as price_volatility_10_periods,
     
     -- Detect significant movements
@@ -337,7 +339,14 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM compliant_market_data AS
 SELECT
-    m.*,
+    m.symbol,
+    m.exchange,
+    m.price,
+    m.bid_price,
+    m.ask_price,
+    m.volume,
+    m.event_time,
+    m.timestamp,
     'COMPLIANT' as compliance_status
 FROM market_data_ts m
 WHERE NOT EXISTS (
@@ -352,7 +361,7 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
-    'regulatory_watchlist.type' = 'table',
+    'regulatory_watchlist.type' = 'file_source',
     'regulatory_watchlist.config_file' = 'configs/regulatory_watchlist_table.yaml',
 
     'compliant_market_data.type' = 'kafka_sink',
@@ -446,7 +455,14 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM active_hours_market_data AS
 SELECT
-    m.*,
+    m.symbol,
+    m.exchange,
+    m.price,
+    m.bid_price,
+    m.ask_price,
+    m.volume,
+    m.event_time,
+    m.timestamp,
     'ACTIVE_TRADING' as market_session,
     CASE
         WHEN h.halt_start_time IS NOT NULL THEN 'HALTED'
@@ -472,10 +488,10 @@ WITH (
     'market_data_ts.type' = 'kafka_source',
     'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
 
-    'instrument_schedules.type' = 'table',
+    'instrument_schedules.type' = 'file_source',
     'instrument_schedules.config_file' = 'configs/instrument_schedules_table.yaml',
 
-    'trading_halts.type' = 'table',
+    'trading_halts.type' = 'file_source',
     'trading_halts.config_file' = 'configs/trading_halts_table.yaml',
 
     'active_hours_market_data.type' = 'kafka_sink',
@@ -515,23 +531,23 @@ SELECT
 
     -- Per-event rolling metrics (last 20 trades inside the window)
     AVG(volume) OVER (
+        ROWS WINDOW BUFFER 20 ROWS
         PARTITION BY symbol
         ORDER BY event_time
-        ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
     ) AS rolling_avg_20,
 
     STDDEV_POP(volume) OVER (
+        ROWS WINDOW BUFFER 20 ROWS
         PARTITION BY symbol
         ORDER BY event_time
-        ROWS BETWEEN 19 PRECEDING AND 1 PRECEDING
     ) AS rolling_stddev_20,
 
     -- Percentile-based anomaly detection
     PERCENT_RANK() OVER (
-      PARTITION BY symbol
-      ORDER BY volume
-      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-  ) AS volume_percentile,
+        ROWS WINDOW BUFFER 1000 ROWS
+        PARTITION BY symbol
+        ORDER BY volume
+    ) AS volume_percentile,
 
     -- Tiered anomaly classification
     CASE
@@ -643,45 +659,44 @@ SELECT
 
     -- Continuous rolling stats
     SUM(p.current_pnl) OVER (
-          PARTITION BY p.trader_id
-          ORDER BY p.event_time
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-      ) AS cumulative_pnl,
+        ROWS WINDOW BUFFER 10000 ROWS
+        PARTITION BY p.trader_id
+        ORDER BY p.event_time
+    ) AS cumulative_pnl,
 
     COUNT(*) OVER (
-          PARTITION BY p.trader_id
-          ORDER BY p.event_time  -- ✅ FIXED: Added ORDER BY
-          RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW
-      ) AS trades_today,
+        ROWS WINDOW BUFFER 10000 ROWS
+        PARTITION BY p.trader_id
+        ORDER BY p.event_time
+    ) AS trades_today,
 
     STDDEV(p.current_pnl) OVER (
-          PARTITION BY p.trader_id
-          ORDER BY p.event_time  -- ✅ FIXED: Added ORDER BY
-          ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
-      ) AS pnl_volatility,
+        ROWS WINDOW BUFFER 100 ROWS
+        PARTITION BY p.trader_id
+        ORDER BY p.event_time
+    ) AS pnl_volatility,
 
     ABS(p.position_size * COALESCE(m.price, 0)) AS position_value,
 
     SUM(ABS(p.position_size * COALESCE(m.price, 0))) OVER (
-          PARTITION BY p.trader_id
-          ORDER BY p.event_time
-          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-      ) AS total_exposure,
+        ROWS WINDOW BUFFER 10000 ROWS
+        PARTITION BY p.trader_id
+        ORDER BY p.event_time
+    ) AS total_exposure,
 
     CASE
         WHEN ABS(p.position_size * COALESCE(m.price, 0)) > 1000000 THEN 'POSITION_LIMIT_EXCEEDED'
         WHEN SUM(p.current_pnl) OVER (
-              PARTITION BY p.trader_id
-              ORDER BY p.event_time
-              ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-          ) < -100000 THEN 'DAILY_LOSS_LIMIT_EXCEEDED'
+            ROWS WINDOW BUFFER 10000 ROWS
+            PARTITION BY p.trader_id
+            ORDER BY p.event_time
+        ) < -100000 THEN 'DAILY_LOSS_LIMIT_EXCEEDED'
         WHEN ABS(p.position_size * COALESCE(m.price, 0)) > 500000 THEN 'POSITION_WARNING'
-        -- ⚠️ Comment out if STDDEV not implemented
         WHEN STDDEV(p.current_pnl) OVER (
-              PARTITION BY p.trader_id
-              ORDER BY p.event_time  -- ✅ FIXED: Added ORDER BY
-              ROWS BETWEEN 99 PRECEDING AND CURRENT ROW
-          ) > 25000 THEN 'HIGH_RISK_PROFILE'
+            ROWS WINDOW BUFFER 100 ROWS
+            PARTITION BY p.trader_id
+            ORDER BY p.event_time
+        ) > 25000 THEN 'HIGH_RISK_PROFILE'
         ELSE 'WITHIN_LIMITS'
         END AS risk_classification,
 
@@ -769,25 +784,23 @@ SELECT
     p.event_time,
     p.timestamp,
 
-    -- ALL operator: Hard limits (all must pass)
+    -- Hard limits validation: all conditions must pass (AND logic)
     CASE
-        WHEN ALL (
-            p.notional_exposure <= fl.firm_notional_limit,
-            p.notional_exposure / fl.firm_total_exposure <= fl.max_concentration_ratio,
-            (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
+        WHEN p.notional_exposure <= fl.firm_notional_limit
+            AND p.notional_exposure / fl.firm_total_exposure <= fl.max_concentration_ratio
+            AND (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
                                     WHERE t2.trader_id = p.trader_id AND t2.position_type = p.position_type)) <= tl.trader_notional_limit
-        ) THEN 'PASSED'
+        THEN 'PASSED'
         ELSE 'BREACH'
     END as hierarchy_validation_result,
 
-    -- ANY operator: Warning thresholds (any breach triggers escalation)
+    -- Warning thresholds: any breach triggers escalation (OR logic)
     CASE
-        WHEN ANY (
-            p.notional_exposure > fl.firm_notional_limit * 0.85,
-            p.notional_exposure / fl.firm_total_exposure > fl.max_concentration_ratio * 0.9,
-            (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
+        WHEN p.notional_exposure > fl.firm_notional_limit * 0.85
+            OR p.notional_exposure / fl.firm_total_exposure > fl.max_concentration_ratio * 0.9
+            OR (p.notional_exposure + (SELECT SUM(notional_exposure) FROM trading_positions_with_event_time t2
                                     WHERE t2.trader_id = p.trader_id AND t2.position_type = p.position_type)) > tl.trader_notional_limit * 0.8
-        ) THEN 'WARNING'
+        THEN 'WARNING'
         ELSE 'SAFE'
     END as escalation_status,
 
@@ -824,13 +837,13 @@ WITH (
     'trading_positions_with_event_time.type' = 'kafka_source',
     'trading_positions_with_event_time.config_file' = 'configs/trading_positions_source.yaml',
 
-    'firm_limits.type' = 'table',
+    'firm_limits.type' = 'file_source',
     'firm_limits.config_file' = 'configs/firm_limits_table.yaml',
 
-    'desk_limits.type' = 'table',
+    'desk_limits.type' = 'file_source',
     'desk_limits.config_file' = 'configs/desk_limits_table.yaml',
 
-    'trader_limits.type' = 'table',
+    'trader_limits.type' = 'file_source',
     'trader_limits.config_file' = 'configs/trader_limits_table.yaml',
 
     'risk_hierarchy_validation.type' = 'kafka_sink',
