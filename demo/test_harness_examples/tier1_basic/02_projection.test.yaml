@@ -1,0 +1,21 @@
+application: projection_demo
+description: Test field projection and aliasing
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: order_summary
+    description: Verify field projection and aliases work correctly
+    inputs:
+      - source: order_input
+        schema: order_event.schema.yaml
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [id, customer, quantity, price, total, status, event_time]
+      - type: no_nulls
+        fields: [id, customer, quantity, price, total]
+      # Verify total = quantity * price (would need custom assertion)
+    timeout_ms: 30000

@@ -1,0 +1,49 @@
+name: simple_record
+description: Basic record schema for simple test cases
+record_count: 1000
+
+fields:
+  - name: id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 1000000
+
+  - name: value
+    type: string
+    nullable: false
+    constraints:
+      length:
+        min: 5
+        max: 50
+
+  - name: amount
+    type: decimal
+    precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 0.01
+        max: 10000.00
+
+  - name: count
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 100
+
+  - name: active
+    type: boolean
+    nullable: false
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

@@ -1,0 +1,27 @@
+application: empty_demo
+description: Test handling of empty/zero record scenarios
+default_timeout_ms: 60000
+default_records: 0
+
+queries:
+  - name: all_transactions
+    description: Verify passthrough handles zero input records
+    inputs:
+      - source: transactions
+        schema: simple_record.schema.yaml
+        records: 0  # Zero records test
+    assertions:
+      - type: record_count
+        equals: 0
+    timeout_ms: 30000
+
+  - name: category_totals
+    description: Verify aggregation handles zero input records
+    inputs:
+      - source: transactions
+        schema: simple_record.schema.yaml
+        records: 0
+    assertions:
+      - type: record_count
+        equals: 0
+    timeout_ms: 30000

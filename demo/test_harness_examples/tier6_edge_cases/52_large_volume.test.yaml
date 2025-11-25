@@ -1,0 +1,43 @@
+application: large_volume_demo
+description: Test high volume data processing (100k+ records)
+default_timeout_ms: 300000
+default_records: 100000
+
+queries:
+  - name: enriched_events
+    description: Verify transformation handles 100k+ records
+    inputs:
+      - source: events
+        schema: simple_record.schema.yaml
+        records: 100000
+    assertions:
+      - type: record_count
+        greater_than: 50000  # At least half should pass filter (value > 0)
+      - type: schema_contains
+        fields: [event_id, user_id, event_type, value, adjusted_value, region]
+      - type: field_values
+        field: value
+        operator: gt
+        value: 0
+      - type: no_nulls
+        fields: [event_id, user_id, value]
+    timeout_ms: 180000
+
+  - name: regional_stats
+    description: Verify aggregation handles high volume correctly
+    inputs:
+      - source: events
+        schema: simple_record.schema.yaml
+        records: 100000
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [region, event_type, event_count, total_value, avg_value]
+      - type: field_values
+        field: event_count
+        operator: gt
+        value: 0
+      - type: no_nulls
+        fields: [region, event_type, event_count]
+    timeout_ms: 180000

@@ -1,0 +1,28 @@
+application: session_window_demo
+description: Test session window aggregation
+default_timeout_ms: 120000
+default_records: 500
+
+queries:
+  - name: user_sessions
+    description: Verify session window groups user activity correctly
+    inputs:
+      - source: user_clicks
+        schema: user_activity.schema.yaml
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [user_id, action_count, pages_visited, total_duration_ms, session_start, session_end]
+      - type: field_values
+        field: action_count
+        operator: gt
+        value: 0
+      - type: field_values
+        field: pages_visited
+        operator: gt
+        value: 0
+      - type: no_nulls
+        fields: [user_id, action_count, pages_visited]
+    timeout_ms: 120000

@@ -1,0 +1,29 @@
+application: case_demo
+description: Test CASE expression conditional logic
+default_timeout_ms: 60000
+default_records: 300
+
+queries:
+  - name: categorized_activity
+    description: Verify CASE expressions produce correct categories
+    inputs:
+      - source: user_activity
+        schema: user_activity.schema.yaml
+        records: 300
+    assertions:
+      - type: record_count
+        equals: 300
+      - type: schema_contains
+        fields: [user_id, action, engagement_level, duration_category, device_code]
+      - type: field_in_set
+        field: engagement_level
+        values: ["converter", "engaged", "interested", "browser"]
+      - type: field_in_set
+        field: duration_category
+        values: ["unknown", "bounce", "short", "medium", "long"]
+      - type: field_in_set
+        field: device_code
+        values: ["M", "T", "D", "X"]
+      - type: no_nulls
+        fields: [user_id, engagement_level, duration_category, device_code]
+    timeout_ms: 60000

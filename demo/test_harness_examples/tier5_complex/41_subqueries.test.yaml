@@ -1,0 +1,21 @@
+application: subqueries_demo
+description: Test subquery filtering patterns
+default_timeout_ms: 60000
+default_records: 200
+
+queries:
+  - name: vip_orders
+    description: Verify subquery filters VIP customer orders
+    inputs:
+      - source: all_orders
+        schema: order_event.schema.yaml
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 200  # Should filter out non-VIP orders
+      - type: schema_contains
+        fields: [order_id, customer_id, product_id, order_total, status]
+      - type: no_nulls
+        fields: [order_id, customer_id, order_total]
+    timeout_ms: 60000

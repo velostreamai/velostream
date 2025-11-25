@@ -1,0 +1,43 @@
+application: pipeline_demo
+description: Test multi-stage pipeline processing
+default_timeout_ms: 120000
+default_records: 500
+
+queries:
+  - name: cleaned_transactions
+    description: Stage 1 - Verify data cleaning and enrichment
+    inputs:
+      - source: raw_transactions
+        schema: order_event.schema.yaml
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [order_id, customer_id, total_amount, status, region]
+      - type: field_values
+        field: quantity
+        operator: gt
+        value: 0
+      - type: no_nulls
+        fields: [order_id, total_amount]
+    timeout_ms: 60000
+
+  - name: flagged_regions
+    description: Stage 3 - Verify final aggregation with tier flags
+    inputs:
+      - source: cleaned_transactions
+        from_previous: cleaned_transactions
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 10
+      - type: schema_contains
+        fields: [region, transaction_count, total_revenue, value_tier]
+      - type: field_in_set
+        field: value_tier
+        values: ["HIGH", "MEDIUM", "LOW"]
+      - type: no_nulls
+        fields: [region, transaction_count, value_tier]
+    timeout_ms: 60000

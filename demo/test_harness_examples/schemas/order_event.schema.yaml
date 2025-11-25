@@ -1,0 +1,74 @@
+name: order_event
+description: E-commerce order event schema
+record_count: 1000
+
+fields:
+  - name: order_id
+    type: uuid
+    nullable: false
+
+  - name: customer_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1000
+        max: 99999
+
+  - name: product_id
+    type: string
+    nullable: false
+    constraints:
+      length:
+        min: 8
+        max: 12
+
+  - name: quantity
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 10
+
+  - name: unit_price
+    type: decimal
+    precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 1.00
+        max: 999.99
+
+  - name: total_amount
+    type: decimal
+    precision: 2
+    nullable: false
+    constraints:
+      derived:
+        expression: "quantity * unit_price"
+        depends_on: ["quantity", "unit_price"]
+
+  - name: status
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["pending", "confirmed", "shipped", "delivered", "cancelled"]
+        weights: [0.1, 0.3, 0.25, 0.3, 0.05]
+
+  - name: region
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["us-east", "us-west", "eu-west", "eu-central", "apac"]
+        weights: [0.25, 0.2, 0.2, 0.15, 0.2]
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-24h"
+        end: "now"

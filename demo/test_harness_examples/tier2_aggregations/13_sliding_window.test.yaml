@@ -1,0 +1,28 @@
+application: sliding_window_demo
+description: Test sliding window aggregation
+default_timeout_ms: 60000
+default_records: 1000
+
+queries:
+  - name: moving_avg_5m
+    description: Verify sliding window produces moving averages
+    inputs:
+      - source: price_feed
+        schema: market_data.schema.yaml
+        records: 1000
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [symbol, avg_price, avg_volume, sample_count, min_price, max_price]
+      - type: field_values
+        field: avg_price
+        operator: gte
+        compare_field: min_price
+      - type: field_values
+        field: avg_price
+        operator: lte
+        compare_field: max_price
+      - type: no_nulls
+        fields: [symbol, avg_price, sample_count]
+    timeout_ms: 60000

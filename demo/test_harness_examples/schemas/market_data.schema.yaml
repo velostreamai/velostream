@@ -1,0 +1,71 @@
+name: market_data
+description: Financial market data schema for trading scenarios
+record_count: 1000
+
+fields:
+  - name: symbol
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["AAPL", "GOOGL", "MSFT", "AMZN", "META", "NVDA", "TSLA"]
+        weights: [0.2, 0.15, 0.15, 0.15, 0.1, 0.15, 0.1]
+
+  - name: price
+    type: decimal
+    precision: 4
+    nullable: false
+    constraints:
+      range:
+        min: 10.0
+        max: 500.0
+      distribution:
+        normal:
+          mean: 150.0
+          std_dev: 50.0
+
+  - name: volume
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 1000000
+      distribution:
+        log_normal:
+          mean: 10.0
+          std_dev: 2.0
+
+  - name: bid
+    type: decimal
+    precision: 4
+    nullable: false
+    constraints:
+      range:
+        min: 10.0
+        max: 500.0
+
+  - name: ask
+    type: decimal
+    precision: 4
+    nullable: false
+    constraints:
+      range:
+        min: 10.0
+        max: 500.0
+
+  - name: exchange
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["NYSE", "NASDAQ", "BATS", "IEX"]
+        weights: [0.4, 0.4, 0.1, 0.1]
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

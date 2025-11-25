@@ -1,0 +1,24 @@
+application: row_number_demo
+description: Test ROW_NUMBER and RANK window functions
+default_timeout_ms: 60000
+default_records: 200
+
+queries:
+  - name: ranked_orders
+    description: Verify ROW_NUMBER produces sequential ordering
+    inputs:
+      - source: sales_events
+        schema: order_event.schema.yaml
+        records: 200
+    assertions:
+      - type: record_count
+        equals: 200
+      - type: schema_contains
+        fields: [order_id, region, order_value, value_rank, dense_rank]
+      - type: field_values
+        field: value_rank
+        operator: gt
+        value: 0
+      - type: no_nulls
+        fields: [order_id, region, order_value, value_rank]
+    timeout_ms: 60000

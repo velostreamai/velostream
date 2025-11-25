@@ -1,0 +1,28 @@
+application: rows_buffer_demo
+description: Test ROWS WINDOW BUFFER for fixed-size windows
+default_timeout_ms: 60000
+default_records: 500
+
+queries:
+  - name: moving_avg_10tick
+    description: Verify row-based window calculations
+    inputs:
+      - source: tick_stream
+        schema: market_data.schema.yaml
+        records: 500
+    assertions:
+      - type: record_count
+        equals: 500
+      - type: schema_contains
+        fields: [symbol, price, ma_10, min_10, max_10, volume]
+      - type: field_values
+        field: ma_10
+        operator: gte
+        compare_field: min_10
+      - type: field_values
+        field: ma_10
+        operator: lte
+        compare_field: max_10
+      - type: no_nulls
+        fields: [symbol, price, ma_10, volume]
+    timeout_ms: 60000

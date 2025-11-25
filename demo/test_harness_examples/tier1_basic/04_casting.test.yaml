@@ -1,0 +1,20 @@
+application: casting_demo
+description: Test type casting operations
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: typed_events
+    description: Verify type casts work correctly
+    inputs:
+      - source: raw_events
+        schema: simple_record.schema.yaml
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [id_str, id_int, amount_float, count_long, active_str, time_str, event_time]
+      - type: no_nulls
+        fields: [id_str, id_int, amount_float]
+    timeout_ms: 30000

@@ -1,0 +1,25 @@
+application: stream_stream_join_demo
+description: Test stream-stream JOIN with time window
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: order_shipments
+    description: Verify stream-stream join matches orders with shipments
+    inputs:
+      - source: orders
+        schema: order_event.schema.yaml
+        records: 100
+      - source: shipments
+        schema: shipment.schema.yaml
+        records: 80  # Not all orders are shipped
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [order_id, customer_id, shipment_id, carrier, tracking_number]
+      - type: join_coverage
+        min_match_rate: 0.3
+      - type: no_nulls
+        fields: [order_id, shipment_id, carrier]
+    timeout_ms: 60000

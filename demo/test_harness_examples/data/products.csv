@@ -1,0 +1,11 @@
+product_id,name,category,base_price
+PROD001,Laptop Pro 15,electronics,1299.99
+PROD002,Wireless Mouse,electronics,49.99
+PROD003,USB-C Hub,electronics,79.99
+PROD004,Running Shoes,sports,129.99
+PROD005,Yoga Mat,sports,39.99
+PROD006,Coffee Maker,home,89.99
+PROD007,Desk Lamp,home,45.99
+PROD008,Notebook Set,office,24.99
+PROD009,Pen Collection,office,19.99
+PROD010,Water Bottle,sports,29.99

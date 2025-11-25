@@ -1,0 +1,22 @@
+application: stream_table_join_demo
+description: Test stream-table JOIN enrichment
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: enriched_orders
+    description: Verify stream-table join enriches orders with customer data
+    inputs:
+      - source: order_stream
+        schema: order_event.schema.yaml
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [order_id, customer_id, customer_name, customer_tier, product_id, quantity, total_amount, status]
+      - type: join_coverage
+        min_match_rate: 0.5
+      - type: no_nulls
+        fields: [order_id, customer_id, product_id, quantity, total_amount]
+    timeout_ms: 60000

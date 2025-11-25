@@ -1,0 +1,28 @@
+application: tumbling_window_demo
+description: Test tumbling window aggregation
+default_timeout_ms: 60000
+default_records: 1000
+
+queries:
+  - name: ohlcv_1m
+    description: Verify tumbling window produces OHLCV bars
+    inputs:
+      - source: market_ticks
+        schema: market_data.schema.yaml
+        records: 1000
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [symbol, low, high, total_volume, tick_count, avg_spread]
+      - type: field_values
+        field: low
+        operator: lte
+        compare_field: high
+      - type: field_values
+        field: tick_count
+        operator: gt
+        value: 0
+      - type: no_nulls
+        fields: [symbol, low, high, total_volume, tick_count]
+    timeout_ms: 60000

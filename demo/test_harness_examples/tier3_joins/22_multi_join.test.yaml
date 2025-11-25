@@ -1,0 +1,20 @@
+application: multi_join_demo
+description: Test multi-table JOIN enrichment
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: fully_enriched_orders
+    description: Verify multi-table join enriches from both sources
+    inputs:
+      - source: order_events
+        schema: order_event.schema.yaml
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [order_id, customer_name, customer_tier, product_name, product_category, quantity, order_total]
+      - type: no_nulls
+        fields: [order_id, customer_id, product_id, quantity, order_total]
+    timeout_ms: 60000
