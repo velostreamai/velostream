@@ -1,52 +1,91 @@
 # Instrument Reference Data Table Configuration
 # Static reference table for instrument metadata (symbols, exchange, trading rules, etc.)
 # Used by Stream-Table JOIN to enrich market data with instrument properties
+#
+# Example: Enriching market_data with instrument-specific fields like tick_size, lot_size
+# See: demo/trading/sql/financial_trading.sql:117-185 (TIER 1: STREAM-TABLE JOIN)
 
-extends: common_kafka_source.yaml
+extends: common_table_source.yaml
 
-# Table-specific settings (not a live topic, but a lookup table)
+# Table identity
 table:
-  name: "instrument_reference"
-  type: "static_lookup"
+  name: instrument_reference
+  type: static_lookup
+  primary_key: symbol
 
-# Consumer group for this specific lookup
-consumer.group: "instrument_reference_group"
+# Data source for populating this table
+# Choose one: file (CSV/JSON) or kafka (streaming table topic)
+data_source:
+  type: file
+  path: ./demo/trading/data/instrument_reference.csv
+  format: csv
+  has_headers: true
 
-# Performance profile - balanced for lookup operations
-performance_profile: balanced
+# Table schema definition
+schema:
+  fields:
+    - name: symbol
+      type: string
+      nullable: false
+      description: "Trading symbol (e.g., AAPL, GOOGL)"
 
-# Table schema - instruments with trading rules
-datasource:
-  schema:
-    key.field: symbol
-    value.serializer: json
+    - name: instrument_name
+      type: string
+      description: "Full instrument name"
 
-  # Example structure for instrument records
-  # {
-  #   "symbol": "AAPL",
-  #   "instrument_name": "Apple Inc",
-  #   "isin_code": "US0378331005",
-  #   "exchange": "NASDAQ",
-  #   "tick_size": 0.01,
-  #   "lot_size": 100,
-  #   "trading_venue": "NYSE",
-  #   "settlement_currency": "USD",
-  #   "margin_requirement": 0.15,
-  #   "position_limit": 10000000,
-  #   "restricted_trading_hours": false
-  # }
+    - name: isin_code
+      type: string
+      description: "International Securities Identification Number"
 
-# Table properties
-table_config:
-  # Cache-friendly configuration for fast lookups
-  cache_enabled: true
-  cache_ttl_seconds: 3600
-  refresh_interval_ms: 300000  # Refresh every 5 minutes
+    - name: exchange
+      type: string
+      description: "Primary exchange (e.g., NASDAQ, NYSE)"
 
-# Business context
+    - name: tick_size
+      type: decimal
+      precision: 10
+      scale: 4
+      description: "Minimum price increment for trading"
+
+    - name: lot_size
+      type: integer
+      description: "Standard lot size for this instrument"
+
+    - name: trading_venue
+      type: string
+      description: "Official trading venue"
+
+    - name: settlement_currency
+      type: string
+      description: "Currency for settlement (e.g., USD)"
+
+    - name: margin_requirement
+      type: decimal
+      precision: 5
+      scale: 2
+      description: "Margin requirement as percentage"
+
+    - name: position_limit
+      type: integer
+      description: "Maximum position size in units"
+
+    - name: restricted_trading_hours
+      type: boolean
+      description: "Whether this instrument has restricted trading hours"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 3600  # 1 hour - instruments change slowly
+  refresh_interval_ms: 300000  # 5 minutes
+  max_entries: 10000
+
+# Business metadata
 metadata:
-  description: "Static instrument reference data with trading rules and limits"
+  description: "Static instrument reference data with trading rules and regulatory limits"
   data.classification: "non_sensitive"
   update.frequency: "daily"
-  primary_key: "symbol"
-  use_case: "Stream-Table JOIN enrichment for market data"
+  primary_key: symbol
+  use_case: "Stream-Table JOIN enrichment for market data (normalized pricing, lot calculations)"
+  sla.refresh_time_seconds: 300
+  owner: "Trading Operations"

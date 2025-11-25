@@ -1,45 +1,93 @@
 # Trader Risk Limits Table Configuration
 # Reference table for individual trader notional exposure and risk limits
-# Used by ANY/ALL operators for multi-tier risk validation
+# Used by TIER 4 ANY/ALL operators for hierarchical risk validation
+#
+# Example: Validating trader positions against notional exposure limits
+# See: demo/trading/sql/financial_trading.sql:738-851 (TIER 4: ANY/ALL OPERATORS)
 
-extends: common_kafka_source.yaml
+extends: common_table_source.yaml
 
+# Table identity
 table:
-  name: "trader_limits"
-  type: "lookup_table"
+  name: trader_limits
+  type: static_lookup
+  primary_key: trader_id
 
-consumer.group: "trader_limits_group"
+# Data source for populating this table
+data_source:
+  type: file
+  path: ./demo/trading/data/trader_limits.csv
+  format: csv
+  has_headers: true
 
-performance_profile: balanced
+# Table schema definition
+schema:
+  fields:
+    - name: trader_id
+      type: string
+      nullable: false
+      description: "Unique trader identifier"
 
-datasource:
-  schema:
-    key.field: trader_id
-    value.serializer: json
+    - name: trader_name
+      type: string
+      description: "Trader's full name"
 
-  # Example structure for trader limit records
-  # {
-  #   "trader_id": "TRADER_001",
-  #   "trader_name": "John Smith",
-  #   "role_name": "Senior Trader",
-  #   "desk_id": "DESK_EQUITIES",
-  #   "trader_notional_limit": 50000000,
-  #   "daily_loss_limit": 100000,
-  #   "concentration_limit": 0.25,
-  #   "max_positions": 100,
-  #   "authorized_instruments": ["EQUITIES", "OPTIONS"],
-  #   "risk_level": "HIGH",
-  #   "effective_date": "2025-01-01"
-  # }
+    - name: role_name
+      type: string
+      description: "Job title/role (e.g., Senior Trader, Junior Trader)"
 
-table_config:
-  cache_enabled: true
-  cache_ttl_seconds: 3600  # 1 hour - trader limits change infrequently
-  refresh_interval_ms: 300000  # Refresh every 5 minutes
+    - name: desk_id
+      type: string
+      description: "Trading desk assignment"
 
+    - name: trader_notional_limit
+      type: decimal
+      precision: 19
+      scale: 2
+      description: "Maximum notional exposure for this trader"
+
+    - name: daily_loss_limit
+      type: decimal
+      precision: 19
+      scale: 2
+      description: "Maximum daily loss allowance"
+
+    - name: concentration_limit
+      type: decimal
+      precision: 5
+      scale: 4
+      description: "Maximum concentration ratio per position"
+
+    - name: max_positions
+      type: integer
+      description: "Maximum number of open positions"
+
+    - name: authorized_instruments
+      type: string
+      description: "Comma-separated list of authorized instrument types"
+
+    - name: risk_level
+      type: string
+      enum: ["JUNIOR", "STANDARD", "SENIOR", "PROPRIETARY"]
+      description: "Trader's risk authorization level"
+
+    - name: effective_date
+      type: date
+      description: "Date limits become effective"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 3600  # 1 hour - trader limits change infrequently
+  refresh_interval_ms: 300000  # 5 minutes refresh
+  max_entries: 10000
+
+# Business metadata
 metadata:
-  description: "Individual trader risk limits and authorization levels"
+  description: "Individual trader risk limits and authorization levels for hierarchical risk validation"
   data.classification: "compliance_sensitive"
   update.frequency: "daily"
-  primary_key: "trader_id"
-  use_case: "ANY/ALL operators for hierarchical risk validation"
+  primary_key: trader_id
+  use_case: "ALL operator for trader-level risk validation (notional limits, daily loss caps)"
+  sla.refresh_time_seconds: 300
+  owner: "Risk Management"

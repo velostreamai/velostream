@@ -1,44 +1,84 @@
 # Instrument Trading Schedule Table Configuration
 # Reference table for market hours, session types, and holiday calendars
-# Used by IN/NOT IN subquery to filter active trading hours and sessions
+# Used by TIER 2 IN/NOT IN subquery to filter active trading instruments
+#
+# Example: Filtering market data to only active trading instruments during market hours
+# See: demo/trading/sql/financial_trading.sql:426-487 (TIER 2: IN/NOT IN SUBQUERY)
 
-extends: common_kafka_source.yaml
+extends: common_table_source.yaml
 
+# Table identity
 table:
-  name: "instrument_schedules"
-  type: "lookup_table"
+  name: instrument_schedules
+  type: static_lookup
+  primary_key: schedule_id
 
-consumer.group: "instrument_schedules_group"
+# Data source for populating this table
+data_source:
+  type: file
+  path: ./demo/trading/data/instrument_schedules.csv
+  format: csv
+  has_headers: true
 
-performance_profile: balanced
+# Table schema definition
+schema:
+  fields:
+    - name: schedule_id
+      type: string
+      nullable: false
+      description: "Unique schedule identifier (e.g., AAPL_NASDAQ_2025)"
 
-datasource:
-  schema:
-    key.field: schedule_id
-    value.serializer: json
+    - name: symbol
+      type: string
+      description: "Trading symbol"
 
-  # Example structure for schedule records
-  # {
-  #   "schedule_id": "AAPL_NASDAQ_2025",
-  #   "symbol": "AAPL",
-  #   "exchange": "NASDAQ",
-  #   "market_status": "OPEN",
-  #   "session_type": "REGULAR",
-  #   "session_start": "09:30:00",
-  #   "session_end": "16:00:00",
-  #   "timezone": "America/New_York",
-  #   "effective_date": "2025-01-01",
-  #   "expiry_date": "2025-12-31"
-  # }
+    - name: exchange
+      type: string
+      description: "Primary exchange (NASDAQ, NYSE, etc.)"
 
-table_config:
-  cache_enabled: true
-  cache_ttl_seconds: 86400  # 24 hours - schedule rarely changes
-  refresh_interval_ms: 3600000  # Refresh every hour
+    - name: market_status
+      type: string
+      enum: ["OPEN", "CLOSED", "PRE_MARKET", "POST_MARKET"]
+      description: "Current market status"
 
+    - name: session_type
+      type: string
+      enum: ["REGULAR", "PRE_MARKET", "POST_MARKET", "EXTENDED"]
+      description: "Type of trading session"
+
+    - name: session_start
+      type: time
+      description: "Session start time (HH:MM:SS format)"
+
+    - name: session_end
+      type: time
+      description: "Session end time (HH:MM:SS format)"
+
+    - name: timezone
+      type: string
+      description: "Timezone for session times (e.g., America/New_York)"
+
+    - name: effective_date
+      type: date
+      description: "Date when schedule becomes effective"
+
+    - name: expiry_date
+      type: date
+      description: "Date when schedule expires"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 86400  # 24 hours - schedules change daily but predictably
+  refresh_interval_ms: 3600000  # 1 hour refresh
+  max_entries: 10000
+
+# Business metadata
 metadata:
-  description: "Instrument trading schedules with session types and market hours"
+  description: "Instrument trading schedules with session types, market hours, and holiday calendars"
   data.classification: "non_sensitive"
   update.frequency: "daily"
-  primary_key: "schedule_id"
-  use_case: "IN/NOT IN subquery filtering for active trading sessions"
+  primary_key: schedule_id
+  use_case: "IN subquery filtering for active trading instruments and sessions"
+  sla.refresh_time_seconds: 3600
+  owner: "Market Operations"

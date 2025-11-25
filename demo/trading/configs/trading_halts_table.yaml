@@ -1,42 +1,82 @@
 # Trading Halts Table Configuration
 # Reference table for temporary trading halts and suspensions
-# Used by IN/NOT IN subquery to filter out halted instruments
+# Used by TIER 2 IN/NOT IN subquery to filter out halted instruments
+#
+# Example: Filtering market data to exclude halted symbols
+# See: demo/trading/sql/financial_trading.sql:426-487 (TIER 2: IN/NOT IN SUBQUERY)
 
-extends: common_kafka_source.yaml
+extends: common_table_source.yaml
 
+# Table identity
 table:
-  name: "trading_halts"
-  type: "lookup_table"
+  name: trading_halts
+  type: static_lookup
+  primary_key: halt_id
 
-consumer.group: "trading_halts_group"
+# Data source for populating this table
+data_source:
+  type: file
+  path: ./demo/trading/data/trading_halts.csv
+  format: csv
+  has_headers: true
 
-performance_profile: balanced
+# Table schema definition
+schema:
+  fields:
+    - name: halt_id
+      type: string
+      nullable: false
+      description: "Unique halt identifier"
 
-datasource:
-  schema:
-    key.field: halt_id
-    value.serializer: json
+    - name: symbol
+      type: string
+      description: "Symbol that is halted"
 
-  # Example structure for halt records
-  # {
-  #   "halt_id": "HALT_001",
-  #   "symbol": "XYZ",
-  #   "exchange": "NYSE",
-  #   "halt_status": "HALTED",
-  #   "halt_start_time": "2025-01-15T10:30:00Z",
-  #   "halt_end_time": "2025-01-15T11:00:00Z",
-  #   "halt_reason": "NEWS_PENDING",
-  #   "regulatory_authority": "SEC"
-  # }
+    - name: exchange
+      type: string
+      description: "Exchange where halt is in effect"
 
-table_config:
-  cache_enabled: true
-  cache_ttl_seconds: 300  # 5 minutes - halts can change rapidly
-  refresh_interval_ms: 10000  # Refresh every 10 seconds
+    - name: halt_status
+      type: string
+      enum: ["HALTED", "RESUMED", "PENDING"]
+      description: "Current status of the trading halt"
 
+    - name: halt_start_time
+      type: timestamp
+      description: "Time when halt began"
+
+    - name: halt_end_time
+      type: timestamp
+      nullable: true
+      description: "Time when halt is expected to end (null = TBD)"
+
+    - name: halt_reason
+      type: string
+      enum: ["NEWS_PENDING", "VOLATILITY", "REGULATORY", "TECHNICAL", "UNKNOWN"]
+      description: "Reason for trading halt"
+
+    - name: regulatory_authority
+      type: string
+      description: "Regulatory authority that issued the halt"
+
+    - name: duration_minutes
+      type: integer
+      nullable: true
+      description: "Expected duration in minutes"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 300  # 5 minutes - halts can change rapidly
+  refresh_interval_ms: 10000  # 10 seconds refresh for real-time updates
+  max_entries: 5000
+
+# Business metadata
 metadata:
-  description: "Trading halt records with timing and regulatory reasons"
+  description: "Trading halt records with timing, reason, and regulatory authority"
   data.classification: "non_sensitive"
-  update.frequency: "real-time"
-  primary_key: "halt_id"
-  use_case: "IN/NOT IN subquery filtering for halted securities"
+  update.frequency: "real_time"
+  primary_key: halt_id
+  use_case: "NOT IN filter to exclude halted securities from trading streams"
+  sla.refresh_time_seconds: 10
+  owner: "Market Operations"

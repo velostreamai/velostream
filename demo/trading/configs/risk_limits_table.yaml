@@ -1,42 +1,88 @@
 # Risk Limits Table Configuration
-# Reference table for global risk thresholds and alert levels
+# Reference table for global risk thresholds and alert levels by asset class
 # Used for risk validation and escalation alerting
 
-extends: common_kafka_source.yaml
+extends: common_table_source.yaml
 
+# Table identity
 table:
-  name: "risk_limits"
-  type: "lookup_table"
+  name: risk_limits
+  type: static_lookup
+  primary_key: limit_id
 
-consumer.group: "risk_limits_group"
+# Data source for populating this table
+data_source:
+  type: file
+  path: ./demo/trading/data/risk_limits.csv
+  format: csv
+  has_headers: true
 
-performance_profile: balanced
+# Table schema definition
+schema:
+  fields:
+    - name: limit_id
+      type: string
+      nullable: false
+      description: "Unique risk limit identifier"
 
-datasource:
-  schema:
-    key.field: limit_id
-    value.serializer: json
+    - name: limit_name
+      type: string
+      description: "Human-readable limit name"
 
-  # Example structure for risk limit records
-  # {
-  #   "limit_id": "RISK_EQUITY_001",
-  #   "limit_name": "Equity Daily Loss Limit",
-  #   "asset_class": "EQUITIES",
-  #   "hard_limit": 500000,
-  #   "warning_threshold": 250000,
-  #   "alert_level": "CRITICAL",
-  #   "escalation_recipient": "RISK_TEAM",
-  #   "effective_date": "2025-01-01"
-  # }
+    - name: asset_class
+      type: string
+      enum: ["EQUITIES", "FIXED_INCOME", "DERIVATIVES", "COMMODITIES", "FOREX", "CRYPTO"]
+      description: "Asset class this limit applies to"
 
-table_config:
-  cache_enabled: true
-  cache_ttl_seconds: 7200  # 2 hours - risk limits are stable
-  refresh_interval_ms: 600000  # Refresh every 10 minutes
+    - name: hard_limit
+      type: decimal
+      precision: 19
+      scale: 2
+      description: "Hard limit that triggers trading halt"
 
+    - name: warning_threshold
+      type: decimal
+      precision: 19
+      scale: 2
+      description: "Warning level for alerts"
+
+    - name: caution_threshold
+      type: decimal
+      precision: 19
+      scale: 2
+      nullable: true
+      description: "Caution level before warning"
+
+    - name: alert_level
+      type: string
+      enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+      description: "Alert severity level"
+
+    - name: escalation_recipient
+      type: string
+      description: "Team/person to escalate alerts to"
+
+    - name: automatic_mitigation
+      type: boolean
+      description: "Whether to automatically trigger risk mitigation actions"
+
+    - name: effective_date
+      type: date
+      description: "Date limit becomes effective"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 7200  # 2 hours - risk limits are stable
+  refresh_interval_ms: 600000  # 10 minutes refresh
+  max_entries: 1000
+
+# Business metadata
 metadata:
-  description: "Global risk limits and alert thresholds by asset class"
+  description: "Global risk limits and alert thresholds by asset class for risk governance"
   data.classification: "compliance_sensitive"
   update.frequency: "weekly"
-  primary_key: "limit_id"
-  use_case: "Risk threshold reference for escalation logic"
+  primary_key: limit_id
+  use_case: "Risk threshold reference for escalation logic and automated mitigation"
+  sla.refresh_time_seconds: 600
+  owner: "Enterprise Risk Management"

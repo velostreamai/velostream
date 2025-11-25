@@ -94,6 +94,39 @@ impl TableDataSource {
         Self { table }
     }
 
+    /// Create a TableDataSource from properties with config file support
+    ///
+    /// Loads and merges table configuration from YAML files via `config_file` property.
+    /// Follows the same pattern as KafkaDataSource for consistency.
+    ///
+    /// # Arguments
+    /// * `props` - Configuration properties (from SQL WITH clause or config file)
+    ///
+    /// # Returns
+    /// A new TableDataSource instance
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut props = HashMap::new();
+    /// props.insert("config_file".to_string(), "configs/instrument_reference_table.yaml".to_string());
+    ///
+    /// let table_source = TableDataSource::from_properties(&props);
+    /// ```
+    pub fn from_properties(props: &HashMap<String, String>) -> Self {
+        use crate::velostream::datasource::config_loader::merge_config_file_properties;
+
+        // Load and merge config file with provided properties
+        // Follows same pattern as KafkaDataSource::from_properties
+        let _merged_props = merge_config_file_properties(props, "TableDataSource");
+
+        // Create new table instance
+        // TODO: In future, apply table-specific configuration from merged_props
+        // (e.g., cache settings, refresh intervals, performance profiles)
+        let table = OptimizedTableImpl::new();
+
+        Self { table }
+    }
+
     /// Insert a record into the table
     pub fn insert(&self, key: String, record: HashMap<String, FieldValue>) -> Result<(), SqlError> {
         self.table.insert(key, record)

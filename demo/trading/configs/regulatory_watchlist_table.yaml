@@ -1,42 +1,81 @@
 # Regulatory Watchlist Table Configuration
-# Reference table for regulatory restrictions: blocked symbols, suspended traders, etc.
-# Used by EXISTS subquery to filter out restricted trading opportunities
+# Reference table for regulatory restrictions and blocked/suspended instruments
+# Used by TIER 2 EXISTS subquery to filter compliant trades
+#
+# Example: Filtering out trades involving restricted traders or blocked instruments
+# See: demo/trading/sql/financial_trading.sql:317-364 (TIER 2: EXISTS SUBQUERY)
 
-extends: common_kafka_source.yaml
+extends: common_table_source.yaml
 
+# Table identity
 table:
-  name: "regulatory_watchlist"
-  type: "lookup_table"
+  name: regulatory_watchlist
+  type: static_lookup
+  primary_key: watchlist_id
 
-consumer.group: "regulatory_watchlist_group"
+# Data source for populating this table
+data_source:
+  type: file
+  path: ./demo/trading/data/regulatory_watchlist.csv
+  format: csv
+  has_headers: true
 
-performance_profile: balanced
+# Table schema definition
+schema:
+  fields:
+    - name: watchlist_id
+      type: string
+      nullable: false
+      description: "Unique watchlist entry identifier"
 
-datasource:
-  schema:
-    key.field: watchlist_id
-    value.serializer: json
+    - name: symbol
+      type: string
+      description: "Instrument symbol (if blocking specific instrument)"
 
-  # Example structure for watchlist records
-  # {
-  #   "watchlist_id": "REG001",
-  #   "symbol": "MEME",
-  #   "trader_id": null,
-  #   "restriction_type": "BLOCKED",
-  #   "effective_date": "2025-01-01T00:00:00Z",
-  #   "expiry_date": "2026-12-31T23:59:59Z",
-  #   "reason": "Market manipulation concerns",
-  #   "enforcing_authority": "SEC"
-  # }
+    - name: trader_id
+      type: string
+      description: "Trader ID (if blocking specific trader)"
 
-table_config:
-  cache_enabled: true
-  cache_ttl_seconds: 1800  # 30 minutes - regulatory changes should be frequent
-  refresh_interval_ms: 60000  # Refresh every minute
+    - name: restriction_type
+      type: string
+      enum: ["BLOCKED", "SUSPENDED", "RESTRICTED"]
+      description: "Type of restriction: BLOCKED (no trading), SUSPENDED (temporary), RESTRICTED (limited)"
 
+    - name: effective_date
+      type: timestamp
+      description: "Date when restriction becomes effective"
+
+    - name: expiry_date
+      type: timestamp
+      nullable: true
+      description: "Date when restriction expires (null = indefinite)"
+
+    - name: reason
+      type: string
+      description: "Reason for restriction (e.g., OFAC, insider-trading, compliance)"
+
+    - name: escalation_recipient
+      type: string
+      description: "Team/person to notify if restriction is breached"
+
+    - name: severity
+      type: string
+      enum: ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+      description: "Severity level of restriction"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 1800  # 30 minutes - regulatory changes require fast refresh
+  refresh_interval_ms: 60000  # 1 minute - high-priority for compliance
+  max_entries: 50000
+
+# Business metadata
 metadata:
-  description: "Regulatory watchlist with blocked/suspended instruments and traders"
+  description: "Regulatory restrictions and blocked/suspended instruments for compliance filtering"
   data.classification: "compliance_sensitive"
-  update.frequency: "real-time"
-  primary_key: "watchlist_id"
-  use_case: "EXISTS subquery filtering for compliance validation"
+  update.frequency: "multiple_times_daily"
+  primary_key: watchlist_id
+  use_case: "NOT EXISTS filter for compliance (OFAC, insider-trading prevention, sanctions)"
+  sla.refresh_time_seconds: 60
+  owner: "Compliance Team"
