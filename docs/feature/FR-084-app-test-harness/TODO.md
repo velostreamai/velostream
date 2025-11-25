@@ -10,8 +10,11 @@
 | Phase 4 | Reporting | 1-2 days | NOT STARTED | Phase 3 |
 | Phase 5 | Advanced Features | 3-4 days | NOT STARTED | Phase 4 |
 | Phase 6 | AI-Powered Features | 2-3 days | NOT STARTED | Phase 5 |
+| Demo Apps | Test Fixtures | 4 days | NOT STARTED | Parallel with Phase 2-3 |
 
-**Total Estimated LoE: 14-20 days**
+**Total Estimated LoE: 18-24 days**
+
+**MVP (Phase 1-4 + Tier 1-3 Demos): ~12-15 days**
 
 ---
 
@@ -283,9 +286,128 @@ Phase 6 (AI-Powered Features)
 
 ---
 
+---
+
+## Demo SQL Applications
+
+Test fixtures that exercise different Velostream functionality. Located in `demo/test_harness_examples/`.
+
+### Tier 1: Basic Operations (Phase 1-2 validation)
+
+| App | File | Features Tested |
+|-----|------|-----------------|
+| **Simple Passthrough** | `01_passthrough.sql` | Basic SELECT, Kafka source/sink |
+| **Field Projection** | `02_projection.sql` | SELECT specific fields, aliases |
+| **Simple Filter** | `03_filter.sql` | WHERE clause, comparisons |
+| **Type Casting** | `04_casting.sql` | CAST, type conversions |
+
+### Tier 2: Aggregations (Phase 2-3 validation)
+
+| App | File | Features Tested |
+|-----|------|-----------------|
+| **Count Aggregation** | `10_count.sql` | COUNT(*), GROUP BY |
+| **Sum/Avg Aggregation** | `11_sum_avg.sql` | SUM, AVG, MIN, MAX |
+| **Tumbling Window** | `12_tumbling_window.sql` | WINDOW TUMBLING |
+| **Sliding Window** | `13_sliding_window.sql` | WINDOW SLIDING |
+| **Session Window** | `14_session_window.sql` | WINDOW SESSION |
+
+### Tier 3: Joins (Phase 2-3 validation)
+
+| App | File | Features Tested |
+|-----|------|-----------------|
+| **Stream-Table JOIN** | `20_stream_table_join.sql` | LEFT JOIN with file source |
+| **Stream-Stream JOIN** | `21_stream_stream_join.sql` | JOIN two Kafka sources |
+| **Multi-Table JOIN** | `22_multi_join.sql` | Multiple JOINs |
+
+### Tier 4: Window Functions (Phase 3 validation)
+
+| App | File | Features Tested |
+|-----|------|-----------------|
+| **LAG/LEAD** | `30_lag_lead.sql` | LAG, LEAD functions |
+| **ROW_NUMBER** | `31_row_number.sql` | ROW_NUMBER, RANK |
+| **Running Aggregates** | `32_running_agg.sql` | Running SUM, AVG |
+| **ROWS WINDOW BUFFER** | `33_rows_buffer.sql` | ROWS WINDOW BUFFER N ROWS |
+
+### Tier 5: Complex Patterns (Phase 4-5 validation)
+
+| App | File | Features Tested |
+|-----|------|-----------------|
+| **Multi-Stage Pipeline** | `40_pipeline.sql` | Multiple CREATE STREAM chained |
+| **Subqueries** | `41_subqueries.sql` | IN (SELECT ...), EXISTS |
+| **CASE Expressions** | `42_case.sql` | CASE WHEN logic |
+| **Complex Filters** | `43_complex_filter.sql` | AND, OR, BETWEEN, IN |
+
+### Tier 6: Edge Cases (Regression testing)
+
+| App | File | Features Tested |
+|-----|------|-----------------|
+| **Null Handling** | `50_nulls.sql` | NULL values, COALESCE, IS NULL |
+| **Empty Input** | `51_empty.sql` | Zero records handling |
+| **Large Volume** | `52_large_volume.sql` | 100k+ records |
+| **Late Arrivals** | `53_late_arrivals.sql` | Out-of-order events |
+
+### Directory Structure
+
+```
+demo/test_harness_examples/
+├── CLAUDE.md                    # Context for Claude Code
+├── README.md                    # Overview of demo apps
+│
+├── tier1_basic/
+│   ├── 01_passthrough.sql
+│   ├── 01_passthrough.test.yaml  # Test spec
+│   ├── 02_projection.sql
+│   ├── 02_projection.test.yaml
+│   └── ...
+│
+├── tier2_aggregations/
+│   ├── 10_count.sql
+│   ├── 10_count.test.yaml
+│   └── ...
+│
+├── tier3_joins/
+│   ├── 20_stream_table_join.sql
+│   ├── 20_stream_table_join.test.yaml
+│   ├── data/
+│   │   └── reference_table.csv
+│   └── ...
+│
+├── tier4_window_functions/
+│   └── ...
+│
+├── tier5_complex/
+│   └── ...
+│
+├── tier6_edge_cases/
+│   └── ...
+│
+├── schemas/
+│   ├── simple_record.schema.yaml
+│   ├── market_data.schema.yaml
+│   └── order_event.schema.yaml
+│
+└── configs/
+    ├── kafka_source.yaml
+    └── kafka_sink.yaml
+```
+
+### Demo App Tasks
+
+- [ ] **Tier 1: Basic** (1 day) - 4 apps
+- [ ] **Tier 2: Aggregations** (1 day) - 5 apps
+- [ ] **Tier 3: Joins** (0.5 day) - 3 apps
+- [ ] **Tier 4: Window Functions** (0.5 day) - 4 apps
+- [ ] **Tier 5: Complex** (0.5 day) - 4 apps
+- [ ] **Tier 6: Edge Cases** (0.5 day) - 4 apps
+
+**Total Demo Apps LoE: 4 days** (can be done in parallel with Phase 2-3)
+
+---
+
 ## Notes
 
 - Phase 1-4 = MVP (~10-13 days)
 - Phase 5 = Nice-to-have advanced features (~3-4 days)
 - Phase 6 = AI enhancement (~2-3 days)
+- Demo apps = Test fixtures (~4 days, parallel with Phase 2-3)
 - Consider shipping MVP first, then iterate on advanced features
