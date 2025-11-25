@@ -1,7 +1,7 @@
-use std::env;
-/// Tests for node identification via SQL annotations with environment variable resolution
-use velostream::velostream::sql::app_parser::{DeploymentConfig, SqlApplicationParser};
 use serial_test::serial;
+use std::env;
+
+use velostream::velostream::sql::app_parser::{DeploymentConfig, SqlApplicationParser};
 
 /// Test simple pattern resolution without environment variables
 #[test]
