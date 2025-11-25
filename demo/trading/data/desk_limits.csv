@@ -1,0 +1,5 @@
+desk_id,desk_name,business_unit,desk_notional_limit,sector_concentration_limit,daily_loss_limit,max_leverage,risk_manager,effective_date
+DESK_EQUITIES,Equities Trading Desk,EQUITIES,250000000,0.30,1000000,3.0,RISK_OFFICER_001,2025-01-01
+DESK_FIXED_INCOME,Fixed Income Desk,FIXED_INCOME,200000000,0.35,800000,2.5,RISK_OFFICER_002,2025-01-01
+DESK_DERIVATIVES,Derivatives Desk,DERIVATIVES,300000000,0.25,1200000,5.0,RISK_OFFICER_003,2025-01-01
+DESK_PROP,Proprietary Trading Desk,PROPRIETARY,400000000,0.40,2000000,4.0,RISK_OFFICER_004,2025-01-01
