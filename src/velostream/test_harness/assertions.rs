@@ -590,3 +590,601 @@ fn compare_field_value(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_output(records: Vec<HashMap<String, FieldValue>>) -> CapturedOutput {
+        CapturedOutput {
+            query_name: "test_query".to_string(),
+            sink_name: "test_sink".to_string(),
+            records,
+            execution_time_ms: 100,
+            warnings: vec![],
+        }
+    }
+
+    // ==================== AssertionResult Tests ====================
+
+    #[test]
+    fn test_assertion_result_pass() {
+        let result = AssertionResult::pass("test_type", "Test passed");
+        assert!(result.passed);
+        assert_eq!(result.assertion_type, "test_type");
+        assert_eq!(result.message, "Test passed");
+        assert!(result.expected.is_none());
+        assert!(result.actual.is_none());
+    }
+
+    #[test]
+    fn test_assertion_result_fail() {
+        let result = AssertionResult::fail("test_type", "Test failed", "expected", "actual");
+        assert!(!result.passed);
+        assert_eq!(result.assertion_type, "test_type");
+        assert_eq!(result.expected, Some("expected".to_string()));
+        assert_eq!(result.actual, Some("actual".to_string()));
+    }
+
+    #[test]
+    fn test_assertion_result_with_detail() {
+        let result = AssertionResult::pass("test", "msg")
+            .with_detail("key1", "value1")
+            .with_detail("key2", "value2");
+        assert_eq!(result.details.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(result.details.get("key2"), Some(&"value2".to_string()));
+    }
+
+    // ==================== Record Count Tests ====================
+
+    #[test]
+    fn test_record_count_equals_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: Some(2),
+            greater_than: None,
+            less_than: None,
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_record_count_equals_fail() {
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: Some(5),
+            greater_than: None,
+            less_than: None,
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(!result.passed);
+        assert_eq!(result.expected, Some("5".to_string()));
+        assert_eq!(result.actual, Some("1".to_string()));
+    }
+
+    #[test]
+    fn test_record_count_greater_than_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(3))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: None,
+            greater_than: Some(2),
+            less_than: None,
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_record_count_greater_than_fail() {
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: None,
+            greater_than: Some(5),
+            less_than: None,
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(!result.passed);
+    }
+
+    #[test]
+    fn test_record_count_less_than_pass() {
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: None,
+            greater_than: None,
+            less_than: Some(5),
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_record_count_between_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(3))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: None,
+            greater_than: None,
+            less_than: None,
+            between: Some((1, 5)),
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_record_count_between_fail() {
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: None,
+            greater_than: None,
+            less_than: None,
+            between: Some((5, 10)),
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(!result.passed);
+    }
+
+    // ==================== Schema Contains Tests ====================
+
+    #[test]
+    fn test_schema_contains_pass() {
+        let output = create_test_output(vec![HashMap::from([
+            ("id".to_string(), FieldValue::Integer(1)),
+            ("name".to_string(), FieldValue::String("test".to_string())),
+            ("value".to_string(), FieldValue::Float(3.14)),
+        ])]);
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["id".to_string(), "name".to_string()],
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_schema_contains_fail() {
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["id".to_string(), "missing_field".to_string()],
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(!result.passed);
+        assert!(result.actual.unwrap().contains("missing_field"));
+    }
+
+    #[test]
+    fn test_schema_contains_empty_records() {
+        let output = create_test_output(vec![]);
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["id".to_string()],
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(!result.passed);
+    }
+
+    // ==================== No Nulls Tests ====================
+
+    #[test]
+    fn test_no_nulls_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([
+                ("id".to_string(), FieldValue::Integer(1)),
+                ("name".to_string(), FieldValue::String("test".to_string())),
+            ]),
+            HashMap::from([
+                ("id".to_string(), FieldValue::Integer(2)),
+                ("name".to_string(), FieldValue::String("test2".to_string())),
+            ]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = NoNullsAssertion {
+            fields: vec!["id".to_string(), "name".to_string()],
+        };
+
+        let result = runner.assert_no_nulls(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_no_nulls_fail() {
+        let output = create_test_output(vec![HashMap::from([
+            ("id".to_string(), FieldValue::Integer(1)),
+            ("name".to_string(), FieldValue::Null),
+        ])]);
+
+        let runner = AssertionRunner::new();
+        let config = NoNullsAssertion {
+            fields: vec!["name".to_string()],
+        };
+
+        let result = runner.assert_no_nulls(&output, &config);
+        assert!(!result.passed);
+        assert!(result.actual.unwrap().contains("name[0]"));
+    }
+
+    #[test]
+    fn test_no_nulls_all_fields() {
+        let output = create_test_output(vec![HashMap::from([
+            ("id".to_string(), FieldValue::Integer(1)),
+            ("name".to_string(), FieldValue::Null),
+        ])]);
+
+        let runner = AssertionRunner::new();
+        let config = NoNullsAssertion { fields: vec![] }; // Check all fields
+
+        let result = runner.assert_no_nulls(&output, &config);
+        assert!(!result.passed);
+    }
+
+    // ==================== Field In Set Tests ====================
+
+    #[test]
+    fn test_field_in_set_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([(
+                "status".to_string(),
+                FieldValue::String("active".to_string()),
+            )]),
+            HashMap::from([(
+                "status".to_string(),
+                FieldValue::String("pending".to_string()),
+            )]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldInSetAssertion {
+            field: "status".to_string(),
+            values: vec![
+                "active".to_string(),
+                "pending".to_string(),
+                "completed".to_string(),
+            ],
+        };
+
+        let result = runner.assert_field_in_set(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_field_in_set_fail() {
+        let output = create_test_output(vec![HashMap::from([(
+            "status".to_string(),
+            FieldValue::String("invalid".to_string()),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldInSetAssertion {
+            field: "status".to_string(),
+            values: vec!["active".to_string(), "pending".to_string()],
+        };
+
+        let result = runner.assert_field_in_set(&output, &config);
+        assert!(!result.passed);
+        assert!(result.actual.unwrap().contains("invalid"));
+    }
+
+    // ==================== Field Values Tests ====================
+
+    #[test]
+    fn test_field_values_equals_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Integer(100))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(100))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "value".to_string(),
+            operator: ComparisonOperator::Equals,
+            value: serde_yaml::Value::Number(serde_yaml::Number::from(100)),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_field_values_greater_than_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Float(15.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(20.0))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "value".to_string(),
+            operator: ComparisonOperator::GreaterThan,
+            value: serde_yaml::Value::Number(serde_yaml::Number::from(10)),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_field_values_contains_pass() {
+        let output = create_test_output(vec![HashMap::from([(
+            "name".to_string(),
+            FieldValue::String("hello world".to_string()),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "name".to_string(),
+            operator: ComparisonOperator::Contains,
+            value: serde_yaml::Value::String("world".to_string()),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_field_values_starts_with_pass() {
+        let output = create_test_output(vec![HashMap::from([(
+            "name".to_string(),
+            FieldValue::String("prefix_test".to_string()),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "name".to_string(),
+            operator: ComparisonOperator::StartsWith,
+            value: serde_yaml::Value::String("prefix".to_string()),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed);
+    }
+
+    // ==================== Aggregate Check Tests ====================
+
+    #[test]
+    fn test_aggregate_sum_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("amount".to_string(), FieldValue::Float(10.0))]),
+            HashMap::from([("amount".to_string(), FieldValue::Float(20.0))]),
+            HashMap::from([("amount".to_string(), FieldValue::Float(30.0))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = AggregateCheckAssertion {
+            field: "amount".to_string(),
+            function: AggregateFunction::Sum,
+            expected: "60.0".to_string(),
+            tolerance: Some(0.01),
+        };
+
+        let result = runner.assert_aggregate(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_aggregate_avg_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Integer(10))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(20))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(30))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = AggregateCheckAssertion {
+            field: "value".to_string(),
+            function: AggregateFunction::Avg,
+            expected: "20.0".to_string(),
+            tolerance: Some(0.01),
+        };
+
+        let result = runner.assert_aggregate(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_aggregate_count_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Integer(1))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(2))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(3))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = AggregateCheckAssertion {
+            field: "value".to_string(),
+            function: AggregateFunction::Count,
+            expected: "3.0".to_string(),
+            tolerance: Some(0.01),
+        };
+
+        let result = runner.assert_aggregate(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_aggregate_min_max() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Float(5.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(15.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(10.0))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+
+        // Test MIN
+        let min_config = AggregateCheckAssertion {
+            field: "value".to_string(),
+            function: AggregateFunction::Min,
+            expected: "5.0".to_string(),
+            tolerance: Some(0.01),
+        };
+        assert!(runner.assert_aggregate(&output, &min_config).passed);
+
+        // Test MAX
+        let max_config = AggregateCheckAssertion {
+            field: "value".to_string(),
+            function: AggregateFunction::Max,
+            expected: "15.0".to_string(),
+            tolerance: Some(0.01),
+        };
+        assert!(runner.assert_aggregate(&output, &max_config).passed);
+    }
+
+    #[test]
+    fn test_aggregate_no_values() {
+        let output = create_test_output(vec![]);
+
+        let runner = AssertionRunner::new();
+        let config = AggregateCheckAssertion {
+            field: "value".to_string(),
+            function: AggregateFunction::Sum,
+            expected: "0".to_string(),
+            tolerance: None,
+        };
+
+        let result = runner.assert_aggregate(&output, &config);
+        assert!(!result.passed);
+    }
+
+    // ==================== Helper Function Tests ====================
+
+    #[test]
+    fn test_field_value_to_string() {
+        assert_eq!(field_value_to_string(&FieldValue::Null), "null");
+        assert_eq!(field_value_to_string(&FieldValue::Boolean(true)), "true");
+        assert_eq!(field_value_to_string(&FieldValue::Integer(42)), "42");
+        assert_eq!(field_value_to_string(&FieldValue::Float(3.14)), "3.14");
+        assert_eq!(
+            field_value_to_string(&FieldValue::String("test".to_string())),
+            "test"
+        );
+        // ScaledInteger: 12345 with scale 2 = 123.45
+        assert_eq!(
+            field_value_to_string(&FieldValue::ScaledInteger(12345, 2)),
+            "123.45"
+        );
+    }
+
+    #[test]
+    fn test_field_value_to_f64() {
+        assert_eq!(field_value_to_f64(&FieldValue::Integer(42)), Some(42.0));
+        assert_eq!(field_value_to_f64(&FieldValue::Float(3.14)), Some(3.14));
+        assert_eq!(
+            field_value_to_f64(&FieldValue::ScaledInteger(12345, 2)),
+            Some(123.45)
+        );
+        assert_eq!(
+            field_value_to_f64(&FieldValue::String("test".to_string())),
+            None
+        );
+        assert_eq!(field_value_to_f64(&FieldValue::Null), None);
+    }
+
+    // ==================== Run Assertions Tests ====================
+
+    #[test]
+    fn test_run_multiple_assertions() {
+        let output = create_test_output(vec![
+            HashMap::from([
+                ("id".to_string(), FieldValue::Integer(1)),
+                (
+                    "status".to_string(),
+                    FieldValue::String("active".to_string()),
+                ),
+            ]),
+            HashMap::from([
+                ("id".to_string(), FieldValue::Integer(2)),
+                (
+                    "status".to_string(),
+                    FieldValue::String("active".to_string()),
+                ),
+            ]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let assertions = vec![
+            AssertionConfig::RecordCount(RecordCountAssertion {
+                equals: Some(2),
+                greater_than: None,
+                less_than: None,
+                between: None,
+                expression: None,
+            }),
+            AssertionConfig::SchemaContains(SchemaContainsAssertion {
+                fields: vec!["id".to_string(), "status".to_string()],
+            }),
+        ];
+
+        let results = runner.run_assertions(&output, &assertions);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].passed);
+        assert!(results[1].passed);
+    }
+}

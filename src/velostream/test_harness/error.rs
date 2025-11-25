@@ -6,7 +6,7 @@ use std::fmt;
 use std::io;
 
 /// Main error type for test harness operations
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TestHarnessError {
     /// Failed to parse SQL file
     SqlParseError {

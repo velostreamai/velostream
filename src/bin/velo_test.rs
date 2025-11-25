@@ -272,8 +272,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("   Application: {}", app_name);
 
                     // Call AI to generate test spec
-                    let runtime = tokio::runtime::Runtime::new().expect("Failed to create runtime");
-                    match runtime.block_on(ai_assistant.generate_test_spec(&sql_content, &app_name))
+                    match ai_assistant
+                        .generate_test_spec(&sql_content, &app_name)
+                        .await
                     {
                         Ok(spec) => {
                             // Write spec to output file
@@ -429,8 +430,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("   CSV samples: {}", csv_samples.len());
 
                     // Call AI to infer schema
-                    let runtime = tokio::runtime::Runtime::new()?;
-                    match runtime.block_on(ai_assistant.infer_schema(&sql_content, &csv_samples)) {
+                    match ai_assistant.infer_schema(&sql_content, &csv_samples).await {
                         Ok(schema) => {
                             let output_file = output.join(format!("{}.schema.yaml", schema.name));
                             match inferencer.write_schema(&schema, &output_file) {
