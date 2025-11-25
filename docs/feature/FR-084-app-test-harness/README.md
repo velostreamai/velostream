@@ -275,7 +275,96 @@ Queries execute in dependency order, with sink outputs captured for downstream q
 - **Kafka**: Consume all messages from topic with timeout
 - **File**: Read JSONL output file from temp directory
 
-### 6. Report Output
+### 6. Integration with Existing Engine
+
+The test harness reuses existing Velostream components for realistic testing:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Velostream Components Reused                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  src/velostream/sql/validator.rs      → SQL parsing & validation    │
+│  src/velostream/sql/query_analyzer.rs → Source/sink extraction      │
+│  src/velostream/server/mod.rs         → StreamJobServer execution   │
+│  src/velostream/kafka/                → Producer/Consumer adapters  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Execution Flow:**
+1. `SqlValidator` parses the SQL file and extracts queries
+2. `QueryAnalyzer` identifies sources, sinks, and their configurations
+3. Test harness injects testcontainers config overrides
+4. `StreamJobServer` executes each query with real Kafka
+5. Sink capture reads output for assertions
+
+### 7. Configuration Override
+
+The test harness automatically overrides production configurations to use test infrastructure:
+
+```yaml
+# Original config (production)
+bootstrap.servers: kafka.prod.example.com:9092
+topic: market_data
+
+# Test harness overrides to:
+bootstrap.servers: localhost:32789  # Testcontainers dynamic port
+topic: test_a1b2c3_market_data      # Prefixed with run ID
+```
+
+**Override Rules:**
+| Original Key | Test Override |
+|--------------|---------------|
+| `bootstrap.servers` | Testcontainers Kafka address |
+| `topic` / `topic.name` | `test_{run_id}_{original_topic}` |
+| File sink `path` | `{temp_dir}/{sink_name}.jsonl` |
+| `schema.registry.url` | Testcontainers Schema Registry (if enabled) |
+
+### 8. Test Isolation & Cleanup
+
+Each test run is fully isolated:
+
+**Topic Naming:**
+```
+test_{run_id}_{sink_name}
+     │         │
+     │         └── Original sink name from SQL
+     └── UUID generated per test run (e.g., a1b2c3d4)
+```
+
+**Cleanup Strategy:**
+- Topics are automatically deleted after test run completes
+- Temp directories are removed on harness shutdown
+- Consumer groups are cleaned up to prevent offset conflicts
+
+**Isolation Benefits:**
+- Parallel test runs don't interfere
+- No leftover state between runs
+- CI/CD safe with multiple concurrent jobs
+
+### 9. Error Handling
+
+**Testcontainers Failures:**
+```
+⚠️ Could not start Kafka container: Docker not available
+   Skipping integration tests. Run with --mock for unit tests only.
+```
+
+**Query Timeouts:**
+```yaml
+# test_spec.yaml
+queries:
+  - name: slow_query
+    timeout_ms: 60000  # Override default 30s timeout
+```
+
+**Retry Logic:**
+- Transient Kafka errors: 3 retries with exponential backoff
+- Container startup: Wait up to 60s for health check
+- Topic creation: Retry up to 5 times
+
+### 10. Report Output
 
 ```
 ═══════════════════════════════════════════════════════════════════
@@ -392,7 +481,8 @@ src/
     ├── capture.rs                    # Sink capture (Kafka/File)
     ├── assertions.rs                 # Assertion engine
     ├── report.rs                     # Report generation
-    └── cli.rs                        # CLI argument parsing
+    ├── cli.rs                        # CLI argument parsing
+    └── ai.rs                         # AI-powered features (Phase 6)
 ```
 
 ## Implementation Phases
@@ -428,6 +518,144 @@ src/
 - [ ] Template-based custom assertions
 - [ ] Stress test mode
 
+### Phase 6: AI-Powered Features
+- [ ] Claude API integration
+- [ ] AI schema inference (`--ai` flag)
+- [ ] AI failure analysis
+- [ ] AI test generation
+
+## AI-Powered Features
+
+Built-in Claude API integration for intelligent test assistance.
+
+### AI Schema Inference
+
+```bash
+velo-test infer-schema financial_trading.sql \
+  --data-dir data/ \
+  --ai \
+  --output schemas/
+```
+
+**Capabilities:**
+- Analyzes SQL queries to understand field types and relationships
+- Samples CSV data to infer realistic value ranges
+- Generates schema.yaml with intelligent constraints
+- Detects foreign key relationships from JOINs
+
+**Example Output:**
+```yaml
+# AI-generated schema for market_data
+schema:
+  name: market_data
+  # AI detected: price field appears to be currency (USD)
+  # Range inferred from CSV sample: $45.23 - $4,892.50
+fields:
+  - name: price
+    type: decimal
+    precision: 19
+    scale: 4
+    constraints:
+      min: 45.0
+      max: 5000.0
+      # AI note: Realistic stock price range for US equities
+```
+
+### AI Failure Analysis
+
+When assertions fail, AI provides actionable explanations:
+
+```
+❌ Query #5: enriched_market_data
+   FAILURE: join_coverage (0% match rate, expected 80%)
+
+   🤖 AI Analysis:
+   The JOIN on 'symbol' produced no matches because:
+   - market_data contains symbols: [AAPL, GOOGL, MSFT]
+   - instrument_reference contains symbols: [IBM, ORCL, SAP]
+
+   Suggested fix:
+   1. Update schema relationships to sample symbols from instrument_reference.csv
+   2. Or add [AAPL, GOOGL, MSFT] to instrument_reference.csv
+
+   Related schema change:
+   ```yaml
+   relationships:
+     - field: symbol
+       references: instrument_reference.symbol
+       strategy: sample  # Ensures generated symbols exist in reference
+   ```
+```
+
+### AI Test Generation
+
+```bash
+velo-test init financial_trading.sql --ai --output test_spec.yaml
+```
+
+**AI analyzes query patterns to generate intelligent assertions:**
+
+| Query Pattern | Generated Assertion |
+|---------------|---------------------|
+| `GROUP BY` + aggregates | `aggregate_check` with expected totals |
+| `JOIN` operations | `join_coverage` with realistic match rates |
+| Window functions | Time-based validations |
+| `WHERE` filters | `record_count` with estimated reduction |
+
+**Example AI-Generated Test Spec:**
+```yaml
+# AI-generated test spec for financial_trading.sql
+queries:
+  - name: tick_buckets
+    # AI detected: 5-minute tumbling window aggregation
+    # Expected: ~12 buckets per hour of input data
+    assertions:
+      - type: record_count
+        operator: between
+        min: 10
+        max: 15
+        # AI note: Based on 1 hour of data with 5-min windows
+
+      - type: aggregate_check
+        expression: "SUM(trade_count)"
+        operator: equals
+        expected: "{{inputs.market_data_ts.count}}"
+        # AI note: Window aggregation should preserve total count
+```
+
+### AI Implementation
+
+```rust
+// src/test_harness/ai.rs
+pub struct AiAssistant {
+    client: anthropic::Client,
+    model: String,  // "claude-sonnet-4-20250514"
+}
+
+impl AiAssistant {
+    /// Analyze SQL and CSV samples to generate schema definitions
+    pub async fn infer_schema(
+        &self,
+        sql: &str,
+        csv_samples: &[CsvSample],
+    ) -> Result<Schema, AiError>;
+
+    /// Explain why an assertion failed and suggest fixes
+    pub async fn analyze_failure(
+        &self,
+        failure: &AssertionFailure,
+        context: &TestContext,
+    ) -> Result<String, AiError>;
+
+    /// Generate test_spec.yaml from SQL analysis
+    pub async fn generate_test_spec(
+        &self,
+        sql: &str,
+        queries: &[ParsedQuery],
+    ) -> Result<TestSpec, AiError>;
+}
+```
+
 ## Dependencies
 
 ```toml
@@ -440,6 +668,9 @@ clap = { version = "4.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 rand = "0.8"
 chrono = "0.4"
+
+# AI Features (Phase 6)
+anthropic = "0.1"  # Claude API client
 ```
 
 ## Example: Complete Test Setup
@@ -467,6 +698,119 @@ cd demo/trading
 velo-test run sql/financial_trading.sql --spec test_spec.yaml
 ```
 
+## Claude Code Integration (CLAUDE.md)
+
+For interactive SQL development assistance, include a `CLAUDE.md` in your SQL application directory:
+
+```
+demo/trading/
+├── CLAUDE.md                       # Claude Code context for SQL assistance
+├── sql/
+│   └── financial_trading.sql
+├── schemas/
+├── data/
+└── test_spec.yaml
+```
+
+**Example `demo/trading/CLAUDE.md`:**
+
+```markdown
+# Trading Demo - Claude Code Context
+
+## Velostream SQL Syntax
+
+This application uses Velostream streaming SQL. Key syntax differences from standard SQL:
+
+### Window Functions
+Use `ROWS WINDOW BUFFER N ROWS` syntax (NOT standard `OVER (ROWS BETWEEN ...)`):
+```sql
+-- Correct Velostream syntax
+AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol ORDER BY event_time)
+
+-- NOT standard SQL (will fail)
+AVG(price) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 99 PRECEDING AND CURRENT ROW)
+```
+
+### Time Windows
+```sql
+GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)
+GROUP BY symbol WINDOW SLIDING(INTERVAL '1' HOUR, INTERVAL '5' MINUTE)
+GROUP BY symbol WINDOW SESSION(INTERVAL '30' SECOND)
+```
+
+### Source/Sink Configuration
+```sql
+WITH (
+    'source_name.type' = 'kafka_source',
+    'source_name.config_file' = 'configs/source.yaml',
+    'sink_name.type' = 'kafka_sink',
+    'sink_name.config_file' = 'configs/sink.yaml'
+)
+```
+
+## Test Specification Format
+
+When writing test_spec.yaml:
+- Use `from_previous: true` to chain query outputs
+- Use `from_file: path.csv` for reference tables
+- Available assertions: record_count, schema_contains, no_nulls, join_coverage, aggregate_check
+
+## Schema Definition Format
+
+When writing schemas/*.schema.yaml:
+- Supported types: string, integer, decimal, timestamp, boolean
+- Use `relationships` for JOIN consistency
+- Use `derived` for calculated fields (e.g., bid_price from price)
+
+## Common Patterns
+
+### Stream-Table JOIN
+```sql
+SELECT s.*, t.enrichment_field
+FROM stream_source s
+LEFT JOIN table_source t ON s.key = t.key
+```
+
+### Windowed Aggregation
+```sql
+SELECT symbol, COUNT(*) as trade_count, AVG(price) as avg_price
+FROM market_data
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+```
+```
+
+### Using Claude for SQL Construction
+
+With the CLAUDE.md in place, Claude Code can help developers:
+
+1. **Write new queries** with correct Velostream syntax
+2. **Debug SQL errors** by understanding the parser grammar
+3. **Generate test specs** for new queries
+4. **Create schemas** for data generation
+
+**Example interaction:**
+```
+User: Help me write a query that detects price spikes > 5% in 1-minute windows
+
+Claude: Here's a Velostream query for detecting price spikes:
+
+SELECT
+    symbol,
+    price,
+    LAG(price, 1) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time) as prev_price,
+    ((price - LAG(price, 1) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time))
+     / LAG(price, 1) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time)) * 100 as pct_change
+FROM market_data
+WHERE ABS(((price - LAG(price, 1) OVER (...)) / LAG(price, 1) OVER (...))) * 100 > 5.0
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.config_file' = 'configs/market_data_source.yaml'
+);
+```
+
 ## Success Criteria
 
 1. **Usability**: Developer can create and run tests for a new SQL app in < 30 minutes
@@ -474,3 +818,4 @@ velo-test run sql/financial_trading.sql --spec test_spec.yaml
 3. **Performance**: Full test suite for trading demo completes in < 60 seconds
 4. **CI Integration**: Works seamlessly in GitHub Actions with JUnit output
 5. **Error Clarity**: Failed assertions provide actionable debugging information
+6. **AI Assistance**: Claude Code can help write correct Velostream SQL with CLAUDE.md context
