@@ -6,17 +6,16 @@
 
 | Issue | Category | Priority | Status | Affects Trading Demo |
 |-------|----------|----------|--------|---------------------|
-| Re-emission mechanism | Architecture | CRITICAL | BLOCKED | No |
-| 90% data loss with partition batching | Correctness | CRITICAL | BLOCKED | No |
-| Validator working directory | Tooling | MEDIUM | PENDING | **YES** |
-| WITH RECURSIVE support | Parser | MEDIUM | NOT STARTED | No |
 | Standard SQL OVER clause | Parser | LOW | Workaround applied | **YES** (workaround in place) |
 | Table alias wildcards (`m.*`) | Parser | LOW | Workaround applied | **YES** (workaround in place) |
-| ALL/ANY operators | Parser | LOW | Workaround applied | **YES** (workaround in place) |
+| Re-emission mechanism | Architecture | LOW | BLOCKED | No (partition batching only) |
+| WITH RECURSIVE support | Parser | LOW | NOT STARTED | No |
 
 ---
 
-## 🎯 OUTSTANDING: Re-emission Implementation (BLOCKED)
+## 🔧 Future Work: Re-emission Implementation (BLOCKED)
+
+**Note**: This is for partition-batched data scenarios only. Not required for trading demo.
 
 ### Current Status
 - ✅ Watermark implementation complete (66x performance improvement)
@@ -134,12 +133,13 @@ These parser limitations were discovered during trading demo validation. **Worka
 |---------|----------|-------------------|----------------|
 | Standard SQL OVER clause | MEDIUM | ✅ Converted to `ROWS WINDOW BUFFER N ROWS` | Not implemented |
 | Table alias wildcards (`m.*`) | LOW | ✅ Expanded to explicit column lists | Not implemented |
-| ALL/ANY operators | LOW | ✅ Converted to `AND`/`OR` logic | Not implemented |
+
+**Note**: `ALL(cond1, cond2)`/`ANY(cond1, cond2)` syntax is non-standard (not supported by Flink/ksqlDB). Standard SQL `ANY`/`ALL` with subqueries is already supported.
 
 **Queries Fixed** (workarounds in place):
 - Query #4, #8, #10: Window functions → Velostream syntax
 - Query #5, #7: `m.*` → explicit columns
-- Query #11: `ALL()`/`ANY()` → `AND`/`OR`
+- Query #11: Non-standard `ALL()`/`ANY()` → standard `AND`/`OR` logic
 
 ---
 

@@ -444,11 +444,12 @@ WITH (
 -- @metric_help: "Records processed during active market hours"
 -- @metric_labels: symbol, market_session
 
--- FR-073 SQL-Native Observability: Halted Symbols Current
--- @metric: velo_trading_halted_symbols_current
+-- FR-073 SQL-Native Observability: Active Trading Volume
+-- @metric: velo_trading_active_volume
 -- @metric_type: gauge
--- @metric_help: "Current count of halted symbols"
--- @metric_labels: halt_reason
+-- @metric_field: volume
+-- @metric_help: "Current trading volume during active market hours"
+-- @metric_labels: market_session
 -- @dashboard: velostream-trading.json (Market Status panel)
 
 -- @job_name: active_hours_market_data
