@@ -2,6 +2,7 @@
 
 ## Behaviour
 
+- **🚫 CRITICAL: DO NOT commit changes unless the user has explicitly reviewed them first**
 - Use ast-grep for large scale refactoring:
 - Dont make assumptions about the behaviour of the project.
 - Always run all of the tests, demos, examples and /bin' and check the documentation.
@@ -330,6 +331,65 @@ protobuf.schema.file: "./schemas/example.proto"
 - **Production Ready**: Schema Registry integration for centralized schema management
 
 See [docs/kafka-schema-configuration.md](docs/developer/kafka-schema-configuration.md) for complete configuration guide.
+
+## SQL Grammar Rules for Claude
+
+### ⭐ CRITICAL: SQL Syntax is NOT Optional
+
+When writing SQL for this project, **DO NOT GUESS**. The parser has strict grammar rules that must be followed exactly.
+
+**Truth Sources (in order of preference)**:
+1. [`docs/sql/COPY_PASTE_EXAMPLES.md`](docs/sql/COPY_PASTE_EXAMPLES.md) - Working examples for all query types
+2. [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Formal EBNF grammar and AST structure
+3. [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules specifically for Claude
+4. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
+
+**Before writing ANY SQL**:
+- ✅ Search for similar example in COPY_PASTE_EXAMPLES.md
+- ✅ Verify syntax matches PARSER_GRAMMAR.md
+- ✅ Check CLAUDE SQL_GRAMMAR_RULES.md for common mistakes
+- ✅ grep tests for pattern: `grep -r "your_pattern" tests/unit/sql/parser/`
+
+### The Two Window Systems
+
+Velostream has **TWO different window mechanisms in different parts of the AST**:
+
+| Feature | Time Window | ROWS Window |
+|---------|------------|-----------|
+| **Syntax** | `WINDOW TUMBLING(...)` | `ROWS WINDOW BUFFER N ROWS` |
+| **Location** | SELECT statement (top-level) | OVER clause (inside function) |
+| **Use Case** | Time-bucketed aggregations | Row-count window functions |
+| **Watermarks** | ✅ YES | ❌ NO |
+| **Example** | `GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)` | `AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol)` |
+
+### Most Common SQL Mistakes
+
+```sql
+❌ ROWS BUFFER 100 ROWS         → ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ ROWS WINDOW BUFFER 100       → ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ SELECT * WHERE x > 100       → ✅ SELECT * FROM table WHERE x > 100
+❌ AVG(price) OVER ROWS WINDOW  → ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
+❌ GROUP BY ... PARTITION BY ... → ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
+```
+
+### Clause Order (Must be Exact)
+
+```sql
+SELECT ...
+FROM ...
+[WHERE ...]
+[GROUP BY ...]
+[HAVING ...]
+[WINDOW ...]          -- Time-based windows (optional)
+[ORDER BY ...]
+[LIMIT ...]
+```
+
+**NOT optional.** If clauses appear out of order, the query will fail.
+
+See full details in:
+- [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Complete formal grammar
+- [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules for Claude (14 specific rules)
 
 ## Code Organization
 

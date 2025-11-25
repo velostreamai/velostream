@@ -1,0 +1,51 @@
+# Common Table Data Source Configuration
+# Base configuration for all static/lookup tables in the trading system
+#
+# Tables are in-memory reference data used for lookups by streaming queries
+# (e.g., Stream-Table JOINs for enrichment, filter conditions, validation rules)
+#
+# Tables differ from Kafka sources:
+# - Loaded once at startup or on-demand, not continuously streamed
+# - Held in memory with O(1) key lookups
+# - Usually smaller datasets with high access frequency
+# - Require fast refresh for reference data changes
+
+# Table type and storage
+table:
+  type: static_lookup
+  storage: in_memory
+  mode: batch  # Load entire dataset at once
+
+# Table loading configuration
+loading:
+  # How often to refresh table data from source
+  refresh_strategy: on_demand  # Alternatives: periodic, event_driven, never
+  refresh_interval_ms: 300000  # 5 minutes if refresh_strategy=periodic
+
+# Default cache settings for O(1) lookups
+cache:
+  enabled: true
+  ttl_seconds: 3600  # 1 hour default
+  max_entries: 100000
+  eviction_policy: lru
+
+# Performance settings for table lookups
+performance:
+  # Use hash indexing for O(1) key lookups
+  indexing: hash
+
+  # Thread-safe concurrent access
+  concurrency: read_write_lock
+
+  # Connection pool for data source queries
+  connection_pool_size: 10
+
+# Default performance profile for table operations
+performance_profile: balanced
+
+# Metadata and classification
+metadata:
+  data.classification: reference_data
+  # These are overridden in specific table configs
+  description: "Generic table configuration base"
+  update.frequency: "varies_by_table"

@@ -1,0 +1,2 @@
+firm_id,firm_name,firm_notional_limit,firm_total_exposure,max_concentration_ratio,max_single_position,daily_loss_hard_limit,risk_governance_level,effective_date
+FIRM_001,Acme Trading Inc,1000000000,500000000,0.20,100000000,5000000,INSTITUTIONAL,2025-01-01

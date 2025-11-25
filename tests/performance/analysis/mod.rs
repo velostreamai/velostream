@@ -125,3 +125,11 @@ pub mod comprehensive_baseline_comparison;
 
 /// Phase 5 Week 8: Performance Profiling & Bottleneck Analysis
 pub mod phase5_week8_profiling;
+
+/// SQL Operations Performance Analysis
+/// Organized by tier based on STREAMING_SQL_OPERATION_RANKING.md
+pub mod sql_operations;
+
+/// Infrastructure Performance Tests
+/// Low-level implementation quality and regression testing
+pub mod infrastructure;

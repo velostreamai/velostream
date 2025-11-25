@@ -1,9 +1,11 @@
+use serial_test::serial;
 use std::env;
-/// Tests for node identification via SQL annotations with environment variable resolution
+
 use velostream::velostream::sql::app_parser::{DeploymentConfig, SqlApplicationParser};
 
 /// Test simple pattern resolution without environment variables
 #[test]
+#[serial]
 fn test_deployment_config_static_pattern() {
     let pattern = "prod-server-1";
     let result = DeploymentConfig::resolve_pattern(pattern);
@@ -12,6 +14,7 @@ fn test_deployment_config_static_pattern() {
 
 /// Test single environment variable substitution
 #[test]
+#[serial]
 fn test_deployment_config_single_env_var() {
     unsafe {
         env::set_var("TEST_HOSTNAME", "server-1");
@@ -26,6 +29,7 @@ fn test_deployment_config_single_env_var() {
 
 /// Test environment variable with prefix and suffix
 #[test]
+#[serial]
 fn test_deployment_config_env_var_with_prefix_suffix() {
     unsafe {
         env::set_var("TEST_NODE", "node-42");
@@ -40,6 +44,7 @@ fn test_deployment_config_env_var_with_prefix_suffix() {
 
 /// Test default value when environment variable is not set
 #[test]
+#[serial]
 fn test_deployment_config_default_value() {
     unsafe {
         env::remove_var("UNDEFINED_VAR");
@@ -51,6 +56,7 @@ fn test_deployment_config_default_value() {
 
 /// Test multiple environment variables in single pattern
 #[test]
+#[serial]
 fn test_deployment_config_multiple_env_vars() {
     unsafe {
         env::set_var("TEST_ENV", "prod");
@@ -67,6 +73,7 @@ fn test_deployment_config_multiple_env_vars() {
 
 /// Test fallback chain with multiple variables
 #[test]
+#[serial]
 fn test_deployment_config_fallback_chain() {
     // Set only VAR2
     unsafe {
@@ -86,6 +93,7 @@ fn test_deployment_config_fallback_chain() {
 
 /// Test fallback chain with default when all vars are missing
 #[test]
+#[serial]
 fn test_deployment_config_fallback_default() {
     unsafe {
         env::remove_var("TEST_VAR1");
@@ -100,6 +108,7 @@ fn test_deployment_config_fallback_default() {
 
 /// Test complex pattern with prefix, multiple vars, and defaults
 #[test]
+#[serial]
 fn test_deployment_config_complex_pattern() {
     unsafe {
         env::set_var("TEST_CLUSTER", "cluster1");
@@ -288,6 +297,7 @@ SELECT * FROM kafka_legacy;
 
 /// Test pattern resolution with fallback chain and prefixes
 #[test]
+#[serial]
 fn test_deployment_config_fallback_chain_with_prefix() {
     unsafe {
         env::remove_var("TEST_PRIMARY");
@@ -306,6 +316,7 @@ fn test_deployment_config_fallback_chain_with_prefix() {
 
 /// Test multi-part deployment pattern with multiple fallbacks
 #[test]
+#[serial]
 fn test_deployment_config_multipart_fallbacks() {
     unsafe {
         env::set_var("TEST_CLUSTER", "prod-cluster");
@@ -325,6 +336,7 @@ fn test_deployment_config_multipart_fallbacks() {
 
 /// Test that missing environment variables are handled gracefully
 #[test]
+#[serial]
 fn test_deployment_config_missing_var_no_default() {
     unsafe {
         env::remove_var("MISSING_VAR");

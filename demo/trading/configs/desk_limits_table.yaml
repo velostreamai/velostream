@@ -1,0 +1,86 @@
+# Desk-Level Risk Limits Table Configuration
+# Reference table for trading desk exposure limits and sector concentrations
+# Used by TIER 4 ANY/ALL operators for hierarchical risk validation
+#
+# Example: Validating desk positions against desk-wide limits
+# See: demo/trading/sql/financial_trading.sql:738-851 (TIER 4: ANY/ALL OPERATORS)
+
+extends: common_table_source.yaml
+
+# Table identity
+table:
+  name: desk_limits
+  type: static_lookup
+  primary_key: desk_id
+
+# Data source for populating this table
+data_source:
+  type: file
+  path: ./demo/trading/data/desk_limits.csv
+  format: csv
+  has_headers: true
+
+# Table schema definition
+schema:
+  fields:
+    - name: desk_id
+      type: string
+      nullable: false
+      description: "Unique desk identifier"
+
+    - name: desk_name
+      type: string
+      description: "Trading desk name"
+
+    - name: business_unit
+      type: string
+      description: "Business unit (EQUITIES, FIXED_INCOME, DERIVATIVES, etc.)"
+
+    - name: desk_notional_limit
+      type: decimal
+      precision: 19
+      scale: 2
+      description: "Maximum notional exposure for this desk"
+
+    - name: sector_concentration_limit
+      type: decimal
+      precision: 5
+      scale: 4
+      description: "Maximum sector concentration ratio"
+
+    - name: daily_loss_limit
+      type: decimal
+      precision: 19
+      scale: 2
+      description: "Daily loss limit for desk"
+
+    - name: max_leverage
+      type: decimal
+      precision: 5
+      scale: 2
+      description: "Maximum leverage multiple"
+
+    - name: risk_manager
+      type: string
+      description: "Responsible risk manager ID"
+
+    - name: effective_date
+      type: date
+      description: "Date limits become effective"
+
+# Table-specific cache configuration
+cache:
+  enabled: true
+  ttl_seconds: 3600  # 1 hour - desk limits change infrequently
+  refresh_interval_ms: 300000  # 5 minutes refresh
+  max_entries: 500
+
+# Business metadata
+metadata:
+  description: "Desk-level exposure limits and sector concentration controls for trading operations"
+  data.classification: "compliance_sensitive"
+  update.frequency: "daily"
+  primary_key: desk_id
+  use_case: "ALL operator for desk-level risk validation (desk notional limits, concentration controls)"
+  sla.refresh_time_seconds: 300
+  owner: "Head of Trading"

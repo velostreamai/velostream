@@ -63,7 +63,7 @@ async fn execute_sql_query(sql: &str, records: Vec<StreamRecord>) -> Vec<StreamR
 // 1. TUMBLING WINDOW BENCHMARKS
 // ============================================================================
 
-/// TUMBLING window with simple duration syntax - 5 minute windows
+/// TUMBLING window with simple duration syntax - 5 mi@nute windows
 #[tokio::test]
 #[serial]
 async fn benchmark_tumbling_window_simple_syntax() {

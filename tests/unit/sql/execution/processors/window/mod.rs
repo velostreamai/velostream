@@ -20,6 +20,8 @@ pub mod shared_test_utils;
 pub mod statistical_functions_sql_test;
 pub mod timebased_joins_test;
 pub mod unified_window_test;
+pub mod watermark_late_arrival_test;
+pub mod window_boundaries_group_by_sql_test;
 pub mod window_edge_cases_sql_test;
 pub mod window_gaps_sql_test;
 pub mod window_processing_sql_test;

@@ -1,0 +1,43 @@
+# Enriched Market Data Sink Configuration
+# Output topic for Stream-Table JOIN enriched market data
+# Contains instrument properties and trading rules alongside market prices
+
+extends: common_kafka_sink.yaml
+
+# Topic-specific settings
+topic:
+  name: "enriched_market_data"
+
+# Producer group for this specific use case
+producer.group: "enrichment_producer_group"
+
+# Delivery profile: High priority for market data
+delivery_profile: high_priority
+
+# Topic-specific configuration
+datasink:
+  schema:
+    key.field: symbol
+    value.serializer: json
+    # Optional: value.schema.file: "schemas/enriched_market_data.avsc"
+
+  # Topic properties
+  topic_config:
+    partitions: 12  # High parallelism matching input
+    replication.factor: 3
+    retention.ms: 86400000  # 1 day retention
+    compression.type: lz4
+
+  # Headers specific to enriched data
+  headers:
+    data_source: "stream_table_join"
+    enrichment_type: "instrument_reference"
+    sla: "sub_100ms"
+
+# Business context
+metadata:
+  description: "Market data enriched with instrument reference properties"
+  data.classification: "real_time_financial"
+  producer.type: "enrichment_processor"
+  target_consumers: ["risk_monitor", "compliance_system", "analytics_platform"]
+  update.frequency: "microseconds"

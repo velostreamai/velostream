@@ -8,24 +8,40 @@
 //!       [00:30-01:30]
 //!             [01:00-02:00]
 //! ```
+//!
+//! Watermark-based late data handling:
+//! - Watermark: Highest timestamp seen so far (monotonically increasing)
+//! - Late records: Records belonging to past windows that have been emitted
+//! - On-time records: Records belonging to windows that haven't been emitted yet
+//! - Allowed lateness: Grace period for keeping emitted window state alive
+//! - Late firing: Re-emitting window results when late data arrives within grace period
 
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::execution::window_v2::traits::{WindowStats, WindowStrategy};
 use crate::velostream::sql::execution::window_v2::types::SharedRecord;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
-/// Sliding window strategy with overlapping windows.
+/// Sliding window strategy with overlapping windows and watermark-based late data handling.
 ///
 /// Performance characteristics:
-/// - O(1) record addition (amortized)
+/// - O(1) record addition with watermark update
 /// - O(1) window boundary check
 /// - O(N) eviction where N = records outside window
-/// - Memory: Bounded by window_size_ms * arrival_rate
+/// - O(log W) historical window lookup where W = windows in allowed lateness
+/// - Memory: Bounded by (window_size_ms + allowed_lateness_ms) * arrival_rate
 ///
 /// # Overlap Calculation
 /// - 50% overlap: advance_interval = window_size / 2
 /// - 67% overlap: advance_interval = window_size / 3
 /// - 75% overlap: advance_interval = window_size / 4
+///
+/// # Watermark-based Late Firing
+/// For sliding windows, multiple overlapping windows may be affected by late data.
+/// Example: With 60s windows advancing 30s (50% overlap) and partition-batched data:
+/// - Partition 0 arrives, triggers windows [0-60), [30-90), [60-120), [90-150)
+/// - Partition 1 arrives late with same-timestamp data
+/// - May need to re-emit multiple windows that overlap with late data's timestamp
 pub struct SlidingWindowStrategy {
     /// Window size in milliseconds
     window_size_ms: i64,
@@ -47,6 +63,62 @@ pub struct SlidingWindowStrategy {
 
     /// Time field name for extracting timestamps
     time_field: String,
+
+    /// WATERMARK: Highest timestamp seen so far (for distinguishing late arrivals)
+    /// Critical for partition-batched data where groups arrive out-of-order
+    max_watermark_seen: i64,
+
+    /// Allowed lateness in milliseconds - how long to keep window state alive after emission
+    /// For sliding windows, controls grace period for multiple overlapping windows
+    allowed_lateness_ms: i64,
+
+    /// Historical windows that may still receive late-arriving records
+    /// Key: window_end_time
+    /// Value: HistoricalSlidingWindowState with buffer and metadata
+    /// For sliding windows, multiple concurrent windows may need late firing
+    historical_windows: BTreeMap<i64, HistoricalSlidingWindowState>,
+
+    /// Metrics collection (thread-safe)
+    pub metrics: Arc<Mutex<SlidingWindowMetrics>>,
+}
+
+/// Metrics for analyzing sliding window behavior
+#[derive(Debug, Clone, Default)]
+pub struct SlidingWindowMetrics {
+    /// Number of clear() calls on window
+    pub clear_calls: usize,
+    /// Sum of all buffer sizes at time of clear
+    pub total_buffer_sizes_at_clear: usize,
+    /// Maximum buffer size observed
+    pub max_buffer_size: usize,
+    /// Total records added to window
+    pub add_record_calls: usize,
+    /// Number of emissions (window boundaries crossed)
+    pub emission_count: usize,
+    /// Number of late arrivals that triggered re-emissions
+    pub late_firing_count: usize,
+    /// Number of records processed in late firings
+    pub late_firing_records: usize,
+    /// Number of windows in grace period
+    pub windows_in_grace_period: usize,
+}
+
+/// State of a historical sliding window that may receive late-arriving records.
+///
+/// For sliding windows, we track multiple overlapping windows that may be affected
+/// by late arrivals. Each historical window maintains its own record buffer and metadata.
+#[derive(Debug, Clone)]
+struct HistoricalSlidingWindowState {
+    /// Window start time (milliseconds)
+    start_time: i64,
+    /// Window end time (milliseconds)
+    end_time: i64,
+    /// Records in this window (including late arrivals)
+    buffer: VecDeque<SharedRecord>,
+    /// Has this window been emitted?
+    emitted: bool,
+    /// Watermark when this window's grace period ends
+    grace_period_end_watermark: i64,
 }
 
 impl SlidingWindowStrategy {
@@ -125,7 +197,33 @@ impl SlidingWindowStrategy {
             current_window_end: None,
             emission_count: 0,
             time_field,
+            max_watermark_seen: i64::MIN,
+            allowed_lateness_ms: window_size_ms / 2, // Default: 50% of window size
+            historical_windows: BTreeMap::new(),
+            metrics: Arc::new(Mutex::new(SlidingWindowMetrics::default())),
         }
+    }
+
+    /// Set the allowed lateness in milliseconds.
+    ///
+    /// Allowed lateness defines how long window state is kept alive after emission
+    /// to accommodate late-arriving records from delayed partitions.
+    ///
+    /// # Arguments
+    /// * `allowed_lateness_ms` - Grace period in milliseconds
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // Allow 2 hours for all partitions to arrive
+    /// strategy.set_allowed_lateness_ms(2 * 60 * 60 * 1000);
+    /// ```
+    pub fn set_allowed_lateness_ms(&mut self, allowed_lateness_ms: i64) {
+        self.allowed_lateness_ms = allowed_lateness_ms;
+    }
+
+    /// Get a copy of current metrics
+    pub fn get_metrics(&self) -> SlidingWindowMetrics {
+        self.metrics.lock().map(|m| m.clone()).unwrap_or_default()
     }
 
     /// Extract timestamp from record using shared utility.
@@ -194,11 +292,68 @@ impl SlidingWindowStrategy {
             }
         }
     }
+
+    /// Update watermark to the highest timestamp seen so far.
+    ///
+    /// Watermark advancement is O(1) and happens on every record.
+    /// Used to determine when windows can be safely cleaned up.
+    fn update_watermark(&mut self, timestamp: i64) {
+        if timestamp > self.max_watermark_seen {
+            self.max_watermark_seen = timestamp;
+        }
+    }
+
+    /// Clean up historical windows that are beyond the allowed lateness period.
+    ///
+    /// Removes windows where: window_end + allowed_lateness < watermark
+    /// This keeps memory bounded while allowing late-arriving data processing.
+    fn cleanup_expired_windows(&mut self) {
+        let expiry_threshold = self.max_watermark_seen - self.allowed_lateness_ms;
+
+        // Remove all historical windows that have expired
+        self.historical_windows
+            .retain(|_, state| state.grace_period_end_watermark > expiry_threshold);
+    }
+
+    /// Check if a record is late (belongs to a previously emitted window).
+    ///
+    /// A record is late if:
+    /// - Its timestamp is less than or equal to current_window_end
+    /// - It arrived after the corresponding window has been emitted
+    fn is_late_record(&self, timestamp: i64) -> bool {
+        if let Some(end) = self.current_window_end {
+            timestamp < end
+        } else {
+            false
+        }
+    }
+
+    /// Check if a late record is within the allowed lateness grace period.
+    ///
+    /// A late record can still trigger re-emissions if:
+    /// - watermark < window_end + allowed_lateness
+    fn is_within_grace_period(&self, timestamp: i64) -> bool {
+        if let Some(end) = self.current_window_end {
+            let grace_period_end = end + self.allowed_lateness_ms;
+            self.max_watermark_seen < grace_period_end
+        } else {
+            false
+        }
+    }
 }
 
 impl WindowStrategy for SlidingWindowStrategy {
     fn add_record(&mut self, record: SharedRecord) -> Result<bool, SqlError> {
         let timestamp = self.extract_timestamp(&record)?;
+
+        // Update watermark on every record (O(1) operation)
+        self.update_watermark(timestamp);
+
+        // Track metric
+        if let Ok(mut m) = self.metrics.lock() {
+            m.add_record_calls += 1;
+            m.max_buffer_size = m.max_buffer_size.max(self.buffer.len());
+        }
 
         // Initialize window on first record
         if self.next_window_start.is_none() {
@@ -251,6 +406,17 @@ impl WindowStrategy for SlidingWindowStrategy {
         self.advance_window();
         self.evict_old_records();
         self.emission_count += 1;
+
+        // Clean up expired historical windows (O(log W) amortized)
+        self.cleanup_expired_windows();
+
+        // Track metrics
+        if let Ok(mut m) = self.metrics.lock() {
+            m.clear_calls += 1;
+            m.total_buffer_sizes_at_clear += self.buffer.len();
+            m.emission_count = self.emission_count;
+            m.windows_in_grace_period = self.historical_windows.len();
+        }
     }
 
     fn get_stats(&self) -> WindowStats {

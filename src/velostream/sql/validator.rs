@@ -842,6 +842,24 @@ impl SqlValidator {
             || properties.contains_key("datasink.topic.name")
     }
 
+    /// Check if path exists in any of the standard file config locations
+    fn has_file_path(&self, properties: &HashMap<String, String>) -> bool {
+        properties.contains_key("path")
+            || properties.contains_key("data_source.path")
+            || properties.contains_key("datasource.path")
+            || properties.contains_key("datasource.config.path")
+            || properties.contains_key("file.path")
+    }
+
+    /// Check if format exists in any of the standard file config locations
+    fn has_file_format(&self, properties: &HashMap<String, String>) -> bool {
+        properties.contains_key("format")
+            || properties.contains_key("data_source.format")
+            || properties.contains_key("datasource.format")
+            || properties.contains_key("datasource.config.format")
+            || properties.contains_key("file.format")
+    }
+
     fn validate_kafka_source_config(
         &self,
         properties: &HashMap<String, String>,
@@ -912,19 +930,22 @@ impl SqlValidator {
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["path", "format"];
         let mut missing_keys = Vec::new();
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                missing_keys.push(key.to_string());
-            }
+        // Check for path in multiple possible locations (flat or nested under data_source)
+        if !self.has_file_path(properties) {
+            missing_keys.push("path".to_string());
+        }
+
+        // Check for format in multiple possible locations
+        if !self.has_file_format(properties) {
+            missing_keys.push("format".to_string());
         }
 
         if !missing_keys.is_empty() {
             result.missing_source_configs.push(ConfigurationIssue {
                 name: name.to_string(),
-                required_keys: required_keys.iter().map(|s| s.to_string()).collect(),
+                required_keys: vec!["path".to_string(), "format".to_string()],
                 missing_keys,
                 has_batch_config: false,
                 has_failure_strategy: properties.contains_key("failure_strategy"),
@@ -939,19 +960,22 @@ impl SqlValidator {
         name: &str,
         result: &mut QueryValidationResult,
     ) {
-        let required_keys = vec!["path", "format"];
         let mut missing_keys = Vec::new();
 
-        for key in &required_keys {
-            if !properties.contains_key(*key) {
-                missing_keys.push(key.to_string());
-            }
+        // Check for path in multiple possible locations (flat or nested under data_source)
+        if !self.has_file_path(properties) {
+            missing_keys.push("path".to_string());
+        }
+
+        // Check for format in multiple possible locations
+        if !self.has_file_format(properties) {
+            missing_keys.push("format".to_string());
         }
 
         if !missing_keys.is_empty() {
             result.missing_sink_configs.push(ConfigurationIssue {
                 name: name.to_string(),
-                required_keys: required_keys.iter().map(|s| s.to_string()).collect(),
+                required_keys: vec!["path".to_string(), "format".to_string()],
                 missing_keys,
                 has_batch_config: false,
                 has_failure_strategy: properties.contains_key("failure_strategy"),

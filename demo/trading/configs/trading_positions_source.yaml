@@ -1,19 +1,56 @@
-# Trading Positions Source Configuration
-# Extends the common Kafka source configuration for trading positions
+# Trading Positions Time Series Source Configuration
+# Live position stream with event-time semantics
+# Used for risk monitoring, ANY/ALL validation, and enrichment queries
 
-extends: common_kafka_source.yaml
-
-# Topic-specific configuration
-topic:
-  name: "in_trading_positions_stream"
-  partitions: 6
-
-# Trading positions specific schema
 datasource:
-  schema:
-    key.field: trader_id
-    value.serializer: avro
-    value.schema.file: "schemas/trading_positions.avsc"
+  type: kafka
 
-# Performance profile for balanced processing
-performance_profile: balanced
+  consumer_config:
+    bootstrap.servers: "localhost:9092"
+    auto.offset.reset: "earliest"
+    enable.auto.commit: true
+    auto.commit.interval.ms: 100
+    session.timeout.ms: 6000
+    heartbeat.interval.ms: 2000
+
+  # Topic configuration
+  topic:
+    name: "trading_positions"
+
+  consumer.group: "trading_positions_group"
+
+  # Event-time configuration for watermark handling
+  event_time_config:
+    timestamp_field: "event_time"
+    watermark_strategy: "BoundedOutOfOrderness"
+    allowed_lateness_ms: 10000
+    late_data_strategy: "update_previous"
+
+  # Position event schema
+  schema:
+    key.field: position_id
+    key.format: string
+    value.serializer: json
+
+  # Performance settings
+  performance:
+    compression.type: "lz4"
+    fetch.max.wait.ms: 50
+    max.poll.records: 1000
+    fetch.min.bytes: 1024
+    buffer.size: 65536
+
+  # Topic properties
+  topic_config:
+    partitions: 16  # High parallelism for position streams
+    replication.factor: 3
+    retention.ms: 604800000  # 7 days - positions need audit trail
+    cleanup.policy: "delete"
+
+# Business context
+metadata:
+  description: "Live trading position changes with event-time semantics for risk monitoring"
+  data.classification: "real_time_financial"
+  producer.type: "position_tracker"
+  sla: "sub_1s_latency"
+  update.frequency: "seconds"

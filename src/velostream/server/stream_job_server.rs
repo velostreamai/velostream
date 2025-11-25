@@ -1605,6 +1605,7 @@ impl StreamJobServer {
                     annotation_partition_count: None,
                     empty_batch_count: 1000,
                     wait_on_empty_batch_ms: 1000,
+                    table_registry: None, // Tables are managed by StreamJobServer's table_registry
                 };
 
                 Arc::new(AdaptiveJobProcessor::new(adaptive_config))

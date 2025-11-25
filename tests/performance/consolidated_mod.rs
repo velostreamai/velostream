@@ -4,23 +4,6 @@
 //! organized by functional area with clear separation between unit benchmarks,
 //! integration tests, and production simulations.
 
-// Re-export reorganized test modules from unit category
-pub use super::unit::financial_precision;
-pub use super::unit::kafka_configurations;
-pub use super::unit::query_processing;
-pub use super::unit::serialization_formats;
-pub use super::unit::sql_execution;
-
-// Re-export integration test modules
-pub use super::integration::resource_management;
-pub use super::integration::streaming_pipeline;
-pub use super::integration::transaction_processing;
-
-// Re-export load test modules
-pub use super::load::concurrent_access;
-pub use super::load::high_throughput;
-pub use super::load::stress_testing;
-
 // Core Performance Test Modules (Future expansion structure)
 pub mod benchmarks {
     //! Micro-benchmarks for individual components
@@ -43,7 +26,6 @@ pub mod benchmarks {
     pub mod codec_performance {
         //! Codec-specific performance benchmarks  
         //! This module will contain serialization format comparison tests
-        pub use super::super::utils::*;
     }
 }
 
@@ -60,7 +42,6 @@ pub mod integration {
     pub mod transaction_processing {
         //! Transaction processing performance tests
         //! This module will contain exactly-once semantics performance validation
-        pub use super::super::config::*;
     }
 }
 
@@ -72,8 +53,6 @@ pub mod load_testing {
     pub mod throughput_benchmarks {
         //! Sustained throughput testing framework
         //! Tests for 1M+ records/sec sustained performance
-        pub use super::super::config::LoadTestConfig;
-        pub use super::super::utils::MetricsCollector;
     }
 
     pub mod memory_pressure {
@@ -86,7 +65,6 @@ pub mod load_testing {
     pub mod scalability {
         //! Concurrent performance testing
         //! Multi-connection and parallel processing benchmarks
-        pub use super::super::utils::*;
     }
 }
 
@@ -103,12 +81,10 @@ pub mod profiling {
 
     pub mod cpu_profiler {
         //! CPU utilization and performance profiling
-        pub use super::super::utils::cpu::*;
     }
 
     pub mod allocation_tracker {
         //! Allocation pattern analysis
-        pub use super::super::utils::*;
     }
 }
 
@@ -116,21 +92,13 @@ pub mod profiling {
 pub mod organized {
     //! Organized access to all performance tests
 
-    pub mod benchmarks {
-        pub use super::super::benchmarks::*;
-    }
+    pub mod benchmarks {}
 
-    pub mod integration {
-        pub use super::super::integration::*;
-    }
+    pub mod integration {}
 
-    pub mod load_testing {
-        pub use super::super::load_testing::*;
-    }
+    pub mod load_testing {}
 
-    pub mod profiling {
-        pub use super::super::profiling::*;
-    }
+    pub mod profiling {}
 }
 
 /// Performance test configuration and utilities
@@ -179,7 +147,7 @@ pub mod config {
 /// Common utilities for performance testing
 pub mod utils {
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     /// Performance metrics collector
     pub struct MetricsCollector {

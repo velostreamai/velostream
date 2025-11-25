@@ -1,0 +1,35 @@
+# Active Hours Market Data Sink Configuration
+# Output topic for IN/NOT IN subquery filtered market data
+# Contains only data from active trading sessions and hours
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "active_hours_market_data"
+
+producer.group: "active_hours_filter_producer_group"
+
+delivery_profile: high_priority
+
+datasink:
+  schema:
+    key.field: symbol
+    value.serializer: json
+
+  topic_config:
+    partitions: 12
+    replication.factor: 3
+    retention.ms: 86400000
+    compression.type: lz4
+
+  headers:
+    data_source: "active_hours_filter"
+    filter_type: "trading_schedule_in_not_in"
+    market_status: "open"
+
+metadata:
+  description: "Market data filtered to active trading hours (IN/NOT IN subquery)"
+  data.classification: "real_time_financial"
+  producer.type: "schedule_filter"
+  target_consumers: ["trading_system", "analytics_platform"]
+  update.frequency: "microseconds"

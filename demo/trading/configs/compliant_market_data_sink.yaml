@@ -1,0 +1,35 @@
+# Compliant Market Data Sink Configuration
+# Output topic for EXISTS subquery filtered market data
+# Contains only non-blocked, non-suspended securities
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "compliant_market_data"
+
+producer.group: "compliance_filter_producer_group"
+
+delivery_profile: high_priority
+
+datasink:
+  schema:
+    key.field: symbol
+    value.serializer: json
+
+  topic_config:
+    partitions: 12
+    replication.factor: 3
+    retention.ms: 86400000
+    compression.type: lz4
+
+  headers:
+    data_source: "compliance_filter"
+    filter_type: "regulatory_watchlist_exists"
+    compliance_certified: "true"
+
+metadata:
+  description: "Market data filtered by regulatory compliance rules (EXISTS subquery)"
+  data.classification: "real_time_financial"
+  producer.type: "compliance_filter"
+  target_consumers: ["trading_system", "risk_monitor"]
+  update.frequency: "microseconds"

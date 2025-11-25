@@ -402,11 +402,9 @@ pub async fn process_batch(
         job_name, batch_size
     );
 
-    // Initialize query execution (engine prepares all state)
-    {
-        let mut engine_lock = engine.write().await;
-        engine_lock.init_query_execution(query.clone());
-    }
+    // NOTE: Query execution is already initialized once at job startup by SimpleJobProcessor.process_multi_job()
+    // Calling init_query_execution here is redundant and causes unnecessary write locks
+    // The engine maintains persistent QueryExecution state across all batches
 
     // Process all records through engine abstraction layer
     for (index, record) in batch.into_iter().enumerate() {

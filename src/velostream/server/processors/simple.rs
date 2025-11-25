@@ -20,9 +20,11 @@ use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
+use crate::velostream::table::UnifiedTable;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -39,6 +41,8 @@ pub struct SimpleJobProcessor {
     profiling_helper: ProfilingHelper,
     /// Stop flag for graceful shutdown
     stop_flag: Arc<AtomicBool>,
+    /// Optional table registry for SQL queries that reference tables
+    table_registry: Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>,
 }
 
 impl SimpleJobProcessor {
@@ -60,6 +64,7 @@ impl SimpleJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
+            table_registry: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -76,6 +81,7 @@ impl SimpleJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
+            table_registry: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -98,6 +104,14 @@ impl SimpleJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
+            table_registry: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Set table registry for SQL queries that reference tables
+    pub fn set_table_registry(&mut self, tables: HashMap<String, Arc<dyn UnifiedTable>>) {
+        if let Ok(mut registry) = self.table_registry.lock() {
+            *registry = Some(tables);
         }
     }
 
@@ -382,6 +396,19 @@ impl SimpleJobProcessor {
         // This creates the persistent ProcessorContext that will hold state across all batches
         {
             let mut engine_lock = engine.write().await;
+
+            // Inject table registry if provided
+            if let Ok(registry_lock) = self.table_registry.lock() {
+                if let Some(ref tables) = *registry_lock {
+                    let tables_clone = tables.clone();
+                    engine_lock.context_customizer = Some(Arc::new(move |context| {
+                        for (table_name, table) in &tables_clone {
+                            context.load_reference_table(table_name, table.clone());
+                        }
+                    }));
+                }
+            }
+
             engine_lock.init_query_execution(query.clone());
         }
 

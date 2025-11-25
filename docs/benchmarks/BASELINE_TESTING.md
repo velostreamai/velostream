@@ -34,6 +34,7 @@ Available modes:
 
 ## Usage Examples
 
+### Basic Usage (100K events default)
 ```bash
 cd benchmarks
 
@@ -55,6 +56,33 @@ cd benchmarks
 # Show help
 ./run_baseline_options.sh help
 ```
+
+### Custom Event Counts
+```bash
+cd benchmarks
+
+# Using run_baseline.sh with different event counts
+./run_baseline.sh 1m          # 1 million events
+./run_baseline.sh 500k        # 500K events
+./run_baseline.sh 10m         # 10 million events
+
+# Using run_baseline_options.sh
+./run_baseline_options.sh release 1m     # Release mode, 1M events
+./run_baseline_options.sh debug 500k     # Debug mode, 500K events
+./run_baseline_options.sh profile 5m     # Profile mode, 5M events
+
+# Using run_baseline_quick.sh
+./run_baseline_quick.sh 1m               # Quick mode, 1M events
+
+# Using run_baseline_flexible.sh
+./run_baseline_flexible.sh release all -events 1m        # All scenarios, 1M events
+./run_baseline_flexible.sh debug 3 -events 500k          # Scenario 3, 500K events
+```
+
+**Supported Formats:**
+- Plain numbers: `100000`, `500000`
+- Millions: `1m`, `10m`, `100m` (case-insensitive)
+- Thousands: `1k`, `100k`, `500k` (case-insensitive)
 
 ## What Gets Tested
 

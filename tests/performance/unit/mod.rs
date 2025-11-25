@@ -20,12 +20,3 @@ pub mod kafka_configurations;
 pub mod query_processing;
 pub mod serialization_formats;
 pub mod sql_execution;
-
-// Re-export commonly used benchmarks
-pub use adaptive_processor_microbench::*;
-pub use comprehensive_sql_benchmarks::*;
-pub use financial_precision::*;
-pub use kafka_configurations::*;
-pub use query_processing::*;
-pub use serialization_formats::*;
-pub use sql_execution::*;
