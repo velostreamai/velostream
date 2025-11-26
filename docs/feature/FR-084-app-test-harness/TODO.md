@@ -10,7 +10,7 @@
 | Phase 4 | Reporting | 1-2 days | ✅ COMPLETE | Phase 3 |
 | Phase 5 | Advanced Features | 3-4 days | ✅ COMPLETE | Phase 4 |
 | Phase 6 | AI-Powered Features | 2-3 days | ✅ COMPLETE | Phase 5 |
-| Demo Apps | Test Fixtures | 4 days | NOT STARTED | Parallel with Phase 2-3 |
+| Demo Apps | Test Fixtures | 4 days | ✅ COMPLETE | Parallel with Phase 2-3 |
 
 **Total Estimated LoE: 18-24 days**
 
@@ -398,14 +398,21 @@ demo/test_harness_examples/
 
 ### Demo App Tasks
 
-- [ ] **Tier 1: Basic** (1 day) - 4 apps
-- [ ] **Tier 2: Aggregations** (1 day) - 5 apps
-- [ ] **Tier 3: Joins** (0.5 day) - 3 apps
-- [ ] **Tier 4: Window Functions** (0.5 day) - 4 apps
-- [ ] **Tier 5: Complex** (0.5 day) - 4 apps
-- [ ] **Tier 6: Edge Cases** (0.5 day) - 4 apps
+- [x] **Tier 1: Basic** (1 day) - 4 apps ✅ COMPLETE
+- [x] **Tier 2: Aggregations** (1 day) - 5 apps ✅ COMPLETE
+- [x] **Tier 3: Joins** (0.5 day) - 3 apps ✅ COMPLETE
+- [x] **Tier 4: Window Functions** (0.5 day) - 4 apps ✅ COMPLETE
+- [x] **Tier 5: Complex** (0.5 day) - 4 apps ✅ COMPLETE
+- [x] **Tier 6: Edge Cases** (0.5 day) - 4 apps ✅ COMPLETE
 
-**Total Demo Apps LoE: 4 days** (can be done in parallel with Phase 2-3)
+**Total Demo Apps LoE: 4 days** ✅ COMPLETE
+
+**All 24 demo SQL apps pass validation:**
+- Fixed WINDOW syntax (use simple duration: `1m`, `5m`, `30s`)
+- Fixed CAST syntax (DECIMAL without precision/scale)
+- Fixed CASE syntax (use searched form: `CASE WHEN x = 'value' THEN ...`)
+- Created 17 config YAML files for sources/sinks
+- All WITH clauses include proper topic.name and config_file references
 
 ---
 

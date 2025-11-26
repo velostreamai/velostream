@@ -1,43 +1,25 @@
--- Tier 2: Count Aggregation
--- Tests: COUNT(*), COUNT(field), GROUP BY
--- Expected: Correct counts per group
+-- Tier 2: COUNT Aggregation
+-- Tests: COUNT(*) and COUNT(column)
+-- Expected: Correct row counting
 
 -- Application metadata
 -- @name count_demo
--- @description Count aggregation with GROUP BY
+-- @description COUNT aggregation patterns
 
--- Source definition
-CREATE SOURCE user_events (
-    user_id INTEGER,
-    session_id STRING,
-    action STRING,
-    page STRING,
-    device STRING,
-    browser STRING,
-    duration_ms INTEGER,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'user_events',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- Count actions per user
-CREATE STREAM action_counts AS
+CREATE STREAM count_output AS
 SELECT
-    user_id,
-    action,
+    category,
     COUNT(*) AS total_count,
-    COUNT(duration_ms) AS timed_count
-FROM user_events
-GROUP BY user_id, action
-WINDOW TUMBLING (INTERVAL '1' MINUTE);
+    COUNT(value) AS value_count
+FROM input_stream
+GROUP BY category
+EMIT CHANGES
+WITH (
+    'input_stream.type' = 'kafka_source',
+    'input_stream.topic.name' = 'test_input_stream',
+    'input_stream.config_file' = 'configs/input_stream_source.yaml',
 
--- Sink definition
-CREATE SINK action_counts_sink FOR action_counts WITH (
-    'connector' = 'kafka',
-    'topic' = 'action_counts',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'count_output.type' = 'kafka_sink',
+    'count_output.topic.name' = 'test_count_output',
+    'count_output.config_file' = 'configs/aggregates_sink.yaml'
 );

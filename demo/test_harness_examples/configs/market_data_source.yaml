@@ -1,0 +1,14 @@
+# Market Data Source Configuration
+# For Tier 2-4 aggregation and window demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_market_data"
+
+consumer.group: "test_harness_market_group"
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: symbol

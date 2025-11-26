@@ -1,0 +1,14 @@
+# Orders Source Configuration
+# For Tier 3 join demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_orders"
+
+consumer.group: "test_harness_orders_group"
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: order_id

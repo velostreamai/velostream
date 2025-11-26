@@ -6,22 +6,6 @@
 -- @name large_volume_demo
 -- @description High volume data processing test
 
--- Source definition
-CREATE SOURCE events (
-    event_id STRING,
-    user_id INTEGER,
-    event_type STRING,
-    category STRING,
-    value DECIMAL(10,2),
-    region STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'events_large_volume',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
 -- Simple transformation at scale
 CREATE STREAM enriched_events AS
 SELECT
@@ -34,7 +18,17 @@ SELECT
     value * 1.1 AS adjusted_value,
     event_time
 FROM events
-WHERE value > 0;
+WHERE value > 0
+EMIT CHANGES
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic.name' = 'test_events',
+    'events.config_file' = 'configs/events_source.yaml',
+
+    'enriched_events.type' = 'kafka_sink',
+    'enriched_events.topic.name' = 'test_enriched_events',
+    'enriched_events.config_file' = 'configs/output_stream_sink.yaml'
+);
 
 -- Aggregation at scale
 CREATE STREAM regional_stats AS
@@ -43,22 +37,19 @@ SELECT
     event_type,
     COUNT(*) AS event_count,
     SUM(value) AS total_value,
-    AVG(value) AS avg_value
+    AVG(value) AS avg_value,
+    _window_start AS window_start,
+    _window_end AS window_end
 FROM events
 GROUP BY region, event_type
-WINDOW TUMBLING(INTERVAL '1' MINUTE);
+WINDOW TUMBLING(1m)
+EMIT CHANGES
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic.name' = 'test_events',
+    'events.config_file' = 'configs/events_source.yaml',
 
--- Sink definitions
-CREATE SINK enriched_events_sink FOR enriched_events WITH (
-    'connector' = 'kafka',
-    'topic' = 'enriched_events',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
-CREATE SINK regional_stats_sink FOR regional_stats WITH (
-    'connector' = 'kafka',
-    'topic' = 'regional_stats',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'regional_stats.type' = 'kafka_sink',
+    'regional_stats.topic.name' = 'test_regional_stats',
+    'regional_stats.config_file' = 'configs/aggregates_sink.yaml'
 );

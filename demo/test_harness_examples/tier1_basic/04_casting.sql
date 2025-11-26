@@ -1,42 +1,27 @@
--- Tier 1: Type Casting
--- Tests: CAST expressions, type conversions
--- Expected: Correct type conversions in output
+-- Tier 1: Casting (CAST expressions)
+-- Tests: Type conversion functions
+-- Expected: Correct type conversions
 
 -- Application metadata
 -- @name casting_demo
--- @description Type casting and conversion operations
+-- @description Type casting and conversion
 
--- Source definition
-CREATE SOURCE raw_events (
-    id INTEGER,
-    value STRING,
-    amount DECIMAL(10,2),
-    count INTEGER,
-    active BOOLEAN,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'raw_events',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- Demonstrate various type casts
-CREATE STREAM typed_events AS
+CREATE STREAM cast_output AS
 SELECT
-    CAST(id AS STRING) AS id_str,
-    id AS id_int,
-    CAST(amount AS DOUBLE) AS amount_float,
-    CAST(count AS BIGINT) AS count_long,
-    CAST(active AS STRING) AS active_str,
-    CAST(event_time AS STRING) AS time_str,
+    id,
+    CAST(amount AS INTEGER) AS amount_int,
+    CAST(count AS DECIMAL) AS count_decimal,
+    CAST(active AS STRING) AS active_string,
+    CAST(id AS STRING) AS id_string,
     event_time
-FROM raw_events;
+FROM input_stream
+EMIT CHANGES
+WITH (
+    'input_stream.type' = 'kafka_source',
+    'input_stream.topic.name' = 'test_input_stream',
+    'input_stream.config_file' = 'configs/input_stream_source.yaml',
 
--- Sink definition
-CREATE SINK typed_events_sink FOR typed_events WITH (
-    'connector' = 'kafka',
-    'topic' = 'typed_events',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'cast_output.type' = 'kafka_sink',
+    'cast_output.topic.name' = 'test_casting_output',
+    'cast_output.config_file' = 'configs/output_stream_sink.yaml'
 );

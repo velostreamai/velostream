@@ -1,0 +1,9 @@
+# Orders Sink Configuration
+# For Tier 3 join outputs
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "test_orders_output"
+
+delivery_profile: balanced

@@ -1,44 +1,40 @@
--- Tier 4: ROW_NUMBER/RANK Functions
--- Tests: ROW_NUMBER and RANK window functions
--- Expected: Sequential numbering within partitions
+-- Tier 4: ROW_NUMBER and RANK Functions
+-- Tests: ROW_NUMBER(), RANK(), DENSE_RANK()
+-- Expected: Correct ranking values
 
 -- Application metadata
 -- @name row_number_demo
--- @description ROW_NUMBER and RANK for ordering within groups
+-- @description Ranking window functions
 
--- Source definition
-CREATE SOURCE sales_events (
-    order_id STRING,
-    customer_id INTEGER,
-    product_id STRING,
-    quantity INTEGER,
-    unit_price DECIMAL(10,2),
-    status STRING,
-    region STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'sales_events',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- Rank orders by value within each region
-CREATE STREAM ranked_orders AS
+CREATE STREAM ranked_trades AS
 SELECT
-    order_id,
-    region,
-    customer_id,
-    quantity * unit_price AS order_value,
-    ROW_NUMBER() OVER (PARTITION BY region ORDER BY quantity * unit_price DESC) AS value_rank,
-    RANK() OVER (PARTITION BY region ORDER BY quantity * unit_price DESC) AS dense_rank,
-    event_time
-FROM sales_events;
+    symbol,
+    price,
+    volume,
+    event_time,
+    ROW_NUMBER() OVER (
+        ROWS WINDOW BUFFER 1000 ROWS
+        PARTITION BY symbol
+        ORDER BY event_time
+    ) AS row_num,
+    RANK() OVER (
+        ROWS WINDOW BUFFER 1000 ROWS
+        PARTITION BY symbol
+        ORDER BY price DESC
+    ) AS price_rank,
+    DENSE_RANK() OVER (
+        ROWS WINDOW BUFFER 1000 ROWS
+        PARTITION BY symbol
+        ORDER BY volume DESC
+    ) AS volume_rank
+FROM market_data
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic.name' = 'test_market_data',
+    'market_data.config_file' = 'configs/market_data_source.yaml',
 
--- Sink definition
-CREATE SINK ranked_orders_sink FOR ranked_orders WITH (
-    'connector' = 'kafka',
-    'topic' = 'ranked_orders',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'ranked_trades.type' = 'kafka_sink',
+    'ranked_trades.topic.name' = 'test_ranked_trades',
+    'ranked_trades.config_file' = 'configs/market_data_sink.yaml'
 );

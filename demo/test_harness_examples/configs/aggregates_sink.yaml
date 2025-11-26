@@ -1,0 +1,9 @@
+# Aggregates Sink Configuration
+# For windowed aggregation outputs
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "test_aggregates_output"
+
+delivery_profile: balanced

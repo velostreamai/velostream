@@ -6,24 +6,6 @@
 -- @name nulls_demo
 -- @description Null value handling patterns
 
--- Source definition with nullable fields
-CREATE SOURCE sensor_readings (
-    sensor_id STRING,
-    location STRING,
-    temperature DECIMAL(5,2),
-    humidity DECIMAL(5,2),
-    pressure DECIMAL(7,2),
-    battery_level INTEGER,
-    signal_strength INTEGER,
-    status STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'sensor_readings_nulls',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
 -- Handle nulls with COALESCE and defaults
 CREATE STREAM processed_readings AS
 SELECT
@@ -41,12 +23,14 @@ SELECT
     CASE WHEN humidity IS NULL THEN 1 ELSE 0 END AS humidity_missing,
     CASE WHEN pressure IS NULL THEN 1 ELSE 0 END AS pressure_missing,
     event_time
-FROM sensor_readings;
+FROM sensor_readings
+EMIT CHANGES
+WITH (
+    'sensor_readings.type' = 'kafka_source',
+    'sensor_readings.topic.name' = 'test_sensor_readings',
+    'sensor_readings.config_file' = 'configs/sensor_readings_source.yaml',
 
--- Sink definition
-CREATE SINK processed_readings_sink FOR processed_readings WITH (
-    'connector' = 'kafka',
-    'topic' = 'processed_readings',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'processed_readings.type' = 'kafka_sink',
+    'processed_readings.topic.name' = 'test_processed_readings',
+    'processed_readings.config_file' = 'configs/output_stream_sink.yaml'
 );

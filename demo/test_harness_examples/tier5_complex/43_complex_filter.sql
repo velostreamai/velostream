@@ -1,31 +1,10 @@
 -- Tier 5: Complex Filtering
--- Tests: Multiple predicates, nested conditions, BETWEEN, LIKE
+-- Tests: Multiple predicates, nested conditions, BETWEEN
 -- Expected: Correct compound filter evaluation
 
 -- Application metadata
 -- @name complex_filter_demo
 -- @description Complex filter combinations and patterns
-
--- Source definition
-CREATE SOURCE order_stream (
-    order_id STRING,
-    customer_id INTEGER,
-    product_id STRING,
-    category STRING,
-    quantity INTEGER,
-    unit_price DECIMAL(10,2),
-    discount_pct DECIMAL(5,2),
-    status STRING,
-    region STRING,
-    priority STRING,
-    order_date DATE,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'order_stream_complex',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
 
 -- Complex filter with multiple conditions
 CREATE STREAM filtered_orders AS
@@ -58,12 +37,14 @@ WHERE
     -- Exclude test orders
     AND customer_id > 0
     -- Valid product category
-    AND category IS NOT NULL;
+    AND category IS NOT NULL
+EMIT CHANGES
+WITH (
+    'order_stream.type' = 'kafka_source',
+    'order_stream.topic.name' = 'test_order_stream',
+    'order_stream.config_file' = 'configs/orders_source.yaml',
 
--- Sink definition
-CREATE SINK filtered_orders_sink FOR filtered_orders WITH (
-    'connector' = 'kafka',
-    'topic' = 'filtered_orders',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'filtered_orders.type' = 'kafka_sink',
+    'filtered_orders.topic.name' = 'test_filtered_orders',
+    'filtered_orders.config_file' = 'configs/orders_sink.yaml'
 );

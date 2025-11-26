@@ -1,43 +1,40 @@
--- Tier 4: LAG/LEAD Functions
--- Tests: LAG and LEAD window functions
--- Expected: Access to previous/next row values
+-- Tier 4: LAG and LEAD Window Functions
+-- Tests: LAG(column, offset) and LEAD(column, offset)
+-- Expected: Previous and next row values
 
 -- Application metadata
 -- @name lag_lead_demo
--- @description LAG and LEAD for price change detection
+-- @description LAG and LEAD window functions
 
--- Source definition
-CREATE SOURCE price_stream (
-    symbol STRING,
-    price DECIMAL(10,4),
-    volume INTEGER,
-    bid DECIMAL(10,4),
-    ask DECIMAL(10,4),
-    exchange STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'price_stream',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- Calculate price changes using LAG
 CREATE STREAM price_changes AS
 SELECT
     symbol,
-    price AS current_price,
-    LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) AS prev_price,
-    LEAD(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) AS next_price,
-    price - LAG(price, 1) OVER (PARTITION BY symbol ORDER BY event_time) AS price_change,
+    price,
     volume,
-    event_time
-FROM price_stream;
+    event_time,
+    LAG(price, 1) OVER (
+        ROWS WINDOW BUFFER 100 ROWS
+        PARTITION BY symbol
+        ORDER BY event_time
+    ) AS prev_price,
+    LEAD(price, 1) OVER (
+        ROWS WINDOW BUFFER 100 ROWS
+        PARTITION BY symbol
+        ORDER BY event_time
+    ) AS next_price,
+    price - LAG(price, 1) OVER (
+        ROWS WINDOW BUFFER 100 ROWS
+        PARTITION BY symbol
+        ORDER BY event_time
+    ) AS price_change
+FROM market_data
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic.name' = 'test_market_data',
+    'market_data.config_file' = 'configs/market_data_source.yaml',
 
--- Sink definition
-CREATE SINK price_changes_sink FOR price_changes WITH (
-    'connector' = 'kafka',
-    'topic' = 'price_changes',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'price_changes.type' = 'kafka_sink',
+    'price_changes.topic.name' = 'test_price_changes',
+    'price_changes.config_file' = 'configs/market_data_sink.yaml'
 );

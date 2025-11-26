@@ -1,45 +1,31 @@
--- Tier 2: Tumbling Window
--- Tests: WINDOW TUMBLING with various intervals
--- Expected: Non-overlapping time buckets
+-- Tier 2: Tumbling Window Aggregation
+-- Tests: WINDOW TUMBLING with time intervals
+-- Expected: Correct time-bucketed aggregation
 
 -- Application metadata
 -- @name tumbling_window_demo
 -- @description Tumbling window aggregation
 
--- Source definition
-CREATE SOURCE market_ticks (
-    symbol STRING,
-    price DECIMAL(10,4),
-    volume INTEGER,
-    bid DECIMAL(10,4),
-    ask DECIMAL(10,4),
-    exchange STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'market_ticks',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- 1-minute OHLCV bars
-CREATE STREAM ohlcv_1m AS
+CREATE STREAM tumbling_output AS
 SELECT
     symbol,
-    MIN(price) AS low,
-    MAX(price) AS high,
+    COUNT(*) AS trade_count,
     SUM(volume) AS total_volume,
-    COUNT(*) AS tick_count,
-    AVG(ask - bid) AS avg_spread
-FROM market_ticks
+    AVG(price) AS avg_price,
+    MIN(price) AS min_price,
+    MAX(price) AS max_price,
+    _window_start AS window_start,
+    _window_end AS window_end
+FROM market_data
 GROUP BY symbol
-WINDOW TUMBLING (INTERVAL '1' MINUTE)
-EMIT CHANGES;
+WINDOW TUMBLING(1m)
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic.name' = 'test_market_data',
+    'market_data.config_file' = 'configs/market_data_source.yaml',
 
--- Sink definition
-CREATE SINK ohlcv_1m_sink FOR ohlcv_1m WITH (
-    'connector' = 'kafka',
-    'topic' = 'ohlcv_1m',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'tumbling_output.type' = 'kafka_sink',
+    'tumbling_output.topic.name' = 'test_tumbling_output',
+    'tumbling_output.config_file' = 'configs/aggregates_sink.yaml'
 );

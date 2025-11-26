@@ -1,46 +1,28 @@
--- Tier 2: Sum/Avg Aggregation
--- Tests: SUM, AVG, MIN, MAX with GROUP BY
--- Expected: Correct aggregate values per group
+-- Tier 2: SUM and AVG Aggregation
+-- Tests: SUM() and AVG() functions
+-- Expected: Correct sum and average calculations
 
 -- Application metadata
 -- @name sum_avg_demo
--- @description SUM, AVG, MIN, MAX aggregations
+-- @description SUM and AVG aggregation patterns
 
--- Source definition
-CREATE SOURCE order_events (
-    order_id STRING,
-    customer_id INTEGER,
-    product_id STRING,
-    quantity INTEGER,
-    unit_price DECIMAL(10,2),
-    status STRING,
-    region STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'order_events',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- Calculate order statistics per region
-CREATE STREAM region_stats AS
+CREATE STREAM sum_avg_output AS
 SELECT
-    region,
-    COUNT(*) AS order_count,
-    SUM(quantity) AS total_quantity,
-    AVG(unit_price) AS avg_price,
-    MIN(unit_price) AS min_price,
-    MAX(unit_price) AS max_price,
-    SUM(quantity * unit_price) AS total_revenue
-FROM order_events
-GROUP BY region
-WINDOW TUMBLING (INTERVAL '5' MINUTE);
+    category,
+    SUM(amount) AS total_amount,
+    AVG(amount) AS avg_amount,
+    MIN(amount) AS min_amount,
+    MAX(amount) AS max_amount,
+    COUNT(*) AS record_count
+FROM input_stream
+GROUP BY category
+EMIT CHANGES
+WITH (
+    'input_stream.type' = 'kafka_source',
+    'input_stream.topic.name' = 'test_input_stream',
+    'input_stream.config_file' = 'configs/input_stream_source.yaml',
 
--- Sink definition
-CREATE SINK region_stats_sink FOR region_stats WITH (
-    'connector' = 'kafka',
-    'topic' = 'region_stats',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'sum_avg_output.type' = 'kafka_sink',
+    'sum_avg_output.topic.name' = 'test_sum_avg_output',
+    'sum_avg_output.config_file' = 'configs/aggregates_sink.yaml'
 );

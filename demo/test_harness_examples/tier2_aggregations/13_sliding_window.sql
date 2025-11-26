@@ -1,45 +1,29 @@
--- Tier 2: Sliding Window
--- Tests: WINDOW SLIDING with size and slide
--- Expected: Overlapping time windows
+-- Tier 2: Sliding Window Aggregation
+-- Tests: WINDOW SLIDING with size and advance
+-- Expected: Overlapping window aggregation
 
 -- Application metadata
 -- @name sliding_window_demo
--- @description Sliding window aggregation for moving averages
+-- @description Sliding window aggregation
 
--- Source definition
-CREATE SOURCE price_feed (
-    symbol STRING,
-    price DECIMAL(10,4),
-    volume INTEGER,
-    bid DECIMAL(10,4),
-    ask DECIMAL(10,4),
-    exchange STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'price_feed',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- 5-minute moving average, updated every minute
-CREATE STREAM moving_avg_5m AS
+CREATE STREAM sliding_output AS
 SELECT
     symbol,
-    AVG(price) AS avg_price,
-    AVG(volume) AS avg_volume,
-    COUNT(*) AS sample_count,
-    MIN(price) AS min_price,
-    MAX(price) AS max_price
-FROM price_feed
+    COUNT(*) AS trade_count,
+    AVG(price) AS moving_avg,
+    STDDEV(price) AS price_stddev,
+    _window_start AS window_start,
+    _window_end AS window_end
+FROM market_data
 GROUP BY symbol
-WINDOW SLIDING (SIZE INTERVAL '5' MINUTE, SLIDE INTERVAL '1' MINUTE)
-EMIT CHANGES;
+WINDOW SLIDING(5m, 1m)
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic.name' = 'test_market_data',
+    'market_data.config_file' = 'configs/market_data_source.yaml',
 
--- Sink definition
-CREATE SINK moving_avg_sink FOR moving_avg_5m WITH (
-    'connector' = 'kafka',
-    'topic' = 'moving_avg_5m',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'sliding_output.type' = 'kafka_sink',
+    'sliding_output.topic.name' = 'test_sliding_output',
+    'sliding_output.config_file' = 'configs/aggregates_sink.yaml'
 );

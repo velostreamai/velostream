@@ -1,0 +1,9 @@
+# Output Stream Sink Configuration
+# Generic output for Tier 1 basic demos
+
+extends: common_kafka_sink.yaml
+
+topic:
+  name: "test_output_stream"
+
+delivery_profile: balanced

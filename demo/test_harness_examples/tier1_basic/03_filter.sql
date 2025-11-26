@@ -1,43 +1,28 @@
--- Tier 1: Simple Filter
--- Tests: WHERE clause with comparison operators
+-- Tier 1: Filter (WHERE clause)
+-- Tests: Row filtering with predicates
 -- Expected: Only matching records pass through
 
 -- Application metadata
 -- @name filter_demo
--- @description Filter records using WHERE clause
+-- @description WHERE clause filtering
 
--- Source definition
-CREATE SOURCE market_input (
-    symbol STRING,
-    price DECIMAL(10,4),
-    volume INTEGER,
-    bid DECIMAL(10,4),
-    ask DECIMAL(10,4),
-    exchange STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'market_input',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- Filter for high-volume trades on major exchanges
-CREATE STREAM high_volume_trades AS
+CREATE STREAM filtered_output AS
 SELECT
-    symbol,
-    price,
-    volume,
-    exchange,
+    id,
+    value,
+    amount,
+    active,
     event_time
-FROM market_input
-WHERE volume > 10000
-  AND exchange IN ('NYSE', 'NASDAQ');
+FROM input_stream
+WHERE amount > 100
+  AND active = true
+EMIT CHANGES
+WITH (
+    'input_stream.type' = 'kafka_source',
+    'input_stream.topic.name' = 'test_input_stream',
+    'input_stream.config_file' = 'configs/input_stream_source.yaml',
 
--- Sink definition
-CREATE SINK high_volume_sink FOR high_volume_trades WITH (
-    'connector' = 'kafka',
-    'topic' = 'high_volume_trades',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'filtered_output.type' = 'kafka_sink',
+    'filtered_output.topic.name' = 'test_filter_output',
+    'filtered_output.config_file' = 'configs/output_stream_sink.yaml'
 );

@@ -1,0 +1,14 @@
+# Events Source Configuration
+# For Tier 6 large volume demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_events"
+
+consumer.group: "test_harness_events_group"
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: event_id

@@ -6,36 +6,6 @@
 -- @name subqueries_demo
 -- @description Subquery patterns for filtering
 
--- Source definition
-CREATE SOURCE all_orders (
-    order_id STRING,
-    customer_id INTEGER,
-    product_id STRING,
-    quantity INTEGER,
-    unit_price DECIMAL(10,2),
-    status STRING,
-    region STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'all_orders',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
--- High-value customer reference
-CREATE TABLE vip_customers (
-    customer_id INTEGER,
-    name STRING,
-    tier STRING,
-    region STRING,
-    signup_date DATE
-) WITH (
-    'connector' = 'file',
-    'path' = 'data/customers.csv',
-    'format' = 'csv'
-);
-
 -- Filter orders from VIP customers using subquery pattern
 CREATE STREAM vip_orders AS
 SELECT
@@ -50,12 +20,17 @@ SELECT
 FROM all_orders o
 WHERE o.customer_id IN (
     SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
-);
+)
+EMIT CHANGES
+WITH (
+    'all_orders.type' = 'kafka_source',
+    'all_orders.topic.name' = 'test_all_orders',
+    'all_orders.config_file' = 'configs/orders_source.yaml',
 
--- Sink definition
-CREATE SINK vip_orders_sink FOR vip_orders WITH (
-    'connector' = 'kafka',
-    'topic' = 'vip_orders',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'vip_customers.type' = 'file_source',
+    'vip_customers.config_file' = 'configs/customers_table.yaml',
+
+    'vip_orders.type' = 'kafka_sink',
+    'vip_orders.topic.name' = 'test_vip_orders',
+    'vip_orders.config_file' = 'configs/orders_sink.yaml'
 );

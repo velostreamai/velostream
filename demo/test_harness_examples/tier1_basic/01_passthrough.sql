@@ -1,35 +1,27 @@
--- Tier 1: Basic Passthrough
--- Tests: Basic SELECT *, Kafka source/sink connectivity
+-- Tier 1: Passthrough (SELECT *)
+-- Tests: Basic data flow without transformation
 -- Expected: All input records pass through unchanged
 
 -- Application metadata
 -- @name passthrough_demo
--- @description Simple passthrough - all records flow unchanged from source to sink
+-- @description Simple passthrough stream - all records flow unchanged
 
--- Source definition
-CREATE SOURCE simple_input (
-    id INTEGER,
-    value STRING,
-    amount DECIMAL(10,2),
-    count INTEGER,
-    active BOOLEAN,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'simple_input',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
+CREATE STREAM output_stream AS
+SELECT
+    id,
+    value,
+    amount,
+    count,
+    active,
+    event_time
+FROM input_stream
+EMIT CHANGES
+WITH (
+    'input_stream.type' = 'kafka_source',
+    'input_stream.topic.name' = 'test_input_stream',
+    'input_stream.config_file' = 'configs/input_stream_source.yaml',
 
--- Simple passthrough - select all fields
-CREATE STREAM passthrough_output AS
-SELECT *
-FROM simple_input;
-
--- Sink definition
-CREATE SINK passthrough_sink FOR passthrough_output WITH (
-    'connector' = 'kafka',
-    'topic' = 'passthrough_output',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'output_stream.type' = 'kafka_sink',
+    'output_stream.topic.name' = 'test_passthrough_output',
+    'output_stream.config_file' = 'configs/output_stream_sink.yaml'
 );

@@ -140,6 +140,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             timeout_ms,
             ai,
         } => {
+            use std::time::Duration;
+            use velostream::velostream::test_harness::SpecGenerator;
+            use velostream::velostream::test_harness::assertions::AssertionRunner;
+            use velostream::velostream::test_harness::config_override::ConfigOverrideBuilder;
+            use velostream::velostream::test_harness::executor::QueryExecutor;
+            use velostream::velostream::test_harness::infra::TestHarnessInfra;
+            use velostream::velostream::test_harness::report::{
+                OutputFormat, ReportGenerator, write_report,
+            };
+            use velostream::velostream::test_harness::schema::SchemaRegistry;
+            use velostream::velostream::test_harness::spec::TestSpec;
+
             println!("🧪 Velostream SQL Test Harness");
             println!("════════════════════════════════════════");
             println!("SQL File: {}", sql_file.display());
@@ -159,17 +171,214 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!();
 
-            // TODO: Implement run command
-            // 1. Parse SQL file
-            // 2. Load test spec
-            // 3. Start testcontainers infrastructure
-            // 4. Generate test data from schemas
-            // 5. Execute queries sequentially
-            // 6. Capture sink outputs
-            // 7. Run assertions
-            // 8. Generate report
+            // Step 1: Load or generate test spec
+            let test_spec: TestSpec = if let Some(ref spec_path) = spec {
+                let content = match std::fs::read_to_string(spec_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("❌ Failed to read test spec: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                match serde_yaml::from_str(&content) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("❌ Failed to parse test spec: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                // Generate from SQL file
+                let generator = SpecGenerator::new();
+                match generator.generate_from_sql(&sql_file) {
+                    Ok(s) => {
+                        println!("📝 Auto-generated test spec from SQL");
+                        s
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to analyze SQL file: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            };
 
-            println!("⚠️  Run command not yet implemented (Phase 2)");
+            println!("📊 Test Configuration:");
+            println!("   Application: {}", test_spec.application);
+            println!("   Queries: {}", test_spec.queries.len());
+            println!();
+
+            // Step 2: Load schemas if provided
+            let mut schema_registry = SchemaRegistry::new();
+            if let Some(ref schema_dir) = schemas {
+                if schema_dir.exists() {
+                    println!("📁 Loading schemas from {}", schema_dir.display());
+                    if let Ok(entries) = std::fs::read_dir(schema_dir) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path
+                                .extension()
+                                .map_or(false, |ext| ext == "yaml" || ext == "yml")
+                            {
+                                if let Ok(content) = std::fs::read_to_string(&path) {
+                                    if let Ok(schema) =
+                                        serde_yaml::from_str::<
+                                            velostream::velostream::test_harness::Schema,
+                                        >(&content)
+                                    {
+                                        println!("   Loaded schema: {}", schema.name);
+                                        schema_registry.register(schema);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            println!();
+
+            // Step 3: Create test infrastructure
+            println!("🔧 Initializing test infrastructure...");
+            let infra = TestHarnessInfra::new();
+
+            // Check if Kafka is available
+            if infra.bootstrap_servers().is_none() {
+                eprintln!("⚠️  No Kafka bootstrap servers configured");
+                eprintln!("   Set KAFKA_BOOTSTRAP_SERVERS or start local Kafka");
+                eprintln!();
+                eprintln!("   Running in validation-only mode (no execution)");
+                println!();
+
+                // Fall back to validation-only mode
+                use velostream::velostream::sql::validator::SqlValidator;
+                let validator = SqlValidator::new();
+                let result = validator.validate_application_file(&sql_file);
+
+                if result.is_valid {
+                    println!(
+                        "✅ SQL validation passed ({} queries)",
+                        result.valid_queries
+                    );
+                } else {
+                    println!("❌ SQL validation failed");
+                    std::process::exit(1);
+                }
+            } else {
+                println!("   Kafka: {}", infra.bootstrap_servers().unwrap());
+
+                // Step 4: Create config overrides
+                let run_id = format!(
+                    "{:08x}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u32
+                );
+                let overrides = ConfigOverrideBuilder::new(&run_id)
+                    .bootstrap_servers(infra.bootstrap_servers().unwrap())
+                    .build();
+
+                // Step 5: Create executor
+                let mut executor = QueryExecutor::new(infra)
+                    .with_timeout(Duration::from_millis(timeout_ms))
+                    .with_overrides(overrides)
+                    .with_schema_registry(schema_registry);
+
+                // Step 6: Filter queries if specified
+                let queries_to_run: Vec<_> = if let Some(ref query_filter) = query {
+                    test_spec
+                        .queries
+                        .iter()
+                        .filter(|q| q.name == *query_filter)
+                        .collect()
+                } else {
+                    test_spec.queries.iter().filter(|q| !q.skip).collect()
+                };
+
+                println!();
+                println!("🚀 Running {} queries...", queries_to_run.len());
+                println!();
+
+                // Step 7: Execute queries and run assertions
+                let mut report_gen = ReportGenerator::new(&test_spec.application, &run_id);
+                let assertion_runner = AssertionRunner::new();
+
+                for query_test in &queries_to_run {
+                    println!("▶️  Executing: {}", query_test.name);
+
+                    // Execute query
+                    match executor.execute_query(query_test).await {
+                        Ok(exec_result) => {
+                            // Run assertions on captured output
+                            let mut assertion_results = Vec::new();
+
+                            for output in &exec_result.outputs {
+                                let results =
+                                    assertion_runner.run_assertions(output, &query_test.assertions);
+                                assertion_results.extend(results);
+                            }
+
+                            // If no outputs captured, create empty output for assertions
+                            if exec_result.outputs.is_empty() && !query_test.assertions.is_empty() {
+                                use velostream::velostream::test_harness::executor::CapturedOutput;
+                                let empty_output = CapturedOutput {
+                                    query_name: query_test.name.clone(),
+                                    sink_name: format!("{}_output", query_test.name),
+                                    records: Vec::new(),
+                                    execution_time_ms: 0,
+                                    warnings: Vec::new(),
+                                };
+                                let results = assertion_runner
+                                    .run_assertions(&empty_output, &query_test.assertions);
+                                assertion_results.extend(results);
+                            }
+
+                            // Report results
+                            let passed = assertion_results.iter().all(|a| a.passed);
+                            if passed {
+                                println!("   ✅ Passed ({} assertions)", assertion_results.len());
+                            } else {
+                                let failed_count =
+                                    assertion_results.iter().filter(|a| !a.passed).count();
+                                println!(
+                                    "   ❌ Failed ({}/{} assertions)",
+                                    failed_count,
+                                    assertion_results.len()
+                                );
+                            }
+
+                            report_gen.add_query_result(&exec_result, &assertion_results);
+                        }
+                        Err(e) => {
+                            println!("   💥 Error: {}", e);
+                            // Create error result
+                            use velostream::velostream::test_harness::executor::ExecutionResult;
+                            let error_result = ExecutionResult {
+                                query_name: query_test.name.clone(),
+                                success: false,
+                                error: Some(e.to_string()),
+                                outputs: Vec::new(),
+                                execution_time_ms: 0,
+                            };
+                            report_gen.add_query_result(&error_result, &[]);
+                        }
+                    }
+                }
+
+                // Step 8: Generate and output report
+                let report = report_gen.generate();
+                let output_format: OutputFormat = output.parse().unwrap_or(OutputFormat::Text);
+
+                println!();
+                let mut stdout = std::io::stdout();
+                if let Err(e) = write_report(&report, output_format, &mut stdout) {
+                    eprintln!("❌ Failed to write report: {}", e);
+                }
+
+                // Exit with appropriate code
+                if report.summary.failed > 0 || report.summary.errors > 0 {
+                    std::process::exit(1);
+                }
+            }
         }
 
         Commands::Validate { sql_file, verbose } => {

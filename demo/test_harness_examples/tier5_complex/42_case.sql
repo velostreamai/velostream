@@ -6,23 +6,6 @@
 -- @name case_demo
 -- @description CASE expressions for conditional transformations
 
--- Source definition
-CREATE SOURCE user_activity (
-    user_id INTEGER,
-    session_id STRING,
-    action STRING,
-    page STRING,
-    device STRING,
-    browser STRING,
-    duration_ms INTEGER,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'user_activity_case',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
 -- Categorize user behavior using CASE
 CREATE STREAM categorized_activity AS
 SELECT
@@ -47,19 +30,21 @@ SELECT
         ELSE 'long'
     END AS duration_category,
     -- Device category
-    CASE device
-        WHEN 'mobile' THEN 'M'
-        WHEN 'tablet' THEN 'T'
-        WHEN 'desktop' THEN 'D'
+    CASE
+        WHEN device = 'mobile' THEN 'M'
+        WHEN device = 'tablet' THEN 'T'
+        WHEN device = 'desktop' THEN 'D'
         ELSE 'X'
     END AS device_code,
     event_time
-FROM user_activity;
+FROM user_activity
+EMIT CHANGES
+WITH (
+    'user_activity.type' = 'kafka_source',
+    'user_activity.topic.name' = 'test_user_activity',
+    'user_activity.config_file' = 'configs/user_activity_source.yaml',
 
--- Sink definition
-CREATE SINK categorized_activity_sink FOR categorized_activity WITH (
-    'connector' = 'kafka',
-    'topic' = 'categorized_activity',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'categorized_activity.type' = 'kafka_sink',
+    'categorized_activity.topic.name' = 'test_categorized_activity',
+    'categorized_activity.config_file' = 'configs/output_stream_sink.yaml'
 );

@@ -1,0 +1,14 @@
+# Transactions Source Configuration
+# For Tier 5-6 pipeline and empty demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_transactions"
+
+consumer.group: "test_harness_transactions_group"
+performance_profile: balanced
+
+datasource:
+  schema:
+    key.field: transaction_id

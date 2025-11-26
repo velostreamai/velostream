@@ -6,23 +6,6 @@
 -- @name late_arrivals_demo
 -- @description Late and out-of-order event handling
 
--- Source definition with watermark
-CREATE SOURCE sensor_events (
-    sensor_id STRING,
-    measurement_id STRING,
-    value DECIMAL(10,4),
-    quality INTEGER,
-    event_time TIMESTAMP,
-    processing_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'sensor_events_late',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092',
-    'watermark.column' = 'event_time',
-    'watermark.delay' = '30 seconds'
-);
-
 -- Windowed aggregation with late event tolerance
 CREATE STREAM sensor_aggregates AS
 SELECT
@@ -31,11 +14,28 @@ SELECT
     AVG(value) AS avg_value,
     MIN(value) AS min_value,
     MAX(value) AS max_value,
-    SUM(CASE WHEN quality < 50 THEN 1 ELSE 0 END) AS low_quality_count
+    SUM(CASE WHEN quality < 50 THEN 1 ELSE 0 END) AS low_quality_count,
+    _window_start AS window_start,
+    _window_end AS window_end
 FROM sensor_events
 GROUP BY sensor_id
-WINDOW TUMBLING(INTERVAL '1' MINUTE)
-WATERMARK FOR event_time AS event_time - INTERVAL '30' SECOND;
+WINDOW TUMBLING(1m)
+EMIT CHANGES
+WITH (
+    'sensor_events.type' = 'kafka_source',
+    'sensor_events.topic.name' = 'test_sensor_events',
+    'sensor_events.config_file' = 'configs/sensor_readings_source.yaml',
+
+    'sensor_aggregates.type' = 'kafka_sink',
+    'sensor_aggregates.topic.name' = 'test_sensor_aggregates',
+    'sensor_aggregates.config_file' = 'configs/aggregates_sink.yaml',
+
+    -- Watermark configuration for late data handling
+    'event.time.field' = 'event_time',
+    'watermark.strategy' = 'bounded_out_of_orderness',
+    'watermark.max_out_of_orderness' = '30s',
+    'late.data.strategy' = 'dead_letter'
+);
 
 -- Track event lateness
 CREATE STREAM lateness_tracking AS
@@ -50,19 +50,14 @@ SELECT
         WHEN processing_time > event_time THEN 'late'
         ELSE 'on_time'
     END AS arrival_status
-FROM sensor_events;
+FROM sensor_events
+EMIT CHANGES
+WITH (
+    'sensor_events.type' = 'kafka_source',
+    'sensor_events.topic.name' = 'test_sensor_events',
+    'sensor_events.config_file' = 'configs/sensor_readings_source.yaml',
 
--- Sink definitions
-CREATE SINK sensor_aggregates_sink FOR sensor_aggregates WITH (
-    'connector' = 'kafka',
-    'topic' = 'sensor_aggregates',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
-CREATE SINK lateness_tracking_sink FOR lateness_tracking WITH (
-    'connector' = 'kafka',
-    'topic' = 'lateness_tracking',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'lateness_tracking.type' = 'kafka_sink',
+    'lateness_tracking.topic.name' = 'test_lateness_tracking',
+    'lateness_tracking.config_file' = 'configs/output_stream_sink.yaml'
 );

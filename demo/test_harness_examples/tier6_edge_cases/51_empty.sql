@@ -6,21 +6,6 @@
 -- @name empty_demo
 -- @description Empty dataset and zero record handling
 
--- Source definition
-CREATE SOURCE transactions (
-    transaction_id STRING,
-    account_id STRING,
-    amount DECIMAL(10,2),
-    transaction_type STRING,
-    category STRING,
-    event_time TIMESTAMP
-) WITH (
-    'connector' = 'kafka',
-    'topic' = 'transactions_empty',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
 -- Simple passthrough - should handle zero records gracefully
 CREATE STREAM all_transactions AS
 SELECT
@@ -30,29 +15,36 @@ SELECT
     transaction_type,
     category,
     event_time
-FROM transactions;
+FROM transactions
+EMIT CHANGES
+WITH (
+    'transactions.type' = 'kafka_source',
+    'transactions.topic.name' = 'test_transactions',
+    'transactions.config_file' = 'configs/transactions_source.yaml',
+
+    'all_transactions.type' = 'kafka_sink',
+    'all_transactions.topic.name' = 'test_all_transactions',
+    'all_transactions.config_file' = 'configs/output_stream_sink.yaml'
+);
 
 -- Aggregation that might have empty groups
 CREATE STREAM category_totals AS
 SELECT
     category,
     COUNT(*) AS transaction_count,
-    SUM(amount) AS total_amount
+    SUM(amount) AS total_amount,
+    _window_start AS window_start,
+    _window_end AS window_end
 FROM transactions
 GROUP BY category
-WINDOW TUMBLING(INTERVAL '1' MINUTE);
+WINDOW TUMBLING(1m)
+EMIT CHANGES
+WITH (
+    'transactions.type' = 'kafka_source',
+    'transactions.topic.name' = 'test_transactions',
+    'transactions.config_file' = 'configs/transactions_source.yaml',
 
--- Sink definitions
-CREATE SINK all_transactions_sink FOR all_transactions WITH (
-    'connector' = 'kafka',
-    'topic' = 'all_transactions',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
-);
-
-CREATE SINK category_totals_sink FOR category_totals WITH (
-    'connector' = 'kafka',
-    'topic' = 'category_totals',
-    'format' = 'json',
-    'bootstrap.servers' = 'localhost:9092'
+    'category_totals.type' = 'kafka_sink',
+    'category_totals.topic.name' = 'test_category_totals',
+    'category_totals.config_file' = 'configs/aggregates_sink.yaml'
 );

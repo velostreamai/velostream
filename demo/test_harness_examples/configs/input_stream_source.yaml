@@ -1,0 +1,10 @@
+# Input Stream Source Configuration
+# Generic input for Tier 1 basic demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_input_stream"
+
+consumer.group: "test_harness_basic_group"
+performance_profile: balanced
