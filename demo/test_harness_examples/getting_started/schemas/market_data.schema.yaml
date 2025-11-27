@@ -37,6 +37,8 @@ fields:
     type: timestamp
     description: Time of the trade
     constraints:
+      # Generate timestamps within a 2-minute range to ensure multiple 10-second windows close
+      # This creates ~100 seconds of event-time data, which should produce ~10 complete windows
       timestamp_range:
-        start: "-1h"
+        start: "-2m"
         end: "now"

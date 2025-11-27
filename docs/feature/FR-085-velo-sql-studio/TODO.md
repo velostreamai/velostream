@@ -1,6 +1,36 @@
-# FR-085: Velostream SQL Studio - Implementation Tasks
+# FR-085: Velostream - Implementation Tasks
 
-## Phase 1: Backend Foundation
+> **Scope**: Complete product implementation including Studio, Turnkey Apps, and Enterprise features
+> **Last Updated**: November 27, 2025
+
+---
+
+## Progress Summary
+
+| Phase | Focus | Status | Completion |
+|-------|-------|--------|------------|
+| **Phase 1** | Studio Backend Foundation | Not Started | 0% |
+| **Phase 2** | Studio Frontend Foundation | Not Started | 0% |
+| **Phase 3** | Notebook Interface | Not Started | 0% |
+| **Phase 4** | Monaco SQL Editor | Not Started | 0% |
+| **Phase 5** | AI Features | Not Started | 0% |
+| **Phase 6** | Test Harness Integration | Not Started | 0% |
+| **Phase 7** | Results Visualization | Not Started | 0% |
+| **Phase 8** | Observability Integration | Not Started | 0% |
+| **Phase 9** | Notebook Lifecycle | Not Started | 0% |
+| **Phase 10** | Deployment | Not Started | 0% |
+| **Phase 11** | MCP Server | Not Started | 0% |
+| **Phase 12** | AI Black Box Recorder | Not Started | 0% |
+| **Phase 13** | Cluster Linker | Not Started | 0% |
+| **Phase 14** | AI Semantic Lineage | Not Started | 0% |
+| **Phase 15** | Enterprise Features | Not Started | 0% |
+| **Phase 16** | Polish & Documentation | Not Started | 0% |
+
+**Overall Progress: 0%**
+
+---
+
+## Phase 1: Studio Backend Foundation
 
 ### 1.1 Rust REST API Module
 - [ ] Create `src/api/mod.rs` - API module structure
@@ -31,7 +61,7 @@
 
 ---
 
-## Phase 2: Frontend Foundation
+## Phase 2: Studio Frontend Foundation
 
 ### 2.1 Next.js Project Setup
 - [ ] Initialize Next.js 14 with App Router in `studio/` directory
@@ -270,101 +300,308 @@
 
 ---
 
-## Phase 11: Polish and Documentation
+## Phase 11: MCP Server (Compete with Lenses.io)
 
-### 11.1 Error Handling
+### 11.1 MCP Protocol Implementation
+- [ ] Create `src/mcp/mod.rs` - MCP module structure
+- [ ] Implement MCP JSON-RPC protocol
+- [ ] Create tool registry
+
+### 11.2 MCP Tools
+- [ ] Implement `list_streams()` - List available streams
+- [ ] Implement `describe_stream()` - Get schema, sample data
+- [ ] Implement `query_stream()` - Execute streaming SQL
+- [ ] Implement `validate_sql()` - Check SQL syntax
+- [ ] Implement `generate_test_data()` - Create synthetic data
+- [ ] Implement `run_test()` - Execute test with assertions
+- [ ] Implement `get_metrics()` - Fetch current metric values
+- [ ] Implement `deploy_query()` - Deploy SQL as production job
+
+### 11.3 MCP Resources
+- [ ] Implement `streams://{name}` - Stream schema and metadata
+- [ ] Implement `metrics://{name}` - Metric definition and current value
+- [ ] Implement `jobs://{id}` - Running job status
+
+### 11.4 MCP Server Binary
+- [ ] Create `src/bin/velo_mcp.rs` - MCP server binary
+- [ ] Add stdio transport (for Claude Desktop, Cursor, etc.)
+- [ ] Add HTTP transport option
+- [ ] Document integration with Claude, VS Code, Cursor
+
+---
+
+## Phase 12: AI Black Box Recorder (Turnkey App)
+
+### 12.1 Decision Ingest
+- [ ] Create `velostream-apps/blackbox-recorder/` crate
+- [ ] Define Decision schema (agent_id, context, input, output, latency)
+- [ ] Create Kafka consumer for decision events
+- [ ] Create HTTP endpoint for direct ingest
+- [ ] Implement batching and buffering
+
+### 12.2 Python SDK
+- [ ] Create `velostream-blackbox` Python package
+- [ ] Implement `@record_decision` decorator
+- [ ] Implement `BlackBoxClient` class
+- [ ] Add async support
+- [ ] Add OpenTelemetry integration
+- [ ] Publish to PyPI
+
+### 12.3 Query & Replay
+- [ ] Implement decision storage (Kafka + indexing)
+- [ ] Create `GET /api/decisions/{id}` endpoint
+- [ ] Create `POST /api/decisions/search` endpoint
+- [ ] Create `POST /api/decisions/replay` endpoint
+- [ ] Add decision comparison (diff two decisions)
+
+### 12.4 Dashboard
+- [ ] Create Black Box dashboard in Studio
+- [ ] Show decisions/sec, latency distribution
+- [ ] Add agent-level views
+- [ ] Add anomaly detection alerts
+- [ ] Create replay console
+
+### 12.5 Pricing & Licensing
+- [ ] Implement usage metering (decisions/month)
+- [ ] Create license check for commercial features
+- [ ] Add billing integration (Stripe)
+
+---
+
+## Phase 13: Cluster Linker (Turnkey App)
+
+### 13.1 Core Replication
+- [ ] Create `velostream-apps/cluster-linker/` crate
+- [ ] Implement Kafka-to-Kafka replication
+- [ ] Support multiple vendor combinations (Confluent, MSK, Redpanda)
+- [ ] Add schema translation (Avro ↔ JSON ↔ Protobuf)
+- [ ] Implement exactly-once delivery
+
+### 13.2 SQL Transforms
+- [ ] Allow SQL transforms during replication
+- [ ] Support filtering (WHERE clause)
+- [ ] Support projection (SELECT columns)
+- [ ] Support simple aggregations
+
+### 13.3 CLI
+- [ ] Create `velo link create` command
+- [ ] Create `velo link list` command
+- [ ] Create `velo link status` command
+- [ ] Create `velo link delete` command
+- [ ] Add YAML config file support
+
+### 13.4 Monitoring
+- [ ] Track bytes replicated
+- [ ] Track lag (source vs target offset)
+- [ ] Add alerts for replication failures
+- [ ] Create Grafana dashboard for links
+
+### 13.5 Pricing
+- [ ] Implement usage metering (GB/month)
+- [ ] Compare pricing to Confluent ($0.05/GB vs $0.15/GB)
+- [ ] Add billing integration
+
+---
+
+## Phase 14: AI Semantic Lineage (Turnkey App)
+
+### 14.1 Lineage Capture
+- [ ] Create `velostream-apps/semantic-lineage/` crate
+- [ ] Extend Black Box Recorder with source tracing
+- [ ] Capture data source for each input field
+- [ ] Track freshness (how old is the data?)
+- [ ] Detect failures (API errors, timeouts, fallbacks)
+
+### 14.2 Lineage Storage
+- [ ] Design lineage graph schema
+- [ ] Implement storage (Kafka + graph DB or indexed storage)
+- [ ] Create query API for lineage
+
+### 14.3 AI Analysis
+- [ ] Integrate Claude for lineage explanation
+- [ ] Generate human-readable explanations
+- [ ] Detect anomalies (stale data, failed sources)
+- [ ] Suggest fixes
+
+### 14.4 UI
+- [ ] Create lineage visualization in Studio
+- [ ] Show data flow diagram
+- [ ] Highlight issues (stale, failed, missing)
+- [ ] Add "Replay Decision" button
+
+### 14.5 Compliance
+- [ ] Export lineage for audit
+- [ ] Support regulatory formats (EU AI Act)
+- [ ] Add retention policies
+
+---
+
+## Phase 15: Enterprise Features
+
+### 15.1 Authentication
+- [ ] Create `velostream-enterprise/auth/` module
+- [ ] Implement SSO/SAML integration
+- [ ] Implement OIDC integration
+- [ ] Add API key management
+
+### 15.2 Authorization (RBAC)
+- [ ] Define role model (admin, developer, analyst)
+- [ ] Define permission model (streams, jobs, notebooks, deploy)
+- [ ] Implement permission checks in API
+- [ ] Create role management UI
+
+### 15.3 Audit Logging
+- [ ] Create `velostream-enterprise/audit/` module
+- [ ] Log all API calls with user, action, resource
+- [ ] Log all data access
+- [ ] Create audit log query API
+- [ ] Export to SIEM (Splunk, etc.)
+
+### 15.4 Multi-node Clustering
+- [ ] Create `velostream-enterprise/clustering/` module
+- [ ] Implement leader election (Raft or similar)
+- [ ] Implement job distribution across nodes
+- [ ] Add node health monitoring
+- [ ] Implement automatic failover
+
+### 15.5 Chaos Testing
+- [ ] Create `velostream-enterprise/chaos/` module
+- [ ] Implement Kafka failure injection
+- [ ] Implement network partition simulation
+- [ ] Implement latency injection
+- [ ] Create chaos test runner
+
+### 15.6 Regression Testing
+- [ ] Implement output comparison across versions
+- [ ] Create regression test runner
+- [ ] Generate diff reports
+- [ ] Integrate with CI/CD
+
+### 15.7 Pipeline Lineage
+- [ ] Track dependencies between jobs
+- [ ] Implement impact analysis ("what breaks if I change this?")
+- [ ] Create lineage visualization
+- [ ] Add change management workflow
+
+### 15.8 License Management
+- [ ] Define feature flags for enterprise
+- [ ] Implement license file format
+- [ ] Add license check at startup
+- [ ] Create license management API
+
+---
+
+## Phase 16: Polish & Documentation
+
+### 16.1 Error Handling
 - [ ] Implement global error boundary
 - [ ] Add toast notifications
 - [ ] Improve SQL error messages
 - [ ] Add retry mechanisms
 
-### 11.2 Performance Optimization
+### 16.2 Performance Optimization
 - [ ] Implement completion caching
 - [ ] Add request deduplication
 - [ ] Optimize WebSocket reconnection
 - [ ] Profile and fix bottlenecks
 
-### 11.3 Documentation
-- [ ] Write user guide
-- [ ] Create API documentation
+### 16.3 Documentation
+- [ ] Write user guide (Studio)
+- [ ] Write API documentation
+- [ ] Write MCP integration guide
+- [ ] Write Black Box Recorder guide
+- [ ] Write Cluster Linker guide
+- [ ] Write Enterprise admin guide
 - [ ] Add inline help tooltips
 - [ ] Record demo videos
 
-### 11.4 Testing
+### 16.4 Testing
 - [ ] Add unit tests for API client
 - [ ] Add component tests
 - [ ] Add E2E tests with Playwright
 - [ ] Performance benchmarks
-
----
-
-## Progress Tracking
-
-| Phase | Status | Completion |
-|-------|--------|------------|
-| Phase 1: Backend Foundation | Not Started | 0% |
-| Phase 2: Frontend Foundation | Not Started | 0% |
-| Phase 3: Notebook Interface | Not Started | 0% |
-| Phase 4: Monaco Editor | Not Started | 0% |
-| Phase 5: AI Features | Not Started | 0% |
-| Phase 6: Test Harness Integration | Not Started | 0% |
-| Phase 7: Visualization | Not Started | 0% |
-| Phase 8: Observability | Not Started | 0% |
-| Phase 9: Notebook Lifecycle | Not Started | 0% |
-| Phase 10: Deployment | Not Started | 0% |
-| Phase 11: Polish | Not Started | 0% |
-
-**Overall Progress: 0%**
-
----
-
-## Dependencies
-
-### NPM Packages
-```json
-{
-  "next": "^14.0",
-  "react": "^18.0",
-  "@monaco-editor/react": "^4.6",
-  "recharts": "^2.10",
-  "@tanstack/react-table": "^8.10",
-  "tailwindcss": "^3.4",
-  "@radix-ui/react-*": "latest",
-  "lucide-react": "^0.300",
-  "zustand": "^4.4",
-  "swr": "^2.2"
-}
-```
-
-### Rust Crates
-```toml
-axum = { version = "0.7", features = ["ws"] }
-tower-http = { version = "0.5", features = ["cors", "compression"] }
-tokio-tungstenite = "0.21"
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
-reqwest = { version = "0.11", features = ["json"] }
-```
+- [ ] Security testing
 
 ---
 
 ## Milestones
 
-1. **M1: Backend API Ready** - REST API functional with validation/execution/test harness
-2. **M2: Notebook Working** - Cell-based UI with NL input and SQL editing
-3. **M3: AI Features** - NL→SQL and Copilot-style completions working
-4. **M4: Testing Integrated** - Synthetic data generation and assertion testing
-5. **M5: Visualization** - Charts and tables rendering from query results
-6. **M6: Observability** - @metrics → Grafana dashboard generation
-7. **M7: Deployment** - Notebook → Pipeline deployment working
-8. **M8: Production Ready** - Full lifecycle, polished UX, documentation
+| Milestone | Phases | Description | Target |
+|-----------|--------|-------------|--------|
+| **M1: Studio MVP** | 1-4 | Backend API + Notebook UI + Editor | 8 weeks |
+| **M2: AI Features** | 5 | NL→SQL + Copilot completions | +4 weeks |
+| **M3: Testing** | 6 | Synthetic data + assertions + AI analysis | +3 weeks |
+| **M4: Visualization** | 7-8 | Charts + Grafana integration | +4 weeks |
+| **M5: Production** | 9-10 | Notebook lifecycle + deployment | +4 weeks |
+| **M6: MCP Parity** | 11 | Match Lenses.io MCP features | +3 weeks |
+| **M7: Black Box** | 12 | AI decision recording + replay | +6 weeks |
+| **M8: Linker** | 13 | Kafka cluster replication | +4 weeks |
+| **M9: Lineage** | 14 | AI semantic lineage | +6 weeks |
+| **M10: Enterprise** | 15 | Auth, RBAC, audit, clustering | +8 weeks |
+| **M11: GA** | 16 | Polish, docs, testing | +4 weeks |
+
+**Total Estimated: 54 weeks (13.5 months)**
+
+---
+
+## Dependencies
+
+### NPM Packages (Studio Frontend)
+
+```json
+{
+  "dependencies": {
+    "next": "^14.0",
+    "react": "^18.0",
+    "@monaco-editor/react": "^4.6",
+    "recharts": "^2.10",
+    "@tanstack/react-table": "^8.10",
+    "tailwindcss": "^3.4",
+    "@radix-ui/react-*": "latest",
+    "lucide-react": "^0.300",
+    "zustand": "^4.4",
+    "swr": "^2.2"
+  }
+}
+```
+
+### Rust Crates
+
+```toml
+# Studio Backend
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors", "compression"] }
+tokio-tungstenite = "0.21"
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio"] }
+
+# AI Integration
+reqwest = { version = "0.11", features = ["json"] }
+
+# MCP Server
+jsonrpc-core = "18.0"
+
+# Enterprise (separate crate)
+# openssl, saml2, raft, etc.
+```
+
+### Python Packages (Black Box SDK)
+
+```toml
+[project]
+dependencies = [
+    "httpx>=0.25",
+    "pydantic>=2.0",
+    "opentelemetry-api>=1.20",
+]
+```
 
 ---
 
 ## FR-084 Components Reused
 
-| FR-084 Component | Studio Usage | Phase |
-|------------------|--------------|-------|
-| `SchemaDataGenerator` | Generate synthetic data for cell testing | 6 |
+| FR-084 Component | Usage | Phases |
+|------------------|-------|--------|
+| `SchemaDataGenerator` | Synthetic data for cell testing, MCP | 6, 11 |
 | `QueryExecutor` | Execute SQL cells with captured output | 6 |
 | `AssertionEngine` | Validate cell outputs against assertions | 6 |
 | `AiAssistant` | Schema inference, failure analysis | 5, 6 |

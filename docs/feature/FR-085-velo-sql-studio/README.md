@@ -1,330 +1,340 @@
 # FR-085: Velostream SQL Studio
 
-## Overview
-
-**Velostream SQL Studio** is an AI-powered **notebook interface** for building, testing, and deploying streaming SQL applications. Think Jupyter meets streaming SQL with Claude as your copilot.
-
 ## Vision
 
-Transform streaming SQL development from "write SQL → deploy → pray" into an **iterative, visual, AI-guided experience**:
+**Velostream** is the real-time data layer for AI — a streaming SQL platform with turnkey applications for AI observability, data replication, and governance.
+
+**Velostream Studio** is the AI-powered notebook interface that makes streaming SQL development as easy as typing English.
 
 ```
-Natural Language → SQL Cell → Live Visualization → Accumulated App → Deploy Pipeline
+┌─────────────────────────────────────────────────────────────┐
+│                      VELOSTREAM                              │
+│           The Real-Time Data Layer for AI                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  PLATFORM (Open Source)                                      │
+│  • Streaming SQL engine                                      │
+│  • 42x faster financial precision                            │
+│  • PyFlink replacement (<10µs Python)                        │
+│  • Test harness with synthetic data                          │
+│                                                              │
+│  TURNKEY APPS (Commercial)                                   │
+│  • AI Black Box Recorder    — Audit every AI decision       │
+│  • Cluster Linker           — 80% cheaper than Confluent    │
+│  • AI Semantic Lineage      — Explain what data drove AI    │
+│                                                              │
+│  ENTERPRISE (License)                                        │
+│  • RBAC, SSO, Audit Logs                                    │
+│  • Multi-node clustering                                     │
+│  • Chaos + regression testing                                │
+│                                                              │
+│  STUDIO (This Feature)                                       │
+│  • AI-powered notebook                                       │
+│  • NL→SQL + live charts                                      │
+│  • One-click deploy                                          │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-## Value Propositions
+---
 
-### 1. AI-Powered Notebook Experience
-- **Natural Language → SQL Cells**: Describe what you want, get validated SQL
-- **Conversation-Driven Development**: Each cell builds on previous context
-- **Smart Visualization**: AI auto-selects chart types based on query structure
-- **Copilot Completions**: Ghost text suggestions in Monaco (Tab to accept)
+## Quick Demo
 
-### 2. SQL-Native Observability
-- **@metric annotations**: Define Prometheus metrics directly in SQL
-- **Auto-generated Dashboards**: Grafana dashboards from accumulated @metrics
-- **BYOD Support**: Customers use their own observability stack
-- **Embedded Option**: Grafana panels embedded in Studio UI
+### 30-Second Dashboard
 
-### 3. Integrated Test Harness (FR-084)
-- **Synthetic Data Generation**: Schema-driven test data with realistic distributions
-- **SQL Validation**: Real-time syntax and semantic validation
-- **Assertion Testing**: Validate outputs before deployment
-- **AI Failure Analysis**: Claude explains why tests fail and suggests fixes
+```bash
+# Install
+curl -sSL https://velostream.dev/install | bash
 
-### 4. Exploration → Production Pipeline
-- **Notebook Development**: Interactive cells with live preview
-- **Accumulated Context**: Cells chain together into complete pipeline
-- **One-Click Deploy**: Notebook → Deployed streaming jobs + Grafana dashboard
-- **Managed Visualization**: Dashboards auto-configured from deployed jobs
+# Run a query with instant Grafana dashboard
+echo "SELECT symbol, AVG(price) FROM kafka://trades GROUP BY symbol" | \
+  velo run --dashboard
+
+# Browser opens: Live dashboard updating in real-time
+```
+
+### SQL That Tests Itself
+
+```bash
+# Test your SQL with synthetic data
+velo test query.sql --records 10000
+
+# Output:
+# ✅ Passed (3/3 assertions)
+# • record_count: 7 (expected: > 0)
+# • no_nulls: [symbol, volume]
+# • execution_time: 45ms (expected: < 1000ms)
+```
+
+### Talk to Your Streams
+
+```
+💬 "Show me fraud patterns by region in real-time"
+
+🤖 AI Generated:
+┌──────────────────────────────────────────────────────────┐
+│ SELECT region, COUNT(*) as fraud_count,                  │
+│        AVG(amount) as avg_amount                         │
+│ FROM transactions                                        │
+│ WHERE fraud_score > 0.8                                  │
+│ GROUP BY region                                          │
+│ WINDOW TUMBLING('1 minute')                              │
+└──────────────────────────────────────────────────────────┘
+
+📊 Auto-selected: Geo Heatmap (updating live)
+```
+
+---
+
+## Why Velostream?
+
+### vs. Apache Flink
+
+| Pain Point | Flink | Velostream |
+|------------|-------|------------|
+| Learning curve | Java/Scala required | SQL-first |
+| Python performance | PyFlink: 1-10ms bridge overhead | <10µs Python IPC |
+| Testing | Manual fixtures, no synthetic data | Built-in test harness |
+| Observability | External setup | @metrics in SQL |
+
+### vs. Lenses.io
+
+| Feature | Lenses.io | Velostream |
+|---------|-----------|------------|
+| NL→SQL | ✅ via MCP | ✅ Native |
+| Live Charts | ❌ Tables only | ✅ Auto-selected |
+| Test Harness | ❌ None | ✅ Synthetic data + assertions |
+| Notebook UI | ❌ Explorer | ✅ Cell-based |
+| Open Source | ❌ Enterprise only | ✅ Apache 2.0 |
+
+### vs. Databricks
+
+| Feature | Databricks | Velostream |
+|---------|------------|------------|
+| Streaming | ⚠️ Structured Streaming | ✅ Native streaming SQL |
+| Real-time latency | Seconds-minutes | Milliseconds |
+| Financial precision | ❌ Float64 | ✅ ScaledInteger (42x faster) |
+| Deployment | Complex notebooks | One-click deploy |
+| Pricing | $$$$ | Open source core |
+
+---
+
+## Product Portfolio
+
+### Open Source (Apache 2.0)
+
+Everything you need to build streaming SQL applications:
+
+- **Streaming SQL Engine** — Parse, plan, execute streaming queries
+- **Connectors** — Kafka, Postgres, Redis, File
+- **Test Harness (FR-084)** — Synthetic data generation, assertions, AI failure analysis
+- **@metric Annotations** — SQL comments → Prometheus metrics
+- **CLI Tools** — `velo run`, `velo test`, `velo validate`
+- **Studio (Basic)** — Notebook UI, NL→SQL, visualization
+
+### Turnkey Apps (Commercial)
+
+Pre-built solutions for specific use cases:
+
+| App | What It Does | Pricing |
+|-----|--------------|---------|
+| **AI Black Box Recorder** | Capture, query, replay all AI agent decisions | $0.001/decision |
+| **Cluster Linker** | Cross-cluster Kafka replication (any vendor) | $0.05/GB |
+| **AI Semantic Lineage** | Trace what data influenced AI decisions | $2K-20K/month |
+
+### Enterprise License (Commercial)
+
+Features for scale, security, and compliance:
+
+| Feature | Description |
+|---------|-------------|
+| SSO/SAML/OIDC | Enterprise identity integration |
+| RBAC | Role-based access control |
+| Audit Logging | SOC2/HIPAA compliance |
+| Multi-node Clustering | Horizontal scaling |
+| Chaos Testing | Inject failures before deploy |
+| Pipeline Lineage | Impact analysis for changes |
+
+---
+
+## Studio Features
+
+### 1. AI-Powered Notebook
+
+```
+┌─ Cell 1 ─────────────────────────────────────────────────────────┐
+│ 💬 "Show me trading volume by symbol for the last hour"          │
+├──────────────────────────────────────────────────────────────────┤
+│ SELECT symbol, SUM(quantity) as volume                           │
+│ FROM trades                                                      │
+│ GROUP BY symbol                                                  │
+│ WINDOW TUMBLING(INTERVAL '5' MINUTE)                             │
+│ EMIT CHANGES                               [Edit] [Run] [Test]   │
+├──────────────────────────────────────────────────────────────────┤
+│ 📊 [Bar Chart: Volume by Symbol - LIVE]                          │
+│     AAPL ████████████ 125,000                                    │
+│     TSLA ████████ 89,000                                         │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 2. Integrated Testing
+
+Click `[Test]` on any cell:
+
+```
+┌─ Test Results ───────────────────────────────────────────────────┐
+│ ✅ Passed (3/3 assertions)                                       │
+│                                                                  │
+│ ✓ record_count: 7 (expected: > 0)                                │
+│ ✓ schema_contains: [symbol, volume]                              │
+│ ✓ no_nulls: [symbol, volume]                                     │
+│                                                                  │
+│ Performance:                                                     │
+│   • Execution time: 45ms                                         │
+│   • Throughput: 222,222 records/sec                              │
+│                                                                  │
+│ [View Full Report] [Add More Assertions]                         │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 3. AI Failure Analysis
+
+When tests fail, Claude explains why:
+
+```
+┌─ Test Results ───────────────────────────────────────────────────┐
+│ ❌ Failed (1/3 assertions)                                       │
+│                                                                  │
+│ ✗ join_coverage: 0% match (expected: > 80%)                      │
+│                                                                  │
+│ 🤖 AI Analysis:                                                  │
+│ The JOIN on 'customer_id' produced no matches because:           │
+│ • trades contains customer_ids: [CUST001, CUST002, CUST003]      │
+│ • customers table contains: [C-100, C-200, C-300]                │
+│                                                                  │
+│ Suggested fix: Add a foreign key relationship in your schema.   │
+│                                                                  │
+│ [Apply Fix] [Regenerate Data] [Ignore]                           │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 4. SQL-Native Observability
+
+```sql
+-- @metric: trade_volume
+-- @metric_type: counter
+-- @metric_labels: symbol
+-- @alert: volume > 1000000
+
+SELECT symbol, SUM(quantity) as volume
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+```
+
+Click `[Deploy]` → Auto-generated Grafana dashboard.
+
+### 5. One-Click Deploy
+
+```
+┌─ Deploy Summary ─────────────────────────────────────────────────┐
+│ 📋 Notebook: Trading Analytics                                   │
+│                                                                  │
+│ Will deploy:                                                     │
+│ ☑️ 2 streaming SQL jobs                                          │
+│ ☑️ 3 @metrics → Prometheus                                       │
+│ ☑️ 1 @alert → AlertManager                                       │
+│ ☑️ Auto-generated Grafana dashboard                              │
+│                                                                  │
+│ [Preview Dashboard]                    [Cancel] [Deploy →]       │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      VELOSTREAM SQL STUDIO                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Notebook Interface (Next.js + React)                                   │
-│  ├── NotebookView - Scrollable cell list with accumulated context       │
-│  ├── Cell - NL prompt + Monaco SQL editor + visualization               │
-│  │   ├── NlPrompt - The user's natural language request                 │
-│  │   ├── SqlEditor - Monaco with AI completions                         │
-│  │   ├── VizRenderer - Recharts (auto-selected chart type)              │
-│  │   └── CellControls - [Edit] [Run] [Test] [Delete]                    │
-│  ├── ChatInput - Streaming AI responses for new cells                   │
-│  ├── NotebookSummary - Aggregated @metrics, @alerts, sources, sinks     │
-│  └── DeployDialog - Notebook → Production wizard                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│  AI Layer                                                               │
-│  ├── NL → SQL Generation (with full notebook context)                   │
-│  ├── Visualization Recommendation (chart type inference)                │
-│  ├── Data Pattern Discovery ("what patterns do you see?")               │
-│  ├── Query Optimization Suggestions                                     │
-│  ├── Annotation Auto-generation (@metric suggestions)                   │
-│  └── Test Failure Analysis (via velo-test AI integration)               │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Backend API (Rust - extend Velostream)                                 │
-│  ├── POST /api/validate - SQL validation                                │
-│  ├── POST /api/execute - Query execution with streaming results         │
-│  ├── POST /api/generate-data - Synthetic data via test harness          │
-│  ├── POST /api/test - Run assertions via velo-test                      │
-│  ├── GET  /api/schema - Tables/columns for autocomplete                 │
-│  ├── POST /api/completions - AI completion suggestions                  │
-│  ├── POST /api/nl-to-sql - Natural language to SQL                      │
-│  ├── CRUD /api/notebooks - Notebook persistence                         │
-│  ├── CRUD /api/jobs - Job management                                    │
-│  ├── POST /api/deploy - Notebook → Pipeline deployment                  │
-│  └── GET  /metrics - Prometheus (existing)                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│  Test Harness Integration (FR-084)                                      │
-│  ├── SchemaDataGenerator - Realistic test data                          │
-│  ├── QueryExecutor - Execute SQL with captured outputs                  │
-│  ├── AssertionEngine - Validate results against expectations            │
-│  ├── AiAssistant - Schema inference, failure analysis                   │
-│  └── InMemorySchemaRegistry - Avro/Protobuf schema support              │
-├─────────────────────────────────────────────────────────────────────────┤
-│  External Integrations                                                  │
-│  ├── Kafka (data source/sink)                                           │
-│  ├── Prometheus (metrics scraping)                                      │
-│  ├── Grafana (BYOD or embedded dashboards)                              │
-│  └── Claude API (NL→SQL, completions, analysis)                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                      USER INTERFACES                             │
+│  Studio (Web)  │  CLI  │  REST API  │  MCP Server (AI Agents)   │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      VELOSTREAM CORE                             │
+│  SQL Engine  │  Connectors  │  Test Harness  │  Observability   │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          ▼                  ▼                  ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│  Black Box      │ │  Cluster        │ │  Semantic       │
+│  Recorder       │ │  Linker         │ │  Lineage        │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    ENTERPRISE FEATURES                           │
+│  Auth (SSO)  │  Audit  │  Clustering  │  Chaos  │  Lineage      │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## User Journey
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed technical architecture.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ STAGE 1: EXPLORATION (Notebook)                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  User: "Show me trading volume by symbol for the last hour"             │
-│                           ↓                                             │
-│  ┌─ Cell 1 ─────────────────────────────────────────────────────────┐  │
-│  │ 💬 "Show me trading volume by symbol for the last hour"          │  │
-│  ├──────────────────────────────────────────────────────────────────┤  │
-│  │ ```sql                                                           │  │
-│  │ SELECT symbol, SUM(quantity) as volume                           │  │
-│  │ FROM trades                                                      │  │
-│  │ GROUP BY symbol                                                  │  │
-│  │ WINDOW TUMBLING(INTERVAL '5' MINUTE)                             │  │
-│  │ EMIT CHANGES                                                     │  │
-│  │ ```                                      [Edit] [Run] [Test] [▼] │  │
-│  ├──────────────────────────────────────────────────────────────────┤  │
-│  │ 📊 [Bar Chart: Volume by Symbol]                                 │  │
-│  │     AAPL ████████████ 125,000                                    │  │
-│  │     TSLA ████████ 89,000                                         │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│ STAGE 2: ITERATE & EVOLVE                                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  User: "Now show price volatility, flag when > 5%"                      │
-│                           ↓                                             │
-│  ┌─ Cell 2 ─────────────────────────────────────────────────────────┐  │
-│  │ 💬 "Now show price volatility, flag when > 5%"                   │  │
-│  ├──────────────────────────────────────────────────────────────────┤  │
-│  │ ```sql                                                           │  │
-│  │ -- @metric: price_volatility                                     │  │
-│  │ -- @metric_type: gauge                                           │  │
-│  │ -- @alert: volatility > 0.05                                     │  │
-│  │ SELECT symbol,                                                   │  │
-│  │        STDDEV(price) / AVG(price) as volatility                  │  │
-│  │ FROM trades                                                      │  │
-│  │ GROUP BY symbol                                                  │  │
-│  │ WINDOW TUMBLING(INTERVAL '1' MINUTE)                             │  │
-│  │ EMIT CHANGES                                                     │  │
-│  │ ```                                      [Edit] [Run] [Test] [▼] │  │
-│  ├──────────────────────────────────────────────────────────────────┤  │
-│  │ 📈 [Line Chart: Volatility Over Time]                            │  │
-│  │     🔴 TSLA: 7.2% (ALERT!)                                       │  │
-│  │     🟢 AAPL: 2.1%                                                │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│ STAGE 3: TEST WITH SYNTHETIC DATA                                       │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  User: "Test this with 10,000 synthetic trades"                         │
-│                           ↓                                             │
-│  [Test Harness generates schema-driven test data]                       │
-│  [Runs SQL against generated data]                                      │
-│  [Validates assertions]                                                 │
-│                                                                         │
-│  ┌─ Test Results ───────────────────────────────────────────────────┐  │
-│  │ ✅ Cell 1: volume_by_symbol                                      │  │
-│  │    • 10,000 records processed → 7 unique symbols                 │  │
-│  │    • Execution time: 45ms                                        │  │
-│  │                                                                  │  │
-│  │ ✅ Cell 2: price_volatility                                      │  │
-│  │    • Volatility range: 0.8% - 12.3%                              │  │
-│  │    • Alerts triggered: 3 symbols                                 │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│ STAGE 4: DEPLOY AS PIPELINE                                             │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  User clicks: [Deploy Notebook]                                         │
-│                           ↓                                             │
-│  ┌─ Deploy Summary ─────────────────────────────────────────────────┐  │
-│  │ 📋 Notebook: Trading Analytics                                   │  │
-│  │                                                                  │  │
-│  │ Will deploy:                                                     │  │
-│  │ ☑️ 2 streaming SQL jobs                                          │  │
-│  │ ☑️ 1 @metric → Prometheus endpoint                               │  │
-│  │ ☑️ 1 @alert → AlertManager rule                                  │  │
-│  │ ☑️ Auto-generated Grafana dashboard                              │  │
-│  │                                                                  │  │
-│  │ [Preview Dashboard]                    [Cancel] [Deploy →]       │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│ STAGE 5: PRODUCTION MONITORING                                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─ Pipeline: trading-analytics ────────────────────────────────────┐  │
-│  │ Status: ✅ Running                                               │  │
-│  │                                                                  │  │
-│  │ Jobs:                                                            │  │
-│  │   • volume_by_symbol      ✅ 12.5K/sec | Latency: 2.3ms         │  │
-│  │   • price_volatility      ✅ 12.5K/sec | Latency: 3.1ms         │  │
-│  │                                                                  │  │
-│  │ Alerts: 🔴 2 active (TSLA, NVDA volatility > 5%)                 │  │
-│  │                                                                  │  │
-│  │ [Open in Grafana ↗] [View Embedded] [Edit Notebook]              │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-## Test Harness Integration (FR-084)
-
-The notebook integrates deeply with the velo-test harness for data generation and validation.
-
-### Synthetic Data Generation
-
-```
-┌─ Generate Test Data ────────────────────────────────────────────────────┐
-│                                                                         │
-│ Source: trades                                                          │
-│                                                                         │
-│ Schema: [Auto-inferred from SQL] [Upload YAML] [AI Generate]            │
-│                                                                         │
-│ Fields:                                                                 │
-│ ┌─────────────────────────────────────────────────────────────────────┐│
-│ │ symbol    STRING   enum: [AAPL, GOOGL, MSFT, TSLA, NVDA]           ││
-│ │ price     DECIMAL  min: 50.0, max: 5000.0, distribution: log_normal ││
-│ │ quantity  INTEGER  min: 100, max: 100000                            ││
-│ │ timestamp TIMESTAMP range: relative, start: -1h, end: now           ││
-│ └─────────────────────────────────────────────────────────────────────┘│
-│                                                                         │
-│ Records: [10000    ]  Seed: [42      ] (for reproducibility)           │
-│                                                                         │
-│                              [Cancel] [Generate & Run →]                │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### Inline Testing
-
-Each cell has a `[Test]` button that:
-1. Generates synthetic data based on schema
-2. Executes the SQL
-3. Runs assertions
-4. Shows results inline
-
-```
-┌─ Cell Test Results ─────────────────────────────────────────────────────┐
-│ ✅ Passed (3/3 assertions)                                              │
-│                                                                         │
-│ ✓ record_count: 7 (expected: > 0)                                       │
-│ ✓ schema_contains: [symbol, volume]                                     │
-│ ✓ no_nulls: [symbol, volume]                                            │
-│                                                                         │
-│ Performance:                                                            │
-│   • Execution time: 45ms                                                │
-│   • Memory peak: 12 MB                                                  │
-│   • Throughput: 222,222 records/sec                                     │
-│                                                                         │
-│ [View Full Report] [Add More Assertions]                                │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### AI Failure Analysis
-
-When tests fail, Claude analyzes the failure:
-
-```
-┌─ Cell Test Results ─────────────────────────────────────────────────────┐
-│ ❌ Failed (1/3 assertions)                                              │
-│                                                                         │
-│ ✓ schema_contains: [symbol, volume]                                     │
-│ ✓ no_nulls: [symbol, volume]                                            │
-│ ✗ join_coverage: 0% match (expected: > 80%)                             │
-│                                                                         │
-│ 🤖 AI Analysis:                                                         │
-│ The JOIN on 'customer_id' produced no matches because:                  │
-│ • trades contains customer_ids: [CUST001, CUST002, CUST003]             │
-│ • customers table contains: [C-100, C-200, C-300]                       │
-│                                                                         │
-│ Suggested fix:                                                          │
-│ Add a foreign key relationship in your schema:                          │
-│ ```yaml                                                                 │
-│ relationships:                                                          │
-│   - field: customer_id                                                  │
-│     references: customers.id                                            │
-│     strategy: sample                                                    │
-│ ```                                                                     │
-│                                                                         │
-│ [Apply Fix] [Regenerate Data] [Ignore]                                  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+---
 
 ## Tech Stack
 
-| Component | Technology | Rationale |
-|-----------|------------|-----------|
-| Frontend | Next.js 14 (App Router) | Production-ready, SSR, API routes |
-| Notebook UI | Custom React components | Flexible cell-based layout |
-| SQL Editor | Monaco Editor | VS Code quality, AI completions support |
-| Inline Charts | Recharts | Lightweight, React-native, streaming |
-| Data Tables | TanStack Table | Virtual scrolling, large datasets |
-| Styling | Tailwind + shadcn/ui | Fast, consistent, dark mode |
-| Real-Time | WebSocket / SSE | Streaming query results |
-| Backend | Rust (extend Velostream) | Leverage existing parser/runtime |
-| Test Harness | velo-test (FR-084) | Existing data gen, assertions, AI |
-| LLM | Claude API (Anthropic) | Best for code, supports FIM |
+| Component | Technology |
+|-----------|------------|
+| **Core Engine** | Rust |
+| **Studio Backend** | Rust (Axum) |
+| **Studio Frontend** | Next.js 14, React, TypeScript |
+| **SQL Editor** | Monaco Editor |
+| **Visualization** | Recharts, TanStack Table |
+| **AI** | Claude API (Anthropic) |
+| **Styling** | Tailwind CSS, shadcn/ui |
 
-## Competitive Differentiation
+---
 
-| Feature | Databricks | Jupyter | Flink SQL | Lenses.io | **Velostream Studio** |
-|---------|------------|---------|-----------|-----------|----------------------|
-| Streaming SQL | ❌ Batch | ❌ Batch | ✅ | ✅ | ✅ |
-| AI NL→SQL | ✅ | ❌ | ❌ | ❌ | ✅ |
-| AI Completions | ✅ | ❌ | ❌ | ❌ | ✅ |
-| Notebook Interface | ✅ | ✅ | ❌ | ❌ | ✅ |
-| @metrics in SQL | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Auto Dashboards | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Synthetic Test Data | ❌ | ❌ | ❌ | ❌ | ✅ |
-| AI Test Analysis | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Deploy as Pipeline | ✅ | ❌ | ✅ | ✅ | ✅ |
-| Financial Precision | ❌ | ❌ | ❌ | ❌ | ✅ |
+## Documentation
 
-**Unique Combination**: First AI-native streaming SQL notebook with integrated test harness.
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | High-level product architecture |
+| [NOTEBOOK_DESIGN.md](./NOTEBOOK_DESIGN.md) | Detailed Studio/notebook implementation |
+| [API.md](./API.md) | REST API specification |
+| [TODO.md](./TODO.md) | Implementation tasks and progress |
+| [COMPETITIVE_ANALYSIS.md](./COMPETITIVE_ANALYSIS.md) | Market analysis and positioning |
 
-## Related Documents
-
-- [DESIGN.md](./DESIGN.md) - Detailed technical design
-- [TODO.md](./TODO.md) - Implementation tasks and progress
-- [API.md](./API.md) - REST API specification
-- [FR-084 Test Harness](../FR-084-app-test-harness/README.md) - Test harness documentation
+---
 
 ## Success Metrics
 
-- **NL→SQL Success Rate**: >90% valid SQL on first try
-- **AI Completion Acceptance**: >80% of suggestions accepted
-- **Time to First Visualization**: <30 seconds for new users
-- **Test Feedback Loop**: <5 seconds from [Test] click to results
-- **Notebook→Deploy Time**: <2 minutes for simple pipelines
-- **AI Analysis Helpfulness**: >70% of suggestions resolve failures
+| Metric | Target |
+|--------|--------|
+| Time to first "wow" | < 30 seconds |
+| NL→SQL success rate | > 90% valid SQL |
+| Test feedback loop | < 5 seconds |
+| Notebook → Deploy | < 2 minutes |
+| AI analysis helpfulness | > 70% resolve failures |
+
+---
+
+## Roadmap
+
+| Phase | Focus | Status |
+|-------|-------|--------|
+| **Phase 1-4** | Studio Backend + Frontend + Editor | 🔧 In Progress |
+| **Phase 5** | AI Features (NL→SQL, Completions) | 📋 Planned |
+| **Phase 6** | Test Harness Integration | 📋 Planned |
+| **Phase 7-8** | Visualization + Observability | 📋 Planned |
+| **Phase 9-10** | Notebook Lifecycle + Deployment | 📋 Planned |
+| **Phase 11** | MCP Server | 📋 Planned |
+| **Phase 12** | AI Black Box Recorder | 📋 Planned |
+| **Phase 13** | Cluster Linker | 📋 Planned |
+| **Phase 14** | Enterprise Features | 📋 Planned |
+
+See [TODO.md](./TODO.md) for detailed task breakdown.
