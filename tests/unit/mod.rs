@@ -17,3 +17,5 @@ pub mod server;
 pub mod serialization;
 // Observability tests - Tests for telemetry and tracing
 pub mod observability;
+// Test harness tests - Tests for FR-084 SQL Application Test Harness
+pub mod test_harness;

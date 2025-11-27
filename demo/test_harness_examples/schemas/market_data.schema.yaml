@@ -12,17 +12,13 @@ fields:
         weights: [0.2, 0.15, 0.15, 0.15, 0.1, 0.15, 0.1]
 
   - name: price
-    type: decimal
-    precision: 4
+    type: float
     nullable: false
     constraints:
       range:
         min: 10.0
         max: 500.0
-      distribution:
-        normal:
-          mean: 150.0
-          std_dev: 50.0
+      distribution: uniform
 
   - name: volume
     type: integer
@@ -31,14 +27,10 @@ fields:
       range:
         min: 100
         max: 1000000
-      distribution:
-        log_normal:
-          mean: 10.0
-          std_dev: 2.0
+      distribution: uniform
 
   - name: bid
-    type: decimal
-    precision: 4
+    type: float
     nullable: false
     constraints:
       range:
@@ -46,8 +38,7 @@ fields:
         max: 500.0
 
   - name: ask
-    type: decimal
-    precision: 4
+    type: float
     nullable: false
     constraints:
       range:

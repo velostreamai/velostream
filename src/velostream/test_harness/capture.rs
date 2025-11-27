@@ -212,6 +212,8 @@ impl SinkCapture {
             records,
             execution_time_ms,
             warnings,
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
         })
     }
 
@@ -266,6 +268,8 @@ impl SinkCapture {
             records,
             execution_time_ms,
             warnings: Vec::new(),
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
         })
     }
 

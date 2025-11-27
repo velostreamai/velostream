@@ -131,7 +131,15 @@ impl ConfigurationValidator {
         let path = Path::new(config_path);
 
         if !path.exists() {
-            return Err(format!("File not found: ./{}", config_path));
+            // Show the full absolute path that was attempted for better debugging
+            let absolute_path = std::env::current_dir()
+                .map(|cwd| cwd.join(config_path))
+                .unwrap_or_else(|_| path.to_path_buf());
+            return Err(format!(
+                "File not found: {} (resolved from '{}')",
+                absolute_path.display(),
+                config_path
+            ));
         }
 
         match load_yaml_config(path) {

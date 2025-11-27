@@ -69,4 +69,4 @@ pub use infra::{SharedTestInfra, TestHarnessInfra};
 pub use schema::Schema;
 pub use spec::TestSpec;
 pub use spec_generator::SpecGenerator;
-pub use stress::{StressConfig, StressMetrics, StressRunner};
+pub use stress::{MemoryTracker, StressConfig, StressMetrics, StressRunner};

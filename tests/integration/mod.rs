@@ -43,5 +43,8 @@ pub mod observability_trace_propagation_test;
 pub mod watermark_debug_test;
 pub mod watermark_partition_batching_verification_test;
 
+// Test harness integration tests (FR-084)
+pub mod test_harness_integration_test;
+
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

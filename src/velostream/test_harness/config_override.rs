@@ -17,6 +17,9 @@ pub struct ConfigOverrides {
     /// Topic name prefix (test_{run_id}_)
     pub topic_prefix: String,
 
+    /// Whether to apply topic prefix (default: true)
+    pub apply_topic_prefix: bool,
+
     /// Temp directory for file sinks
     pub temp_dir: Option<PathBuf>,
 
@@ -30,9 +33,16 @@ impl ConfigOverrides {
         Self {
             bootstrap_servers: None,
             topic_prefix: format!("test_{}_", run_id),
+            apply_topic_prefix: true,
             temp_dir: None,
             properties: HashMap::new(),
         }
+    }
+
+    /// Disable topic prefix (use exact topic names from config)
+    pub fn without_topic_prefix(mut self) -> Self {
+        self.apply_topic_prefix = false;
+        self
     }
 
     /// Set bootstrap servers override
@@ -53,9 +63,13 @@ impl ConfigOverrides {
         self
     }
 
-    /// Override a topic name with the test prefix
+    /// Override a topic name with the test prefix (if enabled)
     pub fn override_topic(&self, original: &str) -> String {
-        format!("{}{}", self.topic_prefix, original)
+        if self.apply_topic_prefix {
+            format!("{}{}", self.topic_prefix, original)
+        } else {
+            original.to_string()
+        }
     }
 
     /// Override a file path to use temp directory
@@ -148,6 +162,22 @@ impl ConfigOverrides {
             }
         }
 
+        // Override topic names in SQL WITH clauses
+        // Pattern: '<source_name>.topic' = '<topic_name>' or 'topic' = '<topic_name>'
+        if self.apply_topic_prefix {
+            // Match patterns like 'market_data.topic' = 'my_topic' or 'topic' = 'my_topic'
+            if let Ok(re) = regex::Regex::new(r#"'([^']*\.)?topic'\s*=\s*'([^']*)'"#) {
+                result = re
+                    .replace_all(&result, |caps: &regex::Captures| {
+                        let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                        let topic_name = &caps[2];
+                        let new_topic = self.override_topic(topic_name);
+                        format!("'{}topic' = '{}'", prefix, new_topic)
+                    })
+                    .to_string();
+            }
+        }
+
         result
     }
 }
@@ -182,6 +212,12 @@ impl ConfigOverrideBuilder {
         self.overrides
             .properties
             .insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Disable topic prefix (use exact topic names from config)
+    pub fn no_topic_prefix(mut self) -> Self {
+        self.overrides.apply_topic_prefix = false;
         self
     }
 

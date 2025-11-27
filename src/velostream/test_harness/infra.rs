@@ -6,10 +6,32 @@
 //! - Topic creation and cleanup
 //! - Temp directory management
 //!
-//! Note: The testcontainers functionality is only available in tests
-//! and requires Docker to be running.
+//! ## Testcontainers Integration
+//!
+//! This module provides integration with testcontainers for spinning up
+//! Kafka containers automatically. The testcontainers feature is only
+//! available in tests. For production use, provide an external Kafka
+//! instance via `TestHarnessInfra::with_kafka()`.
+//!
+//! In tests, use `TestHarnessInfra::with_testcontainers()`:
+//!
+//! ```rust,ignore
+//! use velostream::velostream::test_harness::TestHarnessInfra;
+//!
+//! #[tokio::test]
+//! async fn test_with_kafka() {
+//!     let mut infra = TestHarnessInfra::with_testcontainers().await.unwrap();
+//!     infra.start().await.unwrap();
+//!     // ... run tests
+//!     infra.stop().await.unwrap();
+//! }
+//! ```
 
 use super::error::{TestHarnessError, TestHarnessResult};
+use crate::velostream::schema::client::registry_client::SchemaReference;
+use crate::velostream::schema::server::registry_backend::{
+    InMemorySchemaRegistryBackend, SchemaRegistryBackend, SchemaVersion,
+};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
@@ -20,12 +42,37 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+// Testcontainers support - available in any test context
+#[cfg(any(test, feature = "test-support"))]
+use testcontainers::ContainerAsync;
+#[cfg(any(test, feature = "test-support"))]
+use testcontainers::runners::AsyncRunner;
+#[cfg(any(test, feature = "test-support"))]
+use testcontainers_modules::kafka::KAFKA_PORT;
+
 /// Manages testcontainers infrastructure for test execution
 ///
 /// This struct manages the lifecycle of test infrastructure. When used with
 /// testcontainers (in integration tests), it will spin up a real Kafka
 /// container. For unit tests or when Docker is not available, it can work
 /// with an external Kafka instance.
+///
+/// ## Schema Registry Support
+///
+/// The test harness includes an in-memory schema registry that is API-compatible
+/// with Confluent Schema Registry. This allows testing Avro/Protobuf serialization
+/// without requiring an external registry service.
+///
+/// ```rust,ignore
+/// let mut infra = TestHarnessInfra::new();
+/// infra.start().await?;
+///
+/// // Register a schema
+/// let schema_id = infra.register_schema("market_data-value", r#"{"type":"record",...}"#).await?;
+///
+/// // Retrieve a schema
+/// let schema = infra.get_schema(schema_id).await?;
+/// ```
 pub struct TestHarnessInfra {
     /// Unique identifier for this test run
     run_id: String,
@@ -47,6 +94,14 @@ pub struct TestHarnessInfra {
 
     /// Whether we own the Kafka instance (and should clean up topics)
     owns_kafka: bool,
+
+    /// In-memory schema registry (API-compatible with Confluent Schema Registry)
+    schema_registry: Option<Arc<InMemorySchemaRegistryBackend>>,
+
+    /// Kafka container (if started via testcontainers) - only in tests
+    #[cfg(any(test, feature = "test-support"))]
+    #[allow(dead_code)]
+    kafka_container: Option<ContainerAsync<testcontainers_modules::kafka::Kafka>>,
 }
 
 impl TestHarnessInfra {
@@ -61,6 +116,9 @@ impl TestHarnessInfra {
             is_running: false,
             admin_client: None,
             owns_kafka: false,
+            schema_registry: None,
+            #[cfg(any(test, feature = "test-support"))]
+            kafka_container: None,
         }
     }
 
@@ -78,7 +136,70 @@ impl TestHarnessInfra {
             is_running: false,
             admin_client: None,
             owns_kafka: false,
+            schema_registry: None,
+            #[cfg(any(test, feature = "test-support"))]
+            kafka_container: None,
         }
+    }
+
+    /// Create infrastructure with a Kafka container using testcontainers
+    ///
+    /// This will start a Kafka container (Confluent Kafka) and configure
+    /// the infrastructure to use it. Requires Docker to be running.
+    ///
+    /// This method is only available in tests.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut infra = TestHarnessInfra::with_testcontainers().await?;
+    /// infra.start().await?;
+    /// // run tests...
+    /// infra.stop().await?;
+    /// ```
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn with_testcontainers() -> TestHarnessResult<Self> {
+        log::info!("Starting Kafka container via testcontainers...");
+
+        // Start Kafka container
+        let kafka_container = testcontainers_modules::kafka::Kafka::default()
+            .start()
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to start Kafka container: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        // Get the mapped port
+        let host_port = kafka_container
+            .get_host_port_ipv4(KAFKA_PORT)
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to get Kafka port: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        let bootstrap_servers = format!("127.0.0.1:{}", host_port);
+        log::info!(
+            "Kafka container started, bootstrap servers: {}",
+            bootstrap_servers
+        );
+
+        // Give Kafka a moment to be ready
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        let run_id = generate_run_id();
+        Ok(Self {
+            run_id,
+            bootstrap_servers: Some(bootstrap_servers),
+            temp_dir: None,
+            created_topics: Vec::new(),
+            is_running: false,
+            admin_client: None,
+            owns_kafka: true,
+            schema_registry: None,
+            kafka_container: Some(kafka_container),
+        })
     }
 
     /// Get the unique run ID for this test execution
@@ -128,8 +249,13 @@ impl TestHarnessInfra {
         })?;
         log::info!("Created temp directory: {}", temp_dir.display());
 
+        // Initialize in-memory schema registry
+        let schema_registry = InMemorySchemaRegistryBackend::new(HashMap::new());
+        log::info!("Initialized in-memory schema registry");
+
         self.admin_client = Some(admin_client);
         self.temp_dir = Some(temp_dir);
+        self.schema_registry = Some(Arc::new(schema_registry));
         self.is_running = true;
 
         log::info!("Test infrastructure started successfully");
@@ -168,6 +294,7 @@ impl TestHarnessInfra {
         }
 
         self.admin_client = None;
+        self.schema_registry = None;
         self.created_topics.clear();
         self.is_running = false;
 
@@ -328,6 +455,149 @@ impl TestHarnessInfra {
 
         Ok(consumer)
     }
+
+    // =========================================================================
+    // Schema Registry Methods (In-Memory, Confluent-API Compatible)
+    // =========================================================================
+
+    /// Get the schema registry backend
+    ///
+    /// Returns the in-memory schema registry that implements the same API
+    /// as Confluent Schema Registry. Use this to register/retrieve schemas
+    /// for Avro/Protobuf serialization testing.
+    pub fn schema_registry(&self) -> Option<Arc<dyn SchemaRegistryBackend>> {
+        self.schema_registry
+            .as_ref()
+            .map(|r| Arc::clone(r) as Arc<dyn SchemaRegistryBackend>)
+    }
+
+    /// Register a schema for a subject
+    ///
+    /// This is a convenience method that wraps the schema registry's
+    /// `register_schema` method.
+    ///
+    /// # Arguments
+    /// * `subject` - The subject name (e.g., "market_data-value" for Kafka value schemas)
+    /// * `schema` - The schema definition (JSON string for Avro, proto string for Protobuf)
+    ///
+    /// # Returns
+    /// The schema ID assigned by the registry
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// let schema_id = infra.register_schema(
+    ///     "market_data-value",
+    ///     r#"{"type":"record","name":"MarketData","fields":[{"name":"symbol","type":"string"}]}"#
+    /// ).await?;
+    /// ```
+    pub async fn register_schema(&self, subject: &str, schema: &str) -> TestHarnessResult<u32> {
+        let registry =
+            self.schema_registry
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Schema registry not initialized. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        registry
+            .register_schema(subject, schema, Vec::new())
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to register schema for '{}': {}", subject, e),
+                source: Some(e.to_string()),
+            })
+    }
+
+    /// Register a schema with references to other schemas
+    ///
+    /// Use this when your schema references other schemas (e.g., nested Avro types).
+    pub async fn register_schema_with_refs(
+        &self,
+        subject: &str,
+        schema: &str,
+        references: Vec<SchemaReference>,
+    ) -> TestHarnessResult<u32> {
+        let registry =
+            self.schema_registry
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Schema registry not initialized. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        registry
+            .register_schema(subject, schema, references)
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to register schema for '{}': {}", subject, e),
+                source: Some(e.to_string()),
+            })
+    }
+
+    /// Get a schema by its ID
+    pub async fn get_schema(&self, id: u32) -> TestHarnessResult<String> {
+        let registry =
+            self.schema_registry
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Schema registry not initialized. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        let response = registry
+            .get_schema(id)
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to get schema {}: {}", id, e),
+                source: Some(e.to_string()),
+            })?;
+
+        Ok(response.schema)
+    }
+
+    /// Get the latest schema for a subject
+    pub async fn get_latest_schema(&self, subject: &str) -> TestHarnessResult<String> {
+        let registry =
+            self.schema_registry
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Schema registry not initialized. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        let response = registry.get_latest_schema(subject).await.map_err(|e| {
+            TestHarnessError::InfraError {
+                message: format!("Failed to get latest schema for '{}': {}", subject, e),
+                source: Some(e.to_string()),
+            }
+        })?;
+
+        Ok(response.schema)
+    }
+
+    /// Get all registered subjects
+    pub async fn get_subjects(&self) -> TestHarnessResult<Vec<String>> {
+        let registry =
+            self.schema_registry
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Schema registry not initialized. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        registry
+            .get_subjects()
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to get subjects: {}", e),
+                source: Some(e.to_string()),
+            })
+    }
+
+    /// Check if schema registry is available
+    pub fn has_schema_registry(&self) -> bool {
+        self.schema_registry.is_some()
+    }
 }
 
 impl Default for TestHarnessInfra {
@@ -455,4 +725,14 @@ mod tests {
         let infra = TestHarnessInfra::with_kafka("localhost:9092");
         assert_eq!(infra.bootstrap_servers(), Some("localhost:9092"));
     }
+
+    #[test]
+    fn test_schema_registry_not_available_before_start() {
+        let infra = TestHarnessInfra::new();
+        assert!(!infra.has_schema_registry());
+        assert!(infra.schema_registry().is_none());
+    }
+
+    // Note: Schema registry async tests require a Kafka connection to start()
+    // These are tested in integration tests with testcontainers
 }

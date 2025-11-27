@@ -6,7 +6,7 @@
 -- @name session_window_demo
 -- @description Session window aggregation
 
-CREATE STREAM session_output AS
+CREATE TABLE session_output AS
 SELECT
     user_id,
     COUNT(*) AS actions_in_session,

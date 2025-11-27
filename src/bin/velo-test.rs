@@ -56,6 +56,11 @@ enum Commands {
         /// Use AI for failure analysis
         #[arg(long)]
         ai: bool,
+
+        /// Use exact topic names from SQL config (no test prefix)
+        /// Use this when testing against a running SQL job with fixed topic names
+        #[arg(long)]
+        no_topic_prefix: bool,
     },
 
     /// Validate SQL syntax without execution
@@ -139,6 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             timeout_ms,
             ai,
+            no_topic_prefix,
         } => {
             use std::time::Duration;
             use velostream::velostream::test_harness::SpecGenerator;
@@ -236,22 +242,109 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!();
 
-            // Step 3: Create test infrastructure
+            // Step 3: Validate SQL and extract configuration
             println!("🔧 Initializing test infrastructure...");
-            let infra = TestHarnessInfra::new();
+            use velostream::velostream::sql::validator::SqlValidator;
+            let validator =
+                SqlValidator::with_base_dir(sql_file.parent().unwrap_or(std::path::Path::new(".")));
+            let validation_result = validator.validate_application_file(&sql_file);
+
+            // Extract bootstrap.servers and schema files from the validated sources
+            let mut bootstrap_servers: Option<String> = None;
+            let sql_dir = sql_file.parent().unwrap_or(std::path::Path::new("."));
+
+            for query_result in &validation_result.query_results {
+                for source in &query_result.sources_found {
+                    // Extract bootstrap.servers
+                    if bootstrap_servers.is_none() {
+                        if let Some(bs) = source.properties.get("bootstrap.servers") {
+                            bootstrap_servers = Some(bs.clone());
+                            log::info!(
+                                "Found bootstrap.servers from source '{}': {}",
+                                source.name,
+                                bs
+                            );
+                        }
+                    }
+
+                    // Extract and load schema file if specified
+                    // Supports both 'datasource.schema.value.schema.file' and shorter variants
+                    let schema_file_keys = [
+                        "datasource.schema.value.schema.file",
+                        "schema.file",
+                        "value.schema.file",
+                    ];
+                    for key in &schema_file_keys {
+                        if let Some(schema_path) = source.properties.get(*key) {
+                            let full_path = sql_dir.join(schema_path);
+                            log::info!(
+                                "Loading schema for source '{}' from: {}",
+                                source.name,
+                                full_path.display()
+                            );
+                            if full_path.exists() {
+                                if let Ok(content) = std::fs::read_to_string(&full_path) {
+                                    match serde_yaml::from_str::<
+                                        velostream::velostream::test_harness::Schema,
+                                    >(&content)
+                                    {
+                                        Ok(schema) => {
+                                            println!(
+                                                "   Loaded schema from SQL config: {}",
+                                                schema.name
+                                            );
+                                            schema_registry.register(schema);
+                                        }
+                                        Err(e) => {
+                                            log::warn!(
+                                                "Failed to parse schema file '{}': {}",
+                                                full_path.display(),
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            } else {
+                                log::warn!(
+                                    "Schema file not found: {} (resolved from '{}')",
+                                    full_path.display(),
+                                    schema_path
+                                );
+                            }
+                            break; // Found a schema file key, stop checking others
+                        }
+                    }
+                }
+            }
+
+            // Also check environment variable as fallback
+            if bootstrap_servers.is_none() {
+                if let Ok(bs) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
+                    bootstrap_servers = Some(bs);
+                    log::info!("Using bootstrap.servers from KAFKA_BOOTSTRAP_SERVERS env var");
+                }
+            }
+
+            // Create test infrastructure with Kafka if available
+            let infra = if let Some(ref bs) = bootstrap_servers {
+                println!("   Kafka: {}", bs);
+                TestHarnessInfra::with_kafka(bs)
+            } else {
+                TestHarnessInfra::new()
+            };
 
             // Check if Kafka is available
             if infra.bootstrap_servers().is_none() {
                 eprintln!("⚠️  No Kafka bootstrap servers configured");
-                eprintln!("   Set KAFKA_BOOTSTRAP_SERVERS or start local Kafka");
+                eprintln!(
+                    "   Configure 'bootstrap.servers' in config file or set KAFKA_BOOTSTRAP_SERVERS env var"
+                );
                 eprintln!();
                 eprintln!("   Running in validation-only mode (no execution)");
                 println!();
 
-                // Fall back to validation-only mode
-                use velostream::velostream::sql::validator::SqlValidator;
-                let validator = SqlValidator::new();
-                let result = validator.validate_application_file(&sql_file);
+                // Use the validation result we already have
+                let result = validation_result;
 
                 if result.is_valid {
                     println!(
@@ -263,8 +356,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     std::process::exit(1);
                 }
             } else {
-                println!("   Kafka: {}", infra.bootstrap_servers().unwrap());
-
                 // Step 4: Create config overrides
                 let run_id = format!(
                     "{:08x}",
@@ -273,15 +364,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or_default()
                         .as_millis() as u32
                 );
-                let overrides = ConfigOverrideBuilder::new(&run_id)
-                    .bootstrap_servers(infra.bootstrap_servers().unwrap())
-                    .build();
+                let mut override_builder = ConfigOverrideBuilder::new(&run_id)
+                    .bootstrap_servers(infra.bootstrap_servers().unwrap());
 
-                // Step 5: Create executor
-                let mut executor = QueryExecutor::new(infra)
+                // Disable topic prefix if requested (for testing against running SQL jobs)
+                if no_topic_prefix {
+                    println!("   Topic prefix: disabled (using exact topic names from SQL config)");
+                    override_builder = override_builder.no_topic_prefix();
+                }
+
+                let overrides = override_builder.build();
+
+                // Step 5: Create executor with StreamJobServer for SQL execution
+                let executor = QueryExecutor::new(infra)
                     .with_timeout(Duration::from_millis(timeout_ms))
                     .with_overrides(overrides)
                     .with_schema_registry(schema_registry);
+
+                // Initialize StreamJobServer for actual SQL execution
+                // Pass sql_dir so the server can resolve relative config file paths
+                let mut executor = match executor.with_server(Some(sql_dir)).await {
+                    Ok(e) => {
+                        println!("   SQL execution: enabled (in-process StreamJobServer)");
+                        e
+                    }
+                    Err(e) => {
+                        eprintln!("⚠️  Warning: Failed to initialize SQL server: {}", e);
+                        eprintln!("   Running in data-only mode (no SQL execution)");
+                        // Can't recover the executor after with_server() fails, so recreate
+                        QueryExecutor::new(TestHarnessInfra::with_kafka(
+                            bootstrap_servers.as_ref().unwrap(),
+                        ))
+                        .with_timeout(Duration::from_millis(timeout_ms))
+                    }
+                };
+
+                // Step 5b: Load and parse SQL file to get sink topic info
+                if let Err(e) = executor.load_sql_file(&sql_file) {
+                    eprintln!("⚠️  Warning: Failed to parse SQL file: {}", e);
+                    // Continue anyway - will fall back to default topic naming
+                }
 
                 // Step 6: Filter queries if specified
                 let queries_to_run: Vec<_> = if let Some(ref query_filter) = query {
@@ -326,6 +448,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     records: Vec::new(),
                                     execution_time_ms: 0,
                                     warnings: Vec::new(),
+                                    memory_peak_bytes: None,
+                                    memory_growth_bytes: None,
                                 };
                                 let results = assertion_runner
                                     .run_assertions(&empty_output, &query_test.assertions);

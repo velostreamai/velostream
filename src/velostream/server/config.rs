@@ -59,6 +59,7 @@
 //!   - Custom broker examples: `test_custom_kafka_broker_pattern_1` and `test_custom_kafka_broker_pattern_2`
 
 use std::env;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Configuration for StreamJobServer
@@ -98,6 +99,10 @@ pub struct StreamJobServerConfig {
 
     /// Table registry cache size (number of cached table definitions)
     pub table_cache_size: usize,
+
+    /// Base directory for resolving relative paths in SQL (e.g., config_file paths)
+    /// If None, paths are resolved relative to current working directory
+    pub base_dir: Option<PathBuf>,
 }
 
 impl StreamJobServerConfig {
@@ -121,7 +126,14 @@ impl StreamJobServerConfig {
             enable_monitoring: false,
             job_timeout: Duration::from_secs(86400), // 24 hours
             table_cache_size: 100,
+            base_dir: None,
         }
+    }
+
+    /// Set the base directory for resolving relative paths in SQL
+    pub fn with_base_dir(mut self, base_dir: impl Into<PathBuf>) -> Self {
+        self.base_dir = Some(base_dir.into());
+        self
     }
 
     /// Load configuration from environment variables with fallback to defaults
@@ -177,6 +189,7 @@ impl StreamJobServerConfig {
             enable_monitoring,
             job_timeout: Duration::from_secs(job_timeout_secs),
             table_cache_size,
+            base_dir: None,
         }
     }
 

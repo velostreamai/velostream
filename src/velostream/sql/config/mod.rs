@@ -46,4 +46,4 @@ pub use connection_string::ConnectionString;
 pub use environment::ConfigSource;
 pub use types::{ConfigError, DataSourceConfig};
 pub use validation::ValidationError;
-pub use yaml_loader::load_yaml_config;
+pub use yaml_loader::{load_yaml_config, load_yaml_config_with_base};

@@ -127,6 +127,14 @@ pub enum AssertionConfig {
     /// Custom template assertion
     #[serde(rename = "template")]
     Template(TemplateAssertion),
+
+    /// Execution time constraint
+    #[serde(rename = "execution_time")]
+    ExecutionTime(ExecutionTimeAssertion),
+
+    /// Memory usage constraint
+    #[serde(rename = "memory_usage")]
+    MemoryUsage(MemoryUsageAssertion),
 }
 
 /// Record count assertion
@@ -259,6 +267,34 @@ pub struct TemplateAssertion {
     /// Description of what this checks
     #[serde(default)]
     pub description: Option<String>,
+}
+
+/// Execution time assertion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionTimeAssertion {
+    /// Maximum allowed execution time in milliseconds
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_ms: Option<u64>,
+
+    /// Minimum required execution time in milliseconds
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_ms: Option<u64>,
+}
+
+/// Memory usage assertion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryUsageAssertion {
+    /// Maximum allowed peak memory in bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u64>,
+
+    /// Maximum allowed peak memory in megabytes (convenience)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_mb: Option<f64>,
+
+    /// Maximum allowed memory growth in bytes
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_growth_bytes: Option<i64>,
 }
 
 impl TestSpec {

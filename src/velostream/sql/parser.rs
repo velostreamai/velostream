@@ -3397,6 +3397,13 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE TABLE
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
+        // Parse EMIT clause if present BEFORE WITH (common pattern: ... EMIT CHANGES WITH (...))
+        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+            self.parse_emit_clause()?
+        } else {
+            None
+        };
+
         // Parse WITH properties
         let mut properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
@@ -3418,12 +3425,12 @@ impl<'a> TokenParser<'a> {
             }
         }
 
-        // For CREATE TABLE AS SELECT, the EMIT clause should be in the SELECT, not at CREATE TABLE level
-        // Only parse EMIT at this level if it exists (which would be unusual)
-        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+        // Also check for EMIT clause AFTER WITH (alternative ordering)
+        let emit_mode = if emit_mode.is_none() && self.current_token().token_type == TokenType::Emit
+        {
             self.parse_emit_clause()?
         } else {
-            None
+            emit_mode
         };
 
         // Consume optional semicolon

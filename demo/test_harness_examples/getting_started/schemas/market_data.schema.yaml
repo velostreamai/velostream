@@ -1,0 +1,42 @@
+# Market Data Schema
+# Defines the structure and generation rules for market data events
+#
+# See: docs/feature/FR-084-app-test-harness/GETTING_STARTED.md
+
+name: market_data
+description: Real-time market data events for stock trading
+
+fields:
+  - name: symbol
+    type: string
+    description: Stock ticker symbol
+    constraints:
+      enum_values:
+        values: [AAPL, GOOGL, MSFT, AMZN, META]
+        weights: [0.25, 0.20, 0.20, 0.20, 0.15]
+
+  - name: price
+    type: float
+    description: Trade price in USD
+    constraints:
+      range:
+        min: 50.0
+        max: 500.0
+      distribution: uniform
+
+  - name: volume
+    type: integer
+    description: Number of shares traded
+    constraints:
+      range:
+        min: 100
+        max: 10000
+      distribution: uniform
+
+  - name: event_time
+    type: timestamp
+    description: Time of the trade
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

@@ -163,6 +163,9 @@ impl KafkaDataSource {
             "enable.idempotence",
         ];
 
+        // Build the source name prefix (e.g., "market_data.") to filter out SQL-level properties
+        let source_name_prefix = format!("{}.", default_topic);
+
         let mut source_config = HashMap::new();
         log::info!("KafkaDataSource: Filtering properties for source config");
         for (key, value) in merged_props.iter() {
@@ -187,6 +190,17 @@ impl KafkaDataSource {
             // Skip topic_config.* properties (these are for topic creation, not consumer)
             if key.starts_with("topic_config.") || key.starts_with("topic.") {
                 log::debug!("  Skipping topic config property: {}", key);
+                continue;
+            }
+
+            // Skip properties prefixed with source name (e.g., "market_data.topic", "market_data.datasource.*")
+            // These are SQL-level WITH clause properties that have already been processed
+            if key.starts_with(&source_name_prefix) {
+                log::debug!(
+                    "  Skipping source-name prefixed property: {} (prefix: {})",
+                    key,
+                    source_name_prefix
+                );
                 continue;
             }
 

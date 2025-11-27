@@ -94,6 +94,10 @@ rustc-hash = "2.0"
 # Future refactoring: Convert state management to use Arc<DashMap> and streaming references
 # instead of owned HashMap moves.
 
+# FR-084: Testcontainers for test harness (optional, enabled in tests)
+testcontainers = { version = "0.25", optional = true }
+testcontainers-modules = { version = "0.13", features = ["kafka"], optional = true }
+
 [build-dependencies]
 prost-build = { version = "0.14.1" }
 
@@ -104,7 +108,6 @@ tokio-stream = "0.1"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.12.0"
 futures = "0.3"
-# Phase 2B: Integration testing with real Kafka
 testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["kafka"] }
 
@@ -207,3 +210,4 @@ comprehensive-tests = []  # Enable comprehensive/slow tests that take 40+ second
 telemetry = []  # Phase 3.2: Optional telemetry feature flag for zero-cost observation
                  # When disabled, all telemetry recording overhead is eliminated via dead code elimination
 parallel = ["rayon"]  # Optional parallel processing feature for batch operations (requires rayon)
+test-support = ["testcontainers", "testcontainers-modules"]  # FR-084: Enable testcontainers for test harness

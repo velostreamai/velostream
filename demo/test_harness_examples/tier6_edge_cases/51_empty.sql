@@ -27,8 +27,8 @@ WITH (
     'all_transactions.config_file' = 'configs/output_stream_sink.yaml'
 );
 
--- Aggregation that might have empty groups
-CREATE STREAM category_totals AS
+-- Aggregation that might have empty groups (uses CREATE TABLE for GROUP BY)
+CREATE TABLE category_totals AS
 SELECT
     category,
     COUNT(*) AS transaction_count,

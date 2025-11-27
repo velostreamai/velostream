@@ -12,6 +12,9 @@ use super::generator::SchemaDataGenerator;
 use super::infra::TestHarnessInfra;
 use super::schema::SchemaRegistry;
 use super::spec::{InputConfig, QueryTest};
+use super::stress::MemoryTracker;
+use crate::velostream::server::config::StreamJobServerConfig;
+use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::types::FieldValue;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use std::collections::HashMap;
@@ -22,6 +25,9 @@ use std::time::Duration;
 pub struct QueryExecutor {
     /// Test infrastructure
     infra: TestHarnessInfra,
+
+    /// StreamJobServer for executing SQL queries
+    server: Option<StreamJobServer>,
 
     /// Timeout per query
     timeout: Duration,
@@ -37,6 +43,9 @@ pub struct QueryExecutor {
 
     /// Data generator
     generator: SchemaDataGenerator,
+
+    /// Parsed queries from SQL file (query_name -> ParsedQuery)
+    parsed_queries: HashMap<String, ParsedQuery>,
 }
 
 /// Captured output from a query execution
@@ -56,6 +65,12 @@ pub struct CapturedOutput {
 
     /// Any warnings generated
     pub warnings: Vec<String>,
+
+    /// Peak memory usage in bytes during execution
+    pub memory_peak_bytes: Option<u64>,
+
+    /// Memory growth in bytes during execution
+    pub memory_growth_bytes: Option<i64>,
 }
 
 /// Result of query execution
@@ -82,12 +97,56 @@ impl QueryExecutor {
     pub fn new(infra: TestHarnessInfra) -> Self {
         Self {
             infra,
+            server: None,
             timeout: Duration::from_secs(30),
             outputs: HashMap::new(),
             overrides: None,
             schema_registry: SchemaRegistry::new(),
             generator: SchemaDataGenerator::new(None),
+            parsed_queries: HashMap::new(),
         }
+    }
+
+    /// Initialize StreamJobServer for actual SQL execution
+    ///
+    /// Without calling this, queries will only publish data but not execute SQL.
+    /// Call this after infrastructure is started to enable full end-to-end testing.
+    ///
+    /// # Arguments
+    /// * `base_dir` - Optional base directory for resolving relative config file paths in SQL
+    ///                (e.g., `../../configs/common_kafka_source.yaml`). Pass the parent directory
+    ///                of the SQL file being executed.
+    pub async fn with_server(
+        mut self,
+        base_dir: Option<impl AsRef<Path>>,
+    ) -> TestHarnessResult<Self> {
+        let bootstrap_servers =
+            self.infra
+                .bootstrap_servers()
+                .ok_or_else(|| TestHarnessError::ConfigError {
+                    message: "Bootstrap servers not available. Start infrastructure first."
+                        .to_string(),
+                })?;
+
+        let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let mut config = StreamJobServerConfig::new(
+            bootstrap_servers.to_string(),
+            format!("test-harness-{}", run_id),
+        )
+        .with_max_jobs(10);
+
+        // Set base_dir for resolving relative config file paths in SQL
+        if let Some(dir) = base_dir {
+            config = config.with_base_dir(dir.as_ref());
+        }
+
+        self.server = Some(StreamJobServer::with_config(config));
+        log::info!(
+            "StreamJobServer initialized with bootstrap servers: {}",
+            bootstrap_servers
+        );
+
+        Ok(self)
     }
 
     /// Set query timeout
@@ -114,12 +173,9 @@ impl QueryExecutor {
         self
     }
 
-    /// Execute a SQL file
-    pub async fn execute_file(
-        &mut self,
-        sql_file: impl AsRef<Path>,
-        queries: &[&QueryTest],
-    ) -> TestHarnessResult<Vec<ExecutionResult>> {
+    /// Load and parse a SQL file without executing
+    /// This populates the parsed_queries so sink topic info is available
+    pub fn load_sql_file(&mut self, sql_file: impl AsRef<Path>) -> TestHarnessResult<()> {
         let sql_file = sql_file.as_ref();
 
         // Read SQL file
@@ -132,19 +188,37 @@ impl QueryExecutor {
         // Parse SQL to extract queries
         let parsed_queries = self.parse_sql(&sql_content, sql_file)?;
 
+        // Store parsed queries
+        for parsed in parsed_queries.iter() {
+            self.parsed_queries
+                .insert(parsed.name.clone(), parsed.clone());
+        }
+
+        log::info!(
+            "Loaded {} queries from SQL file: {:?}",
+            self.parsed_queries.len(),
+            self.parsed_queries.keys().collect::<Vec<_>>()
+        );
+
+        Ok(())
+    }
+
+    /// Execute a SQL file
+    pub async fn execute_file(
+        &mut self,
+        sql_file: impl AsRef<Path>,
+        queries: &[&QueryTest],
+    ) -> TestHarnessResult<Vec<ExecutionResult>> {
+        let sql_file = sql_file.as_ref();
+
+        // Load and parse SQL file if not already done
+        if self.parsed_queries.is_empty() {
+            self.load_sql_file(sql_file)?;
+        }
+
         let mut results = Vec::new();
 
         for query_test in queries {
-            // Find matching parsed query
-            let _parsed = parsed_queries
-                .iter()
-                .find(|q| q.name == query_test.name)
-                .ok_or_else(|| TestHarnessError::ExecutionError {
-                    message: format!("Query '{}' not found in SQL file", query_test.name),
-                    query_name: query_test.name.clone(),
-                    source: None,
-                })?;
-
             // Execute query
             let result = self.execute_query(query_test).await?;
             results.push(result);
@@ -156,25 +230,113 @@ impl QueryExecutor {
     /// Execute a single query
     pub async fn execute_query(&mut self, query: &QueryTest) -> TestHarnessResult<ExecutionResult> {
         let start = std::time::Instant::now();
+        let memory_tracker = MemoryTracker::new(true);
 
         log::info!("Executing query: {}", query.name);
 
         // Step 1: Generate and publish input data
         for input in &query.inputs {
             self.publish_input_data(input).await?;
+            memory_tracker.sample();
         }
 
-        // Step 2: Execute the query (placeholder - actual execution via StreamJobServer)
-        // In the current implementation, we rely on the test infrastructure
-        // For full integration, we would deploy via StreamJobServer.deploy_job()
+        // Step 2: Execute the query via StreamJobServer (if available)
+        // Get the parsed query to access sink topic
+        // First try exact match by query name, then fall back to first parsed query
+        // (for test specs that test the same SQL query with different inputs)
+        log::debug!(
+            "Looking for query '{}' in {} parsed queries: {:?}",
+            query.name,
+            self.parsed_queries.len(),
+            self.parsed_queries.keys().collect::<Vec<_>>()
+        );
 
-        // Step 3: Wait for processing and capture outputs
+        let parsed_query = self
+            .parsed_queries
+            .get(&query.name)
+            .or_else(|| self.parsed_queries.values().next());
+
+        log::debug!(
+            "Found parsed_query: {:?}, sink_topic: {:?}",
+            parsed_query.map(|pq| &pq.name),
+            parsed_query.and_then(|pq| pq.sink_topic.as_ref())
+        );
+
+        // Determine output topic: use sink topic from SQL config, or fall back to {query_name}_output
+        let base_output_topic = parsed_query
+            .and_then(|pq| pq.sink_topic.clone())
+            .unwrap_or_else(|| format!("{}_output", query.name));
+
+        let output_topic = if let Some(ref overrides) = self.overrides {
+            overrides.override_topic(&base_output_topic)
+        } else {
+            base_output_topic
+        };
+
+        log::debug!("Output topic for query '{}': {}", query.name, output_topic);
+
+        if let Some(ref server) = self.server {
+            // Get the SQL text for this query
+            let sql_text = parsed_query
+                .map(|pq| pq.query_text.clone())
+                .ok_or_else(|| TestHarnessError::ExecutionError {
+                    message: format!(
+                        "SQL text for query '{}' not found. Call execute_file() first.",
+                        query.name
+                    ),
+                    query_name: query.name.clone(),
+                    source: None,
+                })?;
+
+            log::info!("Deploying query '{}' via StreamJobServer", query.name);
+
+            // Apply config overrides to SQL (e.g., topic prefixes) before deployment
+            let sql_text_with_overrides = if let Some(ref overrides) = self.overrides {
+                let modified = overrides.apply_to_sql_properties(&sql_text);
+                if modified != sql_text {
+                    log::info!(
+                        "Applied topic/config overrides to SQL for query '{}'",
+                        query.name
+                    );
+                }
+                modified
+            } else {
+                sql_text.clone()
+            };
+
+            // Deploy the job
+            server
+                .deploy_job(
+                    query.name.clone(),
+                    "1.0.0".to_string(),
+                    sql_text_with_overrides,
+                    output_topic.clone(),
+                    None,
+                    None,
+                )
+                .await
+                .map_err(|e| TestHarnessError::ExecutionError {
+                    message: format!("Failed to deploy job: {}", e),
+                    query_name: query.name.clone(),
+                    source: Some(e.to_string()),
+                })?;
+
+            // Wait for job to process data
+            self.wait_for_job_completion(&query.name, self.timeout)
+                .await?;
+        } else {
+            // No server configured - just wait for external processing
+            log::warn!(
+                "No StreamJobServer configured. Waiting for external processing. \
+                 Call with_server() to enable SQL execution."
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+
+        // Step 3: Capture outputs from sink topic
+        memory_tracker.sample();
         let mut captured_outputs = Vec::new();
 
-        // Wait a bit for processing
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        // Capture from sinks based on query configuration
         if let Some(ref bootstrap_servers) = self.infra.bootstrap_servers() {
             let capture = SinkCapture::new(bootstrap_servers).with_config(CaptureConfig {
                 timeout: self.timeout,
@@ -183,20 +345,29 @@ impl QueryExecutor {
                 idle_timeout: Duration::from_secs(3),
             });
 
-            // Capture from output topic (convention: {query_name}_output)
-            let output_topic = if let Some(ref overrides) = self.overrides {
-                overrides.override_topic(&format!("{}_output", query.name))
-            } else {
-                format!("{}_output", query.name)
-            };
-
             match capture.capture_topic(&output_topic, &query.name).await {
-                Ok(output) => {
+                Ok(mut output) => {
+                    memory_tracker.sample();
+                    // Populate memory metrics from the tracker
+                    output.memory_peak_bytes = memory_tracker.peak_memory();
+                    if let (Some(start_mem), Some(current_mem)) = (
+                        memory_tracker.start_memory(),
+                        memory_tracker.current_memory(),
+                    ) {
+                        output.memory_growth_bytes = Some(current_mem as i64 - start_mem as i64);
+                    }
                     captured_outputs.push(output);
                 }
                 Err(e) => {
                     log::warn!("Failed to capture from topic '{}': {}", output_topic, e);
                 }
+            }
+        }
+
+        // Step 4: Cleanup - stop the job
+        if let Some(ref server) = self.server {
+            if let Err(e) = server.stop_job(&query.name).await {
+                log::warn!("Failed to stop job '{}': {}", query.name, e);
             }
         }
 
@@ -214,6 +385,65 @@ impl QueryExecutor {
             outputs: captured_outputs,
             execution_time_ms,
         })
+    }
+
+    /// Wait for a job to complete processing
+    async fn wait_for_job_completion(
+        &self,
+        job_name: &str,
+        timeout: Duration,
+    ) -> TestHarnessResult<()> {
+        let start = std::time::Instant::now();
+        let poll_interval = Duration::from_millis(100);
+
+        log::debug!(
+            "Waiting for job '{}' to complete (timeout: {:?})",
+            job_name,
+            timeout
+        );
+
+        while start.elapsed() < timeout {
+            if let Some(ref server) = self.server {
+                if let Some(status) = server.get_job_status(job_name).await {
+                    match status.status {
+                        JobStatus::Failed(ref msg) => {
+                            return Err(TestHarnessError::ExecutionError {
+                                message: format!("Job failed: {}", msg),
+                                query_name: job_name.to_string(),
+                                source: None,
+                            });
+                        }
+                        JobStatus::Stopped => {
+                            log::debug!("Job '{}' stopped", job_name);
+                            return Ok(());
+                        }
+                        JobStatus::Running => {
+                            // Check if we've processed enough records (heuristic)
+                            if status.metrics.records_processed > 0 {
+                                // Give it a bit more time to finish processing
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                log::debug!(
+                                    "Job '{}' processed {} records",
+                                    job_name,
+                                    status.metrics.records_processed
+                                );
+                                return Ok(());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+
+        // Timeout reached - return success but log warning
+        log::warn!(
+            "Job '{}' did not complete within timeout ({:?}), proceeding with capture",
+            job_name,
+            timeout
+        );
+        Ok(())
     }
 
     /// Publish input data for a query
@@ -346,7 +576,9 @@ impl QueryExecutor {
     fn parse_sql(&self, sql_content: &str, sql_file: &Path) -> TestHarnessResult<Vec<ParsedQuery>> {
         use crate::velostream::sql::validator::SqlValidator;
 
-        let validator = SqlValidator::new();
+        // Use base_dir from the SQL file path for resolving relative config paths
+        let base_dir = sql_file.parent().unwrap_or(std::path::Path::new("."));
+        let validator = SqlValidator::with_base_dir(base_dir);
         let result = validator.validate_sql_content(sql_content);
 
         if !result.is_valid {
@@ -365,17 +597,41 @@ impl QueryExecutor {
             });
         }
 
-        // Extract query names from parsed results
+        // Extract query names and sink info from parsed results
         let queries: Vec<ParsedQuery> = result
             .query_results
             .into_iter()
             .filter_map(|q| {
-                // Extract CREATE STREAM name from query text
-                extract_stream_name(&q.query_text).map(|name| ParsedQuery {
-                    name,
-                    query_text: q.query_text,
-                    sources: Vec::new(), // TODO: Extract from QueryAnalyzer
-                    sinks: Vec::new(),   // TODO: Extract from QueryAnalyzer
+                // Extract CREATE STREAM/TABLE name from query text
+                extract_stream_name(&q.query_text).map(|name| {
+                    // Extract source names
+                    let sources: Vec<String> =
+                        q.sources_found.iter().map(|s| s.name.clone()).collect();
+
+                    // Extract sink names and topic
+                    let sinks: Vec<String> = q.sinks_found.iter().map(|s| s.name.clone()).collect();
+
+                    // Get the sink topic from the first sink's properties
+                    let sink_topic = q
+                        .sinks_found
+                        .first()
+                        .and_then(|sink| sink.properties.get("topic").cloned());
+
+                    log::debug!(
+                        "Parsed query '{}': sources={:?}, sinks={:?}, sink_topic={:?}",
+                        name,
+                        sources,
+                        sinks,
+                        sink_topic
+                    );
+
+                    ParsedQuery {
+                        name,
+                        query_text: q.query_text,
+                        sources,
+                        sinks,
+                        sink_topic,
+                    }
                 })
             })
             .collect();
@@ -405,9 +661,9 @@ impl QueryExecutor {
 }
 
 /// Parsed query information
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedQuery {
-    /// Query name (from CREATE STREAM)
+    /// Query name (from CREATE STREAM/TABLE)
     pub name: String,
 
     /// Original query text
@@ -418,10 +674,13 @@ pub struct ParsedQuery {
 
     /// Sink names
     pub sinks: Vec<String>,
+
+    /// Sink topic name (from SQL config, e.g., 'sink_name.topic' = 'topic_name')
+    pub sink_topic: Option<String>,
 }
 
-/// Extract stream name from CREATE STREAM statement
-fn extract_stream_name(query: &str) -> Option<String> {
+/// Extract stream/table name from CREATE STREAM or CREATE TABLE statement
+pub fn extract_stream_name(query: &str) -> Option<String> {
     let query_upper = query.to_uppercase();
 
     // Look for CREATE STREAM name
@@ -440,7 +699,122 @@ fn extract_stream_name(query: &str) -> Option<String> {
         }
     }
 
+    // Look for CREATE TABLE name (CTAS)
+    if let Some(pos) = query_upper.find("CREATE TABLE") {
+        let after = &query[pos + "CREATE TABLE".len()..];
+        let trimmed = after.trim_start();
+
+        // Extract identifier (first word)
+        let name: String = trimmed
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+
     None
+}
+
+/// Parse WITH block properties from SQL text
+/// Returns HashMap of property key -> value (without quotes)
+pub fn parse_with_properties(sql: &str) -> HashMap<String, String> {
+    let mut props = HashMap::new();
+
+    // Find WITH ( ... ) block - case insensitive
+    let sql_upper = sql.to_uppercase();
+    if let Some(with_pos) = sql_upper.rfind("WITH") {
+        let after_with = &sql[with_pos + 4..];
+        if let Some(paren_start) = after_with.find('(') {
+            let content = &after_with[paren_start + 1..];
+            // Find matching closing paren
+            if let Some(paren_end) = content.rfind(')') {
+                let props_str = &content[..paren_end];
+                // Parse 'key' = 'value' pairs
+                for pair in props_str.split(',') {
+                    let pair = pair.trim();
+                    if let Some(eq_pos) = pair.find('=') {
+                        let key = pair[..eq_pos].trim().trim_matches('\'').trim_matches('"');
+                        let value = pair[eq_pos + 1..]
+                            .trim()
+                            .trim_matches('\'')
+                            .trim_matches('"');
+                        if !key.is_empty() {
+                            props.insert(key.to_string(), value.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    props
+}
+
+/// Extract source and sink info from WITH properties
+/// Returns (sources: Vec<(name, topic)>, sinks: Vec<(name, topic)>)
+pub fn extract_sources_and_sinks(
+    props: &HashMap<String, String>,
+) -> (Vec<(String, Option<String>)>, Vec<(String, Option<String>)>) {
+    let mut sources: HashMap<String, Option<String>> = HashMap::new();
+    let mut sinks: HashMap<String, Option<String>> = HashMap::new();
+
+    for (key, value) in props {
+        // Parse keys like 'source_name.type' = 'kafka_source' or 'sink_name.topic' = 'topic_name'
+        if let Some(dot_pos) = key.find('.') {
+            let name = &key[..dot_pos];
+            let prop = &key[dot_pos + 1..];
+
+            match prop {
+                "type" => {
+                    if value == "kafka_source" {
+                        sources.entry(name.to_string()).or_insert(None);
+                    } else if value == "kafka_sink" {
+                        sinks.entry(name.to_string()).or_insert(None);
+                    }
+                }
+                "topic" => {
+                    // Check if this is a source or sink and set the topic
+                    if sources.contains_key(name) {
+                        sources.insert(name.to_string(), Some(value.clone()));
+                    } else if sinks.contains_key(name) {
+                        sinks.insert(name.to_string(), Some(value.clone()));
+                    } else {
+                        // We don't know the type yet, check later
+                        // For now, store in a temp and resolve after
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Second pass: assign topics to sources/sinks that were defined after their topic
+    for (key, value) in props {
+        if let Some(dot_pos) = key.find('.') {
+            let name = &key[..dot_pos];
+            let prop = &key[dot_pos + 1..];
+
+            if prop == "topic" {
+                if let Some(topic_opt) = sources.get_mut(name) {
+                    if topic_opt.is_none() {
+                        *topic_opt = Some(value.clone());
+                    }
+                }
+                if let Some(topic_opt) = sinks.get_mut(name) {
+                    if topic_opt.is_none() {
+                        *topic_opt = Some(value.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    let sources_vec: Vec<_> = sources.into_iter().collect();
+    let sinks_vec: Vec<_> = sinks.into_iter().collect();
+
+    (sources_vec, sinks_vec)
 }
 
 /// Convert FieldValue map to JSON value

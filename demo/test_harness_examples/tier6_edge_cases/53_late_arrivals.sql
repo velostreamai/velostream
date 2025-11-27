@@ -6,8 +6,8 @@
 -- @name late_arrivals_demo
 -- @description Late and out-of-order event handling
 
--- Windowed aggregation with late event tolerance
-CREATE STREAM sensor_aggregates AS
+-- Windowed aggregation with late event tolerance (uses CREATE TABLE for GROUP BY)
+CREATE TABLE sensor_aggregates AS
 SELECT
     sensor_id,
     COUNT(*) AS reading_count,

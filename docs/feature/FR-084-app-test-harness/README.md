@@ -1,5 +1,7 @@
 # FR-084: SQL Application Test Harness
 
+> **📖 See the [Developer Guide](./DEVELOPER_GUIDE.md) for detailed usage instructions, examples, and troubleshooting.**
+
 ## Overview
 
 A comprehensive test framework for validating Velostream SQL applications. The harness enables developers to test their SQL pipelines with generated or captured data, validate outputs against assertions, and produce detailed reports.
@@ -37,6 +39,156 @@ A comprehensive test framework for validating Velostream SQL applications. The h
 │                                          └──────────────┘          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Implementation Status
+
+> **Note**: This section shows the actual implementation status as of the completion of FR-084.
+
+| Module | File | Status | Description |
+|--------|------|--------|-------------|
+| **Module Exports** | [`mod.rs`](../../src/velostream/test_harness/mod.rs) | ✅ Complete | Public API exports |
+| **Infrastructure** | [`infra.rs`](../../src/velostream/test_harness/infra.rs) | ✅ Complete | Testcontainers Kafka, topic management, temp directories |
+| **Schema** | [`schema.rs`](../../src/velostream/test_harness/schema.rs) | ✅ Complete | YAML schema parsing, validation, SchemaRegistry |
+| **Data Generator** | [`generator.rs`](../../src/velostream/test_harness/generator.rs) | ✅ Complete | Enum, range, timestamp, distribution, derived fields |
+| **Query Executor** | [`executor.rs`](../../src/velostream/test_harness/executor.rs) | ✅ Complete | Publishes data, deploys jobs via StreamJobServer, captures output |
+| **Sink Capture** | [`capture.rs`](../../src/velostream/test_harness/capture.rs) | ✅ Complete | Kafka consumer, file reader, timeout handling |
+| **Assertions** | [`assertions.rs`](../../src/velostream/test_harness/assertions.rs) | ✅ Complete | 10+ assertion types, template assertions |
+| **Reports** | [`report.rs`](../../src/velostream/test_harness/report.rs) | ✅ Complete | Text, JSON, JUnit XML output formats |
+| **CLI** | [`cli.rs`](../../src/velostream/test_harness/cli.rs) | ✅ Complete | clap-based argument parsing |
+| **AI Features** | [`ai.rs`](../../src/velostream/test_harness/ai.rs) | ✅ Complete | Claude API integration, schema inference, failure analysis |
+| **Test Spec** | [`spec.rs`](../../src/velostream/test_harness/spec.rs) | ✅ Complete | YAML test spec parsing, validation |
+| **Errors** | [`error.rs`](../../src/velostream/test_harness/error.rs) | ✅ Complete | Structured error types with thiserror |
+| **Config Override** | [`config_override.rs`](../../src/velostream/test_harness/config_override.rs) | ✅ Complete | Bootstrap servers, topic prefix, temp paths |
+| **Schema Inference** | [`inference.rs`](../../src/velostream/test_harness/inference.rs) | ✅ Complete | SQL analysis, CSV sampling |
+| **Spec Generator** | [`spec_generator.rs`](../../src/velostream/test_harness/spec_generator.rs) | ✅ Complete | Auto-generate test specs from SQL |
+| **Stress Test** | [`stress.rs`](../../src/velostream/test_harness/stress.rs) | ✅ Complete | Throughput metrics, memory tracking (macOS/Linux) |
+
+### Known Limitations
+
+All major features are now implemented. The test harness is fully functional.
+
+### Recently Completed (Phases 7-10)
+
+#### Phase 10: In-Memory Schema Registry ✅
+
+The test harness now includes an in-memory schema registry that is **API-compatible with Confluent Schema Registry**. This means:
+- No Docker container required for schema registry
+- Same API as production Confluent Schema Registry
+- Supports Avro and Protobuf schema registration
+- Supports schema references for nested types
+
+```rust
+// Register a schema
+let schema_id = infra.register_schema(
+    "market_data-value",
+    r#"{"type":"record","name":"MarketData","fields":[{"name":"symbol","type":"string"}]}"#
+).await?;
+
+// Retrieve a schema
+let schema = infra.get_schema(schema_id).await?;
+
+// Get latest schema for a subject
+let latest = infra.get_latest_schema("market_data-value").await?;
+
+// List all subjects
+let subjects = infra.get_subjects().await?;
+```
+
+| Method | Description |
+|--------|-------------|
+| `register_schema(subject, schema)` | Register a new schema version |
+| `register_schema_with_refs(subject, schema, refs)` | Register with references |
+| `get_schema(id)` | Get schema by ID |
+| `get_latest_schema(subject)` | Get latest version for subject |
+| `get_subjects()` | List all registered subjects |
+| `has_schema_registry()` | Check if registry is available |
+| `schema_registry()` | Get the underlying backend |
+
+**API Compatibility with Confluent:**
+
+| Method | In-Memory | Confluent | Notes |
+|--------|-----------|-----------|-------|
+| `get_schema` | ✅ | ✅ | By ID |
+| `get_latest_schema` | ✅ | ✅ | By subject |
+| `get_schema_version` | ✅ | ✅ | Specific version |
+| `register_schema` | ✅ | ✅ | Returns schema ID |
+| `check_compatibility` | ✅ (always true) | ✅ | Real check in prod |
+| `get_versions` | ✅ | ✅ | All versions for subject |
+| `get_subjects` | ✅ | ✅ | All subjects |
+| `delete_schema_version` | ✅ | ✅ | Delete specific version |
+
+### Recently Completed (Phases 7-9)
+
+#### Phase 7: StreamJobServer Integration ✅
+
+The `QueryExecutor` now fully integrates with `StreamJobServer` to execute SQL queries:
+
+```rust
+// Initialize executor with server
+let executor = QueryExecutor::new(infra, overrides)
+    .with_server()  // Creates StreamJobServer instance
+    .await?;
+
+// Execute queries - internally calls:
+// 1. server.deploy_job(name, version, query, topic, None, None)
+// 2. wait_for_job_completion(job_name, timeout)
+// 3. server.stop_job(&name) after capture
+```
+
+| Method | Description |
+|--------|-------------|
+| `with_server()` | Initializes `StreamJobServer` with bootstrap servers from infra |
+| `deploy_job()` | Deploys SQL query as a streaming job |
+| `wait_for_job_completion()` | Polls job status until done or timeout |
+| `stop_job()` | Stops running job after sink capture |
+
+#### Phase 8: Performance Assertions ✅
+
+New assertion types for performance constraints:
+
+```yaml
+assertions:
+  - type: execution_time
+    max_ms: 5000      # Maximum execution time
+    min_ms: 100       # Minimum execution time (optional)
+
+  - type: memory_usage
+    max_bytes: 104857600    # 100 MB max
+    max_mb: 100             # Alternative: specify in MB
+    max_growth_bytes: 52428800  # Max memory growth during execution
+```
+
+`CapturedOutput` now includes memory metrics:
+- `memory_peak_bytes: Option<u64>` - Peak memory during execution
+- `memory_growth_bytes: Option<i64>` - Memory growth (can be negative)
+
+#### Phase 9: Foreign Key Reference Data ✅
+
+Full support for foreign key relationships in data generation:
+
+```rust
+let mut generator = SchemaDataGenerator::new(Some(42));
+
+// Method 1: Load explicit values
+generator.load_reference_data("customers", "id", vec![
+    FieldValue::String("CUST001".to_string()),
+    FieldValue::String("CUST002".to_string()),
+]);
+
+// Method 2: Load from generated records
+let customer_records = generator.generate(&customer_schema, 100)?;
+generator.load_reference_data_from_records("customers", "id", &customer_records);
+
+// Now orders.customer_id will sample from loaded reference data
+let order_records = generator.generate(&order_schema, 1000)?;
+```
+
+| Method | Description |
+|--------|-------------|
+| `load_reference_data(table, field, values)` | Load explicit value list |
+| `load_reference_data_from_records(table, field, records)` | Extract from generated records |
+| `has_reference_data(table, field)` | Check if data is loaded |
+| `reference_data_count(table, field)` | Get count of loaded values |
 
 ## Components
 
@@ -468,61 +620,80 @@ velo-test stress demo/trading/sql/financial_trading.sql \
 
 ## Project Structure
 
+> All file paths are relative to project root. Click to view source.
+
 ```
 src/
 ├── bin/
-│   └── velo_test.rs                  # CLI entry point
-└── test_harness/
+│   └── velo-test.rs                  # CLI entry point
+└── velostream/test_harness/
     ├── mod.rs                        # Module exports
-    ├── infra.rs                      # Testcontainers setup
-    ├── schema.rs                     # Schema parsing & types
-    ├── generator.rs                  # Data generation engine
-    ├── executor.rs                   # Pipeline executor
-    ├── capture.rs                    # Sink capture (Kafka/File)
-    ├── assertions.rs                 # Assertion engine
-    ├── report.rs                     # Report generation
-    ├── cli.rs                        # CLI argument parsing
-    └── ai.rs                         # AI-powered features (Phase 6)
+    ├── infra.rs                      # Testcontainers setup (Kafka admin, topics)
+    ├── schema.rs                     # Schema parsing & types (YAML deserialization)
+    ├── generator.rs                  # Data generation engine (distributions, derived)
+    ├── executor.rs                   # Query execution (StreamJobServer integration)
+    ├── capture.rs                    # Sink capture (Kafka consumer, file reader)
+    ├── assertions.rs                 # Assertion engine (10+ types, templates)
+    ├── report.rs                     # Report generation (Text, JSON, JUnit)
+    ├── cli.rs                        # CLI argument parsing (clap)
+    ├── ai.rs                         # AI-powered features (Claude API)
+    ├── spec.rs                       # Test specification parsing
+    ├── error.rs                      # Error types (thiserror)
+    ├── config_override.rs            # Config override mechanism
+    ├── inference.rs                  # Schema inference from SQL/CSV
+    ├── spec_generator.rs             # Auto-generate test specs
+    └── stress.rs                     # Stress test mode (throughput, memory)
+
+tests/integration/
+    └── test_harness_integration_test.rs  # Integration tests with testcontainers
 ```
+
+**Source Links:**
+- [`src/bin/velo-test.rs`](../../src/bin/velo-test.rs) - CLI entry point
+- [`src/velostream/test_harness/`](../../src/velostream/test_harness/) - All test harness modules
 
 ## Implementation Phases
 
-### Phase 1: Foundation
-- [ ] CLI skeleton with clap
-- [ ] Testcontainers infrastructure (Kafka)
-- [ ] Basic schema parsing
-- [ ] Simple data generation (enum, range)
+> **All phases completed.** See [TODO.md](./TODO.md) for detailed task tracking.
 
-### Phase 2: Execution Engine
-- [ ] Sequential query execution
-- [ ] Kafka sink capture
-- [ ] File sink capture
-- [ ] Input chaining (`from_previous`)
+### Phase 1: Foundation ✅
+- [x] CLI skeleton with clap - [`cli.rs`](../../src/velostream/test_harness/cli.rs)
+- [x] Testcontainers infrastructure (Kafka) - [`infra.rs`](../../src/velostream/test_harness/infra.rs)
+- [x] Basic schema parsing - [`schema.rs`](../../src/velostream/test_harness/schema.rs)
+- [x] Simple data generation (enum, range) - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
 
-### Phase 3: Assertions
-- [ ] Basic assertions (record_count, schema_contains, no_nulls)
-- [ ] Field value assertions
-- [ ] Aggregate checks
-- [ ] JOIN coverage validation
+### Phase 2: Execution Engine ✅
+- [x] Sequential query execution - [`executor.rs`](../../src/velostream/test_harness/executor.rs)
+- [x] StreamJobServer integration - `with_server()`, `deploy_job()`, `wait_for_job_completion()`
+- [x] Kafka sink capture - [`capture.rs`](../../src/velostream/test_harness/capture.rs)
+- [x] File sink capture - [`capture.rs`](../../src/velostream/test_harness/capture.rs)
+- [x] Input chaining (`from_previous`) - [`executor.rs`](../../src/velostream/test_harness/executor.rs)
 
-### Phase 4: Reporting
-- [ ] Text report output
-- [ ] JSON output
-- [ ] JUnit XML output
+### Phase 3: Assertions ✅
+- [x] Basic assertions (record_count, schema_contains, no_nulls) - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Field value assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Aggregate checks - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] JOIN coverage validation - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
 
-### Phase 5: Advanced Features
-- [ ] Schema inference from SQL/CSV
-- [ ] Test spec generation (`velo-test init`)
-- [ ] Derived field expressions
-- [ ] Foreign key relationships in data generation
-- [ ] Template-based custom assertions
-- [ ] Stress test mode
+### Phase 4: Reporting ✅
+- [x] Text report output - [`report.rs`](../../src/velostream/test_harness/report.rs)
+- [x] JSON output - [`report.rs`](../../src/velostream/test_harness/report.rs)
+- [x] JUnit XML output - [`report.rs`](../../src/velostream/test_harness/report.rs)
 
-### Phase 6: AI-Powered Features
-- [ ] Claude API integration
-- [ ] AI schema inference (`--ai` flag)
-- [ ] AI failure analysis
-- [ ] AI test generation
+### Phase 5: Advanced Features ✅
+- [x] Schema inference from SQL/CSV - [`inference.rs`](../../src/velostream/test_harness/inference.rs)
+- [x] Test spec generation (`velo-test init`) - [`spec_generator.rs`](../../src/velostream/test_harness/spec_generator.rs)
+- [x] Derived field expressions - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
+- [x] Foreign key relationships in data generation - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
+- [x] `execution_time` and `memory_usage` assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Template-based custom assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Stress test mode - [`stress.rs`](../../src/velostream/test_harness/stress.rs)
+
+### Phase 6: AI-Powered Features ✅
+- [x] Claude API integration - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+- [x] AI schema inference (`--ai` flag) - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+- [x] AI failure analysis - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+- [x] AI test generation - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
 
 ## AI-Powered Features
 

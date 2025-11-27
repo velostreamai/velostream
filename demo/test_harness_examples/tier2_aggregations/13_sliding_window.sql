@@ -6,7 +6,7 @@
 -- @name sliding_window_demo
 -- @description Sliding window aggregation
 
-CREATE STREAM sliding_output AS
+CREATE TABLE sliding_output AS
 SELECT
     symbol,
     COUNT(*) AS trade_count,

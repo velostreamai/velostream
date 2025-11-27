@@ -96,6 +96,8 @@ pub struct SqlValidator {
     pub check_performance: bool,
     errors: std::cell::RefCell<Vec<ValidationError>>,
     warnings: std::cell::RefCell<Vec<ValidationError>>,
+    /// Base directory for resolving relative config_file paths (set from SQL file location)
+    base_dir: Option<std::path::PathBuf>,
 }
 
 impl SqlValidator {
@@ -109,6 +111,7 @@ impl SqlValidator {
             check_performance: true,
             errors: std::cell::RefCell::new(Vec::new()),
             warnings: std::cell::RefCell::new(Vec::new()),
+            base_dir: None,
         }
     }
 
@@ -122,7 +125,28 @@ impl SqlValidator {
             check_performance: true,
             errors: std::cell::RefCell::new(Vec::new()),
             warnings: std::cell::RefCell::new(Vec::new()),
+            base_dir: None,
         }
+    }
+
+    /// Create a validator with a base directory for resolving relative config_file paths
+    pub fn with_base_dir<P: AsRef<Path>>(base_dir: P) -> Self {
+        let base = base_dir.as_ref();
+        Self {
+            parser: StreamingSqlParser::new(),
+            analyzer: QueryAnalyzer::with_base_dir("sql-validator".to_string(), base),
+            with_clause_parser: WithClauseParser::new(),
+            strict_mode: false,
+            check_performance: true,
+            errors: std::cell::RefCell::new(Vec::new()),
+            warnings: std::cell::RefCell::new(Vec::new()),
+            base_dir: Some(base.to_path_buf()),
+        }
+    }
+
+    /// Get the base directory for resolving relative paths
+    pub fn base_dir(&self) -> Option<&Path> {
+        self.base_dir.as_deref()
     }
 
     /// Validate a StreamingQuery AST node
@@ -578,6 +602,30 @@ impl SqlValidator {
 
     /// Validate a SQL application file
     pub fn validate_application_file(&self, file_path: &Path) -> ApplicationValidationResult {
+        // Canonicalize the file path to get the absolute path
+        // This is important when file_path is relative (e.g., "sql/app.sql")
+        // Without canonicalization, parent() would return "sql/" instead of the actual directory
+        let canonical_path = file_path.canonicalize().ok();
+        let sql_file_dir = canonical_path
+            .as_ref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf());
+
+        let validator_with_base = if let Some(ref base) = sql_file_dir {
+            if self.base_dir.is_none() {
+                // Create a new validator with the SQL file's directory as base
+                // This ensures config_file paths are resolved relative to the SQL file
+                Some(SqlValidator::with_base_dir(base))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Use the validator with base_dir set to SQL file's directory
+        let effective_validator = validator_with_base.as_ref().unwrap_or(self);
+
         let mut result = ApplicationValidationResult {
             file_path: file_path.to_string_lossy().to_string(),
             application_name: None,
@@ -593,7 +641,7 @@ impl SqlValidator {
                 duplicate_names: Vec::new(),
             },
             recommendations: Vec::new(),
-            reference_output: Some(self.generate_system_columns_reference()),
+            reference_output: Some(effective_validator.generate_system_columns_reference()),
         };
 
         // Read the SQL file
@@ -609,17 +657,17 @@ impl SqlValidator {
         };
 
         // Extract application name from comments
-        result.application_name = self.extract_application_name(&content);
+        result.application_name = effective_validator.extract_application_name(&content);
 
         // Validate @metric annotations (FR-073)
-        self.validate_metric_annotations(&content, &mut result);
+        effective_validator.validate_metric_annotations(&content, &mut result);
 
         // Split into individual queries with line tracking
-        let queries = self.split_sql_statements(&content);
+        let queries = effective_validator.split_sql_statements(&content);
         result.total_queries = queries.len();
 
         for (i, (query, start_line)) in queries.iter().enumerate() {
-            let query_result = self.validate_query(query, i, *start_line, &content);
+            let query_result = effective_validator.validate_query(query, i, *start_line, &content);
             if query_result.is_valid {
                 result.valid_queries += 1;
             } else {
@@ -722,6 +770,7 @@ impl SqlValidator {
     fn split_sql_statements(&self, content: &str) -> Vec<(String, usize)> {
         let mut queries = Vec::new();
         let mut current_query = String::new();
+        let mut pending_annotations = String::new();
         let mut query_start_line = 0;
         let mut current_line = 0;
         let mut in_query = false;
@@ -730,8 +779,22 @@ impl SqlValidator {
             current_line += 1;
             let trimmed = line.trim();
 
-            // Skip empty lines and full-line comments
-            if trimmed.is_empty() || trimmed.starts_with("--") {
+            // Skip empty lines
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Collect annotation comments (-- @...) to preserve them with the query
+            if trimmed.starts_with("--") {
+                // Check if this is an annotation line (starts with -- @)
+                let after_dashes = trimmed[2..].trim_start();
+                if after_dashes.starts_with("@") {
+                    // Preserve annotation comments
+                    pending_annotations.push_str(line);
+                    pending_annotations.push('\n');
+                }
+                // Skip all comment lines from the main query text
+                // but annotations are preserved in pending_annotations
                 continue;
             }
 
@@ -739,6 +802,11 @@ impl SqlValidator {
             if !in_query {
                 query_start_line = current_line;
                 in_query = true;
+                // Prepend any pending annotation comments
+                if !pending_annotations.is_empty() {
+                    current_query.push_str(&pending_annotations);
+                    pending_annotations.clear();
+                }
             }
 
             current_query.push_str(line);
@@ -750,6 +818,7 @@ impl SqlValidator {
                     queries.push((current_query.trim().to_string(), query_start_line - 1));
                 }
                 current_query.clear();
+                pending_annotations.clear();
                 in_query = false;
             }
         }

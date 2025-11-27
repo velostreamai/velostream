@@ -6,7 +6,7 @@
 -- @name sum_avg_demo
 -- @description SUM and AVG aggregation patterns
 
-CREATE STREAM sum_avg_output AS
+CREATE TABLE sum_avg_output AS
 SELECT
     category,
     SUM(amount) AS total_amount,

@@ -6,7 +6,7 @@
 -- @name tumbling_window_demo
 -- @description Tumbling window aggregation
 
-CREATE STREAM tumbling_output AS
+CREATE TABLE tumbling_output AS
 SELECT
     symbol,
     COUNT(*) AS trade_count,

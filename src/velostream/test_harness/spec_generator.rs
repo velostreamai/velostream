@@ -328,7 +328,8 @@ impl SpecGenerator {
         if let Some(src) = source_name {
             inputs.push(InputConfig {
                 source: src.to_string(),
-                schema: Some(format!("{}.schema.yaml", src)),
+                // Schema name should match the 'name' field in the schema YAML, not the filename
+                schema: Some(src.to_string()),
                 records: Some(self.default_record_count),
                 from_previous: None,
                 data_file: None,
@@ -340,7 +341,8 @@ impl SpecGenerator {
             if !inputs.iter().any(|i| &i.source == source) {
                 inputs.push(InputConfig {
                     source: source.clone(),
-                    schema: Some(format!("{}.schema.yaml", source)),
+                    // Schema name should match the 'name' field in the schema YAML, not the filename
+                    schema: Some(source.clone()),
                     records: Some(self.default_record_count),
                     from_previous: None,
                     data_file: None,

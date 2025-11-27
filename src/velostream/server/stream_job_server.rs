@@ -22,6 +22,7 @@ use crate::velostream::server::table_registry::{
 use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode};
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
+    annotation_parser::SqlAnnotationParser,
     ast::{JobProcessorMode, StreamingQuery},
     config::with_clause_parser::WithClauseParser,
     execution::config::StreamingConfig,
@@ -48,6 +49,8 @@ pub struct StreamJobServer {
     observability: Option<SharedObservabilityManager>,
     /// Job processor architecture configuration (V1 or V2)
     processor_config: JobProcessorConfig,
+    /// Base directory for resolving relative paths in SQL config files
+    base_dir: Option<std::path::PathBuf>,
 }
 
 pub struct RunningJob {
@@ -136,6 +139,7 @@ impl StreamJobServer {
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: None,
             processor_config: JobProcessorConfig::default(),
+            base_dir: config.base_dir,
         }
     }
 
@@ -210,6 +214,7 @@ impl StreamJobServer {
             table_registry: TableRegistry::with_config(table_registry_config),
             observability,
             processor_config: JobProcessorConfig::default(),
+            base_dir: config.base_dir,
         }
     }
 
@@ -289,6 +294,7 @@ impl StreamJobServer {
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: observability.clone(),
             processor_config: JobProcessorConfig::default(),
+            base_dir: config.base_dir,
         };
 
         // Initialize server-level deployment context for system metrics
@@ -637,7 +643,12 @@ impl StreamJobServer {
         }
 
         // Analyze query to determine required resources
-        let mut analyzer = QueryAnalyzer::new(self.base_group_id.clone());
+        // Use base_dir for resolving relative config file paths (e.g., ../../configs/common_kafka_source.yaml)
+        let mut analyzer = if let Some(ref base_dir) = self.base_dir {
+            QueryAnalyzer::with_base_dir(self.base_group_id.clone(), base_dir)
+        } else {
+            QueryAnalyzer::new(self.base_group_id.clone())
+        };
 
         // Register known tables to skip external source validation
         analyzer.add_known_tables(required_tables.clone());
@@ -782,8 +793,9 @@ impl StreamJobServer {
 
         // Wire job_mode annotation from query to processor configuration
         // Per-query job_mode takes precedence over server-level configuration
+        // Pass raw SQL string for annotation parsing (works with CREATE STREAM and other query types)
         let processor_config_for_spawn =
-            Self::get_processor_config_from_query(&parsed_query, &self.processor_config);
+            Self::get_processor_config_from_query(&parsed_query, &query, &self.processor_config);
 
         // FR-082 Phase 5: Output handler task no longer needed
         // The engine now owns the output_receiver for EMIT CHANGES support.
@@ -1649,43 +1661,52 @@ impl StreamJobServer {
     /// The JobProcessorConfig to use for this query (either from query annotation or default)
     fn get_processor_config_from_query(
         query: &StreamingQuery,
+        raw_sql: &str,
         default_config: &JobProcessorConfig,
     ) -> JobProcessorConfig {
-        // Only SELECT queries can have job_mode annotations
-        if let StreamingQuery::Select {
+        // First, try to parse job annotations from raw SQL text
+        // This works for all query types including CREATE STREAM, CREATE TABLE, etc.
+        let (parsed_job_mode, _, parsed_num_partitions, _) =
+            SqlAnnotationParser::parse_job_annotations(raw_sql);
+
+        // Use parsed annotations if available, otherwise fall back to AST fields (for SELECT)
+        let (job_mode, num_partitions) = if parsed_job_mode.is_some() {
+            (parsed_job_mode, parsed_num_partitions)
+        } else if let StreamingQuery::Select {
             job_mode,
             num_partitions,
             ..
         } = query
         {
-            // If the query has a job_mode annotation, use it
-            if let Some(mode) = job_mode {
-                match mode {
-                    JobProcessorMode::Simple => {
-                        info!("Using Simple processor mode from query annotation");
-                        JobProcessorConfig::Simple
-                    }
-                    JobProcessorMode::Transactional => {
-                        info!("Using Transactional processor mode from query annotation");
-                        JobProcessorConfig::Transactional
-                    }
-                    JobProcessorMode::Adaptive => {
-                        info!(
-                            "Using Adaptive processor mode from query annotation with {} partitions",
-                            num_partitions.unwrap_or(0)
-                        );
-                        JobProcessorConfig::Adaptive {
-                            num_partitions: *num_partitions,
-                            enable_core_affinity: false,
-                        }
+            (job_mode.clone(), *num_partitions)
+        } else {
+            (None, None)
+        };
+
+        // If we have a job_mode annotation, use it
+        if let Some(mode) = job_mode {
+            match mode {
+                JobProcessorMode::Simple => {
+                    info!("Using Simple processor mode from query annotation");
+                    JobProcessorConfig::Simple
+                }
+                JobProcessorMode::Transactional => {
+                    info!("Using Transactional processor mode from query annotation");
+                    JobProcessorConfig::Transactional
+                }
+                JobProcessorMode::Adaptive => {
+                    info!(
+                        "Using Adaptive processor mode from query annotation with {} partitions",
+                        num_partitions.unwrap_or(0)
+                    );
+                    JobProcessorConfig::Adaptive {
+                        num_partitions,
+                        enable_core_affinity: false,
                     }
                 }
-            } else {
-                // No job_mode annotation, use server default
-                default_config.clone()
             }
         } else {
-            // Non-SELECT queries use server default
+            // No job_mode annotation, use server default
             default_config.clone()
         }
     }

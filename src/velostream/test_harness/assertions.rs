@@ -11,8 +11,9 @@ use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::CapturedOutput;
 use super::spec::{
     AggregateCheckAssertion, AggregateFunction, AssertionConfig, ComparisonOperator,
-    FieldInSetAssertion, FieldValuesAssertion, JoinCoverageAssertion, NoNullsAssertion,
-    RecordCountAssertion, SchemaContainsAssertion, TemplateAssertion,
+    ExecutionTimeAssertion, FieldInSetAssertion, FieldValuesAssertion, JoinCoverageAssertion,
+    MemoryUsageAssertion, NoNullsAssertion, RecordCountAssertion, SchemaContainsAssertion,
+    TemplateAssertion,
 };
 use crate::velostream::sql::execution::types::FieldValue;
 use std::collections::HashMap;
@@ -78,7 +79,7 @@ pub struct AssertionRunner {
 }
 
 /// Context for assertion evaluation
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct AssertionContext {
     /// Input record counts by source name
     pub input_counts: HashMap<String, usize>,
@@ -88,6 +89,80 @@ pub struct AssertionContext {
 
     /// Custom variables
     pub variables: HashMap<String, String>,
+
+    /// Input records by source name (for JOIN coverage analysis)
+    pub input_records: HashMap<String, Vec<HashMap<String, FieldValue>>>,
+}
+
+impl AssertionContext {
+    /// Create a new empty context
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add input records for a source
+    pub fn with_input_records(
+        mut self,
+        source_name: &str,
+        records: Vec<HashMap<String, FieldValue>>,
+    ) -> Self {
+        let count = records.len();
+        self.input_records.insert(source_name.to_string(), records);
+        self.input_counts.insert(source_name.to_string(), count);
+        self
+    }
+
+    /// Add output record count
+    pub fn with_output_count(mut self, sink_name: &str, count: usize) -> Self {
+        self.output_counts.insert(sink_name.to_string(), count);
+        self
+    }
+
+    /// Add custom variable
+    pub fn with_variable(mut self, name: &str, value: &str) -> Self {
+        self.variables.insert(name.to_string(), value.to_string());
+        self
+    }
+
+    /// Resolve a template variable like "{{inputs.source_name.count}}"
+    pub fn resolve_template(&self, template: &str) -> Option<String> {
+        // Check if it's a template expression
+        if !template.starts_with("{{") || !template.ends_with("}}") {
+            return None;
+        }
+
+        // Extract the expression inside {{ }}
+        let expr = template[2..template.len() - 2].trim();
+
+        // Parse the expression path (e.g., "inputs.source_name.count")
+        let parts: Vec<&str> = expr.split('.').collect();
+
+        match parts.as_slice() {
+            // {{inputs.source_name.count}}
+            ["inputs", source_name, "count"] => {
+                self.input_counts.get(*source_name).map(|c| c.to_string())
+            }
+
+            // {{outputs.sink_name.count}}
+            ["outputs", sink_name, "count"] => {
+                self.output_counts.get(*sink_name).map(|c| c.to_string())
+            }
+
+            // {{variables.var_name}}
+            ["variables", var_name] => self.variables.get(*var_name).cloned(),
+
+            // {{var_name}} - direct variable lookup
+            [var_name] => self.variables.get(*var_name).cloned(),
+
+            _ => None,
+        }
+    }
+
+    /// Resolve template or return original string
+    pub fn resolve_or_original(&self, value: &str) -> String {
+        self.resolve_template(value)
+            .unwrap_or_else(|| value.to_string())
+    }
 }
 
 impl AssertionRunner {
@@ -131,6 +206,8 @@ impl AssertionRunner {
             AssertionConfig::AggregateCheck(config) => self.assert_aggregate(output, config),
             AssertionConfig::JoinCoverage(config) => self.assert_join_coverage(output, config),
             AssertionConfig::Template(config) => self.assert_template(output, config),
+            AssertionConfig::ExecutionTime(config) => self.assert_execution_time(output, config),
+            AssertionConfig::MemoryUsage(config) => self.assert_memory_usage(output, config),
         }
     }
 
@@ -390,8 +467,17 @@ impl AssertionRunner {
             AggregateFunction::Max => values.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
         };
 
+        // Resolve template variables in expected value (e.g., "{{inputs.source_name.count}}")
+        let expected_str = self.context.resolve_or_original(&config.expected);
+
         // Parse expected value
-        let expected: f64 = config.expected.parse().unwrap_or(0.0);
+        let expected: f64 = expected_str.parse().unwrap_or_else(|_| {
+            log::warn!(
+                "Could not parse expected value '{}' as f64, using 0.0",
+                expected_str
+            );
+            0.0
+        });
         let tolerance = config.tolerance.unwrap_or(0.0001);
 
         if (actual - expected).abs() <= tolerance {
@@ -413,67 +499,1013 @@ impl AssertionRunner {
     }
 
     /// Assert JOIN coverage
+    ///
+    /// Analyzes JOIN output coverage based on input record counts.
+    /// The match rate is calculated as: output_records / left_input_records
+    ///
+    /// For detailed key overlap analysis, provide both `left_source` and `right_source`
+    /// in the config and use `with_input_records()` on the `AssertionContext`.
     fn assert_join_coverage(
         &self,
         output: &CapturedOutput,
         config: &JoinCoverageAssertion,
     ) -> AssertionResult {
-        // TODO: Phase 3 - Implement JOIN coverage analysis
-        // This requires tracking input records and comparing to output
+        let total_output = output.records.len();
 
-        let total = output.records.len();
-        if total == 0 {
+        // Get the left source name (default to "left" if not specified)
+        let left_source = config
+            .left_source
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("left");
+
+        // Get the right source name (default to "right" if not specified)
+        let right_source = config
+            .right_source
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("right");
+
+        // If no output records, check if we have input to compare
+        if total_output == 0 {
+            // Check if we have left input records
+            if let Some(left_count) = self.context.input_counts.get(left_source) {
+                if *left_count == 0 {
+                    return AssertionResult::pass(
+                        "join_coverage",
+                        "No input records, no output expected",
+                    );
+                }
+                return AssertionResult::fail(
+                    "join_coverage",
+                    "No output records from JOIN",
+                    &format!(
+                        ">= {:.1}% of {} left records",
+                        config.min_match_rate * 100.0,
+                        left_count
+                    ),
+                    "0 records (0%)",
+                );
+            }
             return AssertionResult::fail(
                 "join_coverage",
                 "No output records to analyze",
-                &format!("{}% match rate", config.min_match_rate * 100.0),
+                &format!(">= {:.1}% match rate", config.min_match_rate * 100.0),
                 "0 records",
             );
         }
 
-        // Placeholder: assume 100% match rate
-        let match_rate = 1.0;
+        // Try to get left input count for match rate calculation
+        let left_count = match self.context.input_counts.get(left_source) {
+            Some(&count) => count,
+            None => {
+                // No input tracking - fall back to output-only analysis
+                return AssertionResult::pass(
+                    "join_coverage",
+                    &format!(
+                        "JOIN produced {} records (input tracking not available)",
+                        total_output
+                    ),
+                )
+                .with_detail("note", "Enable input tracking for detailed JOIN analysis");
+            }
+        };
 
-        if match_rate >= config.min_match_rate {
+        if left_count == 0 {
+            // Left has 0 records
+            return AssertionResult::pass(
+                "join_coverage",
+                "No left input records, no matches expected",
+            );
+        }
+
+        // Calculate match rate as output / left input
+        let match_rate = total_output as f64 / left_count as f64;
+
+        let mut result = if match_rate >= config.min_match_rate {
             AssertionResult::pass(
                 "join_coverage",
-                &format!("JOIN match rate: {:.1}%", match_rate * 100.0),
+                &format!(
+                    "JOIN match rate: {:.1}% ({}/{} records)",
+                    match_rate * 100.0,
+                    total_output,
+                    left_count
+                ),
             )
         } else {
             AssertionResult::fail(
                 "join_coverage",
                 "JOIN match rate below threshold",
-                &format!("{:.1}%", config.min_match_rate * 100.0),
-                &format!("{:.1}%", match_rate * 100.0),
+                &format!(">= {:.1}%", config.min_match_rate * 100.0),
+                &format!(
+                    "{:.1}% ({}/{} records)",
+                    match_rate * 100.0,
+                    total_output,
+                    left_count
+                ),
             )
+        };
+
+        // Add diagnostic details
+        result = result
+            .with_detail("left_source", left_source)
+            .with_detail("right_source", right_source)
+            .with_detail("left_record_count", &left_count.to_string())
+            .with_detail("output_record_count", &total_output.to_string())
+            .with_detail("match_rate", &format!("{:.2}", match_rate));
+
+        // Check right input if available for additional diagnostics
+        if let Some(&right_count) = self.context.input_counts.get(right_source) {
+            result = result.with_detail("right_record_count", &right_count.to_string());
+
+            // Provide helpful diagnostics about potential issues
+            if right_count == 0 {
+                result = result.with_detail(
+                    "warning",
+                    "Right source has no records - check data generation",
+                );
+            }
         }
+
+        result
     }
 
     /// Assert custom template
+    ///
+    /// Supports Jinja-like template expressions:
+    /// - Variable access: `{{ records.length }}`, `{{ records[0].field }}`
+    /// - Comparisons: `{{ records.length == 100 }}`, `{{ sum > 0 }}`
+    /// - Loops: `{% for record in records %}...{% endfor %}`
+    /// - Conditions: `{% if condition %}...{% endif %}`
+    /// - Built-in functions: `all()`, `any()`, `sum()`, `count()`, `avg()`
+    ///
+    /// Examples:
+    /// - `{{ records.length == 100 }}` - Check record count
+    /// - `{{ all(record.price > 0 for record in records) }}` - All prices positive
+    /// - `{{ sum(record.amount for record in records) > 1000 }}` - Sum check
     fn assert_template(
         &self,
         output: &CapturedOutput,
         config: &TemplateAssertion,
     ) -> AssertionResult {
-        // TODO: Phase 5 - Implement template evaluation
-        log::warn!(
-            "Template assertions not yet implemented: {}",
-            config.expression
-        );
+        let expression = config.expression.trim();
+        let description = config
+            .description
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("Template assertion");
 
-        AssertionResult::pass(
-            "template",
-            &format!(
-                "Template assertion (not implemented): {}",
-                config.expression
+        // Evaluate the template expression
+        match self.evaluate_template_expression(expression, output) {
+            Ok(TemplateResult::Boolean(true)) => {
+                AssertionResult::pass("template", &format!("{}: passed", description))
+            }
+            Ok(TemplateResult::Boolean(false)) => {
+                AssertionResult::fail("template", description, "true", "false")
+                    .with_detail("expression", expression)
+            }
+            Ok(TemplateResult::Value(v)) => {
+                // Non-boolean result - check if it's truthy
+                if is_truthy(&v) {
+                    AssertionResult::pass(
+                        "template",
+                        &format!("{}: {}", description, template_value_to_string(&v)),
+                    )
+                } else {
+                    AssertionResult::fail("template", description, "truthy value", "falsy value")
+                        .with_detail("expression", expression)
+                        .with_detail("result", &template_value_to_string(&v))
+                }
+            }
+            Ok(TemplateResult::Error(msg)) => AssertionResult::fail(
+                "template",
+                &format!("Template evaluation error: {}", msg),
+                "valid expression",
+                &msg,
+            )
+            .with_detail("expression", expression),
+            Err(e) => AssertionResult::fail(
+                "template",
+                &format!("Template error: {}", e),
+                "valid expression",
+                &e,
+            )
+            .with_detail("expression", expression),
+        }
+    }
+
+    /// Assert execution time is within bounds
+    ///
+    /// Checks that the query execution time is within the specified min/max bounds.
+    fn assert_execution_time(
+        &self,
+        output: &CapturedOutput,
+        config: &ExecutionTimeAssertion,
+    ) -> AssertionResult {
+        let actual_ms = output.execution_time_ms;
+
+        // Check max_ms constraint
+        if let Some(max_ms) = config.max_ms {
+            if actual_ms > max_ms {
+                return AssertionResult::fail(
+                    "execution_time",
+                    &format!(
+                        "Execution time {}ms exceeds maximum {}ms",
+                        actual_ms, max_ms
+                    ),
+                    &format!("<= {}ms", max_ms),
+                    &format!("{}ms", actual_ms),
+                )
+                .with_detail("constraint", "max_ms");
+            }
+        }
+
+        // Check min_ms constraint
+        if let Some(min_ms) = config.min_ms {
+            if actual_ms < min_ms {
+                return AssertionResult::fail(
+                    "execution_time",
+                    &format!("Execution time {}ms below minimum {}ms", actual_ms, min_ms),
+                    &format!(">= {}ms", min_ms),
+                    &format!("{}ms", actual_ms),
+                )
+                .with_detail("constraint", "min_ms");
+            }
+        }
+
+        // Both constraints passed (or no constraints specified)
+        let msg = match (config.max_ms, config.min_ms) {
+            (Some(max), Some(min)) => {
+                format!(
+                    "Execution time {}ms within bounds [{}ms, {}ms]",
+                    actual_ms, min, max
+                )
+            }
+            (Some(max), None) => format!("Execution time {}ms <= {}ms", actual_ms, max),
+            (None, Some(min)) => format!("Execution time {}ms >= {}ms", actual_ms, min),
+            (None, None) => format!("Execution time: {}ms (no constraints)", actual_ms),
+        };
+
+        AssertionResult::pass("execution_time", &msg)
+            .with_detail("actual_ms", &actual_ms.to_string())
+    }
+
+    /// Assert memory usage is within bounds
+    ///
+    /// Checks peak memory usage and memory growth against configured limits.
+    fn assert_memory_usage(
+        &self,
+        output: &CapturedOutput,
+        config: &MemoryUsageAssertion,
+    ) -> AssertionResult {
+        // Check if memory tracking was enabled
+        if output.memory_peak_bytes.is_none() && output.memory_growth_bytes.is_none() {
+            return AssertionResult::pass(
+                "memory_usage",
+                "Memory tracking not available - assertion skipped",
+            )
+            .with_detail("note", "Enable memory tracking to use this assertion");
+        }
+
+        // Check max_bytes constraint
+        if let Some(max_bytes) = config.max_bytes {
+            if let Some(peak) = output.memory_peak_bytes {
+                if peak > max_bytes {
+                    return AssertionResult::fail(
+                        "memory_usage",
+                        &format!(
+                            "Peak memory {} bytes exceeds maximum {} bytes",
+                            format_bytes(peak),
+                            format_bytes(max_bytes)
+                        ),
+                        &format!("<= {}", format_bytes(max_bytes)),
+                        &format!("{}", format_bytes(peak)),
+                    )
+                    .with_detail("constraint", "max_bytes")
+                    .with_detail("peak_bytes", &peak.to_string());
+                }
+            }
+        }
+
+        // Check max_mb constraint (convenience for megabytes)
+        if let Some(max_mb) = config.max_mb {
+            let max_bytes = (max_mb * 1024.0 * 1024.0) as u64;
+            if let Some(peak) = output.memory_peak_bytes {
+                if peak > max_bytes {
+                    return AssertionResult::fail(
+                        "memory_usage",
+                        &format!(
+                            "Peak memory {:.2} MB exceeds maximum {:.2} MB",
+                            peak as f64 / 1024.0 / 1024.0,
+                            max_mb
+                        ),
+                        &format!("<= {:.2} MB", max_mb),
+                        &format!("{:.2} MB", peak as f64 / 1024.0 / 1024.0),
+                    )
+                    .with_detail("constraint", "max_mb")
+                    .with_detail("peak_bytes", &peak.to_string());
+                }
+            }
+        }
+
+        // Check max_growth_bytes constraint
+        if let Some(max_growth) = config.max_growth_bytes {
+            if let Some(growth) = output.memory_growth_bytes {
+                if growth > max_growth {
+                    return AssertionResult::fail(
+                        "memory_usage",
+                        &format!(
+                            "Memory growth {} bytes exceeds maximum {} bytes",
+                            growth, max_growth
+                        ),
+                        &format!("<= {} bytes growth", max_growth),
+                        &format!("{} bytes growth", growth),
+                    )
+                    .with_detail("constraint", "max_growth_bytes")
+                    .with_detail("growth_bytes", &growth.to_string());
+                }
+            }
+        }
+
+        // All constraints passed
+        let mut msg = String::from("Memory usage within bounds");
+        if let Some(peak) = output.memory_peak_bytes {
+            msg = format!("{} (peak: {})", msg, format_bytes(peak));
+        }
+        if let Some(growth) = output.memory_growth_bytes {
+            let growth_str = if growth >= 0 {
+                format!("+{}", format_bytes(growth as u64))
+            } else {
+                format!("-{}", format_bytes((-growth) as u64))
+            };
+            msg = format!("{} (growth: {})", msg, growth_str);
+        }
+
+        let mut result = AssertionResult::pass("memory_usage", &msg);
+        if let Some(peak) = output.memory_peak_bytes {
+            result = result.with_detail("peak_bytes", &peak.to_string());
+        }
+        if let Some(growth) = output.memory_growth_bytes {
+            result = result.with_detail("growth_bytes", &growth.to_string());
+        }
+        result
+    }
+
+    /// Evaluate a template expression
+    fn evaluate_template_expression(
+        &self,
+        expression: &str,
+        output: &CapturedOutput,
+    ) -> Result<TemplateResult, String> {
+        let expression = expression.trim();
+
+        // Handle {{ expression }} syntax
+        let expr = if expression.starts_with("{{") && expression.ends_with("}}") {
+            expression[2..expression.len() - 2].trim()
+        } else {
+            expression
+        };
+
+        // Create evaluation context
+        let ctx = TemplateContext {
+            records: &output.records,
+            context: &self.context,
+        };
+
+        // Parse and evaluate the expression
+        self.eval_expr(expr, &ctx)
+    }
+
+    /// Evaluate an expression in the template context
+    fn eval_expr(&self, expr: &str, ctx: &TemplateContext) -> Result<TemplateResult, String> {
+        let expr = expr.trim();
+
+        // Check for comparison operators (in order of precedence)
+        for (op, op_fn) in [
+            (
+                "==",
+                compare_eq as fn(&TemplateValue, &TemplateValue) -> bool,
             ),
-        )
+            (
+                "!=",
+                compare_neq as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                ">=",
+                compare_gte as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                "<=",
+                compare_lte as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                ">",
+                compare_gt as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                "<",
+                compare_lt as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+        ] {
+            if let Some(pos) = find_top_level_operator(expr, op) {
+                let left = self.eval_expr(&expr[..pos], ctx)?;
+                let right = self.eval_expr(&expr[pos + op.len()..], ctx)?;
+
+                let left_val = result_to_value(left)?;
+                let right_val = result_to_value(right)?;
+
+                return Ok(TemplateResult::Boolean(op_fn(&left_val, &right_val)));
+            }
+        }
+
+        // Check for logical operators
+        if let Some(pos) = find_top_level_operator(expr, " and ") {
+            let left = self.eval_expr(&expr[..pos], ctx)?;
+            let right = self.eval_expr(&expr[pos + 5..], ctx)?;
+            return Ok(TemplateResult::Boolean(
+                result_to_bool(left)? && result_to_bool(right)?,
+            ));
+        }
+
+        if let Some(pos) = find_top_level_operator(expr, " or ") {
+            let left = self.eval_expr(&expr[..pos], ctx)?;
+            let right = self.eval_expr(&expr[pos + 4..], ctx)?;
+            return Ok(TemplateResult::Boolean(
+                result_to_bool(left)? || result_to_bool(right)?,
+            ));
+        }
+
+        // Check for arithmetic operators
+        for (op, op_fn) in [
+            ("+", arith_add as fn(f64, f64) -> f64),
+            ("-", arith_sub as fn(f64, f64) -> f64),
+            ("*", arith_mul as fn(f64, f64) -> f64),
+            ("/", arith_div as fn(f64, f64) -> f64),
+        ] {
+            if let Some(pos) = find_top_level_operator(expr, op) {
+                let left = self.eval_expr(&expr[..pos], ctx)?;
+                let right = self.eval_expr(&expr[pos + op.len()..], ctx)?;
+
+                let left_num = result_to_f64(left)?;
+                let right_num = result_to_f64(right)?;
+
+                return Ok(TemplateResult::Value(TemplateValue::Number(op_fn(
+                    left_num, right_num,
+                ))));
+            }
+        }
+
+        // Handle function calls
+        if let Some(result) = self.try_eval_function(expr, ctx)? {
+            return Ok(result);
+        }
+
+        // Handle property access (records.length, records[0].field)
+        if let Some(result) = self.try_eval_property(expr, ctx)? {
+            return Ok(result);
+        }
+
+        // Handle literals
+        if let Some(result) = try_parse_literal(expr) {
+            return Ok(TemplateResult::Value(result));
+        }
+
+        // Unknown expression
+        Err(format!("Unknown expression: {}", expr))
+    }
+
+    /// Try to evaluate a function call
+    fn try_eval_function(
+        &self,
+        expr: &str,
+        ctx: &TemplateContext,
+    ) -> Result<Option<TemplateResult>, String> {
+        // all(condition for item in items)
+        if expr.starts_with("all(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1];
+            return Ok(Some(self.eval_all_any(inner, ctx, true)?));
+        }
+
+        // any(condition for item in items)
+        if expr.starts_with("any(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1];
+            return Ok(Some(self.eval_all_any(inner, ctx, false)?));
+        }
+
+        // sum(expr for item in items) or sum(field)
+        if expr.starts_with("sum(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1];
+            return Ok(Some(self.eval_aggregate(inner, ctx, AggType::Sum)?));
+        }
+
+        // count(items) or count(condition for item in items)
+        if expr.starts_with("count(") && expr.ends_with(')') {
+            let inner = &expr[6..expr.len() - 1];
+            return Ok(Some(self.eval_aggregate(inner, ctx, AggType::Count)?));
+        }
+
+        // avg(expr for item in items) or avg(field)
+        if expr.starts_with("avg(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1];
+            return Ok(Some(self.eval_aggregate(inner, ctx, AggType::Avg)?));
+        }
+
+        // min(expr for item in items) or min(field)
+        if expr.starts_with("min(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1];
+            return Ok(Some(self.eval_aggregate(inner, ctx, AggType::Min)?));
+        }
+
+        // max(expr for item in items) or max(field)
+        if expr.starts_with("max(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1];
+            return Ok(Some(self.eval_aggregate(inner, ctx, AggType::Max)?));
+        }
+
+        // len(items)
+        if expr.starts_with("len(") && expr.ends_with(')') {
+            let inner = &expr[4..expr.len() - 1].trim();
+            if *inner == "records" {
+                return Ok(Some(TemplateResult::Value(TemplateValue::Number(
+                    ctx.records.len() as f64,
+                ))));
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Evaluate all() or any() function
+    fn eval_all_any(
+        &self,
+        inner: &str,
+        ctx: &TemplateContext,
+        is_all: bool,
+    ) -> Result<TemplateResult, String> {
+        // Parse "condition for item in items"
+        if let Some(for_pos) = inner.find(" for ") {
+            let condition = inner[..for_pos].trim();
+            let rest = &inner[for_pos + 5..];
+
+            if let Some(in_pos) = rest.find(" in ") {
+                let item_name = rest[..in_pos].trim();
+                let items_name = rest[in_pos + 4..].trim();
+
+                // Only support "records" as items for now
+                if items_name != "records" {
+                    return Err(format!("Unknown collection: {}", items_name));
+                }
+
+                // Evaluate condition for each record
+                for record in ctx.records {
+                    let record_ctx = RecordContext {
+                        item_name,
+                        record,
+                        parent: ctx,
+                    };
+
+                    let result = self.eval_record_expr(condition, &record_ctx)?;
+
+                    if is_all {
+                        if !result_to_bool(result)? {
+                            return Ok(TemplateResult::Boolean(false));
+                        }
+                    } else {
+                        // any
+                        if result_to_bool(result)? {
+                            return Ok(TemplateResult::Boolean(true));
+                        }
+                    }
+                }
+
+                return Ok(TemplateResult::Boolean(is_all));
+            }
+        }
+
+        Err(format!(
+            "Invalid {} expression: {}",
+            if is_all { "all" } else { "any" },
+            inner
+        ))
+    }
+
+    /// Evaluate aggregate function
+    fn eval_aggregate(
+        &self,
+        inner: &str,
+        ctx: &TemplateContext,
+        agg_type: AggType,
+    ) -> Result<TemplateResult, String> {
+        // Check for "expr for item in items" syntax
+        if let Some(for_pos) = inner.find(" for ") {
+            let expr = inner[..for_pos].trim();
+            let rest = &inner[for_pos + 5..];
+
+            if let Some(in_pos) = rest.find(" in ") {
+                let item_name = rest[..in_pos].trim();
+                let items_name = rest[in_pos + 4..].trim();
+
+                if items_name != "records" {
+                    return Err(format!("Unknown collection: {}", items_name));
+                }
+
+                let mut values: Vec<f64> = Vec::new();
+
+                for record in ctx.records {
+                    let record_ctx = RecordContext {
+                        item_name,
+                        record,
+                        parent: ctx,
+                    };
+
+                    let result = self.eval_record_expr(expr, &record_ctx)?;
+                    if let Ok(num) = result_to_f64(result) {
+                        values.push(num);
+                    }
+                }
+
+                return Ok(TemplateResult::Value(compute_aggregate(&values, agg_type)));
+            }
+        }
+
+        // Simple field name - aggregate over records.field
+        let field = inner.trim();
+        let mut values: Vec<f64> = Vec::new();
+
+        for record in ctx.records {
+            if let Some(value) = record.get(field) {
+                if let Some(num) = field_value_to_f64(value) {
+                    values.push(num);
+                }
+            }
+        }
+
+        Ok(TemplateResult::Value(compute_aggregate(&values, agg_type)))
+    }
+
+    /// Evaluate expression in record context
+    fn eval_record_expr(&self, expr: &str, ctx: &RecordContext) -> Result<TemplateResult, String> {
+        let expr = expr.trim();
+
+        // Check for comparison operators
+        for (op, op_fn) in [
+            (
+                "==",
+                compare_eq as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                "!=",
+                compare_neq as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                ">=",
+                compare_gte as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                "<=",
+                compare_lte as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                ">",
+                compare_gt as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+            (
+                "<",
+                compare_lt as fn(&TemplateValue, &TemplateValue) -> bool,
+            ),
+        ] {
+            if let Some(pos) = find_top_level_operator(expr, op) {
+                let left = self.eval_record_expr(&expr[..pos], ctx)?;
+                let right = self.eval_record_expr(&expr[pos + op.len()..], ctx)?;
+
+                let left_val = result_to_value(left)?;
+                let right_val = result_to_value(right)?;
+
+                return Ok(TemplateResult::Boolean(op_fn(&left_val, &right_val)));
+            }
+        }
+
+        // Check for field access: item.field or item["field"]
+        if expr.starts_with(ctx.item_name) {
+            let rest = &expr[ctx.item_name.len()..];
+            if rest.starts_with('.') {
+                let field = &rest[1..];
+                if let Some(value) = ctx.record.get(field) {
+                    return Ok(TemplateResult::Value(field_value_to_template_value(value)));
+                }
+                return Err(format!("Unknown field: {}", field));
+            }
+        }
+
+        // Handle literals
+        if let Some(result) = try_parse_literal(expr) {
+            return Ok(TemplateResult::Value(result));
+        }
+
+        Err(format!("Unknown expression in record context: {}", expr))
+    }
+
+    /// Try to evaluate property access
+    fn try_eval_property(
+        &self,
+        expr: &str,
+        ctx: &TemplateContext,
+    ) -> Result<Option<TemplateResult>, String> {
+        // records.length
+        if expr == "records.length" || expr == "records.len" {
+            return Ok(Some(TemplateResult::Value(TemplateValue::Number(
+                ctx.records.len() as f64,
+            ))));
+        }
+
+        // records[n].field
+        if expr.starts_with("records[") {
+            if let Some(bracket_end) = expr.find(']') {
+                let index_str = &expr[8..bracket_end];
+                if let Ok(index) = index_str.parse::<usize>() {
+                    if index < ctx.records.len() {
+                        let rest = &expr[bracket_end + 1..];
+                        if rest.starts_with('.') {
+                            let field = &rest[1..];
+                            if let Some(value) = ctx.records[index].get(field) {
+                                return Ok(Some(TemplateResult::Value(
+                                    field_value_to_template_value(value),
+                                )));
+                            }
+                            return Err(format!("Unknown field: {}", field));
+                        }
+                    } else {
+                        return Err(format!("Index out of bounds: {}", index));
+                    }
+                }
+            }
+        }
+
+        // Context variables: inputs.X.count, outputs.X.count
+        if let Some(resolved) = ctx.context.resolve_template(&format!("{{{{{}}}}}", expr)) {
+            if let Ok(num) = resolved.parse::<f64>() {
+                return Ok(Some(TemplateResult::Value(TemplateValue::Number(num))));
+            }
+            return Ok(Some(TemplateResult::Value(TemplateValue::String(resolved))));
+        }
+
+        Ok(None)
+    }
+}
+
+// ==================== Template Types ====================
+
+/// Result of template evaluation
+#[derive(Debug, Clone)]
+enum TemplateResult {
+    Boolean(bool),
+    Value(TemplateValue),
+    Error(String),
+}
+
+/// Template value types
+#[derive(Debug, Clone)]
+enum TemplateValue {
+    Null,
+    Boolean(bool),
+    Number(f64),
+    String(String),
+}
+
+/// Aggregate type
+#[derive(Debug, Clone, Copy)]
+enum AggType {
+    Sum,
+    Count,
+    Avg,
+    Min,
+    Max,
+}
+
+/// Template evaluation context
+struct TemplateContext<'a> {
+    records: &'a [HashMap<String, FieldValue>],
+    context: &'a AssertionContext,
+}
+
+/// Record iteration context
+struct RecordContext<'a> {
+    item_name: &'a str,
+    record: &'a HashMap<String, FieldValue>,
+    parent: &'a TemplateContext<'a>,
+}
+
+// ==================== Template Helper Functions ====================
+
+/// Find operator position at top level (not inside parentheses)
+fn find_top_level_operator(expr: &str, op: &str) -> Option<usize> {
+    let mut depth = 0;
+    let bytes = expr.as_bytes();
+    let op_bytes = op.as_bytes();
+
+    for i in 0..bytes.len() {
+        match bytes[i] {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth -= 1,
+            _ if depth == 0 && i + op_bytes.len() <= bytes.len() => {
+                if &bytes[i..i + op_bytes.len()] == op_bytes {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Convert TemplateResult to bool
+fn result_to_bool(result: TemplateResult) -> Result<bool, String> {
+    match result {
+        TemplateResult::Boolean(b) => Ok(b),
+        TemplateResult::Value(v) => Ok(is_truthy(&v)),
+        TemplateResult::Error(e) => Err(e),
+    }
+}
+
+/// Convert TemplateResult to f64
+fn result_to_f64(result: TemplateResult) -> Result<f64, String> {
+    match result {
+        TemplateResult::Value(TemplateValue::Number(n)) => Ok(n),
+        TemplateResult::Value(TemplateValue::Boolean(b)) => Ok(if b { 1.0 } else { 0.0 }),
+        TemplateResult::Boolean(b) => Ok(if b { 1.0 } else { 0.0 }),
+        _ => Err("Cannot convert to number".to_string()),
+    }
+}
+
+/// Convert TemplateResult to TemplateValue
+fn result_to_value(result: TemplateResult) -> Result<TemplateValue, String> {
+    match result {
+        TemplateResult::Boolean(b) => Ok(TemplateValue::Boolean(b)),
+        TemplateResult::Value(v) => Ok(v),
+        TemplateResult::Error(e) => Err(e),
+    }
+}
+
+/// Check if a value is truthy
+fn is_truthy(value: &TemplateValue) -> bool {
+    match value {
+        TemplateValue::Null => false,
+        TemplateValue::Boolean(b) => *b,
+        TemplateValue::Number(n) => *n != 0.0,
+        TemplateValue::String(s) => !s.is_empty(),
+    }
+}
+
+/// Convert TemplateValue to string
+fn template_value_to_string(value: &TemplateValue) -> String {
+    match value {
+        TemplateValue::Null => "null".to_string(),
+        TemplateValue::Boolean(b) => b.to_string(),
+        TemplateValue::Number(n) => n.to_string(),
+        TemplateValue::String(s) => s.clone(),
+    }
+}
+
+/// Convert FieldValue to TemplateValue
+fn field_value_to_template_value(value: &FieldValue) -> TemplateValue {
+    match value {
+        FieldValue::Null => TemplateValue::Null,
+        FieldValue::Boolean(b) => TemplateValue::Boolean(*b),
+        FieldValue::Integer(i) => TemplateValue::Number(*i as f64),
+        FieldValue::Float(f) => TemplateValue::Number(*f),
+        FieldValue::String(s) => TemplateValue::String(s.clone()),
+        FieldValue::ScaledInteger(v, s) => {
+            let scale = 10_i64.pow(*s as u32);
+            TemplateValue::Number(*v as f64 / scale as f64)
+        }
+        _ => TemplateValue::String(format!("{:?}", value)),
+    }
+}
+
+/// Try to parse a literal value
+fn try_parse_literal(expr: &str) -> Option<TemplateValue> {
+    let expr = expr.trim();
+
+    // Boolean literals
+    if expr == "true" {
+        return Some(TemplateValue::Boolean(true));
+    }
+    if expr == "false" {
+        return Some(TemplateValue::Boolean(false));
+    }
+    if expr == "null" || expr == "None" {
+        return Some(TemplateValue::Null);
+    }
+
+    // Number literals
+    if let Ok(n) = expr.parse::<f64>() {
+        return Some(TemplateValue::Number(n));
+    }
+
+    // String literals (quoted)
+    if (expr.starts_with('"') && expr.ends_with('"'))
+        || (expr.starts_with('\'') && expr.ends_with('\''))
+    {
+        return Some(TemplateValue::String(expr[1..expr.len() - 1].to_string()));
+    }
+
+    None
+}
+
+/// Comparison functions
+fn compare_eq(left: &TemplateValue, right: &TemplateValue) -> bool {
+    match (left, right) {
+        (TemplateValue::Number(l), TemplateValue::Number(r)) => (l - r).abs() < 1e-10,
+        (TemplateValue::Boolean(l), TemplateValue::Boolean(r)) => l == r,
+        (TemplateValue::String(l), TemplateValue::String(r)) => l == r,
+        (TemplateValue::Null, TemplateValue::Null) => true,
+        _ => false,
+    }
+}
+
+fn compare_neq(left: &TemplateValue, right: &TemplateValue) -> bool {
+    !compare_eq(left, right)
+}
+
+fn compare_gt(left: &TemplateValue, right: &TemplateValue) -> bool {
+    match (left, right) {
+        (TemplateValue::Number(l), TemplateValue::Number(r)) => l > r,
+        _ => false,
+    }
+}
+
+fn compare_lt(left: &TemplateValue, right: &TemplateValue) -> bool {
+    match (left, right) {
+        (TemplateValue::Number(l), TemplateValue::Number(r)) => l < r,
+        _ => false,
+    }
+}
+
+fn compare_gte(left: &TemplateValue, right: &TemplateValue) -> bool {
+    compare_gt(left, right) || compare_eq(left, right)
+}
+
+fn compare_lte(left: &TemplateValue, right: &TemplateValue) -> bool {
+    compare_lt(left, right) || compare_eq(left, right)
+}
+
+/// Arithmetic functions
+fn arith_add(left: f64, right: f64) -> f64 {
+    left + right
+}
+
+fn arith_sub(left: f64, right: f64) -> f64 {
+    left - right
+}
+
+fn arith_mul(left: f64, right: f64) -> f64 {
+    left * right
+}
+
+fn arith_div(left: f64, right: f64) -> f64 {
+    if right == 0.0 { f64::NAN } else { left / right }
+}
+
+/// Compute aggregate value
+fn compute_aggregate(values: &[f64], agg_type: AggType) -> TemplateValue {
+    if values.is_empty() {
+        return match agg_type {
+            AggType::Count => TemplateValue::Number(0.0),
+            _ => TemplateValue::Null,
+        };
+    }
+
+    match agg_type {
+        AggType::Sum => TemplateValue::Number(values.iter().sum()),
+        AggType::Count => TemplateValue::Number(values.len() as f64),
+        AggType::Avg => TemplateValue::Number(values.iter().sum::<f64>() / values.len() as f64),
+        AggType::Min => TemplateValue::Number(values.iter().cloned().fold(f64::INFINITY, f64::min)),
+        AggType::Max => {
+            TemplateValue::Number(values.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+        }
     }
 }
 
 impl Default for AssertionRunner {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Format bytes in human-readable format
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
     }
 }
 
@@ -602,6 +1634,8 @@ mod tests {
             records,
             execution_time_ms: 100,
             warnings: vec![],
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
         }
     }
 
@@ -1186,5 +2220,308 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!(results[0].passed);
         assert!(results[1].passed);
+    }
+
+    // ==================== Template Variable Tests ====================
+
+    #[test]
+    fn test_context_resolve_inputs_count() {
+        let context = AssertionContext::new().with_input_records(
+            "market_data",
+            vec![
+                HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+                HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+                HashMap::from([("id".to_string(), FieldValue::Integer(3))]),
+            ],
+        );
+
+        assert_eq!(
+            context.resolve_template("{{inputs.market_data.count}}"),
+            Some("3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_context_resolve_outputs_count() {
+        let context = AssertionContext::new().with_output_count("results_sink", 42);
+
+        assert_eq!(
+            context.resolve_template("{{outputs.results_sink.count}}"),
+            Some("42".to_string())
+        );
+    }
+
+    #[test]
+    fn test_context_resolve_variables() {
+        let context = AssertionContext::new()
+            .with_variable("expected_count", "100")
+            .with_variable("tolerance", "0.01");
+
+        assert_eq!(
+            context.resolve_template("{{variables.expected_count}}"),
+            Some("100".to_string())
+        );
+        assert_eq!(
+            context.resolve_template("{{expected_count}}"),
+            Some("100".to_string())
+        );
+    }
+
+    #[test]
+    fn test_context_resolve_or_original() {
+        let context = AssertionContext::new().with_input_records(
+            "source",
+            vec![HashMap::from([("id".to_string(), FieldValue::Integer(1))])],
+        );
+
+        // Template should resolve
+        assert_eq!(context.resolve_or_original("{{inputs.source.count}}"), "1");
+
+        // Non-template should return original
+        assert_eq!(context.resolve_or_original("42.0"), "42.0");
+
+        // Unknown template should return original
+        assert_eq!(
+            context.resolve_or_original("{{inputs.unknown.count}}"),
+            "{{inputs.unknown.count}}"
+        );
+    }
+
+    #[test]
+    fn test_aggregate_with_template_variable() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Integer(10))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(20))]),
+            HashMap::from([("value".to_string(), FieldValue::Integer(30))]),
+        ]);
+
+        // Create context with expected input count matching output sum
+        let context = AssertionContext::new().with_input_records(
+            "source_data",
+            (0..60)
+                .map(|i| HashMap::from([("id".to_string(), FieldValue::Integer(i))]))
+                .collect(),
+        );
+
+        let runner = AssertionRunner::new().with_context(context);
+        let config = AggregateCheckAssertion {
+            field: "value".to_string(),
+            function: AggregateFunction::Sum,
+            expected: "{{inputs.source_data.count}}".to_string(), // Should resolve to 60
+            tolerance: Some(0.01),
+        };
+
+        let result = runner.assert_aggregate(&output, &config);
+        assert!(
+            result.passed,
+            "Expected SUM(value)=60 to match input count 60"
+        );
+    }
+
+    // ==================== JOIN Coverage Tests ====================
+
+    #[test]
+    fn test_join_coverage_with_input_tracking() {
+        // Simulate left input with 4 records
+        let left_records = vec![
+            HashMap::from([("symbol".to_string(), FieldValue::String("AAPL".to_string()))]),
+            HashMap::from([(
+                "symbol".to_string(),
+                FieldValue::String("GOOGL".to_string()),
+            )]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("MSFT".to_string()))]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("AMZN".to_string()))]),
+        ];
+
+        // Simulate right input (reference table) with 3 records
+        let right_records = vec![
+            HashMap::from([("symbol".to_string(), FieldValue::String("AAPL".to_string()))]),
+            HashMap::from([(
+                "symbol".to_string(),
+                FieldValue::String("GOOGL".to_string()),
+            )]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("MSFT".to_string()))]),
+        ];
+
+        // Simulate output: 3 matched records (75% of left input)
+        let output = create_test_output(vec![
+            HashMap::from([("symbol".to_string(), FieldValue::String("AAPL".to_string()))]),
+            HashMap::from([(
+                "symbol".to_string(),
+                FieldValue::String("GOOGL".to_string()),
+            )]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("MSFT".to_string()))]),
+        ]);
+
+        let context = AssertionContext::new()
+            .with_input_records("market_data", left_records)
+            .with_input_records("instruments", right_records);
+
+        let runner = AssertionRunner::new().with_context(context);
+        let config = JoinCoverageAssertion {
+            left_source: Some("market_data".to_string()),
+            right_source: Some("instruments".to_string()),
+            min_match_rate: 0.75, // 75% = 3/4 records matched
+        };
+
+        let result = runner.assert_join_coverage(&output, &config);
+        assert!(result.passed, "Expected 75% match rate (3/4 records)");
+        assert!(result.details.contains_key("output_record_count"));
+        assert_eq!(
+            result.details.get("output_record_count"),
+            Some(&"3".to_string())
+        );
+    }
+
+    #[test]
+    fn test_join_coverage_below_threshold() {
+        // Simulate left input with 4 records
+        let left_records = vec![
+            HashMap::from([("symbol".to_string(), FieldValue::String("AAPL".to_string()))]),
+            HashMap::from([(
+                "symbol".to_string(),
+                FieldValue::String("GOOGL".to_string()),
+            )]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("MSFT".to_string()))]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("AMZN".to_string()))]),
+        ];
+
+        // Simulate output: only 1 matched record (25% match rate)
+        let output = create_test_output(vec![HashMap::from([(
+            "symbol".to_string(),
+            FieldValue::String("AAPL".to_string()),
+        )])]);
+
+        let context = AssertionContext::new().with_input_records("market_data", left_records);
+
+        let runner = AssertionRunner::new().with_context(context);
+        let config = JoinCoverageAssertion {
+            left_source: Some("market_data".to_string()),
+            right_source: Some("instruments".to_string()),
+            min_match_rate: 0.80, // 80% required, but only 25% achieved
+        };
+
+        let result = runner.assert_join_coverage(&output, &config);
+        assert!(!result.passed, "Expected failure: 25% < 80% threshold");
+        assert!(result.details.contains_key("match_rate"));
+    }
+
+    #[test]
+    fn test_join_coverage_no_output_with_inputs() {
+        // Left has 2 records
+        let left_records = vec![
+            HashMap::from([("symbol".to_string(), FieldValue::String("A".to_string()))]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("B".to_string()))]),
+        ];
+
+        // Right has 2 records
+        let right_records = vec![
+            HashMap::from([("symbol".to_string(), FieldValue::String("X".to_string()))]),
+            HashMap::from([("symbol".to_string(), FieldValue::String("Y".to_string()))]),
+        ];
+
+        // Output is empty (no matches)
+        let output = create_test_output(vec![]);
+
+        let context = AssertionContext::new()
+            .with_input_records("left", left_records)
+            .with_input_records("right", right_records);
+
+        let runner = AssertionRunner::new().with_context(context);
+        let config = JoinCoverageAssertion {
+            left_source: Some("left".to_string()),
+            right_source: Some("right".to_string()),
+            min_match_rate: 0.50,
+        };
+
+        let result = runner.assert_join_coverage(&output, &config);
+        assert!(!result.passed);
+        // Should fail because 0% < 50% threshold
+    }
+
+    #[test]
+    fn test_join_coverage_without_input_tracking() {
+        // No context set - should gracefully handle
+        let output = create_test_output(vec![HashMap::from([(
+            "symbol".to_string(),
+            FieldValue::String("AAPL".to_string()),
+        )])]);
+
+        let runner = AssertionRunner::new(); // No context
+        let config = JoinCoverageAssertion {
+            left_source: Some("market_data".to_string()),
+            right_source: Some("instruments".to_string()),
+            min_match_rate: 0.80,
+        };
+
+        let result = runner.assert_join_coverage(&output, &config);
+        // Should pass with a note about input tracking not being available
+        assert!(result.passed);
+        assert!(result.details.contains_key("note"));
+    }
+
+    #[test]
+    fn test_join_coverage_default_source_names() {
+        // Test that default source names "left" and "right" are used when not specified
+        let left_records = vec![
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+        ];
+
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let context = AssertionContext::new().with_input_records("left", left_records); // Using default name "left"
+
+        let runner = AssertionRunner::new().with_context(context);
+        let config = JoinCoverageAssertion {
+            left_source: None,    // Will default to "left"
+            right_source: None,   // Will default to "right"
+            min_match_rate: 0.50, // 50% = 1/2 records
+        };
+
+        let result = runner.assert_join_coverage(&output, &config);
+        assert!(result.passed, "Expected 50% match rate (1/2 records)");
+        assert_eq!(result.details.get("left_source"), Some(&"left".to_string()));
+    }
+
+    #[test]
+    fn test_join_coverage_right_source_diagnostics() {
+        // Test that right source count is included in diagnostics
+        let left_records = vec![
+            HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+            HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+        ];
+
+        let right_records = vec![HashMap::from([("id".to_string(), FieldValue::Integer(1))])];
+
+        let output = create_test_output(vec![HashMap::from([(
+            "id".to_string(),
+            FieldValue::Integer(1),
+        )])]);
+
+        let context = AssertionContext::new()
+            .with_input_records("orders", left_records)
+            .with_input_records("customers", right_records);
+
+        let runner = AssertionRunner::new().with_context(context);
+        let config = JoinCoverageAssertion {
+            left_source: Some("orders".to_string()),
+            right_source: Some("customers".to_string()),
+            min_match_rate: 0.50,
+        };
+
+        let result = runner.assert_join_coverage(&output, &config);
+        assert!(result.passed);
+        assert_eq!(
+            result.details.get("right_record_count"),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            result.details.get("left_record_count"),
+            Some(&"2".to_string())
+        );
     }
 }

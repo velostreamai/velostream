@@ -311,6 +311,41 @@ pub fn load_yaml_config<P: AsRef<Path>>(
     loader.load_config(config_path)
 }
 
+/// Load a config file with a custom base directory for resolving relative paths
+///
+/// This is useful when config_file paths in SQL are relative to the SQL file's directory,
+/// not the current working directory.
+///
+/// # Arguments
+/// * `file_path` - The config file path (can be relative or absolute)
+/// * `base_dir` - The base directory for resolving relative paths (typically the SQL file's directory)
+///
+/// # Example
+/// ```ignore
+/// // If SQL file is at /app/sql/app.sql and references '../configs/kafka.yaml'
+/// // The base_dir should be /app/sql/ so the config resolves to /app/configs/kafka.yaml
+/// let config = load_yaml_config_with_base("../configs/kafka.yaml", "/app/sql/")?;
+/// ```
+pub fn load_yaml_config_with_base<P: AsRef<Path>, B: AsRef<Path>>(
+    file_path: P,
+    base_dir: B,
+) -> Result<ResolvedYamlConfig, YamlConfigError> {
+    let path = file_path.as_ref();
+    let base = base_dir.as_ref();
+
+    // If path is absolute, ignore base_dir and use path's parent
+    if path.is_absolute() {
+        let parent = path.parent().unwrap_or_else(|| Path::new("/"));
+        let mut loader = YamlConfigLoader::new(parent);
+        loader.load_config(path)
+    } else {
+        // For relative paths, use the provided base directory
+        // The loader's resolve_path will join base_dir + file_path
+        let mut loader = YamlConfigLoader::new(base);
+        loader.load_config(path)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

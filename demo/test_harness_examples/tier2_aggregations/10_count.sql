@@ -6,7 +6,7 @@
 -- @name count_demo
 -- @description COUNT aggregation patterns
 
-CREATE STREAM count_output AS
+CREATE TABLE count_output AS
 SELECT
     category,
     COUNT(*) AS total_count,

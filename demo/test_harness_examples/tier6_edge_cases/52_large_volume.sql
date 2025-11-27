@@ -30,8 +30,8 @@ WITH (
     'enriched_events.config_file' = 'configs/output_stream_sink.yaml'
 );
 
--- Aggregation at scale
-CREATE STREAM regional_stats AS
+-- Aggregation at scale (uses CREATE TABLE for GROUP BY)
+CREATE TABLE regional_stats AS
 SELECT
     region,
     event_type,

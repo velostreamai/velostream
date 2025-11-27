@@ -24,8 +24,12 @@ pub struct SchemaDataGenerator {
     /// Schema registry for foreign key lookups
     registry: SchemaRegistry,
 
-    /// Cached reference data for foreign keys
+    /// Cached reference data for foreign keys (table.field -> values)
     reference_cache: HashMap<String, Vec<HashMap<String, FieldValue>>>,
+
+    /// Direct reference data storage (table.field -> list of values)
+    /// Used for sampling foreign key values
+    reference_data: HashMap<String, Vec<FieldValue>>,
 }
 
 impl SchemaDataGenerator {
@@ -40,6 +44,7 @@ impl SchemaDataGenerator {
             rng,
             registry: SchemaRegistry::new(),
             reference_cache: HashMap::new(),
+            reference_data: HashMap::new(),
         }
     }
 
@@ -47,6 +52,71 @@ impl SchemaDataGenerator {
     pub fn with_registry(mut self, registry: SchemaRegistry) -> Self {
         self.registry = registry;
         self
+    }
+
+    /// Load reference data for foreign key generation
+    ///
+    /// Reference data can be loaded from:
+    /// - Pre-generated data from another schema
+    /// - Explicit lists of valid values
+    ///
+    /// # Arguments
+    /// * `table` - The referenced table name
+    /// * `field` - The referenced field name
+    /// * `values` - List of valid values for this reference
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut generator = SchemaDataGenerator::new(Some(42));
+    ///
+    /// // Load customer IDs for order.customer_id foreign key
+    /// generator.load_reference_data(
+    ///     "customers",
+    ///     "id",
+    ///     vec![
+    ///         FieldValue::String("CUST001".to_string()),
+    ///         FieldValue::String("CUST002".to_string()),
+    ///         FieldValue::String("CUST003".to_string()),
+    ///     ]
+    /// );
+    /// ```
+    pub fn load_reference_data(&mut self, table: &str, field: &str, values: Vec<FieldValue>) {
+        let key = format!("{}.{}", table, field);
+        log::debug!("Loading {} reference values for {}", values.len(), key);
+        self.reference_data.insert(key, values);
+    }
+
+    /// Load reference data from generated records
+    ///
+    /// Extracts a specific field from generated records to use as reference data.
+    ///
+    /// # Arguments
+    /// * `table` - The table name for this reference
+    /// * `field` - The field name to extract
+    /// * `records` - Records from which to extract values
+    pub fn load_reference_data_from_records(
+        &mut self,
+        table: &str,
+        field: &str,
+        records: &[HashMap<String, FieldValue>],
+    ) {
+        let values: Vec<FieldValue> = records
+            .iter()
+            .filter_map(|r| r.get(field).cloned())
+            .collect();
+        self.load_reference_data(table, field, values);
+    }
+
+    /// Check if reference data is loaded for a given table.field
+    pub fn has_reference_data(&self, table: &str, field: &str) -> bool {
+        let key = format!("{}.{}", table, field);
+        self.reference_data.contains_key(&key)
+    }
+
+    /// Get the count of reference values for a given table.field
+    pub fn reference_data_count(&self, table: &str, field: &str) -> usize {
+        let key = format!("{}.{}", table, field);
+        self.reference_data.get(&key).map(|v| v.len()).unwrap_or(0)
     }
 
     /// Generate records for a schema
@@ -269,49 +339,248 @@ impl SchemaDataGenerator {
     }
 
     /// Generate reference value (foreign key)
+    ///
+    /// Samples from loaded reference data if available, otherwise generates
+    /// a placeholder value.
     fn generate_reference_value(
         &mut self,
         reference: &super::schema::ReferenceConstraint,
-        _field_name: &str,
+        field_name: &str,
     ) -> TestHarnessResult<FieldValue> {
-        // TODO: Phase 1.5 - Implement reference resolution
-        // 1. Check cache for reference data
-        // 2. Load from file if specified
-        // 3. Sample from referenced schema
+        // Build the reference key: schema.field
+        let key = format!("{}.{}", reference.schema, reference.field);
 
-        // Placeholder: generate random value
+        // Check if we have reference data loaded
+        if let Some(values) = self.reference_data.get(&key) {
+            if !values.is_empty() {
+                // Sample a random value from the reference data
+                let idx = self.rng.gen_range(0..values.len());
+                let sampled = values[idx].clone();
+                log::trace!(
+                    "Sampled reference value for {}.{} from {}: {:?}",
+                    field_name,
+                    key,
+                    values.len(),
+                    sampled
+                );
+                return Ok(sampled);
+            }
+        }
+
+        // Check reference cache (for records loaded via generate_for_reference)
+        let cache_key = format!("{}.{}", reference.schema, reference.field);
+        if let Some(records) = self.reference_cache.get(&cache_key) {
+            if !records.is_empty() {
+                let idx = self.rng.gen_range(0..records.len());
+                if let Some(value) = records[idx].get(&reference.field) {
+                    return Ok(value.clone());
+                }
+            }
+        }
+
+        // If no reference data is loaded, generate a placeholder
+        // This allows tests to run even without full referential setup
+        log::warn!(
+            "No reference data loaded for {} -> {}.{}, generating placeholder",
+            field_name,
+            reference.schema,
+            reference.field
+        );
         Ok(FieldValue::String(format!(
-            "REF_{}",
-            self.rng.gen_range(1..100)
+            "REF_{}_{}",
+            reference.schema.to_uppercase(),
+            self.rng.gen_range(1..1000)
         )))
     }
 
     /// Generate derived value from expression
+    ///
+    /// Supports:
+    /// - Field references: `price`, `quantity`
+    /// - Binary operators: `+`, `-`, `*`, `/`
+    /// - Comparisons: `>`, `<`, `>=`, `<=`, `==`, `!=`
+    /// - Functions: `random()`, `abs(x)`, `min(a, b)`, `max(a, b)`
+    /// - Numeric literals: `100`, `3.14`
+    /// - Concatenation: `concat(a, b)` for strings
     fn generate_derived_value(
         &mut self,
         field: &FieldDefinition,
         record: &HashMap<String, FieldValue>,
     ) -> TestHarnessResult<FieldValue> {
         let derived = field.constraints.derived.as_ref().unwrap();
+        let expression = derived.expression.trim();
 
-        // TODO: Phase 1.5 - Implement expression evaluation
-        // For now, handle simple multiplication: "field1 * field2"
-        let expression = &derived.expression;
+        self.evaluate_expression(expression, record)
+    }
 
-        if expression.contains('*') {
-            let parts: Vec<&str> = expression.split('*').map(|s| s.trim()).collect();
+    /// Evaluate a derived expression
+    fn evaluate_expression(
+        &mut self,
+        expression: &str,
+        record: &HashMap<String, FieldValue>,
+    ) -> TestHarnessResult<FieldValue> {
+        let expression = expression.trim();
+
+        // Handle function calls first
+        if let Some(result) = self.try_evaluate_function(expression, record)? {
+            return Ok(result);
+        }
+
+        // Try to parse as a binary operation
+        if let Some(result) = self.try_evaluate_binary_op(expression, record)? {
+            return Ok(result);
+        }
+
+        // Try to resolve as a field reference
+        if let Some(value) = record.get(expression) {
+            return Ok(value.clone());
+        }
+
+        // Try to parse as a numeric literal
+        if let Ok(i) = expression.parse::<i64>() {
+            return Ok(FieldValue::Integer(i));
+        }
+        if let Ok(f) = expression.parse::<f64>() {
+            return Ok(FieldValue::Float(f));
+        }
+
+        // Try to parse as a string literal (quoted)
+        if (expression.starts_with('"') && expression.ends_with('"'))
+            || (expression.starts_with('\'') && expression.ends_with('\''))
+        {
+            let s = &expression[1..expression.len() - 1];
+            return Ok(FieldValue::String(s.to_string()));
+        }
+
+        // Unknown expression
+        Ok(FieldValue::Null)
+    }
+
+    /// Try to evaluate function calls like random(), abs(), min(), max(), concat()
+    fn try_evaluate_function(
+        &mut self,
+        expression: &str,
+        record: &HashMap<String, FieldValue>,
+    ) -> TestHarnessResult<Option<FieldValue>> {
+        // random() - returns random float 0.0-1.0
+        if expression == "random()" {
+            return Ok(Some(FieldValue::Float(self.rng.gen_range(0.0..1.0))));
+        }
+
+        // random(min, max) - returns random float in range
+        if expression.starts_with("random(") && expression.ends_with(')') {
+            let args = &expression[7..expression.len() - 1];
+            let parts: Vec<&str> = args.split(',').map(|s| s.trim()).collect();
             if parts.len() == 2 {
-                let left = record.get(parts[0]);
-                let right = record.get(parts[1]);
-
-                if let (Some(l), Some(r)) = (left, right) {
-                    return multiply_field_values(l, r);
+                if let (Ok(min), Ok(max)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
+                    return Ok(Some(FieldValue::Float(self.rng.gen_range(min..=max))));
                 }
             }
         }
 
-        // Default: return null for unimplemented expressions
-        Ok(FieldValue::Null)
+        // abs(x) - absolute value
+        if expression.starts_with("abs(") && expression.ends_with(')') {
+            let inner = &expression[4..expression.len() - 1];
+            let value = self.evaluate_expression(inner, record)?;
+            return Ok(Some(apply_abs(&value)?));
+        }
+
+        // min(a, b) - minimum of two values
+        if expression.starts_with("min(") && expression.ends_with(')') {
+            let args = &expression[4..expression.len() - 1];
+            if let Some((a, b)) = split_function_args(args) {
+                let left = self.evaluate_expression(a, record)?;
+                let right = self.evaluate_expression(b, record)?;
+                return Ok(Some(apply_min(&left, &right)?));
+            }
+        }
+
+        // max(a, b) - maximum of two values
+        if expression.starts_with("max(") && expression.ends_with(')') {
+            let args = &expression[4..expression.len() - 1];
+            if let Some((a, b)) = split_function_args(args) {
+                let left = self.evaluate_expression(a, record)?;
+                let right = self.evaluate_expression(b, record)?;
+                return Ok(Some(apply_max(&left, &right)?));
+            }
+        }
+
+        // concat(a, b) - string concatenation
+        if expression.starts_with("concat(") && expression.ends_with(')') {
+            let args = &expression[7..expression.len() - 1];
+            if let Some((a, b)) = split_function_args(args) {
+                let left = self.evaluate_expression(a, record)?;
+                let right = self.evaluate_expression(b, record)?;
+                return Ok(Some(apply_concat(&left, &right)));
+            }
+        }
+
+        // round(x) or round(x, precision)
+        if expression.starts_with("round(") && expression.ends_with(')') {
+            let args = &expression[6..expression.len() - 1];
+            let parts: Vec<&str> = args.split(',').map(|s| s.trim()).collect();
+            if parts.len() == 1 {
+                let value = self.evaluate_expression(parts[0], record)?;
+                return Ok(Some(apply_round(&value, 0)?));
+            } else if parts.len() == 2 {
+                let value = self.evaluate_expression(parts[0], record)?;
+                if let Ok(precision) = parts[1].parse::<i32>() {
+                    return Ok(Some(apply_round(&value, precision)?));
+                }
+            }
+        }
+
+        // floor(x) - floor value
+        if expression.starts_with("floor(") && expression.ends_with(')') {
+            let inner = &expression[6..expression.len() - 1];
+            let value = self.evaluate_expression(inner, record)?;
+            return Ok(Some(apply_floor(&value)?));
+        }
+
+        // ceil(x) - ceiling value
+        if expression.starts_with("ceil(") && expression.ends_with(')') {
+            let inner = &expression[5..expression.len() - 1];
+            let value = self.evaluate_expression(inner, record)?;
+            return Ok(Some(apply_ceil(&value)?));
+        }
+
+        Ok(None)
+    }
+
+    /// Try to evaluate binary operations
+    fn try_evaluate_binary_op(
+        &mut self,
+        expression: &str,
+        record: &HashMap<String, FieldValue>,
+    ) -> TestHarnessResult<Option<FieldValue>> {
+        // Order matters - check longer operators first
+        let operators = [
+            (">=", BinaryOp::Gte),
+            ("<=", BinaryOp::Lte),
+            ("==", BinaryOp::Eq),
+            ("!=", BinaryOp::Neq),
+            (">", BinaryOp::Gt),
+            ("<", BinaryOp::Lt),
+            ("+", BinaryOp::Add),
+            ("-", BinaryOp::Sub),
+            ("*", BinaryOp::Mul),
+            ("/", BinaryOp::Div),
+            ("%", BinaryOp::Mod),
+        ];
+
+        for (op_str, op) in operators {
+            if let Some(pos) = find_operator_position(expression, op_str) {
+                let left_expr = expression[..pos].trim();
+                let right_expr = expression[pos + op_str.len()..].trim();
+
+                let left = self.evaluate_expression(left_expr, record)?;
+                let right = self.evaluate_expression(right_expr, record)?;
+
+                return Ok(Some(apply_binary_op(&left, &right, op)?));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Generate value with distribution
@@ -351,6 +620,251 @@ impl SchemaDataGenerator {
             }
             _ => self.rng.gen_range(min..=max),
         }
+    }
+}
+
+/// Binary operation types
+#[derive(Debug, Clone, Copy)]
+enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
+    Eq,
+    Neq,
+}
+
+/// Find byte position of operator in expression (respecting parentheses)
+fn find_operator_position(expression: &str, op: &str) -> Option<usize> {
+    let mut depth = 0;
+
+    for (byte_idx, c) in expression.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ if depth == 0 => {
+                // Check if op matches at this byte position
+                if expression[byte_idx..].starts_with(op) {
+                    return Some(byte_idx);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Split function arguments (handles nested function calls)
+fn split_function_args(args: &str) -> Option<(&str, &str)> {
+    let mut depth = 0;
+    for (byte_idx, c) in args.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                // byte_idx is the byte position of the comma
+                // c.len_utf8() gives the byte length of the comma character (1 for ASCII)
+                return Some((
+                    args[..byte_idx].trim(),
+                    args[byte_idx + c.len_utf8()..].trim(),
+                ));
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Apply binary operation to two field values
+fn apply_binary_op(
+    left: &FieldValue,
+    right: &FieldValue,
+    op: BinaryOp,
+) -> TestHarnessResult<FieldValue> {
+    // Convert both to f64 for numeric operations
+    let (l_val, r_val) = match (field_to_f64(left), field_to_f64(right)) {
+        (Some(l), Some(r)) => (l, r),
+        _ => {
+            // For string comparisons
+            if matches!(op, BinaryOp::Eq | BinaryOp::Neq) {
+                let l_str = field_to_string(left);
+                let r_str = field_to_string(right);
+                return Ok(FieldValue::Boolean(match op {
+                    BinaryOp::Eq => l_str == r_str,
+                    BinaryOp::Neq => l_str != r_str,
+                    _ => false,
+                }));
+            }
+            return Err(TestHarnessError::GeneratorError {
+                message: format!("Cannot apply {:?} to {:?} and {:?}", op, left, right),
+                schema: "derived".to_string(),
+            });
+        }
+    };
+
+    Ok(match op {
+        BinaryOp::Add => FieldValue::Float(l_val + r_val),
+        BinaryOp::Sub => FieldValue::Float(l_val - r_val),
+        BinaryOp::Mul => multiply_field_values(left, right)?,
+        BinaryOp::Div => {
+            if r_val == 0.0 {
+                FieldValue::Null
+            } else {
+                FieldValue::Float(l_val / r_val)
+            }
+        }
+        BinaryOp::Mod => {
+            if r_val == 0.0 {
+                FieldValue::Null
+            } else {
+                FieldValue::Float(l_val % r_val)
+            }
+        }
+        BinaryOp::Gt => FieldValue::Boolean(l_val > r_val),
+        BinaryOp::Lt => FieldValue::Boolean(l_val < r_val),
+        BinaryOp::Gte => FieldValue::Boolean(l_val >= r_val),
+        BinaryOp::Lte => FieldValue::Boolean(l_val <= r_val),
+        BinaryOp::Eq => FieldValue::Boolean((l_val - r_val).abs() < 1e-10),
+        BinaryOp::Neq => FieldValue::Boolean((l_val - r_val).abs() >= 1e-10),
+    })
+}
+
+/// Apply abs() function
+fn apply_abs(value: &FieldValue) -> TestHarnessResult<FieldValue> {
+    match value {
+        FieldValue::Integer(i) => Ok(FieldValue::Integer(i.abs())),
+        FieldValue::Float(f) => Ok(FieldValue::Float(f.abs())),
+        FieldValue::ScaledInteger(v, s) => Ok(FieldValue::ScaledInteger(v.abs(), *s)),
+        _ => Err(TestHarnessError::GeneratorError {
+            message: format!("Cannot apply abs to {:?}", value),
+            schema: "derived".to_string(),
+        }),
+    }
+}
+
+/// Apply min() function
+fn apply_min(left: &FieldValue, right: &FieldValue) -> TestHarnessResult<FieldValue> {
+    let l = field_to_f64(left).unwrap_or(f64::MAX);
+    let r = field_to_f64(right).unwrap_or(f64::MAX);
+    if l <= r {
+        Ok(left.clone())
+    } else {
+        Ok(right.clone())
+    }
+}
+
+/// Apply max() function
+fn apply_max(left: &FieldValue, right: &FieldValue) -> TestHarnessResult<FieldValue> {
+    let l = field_to_f64(left).unwrap_or(f64::MIN);
+    let r = field_to_f64(right).unwrap_or(f64::MIN);
+    if l >= r {
+        Ok(left.clone())
+    } else {
+        Ok(right.clone())
+    }
+}
+
+/// Apply concat() function
+fn apply_concat(left: &FieldValue, right: &FieldValue) -> FieldValue {
+    let l = field_to_string(left);
+    let r = field_to_string(right);
+    FieldValue::String(format!("{}{}", l, r))
+}
+
+/// Apply round() function
+fn apply_round(value: &FieldValue, precision: i32) -> TestHarnessResult<FieldValue> {
+    match value {
+        FieldValue::Float(f) => {
+            let factor = 10_f64.powi(precision);
+            Ok(FieldValue::Float((f * factor).round() / factor))
+        }
+        FieldValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+        FieldValue::ScaledInteger(v, s) => {
+            if precision >= *s as i32 {
+                Ok(value.clone())
+            } else {
+                let scale_diff = *s as i32 - precision;
+                let factor = 10_i64.pow(scale_diff as u32);
+                let rounded = (v + factor / 2) / factor * factor;
+                Ok(FieldValue::ScaledInteger(rounded, *s))
+            }
+        }
+        _ => Err(TestHarnessError::GeneratorError {
+            message: format!("Cannot apply round to {:?}", value),
+            schema: "derived".to_string(),
+        }),
+    }
+}
+
+/// Apply floor() function
+fn apply_floor(value: &FieldValue) -> TestHarnessResult<FieldValue> {
+    match value {
+        FieldValue::Float(f) => Ok(FieldValue::Integer(f.floor() as i64)),
+        FieldValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+        FieldValue::ScaledInteger(v, s) => {
+            let scale = 10_i64.pow(*s as u32);
+            Ok(FieldValue::Integer(v / scale))
+        }
+        _ => Err(TestHarnessError::GeneratorError {
+            message: format!("Cannot apply floor to {:?}", value),
+            schema: "derived".to_string(),
+        }),
+    }
+}
+
+/// Apply ceil() function
+fn apply_ceil(value: &FieldValue) -> TestHarnessResult<FieldValue> {
+    match value {
+        FieldValue::Float(f) => Ok(FieldValue::Integer(f.ceil() as i64)),
+        FieldValue::Integer(i) => Ok(FieldValue::Integer(*i)),
+        FieldValue::ScaledInteger(v, s) => {
+            let scale = 10_i64.pow(*s as u32);
+            let remainder = v % scale;
+            if remainder > 0 {
+                Ok(FieldValue::Integer(v / scale + 1))
+            } else {
+                Ok(FieldValue::Integer(v / scale))
+            }
+        }
+        _ => Err(TestHarnessError::GeneratorError {
+            message: format!("Cannot apply ceil to {:?}", value),
+            schema: "derived".to_string(),
+        }),
+    }
+}
+
+/// Convert field value to f64
+fn field_to_f64(value: &FieldValue) -> Option<f64> {
+    match value {
+        FieldValue::Integer(i) => Some(*i as f64),
+        FieldValue::Float(f) => Some(*f),
+        FieldValue::ScaledInteger(v, s) => {
+            let scale = 10_i64.pow(*s as u32);
+            Some(*v as f64 / scale as f64)
+        }
+        _ => None,
+    }
+}
+
+/// Convert field value to string
+fn field_to_string(value: &FieldValue) -> String {
+    match value {
+        FieldValue::String(s) => s.clone(),
+        FieldValue::Integer(i) => i.to_string(),
+        FieldValue::Float(f) => f.to_string(),
+        FieldValue::Boolean(b) => b.to_string(),
+        FieldValue::Null => "null".to_string(),
+        FieldValue::Timestamp(ts) => ts.to_string(),
+        FieldValue::ScaledInteger(v, s) => {
+            let scale = 10_i64.pow(*s as u32);
+            format!("{:.prec$}", *v as f64 / scale as f64, prec = *s as usize)
+        }
+        _ => format!("{:?}", value),
     }
 }
 
@@ -1317,5 +1831,1064 @@ mod tests {
 
         // Just verify the builder pattern works
         assert!(generator.reference_cache.is_empty());
+    }
+
+    // =====================================================================
+    // Advanced Derived Expression Tests
+    // =====================================================================
+
+    #[test]
+    fn test_derived_addition() {
+        let a_field = FieldDefinition {
+            name: "a".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 10.0,
+                    max: 20.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let b_field = FieldDefinition {
+            name: "b".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 5.0,
+                    max: 10.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let sum_field = FieldDefinition {
+            name: "sum".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "a + b".to_string(),
+                    depends_on: vec!["a".to_string(), "b".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![a_field, b_field, sum_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 10).unwrap();
+
+        for record in &records {
+            let a = match record.get("a") {
+                Some(FieldValue::Integer(v)) => *v as f64,
+                _ => panic!("Expected a"),
+            };
+            let b = match record.get("b") {
+                Some(FieldValue::Integer(v)) => *v as f64,
+                _ => panic!("Expected b"),
+            };
+            let sum = match record.get("sum") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected sum as float"),
+            };
+
+            assert!(
+                (sum - (a + b)).abs() < 0.001,
+                "sum {} should equal a + b = {}",
+                sum,
+                a + b
+            );
+        }
+    }
+
+    #[test]
+    fn test_derived_subtraction() {
+        let a_field = FieldDefinition {
+            name: "a".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 50.0,
+                    max: 100.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let b_field = FieldDefinition {
+            name: "b".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 10.0,
+                    max: 30.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let diff_field = FieldDefinition {
+            name: "diff".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "a - b".to_string(),
+                    depends_on: vec!["a".to_string(), "b".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![a_field, b_field, diff_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 10).unwrap();
+
+        for record in &records {
+            let a = match record.get("a") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected a"),
+            };
+            let b = match record.get("b") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected b"),
+            };
+            let diff = match record.get("diff") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected diff as float"),
+            };
+
+            assert!(
+                (diff - (a - b)).abs() < 0.001,
+                "diff {} should equal a - b = {}",
+                diff,
+                a - b
+            );
+        }
+    }
+
+    #[test]
+    fn test_derived_division() {
+        let total_field = FieldDefinition {
+            name: "total".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 100.0,
+                    max: 1000.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let count_field = FieldDefinition {
+            name: "count".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 1.0,
+                    max: 10.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let avg_field = FieldDefinition {
+            name: "avg".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "total / count".to_string(),
+                    depends_on: vec!["total".to_string(), "count".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![total_field, count_field, avg_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 10).unwrap();
+
+        for record in &records {
+            let total = match record.get("total") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected total"),
+            };
+            let count = match record.get("count") {
+                Some(FieldValue::Integer(v)) => *v as f64,
+                _ => panic!("Expected count"),
+            };
+            let avg = match record.get("avg") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected avg as float"),
+            };
+
+            assert!(
+                (avg - (total / count)).abs() < 0.001,
+                "avg {} should equal total / count = {}",
+                avg,
+                total / count
+            );
+        }
+    }
+
+    #[test]
+    fn test_derived_random() {
+        let random_field = FieldDefinition {
+            name: "rand".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "random()".to_string(),
+                    depends_on: vec![],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![random_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 100).unwrap();
+
+        let mut values = Vec::new();
+        for record in &records {
+            if let Some(FieldValue::Float(v)) = record.get("rand") {
+                assert!(*v >= 0.0 && *v <= 1.0, "random() should be in [0, 1]");
+                values.push(*v);
+            } else {
+                panic!("Expected float for random()");
+            }
+        }
+
+        // Check that we get some variety
+        let unique: std::collections::HashSet<_> =
+            values.iter().map(|v| (*v * 1000.0) as i64).collect();
+        assert!(unique.len() > 50, "random() should produce varied values");
+    }
+
+    #[test]
+    fn test_derived_random_range() {
+        let random_field = FieldDefinition {
+            name: "rand".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "random(10, 20)".to_string(),
+                    depends_on: vec![],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![random_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 50).unwrap();
+
+        for record in &records {
+            if let Some(FieldValue::Float(v)) = record.get("rand") {
+                assert!(
+                    *v >= 10.0 && *v <= 20.0,
+                    "random(10, 20) should be in [10, 20], got {}",
+                    v
+                );
+            } else {
+                panic!("Expected float for random()");
+            }
+        }
+    }
+
+    #[test]
+    fn test_derived_abs() {
+        let value_field = FieldDefinition {
+            name: "value".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: -100.0,
+                    max: 100.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let abs_field = FieldDefinition {
+            name: "abs_value".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "abs(value)".to_string(),
+                    depends_on: vec!["value".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![value_field, abs_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 20).unwrap();
+
+        for record in &records {
+            let value = match record.get("value") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected value"),
+            };
+            let abs_value = match record.get("abs_value") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected abs_value as integer"),
+            };
+
+            assert_eq!(
+                abs_value,
+                value.abs(),
+                "abs({}) should be {}",
+                value,
+                value.abs()
+            );
+        }
+    }
+
+    #[test]
+    fn test_derived_min_max() {
+        let a_field = FieldDefinition {
+            name: "a".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 0.0,
+                    max: 100.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let b_field = FieldDefinition {
+            name: "b".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 0.0,
+                    max: 100.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let min_field = FieldDefinition {
+            name: "minimum".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "min(a, b)".to_string(),
+                    depends_on: vec!["a".to_string(), "b".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let max_field = FieldDefinition {
+            name: "maximum".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "max(a, b)".to_string(),
+                    depends_on: vec!["a".to_string(), "b".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![a_field, b_field, min_field, max_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 20).unwrap();
+
+        for record in &records {
+            let a = match record.get("a") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected a"),
+            };
+            let b = match record.get("b") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected b"),
+            };
+            let minimum = match record.get("minimum") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected minimum"),
+            };
+            let maximum = match record.get("maximum") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected maximum"),
+            };
+
+            assert_eq!(
+                minimum,
+                a.min(b),
+                "min({}, {}) should be {}",
+                a,
+                b,
+                a.min(b)
+            );
+            assert_eq!(
+                maximum,
+                a.max(b),
+                "max({}, {}) should be {}",
+                a,
+                b,
+                a.max(b)
+            );
+        }
+    }
+
+    #[test]
+    fn test_derived_concat() {
+        let first_field = FieldDefinition {
+            name: "first".to_string(),
+            field_type: FieldType::String,
+            constraints: FieldConstraints::default(),
+            nullable: false,
+            description: None,
+        };
+
+        let second_field = FieldDefinition {
+            name: "second".to_string(),
+            field_type: FieldType::String,
+            constraints: FieldConstraints::default(),
+            nullable: false,
+            description: None,
+        };
+
+        let concat_field = FieldDefinition {
+            name: "combined".to_string(),
+            field_type: FieldType::String,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "concat(first, second)".to_string(),
+                    depends_on: vec!["first".to_string(), "second".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![first_field, second_field, concat_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 10).unwrap();
+
+        for record in &records {
+            let first = match record.get("first") {
+                Some(FieldValue::String(s)) => s.clone(),
+                _ => panic!("Expected first"),
+            };
+            let second = match record.get("second") {
+                Some(FieldValue::String(s)) => s.clone(),
+                _ => panic!("Expected second"),
+            };
+            let combined = match record.get("combined") {
+                Some(FieldValue::String(s)) => s.clone(),
+                _ => panic!("Expected combined"),
+            };
+
+            assert_eq!(
+                combined,
+                format!("{}{}", first, second),
+                "concat should concatenate"
+            );
+        }
+    }
+
+    #[test]
+    fn test_derived_comparison() {
+        let a_field = FieldDefinition {
+            name: "a".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 0.0,
+                    max: 100.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let b_field = FieldDefinition {
+            name: "b".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 0.0,
+                    max: 100.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let gt_field = FieldDefinition {
+            name: "a_gt_b".to_string(),
+            field_type: FieldType::Boolean,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "a > b".to_string(),
+                    depends_on: vec!["a".to_string(), "b".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![a_field, b_field, gt_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 20).unwrap();
+
+        for record in &records {
+            let a = match record.get("a") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected a"),
+            };
+            let b = match record.get("b") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected b"),
+            };
+            let a_gt_b = match record.get("a_gt_b") {
+                Some(FieldValue::Boolean(v)) => *v,
+                _ => panic!("Expected a_gt_b as boolean"),
+            };
+
+            assert_eq!(a_gt_b, a > b, "{} > {} should be {}", a, b, a > b);
+        }
+    }
+
+    #[test]
+    fn test_derived_floor_ceil() {
+        let value_field = FieldDefinition {
+            name: "value".to_string(),
+            field_type: FieldType::Float,
+            constraints: FieldConstraints {
+                range: Some(RangeConstraint {
+                    min: 0.0,
+                    max: 10.0,
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let floor_field = FieldDefinition {
+            name: "floored".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "floor(value)".to_string(),
+                    depends_on: vec!["value".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let ceil_field = FieldDefinition {
+            name: "ceiled".to_string(),
+            field_type: FieldType::Integer,
+            constraints: FieldConstraints {
+                derived: Some(DerivedConstraint {
+                    expression: "ceil(value)".to_string(),
+                    depends_on: vec!["value".to_string()],
+                }),
+                ..Default::default()
+            },
+            nullable: false,
+            description: None,
+        };
+
+        let schema = create_simple_schema("test", vec![value_field, floor_field, ceil_field]);
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        let records = generator.generate(&schema, 20).unwrap();
+
+        for record in &records {
+            let value = match record.get("value") {
+                Some(FieldValue::Float(v)) => *v,
+                _ => panic!("Expected value"),
+            };
+            let floored = match record.get("floored") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected floored as integer"),
+            };
+            let ceiled = match record.get("ceiled") {
+                Some(FieldValue::Integer(v)) => *v,
+                _ => panic!("Expected ceiled as integer"),
+            };
+
+            assert_eq!(
+                floored,
+                value.floor() as i64,
+                "floor({}) should be {}",
+                value,
+                value.floor()
+            );
+            assert_eq!(
+                ceiled,
+                value.ceil() as i64,
+                "ceil({}) should be {}",
+                value,
+                value.ceil()
+            );
+        }
+    }
+
+    // =====================================================================
+    // Helper Function Tests
+    // =====================================================================
+
+    #[test]
+    fn test_find_operator_position() {
+        assert_eq!(find_operator_position("a + b", "+"), Some(2));
+        assert_eq!(find_operator_position("a * b", "*"), Some(2));
+        assert_eq!(find_operator_position("abs(a + b) * c", "*"), Some(11));
+        assert_eq!(find_operator_position("min(a, b)", "+"), None);
+    }
+
+    #[test]
+    fn test_split_function_args() {
+        assert_eq!(split_function_args("a, b"), Some(("a", "b")));
+        assert_eq!(
+            split_function_args("min(x, y), z"),
+            Some(("min(x, y)", "z"))
+        );
+        assert_eq!(split_function_args("x"), None);
+    }
+
+    #[test]
+    fn test_field_to_f64() {
+        assert_eq!(field_to_f64(&FieldValue::Integer(42)), Some(42.0));
+        assert_eq!(field_to_f64(&FieldValue::Float(3.14)), Some(3.14));
+        assert_eq!(
+            field_to_f64(&FieldValue::ScaledInteger(1234, 2)),
+            Some(12.34)
+        );
+        assert_eq!(field_to_f64(&FieldValue::String("test".to_string())), None);
+    }
+
+    #[test]
+    fn test_field_to_string() {
+        assert_eq!(
+            field_to_string(&FieldValue::String("hello".to_string())),
+            "hello"
+        );
+        assert_eq!(field_to_string(&FieldValue::Integer(42)), "42");
+        assert_eq!(field_to_string(&FieldValue::Boolean(true)), "true");
+    }
+
+    // =====================================================================
+    // Reference Data Tests (Phase 9: Foreign Key Relationships)
+    // =====================================================================
+
+    #[test]
+    fn test_load_reference_data() {
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Load some reference data
+        generator.load_reference_data(
+            "customers",
+            "id",
+            vec![
+                FieldValue::String("CUST001".to_string()),
+                FieldValue::String("CUST002".to_string()),
+                FieldValue::String("CUST003".to_string()),
+            ],
+        );
+
+        assert!(generator.has_reference_data("customers", "id"));
+        assert_eq!(generator.reference_data_count("customers", "id"), 3);
+
+        assert!(!generator.has_reference_data("orders", "id"));
+        assert_eq!(generator.reference_data_count("orders", "id"), 0);
+    }
+
+    #[test]
+    fn test_load_reference_data_from_records() {
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Create some "customer" records
+        let customer_records = vec![
+            {
+                let mut r = HashMap::new();
+                r.insert("id".to_string(), FieldValue::String("C001".to_string()));
+                r.insert("name".to_string(), FieldValue::String("Alice".to_string()));
+                r
+            },
+            {
+                let mut r = HashMap::new();
+                r.insert("id".to_string(), FieldValue::String("C002".to_string()));
+                r.insert("name".to_string(), FieldValue::String("Bob".to_string()));
+                r
+            },
+            {
+                let mut r = HashMap::new();
+                r.insert("id".to_string(), FieldValue::String("C003".to_string()));
+                r.insert(
+                    "name".to_string(),
+                    FieldValue::String("Charlie".to_string()),
+                );
+                r
+            },
+        ];
+
+        // Load from records
+        generator.load_reference_data_from_records("customers", "id", &customer_records);
+
+        assert!(generator.has_reference_data("customers", "id"));
+        assert_eq!(generator.reference_data_count("customers", "id"), 3);
+    }
+
+    #[test]
+    fn test_generate_reference_value_from_loaded_data() {
+        use super::super::schema::ReferenceConstraint;
+
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Load reference data for customers.id
+        let customer_ids = vec![
+            FieldValue::String("CUST001".to_string()),
+            FieldValue::String("CUST002".to_string()),
+            FieldValue::String("CUST003".to_string()),
+        ];
+        generator.load_reference_data("customers", "id", customer_ids.clone());
+
+        // Create a field with reference constraint
+        let mut field = string_field("customer_id");
+        field.constraints.references = Some(ReferenceConstraint {
+            schema: "customers".to_string(),
+            field: "id".to_string(),
+            file: None,
+        });
+
+        let schema = create_simple_schema("orders", vec![field]);
+
+        // Generate records
+        let records = generator.generate(&schema, 100).unwrap();
+
+        // Verify all generated values are from the reference data
+        let valid_ids: std::collections::HashSet<_> = customer_ids
+            .iter()
+            .filter_map(|v| {
+                if let FieldValue::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for record in &records {
+            if let Some(FieldValue::String(s)) = record.get("customer_id") {
+                assert!(
+                    valid_ids.contains(s),
+                    "customer_id '{}' should be from reference data",
+                    s
+                );
+            } else {
+                panic!("Expected string customer_id");
+            }
+        }
+    }
+
+    #[test]
+    fn test_generate_reference_value_placeholder_when_no_data() {
+        use super::super::schema::ReferenceConstraint;
+
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Don't load any reference data
+
+        // Create a field with reference constraint
+        let mut field = string_field("product_id");
+        field.constraints.references = Some(ReferenceConstraint {
+            schema: "products".to_string(),
+            field: "id".to_string(),
+            file: None,
+        });
+
+        let schema = create_simple_schema("order_items", vec![field]);
+
+        // Generate records - should use placeholder values
+        let records = generator.generate(&schema, 10).unwrap();
+
+        for record in &records {
+            if let Some(FieldValue::String(s)) = record.get("product_id") {
+                // Should be placeholder format: REF_PRODUCTS_<number>
+                assert!(
+                    s.starts_with("REF_PRODUCTS_"),
+                    "product_id '{}' should be a placeholder",
+                    s
+                );
+            } else {
+                panic!("Expected string product_id");
+            }
+        }
+    }
+
+    #[test]
+    fn test_generate_reference_value_deterministic() {
+        use super::super::schema::ReferenceConstraint;
+
+        // Generate with same seed twice
+        let customer_ids = vec![
+            FieldValue::String("A".to_string()),
+            FieldValue::String("B".to_string()),
+            FieldValue::String("C".to_string()),
+            FieldValue::String("D".to_string()),
+            FieldValue::String("E".to_string()),
+        ];
+
+        let mut field = string_field("customer_id");
+        field.constraints.references = Some(ReferenceConstraint {
+            schema: "customers".to_string(),
+            field: "id".to_string(),
+            file: None,
+        });
+        let schema = create_simple_schema("orders", vec![field]);
+
+        let mut gen1 = SchemaDataGenerator::new(Some(42));
+        gen1.load_reference_data("customers", "id", customer_ids.clone());
+
+        let mut gen2 = SchemaDataGenerator::new(Some(42));
+        gen2.load_reference_data("customers", "id", customer_ids);
+
+        let records1 = gen1.generate(&schema, 20).unwrap();
+        let records2 = gen2.generate(&schema, 20).unwrap();
+
+        // With same seed, should produce identical results
+        for (r1, r2) in records1.iter().zip(records2.iter()) {
+            assert_eq!(
+                r1.get("customer_id"),
+                r2.get("customer_id"),
+                "Same seed should produce same reference values"
+            );
+        }
+    }
+
+    #[test]
+    fn test_reference_data_integer_values() {
+        use super::super::schema::ReferenceConstraint;
+
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Load integer reference data
+        generator.load_reference_data(
+            "categories",
+            "id",
+            vec![
+                FieldValue::Integer(1),
+                FieldValue::Integer(2),
+                FieldValue::Integer(3),
+                FieldValue::Integer(4),
+                FieldValue::Integer(5),
+            ],
+        );
+
+        // Create a field referencing integers
+        let mut field = integer_field("category_id");
+        field.constraints.references = Some(ReferenceConstraint {
+            schema: "categories".to_string(),
+            field: "id".to_string(),
+            file: None,
+        });
+
+        let schema = create_simple_schema("products", vec![field]);
+
+        let records = generator.generate(&schema, 50).unwrap();
+
+        let valid_ids = vec![1, 2, 3, 4, 5];
+        for record in &records {
+            if let Some(FieldValue::Integer(i)) = record.get("category_id") {
+                assert!(
+                    valid_ids.contains(i),
+                    "category_id {} should be from reference data",
+                    i
+                );
+            } else {
+                panic!(
+                    "Expected integer category_id, got {:?}",
+                    record.get("category_id")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_reference_data_distribution() {
+        use super::super::schema::ReferenceConstraint;
+
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Load just 3 reference values
+        generator.load_reference_data(
+            "regions",
+            "code",
+            vec![
+                FieldValue::String("US".to_string()),
+                FieldValue::String("EU".to_string()),
+                FieldValue::String("APAC".to_string()),
+            ],
+        );
+
+        let mut field = string_field("region");
+        field.constraints.references = Some(ReferenceConstraint {
+            schema: "regions".to_string(),
+            field: "code".to_string(),
+            file: None,
+        });
+
+        let schema = create_simple_schema("offices", vec![field]);
+
+        let records = generator.generate(&schema, 300).unwrap();
+
+        // Count distribution
+        let mut counts = HashMap::new();
+        for record in &records {
+            if let Some(FieldValue::String(s)) = record.get("region") {
+                *counts.entry(s.clone()).or_insert(0) += 1;
+            }
+        }
+
+        // Should see all 3 regions with roughly uniform distribution
+        assert_eq!(counts.len(), 3, "Should have all 3 regions");
+
+        for (region, count) in &counts {
+            // With 300 records and 3 values, expect ~100 each
+            // Allow significant variance due to randomness
+            assert!(
+                *count >= 50 && *count <= 150,
+                "Region {} has {} occurrences, expected roughly 100",
+                region,
+                count
+            );
+        }
+    }
+
+    #[test]
+    fn test_multiple_reference_fields() {
+        use super::super::schema::ReferenceConstraint;
+
+        let mut generator = SchemaDataGenerator::new(Some(42));
+
+        // Load reference data for multiple tables
+        generator.load_reference_data(
+            "customers",
+            "id",
+            vec![
+                FieldValue::String("C1".to_string()),
+                FieldValue::String("C2".to_string()),
+            ],
+        );
+
+        generator.load_reference_data(
+            "products",
+            "sku",
+            vec![
+                FieldValue::String("SKU-A".to_string()),
+                FieldValue::String("SKU-B".to_string()),
+                FieldValue::String("SKU-C".to_string()),
+            ],
+        );
+
+        // Create schema with multiple reference fields
+        let mut customer_field = string_field("customer_id");
+        customer_field.constraints.references = Some(ReferenceConstraint {
+            schema: "customers".to_string(),
+            field: "id".to_string(),
+            file: None,
+        });
+
+        let mut product_field = string_field("product_sku");
+        product_field.constraints.references = Some(ReferenceConstraint {
+            schema: "products".to_string(),
+            field: "sku".to_string(),
+            file: None,
+        });
+
+        let quantity_field = integer_field("quantity");
+
+        let schema = create_simple_schema(
+            "orders",
+            vec![customer_field, product_field, quantity_field],
+        );
+
+        let records = generator.generate(&schema, 50).unwrap();
+
+        let valid_customers: std::collections::HashSet<_> =
+            ["C1", "C2"].iter().map(|s| s.to_string()).collect();
+        let valid_products: std::collections::HashSet<_> = ["SKU-A", "SKU-B", "SKU-C"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        for record in &records {
+            // Verify customer_id
+            if let Some(FieldValue::String(s)) = record.get("customer_id") {
+                assert!(valid_customers.contains(s), "Invalid customer_id: {}", s);
+            }
+
+            // Verify product_sku
+            if let Some(FieldValue::String(s)) = record.get("product_sku") {
+                assert!(valid_products.contains(s), "Invalid product_sku: {}", s);
+            }
+
+            // Verify quantity is generated normally
+            assert!(matches!(
+                record.get("quantity"),
+                Some(FieldValue::Integer(_))
+            ));
+        }
     }
 }

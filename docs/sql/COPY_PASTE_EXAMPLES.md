@@ -4,6 +4,12 @@
 
 Use these as templates for your queries. When in doubt, copy the pattern from here.
 
+> **Important**: Velostream supports two DDL types:
+> - **CREATE STREAM AS SELECT (CSAS)** - For continuous streaming transformations
+> - **CREATE TABLE AS SELECT (CTAS)** - For materialized aggregations/tables
+>
+> Plain SELECT statements are only valid for ad-hoc queries, not for deployed streaming jobs.
+
 ---
 
 ## Quick Reference Table
@@ -117,82 +123,154 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 
 ---
 
-## Simple SELECT Queries
+## CSAS vs CTAS - When to Use Which
 
-### Basic SELECT with WHERE
+| Use Case | DDL Type | Example |
+|----------|----------|---------|
+| Filter/transform stream | CSAS | Passthrough with WHERE clause |
+| Enrich stream with lookup | CSAS | JOIN with reference table |
+| Window functions (LAG, LEAD) | CSAS | Row-by-row analytics |
+| Time-windowed aggregations | CTAS | 5-minute trade summaries |
+| Materialized views | CTAS | Latest state per key |
+| GROUP BY with EMIT FINAL | CTAS | Batch-style aggregations |
+
+---
+
+## Simple Streaming Queries (CSAS)
+
+### Basic Filter (Passthrough with WHERE)
 
 ```sql
+CREATE STREAM filtered_orders AS
 SELECT order_id, customer_id, amount
 FROM orders
-WHERE amount > 100 LIMIT 10
+WHERE amount > 100
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'filtered_orders.type' = 'kafka_sink',
+    'filtered_orders.topic' = 'filtered_orders_output',
+    'filtered_orders.format' = 'json'
+);
 ```
 
-**When to use**: Filtering data, selecting specific columns, limiting results
+**When to use**: Filtering data, selecting specific columns
 
-### SELECT with Multiple Conditions
+### Multiple Filter Conditions
 
 ```sql
-SELECT symbol, price, quantity, timestamp
+CREATE STREAM high_value_trades AS
+SELECT symbol, price, quantity, event_time
 FROM trades
-WHERE price
-    > 50
+WHERE price > 50
   AND quantity >= 100
-  AND timestamp >= 1000000
-    LIMIT 100
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'high_value_trades.type' = 'kafka_sink',
+    'high_value_trades.topic' = 'high_value_trades_output',
+    'high_value_trades.format' = 'json'
+);
 ```
 
 **When to use**: Multiple filter conditions with AND/OR
 
-### SELECT with Column Alias
+### Column Aliases
 
 ```sql
-SELECT order_id    AS id,
+CREATE STREAM renamed_orders AS
+SELECT order_id AS id,
        customer_id AS cust_id,
-       amount      AS total
+       amount AS total
 FROM orders
 WHERE amount > 100
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'renamed_orders.type' = 'kafka_sink',
+    'renamed_orders.topic' = 'renamed_orders_output',
+    'renamed_orders.format' = 'json'
+);
 ```
 
 **When to use**: Renaming columns in output
 
 ---
 
-## Aggregation without Windows
+## Aggregation with Time Windows (CTAS)
 
-### GROUP BY with COUNT
+### TUMBLING Window - 1 Minute
 
 ```sql
-SELECT category, COUNT(*) as item_count
-FROM products
-GROUP BY category
+CREATE TABLE trade_stats AS
+SELECT symbol,
+       COUNT(*) as trade_count,
+       AVG(price) as avg_price
+FROM market_data
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'trade_stats.type' = 'kafka_sink',
+    'trade_stats.topic' = 'trade_stats_output',
+    'trade_stats.format' = 'json'
+);
 ```
 
-**When to use**: Count items per group
+**When to use**: Fixed-size time windows (1m, 5m, 1h, etc)
 
-### GROUP BY with Multiple Aggregates
+### TUMBLING Window - 5 Minutes with Multiple Aggregates
 
 ```sql
+CREATE TABLE symbol_aggregates AS
 SELECT symbol,
-       COUNT(*)      as trade_count,
-       AVG(price)    as avg_price,
-       MIN(price)    as min_price,
-       MAX(price)    as max_price,
+       COUNT(*) as trade_count,
+       AVG(price) as avg_price,
+       MIN(price) as min_price,
+       MAX(price) as max_price,
        SUM(quantity) as total_qty
 FROM trades
 GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'symbol_aggregates.type' = 'kafka_sink',
+    'symbol_aggregates.topic' = 'symbol_aggregates_output',
+    'symbol_aggregates.format' = 'json'
+);
 ```
 
-**When to use**: Multiple calculations per group
+**When to use**: Multiple calculations per group in time window
 
 ### GROUP BY with HAVING
 
 ```sql
+CREATE TABLE active_customers AS
 SELECT customer_id,
-       COUNT(*)    as order_count,
+       COUNT(*) as order_count,
        SUM(amount) as total_spent
 FROM orders
 GROUP BY customer_id
+WINDOW TUMBLING(INTERVAL '1' HOUR)
 HAVING COUNT(*) > 5
+EMIT CHANGES
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'active_customers.type' = 'kafka_sink',
+    'active_customers.topic' = 'active_customers_output',
+    'active_customers.format' = 'json'
+);
 ```
 
 **When to use**: Filter groups after aggregation
@@ -200,67 +278,51 @@ HAVING COUNT(*) > 5
 ### GROUP BY with WHERE and HAVING
 
 ```sql
+CREATE TABLE active_symbols AS
 SELECT symbol,
-       COUNT(*)   as cnt,
+       COUNT(*) as cnt,
        AVG(price) as avg_price
 FROM market_data
 WHERE price > 0
 GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
 HAVING COUNT(*) >= 10
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'active_symbols.type' = 'kafka_sink',
+    'active_symbols.topic' = 'active_symbols_output',
+    'active_symbols.format' = 'json'
+);
 ```
 
 **When to use**: Pre-filter rows, then aggregate, then filter groups
 
 ---
 
-## Time-Based Windows (WINDOW Clause on SELECT)
-
-### TUMBLING Window - 1 Minute
-
-```sql
-SELECT symbol,
-       COUNT(*)   as trade_count,
-       AVG(price) as avg_price
-FROM market_data
-GROUP BY symbol
-    WINDOW TUMBLING(INTERVAL '1' MINUTE)
-```
-
-**When to use**: Fixed-size time windows (1m, 5m, 1h, etc)
-
-### TUMBLING Window - Different Intervals
-
-```sql
--- 5-minute window
-SELECT symbol, COUNT(*)
-FROM trades
-GROUP BY symbol
-    WINDOW TUMBLING(INTERVAL '5' MINUTE)
-
--- 1-hour window
-SELECT customer_id, SUM(amount)
-FROM orders
-GROUP BY customer_id
-    WINDOW TUMBLING(INTERVAL '1' HOUR)
-
--- 30-second window (high-frequency data)
-SELECT sensor_id, AVG(temperature)
-FROM sensors
-GROUP BY sensor_id
-    WINDOW TUMBLING(INTERVAL '30' SECOND)
-```
-
-**When to use**: Adjust interval for your data frequency
+## Different Window Types (CTAS)
 
 ### SLIDING Window - 10m Window, 2m Advance
 
 ```sql
+CREATE TABLE moving_averages AS
 SELECT symbol,
-       COUNT(*)   as trade_count,
+       COUNT(*) as trade_count,
        AVG(price) as moving_avg
 FROM market_data
 GROUP BY symbol
-    WINDOW SLIDING(INTERVAL '10' MINUTE, INTERVAL '2' MINUTE)
+WINDOW SLIDING(INTERVAL '10' MINUTE, INTERVAL '2' MINUTE)
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'moving_averages.type' = 'kafka_sink',
+    'moving_averages.topic' = 'moving_averages_output',
+    'moving_averages.format' = 'json'
+);
 ```
 
 **When to use**: Overlapping windows with smooth progression
@@ -268,12 +330,22 @@ GROUP BY symbol
 ### SESSION Window - 30 Second Gap
 
 ```sql
+CREATE TABLE user_sessions AS
 SELECT user_id,
-       COUNT(*)             as actions_in_session,
+       COUNT(*) as actions_in_session,
        COUNT(DISTINCT page) as pages_visited
 FROM user_events
 GROUP BY user_id
-    WINDOW SESSION(INTERVAL '30' SECOND)
+WINDOW SESSION(INTERVAL '30' SECOND)
+EMIT CHANGES
+WITH (
+    'user_events.type' = 'kafka_source',
+    'user_events.topic' = 'user_events_input',
+    'user_events.format' = 'json',
+    'user_sessions.type' = 'kafka_sink',
+    'user_sessions.topic' = 'user_sessions_output',
+    'user_sessions.format' = 'json'
+);
 ```
 
 **When to use**: Group events by inactivity (user sessions, trading sessions)
@@ -281,30 +353,51 @@ GROUP BY user_id
 ### Time Window with Specific Time Column
 
 ```sql
+CREATE TABLE trade_time_aggs AS
 SELECT symbol,
-       COUNT(*)   as cnt,
+       COUNT(*) as cnt,
        AVG(price) as avg_price
 FROM market_data
 GROUP BY symbol
-    WINDOW TUMBLING(market_data.trade_time, INTERVAL '5' MINUTE)
+WINDOW TUMBLING(market_data.trade_time, INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'trade_time_aggs.type' = 'kafka_sink',
+    'trade_time_aggs.topic' = 'trade_time_aggs_output',
+    'trade_time_aggs.format' = 'json'
+);
 ```
 
 **When to use**: Specify which timestamp column to use for windowing
 
 ---
 
-## ROWS WINDOW (In OVER Clause for Window Functions)
+## ROWS WINDOW - Window Functions (CSAS)
 
 ### LAG - Previous Row Value
 
 ```sql
+CREATE STREAM price_changes AS
 SELECT symbol,
-       price, timestamp, LAG(price, 1) OVER (
-    ROWS WINDOW BUFFER 100 ROWS
-    PARTITION BY symbol
-    ORDER BY timestamp
-    ) as prev_price
+       price,
+       event_time,
+       LAG(price, 1) OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+       ) as prev_price
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_changes.type' = 'kafka_sink',
+    'price_changes.topic' = 'price_changes_output',
+    'price_changes.format' = 'json'
+);
 ```
 
 **When to use**: Compare current row to previous row (price changes, deltas)
@@ -312,13 +405,24 @@ FROM trades
 ### Moving Average - Last N Rows
 
 ```sql
+CREATE STREAM moving_avg_stream AS
 SELECT symbol,
-       price, timestamp, AVG (price) OVER (
-    ROWS WINDOW BUFFER 100 ROWS
-    PARTITION BY symbol
-    ORDER BY timestamp
-    ) as moving_avg_100
+       price,
+       event_time,
+       AVG(price) OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+       ) as moving_avg_100
 FROM market_data
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'moving_avg_stream.type' = 'kafka_sink',
+    'moving_avg_stream.topic' = 'moving_avg_stream_output',
+    'moving_avg_stream.format' = 'json'
+);
 ```
 
 **When to use**: Calculate moving average over last N rows
@@ -326,15 +430,24 @@ FROM market_data
 ### COUNT with ROWS WINDOW
 
 ```sql
+CREATE STREAM trade_counts AS
 SELECT trader_id,
        symbol,
        price,
        COUNT(*) OVER (
-        ROWS WINDOW BUFFER 1000 ROWS
-        PARTITION BY trader_id
-        ORDER BY timestamp
-    ) as trade_count_1000
+           ROWS WINDOW BUFFER 1000 ROWS
+           PARTITION BY trader_id
+           ORDER BY event_time
+       ) as trade_count_1000
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'trade_counts.type' = 'kafka_sink',
+    'trade_counts.topic' = 'trade_counts_output',
+    'trade_counts.format' = 'json'
+);
 ```
 
 **When to use**: Count rows in last N-row window
@@ -342,52 +455,59 @@ FROM trades
 ### ROWS WINDOW with Window Frame (Last 50 of 100)
 
 ```sql
+CREATE STREAM qty_last_50 AS
 SELECT symbol,
        price,
        SUM(quantity) OVER (
-        ROWS WINDOW BUFFER 100 ROWS
-        PARTITION BY symbol
-        ORDER BY timestamp
-        ROWS BETWEEN 50 PRECEDING AND CURRENT ROW
-    ) as qty_last_50
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+           ROWS BETWEEN 50 PRECEDING AND CURRENT ROW
+       ) as qty_last_50
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'qty_last_50.type' = 'kafka_sink',
+    'qty_last_50.topic' = 'qty_last_50_output',
+    'qty_last_50.format' = 'json'
+);
 ```
 
 **When to use**: Use subset of buffer (last 50 of 100 rows)
 
-### ROWS WINDOW with EMIT CHANGES
-
-```sql
-SELECT trader_id,
-       symbol,
-       COUNT(*) OVER (
-        ROWS WINDOW BUFFER 1000 ROWS
-        PARTITION BY trader_id
-        EMIT CHANGES
-    ) as running_count
-FROM market_data
-```
-
-**When to use**: Emit result on every new row (streaming aggregation)
-
 ### Multiple Window Functions
 
 ```sql
+CREATE STREAM trade_analytics AS
 SELECT symbol,
-       price, timestamp, LAG(price, 1) OVER (
-    ROWS WINDOW BUFFER 100 ROWS
-    PARTITION BY symbol
-    ORDER BY timestamp
-    ) as prev_price, AVG (price) OVER (
-    ROWS WINDOW BUFFER 100 ROWS
-    PARTITION BY symbol
-    ORDER BY timestamp
-    ) as moving_avg, ROW_NUMBER() OVER (
-    ROWS WINDOW BUFFER 100 ROWS
-    PARTITION BY symbol
-    ORDER BY timestamp
-    ) as row_num
+       price,
+       event_time,
+       LAG(price, 1) OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+       ) as prev_price,
+       AVG(price) OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+       ) as moving_avg,
+       ROW_NUMBER() OVER (
+           ROWS WINDOW BUFFER 100 ROWS
+           PARTITION BY symbol
+           ORDER BY event_time
+       ) as row_num
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'trade_analytics.type' = 'kafka_sink',
+    'trade_analytics.topic' = 'trade_analytics_output',
+    'trade_analytics.format' = 'json'
+);
 ```
 
 **When to use**: Multiple analyses on same data window
@@ -396,145 +516,114 @@ FROM trades
 
 ## Complex Queries (GROUP BY + WINDOW)
 
-### GROUP BY with Time Window
+### GROUP BY with Time Window and Filters (CTAS)
 
 ```sql
+CREATE TABLE trader_symbol_stats AS
 SELECT trader_id,
        symbol,
-       COUNT(*)      as trade_count,
-       AVG(price)    as avg_price,
+       COUNT(*) as trade_count,
+       AVG(price) as avg_price,
        SUM(quantity) as total_qty
 FROM market_data
 WHERE price > 0
 GROUP BY trader_id, symbol
-    WINDOW TUMBLING(INTERVAL '1' MINUTE)
-HAVING COUNT (*) > 5
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+HAVING COUNT(*) > 5
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'trader_symbol_stats.type' = 'kafka_sink',
+    'trader_symbol_stats.topic' = 'trader_symbol_stats_output',
+    'trader_symbol_stats.format' = 'json'
+);
 ```
 
 **When to use**: Group data, then window results, with pre/post filtering
-
-### GROUP BY + ROWS WINDOW (Combined)
-
-```sql
-SELECT trader_id,
-       symbol,
-       COUNT(*) as trade_count,
-       AVG(price)  OVER (
-        ROWS WINDOW BUFFER 1000 ROWS
-        PARTITION BY trader_id, symbol
-        ORDER BY timestamp
-    ) as moving_avg
-FROM market_data
-GROUP BY trader_id, symbol
-    WINDOW TUMBLING(INTERVAL '1' MINUTE)
-```
-
-**When to use**: Group with time window AND compute moving window stats
-
-### GROUP BY with ORDER BY and LIMIT
-
-```sql
-SELECT symbol,
-       COUNT(*)      as trade_count,
-       SUM(quantity) as total_qty
-FROM trades
-WHERE price > 100
-GROUP BY symbol
-HAVING COUNT(*) >= 10
-ORDER BY trade_count DESC LIMIT 100
-```
-
-**When to use**: Sort grouped results and limit top results
 
 ---
 
 ## JOIN Queries
 
-### Simple JOIN
+### Simple Stream-Table JOIN (CSAS)
 
 ```sql
+CREATE STREAM enriched_orders AS
 SELECT o.order_id,
        o.customer_id,
        c.customer_name,
        o.amount
 FROM orders o
-         JOIN customers c ON o.customer_id = c.customer_id
+JOIN customers c ON o.customer_id = c.customer_id
 WHERE o.amount > 100
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'enriched_orders.type' = 'kafka_sink',
+    'enriched_orders.topic' = 'enriched_orders_output',
+    'enriched_orders.format' = 'json'
+);
 ```
 
 **When to use**: Combine data from two streams/tables
 
-### JOIN with Aggregation
+### JOIN with Aggregation (CTAS)
 
 ```sql
+CREATE TABLE customer_order_stats AS
 SELECT c.customer_id,
        c.customer_name,
-       COUNT(*)      as order_count,
+       COUNT(*) as order_count,
        AVG(o.amount) as avg_order
 FROM orders o
-         JOIN customers c ON o.customer_id = c.customer_id
+JOIN customers c ON o.customer_id = c.customer_id
 WHERE o.amount > 50
 GROUP BY c.customer_id, c.customer_name
+WINDOW TUMBLING(INTERVAL '1' HOUR)
+EMIT CHANGES
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'customer_order_stats.type' = 'kafka_sink',
+    'customer_order_stats.topic' = 'customer_order_stats_output',
+    'customer_order_stats.format' = 'json'
+);
 ```
 
 **When to use**: Join then aggregate
 
 ---
 
-## Field Naming and Aliases
-
-### Column Aliases (All Valid)
-
-```sql
--- Explicit AS keyword (recommended)
-SELECT column_name AS alias_name
-FROM table_name
-
--- Implicit alias (also works)
-SELECT column_name alias_name
-FROM table_name
-
--- Multiple aliases
-SELECT order_id    AS id,
-       customer_id AS cust_id,
-       amount      AS total
-FROM orders
-```
-
-### Table Aliases
-
-```sql
--- Explicit AS
-SELECT *
-FROM market_data AS m
-WHERE m.price > 100
-
--- Implicit (shorthand)
-SELECT *
-FROM market_data m
-WHERE m.price > 100
-
--- Qualified column names
-SELECT m.symbol,
-       m.price,
-       m.timestamp
-FROM market_data m
-WHERE m.price > 50
-```
-
----
-
 ## System Columns (Kafka Metadata)
 
-### Using _timestamp, _offset, _partition
+### Using _timestamp, _offset, _partition (CSAS)
 
 ```sql
+CREATE STREAM orders_with_metadata AS
 SELECT customer_id,
        amount,
        _timestamp as kafka_time,
-       _offset    as kafka_offset,
+       _offset as kafka_offset,
        _partition as kafka_partition
-FROM orders LIMIT 100
+FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'orders_with_metadata.type' = 'kafka_sink',
+    'orders_with_metadata.topic' = 'orders_with_metadata_output',
+    'orders_with_metadata.format' = 'json'
+);
 ```
 
 **When to use**: Access Kafka message metadata
@@ -543,77 +632,63 @@ FROM orders LIMIT 100
 
 ## Type Conversion & Null Handling
 
-### CAST - Type Conversion
+### CAST - Type Conversion (CSAS)
 
 ```sql
--- Cast to INTEGER (truncates decimals)
+CREATE STREAM typed_orders AS
 SELECT order_id,
-       CAST(amount AS INTEGER) as amount_int
-FROM orders
-
--- Cast to STRING
-SELECT symbol,
-       CAST(price AS STRING) as price_str
-FROM trades
-
--- Cast to FLOAT
-SELECT product_id,
+       CAST(amount AS INTEGER) as amount_int,
+       CAST(price AS STRING) as price_str,
        CAST(quantity AS FLOAT) as qty_float
-FROM inventory
-
--- Cast to TIMESTAMP (from Unix epoch)
-SELECT event_id,
-       CAST(epoch_seconds AS TIMESTAMP) as event_time
-FROM logs
-
--- Cast to BOOLEAN
-SELECT user_id,
-       CAST(is_active AS BOOLEAN) as active
-FROM users
+FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'typed_orders.type' = 'kafka_sink',
+    'typed_orders.topic' = 'typed_orders_output',
+    'typed_orders.format' = 'json'
+);
 ```
-
-**When to use**: Convert between types (INTEGER, FLOAT, STRING, BOOLEAN, TIMESTAMP, DATE, DECIMAL)
 
 **Supported types**: INTEGER, FLOAT, DOUBLE, STRING, VARCHAR, BOOLEAN, DATE, TIMESTAMP, DECIMAL
 
-### COALESCE - First Non-NULL Value
+### COALESCE - First Non-NULL Value (CSAS)
 
 ```sql
--- Use fallback values for NULL
+CREATE STREAM customers_with_defaults AS
 SELECT customer_id,
-       COALESCE(nickname, first_name, 'Unknown') as display_name
-FROM customers
-
--- Default for missing values
-SELECT order_id,
+       COALESCE(nickname, first_name, 'Unknown') as display_name,
        COALESCE(discount, 0) as discount_applied
-FROM orders
-
--- Multiple fallbacks
-SELECT product_id,
-       COALESCE(sale_price, regular_price, list_price) as final_price
-FROM products
+FROM customers
+WITH (
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'customers_with_defaults.type' = 'kafka_sink',
+    'customers_with_defaults.topic' = 'customers_with_defaults_output',
+    'customers_with_defaults.format' = 'json'
+);
 ```
 
 **When to use**: Provide default values when data might be NULL
 
-### NULLIF - Return NULL on Match
+### NULLIF - Return NULL on Match (CSAS)
 
 ```sql
--- Convert empty strings to NULL
+CREATE STREAM cleaned_customers AS
 SELECT customer_id,
-       NULLIF(email, '') as email_or_null
-FROM customers
-
--- Convert zero to NULL (avoid division by zero)
-SELECT product_id,
+       NULLIF(email, '') as email_or_null,
        total_revenue / NULLIF(quantity_sold, 0) as avg_price
-FROM sales
-
--- Convert placeholder values to NULL
-SELECT sensor_id,
-       NULLIF(reading, -999) as valid_reading
-FROM sensor_data
+FROM customers
+WITH (
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'cleaned_customers.type' = 'kafka_sink',
+    'cleaned_customers.topic' = 'cleaned_customers_output',
+    'cleaned_customers.format' = 'json'
+);
 ```
 
 **When to use**: Convert specific values to NULL (empty strings, sentinel values, zeros)
@@ -622,10 +697,10 @@ FROM sensor_data
 
 ## Conditional Logic (CASE WHEN)
 
-### Basic CASE Expression
+### Basic CASE Expression (CSAS)
 
 ```sql
--- Simple categorization
+CREATE STREAM categorized_orders AS
 SELECT order_id,
        amount,
        CASE
@@ -634,393 +709,312 @@ SELECT order_id,
            ELSE 'small'
        END as order_size
 FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'categorized_orders.type' = 'kafka_sink',
+    'categorized_orders.topic' = 'categorized_orders_output',
+    'categorized_orders.format' = 'json'
+);
 ```
 
 **When to use**: Categorize data based on conditions
 
-### CASE with Multiple Conditions
+### CASE in Aggregation - Conditional Counting (CTAS)
 
 ```sql
--- Complex categorization with AND/OR
-SELECT user_id,
-       CASE
-           WHEN age >= 65 THEN 'senior'
-           WHEN age >= 18 AND age < 65 THEN 'adult'
-           WHEN age >= 13 THEN 'teen'
-           ELSE 'child'
-       END as age_group
-FROM users
-```
-
-### CASE in Aggregation (Conditional Counting)
-
-```sql
--- Count by condition
+CREATE TABLE user_status_counts AS
 SELECT COUNT(CASE WHEN status = 'active' THEN 1 END) as active_count,
        COUNT(CASE WHEN status = 'inactive' THEN 1 END) as inactive_count,
        COUNT(*) as total_count
 FROM users
-
--- Sum by condition
-SELECT SUM(CASE WHEN priority = 'high' THEN amount ELSE 0 END) as high_priority_total,
-       SUM(CASE WHEN priority = 'low' THEN amount ELSE 0 END) as low_priority_total
-FROM orders
+GROUP BY 1
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'users.type' = 'kafka_source',
+    'users.topic' = 'users_input',
+    'users.format' = 'json',
+    'user_status_counts.type' = 'kafka_sink',
+    'user_status_counts.topic' = 'user_status_counts_output',
+    'user_status_counts.format' = 'json'
+);
 ```
 
 **When to use**: Pivot data, count/sum conditionally within a single query
 
-### CASE Without ELSE (Returns NULL)
-
-```sql
--- NULL when no condition matches
-SELECT order_id,
-       CASE
-           WHEN status = 'shipped' THEN shipped_date
-           WHEN status = 'delivered' THEN delivered_date
-       END as relevant_date
-FROM orders
-```
-
-**When to use**: When you want NULL for unmatched cases
-
 ---
 
-## String Functions
+## String Functions (CSAS)
 
-### UPPER and LOWER
+### UPPER, LOWER, CONCAT
 
 ```sql
+CREATE STREAM formatted_customers AS
 SELECT customer_id,
        UPPER(name) as name_upper,
-       LOWER(email) as email_lower
+       LOWER(email) as email_lower,
+       CONCAT(first_name, ' ', last_name) as full_name
 FROM customers
+WITH (
+    'customers.type' = 'kafka_source',
+    'customers.topic' = 'customers_input',
+    'customers.format' = 'json',
+    'formatted_customers.type' = 'kafka_sink',
+    'formatted_customers.topic' = 'formatted_customers_output',
+    'formatted_customers.format' = 'json'
+);
 ```
 
-**When to use**: Normalize text for comparison or display
-
-### CONCAT - Concatenate Strings
+### SUBSTRING, LEFT, RIGHT
 
 ```sql
--- Join multiple strings
-SELECT CONCAT(first_name, ' ', last_name) as full_name
-FROM customers
-
--- Build formatted output
-SELECT CONCAT(city, ', ', state, ' ', zip) as address
-FROM locations
-```
-
-**When to use**: Combine text fields
-
-### SUBSTRING - Extract Part of String
-
-```sql
--- Extract first 3 characters (area code)
-SELECT phone,
-       SUBSTRING(phone, 1, 3) as area_code
-FROM contacts
-
--- Extract middle portion
+CREATE STREAM parsed_skus AS
 SELECT sku,
-       SUBSTRING(sku, 4, 6) as category_code
-FROM products
-```
-
-**When to use**: Extract portions of text
-
-### TRIM, LTRIM, RTRIM - Remove Whitespace
-
-```sql
-SELECT TRIM(user_input) as cleaned,
-       LTRIM(user_input) as left_trimmed,
-       RTRIM(user_input) as right_trimmed
-FROM form_data
-```
-
-**When to use**: Clean user input or imported data
-
-### REPLACE - Replace Text
-
-```sql
-SELECT description,
-       REPLACE(description, 'old_term', 'new_term') as updated
-FROM products
-
--- Remove characters
-SELECT phone,
-       REPLACE(REPLACE(phone, '-', ''), ' ', '') as digits_only
-FROM contacts
-```
-
-**When to use**: Find and replace text patterns
-
-### LENGTH - String Length
-
-```sql
-SELECT name,
-       LENGTH(name) as name_length
-FROM customers
-WHERE LENGTH(name) > 50
-```
-
-**When to use**: Validate or filter by string length
-
-### LEFT and RIGHT - Extract from Ends
-
-```sql
-SELECT sku,
-       LEFT(sku, 3) as prefix,
+       SUBSTRING(sku, 1, 3) as prefix,
+       LEFT(sku, 3) as left_prefix,
        RIGHT(sku, 4) as suffix
 FROM products
+WITH (
+    'products.type' = 'kafka_source',
+    'products.topic' = 'products_input',
+    'products.format' = 'json',
+    'parsed_skus.type' = 'kafka_sink',
+    'parsed_skus.topic' = 'parsed_skus_output',
+    'parsed_skus.format' = 'json'
+);
 ```
 
-**When to use**: Extract fixed-length prefixes or suffixes
+### TRIM and REPLACE
+
+```sql
+CREATE STREAM cleaned_data AS
+SELECT TRIM(user_input) as cleaned,
+       REPLACE(phone, '-', '') as phone_digits
+FROM form_data
+WITH (
+    'form_data.type' = 'kafka_source',
+    'form_data.topic' = 'form_data_input',
+    'form_data.format' = 'json',
+    'cleaned_data.type' = 'kafka_sink',
+    'cleaned_data.topic' = 'cleaned_data_output',
+    'cleaned_data.format' = 'json'
+);
+```
 
 ---
 
-## Math Functions
+## Math Functions (CSAS)
 
-### ABS - Absolute Value
+### ABS, ROUND, FLOOR, CEIL
 
 ```sql
+CREATE STREAM calculated_values AS
 SELECT account_id,
        balance,
-       ABS(balance) as absolute_balance
-FROM accounts
-WHERE ABS(balance) > 1000
-```
-
-**When to use**: Get magnitude regardless of sign
-
-### ROUND - Round to Decimal Places
-
-```sql
--- Round to 2 decimal places
-SELECT product_id,
-       price,
-       ROUND(price, 2) as rounded_price
-FROM products
-
--- Round to nearest integer
-SELECT sensor_id,
-       ROUND(temperature, 0) as temp_rounded
-FROM sensors
-```
-
-**When to use**: Control decimal precision in output
-
-### FLOOR and CEIL
-
-```sql
-SELECT price,
+       ABS(balance) as absolute_balance,
+       ROUND(price, 2) as rounded_price,
        FLOOR(price) as floor_price,
        CEIL(price) as ceil_price
-FROM products
--- price=10.7 → floor=10, ceil=11
+FROM accounts
+WITH (
+    'accounts.type' = 'kafka_source',
+    'accounts.topic' = 'accounts_input',
+    'accounts.format' = 'json',
+    'calculated_values.type' = 'kafka_sink',
+    'calculated_values.topic' = 'calculated_values_output',
+    'calculated_values.format' = 'json'
+);
 ```
 
-**When to use**: Round down (FLOOR) or up (CEIL) to integers
-
-### SQRT and POWER
+### SQRT, POWER, MOD
 
 ```sql
+CREATE STREAM math_results AS
 SELECT value,
        SQRT(value) as square_root,
        POWER(value, 2) as squared,
-       POWER(value, 0.5) as also_sqrt
+       MOD(id, 10) as bucket
 FROM numbers
+WITH (
+    'numbers.type' = 'kafka_source',
+    'numbers.topic' = 'numbers_input',
+    'numbers.format' = 'json',
+    'math_results.type' = 'kafka_sink',
+    'math_results.topic' = 'math_results_output',
+    'math_results.format' = 'json'
+);
 ```
-
-**When to use**: Mathematical calculations
-
-### MOD - Modulo (Remainder)
-
-```sql
--- Check if even/odd
-SELECT id,
-       MOD(id, 2) as is_odd
-FROM records
-
--- Distribute to buckets
-SELECT user_id,
-       MOD(user_id, 10) as bucket
-FROM users
-```
-
-**When to use**: Remainder after division, bucketing
 
 ### GREATEST and LEAST
 
 ```sql
--- Find max/min across columns
+CREATE STREAM price_bounds AS
 SELECT symbol,
        bid,
        ask,
        GREATEST(bid, ask, last_price) as max_price,
        LEAST(bid, ask, last_price) as min_price
 FROM quotes
-
--- Clamp values to range
-SELECT sensor_id,
-       GREATEST(0, LEAST(100, reading)) as clamped_reading
-FROM sensors
+WITH (
+    'quotes.type' = 'kafka_source',
+    'quotes.topic' = 'quotes_input',
+    'quotes.format' = 'json',
+    'price_bounds.type' = 'kafka_sink',
+    'price_bounds.topic' = 'price_bounds_output',
+    'price_bounds.format' = 'json'
+);
 ```
-
-**When to use**: Compare values across columns (not rows)
 
 ---
 
-## Date/Time Functions
+## Date/Time Functions (CSAS)
 
 ### EXTRACT - Get Date/Time Parts
 
 ```sql
--- SQL standard syntax
+CREATE STREAM date_parts AS
 SELECT order_date,
        EXTRACT(YEAR FROM order_date) as year,
        EXTRACT(MONTH FROM order_date) as month,
        EXTRACT(DAY FROM order_date) as day,
        EXTRACT(HOUR FROM order_date) as hour
 FROM orders
-
--- Get day of week (1=Sunday, 7=Saturday)
-SELECT event_time,
-       EXTRACT(DOW FROM event_time) as day_of_week
-FROM events
-
--- Get Unix epoch
-SELECT timestamp,
-       EXTRACT(EPOCH FROM timestamp) as unix_timestamp
-FROM logs
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'date_parts.type' = 'kafka_sink',
+    'date_parts.topic' = 'date_parts_output',
+    'date_parts.format' = 'json'
+);
 ```
 
 **EXTRACT parts**: YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, DOW, DOY, QUARTER, WEEK, EPOCH, MILLISECOND
 
-### NOW and CURRENT_TIMESTAMP
+### NOW and DATEDIFF
 
 ```sql
--- Add processing timestamp
+CREATE STREAM timestamped_orders AS
 SELECT order_id,
        amount,
-       NOW() as processed_at
-FROM orders
-
--- Calculate age
-SELECT event_id,
-       event_time,
-       EXTRACT(EPOCH FROM NOW()) - EXTRACT(EPOCH FROM event_time) as age_seconds
-FROM events
-```
-
-**When to use**: Current timestamp for auditing or calculations
-
-### DATEDIFF - Date Difference
-
-```sql
--- Days between dates
-SELECT order_id,
+       NOW() as processed_at,
        DATEDIFF('days', order_date, ship_date) as days_to_ship
 FROM orders
-
--- Hours between timestamps
-SELECT session_id,
-       DATEDIFF('hours', start_time, end_time) as session_hours
-FROM sessions
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'timestamped_orders.type' = 'kafka_sink',
+    'timestamped_orders.topic' = 'timestamped_orders_output',
+    'timestamped_orders.format' = 'json'
+);
 ```
 
-**Units**: years, months, weeks, days, hours, minutes, seconds
-
-### FROM_UNIXTIME - Convert Unix Timestamp
+### FROM_UNIXTIME and UNIX_TIMESTAMP
 
 ```sql
+CREATE STREAM converted_timestamps AS
 SELECT event_id,
        epoch_seconds,
-       FROM_UNIXTIME(epoch_seconds) as event_time
-FROM raw_events
-```
-
-**When to use**: Convert integer timestamps to datetime
-
-### UNIX_TIMESTAMP - Convert to Epoch
-
-```sql
-SELECT order_id,
-       order_date,
+       FROM_UNIXTIME(epoch_seconds) as event_time,
        UNIX_TIMESTAMP(order_date) as epoch
-FROM orders
+FROM events
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic' = 'events_input',
+    'events.format' = 'json',
+    'converted_timestamps.type' = 'kafka_sink',
+    'converted_timestamps.topic' = 'converted_timestamps_output',
+    'converted_timestamps.format' = 'json'
+);
 ```
-
-**When to use**: Convert datetime to integer for calculations
 
 ---
 
-## Additional Window Functions
+## Additional Window Functions (CSAS)
 
 ### LEAD - Next Row Value
 
 ```sql
+CREATE STREAM next_prices AS
 SELECT symbol,
        price,
-       timestamp,
+       event_time,
        LEAD(price, 1) OVER (
            ROWS WINDOW BUFFER 100 ROWS
            PARTITION BY symbol
-           ORDER BY timestamp
+           ORDER BY event_time
        ) as next_price
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'next_prices.type' = 'kafka_sink',
+    'next_prices.topic' = 'next_prices_output',
+    'next_prices.format' = 'json'
+);
 ```
-
-**When to use**: Look ahead to next row (opposite of LAG)
 
 ### RANK and DENSE_RANK
 
 ```sql
--- RANK: Gaps after ties (1, 2, 2, 4)
+CREATE STREAM price_rankings AS
 SELECT symbol,
        price,
        RANK() OVER (
            ROWS WINDOW BUFFER 100 ROWS
            ORDER BY price DESC
-       ) as price_rank
-FROM trades
-
--- DENSE_RANK: No gaps (1, 2, 2, 3)
-SELECT symbol,
-       price,
+       ) as price_rank,
        DENSE_RANK() OVER (
            ROWS WINDOW BUFFER 100 ROWS
            ORDER BY price DESC
        ) as dense_price_rank
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_rankings.type' = 'kafka_sink',
+    'price_rankings.topic' = 'price_rankings_output',
+    'price_rankings.format' = 'json'
+);
 ```
-
-**When to use**: Rank rows within partition
 
 ### FIRST_VALUE and LAST_VALUE
 
 ```sql
+CREATE STREAM price_extremes AS
 SELECT symbol,
        price,
-       timestamp,
+       event_time,
        FIRST_VALUE(price) OVER (
            ROWS WINDOW BUFFER 100 ROWS
            PARTITION BY symbol
-           ORDER BY timestamp
+           ORDER BY event_time
        ) as opening_price,
        LAST_VALUE(price) OVER (
            ROWS WINDOW BUFFER 100 ROWS
            PARTITION BY symbol
-           ORDER BY timestamp
+           ORDER BY event_time
        ) as latest_price
 FROM trades
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_extremes.type' = 'kafka_sink',
+    'price_extremes.topic' = 'price_extremes_output',
+    'price_extremes.format' = 'json'
+);
 ```
-
-**When to use**: Get first/last values in window partition
 
 ### NTILE - Divide into Buckets
 
 ```sql
--- Divide into quartiles
+CREATE STREAM score_quartiles AS
 SELECT student_id,
        score,
        NTILE(4) OVER (
@@ -1028,33 +1022,24 @@ SELECT student_id,
            ORDER BY score DESC
        ) as quartile
 FROM exam_results
--- Returns 1, 2, 3, or 4
+WITH (
+    'exam_results.type' = 'kafka_source',
+    'exam_results.topic' = 'exam_results_input',
+    'exam_results.format' = 'json',
+    'score_quartiles.type' = 'kafka_sink',
+    'score_quartiles.topic' = 'score_quartiles_output',
+    'score_quartiles.format' = 'json'
+);
 ```
-
-**When to use**: Divide data into equal-sized groups
-
-### NTH_VALUE - Get Nth Value
-
-```sql
-SELECT symbol,
-       price,
-       NTH_VALUE(price, 2) OVER (
-           ROWS WINDOW BUFFER 100 ROWS
-           PARTITION BY symbol
-           ORDER BY timestamp
-       ) as second_price
-FROM trades
-```
-
-**When to use**: Get specific position in window
 
 ---
 
-## Statistical Functions
+## Statistical Functions (CTAS)
 
 ### STDDEV and VARIANCE
 
 ```sql
+CREATE TABLE trade_volatility AS
 SELECT symbol,
        COUNT(*) as trade_count,
        AVG(price) as avg_price,
@@ -1062,160 +1047,116 @@ SELECT symbol,
        VARIANCE(price) as price_variance
 FROM trades
 GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'trade_volatility.type' = 'kafka_sink',
+    'trade_volatility.topic' = 'trade_volatility_output',
+    'trade_volatility.format' = 'json'
+);
 ```
-
-**When to use**: Measure spread/volatility
-
-### STDDEV_POP and VAR_POP (Population)
-
-```sql
-SELECT sensor_id,
-       STDDEV_POP(reading) as pop_stddev,
-       VAR_POP(reading) as pop_variance
-FROM sensor_data
-GROUP BY sensor_id
-```
-
-**When to use**: When you have entire population (not a sample)
 
 ### MEDIAN
 
 ```sql
+CREATE TABLE category_medians AS
 SELECT category,
        MEDIAN(price) as median_price
 FROM products
 GROUP BY category
+WINDOW TUMBLING(INTERVAL '1' HOUR)
+EMIT CHANGES
+WITH (
+    'products.type' = 'kafka_source',
+    'products.topic' = 'products_input',
+    'products.format' = 'json',
+    'category_medians.type' = 'kafka_sink',
+    'category_medians.topic' = 'category_medians_output',
+    'category_medians.format' = 'json'
+);
 ```
-
-**When to use**: Find middle value (more robust than AVG for skewed data)
-
-### PERCENTILE_CONT and PERCENTILE_DISC
-
-```sql
--- Continuous percentile (interpolated)
-SELECT symbol,
-       PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price) as median,
-       PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY price) as p95
-FROM trades
-GROUP BY symbol
-
--- Discrete percentile (actual value)
-SELECT symbol,
-       PERCENTILE_DISC(0.5) WITHIN GROUP (ORDER BY price) as median_actual
-FROM trades
-GROUP BY symbol
-```
-
-**When to use**: Calculate percentiles (p50=median, p95, p99, etc.)
 
 ### CORR - Correlation
 
 ```sql
+CREATE TABLE price_volume_corr AS
 SELECT symbol,
        CORR(price, volume) as price_volume_correlation
 FROM trades
 GROUP BY symbol
--- Returns -1 to 1 (negative, no, or positive correlation)
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'price_volume_corr.type' = 'kafka_sink',
+    'price_volume_corr.topic' = 'price_volume_corr_output',
+    'price_volume_corr.format' = 'json'
+);
 ```
-
-**When to use**: Measure relationship between two variables
-
-### COVAR_SAMP and COVAR_POP
-
-```sql
-SELECT symbol,
-       COVAR_SAMP(price, volume) as sample_covariance,
-       COVAR_POP(price, volume) as population_covariance
-FROM trades
-GROUP BY symbol
-```
-
-**When to use**: Measure how two variables change together
 
 ---
 
-## JSON Functions
+## JSON Functions (CSAS)
 
-### JSON_EXTRACT - Extract JSON Value
+### JSON_EXTRACT and JSON_VALUE
 
 ```sql
+CREATE STREAM extracted_json AS
 SELECT event_id,
        JSON_EXTRACT(payload, '$.user.id') as user_id,
-       JSON_EXTRACT(payload, '$.action') as action
+       JSON_EXTRACT(payload, '$.action') as action,
+       JSON_VALUE(settings, '$.timeout') as timeout
 FROM events
-
--- Nested extraction
-SELECT order_id,
-       JSON_EXTRACT(metadata, '$.shipping.address.city') as city
-FROM orders
+WITH (
+    'events.type' = 'kafka_source',
+    'events.topic' = 'events_input',
+    'events.format' = 'json',
+    'extracted_json.type' = 'kafka_sink',
+    'extracted_json.topic' = 'extracted_json_output',
+    'extracted_json.format' = 'json'
+);
 ```
-
-**When to use**: Extract values from JSON columns
-
-### JSON_VALUE - Extract Scalar Value
-
-```sql
-SELECT config_id,
-       JSON_VALUE(settings, '$.timeout') as timeout,
-       JSON_VALUE(settings, '$.enabled') as enabled
-FROM configurations
-```
-
-**When to use**: Extract simple values (strings, numbers) from JSON
 
 ---
 
-## Kafka Header Functions
+## Kafka Header Functions (CSAS)
 
-### HEADER - Get Header Value
+### HEADER and HAS_HEADER
 
 ```sql
+CREATE STREAM traced_orders AS
 SELECT order_id,
        amount,
        HEADER('trace-id') as trace_id,
-       HEADER('correlation-id') as correlation_id
-FROM orders
-```
-
-**When to use**: Access Kafka message headers for tracing/correlation
-
-### HAS_HEADER - Check Header Exists
-
-```sql
--- Filter by header presence
-SELECT *
-FROM events
-WHERE HAS_HEADER('priority')
-
--- Conditional logic based on headers
-SELECT order_id,
+       HEADER('correlation-id') as correlation_id,
        CASE
            WHEN HAS_HEADER('express') THEN 'express'
            ELSE 'standard'
        END as shipping_type
 FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'traced_orders.type' = 'kafka_sink',
+    'traced_orders.topic' = 'traced_orders_output',
+    'traced_orders.format' = 'json'
+);
 ```
-
-**When to use**: Check if a header is present before using it
-
-### HEADER_KEYS - List All Headers
-
-```sql
-SELECT message_id,
-       HEADER_KEYS() as all_headers
-FROM messages
--- Returns comma-separated list: "trace-id,correlation-id,source"
-```
-
-**When to use**: Debug/inspect available headers
 
 ---
 
-## Window Boundaries (System Columns for Time Windows)
+## Window Boundaries - System Columns (CTAS)
 
 ### Using _window_start and _window_end
 
 ```sql
+CREATE TABLE windowed_trades AS
 SELECT symbol,
        COUNT(*) as trade_count,
        AVG(price) as avg_price,
@@ -1223,142 +1164,151 @@ SELECT symbol,
        _window_end as window_end
 FROM trades
 GROUP BY symbol
-    WINDOW TUMBLING(INTERVAL '1' MINUTE)
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'windowed_trades.type' = 'kafka_sink',
+    'windowed_trades.topic' = 'windowed_trades_output',
+    'windowed_trades.format' = 'json'
+);
 ```
-
-**When to use**: Include window time boundaries in output for debugging or downstream processing
-
-### TUMBLE_START and TUMBLE_END Functions
-
-```sql
-SELECT symbol,
-       TUMBLE_START(timestamp, INTERVAL '5' MINUTE) as window_start,
-       TUMBLE_END(timestamp, INTERVAL '5' MINUTE) as window_end,
-       COUNT(*) as cnt
-FROM trades
-GROUP BY symbol
-    WINDOW TUMBLING(INTERVAL '5' MINUTE)
-```
-
-**When to use**: Explicitly calculate window boundaries from timestamp
 
 ---
 
-## IN and BETWEEN Operators
+## IN and BETWEEN Operators (CSAS)
 
 ### IN - Check Membership
 
 ```sql
--- Filter by list of values
+CREATE STREAM active_orders AS
 SELECT *
 FROM orders
 WHERE status IN ('pending', 'processing', 'shipped')
-
--- NOT IN for exclusion
-SELECT *
-FROM products
-WHERE category NOT IN ('discontinued', 'archived')
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'active_orders.type' = 'kafka_sink',
+    'active_orders.topic' = 'active_orders_output',
+    'active_orders.format' = 'json'
+);
 ```
-
-**When to use**: Check if value is in a set
 
 ### BETWEEN - Range Check
 
 ```sql
--- Inclusive range
+CREATE STREAM mid_range_orders AS
 SELECT *
 FROM orders
 WHERE amount BETWEEN 100 AND 500
-
--- Date range
-SELECT *
-FROM events
-WHERE event_date BETWEEN '2024-01-01' AND '2024-12-31'
-
--- NOT BETWEEN for exclusion
-SELECT *
-FROM readings
-WHERE temperature NOT BETWEEN 60 AND 80
+WITH (
+    'orders.type' = 'kafka_sink',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'mid_range_orders.type' = 'kafka_sink',
+    'mid_range_orders.topic' = 'mid_range_orders_output',
+    'mid_range_orders.format' = 'json'
+);
 ```
-
-**When to use**: Check if value is within a range (inclusive)
-
----
-
-## Testing These Examples
-
-Each example has been tested and works. If you modify them:
-
-1. ✅ Keep keyword order the same
-2. ✅ Keep OVER clause structure for ROWS WINDOW
-3. ✅ Keep WINDOW clause placement (after HAVING, before ORDER BY)
-4. ✅ Keep FROM required (except SELECT 1 style)
-
-If an example doesn't work after modification:
-
-- Check `docs/sql/PARSER_GRAMMAR.md` for syntax rules
-- Run tests: `grep -r "your_pattern" tests/unit/sql/parser/`
-- Compare with working example here
 
 ---
 
 ## Common Mistakes (Don't Do This!)
 
-### ❌ Wrong Window Syntax
+### ❌ Wrong: Plain SELECT (not valid for streaming jobs)
 
 ```sql
-❌
+-- ❌ WRONG - Plain SELECT not valid for deployed jobs
+SELECT * FROM orders WHERE amount > 100
+
+-- ✅ CORRECT - Use CREATE STREAM or CREATE TABLE
+CREATE STREAM filtered_orders AS
+SELECT * FROM orders WHERE amount > 100
+WITH (...);
+```
+
+### ❌ Wrong: Using output.type instead of named sink
+
+```sql
+-- ❌ WRONG - Generic output.type
+CREATE STREAM my_stream AS
+SELECT * FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'output.type' = 'kafka_sink',        -- WRONG!
+    'output.topic' = 'my_output'
+);
+
+-- ✅ CORRECT - Named sink matches stream name
+CREATE STREAM my_stream AS
+SELECT * FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'my_stream.type' = 'kafka_sink',     -- Matches stream name!
+    'my_stream.topic' = 'my_stream_output',
+    'my_stream.format' = 'json'
+);
+```
+
+### ❌ Wrong: CSAS for aggregations (use CTAS)
+
+```sql
+-- ❌ WRONG - CSAS with aggregation
+CREATE STREAM trade_stats AS
+SELECT symbol, COUNT(*) as cnt
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE);
+
+-- ✅ CORRECT - CTAS for aggregations
+CREATE TABLE trade_stats AS
+SELECT symbol, COUNT(*) as cnt
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (...);
+```
+
+### ❌ Wrong: ROWS WINDOW syntax
+
+```sql
+-- ❌ WRONG
 ROWS BUFFER 100 ROWS
-❌ ROWS WINDOW BUFFER 100
-❌ WINDOW ROWS 100
-✅ ROWS WINDOW BUFFER 100 ROWS   (Correct)
+ROWS WINDOW BUFFER 100
+WINDOW ROWS 100
+
+-- ✅ CORRECT
+ROWS WINDOW BUFFER 100 ROWS
 ```
 
-### ❌ Wrong Clause Order
+### ❌ Wrong: Missing parentheses in OVER clause
 
 ```sql
-❌
-SELECT * WHERE
-WHERE amount > 100
-FROM orders ❌
-SELECT *
-FROM orders
-ORDER BY amount
-GROUP BY customer_id ✅
-SELECT *
-FROM orders
-WHERE amount > 100
-GROUP BY customer_id
-ORDER BY amount
-```
-
-### ❌ Missing Parentheses in ROWS WINDOW
-
-```sql
-❌
+-- ❌ WRONG
 AVG(price) OVER ROWS WINDOW BUFFER 100 ROWS
-✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
+
+-- ✅ CORRECT
+AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
 ```
 
-### ❌ Missing FROM
+### ❌ Wrong: Confusing Window Types
 
 ```sql
-❌
-SELECT * WHERE amount > 100 ✅
-SELECT *
-FROM orders
-WHERE amount > 100
-```
+-- ❌ WRONG - ROWS is count-based, not time-based
+ROWS WINDOW TUMBLING(INTERVAL '1' MINUTE)
 
-### ❌ Confusing Window Types
+-- ✅ CORRECT - Time-based window
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
 
-```sql
-❌ WINDOW
-ROWS 100 ROWS               (This isn't valid)
-❌ ROWS WINDOW TUMBLING(1m)           (ROWS is count-based, not time)
-✅ WINDOW TUMBLING(INTERVAL '
-1' MINUTE)  (For time-based)
-✅ ROWS WINDOW BUFFER 100 ROWS        (For count-based)
+-- ✅ CORRECT - Count-based window
+ROWS WINDOW BUFFER 100 ROWS
 ```
 
 ---
@@ -1368,30 +1318,29 @@ ROWS 100 ROWS               (This isn't valid)
 ### Change Time Intervals
 
 ```sql
--- 1-minute (current)
-WINDOW
-TUMBLING(INTERVAL '1' MINUTE)
+-- 1-minute window
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
 
--- To 5 minutes
+-- 5-minute window
 WINDOW TUMBLING(INTERVAL '5' MINUTE)
 
--- To 1 hour
+-- 1-hour window
 WINDOW TUMBLING(INTERVAL '1' HOUR)
 
--- To 30 seconds
+-- 30-second window
 WINDOW TUMBLING(INTERVAL '30' SECOND)
 ```
 
 ### Change Buffer Sizes
 
 ```sql
--- 100-row window (current)
+-- 100-row window
 ROWS WINDOW BUFFER 100 ROWS
 
--- To 500 rows
+-- 500-row window
 ROWS WINDOW BUFFER 500 ROWS
 
--- To 1000 rows
+-- 1000-row window
 ROWS WINDOW BUFFER 1000 ROWS
 ```
 
@@ -1399,32 +1348,54 @@ ROWS WINDOW BUFFER 1000 ROWS
 
 ```sql
 -- Single partition column
-PARTITION
-BY symbol
+PARTITION BY symbol
 
 -- Multiple partition columns
 PARTITION BY symbol, trader_id
 
 -- No partition (all rows together)
--- (Just omit PARTITION BY)
+-- Just omit PARTITION BY
 ```
 
-### Change Aggregates
+---
+
+## WITH Clause Pattern Reference
+
+### Source Configuration
 
 ```sql
--- Count
-COUNT(*) as cnt
-
--- Average
-AVG(price) as avg_price
-
--- Sum
-SUM(quantity) as total_qty
-
--- Min/Max
-MIN(price) as min_price, MAX(price) as max_price
-
--- Multiple
-COUNT(*) as cnt, AVG(price) as avg, SUM(qty) as total
+'<source_name>.type' = 'kafka_source',
+'<source_name>.topic' = '<topic_name>',
+'<source_name>.format' = 'json'  -- or 'avro', 'protobuf'
 ```
 
+### Sink Configuration (Named - matches CSAS/CTAS name)
+
+```sql
+'<stream_or_table_name>.type' = 'kafka_sink',
+'<stream_or_table_name>.topic' = '<output_topic>',
+'<stream_or_table_name>.format' = 'json'
+```
+
+### Full Example Pattern
+
+```sql
+CREATE STREAM|TABLE <name> AS
+SELECT ...
+FROM <source>
+[WHERE ...]
+[GROUP BY ...]
+[WINDOW ...]
+[EMIT CHANGES|FINAL]
+WITH (
+    -- Source(s)
+    '<source>.type' = 'kafka_source',
+    '<source>.topic' = '<input_topic>',
+    '<source>.format' = 'json',
+
+    -- Sink (name matches CREATE name)
+    '<name>.type' = 'kafka_sink',
+    '<name>.topic' = '<output_topic>',
+    '<name>.format' = 'json'
+);
+```

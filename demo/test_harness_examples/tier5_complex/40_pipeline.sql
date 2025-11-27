@@ -32,8 +32,8 @@ WITH (
     'cleaned_transactions.config_file' = 'configs/output_stream_sink.yaml'
 );
 
--- Stage 2: Aggregate by region
-CREATE STREAM regional_summary AS
+-- Stage 2: Aggregate by region (uses CREATE TABLE for GROUP BY aggregation)
+CREATE TABLE regional_summary AS
 SELECT
     region,
     COUNT(*) AS transaction_count,
