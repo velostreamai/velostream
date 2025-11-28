@@ -295,6 +295,7 @@ async fn test_simple_processor_multi_source_processing() {
                 query,
                 "test-multi-simple".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -382,6 +383,7 @@ async fn test_transactional_processor_multi_source_processing() {
                 query,
                 "test-multi-transactional".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -567,6 +569,7 @@ async fn test_error_handling_in_multi_source_processing() {
                 query,
                 "test-error-handling".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

@@ -67,9 +67,10 @@ impl StreamJobProcessor for YourJobProcessorWrapper {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        _shared_stats: Option<std::sync::Arc<std::sync::RwLock<JobExecutionStats>>>,
     ) -> Result<Self::StatsType, Box<dyn std::error::Error + Send + Sync>> {
         // TODO: Call your processor's process_job method
-        // self.processor.process_job(reader, writer, engine, query, job_name, shutdown_rx).await
+        // self.processor.process_job(reader, writer, engine, query, job_name, shutdown_rx, None).await
         unimplemented!("Replace with your processor's process_job method")
     }
 

@@ -166,6 +166,7 @@ async fn adaptive_processor_busy_spin_performance() {
                     query,
                     format!("perf_test_{}", name),
                     shutdown_rx,
+                    None,
                 )
                 .await
         });
@@ -251,6 +252,7 @@ async fn adaptive_processor_steady_state_throughput() {
                 query,
                 "steady_state_test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

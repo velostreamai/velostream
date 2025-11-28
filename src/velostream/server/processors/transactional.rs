@@ -9,7 +9,9 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
-use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
+use crate::velostream::server::processors::job_processor_trait::{
+    JobProcessor, ProcessorMetrics, SharedJobStats,
+};
 use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
@@ -119,6 +121,7 @@ impl TransactionalJobProcessor {
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -318,6 +321,9 @@ impl TransactionalJobProcessor {
                     tokio::time::sleep(self.config.retry_backoff).await;
                 }
             }
+
+            // Sync to shared stats for real-time monitoring
+            stats.sync_to_shared(&shared_stats);
         }
 
         // Final commit all sources and flush all sinks
@@ -371,7 +377,8 @@ impl TransactionalJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
+        shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             vec![("default_source".to_string(), reader)]
@@ -385,7 +392,8 @@ impl TransactionalJobProcessor {
             engine,
             query,
             job_name,
-            _shutdown_rx,
+            shutdown_rx,
+            shared_stats,
         )
         .await
     }
@@ -1592,8 +1600,12 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
         query: crate::velostream::sql::StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        self.process_multi_job(
+        // Delegate to inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        TransactionalJobProcessor::process_multi_job(
+            self,
             {
                 let mut readers = std::collections::HashMap::new();
                 readers.insert("default_reader".to_string(), reader);
@@ -1610,6 +1622,7 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
             query,
             job_name,
             shutdown_rx,
+            shared_stats,
         )
         .await
     }
@@ -1628,10 +1641,21 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
         query: crate::velostream::sql::StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        // Delegate to the existing process_multi_job implementation
-        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
-            .await
+        // Delegate to the inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        TransactionalJobProcessor::process_multi_job(
+            self,
+            readers,
+            writers,
+            engine,
+            query,
+            job_name,
+            shutdown_rx,
+            shared_stats,
+        )
+        .await
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

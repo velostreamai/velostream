@@ -48,6 +48,7 @@ async fn test_transactional_processor_sink_failure() {
                     query,
                     "test_job".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -113,6 +114,7 @@ async fn test_conservative_simple_processor_failure_handling() {
                     query,
                     "conservative_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -161,6 +163,7 @@ async fn test_transactional_processor_writer_commit_tx_failure() {
                     query,
                     "commit_tx_failure_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -211,6 +214,7 @@ async fn test_transactional_processor_writer_begin_tx_failure() {
                     query,
                     "begin_tx_failure_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -260,6 +264,7 @@ async fn test_simple_processor_sink_failure_continues_processing() {
                     query,
                     "simple_sink_failure_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }

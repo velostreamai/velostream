@@ -291,6 +291,7 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
             query,
             "tumbling_emit_changes_test".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 

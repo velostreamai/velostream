@@ -223,6 +223,7 @@ async fn test_scenario_4_simple_jp_small_dataset() {
             (*query_arc).clone(),
             "test_scenario_4_small".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -306,6 +307,7 @@ async fn test_scenario_4_simple_jp_medium_dataset() {
             (*query_arc).clone(),
             "test_scenario_4_medium".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -390,6 +392,7 @@ async fn test_scenario_4_simple_jp_large_dataset() {
             (*query_arc).clone(),
             "test_scenario_4_large".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -474,6 +477,7 @@ async fn test_scenario_4_simple_jp_1m_dataset() {
             (*query_arc).clone(),
             "test_scenario_4_1m".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -669,6 +673,7 @@ async fn test_scenario_4_with_partition_batching() {
             (*query_arc).clone(),
             "test_partition_batched".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;

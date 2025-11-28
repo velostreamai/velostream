@@ -268,6 +268,7 @@ async fn test_transactional_multi_source_processor_writes_to_sinks() {
                 query,
                 "test-transactional-sink-writes".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

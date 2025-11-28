@@ -292,6 +292,25 @@ impl JobExecutionStats {
             .map(|s| s.elapsed())
             .unwrap_or(Duration::from_secs(0))
     }
+
+    /// Sync stats to shared stats for real-time monitoring.
+    /// This is used by processors to update the shared stats reference
+    /// that external observers (like the test harness) can poll.
+    pub fn sync_to_shared(
+        &self,
+        shared_stats: &Option<crate::velostream::server::processors::SharedJobStats>,
+    ) {
+        if let Some(shared) = shared_stats {
+            match shared.write() {
+                Ok(mut shared_lock) => {
+                    *shared_lock = self.clone();
+                }
+                Err(e) => {
+                    log::warn!("Failed to sync to shared_stats: {} - stats may be stale", e);
+                }
+            }
+        }
+    }
 }
 
 /// Configuration for job processing behavior

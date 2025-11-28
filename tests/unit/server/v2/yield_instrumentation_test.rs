@@ -188,6 +188,7 @@ async fn measure_yield_now_overhead() {
                 query,
                 "yield_instrumentation_test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

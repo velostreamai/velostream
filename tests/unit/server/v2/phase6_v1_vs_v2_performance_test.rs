@@ -274,6 +274,7 @@ async fn test_v1_baseline_groupby_sum_100k_records() {
                 query,
                 "v1-perf-test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -372,6 +373,7 @@ async fn test_v2_single_partition_groupby_sum_100k_records() {
                 query,
                 "v2-1p-perf-test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -470,6 +472,7 @@ async fn test_v2_8partition_groupby_sum_100k_records() {
                 query,
                 "v2-8p-perf-test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

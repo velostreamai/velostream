@@ -29,7 +29,7 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::{
-    JobProcessor, ProcessorMetrics, common::JobExecutionStats,
+    JobProcessor, ProcessorMetrics, SharedJobStats, common::JobExecutionStats,
 };
 use crate::velostream::server::v2::AdaptiveJobProcessor;
 use crate::velostream::sql::StreamExecutionEngine;
@@ -78,6 +78,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Job Processing with Synchronous Receivers
         //
@@ -189,6 +190,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                             aggregated_stats.records_processed += routed_count as u64;
                             aggregated_stats.batches_processed += 1;
                             total_routed += routed_count as u64;
+
+                            // Sync to shared stats for real-time monitoring
+                            aggregated_stats.sync_to_shared(&shared_stats);
                         }
                         Err(e) => {
                             log::warn!("Error routing batch: {:?}", e);
@@ -258,6 +262,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         query: StreamingQuery,
         job_name: String,
         _shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Multi-Job Processing with Synchronous Receivers
         //
@@ -363,6 +368,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                                 aggregated_stats.records_processed += routed_count as u64;
                                 aggregated_stats.batches_processed += 1;
                                 total_routed += routed_count as u64;
+
+                                // Sync to shared stats for real-time monitoring
+                                aggregated_stats.sync_to_shared(&shared_stats);
                             }
                             Err(e) => {
                                 log::warn!("Error routing batch: {:?}", e);

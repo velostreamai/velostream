@@ -58,9 +58,10 @@ impl StreamJobProcessor for SimpleJobProcessorWrapper {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        _shared_stats: Option<std::sync::Arc<std::sync::RwLock<JobExecutionStats>>>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.processor
-            .process_job(reader, writer, engine, query, job_name, shutdown_rx)
+            .process_job(reader, writer, engine, query, job_name, shutdown_rx, None)
             .await
     }
 
@@ -483,6 +484,7 @@ async fn test_simple_processor_with_different_failure_strategies() {
                     query,
                     format!("test_{}", strategy_name),
                     shutdown_rx,
+                    None,
                 ),
             )
             .await
@@ -495,6 +497,7 @@ async fn test_simple_processor_with_different_failure_strategies() {
                     query,
                     format!("test_{}", strategy_name),
                     shutdown_rx,
+                    None,
                 )
                 .await)
         };
@@ -551,6 +554,7 @@ async fn test_simple_processor_transaction_detection() {
             query,
             "test_transaction_detection".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -608,6 +612,7 @@ async fn test_sink_failure_with_log_and_continue_strategy() {
             query,
             "test_job_log_continue".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -681,6 +686,7 @@ async fn test_sink_failure_with_retry_with_backoff_strategy() {
             query,
             "test_job_retry_backoff".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -745,6 +751,7 @@ async fn test_sink_failure_with_fail_batch_strategy() {
             query,
             "test_job_fail_batch".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -832,6 +839,7 @@ async fn test_simple_processor_with_10000_records() {
             query,
             "test_10000_records".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 

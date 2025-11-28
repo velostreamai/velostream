@@ -264,6 +264,7 @@ async fn test_transactional_processor_success() {
                     query,
                     "test_job".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -328,6 +329,7 @@ async fn test_simple_processor_throughput() {
                     query,
                     "throughput_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -390,6 +392,7 @@ async fn test_low_latency_processor() {
                     query,
                     "latency_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -446,6 +449,7 @@ async fn test_simple_processor_with_transaction_capable_sources() {
                     query,
                     "simple_with_tx_capable_test".to_string(),
                     shutdown_rx,
+                    None,
                 )
                 .await
         }
@@ -493,6 +497,7 @@ async fn test_transactional_processor_mixed_transaction_support() {
             query,
             "mixed_tx_test".to_string(),
             shutdown_rx,
+            None,
         )
         .await
         .expect("Job should succeed");

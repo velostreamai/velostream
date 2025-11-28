@@ -240,6 +240,7 @@ async fn test_process_datasource_with_shutdown() {
             query,
             "test-job".to_string(),
             shutdown_receiver,
+            None,
         )
         .await
         .unwrap();
@@ -338,4 +339,155 @@ fn test_job_execution_stats_no_start_time() {
 
     assert_eq!(stats.records_per_second(), 0.0);
     assert_eq!(stats.elapsed(), Duration::from_secs(0));
+}
+
+/// Test that shared stats are updated and readable during job execution
+#[tokio::test]
+async fn test_shared_stats_are_updated_during_job_execution() {
+    use std::collections::HashMap;
+    use std::sync::{Arc, RwLock};
+    use velostream::velostream::datasource::DataReader;
+    use velostream::velostream::server::processors::{JobProcessor, SimpleJobProcessor};
+    use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
+
+    // Create a mock reader that produces test records
+    struct MockReader {
+        count: usize,
+    }
+
+    #[async_trait::async_trait]
+    impl DataReader for MockReader {
+        async fn read(
+            &mut self,
+        ) -> Result<Vec<StreamRecord>, Box<dyn std::error::Error + Send + Sync>> {
+            if self.count > 0 {
+                let mut records = Vec::new();
+                let record_count = std::cmp::min(self.count, 5); // Batch size
+
+                for _ in 0..record_count {
+                    self.count -= 1;
+                    let mut fields = HashMap::new();
+                    fields.insert("id".to_string(), FieldValue::Integer(self.count as i64));
+                    fields.insert("value".to_string(), FieldValue::String("test".to_string()));
+
+                    records.push(StreamRecord {
+                        fields,
+                        timestamp: chrono::Utc::now().timestamp_millis(),
+                        offset: 0,
+                        partition: 0,
+                        event_time: None,
+                        headers: HashMap::new(),
+                    });
+                }
+
+                Ok(records)
+            } else {
+                Ok(Vec::new()) // Empty batch when no more data
+            }
+        }
+
+        async fn seek(
+            &mut self,
+            _offset: velostream::velostream::datasource::types::SourceOffset,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn has_more(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(self.count > 0)
+        }
+
+        async fn commit(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn supports_transactions(&self) -> bool {
+            false
+        }
+
+        async fn begin_transaction(
+            &mut self,
+        ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+            Ok(false)
+        }
+
+        async fn commit_transaction(
+            &mut self,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        async fn abort_transaction(
+            &mut self,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+    }
+
+    // Create execution engine
+    let (output_sender, _output_receiver) = mpsc::unbounded_channel();
+    let engine = StreamExecutionEngine::new(output_sender);
+    let engine = Arc::new(tokio::sync::RwLock::new(engine));
+
+    // Parse a simple query
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse("SELECT id, value FROM test").unwrap();
+
+    // Create shutdown channel
+    let (_shutdown_sender, shutdown_receiver) = mpsc::channel(1);
+
+    // Create mock reader with 10 records
+    let reader = Box::new(MockReader { count: 10 });
+
+    // Create processor with fast exit on exhausted sources for test
+    let config = JobProcessingConfig {
+        empty_batch_count: 0, // Exit immediately when sources exhausted
+        ..Default::default()
+    };
+    let processor = SimpleJobProcessor::new(config);
+
+    // Create shared stats for real-time monitoring
+    let shared_stats: Arc<RwLock<JobExecutionStats>> =
+        Arc::new(RwLock::new(JobExecutionStats::new()));
+
+    // Process records with shared stats
+    let final_stats = processor
+        .process_job(
+            reader,
+            None, // No writer
+            engine,
+            query,
+            "test-shared-stats-job".to_string(),
+            shutdown_receiver,
+            Some(shared_stats.clone()), // Pass shared stats
+        )
+        .await
+        .unwrap();
+
+    // Verify final stats
+    assert_eq!(
+        final_stats.records_processed, 10,
+        "Final stats should show 10 records processed"
+    );
+    assert_eq!(
+        final_stats.records_failed, 0,
+        "Final stats should show 0 records failed"
+    );
+
+    // Verify shared stats were updated
+    let shared_stats_read = shared_stats
+        .read()
+        .expect("Should be able to read shared stats");
+    assert_eq!(
+        shared_stats_read.records_processed, 10,
+        "Shared stats should also show 10 records processed"
+    );
+    assert_eq!(
+        shared_stats_read.records_failed, 0,
+        "Shared stats should also show 0 records failed"
+    );
+    assert!(
+        shared_stats_read.batches_processed > 0,
+        "Shared stats should show at least 1 batch processed"
+    );
 }

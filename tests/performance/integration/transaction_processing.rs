@@ -356,6 +356,7 @@ async fn benchmark_simple_processor(
                 query,
                 "simple_benchmark".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -408,6 +409,7 @@ async fn benchmark_transactional_processor(
                 query,
                 "transactional_benchmark".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

@@ -10,7 +10,9 @@ use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
-use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
+use crate::velostream::server::processors::job_processor_trait::{
+    JobProcessor, ProcessorMetrics, SharedJobStats,
+};
 use crate::velostream::server::processors::metrics_collector::MetricsCollector;
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
@@ -344,6 +346,7 @@ impl SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             HashMap::from([(String::from("default_source"), reader)]),
@@ -355,6 +358,7 @@ impl SimpleJobProcessor {
             query,
             job_name,
             shutdown_rx,
+            shared_stats, // Pass shared_stats to enable real-time stats monitoring
         )
         .await
     }
@@ -368,6 +372,7 @@ impl SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -471,6 +476,9 @@ impl SimpleJobProcessor {
             let result = self
                 .process_data(&mut context, &engine, &query, &job_name, &mut stats)
                 .await;
+
+            // Sync to shared stats for real-time monitoring
+            stats.sync_to_shared(&shared_stats);
 
             // Handle batch result (logs progress or errors)
             if self.handle_batch_result(result, &mut stats, &job_name) {
@@ -1141,8 +1149,12 @@ impl JobProcessor for SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        self.process_multi_job(
+        // Delegate to inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        SimpleJobProcessor::process_multi_job(
+            self,
             HashMap::from([(String::from("default_source"), reader)]),
             match writer {
                 Some(w) => HashMap::from([(String::from("default_sink"), w)]),
@@ -1152,6 +1164,7 @@ impl JobProcessor for SimpleJobProcessor {
             query,
             job_name,
             shutdown_rx,
+            shared_stats,
         )
         .await
     }
@@ -1164,10 +1177,21 @@ impl JobProcessor for SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        // Delegate to the existing process_multi_job implementation
-        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
-            .await
+        // Delegate to the inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        SimpleJobProcessor::process_multi_job(
+            self,
+            readers,
+            writers,
+            engine,
+            query,
+            job_name,
+            shutdown_rx,
+            shared_stats,
+        )
+        .await
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

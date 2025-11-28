@@ -406,6 +406,7 @@ async fn profile_tumbling_window_group_by_1m_records() {
                 query,
                 "window_groupby_profiling".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -537,6 +538,7 @@ async fn profile_group_by_aggregations_1m_records() {
                 query,
                 "groupby_profiling".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

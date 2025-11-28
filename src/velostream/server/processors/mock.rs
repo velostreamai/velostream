@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use super::job_processor_trait::{JobProcessor, ProcessorMetrics};
+use super::job_processor_trait::{JobProcessor, ProcessorMetrics, SharedJobStats};
 
 /// Mock job processor for testing
 ///
@@ -118,6 +118,7 @@ impl JobProcessor for MockJobProcessor {
         _query: StreamingQuery,
         job_name: String,
         _shutdown_receiver: tokio::sync::mpsc::Receiver<()>,
+        _shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Increment call count
         *self.call_count.write().await += 1;
@@ -148,6 +149,7 @@ impl JobProcessor for MockJobProcessor {
         _query: StreamingQuery,
         job_name: String,
         _shutdown_receiver: tokio::sync::mpsc::Receiver<()>,
+        _shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Increment call count
         *self.call_count.write().await += 1;

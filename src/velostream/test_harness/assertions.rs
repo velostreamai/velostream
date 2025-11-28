@@ -1822,7 +1822,7 @@ mod tests {
         let output = create_test_output(vec![HashMap::from([
             ("id".to_string(), FieldValue::Integer(1)),
             ("name".to_string(), FieldValue::String("test".to_string())),
-            ("value".to_string(), FieldValue::Float(3.14)),
+            ("value".to_string(), FieldValue::Float(2.5)),
         ])]);
 
         let runner = AssertionRunner::new();
@@ -2154,7 +2154,7 @@ mod tests {
         assert_eq!(field_value_to_string(&FieldValue::Null), "null");
         assert_eq!(field_value_to_string(&FieldValue::Boolean(true)), "true");
         assert_eq!(field_value_to_string(&FieldValue::Integer(42)), "42");
-        assert_eq!(field_value_to_string(&FieldValue::Float(3.14)), "3.14");
+        assert_eq!(field_value_to_string(&FieldValue::Float(2.5)), "2.5");
         assert_eq!(
             field_value_to_string(&FieldValue::String("test".to_string())),
             "test"
@@ -2169,7 +2169,7 @@ mod tests {
     #[test]
     fn test_field_value_to_f64() {
         assert_eq!(field_value_to_f64(&FieldValue::Integer(42)), Some(42.0));
-        assert_eq!(field_value_to_f64(&FieldValue::Float(3.14)), Some(3.14));
+        assert_eq!(field_value_to_f64(&FieldValue::Float(2.5)), Some(2.5));
         assert_eq!(
             field_value_to_f64(&FieldValue::ScaledInteger(12345, 2)),
             Some(123.45)

@@ -170,6 +170,7 @@ async fn test_job_processor_with_tracing_enabled() {
                 query,
                 "trace-test-job".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

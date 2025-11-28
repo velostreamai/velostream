@@ -448,6 +448,7 @@ async fn profile_realistic_1m_records() {
                 query,
                 "profiling_job".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

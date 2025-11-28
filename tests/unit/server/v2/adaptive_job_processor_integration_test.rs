@@ -49,6 +49,7 @@ async fn run_process_job(
                     let (_tx, rx) = tokio::sync::mpsc::channel(1);
                     rx
                 },
+                None,
             )
             .await
     });
@@ -986,6 +987,7 @@ async fn test_adaptive_processor_factory_test_optimized() {
                     let (_tx, rx) = tokio::sync::mpsc::channel(1);
                     rx
                 },
+                None,
             )
             .await;
         result
@@ -1052,4 +1054,119 @@ async fn test_adaptive_processor_factory_test_optimized() {
         "✓ Records written correctly: {} records processed and written",
         records_written
     );
+}
+
+// =====================================================
+// SHARED STATS TESTS
+// =====================================================
+
+/// Test that AdaptiveJobProcessor (V2) updates SharedJobStats during execution
+#[tokio::test]
+async fn test_adaptive_processor_shared_stats_are_updated() {
+    use std::sync::RwLock;
+    use velostream::velostream::server::processors::common::JobExecutionStats;
+    use velostream::velostream::server::v2::PartitionedJobConfig;
+
+    println!("\n=== Test: AdaptiveJobProcessor (V2) SharedStats Updates ===");
+
+    // Create test records (20 records)
+    let reader = MockDataSource::with_records(20);
+    let writer = MockDataWriter::new();
+
+    // Create processor with 2 partitions
+    let config = PartitionedJobConfig {
+        num_partitions: Some(2),
+        ..Default::default()
+    };
+    let processor = Arc::new(AdaptiveJobProcessor::new(config));
+
+    // Parse simple query
+    let query_str = "SELECT id, value, trader_id FROM test";
+    let mut parser = velostream::velostream::sql::parser::StreamingSqlParser::new();
+    let query = parser.parse(query_str).expect("Failed to parse query");
+
+    // Create shared stats for real-time monitoring
+    let shared_stats: Arc<RwLock<JobExecutionStats>> =
+        Arc::new(RwLock::new(JobExecutionStats::new()));
+
+    // Run process_job with shared_stats
+    let (dummy_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+    let dummy_engine = Arc::new(tokio::sync::RwLock::new(
+        velostream::velostream::sql::StreamExecutionEngine::new(dummy_tx),
+    ));
+
+    let processor_clone = Arc::clone(&processor);
+    let shared_stats_clone = shared_stats.clone();
+    let process_handle = tokio::spawn(async move {
+        processor_clone
+            .process_job(
+                Box::new(reader),
+                Some(Box::new(writer)),
+                dummy_engine,
+                query,
+                "test_v2_shared_stats".to_string(),
+                {
+                    let (_tx, rx) = tokio::sync::mpsc::channel(1);
+                    rx
+                },
+                Some(shared_stats_clone), // Pass shared stats
+            )
+            .await
+    });
+
+    // Wait for processing to complete
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // Stop the processor to signal shutdown
+    let _ = processor.stop().await;
+
+    // Wait for process_job to complete with timeout
+    let result = tokio::time::timeout(Duration::from_secs(5), process_handle)
+        .await
+        .expect("process_job timed out")
+        .expect("process_job task panicked");
+
+    match result {
+        Ok(final_stats) => {
+            println!("✅ Test completed with final stats: {:?}", final_stats);
+
+            // Verify final stats show records were processed
+            assert!(
+                final_stats.records_processed > 0,
+                "Final stats should show records processed, got: {}",
+                final_stats.records_processed
+            );
+
+            // Verify shared stats were updated
+            let shared_stats_read = shared_stats
+                .read()
+                .expect("Should be able to read shared stats");
+            assert!(
+                shared_stats_read.records_processed > 0,
+                "SharedStats should show records processed, got: {}",
+                shared_stats_read.records_processed
+            );
+            assert!(
+                shared_stats_read.batches_processed > 0,
+                "SharedStats should show batches processed, got: {}",
+                shared_stats_read.batches_processed
+            );
+
+            println!("✅ SharedStats verification passed:");
+            println!(
+                "   - Records processed: {}",
+                shared_stats_read.records_processed
+            );
+            println!(
+                "   - Batches processed: {}",
+                shared_stats_read.batches_processed
+            );
+        }
+        Err(e) => {
+            panic!(
+                "AdaptiveJobProcessor (V2) SharedStats test should not fail: {:?}",
+                e
+            );
+        }
+    }
 }

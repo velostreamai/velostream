@@ -739,6 +739,7 @@ async fn scenario_1_rows_window_with_job_server() {
             parsed_query,
             "rows_window_baseline".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
     let job_time_us = job_start.elapsed().as_micros();
@@ -949,6 +950,7 @@ async fn scenario_1_v2_sticky_partition_1core() {
             parsed_query,
             "rows_window_v2_baseline".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
     let v2_time_us = v2_start.elapsed().as_micros();

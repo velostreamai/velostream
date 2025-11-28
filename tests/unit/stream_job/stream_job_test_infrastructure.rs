@@ -407,6 +407,7 @@ pub trait StreamJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<std::sync::Arc<std::sync::RwLock<JobExecutionStats>>>,
     ) -> Result<Self::StatsType, Box<dyn std::error::Error + Send + Sync>>;
 
     fn get_config(&self) -> &JobProcessingConfig;
@@ -448,6 +449,7 @@ pub async fn test_source_read_failure_scenario<T: StreamJobProcessor>(
             query,
             format!("test_source_read_failure_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -496,6 +498,7 @@ where
             query,
             format!("test_sink_write_failure_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -545,6 +548,7 @@ where
             query,
             format!("test_disk_full_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -589,6 +593,7 @@ where
             query,
             format!("test_network_partition_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -651,6 +656,7 @@ pub async fn test_partial_batch_failure_scenario<T: StreamJobProcessor>(
             query,
             format!("test_partial_batch_failure_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -708,6 +714,7 @@ where
             query,
             format!("test_shutdown_signal_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -777,6 +784,7 @@ pub async fn test_empty_batch_handling_scenario<T: StreamJobProcessor>(
             query,
             format!("test_empty_batch_handling_{}", test_name),
             shutdown_rx,
+            None,
         ),
     )
     .await;

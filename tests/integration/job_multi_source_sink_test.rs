@@ -188,6 +188,7 @@ async fn test_simple_processor_multi_job_interface() {
             query,
             "test-job".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -242,6 +243,7 @@ async fn test_transactional_processor_multi_job_interface() {
             query,
             "test-transactional-job".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;

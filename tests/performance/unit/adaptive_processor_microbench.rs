@@ -328,6 +328,7 @@ async fn bench_batch_size_sensitivity() {
                 query,
                 "bench".to_string(),
                 shutdown_rx,
+                None,
             )
             .await;
 
@@ -390,6 +391,7 @@ async fn bench_partition_scaling() {
                 query,
                 "bench".to_string(),
                 shutdown_rx,
+                None,
             )
             .await;
 
@@ -454,6 +456,7 @@ async fn bench_configuration_impact() {
             query,
             "bench".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -687,6 +690,7 @@ async fn bench_profiling_end_to_end() {
             query,
             "profiling_test".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 

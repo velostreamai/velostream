@@ -2510,7 +2510,7 @@ mod tests {
     #[test]
     fn test_field_to_f64() {
         assert_eq!(field_to_f64(&FieldValue::Integer(42)), Some(42.0));
-        assert_eq!(field_to_f64(&FieldValue::Float(3.14)), Some(3.14));
+        assert_eq!(field_to_f64(&FieldValue::Float(2.5)), Some(2.5));
         assert_eq!(
             field_to_f64(&FieldValue::ScaledInteger(1234, 2)),
             Some(12.34)

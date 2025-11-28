@@ -11,9 +11,10 @@ use crate::velostream::observability::{
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::instance_id::get_instance_id;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
+use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
-    SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
+    SharedJobStats, SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
     create_multi_source_readers,
 };
 use crate::velostream::server::table_registry::{
@@ -65,6 +66,8 @@ pub struct RunningJob {
     pub shutdown_sender: mpsc::Sender<()>,
     pub metrics: JobMetrics,
     pub observability: Option<SharedObservabilityManager>,
+    /// Shared stats for real-time monitoring from test harness
+    pub shared_stats: SharedJobStats,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -791,6 +794,11 @@ impl StreamJobServer {
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
 
+        // Create shared stats for real-time monitoring from test harness
+        let shared_stats: SharedJobStats =
+            Arc::new(std::sync::RwLock::new(JobExecutionStats::new()));
+        let shared_stats_for_spawn = shared_stats.clone();
+
         // Wire job_mode annotation from query to processor configuration
         // Per-query job_mode takes precedence over server-level configuration
         // Pass raw SQL string for annotation parsing (works with CREATE STREAM and other query types)
@@ -906,6 +914,7 @@ impl StreamJobServer {
                                     parsed_query,
                                     job_name.clone(),
                                     shutdown_receiver,
+                                    Some(shared_stats_for_spawn.clone()), // Pass shared stats for real-time monitoring
                                 )
                                 .await
                             {
@@ -963,6 +972,7 @@ impl StreamJobServer {
                                     parsed_query,
                                     job_name.clone(),
                                     shutdown_receiver,
+                                    Some(shared_stats_for_spawn.clone()), // Pass shared stats for real-time monitoring
                                 )
                                 .await
                             {
@@ -998,6 +1008,7 @@ impl StreamJobServer {
             shutdown_sender,
             metrics: JobMetrics::default(),
             observability: observability_manager,
+            shared_stats, // Store shared stats for real-time monitoring
         };
 
         // Store the job
@@ -1124,13 +1135,35 @@ impl StreamJobServer {
 
     pub async fn get_job_status(&self, name: &str) -> Option<JobSummary> {
         let jobs = self.jobs.read().await;
-        jobs.get(name).map(|job| JobSummary {
-            name: job.name.clone(),
-            version: job.version.clone(),
-            topic: job.topic.clone(),
-            status: job.status.clone(),
-            created_at: job.created_at,
-            metrics: job.metrics.clone(),
+        jobs.get(name).map(|job| {
+            // Read real-time stats from shared_stats if available
+            let metrics = match job.shared_stats.read() {
+                Ok(stats) => JobMetrics {
+                    records_processed: stats.records_processed,
+                    records_per_second: stats.records_per_second(),
+                    last_record_time: None, // Could be enhanced later
+                    errors: stats.records_failed,
+                    memory_usage_mb: 0.0, // Could be enhanced later
+                    partitioner: job.metrics.partitioner.clone(),
+                },
+                Err(e) => {
+                    log::warn!(
+                        "Failed to read shared_stats for job '{}': {} - using cached metrics",
+                        job.name,
+                        e
+                    );
+                    job.metrics.clone()
+                }
+            };
+
+            JobSummary {
+                name: job.name.clone(),
+                version: job.version.clone(),
+                topic: job.topic.clone(),
+                status: job.status.clone(),
+                created_at: job.created_at,
+                metrics,
+            }
         })
     }
 

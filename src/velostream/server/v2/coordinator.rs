@@ -919,6 +919,7 @@ impl AdaptiveJobProcessor {
         query: StreamingQuery,
         job_name: String,
         _shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<crate::velostream::server::processors::SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let start_time = std::time::Instant::now();
 
@@ -1052,6 +1053,9 @@ impl AdaptiveJobProcessor {
 
         // Update final statistics
         aggregated_stats.total_processing_time = start_time.elapsed();
+
+        // Sync to shared stats for real-time monitoring (final sync)
+        aggregated_stats.sync_to_shared(&shared_stats);
 
         info!(
             "Job '{}': V2 completed with {} batches, {} records processed in {:?} (True STP - {} independent pipelines)",

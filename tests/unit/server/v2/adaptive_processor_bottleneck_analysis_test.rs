@@ -205,6 +205,7 @@ async fn bottleneck_batch_size() {
                     query,
                     format!("bottleneck_batch_{}", batch_size),
                     shutdown_rx,
+                    None,
                 )
                 .await
         });
@@ -278,6 +279,7 @@ async fn bottleneck_partition_count() {
                     query,
                     format!("bottleneck_partitions_{}", num_partitions),
                     shutdown_rx,
+                    None,
                 )
                 .await
         });
@@ -367,6 +369,7 @@ async fn bottleneck_comprehensive() {
                 query,
                 "bottleneck_comprehensive".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

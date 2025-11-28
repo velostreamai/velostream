@@ -265,6 +265,7 @@ async fn test_multi_source_processor_writes_to_sinks() {
                 query,
                 "test-sink-writes".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

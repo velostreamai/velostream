@@ -12,6 +12,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+/// Shared job stats for real-time monitoring.
+/// Processors update this reference during execution so external observers
+/// (like the test harness) can poll live statistics.
+pub type SharedJobStats = Arc<std::sync::RwLock<JobExecutionStats>>;
+
 /// Enhanced metrics for unified processor monitoring
 #[derive(Debug, Clone)]
 pub struct ProcessorMetrics {
@@ -105,6 +110,7 @@ pub trait JobProcessor: Send + Sync {
     /// * `query` - Streaming query to execute
     /// * `job_name` - Name of the job for logging and metrics
     /// * `shutdown_rx` - Channel to receive shutdown signal
+    /// * `shared_stats` - Optional shared stats for real-time monitoring
     ///
     /// # Returns
     /// Job execution statistics or error
@@ -116,6 +122,7 @@ pub trait JobProcessor: Send + Sync {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Process a complete job with multiple data sources and sinks
@@ -130,6 +137,7 @@ pub trait JobProcessor: Send + Sync {
     /// * `query` - Streaming query to execute
     /// * `job_name` - Name of the job for logging and metrics
     /// * `shutdown_rx` - Channel to receive shutdown signal
+    /// * `shared_stats` - Optional shared stats for real-time monitoring
     ///
     /// # Returns
     /// Job execution statistics or error
@@ -141,6 +149,7 @@ pub trait JobProcessor: Send + Sync {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>>;
 
     /// Start the processor

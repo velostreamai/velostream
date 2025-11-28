@@ -174,6 +174,7 @@ async fn adaptive_processor_profiling_bottleneck() {
                 query,
                 "profiling_test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
