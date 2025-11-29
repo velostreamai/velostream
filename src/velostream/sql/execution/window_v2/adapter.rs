@@ -26,7 +26,7 @@ use super::emission::{EmitChangesStrategy, EmitFinalStrategy};
 use super::strategies::{
     RowsWindowStrategy, SessionWindowStrategy, SlidingWindowStrategy, TumblingWindowStrategy,
 };
-use super::traits::{EmissionStrategy, WindowStrategy};
+use super::traits::{EmissionStrategy, WindowStats, WindowStrategy};
 use super::types::SharedRecord;
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{
@@ -81,59 +81,97 @@ impl WindowAdapter {
         record: &StreamRecord,
         context: &mut ProcessorContext,
     ) -> Result<Option<StreamRecord>, SqlError> {
-        if let StreamingQuery::Select {
-            window,
-            where_clause,
-            ..
-        } = query
-        {
-            // FR-081 CRITICAL: Apply WHERE clause BEFORE windowing
-            // Records that don't match WHERE should not enter window buffers
-            if let Some(where_expr) = where_clause {
-                let matches = ExpressionEvaluator::evaluate_expression_value(where_expr, record)?;
-                match matches {
-                    FieldValue::Boolean(false) | FieldValue::Integer(0) => {
-                        // Record filtered out by WHERE clause - skip windowing
-                        return Ok(None);
-                    }
-                    _ => {
-                        // Record passes WHERE clause - proceed to windowing
-                    }
+        // Extract the inner SELECT query for CREATE STREAM/TABLE variants
+        let (inner_query, window, where_clause) = match query {
+            StreamingQuery::Select {
+                window,
+                where_clause,
+                ..
+            } => (query, window.as_ref(), where_clause.as_ref()),
+            StreamingQuery::CreateStream { as_select, .. } => {
+                // Extract inner SELECT from CREATE STREAM
+                if let StreamingQuery::Select {
+                    window,
+                    where_clause,
+                    ..
+                } = as_select.as_ref()
+                {
+                    (as_select.as_ref(), window.as_ref(), where_clause.as_ref())
+                } else {
+                    return Err(SqlError::ExecutionError {
+                        message: "CREATE STREAM must have a SELECT as_select".to_string(),
+                        query: None,
+                    });
                 }
             }
-
-            if let Some(window_spec) = window {
-                // Get or create window_v2 state
-                let state_key = format!("window_v2:{}", query_id);
-
-                // Check if we need to create new state
-                if !Self::has_v2_state(context, &state_key) {
-                    Self::initialize_v2_state(context, &state_key, window_spec, query)?;
+            StreamingQuery::CreateTable { as_select, .. } => {
+                // Extract inner SELECT from CREATE TABLE
+                if let StreamingQuery::Select {
+                    window,
+                    where_clause,
+                    ..
+                } = as_select.as_ref()
+                {
+                    (as_select.as_ref(), window.as_ref(), where_clause.as_ref())
+                } else {
+                    return Err(SqlError::ExecutionError {
+                        message: "CREATE TABLE must have a SELECT as_select".to_string(),
+                        query: None,
+                    });
                 }
-
-                // Convert record to SharedRecord for zero-copy processing
-                let shared_record = SharedRecord::new(record.clone());
-
-                // Get mutable reference to state (we'll need to work around borrowing issues)
-                // For now, we'll use metadata HashMap to store serialized state
-
-                // Process record through window strategy
-                Self::process_record_with_strategy(
-                    context,
-                    &state_key,
-                    shared_record,
-                    query,
-                    window_spec,
-                )
-            } else {
-                Err(SqlError::ExecutionError {
-                    message: "No window specification found for windowed query".to_string(),
+            }
+            _ => {
+                return Err(SqlError::ExecutionError {
+                    message: "Invalid query type for WindowAdapter".to_string(),
                     query: None,
-                })
+                });
             }
+        };
+
+        // FR-081 CRITICAL: Apply WHERE clause BEFORE windowing
+        // Records that don't match WHERE should not enter window buffers
+        if let Some(where_expr) = where_clause {
+            let matches = ExpressionEvaluator::evaluate_expression_value(where_expr, record)?;
+            match matches {
+                FieldValue::Boolean(false) | FieldValue::Integer(0) => {
+                    // Record filtered out by WHERE clause - skip windowing
+                    return Ok(None);
+                }
+                _ => {
+                    // Record passes WHERE clause - proceed to windowing
+                }
+            }
+        }
+
+        if let Some(window_spec) = window {
+            // Get or create window_v2 state
+            let state_key = format!("window_v2:{}", query_id);
+
+            // Check if we need to create new state
+            // Pass ORIGINAL query (not inner_query) so is_emit_changes can detect
+            // emit_mode from CreateStream/CreateTable wrappers
+            if !Self::has_v2_state(context, &state_key) {
+                Self::initialize_v2_state(context, &state_key, window_spec, query)?;
+            }
+
+            // Convert record to SharedRecord for zero-copy processing
+            let shared_record = SharedRecord::new(record.clone());
+
+            // Get mutable reference to state (we'll need to work around borrowing issues)
+            // For now, we'll use metadata HashMap to store serialized state
+
+            // Process record through window strategy
+            // Use inner_query for field extraction (SELECT fields)
+            Self::process_record_with_strategy(
+                context,
+                &state_key,
+                shared_record,
+                inner_query,
+                window_spec,
+            )
         } else {
             Err(SqlError::ExecutionError {
-                message: "Invalid query type for WindowAdapter".to_string(),
+                message: "No window specification found for windowed query".to_string(),
                 query: None,
             })
         }
@@ -222,6 +260,9 @@ impl WindowAdapter {
                     return Ok(None);
                 }
 
+                // CRITICAL: Get window stats BEFORE clearing (stats contain window_start/end times)
+                let window_stats = v2_state.strategy.get_stats();
+
                 // Clear window if requested
                 if emit_decision == EmitDecision::EmitAndClear {
                     v2_state.strategy.clear();
@@ -238,11 +279,13 @@ impl WindowAdapter {
                 {
                     // FR-081 Phase 6: Pass HAVING clause to compute_aggregations_over_window
                     // HAVING is evaluated using group accumulators, NOT result field names
+                    // Also pass window_stats to populate _WINDOW_START and _WINDOW_END
                     let computed_results = Self::compute_aggregations_over_window(
                         window_records,
                         fields,
                         group_by,
                         having,
+                        &window_stats,
                     )?;
 
                     if !computed_results.is_empty() {
@@ -337,27 +380,51 @@ impl WindowAdapter {
 
     /// Check if query has EMIT CHANGES clause
     fn is_emit_changes(query: &StreamingQuery) -> bool {
-        if let StreamingQuery::Select {
-            emit_mode, window, ..
-        } = query
-        {
-            // Check emit_mode field on the SELECT query
-            if let Some(mode) = emit_mode {
-                matches!(mode, EmitMode::Changes)
-            } else {
-                // For ROWS windows, check the emit_mode in the window spec
-                if let Some(WindowSpec::Rows {
-                    emit_mode: rows_emit,
-                    ..
-                }) = window
-                {
-                    matches!(rows_emit, RowsEmitMode::EveryRecord)
+        match query {
+            StreamingQuery::Select {
+                emit_mode, window, ..
+            } => {
+                // Check emit_mode field on the SELECT query
+                if let Some(mode) = emit_mode {
+                    matches!(mode, EmitMode::Changes)
                 } else {
-                    false // Default to EMIT FINAL for other windows
+                    // For ROWS windows, check the emit_mode in the window spec
+                    if let Some(WindowSpec::Rows {
+                        emit_mode: rows_emit,
+                        ..
+                    }) = window
+                    {
+                        matches!(rows_emit, RowsEmitMode::EveryRecord)
+                    } else {
+                        false // Default to EMIT FINAL for other windows
+                    }
                 }
             }
-        } else {
-            false
+            StreamingQuery::CreateStream {
+                emit_mode,
+                as_select,
+                ..
+            } => {
+                // Check emit_mode on CreateStream wrapper, or fall back to inner SELECT
+                if let Some(mode) = emit_mode {
+                    matches!(mode, EmitMode::Changes)
+                } else {
+                    Self::is_emit_changes(as_select)
+                }
+            }
+            StreamingQuery::CreateTable {
+                emit_mode,
+                as_select,
+                ..
+            } => {
+                // Check emit_mode on CreateTable wrapper, or fall back to inner SELECT
+                if let Some(mode) = emit_mode {
+                    matches!(mode, EmitMode::Changes)
+                } else {
+                    Self::is_emit_changes(as_select)
+                }
+            }
+            _ => false,
         }
     }
 
@@ -416,6 +483,7 @@ impl WindowAdapter {
     /// * `fields` - SELECT fields from the query (contains aggregate expressions)
     /// * `group_by` - Optional GROUP BY expressions
     /// * `having` - Optional HAVING clause (evaluated per group using accumulators)
+    /// * `window_stats` - Window statistics containing window_start_time and window_end_time
     ///
     /// # Returns
     ///
@@ -425,6 +493,7 @@ impl WindowAdapter {
         fields: &[SelectField],
         group_by: &Option<Vec<Expr>>,
         having: &Option<Expr>,
+        window_stats: &WindowStats,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         // Extract aggregate expressions from SELECT fields
         let aggregate_expressions = Self::extract_aggregate_expressions(fields)?;
@@ -465,8 +534,12 @@ impl WindowAdapter {
             }
 
             // Compute final aggregate values and build result record
-            let result_record =
-                Self::build_result_record(fields, &aggregate_expressions, &accumulator)?;
+            let result_record = Self::build_result_record(
+                fields,
+                &aggregate_expressions,
+                &accumulator,
+                window_stats,
+            )?;
             return Ok(vec![result_record]);
         }
 
@@ -511,8 +584,12 @@ impl WindowAdapter {
             }
 
             // Group passed HAVING (or no HAVING) - build result record
-            let result_record =
-                Self::build_result_record(fields, &aggregate_expressions, accumulator)?;
+            let result_record = Self::build_result_record(
+                fields,
+                &aggregate_expressions,
+                accumulator,
+                window_stats,
+            )?;
             results.push(result_record);
         }
 
@@ -584,8 +661,29 @@ impl WindowAdapter {
         fields: &[SelectField],
         aggregate_expressions: &[(String, Expr)],
         accumulator: &GroupAccumulator,
+        window_stats: &WindowStats,
     ) -> Result<StreamRecord, SqlError> {
         let mut result_fields = HashMap::new();
+
+        // Inject window system columns into a synthetic sample record for expression evaluation
+        // This allows _window_start and _window_end to be resolved by ExpressionEvaluator
+        let sample_with_window_cols = accumulator.sample_record.as_ref().map(|sample| {
+            let mut enriched = sample.clone();
+            // Inject window times from stats (using UPPERCASE internal form)
+            if let Some(start) = window_stats.window_start_time {
+                enriched.fields.insert(
+                    system_columns::WINDOW_START.to_string(),
+                    FieldValue::Integer(start),
+                );
+            }
+            if let Some(end) = window_stats.window_end_time {
+                enriched.fields.insert(
+                    system_columns::WINDOW_END.to_string(),
+                    FieldValue::Integer(end),
+                );
+            }
+            enriched
+        });
 
         // Process each SELECT field
         for field in fields {
@@ -605,8 +703,8 @@ impl WindowAdapter {
 
                         result_fields.insert(field_name, aggregate_value);
                     } else {
-                        // Non-aggregate expression - use sample record
-                        if let Some(sample) = &accumulator.sample_record {
+                        // Non-aggregate expression - use sample record (with window cols injected)
+                        if let Some(sample) = &sample_with_window_cols {
                             // Determine field name: use alias, or column name, or formatted expr
                             let field_name = if let Some(alias_name) = alias {
                                 alias_name.clone()
@@ -624,24 +722,24 @@ impl WindowAdapter {
                     }
                 }
                 SelectField::Column(col_name) => {
-                    // Non-aggregate column - use sample record
-                    if let Some(sample) = &accumulator.sample_record {
+                    // Non-aggregate column - use sample record (with window cols injected)
+                    if let Some(sample) = &sample_with_window_cols {
                         if let Some(value) = sample.fields.get(col_name) {
                             result_fields.insert(col_name.clone(), value.clone());
                         }
                     }
                 }
                 SelectField::AliasedColumn { column, alias } => {
-                    // Non-aggregate column with alias - use sample record
-                    if let Some(sample) = &accumulator.sample_record {
+                    // Non-aggregate column with alias - use sample record (with window cols)
+                    if let Some(sample) = &sample_with_window_cols {
                         if let Some(value) = sample.fields.get(column) {
                             result_fields.insert(alias.clone(), value.clone());
                         }
                     }
                 }
                 SelectField::Wildcard => {
-                    // SELECT * - include all fields from sample record
-                    if let Some(sample) = &accumulator.sample_record {
+                    // SELECT * - include all fields from sample record (with window cols)
+                    if let Some(sample) = &sample_with_window_cols {
                         for (key, value) in &sample.fields {
                             result_fields.insert(key.clone(), value.clone());
                         }
