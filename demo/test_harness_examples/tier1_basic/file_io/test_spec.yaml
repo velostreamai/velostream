@@ -1,0 +1,54 @@
+# File-based Test Example
+# This demonstrates using CSV files as input sources and file-based assertions
+
+application: file_io_demo
+description: Demonstrates file-based input sources and output assertions
+
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: trade_passthrough
+    description: Simple passthrough query reading from CSV file
+    inputs:
+      - source: trades
+        source_type:
+          type: file
+          path: ./input_trades.csv
+          format: csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ./output_trades.csv
+        format: csv
+    assertions:
+      # Basic assertion - check the output file exists
+      - type: file_exists
+        path: ./output_trades.csv
+        min_size_bytes: 100
+
+      # Check row count matches input
+      - type: file_row_count
+        path: ./output_trades.csv
+        format: csv
+        equals: 6
+
+      # Verify specific symbols are present
+      - type: file_contains
+        path: ./output_trades.csv
+        format: csv
+        field: symbol
+        expected_values:
+          - AAPL
+          - GOOGL
+          - MSFT
+        mode: all
+
+      # Verify output matches expected
+      - type: file_matches
+        actual_path: ./output_trades.csv
+        expected_path: ./expected_output.csv
+        format: csv
+        ignore_order: true
+        numeric_tolerance: 0.01

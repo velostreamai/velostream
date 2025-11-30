@@ -16,11 +16,35 @@ use crate::velostream::sql::{
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
 };
 use log::{debug, error, info, warn};
+use serde::Serializer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
+
+/// Serialize Duration as milliseconds (f64)
+fn serialize_duration_as_ms<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_f64(duration.as_secs_f64() * 1000.0)
+}
+
+/// Serialize Option<Instant> as elapsed milliseconds since that instant (f64)
+/// Returns null if None, or elapsed ms since the instant if Some
+fn serialize_option_instant_as_elapsed_ms<S>(
+    instant: &Option<Instant>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match instant {
+        Some(i) => serializer.serialize_f64(i.elapsed().as_secs_f64() * 1000.0),
+        None => serializer.serialize_none(),
+    }
+}
 
 /// Result of batch processing
 #[derive(Debug, Clone)]
@@ -33,7 +57,7 @@ pub struct BatchProcessingResult {
 }
 
 /// Details about a processing error
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ProcessingError {
     pub record_index: usize,
     pub error_message: String,
@@ -215,16 +239,21 @@ impl Default for DeadLetterQueue {
 }
 
 /// Statistics for job execution
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct JobExecutionStats {
     pub records_processed: u64,
     pub records_failed: u64,
     pub batches_processed: u64,
     pub batches_failed: u64,
+    #[serde(skip_deserializing)]
+    #[serde(serialize_with = "serialize_option_instant_as_elapsed_ms")]
     pub start_time: Option<Instant>,
+    #[serde(skip_deserializing)]
+    #[serde(serialize_with = "serialize_option_instant_as_elapsed_ms")]
     pub last_record_time: Option<Instant>,
     pub avg_batch_size: f64,
     pub avg_processing_time_ms: f64,
+    #[serde(serialize_with = "serialize_duration_as_ms")]
     pub total_processing_time: Duration,
     /// Detailed error information for debugging
     pub error_details: Vec<ProcessingError>,

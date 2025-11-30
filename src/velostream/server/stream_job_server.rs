@@ -64,7 +64,6 @@ pub struct RunningJob {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub execution_handle: JoinHandle<()>,
     pub shutdown_sender: mpsc::Sender<()>,
-    pub metrics: JobMetrics,
     pub observability: Option<SharedObservabilityManager>,
     /// Shared stats for real-time monitoring from test harness
     pub shared_stats: SharedJobStats,
@@ -80,46 +79,13 @@ pub enum JobStatus {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct JobMetrics {
-    pub records_processed: u64,
-    pub records_per_second: f64,
-    pub last_record_time: Option<chrono::DateTime<chrono::Utc>>,
-    pub errors: u64,
-    pub memory_usage_mb: f64,
-    /// Partitioner strategy used for this job (e.g., "always_hash", "sticky_partition", "smart_repartition")
-    /// Helps understand performance characteristics
-    pub partitioner: Option<String>,
-}
-
-impl Default for JobMetrics {
-    fn default() -> Self {
-        Self {
-            records_processed: 0,
-            records_per_second: 0.0,
-            last_record_time: None,
-            errors: 0,
-            memory_usage_mb: 0.0,
-            partitioner: None,
-        }
-    }
-}
-
-impl JobMetrics {
-    /// Set the partitioner strategy for this job's metrics
-    pub fn with_partitioner(mut self, partitioner: String) -> Self {
-        self.partitioner = Some(partitioner);
-        self
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
 pub struct JobSummary {
     pub name: String,
     pub version: String,
     pub topic: String,
     pub status: JobStatus,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub metrics: JobMetrics,
+    pub stats: JobExecutionStats,
 }
 
 impl StreamJobServer {
@@ -498,12 +464,14 @@ impl StreamJobServer {
             } else {
                 let mut summary = format!("Active Jobs: {}\n", jobs.len());
                 for (name, job) in jobs.iter() {
+                    let stats = job
+                        .shared_stats
+                        .read()
+                        .map(|s| (s.records_processed, s.records_per_second()))
+                        .unwrap_or((0, 0.0));
                     summary.push_str(&format!(
                         "  - {}: {:?} (records: {}, rps: {:.1})\n",
-                        name,
-                        job.status,
-                        job.metrics.records_processed,
-                        job.metrics.records_per_second
+                        name, job.status, stats.0, stats.1
                     ));
                 }
                 summary
@@ -1006,7 +974,6 @@ impl StreamJobServer {
             updated_at: chrono::Utc::now(),
             execution_handle,
             shutdown_sender,
-            metrics: JobMetrics::default(),
             observability: observability_manager,
             shared_stats, // Store shared stats for real-time monitoring
         };
@@ -1122,13 +1089,20 @@ impl StreamJobServer {
     pub async fn list_jobs(&self) -> Vec<JobSummary> {
         let jobs = self.jobs.read().await;
         jobs.values()
-            .map(|job| JobSummary {
-                name: job.name.clone(),
-                version: job.version.clone(),
-                topic: job.topic.clone(),
-                status: job.status.clone(),
-                created_at: job.created_at,
-                metrics: job.metrics.clone(),
+            .map(|job| {
+                let stats = job
+                    .shared_stats
+                    .read()
+                    .map(|s| s.clone())
+                    .unwrap_or_default();
+                JobSummary {
+                    name: job.name.clone(),
+                    version: job.version.clone(),
+                    topic: job.topic.clone(),
+                    status: job.status.clone(),
+                    created_at: job.created_at,
+                    stats,
+                }
             })
             .collect()
     }
@@ -1136,23 +1110,16 @@ impl StreamJobServer {
     pub async fn get_job_status(&self, name: &str) -> Option<JobSummary> {
         let jobs = self.jobs.read().await;
         jobs.get(name).map(|job| {
-            // Read real-time stats from shared_stats if available
-            let metrics = match job.shared_stats.read() {
-                Ok(stats) => JobMetrics {
-                    records_processed: stats.records_processed,
-                    records_per_second: stats.records_per_second(),
-                    last_record_time: None, // Could be enhanced later
-                    errors: stats.records_failed,
-                    memory_usage_mb: 0.0, // Could be enhanced later
-                    partitioner: job.metrics.partitioner.clone(),
-                },
+            // Read real-time stats from shared_stats
+            let stats = match job.shared_stats.read() {
+                Ok(s) => s.clone(),
                 Err(e) => {
                     log::warn!(
-                        "Failed to read shared_stats for job '{}': {} - using cached metrics",
+                        "Failed to read shared_stats for job '{}': {} - using default",
                         job.name,
                         e
                     );
-                    job.metrics.clone()
+                    JobExecutionStats::default()
                 }
             };
 
@@ -1162,7 +1129,7 @@ impl StreamJobServer {
                 topic: job.topic.clone(),
                 status: job.status.clone(),
                 created_at: job.created_at,
-                metrics,
+                stats,
             }
         })
     }

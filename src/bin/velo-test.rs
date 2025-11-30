@@ -215,27 +215,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Step 2: Load schemas if provided
             let mut schema_registry = SchemaRegistry::new();
-            if let Some(ref schema_dir) = schemas {
-                if schema_dir.exists() {
-                    println!("📁 Loading schemas from {}", schema_dir.display());
-                    if let Ok(entries) = std::fs::read_dir(schema_dir) {
-                        for entry in entries.flatten() {
-                            let path = entry.path();
-                            if path
-                                .extension()
-                                .map_or(false, |ext| ext == "yaml" || ext == "yml")
-                            {
-                                if let Ok(content) = std::fs::read_to_string(&path) {
-                                    if let Ok(schema) =
-                                        serde_yaml::from_str::<
-                                            velostream::velostream::test_harness::Schema,
-                                        >(&content)
-                                    {
-                                        println!("   Loaded schema: {}", schema.name);
-                                        schema_registry.register(schema);
-                                    }
-                                }
-                            }
+            if let Some(ref schema_dir) = schemas
+                && schema_dir.exists()
+            {
+                println!("📁 Loading schemas from {}", schema_dir.display());
+                if let Ok(entries) = std::fs::read_dir(schema_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path
+                            .extension()
+                            .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                            && let Ok(content) = std::fs::read_to_string(&path)
+                            && let Ok(schema) = serde_yaml::from_str::<
+                                velostream::velostream::test_harness::Schema,
+                            >(&content)
+                        {
+                            println!("   Loaded schema: {}", schema.name);
+                            schema_registry.register(schema);
                         }
                     }
                 }

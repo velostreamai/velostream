@@ -520,12 +520,12 @@ async fn test_job_metrics() {
         .await
         .unwrap();
 
-    // Verify metrics are initialized to zero
+    // Verify stats are initialized to zero
     if let Some(status) = server.get_job_status(job_name).await {
-        assert_eq!(status.metrics.records_processed, 0);
-        assert_eq!(status.metrics.errors, 0);
-        assert!(status.metrics.last_record_time.is_none());
+        assert_eq!(status.stats.records_processed, 0);
+        assert_eq!(status.stats.records_failed, 0);
+        assert!(status.stats.last_record_time.is_none());
     }
 
-    println!("✅ Job metrics tracking validated");
+    println!("✅ Job stats tracking validated");
 }

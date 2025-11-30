@@ -147,7 +147,7 @@ async fn start_stream_job_server(
         for job in &jobs {
             info!(
                 "  Job '{}' ({}): {:?} - {} records processed",
-                job.name, job.topic, job.status, job.metrics.records_processed
+                job.name, job.topic, job.status, job.stats.records_processed
             );
         }
 
@@ -695,7 +695,7 @@ async fn deploy_sql_application_from_file(
         for job in &jobs {
             info!(
                 "  Job '{}' ({}): {:?} - {} records processed",
-                job.name, job.topic, job.status, job.metrics.records_processed
+                job.name, job.topic, job.status, job.stats.records_processed
             );
         }
 
