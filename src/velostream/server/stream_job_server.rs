@@ -1678,7 +1678,7 @@ impl StreamJobServer {
             ..
         } = query
         {
-            (job_mode.clone(), *num_partitions)
+            (*job_mode, *num_partitions)
         } else {
             (None, None)
         };

@@ -29,11 +29,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+/// Type alias for table registry to reduce complexity
+type TableRegistry = Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>;
+
 /// Transactional job processor with at-least-once delivery semantics
 ///
 /// Provides ACID transaction boundaries for batch processing but does not guarantee
 /// exactly-once semantics. Records may be reprocessed on retry, making this suitable
 /// for idempotent operations or scenarios where occasional duplicates are acceptable.
+#[allow(clippy::type_complexity)]
 pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
@@ -45,7 +49,7 @@ pub struct TransactionalJobProcessor {
     /// Stop flag for graceful shutdown
     stop_flag: Arc<AtomicBool>,
     /// Optional table registry for SQL queries that reference tables
-    table_registry: Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>,
+    table_registry: TableRegistry,
 }
 
 impl TransactionalJobProcessor {
@@ -1092,10 +1096,11 @@ impl TransactionalJobProcessor {
                 self.job_metrics.record_failed(batch_result.records_failed);
 
                 // Record individual error messages to error tracker
+                let obs_manager = self.observability_wrapper.observability().cloned();
                 for error in &batch_result.error_details {
                     ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        &job_name,
+                        &obs_manager,
+                        job_name,
                         format!("[{}] {}", source_name, error.error_message),
                     );
                 }

@@ -32,7 +32,11 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
+/// Type alias for table registry to reduce complexity
+type TableRegistry = Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>;
+
 /// Simple (non-transactional) job processor
+#[allow(clippy::type_complexity)]
 pub struct SimpleJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
@@ -44,7 +48,7 @@ pub struct SimpleJobProcessor {
     /// Stop flag for graceful shutdown
     stop_flag: Arc<AtomicBool>,
     /// Optional table registry for SQL queries that reference tables
-    table_registry: Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>,
+    table_registry: TableRegistry,
 }
 
 impl SimpleJobProcessor {
@@ -724,10 +728,11 @@ impl SimpleJobProcessor {
                 self.job_metrics.record_failed(batch_result.records_failed);
 
                 // Record individual error messages to error tracker
+                let obs_manager = self.observability_wrapper.observability().cloned();
                 for error in &batch_result.error_details {
                     ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        &job_name,
+                        &obs_manager,
+                        job_name,
                         format!("[{}] {}", source_name, error.error_message),
                     );
                 }

@@ -1306,6 +1306,7 @@ impl AdaptiveJobProcessor {
     /// - Vec of batch senders (for feeding batches to receivers)
     /// - Vec of PartitionMetrics (for monitoring)
     /// - Vec of task JoinHandles for waiting on receiver completion
+    #[allow(clippy::type_complexity)]
     pub fn initialize_partitions_v6_6(
         &self,
         query: Arc<StreamingQuery>,

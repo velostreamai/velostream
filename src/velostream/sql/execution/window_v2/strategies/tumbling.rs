@@ -61,6 +61,7 @@ pub struct TumblingWindowStrategy {
     /// Watermark is the reference point that tells us:
     /// - Which windows have truly closed (watermark > window_end)
     /// - Which records are "late" (timestamp < watermark but > window_end - allowed_lateness)
+    ///
     /// This is critical for partition-batched data where groups arrive out-of-order
     max_watermark_seen: i64,
 

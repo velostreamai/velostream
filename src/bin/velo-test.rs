@@ -252,15 +252,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for query_result in &validation_result.query_results {
                 for source in &query_result.sources_found {
                     // Extract bootstrap.servers
-                    if bootstrap_servers.is_none() {
-                        if let Some(bs) = source.properties.get("bootstrap.servers") {
-                            bootstrap_servers = Some(bs.clone());
-                            log::info!(
-                                "Found bootstrap.servers from source '{}': {}",
-                                source.name,
-                                bs
-                            );
-                        }
+                    if bootstrap_servers.is_none()
+                        && let Some(bs) = source.properties.get("bootstrap.servers")
+                    {
+                        bootstrap_servers = Some(bs.clone());
+                        log::info!(
+                            "Found bootstrap.servers from source '{}': {}",
+                            source.name,
+                            bs
+                        );
                     }
 
                     // Extract and load schema file if specified
@@ -314,11 +314,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Also check environment variable as fallback
-            if bootstrap_servers.is_none() {
-                if let Ok(bs) = std::env::var("KAFKA_BOOTSTRAP_SERVERS") {
-                    bootstrap_servers = Some(bs);
-                    log::info!("Using bootstrap.servers from KAFKA_BOOTSTRAP_SERVERS env var");
-                }
+            if bootstrap_servers.is_none()
+                && let Ok(bs) = std::env::var("KAFKA_BOOTSTRAP_SERVERS")
+            {
+                bootstrap_servers = Some(bs);
+                log::info!("Using bootstrap.servers from KAFKA_BOOTSTRAP_SERVERS env var");
             }
 
             // Create test infrastructure with Kafka if available
@@ -726,31 +726,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // Collect CSV samples
                     let mut csv_samples = Vec::new();
-                    if let Some(ref data_path) = data_dir {
-                        if data_path.exists() {
-                            if let Ok(entries) = std::fs::read_dir(data_path) {
-                                for entry in entries.flatten() {
-                                    let path = entry.path();
-                                    if path.extension().map_or(false, |ext| ext == "csv") {
-                                        if let Ok(content) = std::fs::read_to_string(&path) {
-                                            let total_rows = content.lines().count();
-                                            // Take first 50 lines as sample
-                                            let sample_content: String = content
-                                                .lines()
-                                                .take(50)
-                                                .collect::<Vec<_>>()
-                                                .join("\n");
-                                            csv_samples.push(CsvSample {
-                                                name: path
-                                                    .file_stem()
-                                                    .map(|s| s.to_string_lossy().to_string())
-                                                    .unwrap_or_default(),
-                                                content: sample_content,
-                                                total_rows,
-                                            });
-                                        }
-                                    }
-                                }
+                    if let Some(ref data_path) = data_dir
+                        && data_path.exists()
+                        && let Ok(entries) = std::fs::read_dir(data_path)
+                    {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().is_some_and(|ext| ext == "csv")
+                                && let Ok(content) = std::fs::read_to_string(&path)
+                            {
+                                let total_rows = content.lines().count();
+                                // Take first 50 lines as sample
+                                let sample_content: String =
+                                    content.lines().take(50).collect::<Vec<_>>().join("\n");
+                                csv_samples.push(CsvSample {
+                                    name: path
+                                        .file_stem()
+                                        .map(|s| s.to_string_lossy().to_string())
+                                        .unwrap_or_default(),
+                                    content: sample_content,
+                                    total_rows,
+                                });
                             }
                         }
                     }
@@ -821,42 +817,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Step 2: Infer schemas from CSV files in data directory
-                if let Some(ref data_path) = data_dir {
-                    if data_path.exists() {
-                        println!("\n📊 Analyzing data files in {}...", data_path.display());
-                        if let Ok(entries) = std::fs::read_dir(data_path) {
-                            for entry in entries.flatten() {
-                                let path = entry.path();
-                                if path.extension().map_or(false, |ext| ext == "csv") {
-                                    match inferencer.infer_from_csv(&path) {
-                                        Ok(schema) => {
-                                            let output_file =
-                                                output.join(format!("{}.schema.yaml", schema.name));
-                                            match inferencer.write_schema(&schema, &output_file) {
-                                                Ok(_) => {
-                                                    println!(
-                                                        "  ✅ Generated {} ({} fields)",
-                                                        output_file.display(),
-                                                        schema.fields.len()
-                                                    );
-                                                    schema_count += 1;
-                                                }
-                                                Err(e) => {
-                                                    eprintln!(
-                                                        "  ❌ Failed to write {}: {}",
-                                                        output_file.display(),
-                                                        e
-                                                    );
-                                                }
+                if let Some(ref data_path) = data_dir
+                    && data_path.exists()
+                {
+                    println!("\n📊 Analyzing data files in {}...", data_path.display());
+                    if let Ok(entries) = std::fs::read_dir(data_path) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.extension().is_some_and(|ext| ext == "csv") {
+                                match inferencer.infer_from_csv(&path) {
+                                    Ok(schema) => {
+                                        let output_file =
+                                            output.join(format!("{}.schema.yaml", schema.name));
+                                        match inferencer.write_schema(&schema, &output_file) {
+                                            Ok(_) => {
+                                                println!(
+                                                    "  ✅ Generated {} ({} fields)",
+                                                    output_file.display(),
+                                                    schema.fields.len()
+                                                );
+                                                schema_count += 1;
+                                            }
+                                            Err(e) => {
+                                                eprintln!(
+                                                    "  ❌ Failed to write {}: {}",
+                                                    output_file.display(),
+                                                    e
+                                                );
                                             }
                                         }
-                                        Err(e) => {
-                                            eprintln!(
-                                                "  ⚠️  Could not infer from {}: {}",
-                                                path.display(),
-                                                e
-                                            );
-                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!(
+                                            "  ⚠️  Could not infer from {}: {}",
+                                            path.display(),
+                                            e
+                                        );
                                     }
                                 }
                             }
