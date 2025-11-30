@@ -79,7 +79,7 @@ impl ConfigOverrides {
             let filename = std::path::Path::new(original)
                 .file_name()
                 .map(|f| f.to_string_lossy().to_string())
-                .unwrap_or_else(|| original.replace('/', "_").replace('\\', "_"));
+                .unwrap_or_else(|| original.replace(['/', '\\'], "_"));
             temp_dir.join(filename)
         } else {
             PathBuf::from(original)

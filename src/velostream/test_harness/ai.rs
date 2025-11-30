@@ -351,6 +351,7 @@ impl AiAssistant {
     }
 
     /// Generate test specification from SQL
+    #[allow(unused_variables)]
     pub async fn generate_test_spec(
         &self,
         sql_content: &str,
@@ -371,6 +372,7 @@ impl AiAssistant {
     }
 
     /// Parse test spec from AI response
+    #[allow(unused_variables)]
     fn parse_test_spec_response(
         &self,
         response: &str,
@@ -472,7 +474,7 @@ Return ONLY the YAML schema, no explanations.
             prompt.push_str("## Input Data Samples\n```json\n");
             for sample in &context.input_samples {
                 prompt.push_str(sample);
-                prompt.push_str("\n");
+                prompt.push('\n');
             }
             prompt.push_str("```\n\n");
         }
@@ -481,7 +483,7 @@ Return ONLY the YAML schema, no explanations.
             prompt.push_str("## Output Data Samples\n```json\n");
             for sample in &context.output_samples {
                 prompt.push_str(sample);
-                prompt.push_str("\n");
+                prompt.push('\n');
             }
             prompt.push_str("```\n\n");
         }

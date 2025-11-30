@@ -128,6 +128,8 @@ impl SpecGenerator {
                     name: name.clone(),
                     description: Some(format!("Test for stream '{}'", name)),
                     inputs,
+                    output: None,
+                    outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
                     skip: false,
@@ -155,6 +157,8 @@ impl SpecGenerator {
                     name: name.clone(),
                     description: Some(format!("Test for table '{}'", name)),
                     inputs,
+                    output: None,
+                    outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
                     skip: false,
@@ -169,6 +173,8 @@ impl SpecGenerator {
                     name: "select_query".to_string(),
                     description: Some("Test for SELECT query".to_string()),
                     inputs: Vec::new(),
+                    output: None,
+                    outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
                     skip: false,
@@ -252,6 +258,7 @@ impl SpecGenerator {
     }
 
     /// Analyze an expression for patterns
+    #[allow(clippy::only_used_in_recursion)]
     fn analyze_expression(&self, expr: &Expr, analysis: &mut QueryAnalysis) {
         match expr {
             Expr::Function { name, .. } => {
@@ -328,6 +335,7 @@ impl SpecGenerator {
         if let Some(src) = source_name {
             inputs.push(InputConfig {
                 source: src.to_string(),
+                source_type: None, // Default to Kafka
                 // Schema name should match the 'name' field in the schema YAML, not the filename
                 schema: Some(src.to_string()),
                 records: Some(self.default_record_count),
@@ -341,6 +349,7 @@ impl SpecGenerator {
             if !inputs.iter().any(|i| &i.source == source) {
                 inputs.push(InputConfig {
                     source: source.clone(),
+                    source_type: None, // Default to Kafka
                     // Schema name should match the 'name' field in the schema YAML, not the filename
                     schema: Some(source.clone()),
                     records: Some(self.default_record_count),

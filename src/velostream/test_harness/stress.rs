@@ -390,14 +390,17 @@ impl StressRunner {
                 }
 
                 // Estimate bytes (rough approximation)
-                let bytes_estimate: u64 = records.iter().map(|r| estimate_record_size(r)).sum();
+                let bytes_estimate: u64 = records.iter().map(estimate_record_size).sum();
 
                 source_metrics.records += records.len() as u64;
                 source_metrics.bytes += bytes_estimate;
                 generated += records.len();
 
                 // Progress reporting (every report_interval)
-                if source_start.elapsed().as_secs() % self.config.report_interval_secs == 0
+                if source_start
+                    .elapsed()
+                    .as_secs()
+                    .is_multiple_of(self.config.report_interval_secs)
                     && generated > 0
                     && generated % (self.config.batch_size * 10) == 0
                 {
@@ -412,10 +415,10 @@ impl StressRunner {
                 }
 
                 // Check duration limit
-                if let Some(max_duration) = self.config.duration {
-                    if start.elapsed() >= max_duration {
-                        break;
-                    }
+                if let Some(max_duration) = self.config.duration
+                    && start.elapsed() >= max_duration
+                {
+                    break;
                 }
             }
 

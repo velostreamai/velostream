@@ -308,7 +308,7 @@ impl SchemaRegistry {
             let file_path = entry.path();
             if file_path
                 .extension()
-                .map_or(false, |ext| ext == "yaml" || ext == "yml")
+                .is_some_and(|ext| ext == "yaml" || ext == "yml")
             {
                 if let Ok(schema) = Schema::from_file(&file_path) {
                     registry.register(schema);

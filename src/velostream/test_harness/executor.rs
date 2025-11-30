@@ -16,10 +16,15 @@ use super::stress::MemoryTracker;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::types::FieldValue;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{FutureRecord, Producer};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
+
+/// Type alias for source/sink extraction results: (name, optional_topic)
+type SourceSinkEntry = (String, Option<String>);
+/// Type alias for source/sink extraction: (sources, sinks)
+type SourcesAndSinks = (Vec<SourceSinkEntry>, Vec<SourceSinkEntry>);
 
 /// Query execution context
 pub struct QueryExecutor {
@@ -114,8 +119,8 @@ impl QueryExecutor {
     ///
     /// # Arguments
     /// * `base_dir` - Optional base directory for resolving relative config file paths in SQL
-    ///                (e.g., `../../configs/common_kafka_source.yaml`). Pass the parent directory
-    ///                of the SQL file being executed.
+    ///   (e.g., `../../configs/common_kafka_source.yaml`). Pass the parent directory
+    ///   of the SQL file being executed.
     pub async fn with_server(
         mut self,
         base_dir: Option<impl AsRef<Path>>,
@@ -337,7 +342,7 @@ impl QueryExecutor {
         memory_tracker.sample();
         let mut captured_outputs = Vec::new();
 
-        if let Some(ref bootstrap_servers) = self.infra.bootstrap_servers() {
+        if let Some(bootstrap_servers) = self.infra.bootstrap_servers() {
             let capture = SinkCapture::new(bootstrap_servers).with_config(CaptureConfig {
                 timeout: self.timeout,
                 min_records: 0,
@@ -419,13 +424,13 @@ impl QueryExecutor {
                         }
                         JobStatus::Running => {
                             // Check if we've processed enough records (heuristic)
-                            if status.metrics.records_processed > 0 {
+                            if status.stats.records_processed > 0 {
                                 // Give it a bit more time to finish processing
                                 tokio::time::sleep(Duration::from_millis(500)).await;
                                 log::debug!(
                                     "Job '{}' processed {} records",
                                     job_name,
-                                    status.metrics.records_processed
+                                    status.stats.records_processed
                                 );
                                 return Ok(());
                             }
@@ -754,9 +759,7 @@ pub fn parse_with_properties(sql: &str) -> HashMap<String, String> {
 
 /// Extract source and sink info from WITH properties
 /// Returns (sources: Vec<(name, topic)>, sinks: Vec<(name, topic)>)
-pub fn extract_sources_and_sinks(
-    props: &HashMap<String, String>,
-) -> (Vec<(String, Option<String>)>, Vec<(String, Option<String>)>) {
+pub fn extract_sources_and_sinks(props: &HashMap<String, String>) -> SourcesAndSinks {
     let mut sources: HashMap<String, Option<String>> = HashMap::new();
     let mut sinks: HashMap<String, Option<String>> = HashMap::new();
 

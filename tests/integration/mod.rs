@@ -44,7 +44,8 @@ pub mod watermark_debug_test;
 pub mod watermark_partition_batching_verification_test;
 
 // Test harness integration tests (FR-084)
-pub mod test_harness_integration_test;
+// Reorganized into logical modules under test_harness/
+pub mod test_harness;
 
 // Re-export common test utilities from the correct path
 pub use super::unit::common::*;

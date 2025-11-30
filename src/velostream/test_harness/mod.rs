@@ -45,13 +45,21 @@
 //! velo-test stress app.sql --records 100000 --duration 60
 //! ```
 
+// Allow dead_code and unused_imports for public API items used by the velo-test binary
+// These exports are consumed by src/bin/velo-test.rs, not by the library itself
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 pub mod ai;
 pub mod assertions;
 pub mod capture;
 pub mod cli;
 pub mod config_override;
+pub mod dlq;
 pub mod error;
 pub mod executor;
+pub mod fault_injection;
+pub mod file_io;
 pub mod generator;
 pub mod inference;
 pub mod infra;
@@ -60,13 +68,19 @@ pub mod schema;
 pub mod spec;
 pub mod spec_generator;
 pub mod stress;
+pub mod table_state;
+pub mod utils;
 
-// Re-export main types for convenience
+// Re-export main types for convenience - used by velo-test binary
 pub use config_override::{ConfigOverrideBuilder, ConfigOverrides};
+pub use dlq::{CapturedDlqOutput, DlqCapture, DlqConfig, DlqRecord, DlqStatistics, ErrorType};
 pub use error::TestHarnessError;
+pub use fault_injection::{FaultInjectionConfig, FaultInjector, MalformationType};
+pub use file_io::{FileSinkFactory, FileSourceFactory};
 pub use inference::SchemaInferencer;
 pub use infra::{SharedTestInfra, TestHarnessInfra};
 pub use schema::Schema;
-pub use spec::TestSpec;
+pub use spec::{FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec};
 pub use spec_generator::SpecGenerator;
 pub use stress::{MemoryTracker, StressConfig, StressMetrics, StressRunner};
+pub use table_state::{TableSnapshot, TableState, TableStateConfig, TableStateManager};

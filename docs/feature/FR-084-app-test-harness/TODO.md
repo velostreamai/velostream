@@ -14,6 +14,8 @@
 | Phase 8 | Performance Assertions | 0.5 day | ✅ COMPLETE | Phase 3 |
 | Phase 9 | Foreign Key Reference Data | 0.5 day | ✅ COMPLETE | Phase 1 |
 | Phase 10 | In-Memory Schema Registry | 0.5 day | ✅ COMPLETE | Phase 1 |
+| Phase 11 | Advanced Testing (DLQ, Fault Injection, Table State) | 1 day | ✅ COMPLETE | Phase 3 |
+| Phase 12 | File-Based Testing Support | 0.5 day | ✅ COMPLETE | Phase 1 |
 | Documentation | Developer Guide | 0.5 day | ✅ COMPLETE | All |
 | Demo Apps | Test Fixtures | 4 days | ✅ COMPLETE | Parallel with Phase 2-3 |
 
@@ -637,6 +639,47 @@ let customer_records = generator.generate(&customer_schema, 100).unwrap();
 generator.load_reference_data_from_records("customers", "id", &customer_records);
 ```
 
+### ✅ Phase 11: Advanced Testing Features (Completed)
+
+Added comprehensive testing capabilities for production-grade test scenarios:
+
+| Module | File | Features |
+|--------|------|----------|
+| **DLQ Capture** | [`dlq.rs`](../../src/velostream/test_harness/dlq.rs) | Dead Letter Queue capture, error classification, statistics |
+| **Fault Injection** | [`fault_injection.rs`](../../src/velostream/test_harness/fault_injection.rs) | Chaos testing: malformed records, duplicates, out-of-order events |
+| **Table State** | [`table_state.rs`](../../src/velostream/test_harness/table_state.rs) | CTAS materialized table tracking, snapshots, changelog |
+
+**New Assertion Types in `spec.rs`:**
+
+| Assertion | Description |
+|-----------|-------------|
+| `dlq_count` | Check DLQ error record counts and error types |
+| `error_rate` | Check error rate stays within bounds |
+| `no_duplicates` | Verify record uniqueness by key fields |
+| `ordering` | Verify record ordering (ascending/descending) |
+| `completeness` | Verify no data loss compared to input |
+| `table_freshness` | Check CTAS table freshness and lag |
+| `data_quality` | Comprehensive quality checks (nulls, ranges, patterns) |
+
+**DLQ Capture Features:**
+- `DlqConfig`: Enable DLQ capture with custom topic and timeout
+- `ErrorType`: Classification (deserialization, schema_validation, type_conversion, etc.)
+- `DlqRecord`: Captured error records with metadata
+- `DlqStatistics`: Error counts, rates, and samples
+
+**Fault Injection Features:**
+- `MalformedRecordConfig`: Inject parse errors, missing fields, wrong types
+- `DuplicateConfig`: Inject duplicate records at configurable rate
+- `OutOfOrderConfig`: Shuffle records within a window
+- `FieldCorruptionConfig`: Corrupt specific field values
+- `SlowProcessingConfig`: Simulate slow processing delays
+
+**Table State Features:**
+- `TableState`: Track CTAS table records, changelog, statistics
+- `TableSnapshot`: Point-in-time snapshots with persistence
+- `TableStateManager`: Manage multiple tables with snapshot history
+- Key-based upsert, delete, lookup operations
+
 ### ⚠️ Remaining Items
 
 | Feature | Description | Status |
@@ -653,3 +696,89 @@ All 5 integration tests pass with testcontainers:
 - `test_temp_directory` ✅
 
 Run with: `cargo test --tests --features test-support integration::test_harness_integration_test`
+
+### ✅ Phase 12: File-Based Testing Support (Completed)
+
+Added comprehensive file-based input/output support for testing SQL applications without Kafka infrastructure:
+
+| Module | File | Features |
+|--------|------|----------|
+| **File I/O** | [`file_io.rs`](../../src/velostream/test_harness/file_io.rs) | CSV/JSON file loading and writing for test data |
+| **Source/Sink Types** | [`spec.rs`](../../src/velostream/test_harness/spec.rs) | `SourceType` and `SinkType` enums with file support |
+| **File Assertions** | [`assertions.rs`](../../src/velostream/test_harness/assertions.rs) | File-specific assertion implementations |
+
+**New Source/Sink Types:**
+
+```yaml
+# File-based input source
+inputs:
+  - source: trades
+    source_type:
+      type: file
+      path: ./input_data.csv
+      format: csv       # csv, csv_no_header, json_lines, json
+      watch: false      # Watch for file changes
+
+# File-based output sink
+output:
+  sink_type:
+    type: file
+    path: ./output.csv
+    format: csv
+```
+
+**New File Assertions:**
+
+| Assertion | Description |
+|-----------|-------------|
+| `file_exists` | Verify output file exists with optional size constraints |
+| `file_row_count` | Verify number of data rows in output file |
+| `file_contains` | Verify file contains specific values in a field |
+| `file_matches` | Compare output file to expected file content |
+
+**File Assertion Examples:**
+
+```yaml
+assertions:
+  # Check file exists and has content
+  - type: file_exists
+    path: ./output.csv
+    min_size_bytes: 100
+
+  # Check row count
+  - type: file_row_count
+    path: ./output.csv
+    format: csv
+    equals: 6
+
+  # Check specific values exist
+  - type: file_contains
+    path: ./output.csv
+    format: csv
+    field: symbol
+    expected_values: [AAPL, GOOGL, MSFT]
+    mode: all  # or 'any'
+
+  # Compare to expected file
+  - type: file_matches
+    actual_path: ./output.csv
+    expected_path: ./expected.csv
+    format: csv
+    ignore_order: true
+    numeric_tolerance: 0.01
+```
+
+**Supported File Formats:**
+- `csv` - CSV with header row
+- `csv_no_header` - CSV without header
+- `json_lines` - JSON Lines (one JSON object per line)
+- `json` - JSON array of objects
+
+**Benefits:**
+- **Fast Testing**: No Kafka infrastructure required
+- **Deterministic**: File inputs provide repeatable tests
+- **Easy Debugging**: Output files can be inspected directly
+- **CI/CD Friendly**: Works in environments without Docker
+
+**Demo Example:**
+See `demo/test_harness_examples/tier1_basic/file_io/` for a complete file-based testing example

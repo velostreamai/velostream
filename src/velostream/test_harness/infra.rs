@@ -30,7 +30,7 @@
 use super::error::{TestHarnessError, TestHarnessResult};
 use crate::velostream::schema::client::registry_client::SchemaReference;
 use crate::velostream::schema::server::registry_backend::{
-    InMemorySchemaRegistryBackend, SchemaRegistryBackend, SchemaVersion,
+    InMemorySchemaRegistryBackend, SchemaRegistryBackend,
 };
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;

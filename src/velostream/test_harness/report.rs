@@ -9,8 +9,6 @@ use super::assertions::AssertionResult;
 use super::executor::ExecutionResult;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::path::Path;
-use std::time::Duration;
 
 /// Complete test run report
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -394,8 +392,7 @@ fn write_text_report(report: &TestReport, writer: &mut dyn Write) -> std::io::Re
 
 /// Write JSON format report
 fn write_json_report(report: &TestReport, writer: &mut dyn Write) -> std::io::Result<()> {
-    let json = serde_json::to_string_pretty(report)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(report).map_err(std::io::Error::other)?;
     writeln!(writer, "{}", json)
 }
 

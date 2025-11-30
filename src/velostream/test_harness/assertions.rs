@@ -7,16 +7,19 @@
 //! - Aggregate validations
 //! - JOIN coverage analysis
 
-use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::CapturedOutput;
+use super::file_io::FileSourceFactory;
 use super::spec::{
-    AggregateCheckAssertion, AggregateFunction, AssertionConfig, ComparisonOperator,
-    ExecutionTimeAssertion, FieldInSetAssertion, FieldValuesAssertion, JoinCoverageAssertion,
+    AggregateCheckAssertion, AggregateFunction, AssertionConfig, ComparisonOperator, ContainsMode,
+    ExecutionTimeAssertion, FieldInSetAssertion, FieldValuesAssertion, FileContainsAssertion,
+    FileExistsAssertion, FileMatchesAssertion, FileRowCountAssertion, JoinCoverageAssertion,
     MemoryUsageAssertion, NoNullsAssertion, RecordCountAssertion, SchemaContainsAssertion,
     TemplateAssertion,
 };
+use super::utils::{field_value_to_string, resolve_path};
 use crate::velostream::sql::execution::types::FieldValue;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Result of an assertion check
 #[derive(Debug, Clone)]
@@ -76,6 +79,8 @@ impl AssertionResult {
 pub struct AssertionRunner {
     /// Context for template variable substitution
     context: AssertionContext,
+    /// Base directory for resolving relative file paths
+    base_dir: PathBuf,
 }
 
 /// Context for assertion evaluation
@@ -170,6 +175,7 @@ impl AssertionRunner {
     pub fn new() -> Self {
         Self {
             context: AssertionContext::default(),
+            base_dir: PathBuf::from("."),
         }
     }
 
@@ -177,6 +183,17 @@ impl AssertionRunner {
     pub fn with_context(mut self, context: AssertionContext) -> Self {
         self.context = context;
         self
+    }
+
+    /// Set base directory for resolving relative file paths
+    pub fn with_base_dir(mut self, base_dir: impl Into<PathBuf>) -> Self {
+        self.base_dir = base_dir.into();
+        self
+    }
+
+    /// Resolve a file path relative to base_dir
+    fn resolve_file_path(&self, path: &str) -> PathBuf {
+        resolve_path(path, &self.base_dir)
     }
 
     /// Run all assertions for a captured output
@@ -208,6 +225,35 @@ impl AssertionRunner {
             AssertionConfig::Template(config) => self.assert_template(output, config),
             AssertionConfig::ExecutionTime(config) => self.assert_execution_time(output, config),
             AssertionConfig::MemoryUsage(config) => self.assert_memory_usage(output, config),
+            // New assertion types - placeholders for now (will be implemented in Phase 12)
+            AssertionConfig::DlqCount(_) => {
+                AssertionResult::pass("dlq_count", "DLQ assertion not yet implemented")
+            }
+            AssertionConfig::ErrorRate(_) => {
+                AssertionResult::pass("error_rate", "Error rate assertion not yet implemented")
+            }
+            AssertionConfig::NoDuplicates(_) => AssertionResult::pass(
+                "no_duplicates",
+                "No duplicates assertion not yet implemented",
+            ),
+            AssertionConfig::Ordering(_) => {
+                AssertionResult::pass("ordering", "Ordering assertion not yet implemented")
+            }
+            AssertionConfig::Completeness(_) => {
+                AssertionResult::pass("completeness", "Completeness assertion not yet implemented")
+            }
+            AssertionConfig::TableFreshness(_) => AssertionResult::pass(
+                "table_freshness",
+                "Table freshness assertion not yet implemented",
+            ),
+            AssertionConfig::DataQuality(_) => {
+                AssertionResult::pass("data_quality", "Data quality assertion not yet implemented")
+            }
+            // File-specific assertions
+            AssertionConfig::FileExists(config) => self.assert_file_exists(config),
+            AssertionConfig::FileRowCount(config) => self.assert_file_row_count(config),
+            AssertionConfig::FileContains(config) => self.assert_file_contains(config),
+            AssertionConfig::FileMatches(config) => self.assert_file_matches(config),
         }
     }
 
@@ -513,18 +559,10 @@ impl AssertionRunner {
         let total_output = output.records.len();
 
         // Get the left source name (default to "left" if not specified)
-        let left_source = config
-            .left_source
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("left");
+        let left_source = config.left_source.as_deref().unwrap_or("left");
 
         // Get the right source name (default to "right" if not specified)
-        let right_source = config
-            .right_source
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("right");
+        let right_source = config.right_source.as_deref().unwrap_or("right");
 
         // If no output records, check if we have input to compare
         if total_output == 0 {
@@ -651,8 +689,7 @@ impl AssertionRunner {
         let expression = config.expression.trim();
         let description = config
             .description
-            .as_ref()
-            .map(|s| s.as_str())
+            .as_deref()
             .unwrap_or("Template assertion");
 
         // Evaluate the template expression
@@ -849,6 +886,378 @@ impl AssertionRunner {
             result = result.with_detail("growth_bytes", &growth.to_string());
         }
         result
+    }
+
+    // ==================== File Assertion Methods ====================
+
+    /// Assert file exists and optionally check size
+    fn assert_file_exists(&self, config: &FileExistsAssertion) -> AssertionResult {
+        let path = self.resolve_file_path(&config.path);
+
+        if !path.exists() {
+            return AssertionResult::fail(
+                "file_exists",
+                &format!("File does not exist: {}", config.path),
+                "file exists",
+                "file not found",
+            );
+        }
+
+        // Check file size if specified
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let size = metadata.len();
+
+            if let Some(min_size) = config.min_size_bytes {
+                if size < min_size {
+                    return AssertionResult::fail(
+                        "file_exists",
+                        &format!(
+                            "File size {} bytes is below minimum {} bytes",
+                            size, min_size
+                        ),
+                        &format!(">= {} bytes", min_size),
+                        &format!("{} bytes", size),
+                    );
+                }
+            }
+
+            if let Some(max_size) = config.max_size_bytes {
+                if size > max_size {
+                    return AssertionResult::fail(
+                        "file_exists",
+                        &format!(
+                            "File size {} bytes exceeds maximum {} bytes",
+                            size, max_size
+                        ),
+                        &format!("<= {} bytes", max_size),
+                        &format!("{} bytes", size),
+                    );
+                }
+            }
+
+            AssertionResult::pass(
+                "file_exists",
+                &format!("File exists: {} ({} bytes)", config.path, size),
+            )
+            .with_detail("path", &config.path)
+            .with_detail("size_bytes", &size.to_string())
+        } else {
+            AssertionResult::pass("file_exists", &format!("File exists: {}", config.path))
+                .with_detail("path", &config.path)
+        }
+    }
+
+    /// Assert file row count
+    fn assert_file_row_count(&self, config: &FileRowCountAssertion) -> AssertionResult {
+        let path = self.resolve_file_path(&config.path);
+
+        if !path.exists() {
+            return AssertionResult::fail(
+                "file_row_count",
+                &format!("File does not exist: {}", config.path),
+                "file exists",
+                "file not found",
+            );
+        }
+
+        // Load and count records
+        let records = match FileSourceFactory::load_records(&path, &config.format) {
+            Ok(r) => r,
+            Err(e) => {
+                return AssertionResult::fail(
+                    "file_row_count",
+                    &format!("Failed to load file: {}", e),
+                    "valid file",
+                    &e.to_string(),
+                );
+            }
+        };
+
+        let actual = records.len();
+
+        // Check exact equals
+        if let Some(expected) = config.equals {
+            if actual == expected {
+                return AssertionResult::pass(
+                    "file_row_count",
+                    &format!("Row count matches: {}", actual),
+                )
+                .with_detail("path", &config.path);
+            } else {
+                return AssertionResult::fail(
+                    "file_row_count",
+                    "Row count mismatch",
+                    &expected.to_string(),
+                    &actual.to_string(),
+                )
+                .with_detail("path", &config.path);
+            }
+        }
+
+        // Check greater_than
+        if let Some(min) = config.greater_than {
+            if actual <= min {
+                return AssertionResult::fail(
+                    "file_row_count",
+                    &format!("Expected > {} rows", min),
+                    &format!("> {}", min),
+                    &actual.to_string(),
+                )
+                .with_detail("path", &config.path);
+            }
+        }
+
+        // Check less_than
+        if let Some(max) = config.less_than {
+            if actual >= max {
+                return AssertionResult::fail(
+                    "file_row_count",
+                    &format!("Expected < {} rows", max),
+                    &format!("< {}", max),
+                    &actual.to_string(),
+                )
+                .with_detail("path", &config.path);
+            }
+        }
+
+        AssertionResult::pass("file_row_count", &format!("Row count: {}", actual))
+            .with_detail("path", &config.path)
+            .with_detail("row_count", &actual.to_string())
+    }
+
+    /// Assert file contains specific values
+    fn assert_file_contains(&self, config: &FileContainsAssertion) -> AssertionResult {
+        let path = self.resolve_file_path(&config.path);
+
+        if !path.exists() {
+            return AssertionResult::fail(
+                "file_contains",
+                &format!("File does not exist: {}", config.path),
+                "file exists",
+                "file not found",
+            );
+        }
+
+        // Load records
+        let records = match FileSourceFactory::load_records(&path, &config.format) {
+            Ok(r) => r,
+            Err(e) => {
+                return AssertionResult::fail(
+                    "file_contains",
+                    &format!("Failed to load file: {}", e),
+                    "valid file",
+                    &e.to_string(),
+                );
+            }
+        };
+
+        // Extract field values from records
+        let actual_values: std::collections::HashSet<String> = records
+            .iter()
+            .filter_map(|r| r.fields.get(&config.field))
+            .map(field_value_to_string)
+            .collect();
+
+        let expected_set: std::collections::HashSet<&String> =
+            config.expected_values.iter().collect();
+
+        match config.mode {
+            ContainsMode::All => {
+                let missing: Vec<&String> = expected_set
+                    .iter()
+                    .filter(|v| !actual_values.contains(**v))
+                    .copied()
+                    .collect();
+
+                if missing.is_empty() {
+                    AssertionResult::pass(
+                        "file_contains",
+                        &format!("All expected values found in field '{}'", config.field),
+                    )
+                    .with_detail("path", &config.path)
+                    .with_detail("field", &config.field)
+                } else {
+                    AssertionResult::fail(
+                        "file_contains",
+                        &format!("Missing values in field '{}'", config.field),
+                        &format!("all of: {}", config.expected_values.join(", ")),
+                        &format!(
+                            "missing: {}",
+                            missing
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    )
+                    .with_detail("path", &config.path)
+                    .with_detail("field", &config.field)
+                }
+            }
+            ContainsMode::Any => {
+                let found = expected_set.iter().any(|v| actual_values.contains(*v));
+
+                if found {
+                    AssertionResult::pass(
+                        "file_contains",
+                        &format!(
+                            "At least one expected value found in field '{}'",
+                            config.field
+                        ),
+                    )
+                    .with_detail("path", &config.path)
+                    .with_detail("field", &config.field)
+                } else {
+                    AssertionResult::fail(
+                        "file_contains",
+                        &format!("No expected values found in field '{}'", config.field),
+                        &format!("any of: {}", config.expected_values.join(", ")),
+                        "none found",
+                    )
+                    .with_detail("path", &config.path)
+                    .with_detail("field", &config.field)
+                }
+            }
+        }
+    }
+
+    /// Assert file matches expected content
+    fn assert_file_matches(&self, config: &FileMatchesAssertion) -> AssertionResult {
+        let actual_path = self.resolve_file_path(&config.actual_path);
+        let expected_path = self.resolve_file_path(&config.expected_path);
+
+        // Check both files exist
+        if !actual_path.exists() {
+            return AssertionResult::fail(
+                "file_matches",
+                &format!("Actual file does not exist: {}", config.actual_path),
+                "file exists",
+                "file not found",
+            );
+        }
+        if !expected_path.exists() {
+            return AssertionResult::fail(
+                "file_matches",
+                &format!("Expected file does not exist: {}", config.expected_path),
+                "file exists",
+                "file not found",
+            );
+        }
+
+        // Load records from both files
+        let actual_records = match FileSourceFactory::load_records(&actual_path, &config.format) {
+            Ok(r) => r,
+            Err(e) => {
+                return AssertionResult::fail(
+                    "file_matches",
+                    &format!("Failed to load actual file: {}", e),
+                    "valid file",
+                    &e.to_string(),
+                );
+            }
+        };
+
+        let expected_records = match FileSourceFactory::load_records(&expected_path, &config.format)
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return AssertionResult::fail(
+                    "file_matches",
+                    &format!("Failed to load expected file: {}", e),
+                    "valid file",
+                    &e.to_string(),
+                );
+            }
+        };
+
+        // Check row counts
+        if actual_records.len() != expected_records.len() {
+            return AssertionResult::fail(
+                "file_matches",
+                "Row count mismatch",
+                &format!("{} rows", expected_records.len()),
+                &format!("{} rows", actual_records.len()),
+            )
+            .with_detail("actual_path", &config.actual_path)
+            .with_detail("expected_path", &config.expected_path);
+        }
+
+        // Determine fields to compare
+        let fields_to_compare: Vec<&String> = if config.compare_fields.is_empty() {
+            // Compare all fields except ignored
+            let all_fields: std::collections::HashSet<&String> = expected_records
+                .iter()
+                .flat_map(|r| r.fields.keys())
+                .collect();
+            let ignore_set: std::collections::HashSet<&String> =
+                config.ignore_fields.iter().collect();
+            all_fields
+                .into_iter()
+                .filter(|f| !ignore_set.contains(f))
+                .collect()
+        } else {
+            config.compare_fields.iter().collect()
+        };
+
+        // Compare records
+        let tolerance = config.numeric_tolerance.unwrap_or(0.0001);
+
+        if config.ignore_order {
+            // Sort both sets by converting to strings for comparison
+            let actual_set: std::collections::HashSet<String> = actual_records
+                .iter()
+                .map(|r| record_to_compare_string(r, &fields_to_compare))
+                .collect();
+            let expected_set: std::collections::HashSet<String> = expected_records
+                .iter()
+                .map(|r| record_to_compare_string(r, &fields_to_compare))
+                .collect();
+
+            if actual_set != expected_set {
+                let missing: Vec<&String> = expected_set.difference(&actual_set).collect();
+                let extra: Vec<&String> = actual_set.difference(&expected_set).collect();
+                return AssertionResult::fail(
+                    "file_matches",
+                    "Record content mismatch",
+                    &format!("{} records", expected_records.len()),
+                    &format!("missing: {}, extra: {}", missing.len(), extra.len()),
+                )
+                .with_detail("actual_path", &config.actual_path)
+                .with_detail("expected_path", &config.expected_path);
+            }
+        } else {
+            // Compare in order
+            for (i, (actual, expected)) in actual_records
+                .iter()
+                .zip(expected_records.iter())
+                .enumerate()
+            {
+                for field in &fields_to_compare {
+                    let actual_val = actual.fields.get(*field);
+                    let expected_val = expected.fields.get(*field);
+
+                    if !values_equal(actual_val, expected_val, tolerance) {
+                        return AssertionResult::fail(
+                            "file_matches",
+                            &format!("Mismatch at row {} field '{}'", i, field),
+                            &format!("{:?}", expected_val),
+                            &format!("{:?}", actual_val),
+                        )
+                        .with_detail("actual_path", &config.actual_path)
+                        .with_detail("expected_path", &config.expected_path)
+                        .with_detail("row", &i.to_string());
+                    }
+                }
+            }
+        }
+
+        AssertionResult::pass(
+            "file_matches",
+            &format!("Files match ({} rows)", actual_records.len()),
+        )
+        .with_detail("actual_path", &config.actual_path)
+        .with_detail("expected_path", &config.expected_path)
+        .with_detail("row_count", &actual_records.len().to_string())
     }
 
     /// Evaluate a template expression
@@ -1509,23 +1918,6 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-/// Convert FieldValue to string for comparison
-fn field_value_to_string(value: &FieldValue) -> String {
-    match value {
-        FieldValue::Null => "null".to_string(),
-        FieldValue::Boolean(b) => b.to_string(),
-        FieldValue::Integer(i) => i.to_string(),
-        FieldValue::Float(f) => f.to_string(),
-        FieldValue::String(s) => s.clone(),
-        FieldValue::Timestamp(ts) => ts.to_string(),
-        FieldValue::ScaledInteger(v, s) => {
-            let scale = 10_i64.pow(*s as u32);
-            format!("{:.prec$}", *v as f64 / scale as f64, prec = *s as usize)
-        }
-        _ => format!("{:?}", value),
-    }
-}
-
 /// Convert FieldValue to f64 for numeric comparisons
 fn field_value_to_f64(value: &FieldValue) -> Option<f64> {
     match value {
@@ -1552,9 +1944,9 @@ fn compare_field_value(
             if let Some(exp) = expected.as_str() {
                 value_str == exp
             } else if let Some(exp) = expected.as_i64() {
-                field_value_to_f64(value).map_or(false, |v| (v - exp as f64).abs() < 0.0001)
+                field_value_to_f64(value).is_some_and(|v| (v - exp as f64).abs() < 0.0001)
             } else if let Some(exp) = expected.as_f64() {
-                field_value_to_f64(value).map_or(false, |v| (v - exp).abs() < 0.0001)
+                field_value_to_f64(value).is_some_and(|v| (v - exp).abs() < 0.0001)
             } else {
                 false
             }
@@ -1564,28 +1956,28 @@ fn compare_field_value(
         }
         ComparisonOperator::GreaterThan => {
             if let Some(exp) = expected.as_f64() {
-                field_value_to_f64(value).map_or(false, |v| v > exp)
+                field_value_to_f64(value).is_some_and(|v| v > exp)
             } else {
                 false
             }
         }
         ComparisonOperator::LessThan => {
             if let Some(exp) = expected.as_f64() {
-                field_value_to_f64(value).map_or(false, |v| v < exp)
+                field_value_to_f64(value).is_some_and(|v| v < exp)
             } else {
                 false
             }
         }
         ComparisonOperator::GreaterThanOrEquals => {
             if let Some(exp) = expected.as_f64() {
-                field_value_to_f64(value).map_or(false, |v| v >= exp)
+                field_value_to_f64(value).is_some_and(|v| v >= exp)
             } else {
                 false
             }
         }
         ComparisonOperator::LessThanOrEquals => {
             if let Some(exp) = expected.as_f64() {
-                field_value_to_f64(value).map_or(false, |v| v <= exp)
+                field_value_to_f64(value).is_some_and(|v| v <= exp)
             } else {
                 false
             }
@@ -1620,6 +2012,48 @@ fn compare_field_value(
                 false
             }
         }
+    }
+}
+
+// ==================== File Assertion Helper Functions ====================
+
+use crate::velostream::sql::execution::types::StreamRecord;
+
+/// Convert a record to a string for set-based comparison
+fn record_to_compare_string(record: &StreamRecord, fields: &[&String]) -> String {
+    let mut parts: Vec<String> = fields
+        .iter()
+        .map(|f| {
+            record
+                .fields
+                .get(*f)
+                .map(field_value_to_string)
+                .unwrap_or_else(|| "NULL".to_string())
+        })
+        .collect();
+    parts.sort();
+    parts.join("|")
+}
+
+/// Compare two optional field values with tolerance for numeric values
+fn values_equal(
+    actual: Option<&FieldValue>,
+    expected: Option<&FieldValue>,
+    tolerance: f64,
+) -> bool {
+    match (actual, expected) {
+        (None, None) => true,
+        (Some(FieldValue::Null), None) | (None, Some(FieldValue::Null)) => true,
+        (Some(a), Some(e)) => {
+            // Try numeric comparison first
+            if let (Some(a_f64), Some(e_f64)) = (field_value_to_f64(a), field_value_to_f64(e)) {
+                (a_f64 - e_f64).abs() <= tolerance
+            } else {
+                // Fall back to string comparison
+                field_value_to_string(a) == field_value_to_string(e)
+            }
+        }
+        _ => false,
     }
 }
 
@@ -2151,7 +2585,7 @@ mod tests {
 
     #[test]
     fn test_field_value_to_string() {
-        assert_eq!(field_value_to_string(&FieldValue::Null), "null");
+        assert_eq!(field_value_to_string(&FieldValue::Null), "NULL");
         assert_eq!(field_value_to_string(&FieldValue::Boolean(true)), "true");
         assert_eq!(field_value_to_string(&FieldValue::Integer(42)), "42");
         assert_eq!(field_value_to_string(&FieldValue::Float(2.5)), "2.5");

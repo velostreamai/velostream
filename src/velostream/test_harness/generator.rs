@@ -11,7 +11,7 @@ use super::schema::{
     Distribution, FieldConstraints, FieldDefinition, FieldType, Schema, SchemaRegistry,
 };
 use crate::velostream::sql::execution::types::FieldValue;
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rand::distributions::{Distribution as RandDistribution, WeightedIndex};
 use rand::prelude::*;
 use std::collections::HashMap;

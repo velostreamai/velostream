@@ -48,8 +48,8 @@ pub async fn run_tests(config: &RunConfig) -> TestHarnessResult<TestReport> {
 
     spec.validate()?;
 
-    // Load schemas
-    let schemas = if let Some(ref schema_dir) = config.schema_dir {
+    // Load schemas (will be used when schema integration is completed)
+    let _schemas = if let Some(ref schema_dir) = config.schema_dir {
         SchemaRegistry::load_from_dir(schema_dir)?
     } else {
         SchemaRegistry::new()
@@ -122,6 +122,8 @@ fn generate_minimal_spec(sql_file: &Path) -> TestHarnessResult<TestSpec> {
                 description: None,
                 skip: false,
                 inputs: Vec::new(),
+                output: None,
+                outputs: Vec::new(),
                 assertions: vec![super::spec::AssertionConfig::RecordCount(
                     super::spec::RecordCountAssertion {
                         equals: None,

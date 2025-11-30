@@ -1,6 +1,9 @@
 # FR-084: SQL Application Test Harness
 
-> **📖 See the [Developer Guide](./DEVELOPER_GUIDE.md) for detailed usage instructions, examples, and troubleshooting.**
+> **📖 Documentation**
+>
+> - **User Documentation**: [docs/test-harness/](../../test-harness/README.md) - Getting started, user guide, quick reference
+> - **Developer Documentation**: [docs/developer/test-harness/](../../developer/test-harness/README.md) - Architecture, extending, internals
 
 ## Overview
 
