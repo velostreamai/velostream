@@ -51,6 +51,10 @@ pub struct QueryExecutor {
 
     /// Parsed queries from SQL file (query_name -> ParsedQuery)
     parsed_queries: HashMap<String, ParsedQuery>,
+
+    /// Global source name -> topic name mapping (aggregated from all parsed queries)
+    /// Used to resolve the actual Kafka topic when publishing test data
+    source_topics: HashMap<String, String>,
 }
 
 /// Captured output from a query execution
@@ -109,6 +113,7 @@ impl QueryExecutor {
             schema_registry: SchemaRegistry::new(),
             generator: SchemaDataGenerator::new(None),
             parsed_queries: HashMap::new(),
+            source_topics: HashMap::new(),
         }
     }
 
@@ -193,10 +198,22 @@ impl QueryExecutor {
         // Parse SQL to extract queries
         let parsed_queries = self.parse_sql(&sql_content, sql_file)?;
 
-        // Store parsed queries
+        // Store parsed queries and build global source_topics mapping
         for parsed in parsed_queries.iter() {
             self.parsed_queries
                 .insert(parsed.name.clone(), parsed.clone());
+
+            // Aggregate all source name -> topic mappings
+            for (source_name, topic) in &parsed.source_topics {
+                log::debug!(
+                    "Mapping source '{}' -> topic '{}' (from query '{}')",
+                    source_name,
+                    topic,
+                    parsed.name
+                );
+                self.source_topics
+                    .insert(source_name.clone(), topic.clone());
+            }
         }
 
         log::info!(
@@ -204,6 +221,7 @@ impl QueryExecutor {
             self.parsed_queries.len(),
             self.parsed_queries.keys().collect::<Vec<_>>()
         );
+        log::info!("Source -> topic mappings: {:?}", self.source_topics);
 
         Ok(())
     }
@@ -267,10 +285,11 @@ impl QueryExecutor {
             parsed_query.and_then(|pq| pq.sink_topic.as_ref())
         );
 
-        // Determine output topic: use sink topic from SQL config, or fall back to {query_name}_output
+        // Determine output topic: use sink topic from SQL config, or fall back to query name
+        // (the query name IS the sink name in CREATE STREAM statements)
         let base_output_topic = parsed_query
             .and_then(|pq| pq.sink_topic.clone())
-            .unwrap_or_else(|| format!("{}_output", query.name));
+            .unwrap_or_else(|| query.name.clone());
 
         let output_topic = if let Some(ref overrides) = self.overrides {
             overrides.override_topic(&base_output_topic)
@@ -478,12 +497,26 @@ impl QueryExecutor {
         let record_count = input.records.unwrap_or(schema.record_count);
         let records = self.generator.generate(schema, record_count)?;
 
-        // Publish to Kafka topic
+        // Resolve topic: use source_topics mapping from SQL analysis, then apply overrides
+        // This maps stream name (e.g., "in_market_data_stream") to actual topic (e.g., "in_market_data")
+        let base_topic = self
+            .source_topics
+            .get(&input.source)
+            .cloned()
+            .unwrap_or_else(|| input.source.clone());
+
         let topic = if let Some(ref overrides) = self.overrides {
-            overrides.override_topic(&input.source)
+            overrides.override_topic(&base_topic)
         } else {
-            input.source.clone()
+            base_topic
         };
+
+        log::info!(
+            "Publishing to topic '{}' (source: '{}', resolved from SQL: {})",
+            topic,
+            input.source,
+            self.source_topics.contains_key(&input.source)
+        );
 
         self.publish_records(&topic, &records).await?;
 
@@ -508,11 +541,26 @@ impl QueryExecutor {
                 output.query_name
             );
 
+            // Resolve topic: use source_topics mapping from SQL analysis, then apply overrides
+            // This maps stream name (e.g., "in_market_data_stream") to actual topic (e.g., "in_market_data")
+            let base_topic = self
+                .source_topics
+                .get(source)
+                .cloned()
+                .unwrap_or_else(|| source.to_string());
+
             let topic = if let Some(ref overrides) = self.overrides {
-                overrides.override_topic(source)
+                overrides.override_topic(&base_topic)
             } else {
-                source.to_string()
+                base_topic
             };
+
+            log::info!(
+                "Publishing from previous to topic '{}' (source: '{}', resolved from SQL: {})",
+                topic,
+                source,
+                self.source_topics.contains_key(source)
+            );
 
             self.publish_records(&topic, &output.records).await?;
         } else {
@@ -581,9 +629,11 @@ impl QueryExecutor {
     fn parse_sql(&self, sql_content: &str, sql_file: &Path) -> TestHarnessResult<Vec<ParsedQuery>> {
         use crate::velostream::sql::validator::SqlValidator;
 
-        // Use base_dir from the SQL file path for resolving relative config paths
-        let base_dir = sql_file.parent().unwrap_or(std::path::Path::new("."));
-        let validator = SqlValidator::with_base_dir(base_dir);
+        // Use current working directory for resolving relative config paths
+        // This allows SQL files in subdirectories to reference configs relative to CWD
+        // Example: SQL in `sql/app.sql` can reference `configs/source.yaml` relative to CWD
+        let _ = sql_file; // sql_file path not used for base_dir anymore
+        let validator = SqlValidator::new();
         let result = validator.validate_sql_content(sql_content);
 
         if !result.is_valid {
@@ -609,25 +659,44 @@ impl QueryExecutor {
             .filter_map(|q| {
                 // Extract CREATE STREAM/TABLE name from query text
                 extract_stream_name(&q.query_text).map(|name| {
-                    // Extract source names
+                    // Extract source names from DataSourceRequirement structs
                     let sources: Vec<String> =
                         q.sources_found.iter().map(|s| s.name.clone()).collect();
 
-                    // Extract sink names and topic
+                    // Extract sink names from DataSinkRequirement structs
                     let sinks: Vec<String> = q.sinks_found.iter().map(|s| s.name.clone()).collect();
 
                     // Get the sink topic from the first sink's properties
+                    // The properties HashMap contains "topic" key from YAML config normalization
                     let sink_topic = q
                         .sinks_found
                         .first()
                         .and_then(|sink| sink.properties.get("topic").cloned());
 
+                    // Build source name -> topic mapping from YAML configs
+                    // This allows the test harness to publish to the correct Kafka topic
+                    let source_topics: std::collections::HashMap<String, String> = q
+                        .sources_found
+                        .iter()
+                        .filter_map(|src| {
+                            src.properties.get("topic").map(|topic| {
+                                log::debug!(
+                                    "Source '{}' maps to topic '{}'",
+                                    src.name,
+                                    topic
+                                );
+                                (src.name.clone(), topic.clone())
+                            })
+                        })
+                        .collect();
+
                     log::debug!(
-                        "Parsed query '{}': sources={:?}, sinks={:?}, sink_topic={:?}",
+                        "Parsed query '{}': sources={:?}, sinks={:?}, sink_topic={:?}, source_topics={:?}",
                         name,
                         sources,
                         sinks,
-                        sink_topic
+                        sink_topic,
+                        source_topics
                     );
 
                     ParsedQuery {
@@ -636,6 +705,7 @@ impl QueryExecutor {
                         sources,
                         sinks,
                         sink_topic,
+                        source_topics,
                     }
                 })
             })
@@ -682,6 +752,11 @@ pub struct ParsedQuery {
 
     /// Sink topic name (from SQL config, e.g., 'sink_name.topic' = 'topic_name')
     pub sink_topic: Option<String>,
+
+    /// Source name to topic mapping (from YAML configs via SQL analysis)
+    /// Key: source name (e.g., "in_market_data_stream")
+    /// Value: actual Kafka topic (e.g., "in_market_data")
+    pub source_topics: std::collections::HashMap<String, String>,
 }
 
 /// Extract stream/table name from CREATE STREAM or CREATE TABLE statement

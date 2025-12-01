@@ -4,8 +4,9 @@
 //! and merging them with provided properties. Used by KafkaDataSource, KafkaDataSink,
 //! and other configurable components.
 
-use crate::velostream::sql::config::yaml_loader::load_yaml_config;
+use crate::velostream::sql::config::yaml_loader::{load_yaml_config, load_yaml_config_with_base};
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Load a YAML config file and flatten it to key-value properties
 ///
@@ -24,14 +25,73 @@ use std::collections::HashMap;
 pub fn load_config_file_to_properties(
     file_path: &str,
 ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
+    load_config_file_to_properties_with_base(file_path, None)
+}
+
+/// Load a YAML config file with base directory support and flatten it to key-value properties
+///
+/// # Arguments
+/// * `file_path` - Path to the YAML config file (can be relative or absolute)
+/// * `base_dir` - Optional base directory for resolving relative paths (e.g., SQL file's directory)
+///
+/// # Returns
+/// * `Ok(HashMap)` - Flattened properties from the config file with topic normalization applied
+/// * `Err` - If the file cannot be loaded or parsed
+///
+/// # Example
+/// ```ignore
+/// let props = load_config_file_to_properties_with_base("configs/source.yaml", Some(&Path::new("/app")))?;
+/// assert!(props.contains_key("topic")); // topic.name is normalized to topic
+/// ```
+pub fn load_config_file_to_properties_with_base(
+    file_path: &str,
+    base_dir: Option<&Path>,
+) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
     // Load YAML config with extends support
-    let yaml_config = load_yaml_config(file_path)?;
+    let yaml_config = if let Some(base) = base_dir {
+        load_yaml_config_with_base(file_path, base)?
+    } else {
+        load_yaml_config(file_path)?
+    };
 
     // Flatten YAML to key-value pairs
     let mut flattened = HashMap::new();
     flatten_yaml_value(&yaml_config.config, "", &mut flattened);
 
+    // Apply topic normalization: YAML flattening may produce "topic.name" instead of "topic"
+    // This ensures consistent access via "topic" key across all components
+    normalize_topic_property(&mut flattened);
+
     Ok(flattened)
+}
+
+/// Normalize topic property: converts "topic.name" to "topic"
+///
+/// When YAML configs use nested structure like:
+/// ```yaml
+/// topic:
+///   name: "my_topic"
+/// ```
+/// The flattening produces "topic.name" key, but components expect "topic".
+/// This function normalizes it for consistent access.
+///
+/// # Example
+/// ```ignore
+/// let mut props = HashMap::new();
+/// props.insert("topic.name".to_string(), "my_topic".to_string());
+/// normalize_topic_property(&mut props);
+/// assert_eq!(props.get("topic"), Some(&"my_topic".to_string()));
+/// ```
+pub fn normalize_topic_property(properties: &mut HashMap<String, String>) {
+    if let Some(topic_name) = properties.get("topic.name").cloned() {
+        if !properties.contains_key("topic") {
+            log::debug!(
+                "Normalizing topic.name='{}' to topic (config_loader)",
+                topic_name
+            );
+            properties.insert("topic".to_string(), topic_name);
+        }
+    }
 }
 
 /// Merge config file properties with provided properties
@@ -66,14 +126,14 @@ pub fn merge_config_file_properties(
     props: &HashMap<String, String>,
     context_name: &str,
 ) -> HashMap<String, String> {
-    // DEBUG: Log all incoming properties
-    log::info!(
+    // Log config loading at debug level
+    log::debug!(
         "merge_config_file_properties called for context: {}",
         context_name
     );
-    log::info!("  Received {} properties:", props.len());
+    log::debug!("  Received {} properties:", props.len());
     for (k, v) in props.iter() {
-        log::info!("    {} = {}", k, v);
+        log::debug!("    {} = {}", k, v);
     }
 
     // Check if there's a config file to load
@@ -82,7 +142,7 @@ pub fn merge_config_file_properties(
     let mut merged_props = HashMap::new();
 
     if let Some(config_file_path) = config_file {
-        log::info!(
+        log::debug!(
             "Loading config file '{}' for {}",
             config_file_path,
             context_name
@@ -90,7 +150,7 @@ pub fn merge_config_file_properties(
 
         match load_config_file_to_properties(&config_file_path) {
             Ok(file_props) => {
-                log::info!(
+                log::debug!(
                     "Loaded {} properties from config file '{}' for {}",
                     file_props.len(),
                     config_file_path,
@@ -141,29 +201,29 @@ fn extract_config_file_path(props: &HashMap<String, String>) -> Option<String> {
 
     // Check each pattern and log
     if let Some(v) = props.get("config_file") {
-        log::info!("  Found 'config_file' = {}", v);
+        log::debug!("  Found 'config_file' = {}", v);
         return Some(v.clone());
     }
 
     if let Some(v) = props.get("source.config_file") {
-        log::info!("  Found 'source.config_file' = {}", v);
+        log::debug!("  Found 'source.config_file' = {}", v);
         return Some(v.clone());
     }
 
     if let Some(v) = props.get("sink.config_file") {
-        log::info!("  Found 'sink.config_file' = {}", v);
+        log::debug!("  Found 'sink.config_file' = {}", v);
         return Some(v.clone());
     }
 
     // Check for {topic}.config_file pattern
     for (k, v) in props.iter() {
         if k.ends_with(".config_file") {
-            log::info!("  Found pattern '*.config_file': {} = {}", k, v);
+            log::debug!("  Found pattern '*.config_file': {} = {}", k, v);
             return Some(v.clone());
         }
     }
 
-    log::warn!("  No config_file found in properties");
+    log::debug!("  No config_file found in properties");
     None
 }
 

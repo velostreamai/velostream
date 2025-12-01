@@ -5,6 +5,9 @@
 
 use crate::velostream::config::HierarchicalSchemaRegistry;
 use crate::velostream::config::schema_registry::validate_configuration;
+use crate::velostream::datasource::config_loader::{
+    load_config_file_to_properties_with_base, normalize_topic_property,
+};
 use crate::velostream::datasource::file::{FileDataSink, FileDataSource};
 use crate::velostream::datasource::kafka::data_sink::KafkaDataSink;
 use crate::velostream::datasource::kafka::data_source::KafkaDataSource;
@@ -12,7 +15,6 @@ use crate::velostream::kafka::serialization_format::SerializationConfig;
 use crate::velostream::sql::{
     SqlError,
     ast::{InsertSource, IntoClause, StreamSource, StreamingQuery},
-    config::{load_yaml_config, load_yaml_config_with_base},
 };
 use std::collections::HashMap;
 use std::future::Future;
@@ -84,43 +86,8 @@ pub type ProducerRequirement = DataSinkRequirement;
 pub type FileSourceRequirement = DataSourceRequirement;
 pub type FileSinkRequirement = DataSinkRequirement;
 
-/// Recursively flatten a YAML value into a HashMap with dot-separated keys
-fn flatten_yaml_value(
-    value: &serde_yaml::Value,
-    prefix: &str,
-    flattened: &mut HashMap<String, String>,
-) {
-    match value {
-        serde_yaml::Value::Mapping(map) => {
-            for (key, val) in map {
-                if let Some(key_str) = key.as_str() {
-                    let new_prefix = if prefix.is_empty() {
-                        key_str.to_string()
-                    } else {
-                        format!("{}.{}", prefix, key_str)
-                    };
-                    flatten_yaml_value(val, &new_prefix, flattened);
-                }
-            }
-        }
-        serde_yaml::Value::Sequence(seq) => {
-            for (i, val) in seq.iter().enumerate() {
-                let new_prefix = format!("{}[{}]", prefix, i);
-                flatten_yaml_value(val, &new_prefix, flattened);
-            }
-        }
-        _ => {
-            let value_str = match value {
-                serde_yaml::Value::String(s) => s.clone(),
-                serde_yaml::Value::Number(n) => n.to_string(),
-                serde_yaml::Value::Bool(b) => b.to_string(),
-                serde_yaml::Value::Null => "null".to_string(),
-                _ => format!("{:?}", value),
-            };
-            flattened.insert(prefix.to_string(), value_str);
-        }
-    }
-}
+// Note: YAML flattening is now centralized in config_loader.rs
+// Use load_config_file_to_props() for consistent handling across all components
 
 /// SQL Query Analyzer for resource requirement extraction
 pub struct QueryAnalyzer {
@@ -176,19 +143,19 @@ impl QueryAnalyzer {
         self.base_dir = Some(base_dir.as_ref().to_path_buf());
     }
 
-    /// Load a YAML config file, resolving relative paths against base_dir if set
-    fn load_config_file(
+    /// Load a YAML config file and flatten to properties with topic normalization
+    ///
+    /// Uses the centralized config_loader for consistent handling across all components:
+    /// - KafkaDataSource/Sink
+    /// - QueryAnalyzer
+    /// - Test Harness
+    ///
+    /// Resolves relative paths against base_dir if set.
+    fn load_config_file_to_props(
         &self,
         config_path: &str,
-    ) -> Result<
-        crate::velostream::sql::config::yaml_loader::ResolvedYamlConfig,
-        crate::velostream::sql::config::yaml_loader::YamlConfigError,
-    > {
-        if let Some(ref base) = self.base_dir {
-            load_yaml_config_with_base(config_path, base)
-        } else {
-            load_yaml_config(config_path)
-        }
+    ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
+        load_config_file_to_properties_with_base(config_path, self.base_dir.as_deref())
     }
 
     /// Register a table as known (from table registry) to skip external source validation
@@ -411,7 +378,8 @@ impl QueryAnalyzer {
         let mut properties = HashMap::new();
         let source_prefix = format!("{}.", table_name);
 
-        // Check for config_file and load YAML configuration
+        // Check for config_file and load YAML configuration using centralized config_loader
+        // This ensures consistent topic.name normalization across all components
         let config_file_key = format!("{}.config_file", table_name);
         let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
@@ -420,10 +388,10 @@ impl QueryAnalyzer {
                 config_file_path,
                 table_name
             );
-            match self.load_config_file(config_file_path) {
-                Ok(yaml_config) => {
-                    // Use recursive flattening to properly handle all nested structures
-                    flatten_yaml_value(&yaml_config.config, "", &mut properties);
+            match self.load_config_file_to_props(config_file_path) {
+                Ok(file_props) => {
+                    // Merge file properties into properties map
+                    properties.extend(file_props);
                     log::info!(
                         "Loaded {} properties from config file '{}' for source '{}'",
                         properties.len(),
@@ -544,6 +512,9 @@ impl QueryAnalyzer {
                         "localhost:9092".to_string(),
                     );
                 }
+                // Apply topic normalization (centralized in config_loader)
+                normalize_topic_property(&mut properties);
+                // Set default topic to table name if still not set
                 if !properties.contains_key("topic") {
                     properties.insert("topic".to_string(), table_name.to_string());
                 }
@@ -600,7 +571,8 @@ impl QueryAnalyzer {
         let mut properties = HashMap::new();
         let sink_prefix = format!("{}.", table_name);
 
-        // Check for config_file and load YAML configuration
+        // Check for config_file and load YAML configuration using centralized config_loader
+        // This ensures consistent topic.name normalization across all components
         let config_file_key = format!("{}.config_file", table_name);
         let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
@@ -609,10 +581,10 @@ impl QueryAnalyzer {
                 config_file_path,
                 table_name
             );
-            match self.load_config_file(config_file_path) {
-                Ok(yaml_config) => {
-                    // Use recursive flattening to properly handle all nested structures
-                    flatten_yaml_value(&yaml_config.config, "", &mut properties);
+            match self.load_config_file_to_props(config_file_path) {
+                Ok(file_props) => {
+                    // Merge file properties into properties map
+                    properties.extend(file_props);
                     log::info!(
                         "Loaded YAML config for sink '{}' with {} properties",
                         table_name,
@@ -727,7 +699,14 @@ impl QueryAnalyzer {
                         "localhost:9092".to_string(),
                     );
                 }
+                // Apply topic normalization (centralized in config_loader)
+                normalize_topic_property(&mut properties);
+                // Set default topic to table name if still not set
                 if !properties.contains_key("topic") {
+                    log::debug!(
+                        "No topic found for sink '{}', using table_name as default",
+                        table_name
+                    );
                     properties.insert("topic".to_string(), table_name.to_string());
                 }
 
@@ -1151,22 +1130,19 @@ impl QueryAnalyzer {
                     })
                     .collect();
 
-                // Check if there's a config_file to load
+                // Check if there's a config_file to load using centralized config_loader
+                // This ensures consistent topic.name normalization across all components
                 if let Some(config_file) = properties.get("config_file").cloned() {
                     log::info!(
                         "Loading config file '{}' for sink '{}'",
                         config_file,
                         sink_name
                     );
-                    // Load and merge YAML configuration (use self.load_config_file for base_dir support)
-                    match self.load_config_file(&config_file) {
-                        Ok(yaml_config) => {
-                            // Flatten YAML first, then SQL properties will override
-                            let mut yaml_properties = HashMap::new();
-                            flatten_yaml_value(&yaml_config.config, "", &mut yaml_properties);
-
+                    match self.load_config_file_to_props(&config_file) {
+                        Ok(file_props) => {
                             // Merge: YAML provides defaults, SQL properties override
-                            for (yaml_key, yaml_value) in yaml_properties {
+                            // Note: file_props already has topic.name normalized to topic
+                            for (yaml_key, yaml_value) in file_props {
                                 properties.entry(yaml_key).or_insert(yaml_value);
                             }
                             log::info!(
@@ -1185,6 +1161,10 @@ impl QueryAnalyzer {
                 } else {
                     log::info!("No config_file specified for sink '{}'", sink_name);
                 }
+
+                // Apply topic normalization again in case SQL properties had topic.name
+                // (centralized loader handles YAML normalization, this handles SQL WITH clause)
+                normalize_topic_property(&mut properties);
 
                 // Create sink requirement
                 let sink_req = DataSinkRequirement {
