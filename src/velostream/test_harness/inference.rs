@@ -229,7 +229,7 @@ impl SchemaInferencer {
                 SelectField::Column(name) => {
                     defs.push(FieldDefinition {
                         name: name.clone(),
-                        field_type: FieldType::String, // Default type
+                        field_type: FieldType::string(), // Default type
                         constraints: FieldConstraints::default(),
                         nullable: true,
                         description: None,
@@ -239,7 +239,7 @@ impl SchemaInferencer {
                 SelectField::AliasedColumn { column, alias } => {
                     defs.push(FieldDefinition {
                         name: alias.clone(),
-                        field_type: FieldType::String, // Default type
+                        field_type: FieldType::string(), // Default type
                         constraints: FieldConstraints::default(),
                         nullable: true,
                         description: Some(format!("Aliased from column '{}'", column)),
@@ -287,7 +287,7 @@ impl SchemaInferencer {
 
             Expr::Column(_) => {
                 // Default to string for unknown columns
-                FieldType::String
+                FieldType::string()
             }
 
             Expr::Function { name, .. } => {
@@ -302,7 +302,7 @@ impl SchemaInferencer {
                     | BinaryOperator::Subtract
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
-                    | BinaryOperator::Modulo => FieldType::Float,
+                    | BinaryOperator::Modulo => FieldType::float(),
                     BinaryOperator::GreaterThan
                     | BinaryOperator::LessThan
                     | BinaryOperator::GreaterThanOrEqual
@@ -310,33 +310,33 @@ impl SchemaInferencer {
                     | BinaryOperator::Equal
                     | BinaryOperator::NotEqual
                     | BinaryOperator::And
-                    | BinaryOperator::Or => FieldType::Boolean,
-                    _ => FieldType::String,
+                    | BinaryOperator::Or => FieldType::boolean(),
+                    _ => FieldType::string(),
                 }
             }
 
-            Expr::Case { .. } => FieldType::String,
+            Expr::Case { .. } => FieldType::string(),
 
-            Expr::Subquery { .. } => FieldType::String,
+            Expr::Subquery { .. } => FieldType::string(),
 
             Expr::WindowFunction { function_name, .. } => {
                 self.infer_function_return_type(function_name)
             }
 
-            _ => FieldType::String,
+            _ => FieldType::string(),
         }
     }
 
     /// Infer type from literal value
     fn infer_type_from_literal(&self, lit: &LiteralValue) -> FieldType {
         match lit {
-            LiteralValue::Integer(_) => FieldType::Integer,
-            LiteralValue::Float(_) => FieldType::Float,
-            LiteralValue::String(_) => FieldType::String,
-            LiteralValue::Boolean(_) => FieldType::Boolean,
-            LiteralValue::Null => FieldType::String,
-            LiteralValue::Decimal(_) => FieldType::Decimal { precision: 4 },
-            LiteralValue::Interval { .. } => FieldType::String,
+            LiteralValue::Integer(_) => FieldType::integer(),
+            LiteralValue::Float(_) => FieldType::float(),
+            LiteralValue::String(_) => FieldType::string(),
+            LiteralValue::Boolean(_) => FieldType::boolean(),
+            LiteralValue::Null => FieldType::string(),
+            LiteralValue::Decimal(_) => FieldType::decimal(4),
+            LiteralValue::Interval { .. } => FieldType::string(),
         }
     }
 
@@ -344,49 +344,49 @@ impl SchemaInferencer {
     fn infer_function_return_type(&self, func_name: &str) -> FieldType {
         match func_name.to_uppercase().as_str() {
             // Aggregate functions
-            "COUNT" => FieldType::Integer,
-            "SUM" | "AVG" | "STDDEV" | "VARIANCE" => FieldType::Float,
-            "MIN" | "MAX" => FieldType::Float, // Could be any type, default to float
+            "COUNT" => FieldType::integer(),
+            "SUM" | "AVG" | "STDDEV" | "VARIANCE" => FieldType::float(),
+            "MIN" | "MAX" => FieldType::float(), // Could be any type, default to float
 
             // String functions
             "CONCAT" | "UPPER" | "LOWER" | "TRIM" | "SUBSTR" | "SUBSTRING" | "REPLACE"
-            | "COALESCE" => FieldType::String,
+            | "COALESCE" => FieldType::string(),
 
             // Date/time functions
-            "NOW" | "CURRENT_TIMESTAMP" => FieldType::Timestamp,
-            "CURRENT_DATE" | "DATE" => FieldType::Date,
-            "EXTRACT" | "DATE_PART" | "EPOCH" => FieldType::Integer,
-            "DATE_TRUNC" => FieldType::Timestamp,
+            "NOW" | "CURRENT_TIMESTAMP" => FieldType::timestamp(),
+            "CURRENT_DATE" | "DATE" => FieldType::date(),
+            "EXTRACT" | "DATE_PART" | "EPOCH" => FieldType::integer(),
+            "DATE_TRUNC" => FieldType::timestamp(),
 
             // Numeric functions
             "ABS" | "CEIL" | "FLOOR" | "ROUND" | "SQRT" | "LOG" | "EXP" | "POWER" => {
-                FieldType::Float
+                FieldType::float()
             }
 
             // Window functions
-            "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => FieldType::Integer,
-            "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" => FieldType::Float,
+            "ROW_NUMBER" | "RANK" | "DENSE_RANK" | "NTILE" => FieldType::integer(),
+            "LAG" | "LEAD" | "FIRST_VALUE" | "LAST_VALUE" => FieldType::float(),
 
             // Boolean functions
-            "IS_NULL" | "IS_NOT_NULL" => FieldType::Boolean,
+            "IS_NULL" | "IS_NOT_NULL" => FieldType::boolean(),
 
             // Default
-            _ => FieldType::String,
+            _ => FieldType::string(),
         }
     }
 
     /// Convert AST DataType to schema FieldType
     fn convert_data_type(&self, dt: &DataType) -> FieldType {
         match dt {
-            DataType::Integer => FieldType::Integer,
-            DataType::Float => FieldType::Float,
-            DataType::String => FieldType::String,
-            DataType::Boolean => FieldType::Boolean,
-            DataType::Timestamp => FieldType::Timestamp,
-            DataType::Decimal => FieldType::Decimal { precision: 4 },
-            DataType::Array(_) => FieldType::String, // Serialize arrays as JSON strings
-            DataType::Map(_, _) => FieldType::String, // Serialize maps as JSON strings
-            DataType::Struct(_) => FieldType::String, // Serialize structs as JSON strings
+            DataType::Integer => FieldType::integer(),
+            DataType::Float => FieldType::float(),
+            DataType::String => FieldType::string(),
+            DataType::Boolean => FieldType::boolean(),
+            DataType::Timestamp => FieldType::timestamp(),
+            DataType::Decimal => FieldType::decimal(4),
+            DataType::Array(_) => FieldType::string(), // Serialize arrays as JSON strings
+            DataType::Map(_, _) => FieldType::string(), // Serialize maps as JSON strings
+            DataType::Struct(_) => FieldType::string(), // Serialize structs as JSON strings
         }
     }
 
@@ -542,7 +542,7 @@ impl SchemaInferencer {
 
             constraints.enum_values = Some(EnumConstraint { values, weights });
 
-            return (FieldType::String, constraints);
+            return (FieldType::string(), constraints);
         }
 
         // Check for integer
@@ -557,7 +557,7 @@ impl SchemaInferencer {
                 constraints.distribution = Some(self.detect_distribution(stats));
             }
 
-            return (FieldType::Integer, constraints);
+            return (FieldType::integer(), constraints);
         }
 
         // Check for float/decimal
@@ -570,25 +570,25 @@ impl SchemaInferencer {
             // Check if likely decimal (financial)
             let precision = stats.max_decimal_places;
             if precision > 0 && precision <= 8 {
-                return (FieldType::Decimal { precision }, constraints);
+                return (FieldType::decimal(precision), constraints);
             }
 
-            return (FieldType::Float, constraints);
+            return (FieldType::float(), constraints);
         }
 
         // Check for boolean
         if stats.is_boolean() {
-            return (FieldType::Boolean, constraints);
+            return (FieldType::boolean(), constraints);
         }
 
         // Check for timestamp
         if stats.is_timestamp() {
-            return (FieldType::Timestamp, constraints);
+            return (FieldType::timestamp(), constraints);
         }
 
         // Check for UUID
         if stats.is_uuid() {
-            return (FieldType::Uuid, constraints);
+            return (FieldType::uuid(), constraints);
         }
 
         // Default to string with length constraints
@@ -599,11 +599,13 @@ impl SchemaInferencer {
             });
         }
 
-        (FieldType::String, constraints)
+        (FieldType::string(), constraints)
     }
 
     /// Detect distribution from column statistics
     fn detect_distribution(&self, stats: &ColumnStats) -> Distribution {
+        use super::schema::{NormalConfig, SimpleDistribution};
+
         // Simple heuristic: check if values are uniformly distributed
         // For more sophisticated detection, could use chi-squared test
 
@@ -616,11 +618,13 @@ impl SchemaInferencer {
             // Check if looks normal (bell curve)
             let expected_std = range / 4.0; // For normal, ~95% within 2 std devs
             if expected_std > 0.0 && (std_dev - expected_std).abs() / expected_std < 0.3 {
-                return Distribution::Normal { mean, std_dev };
+                return Distribution::Normal {
+                    normal: NormalConfig { mean, std_dev },
+                };
             }
         }
 
-        Distribution::Uniform
+        Distribution::Uniform(SimpleDistribution::Uniform)
     }
 
     /// Generate schema YAML output
@@ -872,6 +876,7 @@ fn looks_like_uuid(s: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::schema::SimpleFieldType;
     use super::*;
 
     #[test]
@@ -965,18 +970,24 @@ mod tests {
 
         // Check id field
         let id_field = schema.fields.iter().find(|f| f.name == "id").unwrap();
-        assert!(matches!(id_field.field_type, FieldType::Integer));
+        assert!(matches!(
+            id_field.field_type,
+            FieldType::Simple(SimpleFieldType::Integer)
+        ));
 
         // Check price field
         let price_field = schema.fields.iter().find(|f| f.name == "price").unwrap();
         assert!(matches!(
             price_field.field_type,
-            FieldType::Decimal { .. } | FieldType::Float
+            FieldType::DecimalType { .. } | FieldType::Simple(SimpleFieldType::Float)
         ));
 
         // Check active field
         let active_field = schema.fields.iter().find(|f| f.name == "active").unwrap();
-        assert!(matches!(active_field.field_type, FieldType::Boolean));
+        assert!(matches!(
+            active_field.field_type,
+            FieldType::Simple(SimpleFieldType::Boolean)
+        ));
 
         // Check created_at field
         let created_field = schema
@@ -984,6 +995,9 @@ mod tests {
             .iter()
             .find(|f| f.name == "created_at")
             .unwrap();
-        assert!(matches!(created_field.field_type, FieldType::Timestamp));
+        assert!(matches!(
+            created_field.field_type,
+            FieldType::Simple(SimpleFieldType::Timestamp)
+        ));
     }
 }

@@ -225,13 +225,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if path
                             .extension()
                             .is_some_and(|ext| ext == "yaml" || ext == "yml")
-                            && let Ok(content) = std::fs::read_to_string(&path)
-                            && let Ok(schema) = serde_yaml::from_str::<
-                                velostream::velostream::test_harness::Schema,
-                            >(&content)
                         {
-                            println!("   Loaded schema: {}", schema.name);
-                            schema_registry.register(schema);
+                            match std::fs::read_to_string(&path) {
+                                Ok(content) => {
+                                    match serde_yaml::from_str::<
+                                        velostream::velostream::test_harness::Schema,
+                                    >(&content)
+                                    {
+                                        Ok(schema) => {
+                                            println!("   Loaded schema: {}", schema.name);
+                                            schema_registry.register(schema);
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "   ⚠️  Failed to parse {}: {}",
+                                                path.display(),
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("   ⚠️  Failed to read {}: {}", path.display(), e);
+                                }
+                            }
                         }
                     }
                 }
@@ -241,8 +258,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Step 3: Validate SQL and extract configuration
             println!("🔧 Initializing test infrastructure...");
             use velostream::velostream::sql::validator::SqlValidator;
-            let validator =
-                SqlValidator::with_base_dir(sql_file.parent().unwrap_or(std::path::Path::new(".")));
+            // Use current working directory for config file resolution
+            // This allows SQL files to reference configs relative to CWD (e.g., 'configs/source.yaml')
+            // rather than relative to the SQL file's directory
+            let validator = SqlValidator::new();
             let validation_result = validator.validate_application_file(&sql_file);
 
             // Extract bootstrap.servers and schema files from the validated sources
@@ -363,10 +382,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut override_builder = ConfigOverrideBuilder::new(&run_id)
                     .bootstrap_servers(infra.bootstrap_servers().unwrap());
 
-                // Disable topic prefix if requested (for testing against running SQL jobs)
-                if no_topic_prefix {
-                    println!("   Topic prefix: disabled (using exact topic names from SQL config)");
+                // By default, use exact topic names from SQL config (no prefix)
+                // This ensures the test harness and SQL job use the same topic names
+                if !no_topic_prefix {
+                    // no_topic_prefix=false means we should NOT add prefixes (default behavior)
                     override_builder = override_builder.no_topic_prefix();
+                } else {
+                    // no_topic_prefix=true is a legacy flag that now does nothing (already default)
+                    println!("   Note: --no-topic-prefix is now the default behavior");
                 }
 
                 let overrides = override_builder.build();
@@ -378,8 +401,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .with_schema_registry(schema_registry);
 
                 // Initialize StreamJobServer for actual SQL execution
-                // Pass sql_dir so the server can resolve relative config file paths
-                let mut executor = match executor.with_server(Some(sql_dir)).await {
+                // Pass CWD so the server can resolve relative config file paths
+                // (configs are relative to the working directory, not the SQL file)
+                let cwd = std::env::current_dir().unwrap_or_default();
+                let mut executor = match executor.with_server(Some(cwd)).await {
                     Ok(e) => {
                         println!("   SQL execution: enabled (in-process StreamJobServer)");
                         e

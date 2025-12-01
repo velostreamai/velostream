@@ -57,17 +57,40 @@ pub struct FieldDefinition {
 }
 
 /// Supported field types
+///
+/// For simple types, use the type name directly:
+/// ```yaml
+/// type: string
+/// type: integer
+/// type: float
+/// ```
+///
+/// For decimal with precision, use the nested format:
+/// ```yaml
+/// type:
+///   decimal:
+///     precision: 4
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case", untagged)]
+pub enum FieldType {
+    /// Decimal with precision (e.g., financial values)
+    /// Must be checked first in untagged deserialization
+    DecimalType { decimal: DecimalConfig },
+    /// String/text field
+    Simple(SimpleFieldType),
+}
+
+/// Simple field types without additional configuration
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum FieldType {
+pub enum SimpleFieldType {
     /// String/text field
     String,
     /// 64-bit integer
     Integer,
     /// 64-bit float
     Float,
-    /// Decimal with precision (e.g., financial values)
-    Decimal { precision: u8 },
     /// Boolean
     Boolean,
     /// Timestamp (ISO 8601)
@@ -76,6 +99,58 @@ pub enum FieldType {
     Date,
     /// UUID
     Uuid,
+}
+
+/// Configuration for decimal field type
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DecimalConfig {
+    /// Number of decimal places
+    pub precision: u8,
+}
+
+// Convenience constructors for FieldType
+impl FieldType {
+    /// Create a String field type
+    pub fn string() -> Self {
+        FieldType::Simple(SimpleFieldType::String)
+    }
+
+    /// Create an Integer field type
+    pub fn integer() -> Self {
+        FieldType::Simple(SimpleFieldType::Integer)
+    }
+
+    /// Create a Float field type
+    pub fn float() -> Self {
+        FieldType::Simple(SimpleFieldType::Float)
+    }
+
+    /// Create a Boolean field type
+    pub fn boolean() -> Self {
+        FieldType::Simple(SimpleFieldType::Boolean)
+    }
+
+    /// Create a Timestamp field type
+    pub fn timestamp() -> Self {
+        FieldType::Simple(SimpleFieldType::Timestamp)
+    }
+
+    /// Create a Date field type
+    pub fn date() -> Self {
+        FieldType::Simple(SimpleFieldType::Date)
+    }
+
+    /// Create a UUID field type
+    pub fn uuid() -> Self {
+        FieldType::Simple(SimpleFieldType::Uuid)
+    }
+
+    /// Create a Decimal field type with given precision
+    pub fn decimal(precision: u8) -> Self {
+        FieldType::DecimalType {
+            decimal: DecimalConfig { precision },
+        }
+    }
 }
 
 /// Constraints for field value generation
@@ -148,17 +223,57 @@ pub struct LengthConstraint {
 }
 
 /// Value distribution for generation
+///
+/// For simple uniform distribution, use the string value directly:
+/// ```yaml
+/// distribution: uniform
+/// ```
+///
+/// For parameterized distributions, use the nested format:
+/// ```yaml
+/// distribution:
+///   log_normal:
+///     mean: 8.0
+///     std_dev: 1.5
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", untagged)]
 pub enum Distribution {
-    /// Uniform distribution (default)
-    Uniform,
-    /// Normal distribution
-    Normal { mean: f64, std_dev: f64 },
+    /// Normal distribution (must be first for untagged deserialization)
+    Normal { normal: NormalConfig },
     /// Log-normal distribution
-    LogNormal { mean: f64, std_dev: f64 },
+    LogNormal { log_normal: LogNormalConfig },
     /// Zipf distribution (for skewed data)
-    Zipf { exponent: f64 },
+    Zipf { zipf: ZipfConfig },
+    /// Uniform distribution (default) - simple string
+    Uniform(SimpleDistribution),
+}
+
+/// Simple distribution types without parameters
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SimpleDistribution {
+    Uniform,
+}
+
+/// Configuration for normal distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormalConfig {
+    pub mean: f64,
+    pub std_dev: f64,
+}
+
+/// Configuration for log-normal distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogNormalConfig {
+    pub mean: f64,
+    pub std_dev: f64,
+}
+
+/// Configuration for Zipf distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZipfConfig {
+    pub exponent: f64,
 }
 
 /// Derived field expression

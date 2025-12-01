@@ -13,8 +13,10 @@ delivery_profile: high_priority
 # Topic-specific schema
 schema:
   key.field: trader_id
-  #  defaulting to json for this demo (see parent config)
-  #  value.schema.file: "schemas/risk_alerts.avsc"
+  value.serializer: json
+  # Avro alternative:
+  # value.serializer: avro
+  # value.schema.file: "schemas/risk_alerts.avsc"
 
 # Topic properties
 topic_config:

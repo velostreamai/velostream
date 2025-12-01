@@ -1,0 +1,104 @@
+# Trading Positions Schema for Test Harness
+# Generates realistic trading position data for risk monitoring
+#
+# Based on: schemas/trading_positions.avsc
+
+name: trading_positions
+description: Real-time trading positions for risk monitoring
+
+fields:
+  - name: trader_id
+    type: string
+    description: Unique trader identifier
+    constraints:
+      enum_values:
+        values: [TRADER001, TRADER002, TRADER003, TRADER004, TRADER005]
+        weights: [0.25, 0.25, 0.20, 0.15, 0.15]
+
+  - name: account_id
+    type: string
+    description: Trading account identifier
+    constraints:
+      enum_values:
+        values: [ACC001, ACC002, ACC003, ACC004, ACC005]
+        weights: [0.20, 0.20, 0.20, 0.20, 0.20]
+
+  - name: symbol
+    type: string
+    description: Trading symbol
+    constraints:
+      enum_values:
+        values: [AAPL, GOOGL, MSFT, AMZN, META, NVDA, TSLA]
+        weights: [0.20, 0.15, 0.15, 0.15, 0.10, 0.15, 0.10]
+
+  - name: position_size
+    type: integer
+    description: Position size (positive for long, negative for short)
+    constraints:
+      range:
+        min: -10000
+        max: 10000
+
+  - name: entry_price
+    type: string
+    description: Average entry price as decimal string
+    constraints:
+      range:
+        min: 50.0
+        max: 500.0
+
+  - name: current_pnl
+    type: string
+    description: Current profit/loss as decimal string
+    constraints:
+      range:
+        min: -50000.0
+        max: 50000.0
+
+  - name: unrealized_pnl
+    type: string
+    description: Unrealized profit/loss
+    constraints:
+      range:
+        min: -25000.0
+        max: 25000.0
+
+  - name: realized_pnl
+    type: string
+    description: Realized profit/loss
+    constraints:
+      range:
+        min: -25000.0
+        max: 25000.0
+
+  - name: position_value
+    type: string
+    description: Total position value
+    constraints:
+      range:
+        min: 10000.0
+        max: 5000000.0
+
+  - name: margin_used
+    type: string
+    description: Margin used for position
+    constraints:
+      range:
+        min: 1000.0
+        max: 500000.0
+
+  - name: timestamp
+    type: timestamp
+    description: Position update timestamp
+    constraints:
+      timestamp_range:
+        start: "-5m"
+        end: "now"
+
+  - name: last_update_source
+    type: string
+    description: Source of last position update
+    constraints:
+      enum_values:
+        values: [trade, adjustment, mark_to_market, transfer]
+        weights: [0.60, 0.15, 0.20, 0.05]

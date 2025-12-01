@@ -8,7 +8,8 @@
 
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::schema::{
-    Distribution, FieldConstraints, FieldDefinition, FieldType, Schema, SchemaRegistry,
+    Distribution, FieldConstraints, FieldDefinition, FieldType, LogNormalConfig, NormalConfig,
+    Schema, SchemaRegistry, SimpleFieldType, ZipfConfig,
 };
 use crate::velostream::sql::execution::types::FieldValue;
 use chrono::{DateTime, Duration, Utc};
@@ -180,16 +181,18 @@ impl SchemaDataGenerator {
 
         // Generate based on type
         match &field.field_type {
-            FieldType::String => self.generate_string_value(&field.constraints),
-            FieldType::Integer => self.generate_integer_value(&field.constraints),
-            FieldType::Float => self.generate_float_value(&field.constraints),
-            FieldType::Decimal { precision } => {
-                self.generate_decimal_value(&field.constraints, *precision)
+            FieldType::DecimalType { decimal } => {
+                self.generate_decimal_value(&field.constraints, decimal.precision)
             }
-            FieldType::Boolean => Ok(FieldValue::Boolean(self.rng.gen_bool(0.5))),
-            FieldType::Timestamp => self.generate_timestamp_value(&field.constraints),
-            FieldType::Date => self.generate_date_value(&field.constraints),
-            FieldType::Uuid => Ok(FieldValue::String(uuid::Uuid::new_v4().to_string())),
+            FieldType::Simple(simple) => match simple {
+                SimpleFieldType::String => self.generate_string_value(&field.constraints),
+                SimpleFieldType::Integer => self.generate_integer_value(&field.constraints),
+                SimpleFieldType::Float => self.generate_float_value(&field.constraints),
+                SimpleFieldType::Boolean => Ok(FieldValue::Boolean(self.rng.gen_bool(0.5))),
+                SimpleFieldType::Timestamp => self.generate_timestamp_value(&field.constraints),
+                SimpleFieldType::Date => self.generate_date_value(&field.constraints),
+                SimpleFieldType::Uuid => Ok(FieldValue::String(uuid::Uuid::new_v4().to_string())),
+            },
         }
     }
 
@@ -591,34 +594,34 @@ impl SchemaDataGenerator {
         dist: &Option<Distribution>,
     ) -> f64 {
         match dist {
-            Some(Distribution::Normal { mean, std_dev }) => {
+            Some(Distribution::Normal { normal }) => {
                 // Box-Muller transform for normal distribution
                 let u1: f64 = self.rng.gen_range(0.0001_f64..1.0_f64);
                 let u2: f64 = self.rng.gen_range(0.0_f64..1.0_f64);
                 let z0 =
                     ((-2.0_f64 * u1.ln()).sqrt()) * ((2.0_f64 * std::f64::consts::PI * u2).cos());
-                let value = mean + std_dev * z0;
+                let value = normal.mean + normal.std_dev * z0;
                 value.clamp(min, max)
             }
-            Some(Distribution::LogNormal { mean, std_dev }) => {
+            Some(Distribution::LogNormal { log_normal }) => {
                 // Log-normal: exp(normal distribution)
                 let u1: f64 = self.rng.gen_range(0.0001_f64..1.0_f64);
                 let u2: f64 = self.rng.gen_range(0.0_f64..1.0_f64);
                 let z0 =
                     ((-2.0_f64 * u1.ln()).sqrt()) * ((2.0_f64 * std::f64::consts::PI * u2).cos());
-                let normal_value = mean + std_dev * z0;
+                let normal_value = log_normal.mean + log_normal.std_dev * z0;
                 let value = normal_value.exp();
                 value.clamp(min, max)
             }
-            Some(Distribution::Zipf { exponent }) => {
+            Some(Distribution::Zipf { zipf }) => {
                 // Simplified Zipf approximation using inverse transform
                 let u: f64 = self.rng.gen_range(0.0001_f64..1.0_f64);
                 let range = max - min;
                 // Power law distribution approximation
-                let value = min + range * (1.0 - u.powf(1.0 / exponent));
+                let value = min + range * (1.0 - u.powf(1.0 / zipf.exponent));
                 value.clamp(min, max)
             }
-            _ => self.rng.gen_range(min..=max),
+            Some(Distribution::Uniform(_)) | None => self.rng.gen_range(min..=max),
         }
     }
 }
@@ -908,6 +911,32 @@ fn multiply_field_values(left: &FieldValue, right: &FieldValue) -> TestHarnessRe
             let result_scale = ls + rs;
             Ok(FieldValue::ScaledInteger(result, result_scale))
         }
+        // ScaledInteger × Float -> ScaledInteger (preserves precision)
+        (FieldValue::ScaledInteger(l, ls), FieldValue::Float(r)) => {
+            // Convert scaled integer to float, multiply, convert back
+            let scale_factor = 10_i64.pow(*ls as u32) as f64;
+            let left_float = *l as f64 / scale_factor;
+            let result = left_float * r;
+            // Convert back to scaled integer with same scale
+            let result_scaled = (result * scale_factor).round() as i64;
+            Ok(FieldValue::ScaledInteger(result_scaled, *ls))
+        }
+        // Float × ScaledInteger -> ScaledInteger (preserves precision)
+        (FieldValue::Float(l), FieldValue::ScaledInteger(r, rs)) => {
+            let scale_factor = 10_i64.pow(*rs as u32) as f64;
+            let right_float = *r as f64 / scale_factor;
+            let result = l * right_float;
+            let result_scaled = (result * scale_factor).round() as i64;
+            Ok(FieldValue::ScaledInteger(result_scaled, *rs))
+        }
+        // ScaledInteger × Integer -> ScaledInteger
+        (FieldValue::ScaledInteger(l, ls), FieldValue::Integer(r)) => {
+            Ok(FieldValue::ScaledInteger(l * r, *ls))
+        }
+        // Integer × ScaledInteger -> ScaledInteger
+        (FieldValue::Integer(l), FieldValue::ScaledInteger(r, rs)) => {
+            Ok(FieldValue::ScaledInteger(l * r, *rs))
+        }
         _ => Err(TestHarnessError::GeneratorError {
             message: format!("Cannot multiply {:?} and {:?}", left, right),
             schema: "derived".to_string(),
@@ -939,7 +968,7 @@ mod tests {
     fn string_field(name: &str) -> FieldDefinition {
         FieldDefinition {
             name: name.to_string(),
-            field_type: FieldType::String,
+            field_type: FieldType::string(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -949,7 +978,7 @@ mod tests {
     fn integer_field(name: &str) -> FieldDefinition {
         FieldDefinition {
             name: name.to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -959,7 +988,7 @@ mod tests {
     fn float_field(name: &str) -> FieldDefinition {
         FieldDefinition {
             name: name.to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -1174,7 +1203,7 @@ mod tests {
     fn test_generate_decimal_field() {
         let field = FieldDefinition {
             name: "amount".to_string(),
-            field_type: FieldType::Decimal { precision: 2 },
+            field_type: FieldType::decimal(2),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 10.0,
@@ -1217,7 +1246,7 @@ mod tests {
     fn test_generate_boolean_field() {
         let field = FieldDefinition {
             name: "active".to_string(),
-            field_type: FieldType::Boolean,
+            field_type: FieldType::boolean(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -1253,7 +1282,7 @@ mod tests {
     fn test_generate_timestamp_default() {
         let field = FieldDefinition {
             name: "created_at".to_string(),
-            field_type: FieldType::Timestamp,
+            field_type: FieldType::timestamp(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -1285,7 +1314,7 @@ mod tests {
     fn test_generate_timestamp_relative_range() {
         let mut field = FieldDefinition {
             name: "event_time".to_string(),
-            field_type: FieldType::Timestamp,
+            field_type: FieldType::timestamp(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -1325,7 +1354,7 @@ mod tests {
     fn test_generate_uuid_field() {
         let field = FieldDefinition {
             name: "id".to_string(),
-            field_type: FieldType::Uuid,
+            field_type: FieldType::uuid(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -1489,8 +1518,10 @@ mod tests {
             max: 100.0,
         });
         field.constraints.distribution = Some(Distribution::Normal {
-            mean: 50.0,
-            std_dev: 10.0,
+            normal: NormalConfig {
+                mean: 50.0,
+                std_dev: 10.0,
+            },
         });
 
         let schema = create_simple_schema("test", vec![field]);
@@ -1527,7 +1558,9 @@ mod tests {
             min: 1.0,
             max: 100.0,
         });
-        field.constraints.distribution = Some(Distribution::Zipf { exponent: 2.0 });
+        field.constraints.distribution = Some(Distribution::Zipf {
+            zipf: ZipfConfig { exponent: 2.0 },
+        });
 
         let schema = create_simple_schema("test", vec![field]);
         let mut generator = SchemaDataGenerator::new(Some(42));
@@ -1550,7 +1583,7 @@ mod tests {
     fn test_generate_derived_multiplication_integers() {
         let price_field = FieldDefinition {
             name: "price".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 10.0,
@@ -1564,7 +1597,7 @@ mod tests {
 
         let quantity_field = FieldDefinition {
             name: "quantity".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint { min: 1.0, max: 5.0 }),
                 ..Default::default()
@@ -1575,7 +1608,7 @@ mod tests {
 
         let total_field = FieldDefinition {
             name: "total".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "price * quantity".to_string(),
@@ -1614,7 +1647,7 @@ mod tests {
     fn test_generate_derived_multiplication_floats() {
         let rate_field = FieldDefinition {
             name: "rate".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint { min: 0.1, max: 0.5 }),
                 ..Default::default()
@@ -1625,7 +1658,7 @@ mod tests {
 
         let amount_field = FieldDefinition {
             name: "amount".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 100.0,
@@ -1639,7 +1672,7 @@ mod tests {
 
         let interest_field = FieldDefinition {
             name: "interest".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "rate * amount".to_string(),
@@ -1694,7 +1727,7 @@ mod tests {
                 float_field("score"),
                 FieldDefinition {
                     name: "active".to_string(),
-                    field_type: FieldType::Boolean,
+                    field_type: FieldType::boolean(),
                     constraints: FieldConstraints::default(),
                     nullable: false,
                     description: None,
@@ -1841,7 +1874,7 @@ mod tests {
     fn test_derived_addition() {
         let a_field = FieldDefinition {
             name: "a".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 10.0,
@@ -1855,7 +1888,7 @@ mod tests {
 
         let b_field = FieldDefinition {
             name: "b".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 5.0,
@@ -1869,7 +1902,7 @@ mod tests {
 
         let sum_field = FieldDefinition {
             name: "sum".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "a + b".to_string(),
@@ -1913,7 +1946,7 @@ mod tests {
     fn test_derived_subtraction() {
         let a_field = FieldDefinition {
             name: "a".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 50.0,
@@ -1927,7 +1960,7 @@ mod tests {
 
         let b_field = FieldDefinition {
             name: "b".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 10.0,
@@ -1941,7 +1974,7 @@ mod tests {
 
         let diff_field = FieldDefinition {
             name: "diff".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "a - b".to_string(),
@@ -1985,7 +2018,7 @@ mod tests {
     fn test_derived_division() {
         let total_field = FieldDefinition {
             name: "total".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 100.0,
@@ -1999,7 +2032,7 @@ mod tests {
 
         let count_field = FieldDefinition {
             name: "count".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 1.0,
@@ -2013,7 +2046,7 @@ mod tests {
 
         let avg_field = FieldDefinition {
             name: "avg".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "total / count".to_string(),
@@ -2057,7 +2090,7 @@ mod tests {
     fn test_derived_random() {
         let random_field = FieldDefinition {
             name: "rand".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "random()".to_string(),
@@ -2094,7 +2127,7 @@ mod tests {
     fn test_derived_random_range() {
         let random_field = FieldDefinition {
             name: "rand".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "random(10, 20)".to_string(),
@@ -2128,7 +2161,7 @@ mod tests {
     fn test_derived_abs() {
         let value_field = FieldDefinition {
             name: "value".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: -100.0,
@@ -2142,7 +2175,7 @@ mod tests {
 
         let abs_field = FieldDefinition {
             name: "abs_value".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "abs(value)".to_string(),
@@ -2183,7 +2216,7 @@ mod tests {
     fn test_derived_min_max() {
         let a_field = FieldDefinition {
             name: "a".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 0.0,
@@ -2197,7 +2230,7 @@ mod tests {
 
         let b_field = FieldDefinition {
             name: "b".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 0.0,
@@ -2211,7 +2244,7 @@ mod tests {
 
         let min_field = FieldDefinition {
             name: "minimum".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "min(a, b)".to_string(),
@@ -2225,7 +2258,7 @@ mod tests {
 
         let max_field = FieldDefinition {
             name: "maximum".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "max(a, b)".to_string(),
@@ -2283,7 +2316,7 @@ mod tests {
     fn test_derived_concat() {
         let first_field = FieldDefinition {
             name: "first".to_string(),
-            field_type: FieldType::String,
+            field_type: FieldType::string(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -2291,7 +2324,7 @@ mod tests {
 
         let second_field = FieldDefinition {
             name: "second".to_string(),
-            field_type: FieldType::String,
+            field_type: FieldType::string(),
             constraints: FieldConstraints::default(),
             nullable: false,
             description: None,
@@ -2299,7 +2332,7 @@ mod tests {
 
         let concat_field = FieldDefinition {
             name: "combined".to_string(),
-            field_type: FieldType::String,
+            field_type: FieldType::string(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "concat(first, second)".to_string(),
@@ -2342,7 +2375,7 @@ mod tests {
     fn test_derived_comparison() {
         let a_field = FieldDefinition {
             name: "a".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 0.0,
@@ -2356,7 +2389,7 @@ mod tests {
 
         let b_field = FieldDefinition {
             name: "b".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 0.0,
@@ -2370,7 +2403,7 @@ mod tests {
 
         let gt_field = FieldDefinition {
             name: "a_gt_b".to_string(),
-            field_type: FieldType::Boolean,
+            field_type: FieldType::boolean(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "a > b".to_string(),
@@ -2409,7 +2442,7 @@ mod tests {
     fn test_derived_floor_ceil() {
         let value_field = FieldDefinition {
             name: "value".to_string(),
-            field_type: FieldType::Float,
+            field_type: FieldType::float(),
             constraints: FieldConstraints {
                 range: Some(RangeConstraint {
                     min: 0.0,
@@ -2423,7 +2456,7 @@ mod tests {
 
         let floor_field = FieldDefinition {
             name: "floored".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "floor(value)".to_string(),
@@ -2437,7 +2470,7 @@ mod tests {
 
         let ceil_field = FieldDefinition {
             name: "ceiled".to_string(),
-            field_type: FieldType::Integer,
+            field_type: FieldType::integer(),
             constraints: FieldConstraints {
                 derived: Some(DerivedConstraint {
                     expression: "ceil(value)".to_string(),

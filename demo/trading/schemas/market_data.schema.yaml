@@ -1,0 +1,117 @@
+# Market Data Schema for Test Harness
+# Generates realistic market data events with financial precision
+#
+# Based on: schemas/market_data.avsc
+
+name: market_data
+description: High-frequency market data with exact financial precision
+
+fields:
+  - name: symbol
+    type: string
+    description: Trading symbol (e.g., AAPL, MSFT)
+    constraints:
+      enum_values:
+        values: [AAPL, GOOGL, MSFT, AMZN, META, NVDA, TSLA]
+        weights: [0.20, 0.15, 0.15, 0.15, 0.10, 0.15, 0.10]
+
+  - name: exchange
+    type: string
+    description: Exchange identifier
+    constraints:
+      enum_values:
+        values: [NYSE, NASDAQ, CBOE]
+        weights: [0.40, 0.50, 0.10]
+
+  - name: timestamp
+    type: timestamp
+    description: Market data timestamp
+    constraints:
+      timestamp_range:
+        start: "-5m"
+        end: "now"
+
+  - name: price
+    type:
+      decimal:
+        precision: 4
+    description: Current price with 4 decimal places
+    constraints:
+      range:
+        min: 50.0
+        max: 500.0
+      distribution: uniform
+
+  - name: bid_price
+    type:
+      decimal:
+        precision: 4
+    description: Best bid price
+    nullable: false
+    constraints:
+      derived:
+        expression: "price * random(0.995, 0.999)"
+        depends_on: [price]
+
+  - name: ask_price
+    type:
+      decimal:
+        precision: 4
+    description: Best ask price
+    nullable: false
+    constraints:
+      derived:
+        expression: "price * random(1.001, 1.005)"
+        depends_on: [price]
+
+  - name: bid_size
+    type: integer
+    description: Bid quantity
+    constraints:
+      range:
+        min: 100
+        max: 10000
+      distribution: uniform
+
+  - name: ask_size
+    type: integer
+    description: Ask quantity
+    constraints:
+      range:
+        min: 100
+        max: 10000
+      distribution: uniform
+
+  - name: volume
+    type: integer
+    description: Trading volume
+    constraints:
+      range:
+        min: 1000
+        max: 1000000
+      distribution:
+        log_normal:
+          mean: 12.0
+          std_dev: 2.0
+
+  - name: vwap
+    type:
+      decimal:
+        precision: 4
+    description: Volume-weighted average price
+    nullable: true
+    constraints:
+      derived:
+        expression: "price * random(0.98, 1.02)"
+        depends_on: [price]
+
+  - name: market_cap
+    type:
+      decimal:
+        precision: 2
+    description: Market capitalization
+    nullable: true
+    constraints:
+      range:
+        min: 1000000000.0
+        max: 3000000000000.0

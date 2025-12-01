@@ -725,7 +725,7 @@ mod tests {
             fields: vec![
                 FieldDefinition {
                     name: "id".to_string(),
-                    field_type: FieldType::Integer,
+                    field_type: FieldType::integer(),
                     nullable: false,
                     constraints: FieldConstraints {
                         range: Some(RangeConstraint {
@@ -738,7 +738,7 @@ mod tests {
                 },
                 FieldDefinition {
                     name: "value".to_string(),
-                    field_type: FieldType::String,
+                    field_type: FieldType::string(),
                     nullable: false,
                     constraints: FieldConstraints::default(),
                     description: None,
@@ -864,7 +864,7 @@ mod tests {
             description: None,
             fields: vec![FieldDefinition {
                 name: "id".to_string(),
-                field_type: FieldType::Integer,
+                field_type: FieldType::integer(),
                 nullable: false,
                 constraints: FieldConstraints {
                     range: Some(RangeConstraint {
@@ -905,7 +905,7 @@ mod tests {
             description: None,
             fields: vec![FieldDefinition {
                 name: "id".to_string(),
-                field_type: FieldType::Integer,
+                field_type: FieldType::integer(),
                 nullable: false,
                 constraints: FieldConstraints::default(),
                 description: None,

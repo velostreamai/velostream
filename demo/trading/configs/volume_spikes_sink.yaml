@@ -15,11 +15,10 @@ datasink:
 
   schema:
     key.field: symbol
-#    value.format: json
-#    value.serializer: "json"
-    value.schema.file: "schemas/volume_spikes.avsc"
-    # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
-    # schema.registry.url: "http://schema-registry:8081"
+    value.serializer: json
+    # Avro alternative:
+    # value.serializer: avro
+    # value.schema.file: "schemas/volume_spikes.avsc"
 
   topic:
     name: "volume-spikes"

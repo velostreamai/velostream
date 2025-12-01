@@ -419,8 +419,10 @@ pub fn parse_metric_annotations(comments: &[String]) -> Result<Vec<MetricAnnotat
                     }
                 }
                 _ => {
-                    // Unknown annotation directive - skip with warning
-                    log::warn!("Unknown metric annotation directive: @{}", directive);
+                    // Unknown annotation directive - skip silently
+                    // These are likely metadata annotations (e.g., @job_name, @application)
+                    // not metric definitions, so debug level is appropriate
+                    log::debug!("Skipping non-metric annotation: @{}", directive);
                 }
             }
         }

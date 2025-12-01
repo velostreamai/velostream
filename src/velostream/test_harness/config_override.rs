@@ -162,7 +162,7 @@ impl ConfigOverrides {
             }
         }
 
-        // Override topic names in SQL WITH clauses
+        // Override topic names in SQL WITH clauses (only if topic prefix is enabled)
         // Pattern: '<source_name>.topic' = '<topic_name>' or 'topic' = '<topic_name>'
         if self.apply_topic_prefix {
             // Match patterns like 'market_data.topic' = 'my_topic' or 'topic' = 'my_topic'

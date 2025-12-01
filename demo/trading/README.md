@@ -539,12 +539,73 @@ For production use, see:
 - `k8s/` directory - Kubernetes configurations
 - `monitoring/` directory - Prometheus and Grafana setup
 
+## 🧪 Testing with Test Harness
+
+The test harness validates SQL applications with automated testing. No Kafka infrastructure required for validation.
+
+### Quick Start
+
+```bash
+# Validate SQL syntax (no Docker/Kafka required)
+./test-with-harness.sh validate
+
+# Run full test suite (requires Docker for Kafka testcontainers)
+./test-with-harness.sh
+
+# Quick smoke test with minimal data
+./test-with-harness.sh smoke
+
+# High-volume stress test
+./test-with-harness.sh stress
+```
+
+### Test Artifacts
+
+| File | Description |
+|------|-------------|
+| `test_spec.yaml` | Test specification with assertions for all 10 streaming jobs |
+| `schemas/market_data.schema.yaml` | Schema for generating realistic market data |
+| `schemas/trading_positions.schema.yaml` | Schema for generating position data |
+| `schemas/order_book.schema.yaml` | Schema for generating order book events |
+| `test-with-harness.sh` | Test runner script |
+
+### Running Specific Tests
+
+```bash
+# Test a specific query
+./test-with-harness.sh run --query market_data_ts
+
+# Output in JUnit XML format (for CI/CD)
+./test-with-harness.sh run --output junit > results.xml
+
+# Output in JSON format
+./test-with-harness.sh run --output json > results.json
+```
+
+### AI-Assisted Schema Generation
+
+If you need to regenerate schemas or create new test specs:
+
+```bash
+# Set your Anthropic API key
+export ANTHROPIC_API_KEY="your-key-here"
+
+# Generate schemas with AI assistance
+velo-test infer-schema sql/financial_trading.sql --ai --output schemas/
+
+# Generate test spec from SQL analysis
+velo-test init sql/financial_trading.sql --ai --output test_spec.yaml
+```
+
+See [TESTING.md](TESTING.md) for detailed testing documentation.
+
 ## 📚 Related Documentation
 
 - [SQL Application Guide](../../SQL_APPLICATION_GUIDE.md)
 - [Kafka Configuration](../../docs/developer/STREAMING_KAFKA_API.md)
 - [Performance Optimization](../../docs/developer/ADVANCED_PERFORMANCE_OPTIMIZATIONS.md)
 - [Docker Deployment](../../docs/DOCKER_DEPLOYMENT_GUIDE.md)
+- [FR-084 Test Harness](../../docs/feature/FR-084-app-test-harness/README.md)
 
 ## 🤝 Contributing
 

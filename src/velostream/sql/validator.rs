@@ -602,29 +602,13 @@ impl SqlValidator {
 
     /// Validate a SQL application file
     pub fn validate_application_file(&self, file_path: &Path) -> ApplicationValidationResult {
-        // Canonicalize the file path to get the absolute path
-        // This is important when file_path is relative (e.g., "sql/app.sql")
-        // Without canonicalization, parent() would return "sql/" instead of the actual directory
-        let canonical_path = file_path.canonicalize().ok();
-        let sql_file_dir = canonical_path
-            .as_ref()
-            .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf());
-
-        let validator_with_base = if let Some(ref base) = sql_file_dir {
-            if self.base_dir.is_none() {
-                // Create a new validator with the SQL file's directory as base
-                // This ensures config_file paths are resolved relative to the SQL file
-                Some(SqlValidator::with_base_dir(base))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        // Use the validator with base_dir set to SQL file's directory
-        let effective_validator = validator_with_base.as_ref().unwrap_or(self);
+        // Config file paths are resolved relative to the current working directory (CWD)
+        // This allows SQL files in subdirectories to reference configs relative to the project root
+        // Example: SQL in `sql/app.sql` can reference `configs/source.yaml` relative to CWD
+        //
+        // If you need SQL-relative path resolution, use SqlValidator::with_base_dir()
+        // to explicitly set the base directory for config file resolution.
+        let effective_validator = self;
 
         let mut result = ApplicationValidationResult {
             file_path: file_path.to_string_lossy().to_string(),

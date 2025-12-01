@@ -10,12 +10,7 @@ topic:
 
 schema:
   key.field: symbol
-#  value.format: avro
-#  value.serializer: "avro"
-#  value.schema.file: "schemas/arbitrage_opportunities.avsc"
-    # Note: Schema registry NOT used - Avro schemas are embedded in messages or loaded from files
-    # schema.registry.url: "http://schema-registry:8081"
-
+  value.serializer: json
 
   headers:
     source_system: "velostream"
