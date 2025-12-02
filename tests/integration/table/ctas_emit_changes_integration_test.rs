@@ -165,7 +165,8 @@ async fn test_ctas_emit_changes_with_sink_integration() {
                 "Properties should be empty without WITH clause"
             );
 
-            // Verify nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)
+            // Verify nested SELECT has EMIT CHANGES set (EMIT is part of SELECT syntax)
+            // This allows window processing to detect EMIT CHANGES mode
             match *as_select {
                 StreamingQuery::Select {
                     emit_mode,
@@ -174,8 +175,9 @@ async fn test_ctas_emit_changes_with_sink_integration() {
                     ..
                 } => {
                     assert_eq!(
-                        emit_mode, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        emit_mode,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
                     assert!(group_by.is_some(), "Should have GROUP BY clause");
                     assert_eq!(fields.len(), 5, "Should have 5 SELECT fields");

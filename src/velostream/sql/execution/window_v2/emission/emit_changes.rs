@@ -85,13 +85,49 @@ impl EmissionStrategy for EmitChangesStrategy {
         record: SharedRecord,
         window_strategy: &mut dyn WindowStrategy,
     ) -> Result<EmitDecision, SqlError> {
+        // Log record timestamp before add_record
+        let record_ts = record.as_ref().timestamp;
+        let stats_before = window_strategy.get_stats();
+        log::debug!(
+            "EMIT_CHANGES: Processing record ts={}, window_before=[{:?}..{:?}], buffer={}",
+            record_ts,
+            stats_before.window_start_time,
+            stats_before.window_end_time,
+            stats_before.record_count
+        );
+
         // CRITICAL: Add the record to the window buffer
-        window_strategy.add_record(record)?;
+        // add_record() returns true if record crossed into a new window
+        let window_boundary_crossed = window_strategy.add_record(record)?;
+
+        // When window boundary is crossed, clear() to advance window bounds
+        // This ensures EMIT CHANGES has the same window boundary behavior as EMIT FINAL
+        if window_boundary_crossed {
+            let stats_after_add = window_strategy.get_stats();
+            log::debug!(
+                "EMIT_CHANGES: Window boundary crossed! Calling clear(). window_after_add=[{:?}..{:?}], buffer={}",
+                stats_after_add.window_start_time,
+                stats_after_add.window_end_time,
+                stats_after_add.record_count
+            );
+            window_strategy.clear();
+            let stats_after_clear = window_strategy.get_stats();
+            log::debug!(
+                "EMIT_CHANGES: After clear(). window_after_clear=[{:?}..{:?}], buffer={}",
+                stats_after_clear.window_start_time,
+                stats_after_clear.window_end_time,
+                stats_after_clear.record_count
+            );
+        }
 
         // Check if we should emit based on frequency
         if self.should_emit_now() {
             self.emission_count += 1;
-            // Don't clear buffer - EMIT CHANGES maintains running state
+            log::debug!(
+                "EMIT_CHANGES: Emitting! emission_count={}, boundary_crossed={}",
+                self.emission_count,
+                window_boundary_crossed
+            );
             Ok(EmitDecision::Emit)
         } else {
             Ok(EmitDecision::Skip)

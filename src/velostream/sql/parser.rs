@@ -107,6 +107,8 @@ use std::time::Duration;
 pub mod annotations;
 pub mod validator;
 
+// AggregateValidator is used for validation of aggregate expressions
+#[allow(unused_imports)]
 use self::validator::AggregateValidator;
 
 /// Main parser for streaming SQL queries.
@@ -1608,6 +1610,7 @@ impl<'a> TokenParser<'a> {
         let mut having = None;
         let mut order_by = None;
         let mut limit = None;
+        let mut emit_mode = None;
 
         // Loop to parse clauses in any order - continues until no more recognized clauses
         loop {
@@ -1634,6 +1637,10 @@ impl<'a> TokenParser<'a> {
                     self.advance();
                     limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
                 }
+                // EMIT CHANGES/FINAL is part of SELECT syntax
+                TokenType::Emit if emit_mode.is_none() => {
+                    emit_mode = self.parse_emit_clause()?;
+                }
                 _ => break, // No more recognized clauses, exit loop
             }
         }
@@ -1645,7 +1652,6 @@ impl<'a> TokenParser<'a> {
             StreamSource::Stream(from_stream) // Both scalar queries and named streams
         };
 
-        // DO NOT parse EMIT clause here - let CREATE STREAM/TABLE parser handle it
         // DO NOT consume semicolon here - let CREATE TABLE parser handle WITH clause
 
         Ok(StreamingQuery::Select {
@@ -1659,7 +1665,7 @@ impl<'a> TokenParser<'a> {
             window,
             order_by,
             limit,
-            emit_mode: None, // EMIT is parsed at CREATE STREAM/TABLE level
+            emit_mode,
             properties: _from_with_options, // WITH clause options from FROM source
             job_mode: None,
             batch_size: None,
@@ -3290,12 +3296,39 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_for_create_table to avoid consuming the WITH clause that belongs to CREATE STREAM
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
-        // Parse EMIT clause first (if present) - must come before WITH per SQL standard
-        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+        log::debug!(
+            "CREATE STREAM parser: after SELECT, current_token={:?} (value='{}')",
+            self.current_token().token_type,
+            self.current_token().value
+        );
+
+        // Parse EMIT clause if present at wrapper level - must come before WITH per SQL standard
+        // If not found at wrapper level, extract from inner SELECT (EMIT is part of SELECT syntax)
+        let mut emit_mode = if self.current_token().token_type == TokenType::Emit {
+            log::debug!("CREATE STREAM parser: EMIT token detected at wrapper level");
             self.parse_emit_clause()?
         } else {
             None
         };
+
+        // Extract emit_mode from inner SELECT if not set at wrapper level
+        if emit_mode.is_none() {
+            if let StreamingQuery::Select {
+                emit_mode: select_emit_mode,
+                ..
+            } = as_select.as_ref()
+            {
+                if select_emit_mode.is_some() {
+                    log::debug!(
+                        "CREATE STREAM parser: emit_mode extracted from inner SELECT: {:?}",
+                        select_emit_mode
+                    );
+                    emit_mode = select_emit_mode.clone();
+                }
+            }
+        }
+
+        log::debug!("CREATE STREAM parser: final emit_mode={:?}", emit_mode);
 
         // Parse WITH properties for sink configuration (comes after EMIT)
         let mut properties = if self.current_token().token_type == TokenType::With {
@@ -3398,11 +3431,24 @@ impl<'a> TokenParser<'a> {
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
         // Parse EMIT clause if present BEFORE WITH (common pattern: ... EMIT CHANGES WITH (...))
-        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+        let mut emit_mode = if self.current_token().token_type == TokenType::Emit {
             self.parse_emit_clause()?
         } else {
             None
         };
+
+        // Extract emit_mode from inner SELECT if not set at wrapper level
+        if emit_mode.is_none() {
+            if let StreamingQuery::Select {
+                emit_mode: select_emit_mode,
+                ..
+            } = as_select.as_ref()
+            {
+                if select_emit_mode.is_some() {
+                    emit_mode = select_emit_mode.clone();
+                }
+            }
+        }
 
         // Parse WITH properties
         let mut properties = if self.current_token().token_type == TokenType::With {

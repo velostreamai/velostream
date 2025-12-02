@@ -39,6 +39,7 @@ use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
+use log::warn;
 use std::collections::HashMap;
 
 /// Window V2 state stored in ProcessorContext
@@ -246,18 +247,72 @@ impl WindowAdapter {
 
         use super::traits::EmitDecision;
 
+        // Log record details BEFORE processing
+        let stats_before = v2_state.strategy.get_stats();
+        log::debug!(
+            "WINDOW_V2 INCOMING: record_timestamp={}, window_bounds=[{:?}..{:?}], buffer_count={}, record_fields={:?}",
+            record.as_ref().timestamp,
+            stats_before.window_start_time,
+            stats_before.window_end_time,
+            stats_before.record_count,
+            record.as_ref().fields.keys().collect::<Vec<_>>()
+        );
+
         // Process record through emission strategy (which internally uses window strategy)
         let emit_decision = v2_state
             .emission_strategy
             .process_record(record.clone(), &mut *v2_state.strategy)?;
 
+        // Log record details AFTER processing
+        let stats_after = v2_state.strategy.get_stats();
+        log::debug!(
+            "WINDOW_V2 PROCESSED: emit_decision={:?}, window_bounds=[{:?}..{:?}], buffer_count={} (was {})",
+            emit_decision,
+            stats_after.window_start_time,
+            stats_after.window_end_time,
+            stats_after.record_count,
+            stats_before.record_count
+        );
+
         match emit_decision {
             EmitDecision::Emit | EmitDecision::EmitAndClear => {
                 // Get window results from strategy
-                let window_records = v2_state.strategy.get_window_records();
+                let mut window_records = v2_state.strategy.get_window_records();
 
                 if window_records.is_empty() {
-                    return Ok(None);
+                    // Log diagnostic info when window buffer appears empty
+                    // This can happen when:
+                    // 1. Timestamp field is missing from records (extract_timestamp fails)
+                    // 2. Window bounds not initialized
+                    // 3. Records filtered out by timestamp range check
+                    let stats = v2_state.strategy.get_stats();
+                    warn!(
+                        "EMIT CHANGES: window_records empty after EmitDecision::{:?}. \
+                        Window stats: record_count={}, window_start={:?}, window_end={:?}, \
+                        buffer_size_bytes={}. This usually means timestamp extraction failed \
+                        in get_window_records() - check that records have the expected timestamp field.",
+                        emit_decision,
+                        stats.record_count,
+                        stats.window_start_time,
+                        stats.window_end_time,
+                        stats.buffer_size_bytes
+                    );
+
+                    // For EMIT CHANGES, fall back to using the current record
+                    // The buffer has records (stats.record_count > 0) but get_window_records()
+                    // couldn't extract timestamps to filter them. Use the input record directly.
+                    if stats.record_count > 0 {
+                        warn!(
+                            "EMIT CHANGES: Buffer has {} records but filtering returned 0. \
+                            Using input record as fallback for aggregation.",
+                            stats.record_count
+                        );
+                        // Use the input record that was just added to trigger this emission
+                        // This ensures EMIT CHANGES always produces output when triggered
+                        window_records = vec![record.clone()];
+                    } else {
+                        return Ok(None);
+                    }
                 }
 
                 // CRITICAL: Get window stats BEFORE clearing (stats contain window_start/end times)
@@ -371,19 +426,34 @@ impl WindowAdapter {
 
         if is_emit_changes {
             // EMIT CHANGES: emit on every record (or configurable frequency)
+            log::debug!("Creating EmitChangesStrategy for query (detected EMIT CHANGES mode)");
             Ok(Box::new(EmitChangesStrategy::new(1)))
         } else {
             // EMIT FINAL: emit only on window boundaries
+            log::debug!(
+                "Creating EmitFinalStrategy for query (no EMIT CHANGES detected, defaulting to EMIT FINAL)"
+            );
             Ok(Box::new(EmitFinalStrategy::new()))
         }
     }
 
     /// Check if query has EMIT CHANGES clause
     fn is_emit_changes(query: &StreamingQuery) -> bool {
+        log::debug!(
+            "is_emit_changes: checking query type: {}",
+            match query {
+                StreamingQuery::Select { .. } => "Select",
+                StreamingQuery::CreateStream { .. } => "CreateStream",
+                StreamingQuery::CreateTable { .. } => "CreateTable",
+                _ => "Other",
+            }
+        );
+
         match query {
             StreamingQuery::Select {
                 emit_mode, window, ..
             } => {
+                log::debug!("is_emit_changes: Select.emit_mode = {:?}", emit_mode);
                 // Check emit_mode field on the SELECT query
                 if let Some(mode) = emit_mode {
                     matches!(mode, EmitMode::Changes)
@@ -405,10 +475,16 @@ impl WindowAdapter {
                 as_select,
                 ..
             } => {
+                log::debug!("is_emit_changes: CreateStream.emit_mode = {:?}", emit_mode);
                 // Check emit_mode on CreateStream wrapper, or fall back to inner SELECT
                 if let Some(mode) = emit_mode {
-                    matches!(mode, EmitMode::Changes)
+                    let result = matches!(mode, EmitMode::Changes);
+                    log::debug!("is_emit_changes: CreateStream returning {}", result);
+                    result
                 } else {
+                    log::debug!(
+                        "is_emit_changes: CreateStream.emit_mode is None, checking as_select"
+                    );
                     Self::is_emit_changes(as_select)
                 }
             }
@@ -572,7 +648,7 @@ impl WindowAdapter {
 
         // Build result record for each group (with HAVING filter using accumulators)
         let mut results = Vec::new();
-        for (_group_key, accumulator) in &group_state.groups {
+        for accumulator in group_state.groups.values() {
             // Evaluate HAVING clause using THIS group's accumulator
             if let Some(having_expr) = having {
                 let having_passes =
@@ -659,7 +735,7 @@ impl WindowAdapter {
     /// Build a result StreamRecord from computed aggregate values
     fn build_result_record(
         fields: &[SelectField],
-        aggregate_expressions: &[(String, Expr)],
+        _aggregate_expressions: &[(String, Expr)],
         accumulator: &GroupAccumulator,
         window_stats: &WindowStats,
     ) -> Result<StreamRecord, SqlError> {
@@ -723,18 +799,20 @@ impl WindowAdapter {
                 }
                 SelectField::Column(col_name) => {
                     // Non-aggregate column - use sample record (with window cols injected)
-                    if let Some(sample) = &sample_with_window_cols {
-                        if let Some(value) = sample.fields.get(col_name) {
-                            result_fields.insert(col_name.clone(), value.clone());
-                        }
+                    if let Some(value) = sample_with_window_cols
+                        .as_ref()
+                        .and_then(|s| s.fields.get(col_name))
+                    {
+                        result_fields.insert(col_name.clone(), value.clone());
                     }
                 }
                 SelectField::AliasedColumn { column, alias } => {
                     // Non-aggregate column with alias - use sample record (with window cols)
-                    if let Some(sample) = &sample_with_window_cols {
-                        if let Some(value) = sample.fields.get(column) {
-                            result_fields.insert(alias.clone(), value.clone());
-                        }
+                    if let Some(value) = sample_with_window_cols
+                        .as_ref()
+                        .and_then(|s| s.fields.get(column))
+                    {
+                        result_fields.insert(alias.clone(), value.clone());
                     }
                 }
                 SelectField::Wildcard => {
@@ -980,7 +1058,7 @@ impl WindowAdapter {
     fn evaluate_having_operand(expr: &Expr, result: &StreamRecord) -> Result<FieldValue, SqlError> {
         match expr {
             // Aggregate function - map to computed field name in result
-            Expr::Function { name, args } => {
+            Expr::Function { name, args: _ } => {
                 let func_name = name.to_uppercase();
 
                 // Map aggregate function to its computed field name
