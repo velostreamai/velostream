@@ -84,7 +84,12 @@ impl KafkaDataSource {
             result
         };
 
-        let brokers = get_source_prop("brokers")
+        // Extract brokers from properties, with env var override for test harness
+        // VELOSTREAM_KAFKA_BROKERS allows test harness to override config file values
+        // when using testcontainers or other dynamic Kafka instances
+        let brokers = std::env::var("VELOSTREAM_KAFKA_BROKERS")
+            .ok()
+            .or_else(|| get_source_prop("brokers"))
             .or_else(|| get_source_prop("bootstrap.servers"))
             .or_else(|| {
                 merged_props

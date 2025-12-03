@@ -180,6 +180,10 @@ infra.stop().await?;
 ```bash
 # Verbose output
 RUST_LOG=debug velo-test run app.sql --spec test_spec.yaml --verbose
+
+# Keep containers running for debugging
+velo-test run app.sql --spec test_spec.yaml --keep-containers
+# Then use 'docker ps' to find containers, 'docker stop <id>' to cleanup
 ```
 
 ## Project Structure

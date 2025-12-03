@@ -201,7 +201,11 @@ path = "demo/datasource-demo/complete_pipeline_demo.rs"
 name = "sql-batch"
 path = "src/bin/sql_batch.rs"
 
-
+# FR-084: Test Harness CLI Binary (requires test-support for testcontainers)
+[[bin]]
+name = "velo-test"
+path = "src/bin/velo-test.rs"
+required-features = ["test-support"]
 
 # Features for test categorization
 [features]

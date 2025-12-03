@@ -979,21 +979,21 @@ impl KafkaDataReader {
         };
 
         for i in 0..target_size {
-            log::debug!(
+            log::trace!(
                 "🔍 read_fixed_size: poll attempt {} of {}",
                 i + 1,
                 target_size
             );
             match timeout(timeout_duration, stream.next()).await {
                 Ok(Some(Ok(message))) => {
-                    log::debug!(
+                    log::trace!(
                         "🔍 read_fixed_size: poll returned message from partition {} offset {}",
                         message.partition(),
                         message.offset()
                     );
                     let record = self.create_stream_record(message)?;
                     records.push(record);
-                    log::debug!(
+                    log::trace!(
                         "🔍 read_fixed_size: created stream record, total records now: {}",
                         records.len()
                     );
@@ -1258,11 +1258,21 @@ impl KafkaDataReader {
             None
         };
 
+        let kafka_timestamp = message.timestamp();
+        let record_timestamp =
+            kafka_timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+        log::debug!(
+            "KafkaReader: Creating StreamRecord with timestamp={} (kafka_ts={:?}, offset={}, partition={})",
+            record_timestamp,
+            kafka_timestamp,
+            message.offset(),
+            message.partition()
+        );
+
         Ok(StreamRecord {
             fields,
-            timestamp: message
-                .timestamp()
-                .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            timestamp: record_timestamp,
             offset: message.offset(),
             partition: message.partition(),
             headers: message.take_headers().into_map(),

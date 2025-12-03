@@ -602,6 +602,11 @@ velo-test validate demo/trading/sql/financial_trading.sql
 velo-test run demo/trading/sql/financial_trading.sql \
   --query enriched_market_data
 
+# Keep containers running for debugging
+velo-test run demo/trading/sql/financial_trading.sql \
+  --spec demo/trading/test_spec.yaml \
+  --keep-containers
+
 # Generate test spec template from SQL file
 velo-test init demo/trading/sql/financial_trading.sql \
   --output demo/trading/test_spec.yaml

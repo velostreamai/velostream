@@ -28,10 +28,11 @@ The test harness provides:
 
 | Command | Description | Docker Required? |
 |---------|-------------|------------------|
-| `./test-with-harness.sh validate` | Validate SQL syntax | No |
-| `./test-with-harness.sh` | Run full test suite | Yes |
-| `./test-with-harness.sh smoke` | Quick test (100 records) | Yes |
-| `./test-with-harness.sh stress` | High-volume test (10k records) | Yes |
+| `./velo-test.sh validate` | Validate SQL syntax | No |
+| `./velo-test.sh` | Run full test suite | Yes |
+| `./velo-test.sh smoke` | Quick test (100 records) | Yes |
+| `./velo-test.sh stress` | High-volume test (10k records) | Yes |
+| `velo-test run ... --keep-containers` | Keep containers for debugging | Yes |
 
 ## Test Specification
 
@@ -116,7 +117,7 @@ fields:
 No Docker required - validates SQL parsing and syntax:
 
 ```bash
-./test-with-harness.sh validate
+./velo-test.sh validate
 ```
 
 Output:
@@ -135,7 +136,7 @@ Validating SQL syntax...
 Requires Docker for Kafka testcontainers:
 
 ```bash
-./test-with-harness.sh
+./velo-test.sh
 ```
 
 Expected output:
@@ -170,20 +171,20 @@ RESULTS BY QUERY
 Test a single query for faster iteration:
 
 ```bash
-./test-with-harness.sh run --query market_data_ts
+./velo-test.sh run --query market_data_ts
 ```
 
 ### 4. Output Formats
 
 ```bash
 # Human-readable text (default)
-./test-with-harness.sh
+./velo-test.sh
 
 # JUnit XML for CI/CD
-./test-with-harness.sh run --output junit > results.xml
+./velo-test.sh run --output junit > results.xml
 
 # JSON for tooling integration
-./test-with-harness.sh run --output json > results.json
+./velo-test.sh run --output json > results.json
 ```
 
 ## Assertion Types Used
@@ -207,7 +208,7 @@ scenarios:
     queries: [market_data_ts, tick_buckets]
 ```
 
-Run with: `./test-with-harness.sh smoke`
+Run with: `./velo-test.sh smoke`
 
 ### Standard Test
 ```yaml
@@ -217,7 +218,7 @@ scenarios:
     queries: all
 ```
 
-Run with: `./test-with-harness.sh`
+Run with: `./velo-test.sh`
 
 ### Stress Test
 ```yaml
@@ -228,7 +229,7 @@ scenarios:
     queries: [market_data_ts, tick_buckets, volume_spike_analysis]
 ```
 
-Run with: `./test-with-harness.sh stress`
+Run with: `./velo-test.sh stress`
 
 ## CI/CD Integration
 
@@ -251,7 +252,7 @@ jobs:
 
       - name: Run tests
         working-directory: demo/trading
-        run: ./test-with-harness.sh run --output junit > results.xml
+        run: ./velo-test.sh run --output junit > results.xml
 
       - name: Publish Test Results
         uses: dorny/test-reporter@v1
@@ -263,6 +264,29 @@ jobs:
 ```
 
 ## Troubleshooting
+
+### Debugging with Containers
+
+When tests fail and you need to inspect the Kafka state, use `--keep-containers`:
+
+```bash
+velo-test run sql/financial_trading.sql --spec test_spec.yaml --keep-containers
+```
+
+This keeps the Docker containers running after test completion. You can then:
+```bash
+# Find the container
+docker ps
+
+# Inspect topics
+docker exec <container_id> kafka-topics --list --bootstrap-server localhost:9092
+
+# Consume messages from a topic
+docker exec <container_id> kafka-console-consumer --bootstrap-server localhost:9092 --topic <topic> --from-beginning
+
+# Cleanup when done
+docker stop <container_id>
+```
 
 ### Docker Not Running
 
@@ -292,19 +316,19 @@ cd demo/trading
 
 Or set the path explicitly:
 ```bash
-VELO_TEST=../../target/release/velo-test ./test-with-harness.sh
+VELO_TEST=../../target/release/velo-test ./velo-test.sh
 ```
 
 ### Timeout Errors
 
 For slow systems, increase timeout:
 ```bash
-./test-with-harness.sh run --timeout 120000
+./velo-test.sh run --timeout 120000
 ```
 
 ### Config Path Resolution (Validation Mode)
 
-When running `./test-with-harness.sh validate`, you may see warnings about config file paths:
+When running `./velo-test.sh validate`, you may see warnings about config file paths:
 
 ```
 Failed to load config file 'configs/market_data_source.yaml': File not found: .../sql/configs/...

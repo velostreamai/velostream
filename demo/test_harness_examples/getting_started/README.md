@@ -18,30 +18,47 @@ export PATH="$PATH:$(pwd)/target/release"
 
 ## Quick Start
 
+### Using velo-test.sh (Recommended)
+
 ```bash
-# From this directory
-cd demo/test_harness_examples/getting_started
+# From test_harness_examples directory
+./velo-test.sh getting_started
+
+# Or from this directory (getting_started/)
+../velo-test.sh .
+
+# Validate only (no Docker required)
+../velo-test.sh validate .
+```
+
+### Using velo-test.sh Directly
+
+```bash
+# From this directory (getting_started/)
 
 # 1. Validate SQL syntax (no Kafka required)
-velo-test validate sql/market_aggregation.sql
+../velo-test.sh validate .
 
 # 2. Run full tests (requires Docker for Kafka)
-velo-test run sql/market_aggregation.sql --spec test_spec.yaml
+../velo-test.sh .
 
-# 3. Run with verbose output
-velo-test run sql/market_aggregation.sql --spec test_spec.yaml --verbose
+# 3. Run with custom timeout
+../velo-test.sh . --timeout 60000
 
-# 4. Generate JUnit XML for CI
-velo-test run sql/market_aggregation.sql --spec test_spec.yaml --output junit > results.xml
+# 4. Output in JSON format
+../velo-test.sh . --output json
 ```
 
 ## Files
 
 | File | Description |
 |------|-------------|
-| `sql/market_aggregation.sql` | SQL application that aggregates market data |
+| `sql/market_aggregation.sql` | Main demo - aggregates market data into OHLCV bars |
+| `sql/simple_passthrough.sql` | Simple passthrough for basic pipeline testing |
 | `schemas/market_data.schema.yaml` | Schema for generating test data |
-| `test_spec.yaml` | Test specification with 3 test cases |
+| `test_spec.yaml` | Test specification for market_aggregation.sql |
+
+> **Note**: The `test_spec.yaml` is configured for `market_aggregation.sql`. When using `velo-test.sh`, it will use the first SQL file found in the directory.
 
 ## What This Demo Tests
 

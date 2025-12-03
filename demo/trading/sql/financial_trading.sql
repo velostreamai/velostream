@@ -36,6 +36,7 @@
 -- @metric_field: price
 -- @metric_labels: symbol, exchange
 -- @job_name: market-data-event-time-1
+-- @job_mode: simple
 -- @partitioning_strategy: always_hash
 CREATE STREAM market_data_ts AS
 SELECT
@@ -93,8 +94,8 @@ WITH (
 CREATE STREAM tick_buckets AS
 SELECT
     symbol,
-    TUMBLE_START(event_time, INTERVAL '1' SECOND) as bucket_start,
-    TUMBLE_END(event_time, INTERVAL '1' SECOND) as bucket_end,
+    TUMBLE_START(_event_time, INTERVAL '1' SECOND) as bucket_start,
+    TUMBLE_END(_event_time, INTERVAL '1' SECOND) as bucket_end,
     AVG(price) as avg_price,
     MIN(price) as min_price,
     MAX(price) as max_price,
@@ -103,7 +104,7 @@ SELECT
     FIRST_VALUE(price) as open_price,
     LAST_VALUE(price) as close_price
 FROM market_data_ts
-WINDOW TUMBLING(event_time, INTERVAL '1' SECOND)
+WINDOW TUMBLING(_event_time, INTERVAL '1' SECOND)
 GROUP BY symbol
 EMIT CHANGES
 WITH (

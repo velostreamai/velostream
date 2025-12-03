@@ -908,13 +908,15 @@ async fn create_kafka_writer(
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
-    // Extract brokers from properties
-    let brokers = props
-        .get("bootstrap.servers")
-        .or_else(|| props.get("brokers"))
-        .or_else(|| props.get("kafka.brokers"))
-        .or_else(|| props.get("producer_config.bootstrap.servers"))
-        .map(|s| s.to_string())
+    // Extract brokers from properties, with env var override for test harness
+    // VELOSTREAM_KAFKA_BROKERS allows test harness to override config file values
+    // when using testcontainers or other dynamic Kafka instances
+    let brokers = std::env::var("VELOSTREAM_KAFKA_BROKERS")
+        .ok()
+        .or_else(|| props.get("bootstrap.servers").cloned())
+        .or_else(|| props.get("brokers").cloned())
+        .or_else(|| props.get("kafka.brokers").cloned())
+        .or_else(|| props.get("producer_config.bootstrap.servers").cloned())
         .unwrap_or_else(|| "localhost:9092".to_string());
 
     // Extract topic name from properties, or use sink name as default

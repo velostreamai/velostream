@@ -17,7 +17,26 @@ test_harness_examples/
 └── data/                 # Sample CSV data files for table sources
 ```
 
-## Usage
+## Quick Start with velo-test.sh
+
+The `velo-test.sh` script provides an easy way to run tests:
+
+```bash
+# Run all tiers (auto-starts Kafka via Docker)
+./velo-test.sh
+
+# Validate SQL syntax only (no Docker needed)
+./velo-test.sh validate
+
+# Run specific tier
+./velo-test.sh tier1
+./velo-test.sh getting_started
+
+# From a subdirectory (e.g., getting_started/)
+../velo-test.sh .
+```
+
+## Direct velo-test Usage
 
 ### Validate SQL syntax
 ```bash

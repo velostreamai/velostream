@@ -587,10 +587,7 @@ impl SimpleJobProcessor {
         job_name: &str,
         stats: &mut JobExecutionStats,
     ) -> DataSourceResult<()> {
-        debug!(
-            "Job '{}': Starting multi-source batch processing cycle",
-            job_name
-        );
+        debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
         let source_names = context.list_sources();
         if source_names.is_empty() {

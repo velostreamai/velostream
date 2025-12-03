@@ -61,6 +61,20 @@ enum Commands {
         /// Use this when testing against a running SQL job with fixed topic names
         #[arg(long)]
         no_topic_prefix: bool,
+
+        /// Auto-start Kafka using testcontainers (requires Docker)
+        /// If not specified, will auto-start when no external Kafka is available
+        #[arg(long)]
+        use_testcontainers: bool,
+
+        /// External Kafka bootstrap servers (overrides config file)
+        #[arg(long)]
+        kafka: Option<String>,
+
+        /// Keep testcontainers running after test completion (for debugging)
+        /// Use 'docker ps' to find the container, 'docker stop <id>' to clean up
+        #[arg(long)]
+        keep_containers: bool,
     },
 
     /// Validate SQL syntax without execution
@@ -145,6 +159,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             timeout_ms,
             ai,
             no_topic_prefix,
+            use_testcontainers,
+            kafka,
+            keep_containers,
         } => {
             use std::time::Duration;
             use velostream::velostream::test_harness::SpecGenerator;
@@ -332,7 +349,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            // Also check environment variable as fallback
+            // Priority for Kafka connection:
+            // 1. --kafka CLI flag (explicit override)
+            // 2. Config file bootstrap.servers
+            // 3. KAFKA_BOOTSTRAP_SERVERS env var
+            // 4. --use-testcontainers flag (or auto-start if none of above)
+
+            // Check CLI flag first
+            if let Some(ref k) = kafka {
+                bootstrap_servers = Some(k.clone());
+                log::info!("Using bootstrap.servers from --kafka flag: {}", k);
+            }
+
+            // Check environment variable as fallback
             if bootstrap_servers.is_none()
                 && let Ok(bs) = std::env::var("KAFKA_BOOTSTRAP_SERVERS")
             {
@@ -340,20 +369,67 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 log::info!("Using bootstrap.servers from KAFKA_BOOTSTRAP_SERVERS env var");
             }
 
-            // Create test infrastructure with Kafka if available
-            let infra = if let Some(ref bs) = bootstrap_servers {
+            // Create test infrastructure
+            // If --use-testcontainers or no Kafka configured, start testcontainers
+            let mut infra = if use_testcontainers || bootstrap_servers.is_none() {
+                println!("🐳 Starting Kafka via testcontainers (requires Docker)...");
+                match TestHarnessInfra::with_testcontainers().await {
+                    Ok(infra) => {
+                        println!(
+                            "   Kafka: {} (testcontainers)",
+                            infra.bootstrap_servers().unwrap_or("unknown")
+                        );
+                        infra
+                    }
+                    Err(e) => {
+                        if bootstrap_servers.is_some() {
+                            // Fall back to configured Kafka if testcontainers fails
+                            eprintln!("⚠️  Testcontainers failed ({}), using configured Kafka", e);
+                            TestHarnessInfra::with_kafka(bootstrap_servers.as_ref().unwrap())
+                        } else {
+                            eprintln!("❌ Failed to start testcontainers Kafka: {}", e);
+                            eprintln!("   Make sure Docker is running and try again");
+                            eprintln!();
+                            eprintln!(
+                                "   Alternatively, specify --kafka <bootstrap_servers> to use an external Kafka"
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            } else if let Some(ref bs) = bootstrap_servers {
                 println!("   Kafka: {}", bs);
                 TestHarnessInfra::with_kafka(bs)
             } else {
                 TestHarnessInfra::new()
             };
 
+            // Start the infrastructure (creates topics, etc.)
+            if let Err(e) = infra.start().await {
+                eprintln!("❌ Failed to start test infrastructure: {}", e);
+                // Cleanup testcontainers before exiting (unless --keep-containers)
+                if !keep_containers {
+                    let _ = infra.stop().await;
+                }
+                std::process::exit(1);
+            }
+
+            // Set VELOSTREAM_KAFKA_BROKERS env var to override config file bootstrap.servers
+            // This ensures SQL job sinks use the same Kafka as the test harness
+            // SAFETY: This is safe because we are single-threaded at this point in startup,
+            // before any async tasks or threads are spawned that might read env vars.
+            if let Some(bs) = infra.bootstrap_servers() {
+                unsafe {
+                    std::env::set_var("VELOSTREAM_KAFKA_BROKERS", bs);
+                }
+                log::info!("Set VELOSTREAM_KAFKA_BROKERS={}", bs);
+            }
+
             // Check if Kafka is available
             if infra.bootstrap_servers().is_none() {
                 eprintln!("⚠️  No Kafka bootstrap servers configured");
-                eprintln!(
-                    "   Configure 'bootstrap.servers' in config file or set KAFKA_BOOTSTRAP_SERVERS env var"
-                );
+                eprintln!("   Use --use-testcontainers to auto-start Kafka (requires Docker)");
+                eprintln!("   Or specify --kafka <bootstrap_servers> to use an external Kafka");
                 eprintln!();
                 eprintln!("   Running in validation-only mode (no execution)");
                 println!();
@@ -368,7 +444,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     );
                 } else {
                     println!("❌ SQL validation failed");
+                    // Cleanup testcontainers before exiting (unless --keep-containers)
+                    if !keep_containers {
+                        let _ = infra.stop().await;
+                    }
                     std::process::exit(1);
+                }
+                // Cleanup infra even on success in validation-only mode (unless --keep-containers)
+                if !keep_containers {
+                    let _ = infra.stop().await;
                 }
             } else {
                 // Step 4: Create config overrides
@@ -455,13 +539,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let mut assertion_results = Vec::new();
 
                             for output in &exec_result.outputs {
+                                // Get assertions for this specific sink (includes fallback to top-level)
+                                let sink_assertions: Vec<_> = query_test
+                                    .assertions_for_sink(&output.sink_name)
+                                    .into_iter()
+                                    .cloned()
+                                    .collect();
                                 let results =
-                                    assertion_runner.run_assertions(output, &query_test.assertions);
+                                    assertion_runner.run_assertions(output, &sink_assertions);
                                 assertion_results.extend(results);
                             }
 
                             // If no outputs captured, create empty output for assertions
-                            if exec_result.outputs.is_empty() && !query_test.assertions.is_empty() {
+                            // Use all_assertions() to include per-sink assertions from outputs[]
+                            let all_assertions: Vec<_> =
+                                query_test.all_assertions().into_iter().cloned().collect();
+                            if exec_result.outputs.is_empty() && !all_assertions.is_empty() {
                                 use velostream::velostream::test_harness::executor::CapturedOutput;
                                 let empty_output = CapturedOutput {
                                     query_name: query_test.name.clone(),
@@ -472,8 +565,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     memory_peak_bytes: None,
                                     memory_growth_bytes: None,
                                 };
-                                let results = assertion_runner
-                                    .run_assertions(&empty_output, &query_test.assertions);
+                                let results =
+                                    assertion_runner.run_assertions(&empty_output, &all_assertions);
                                 assertion_results.extend(results);
                             }
 
@@ -517,6 +610,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut stdout = std::io::stdout();
                 if let Err(e) = write_report(&report, output_format, &mut stdout) {
                     eprintln!("❌ Failed to write report: {}", e);
+                }
+
+                // Cleanup executor and infrastructure (stops testcontainers)
+                if keep_containers {
+                    println!();
+                    println!("🐳 Keeping containers running for debugging (--keep-containers)");
+                    println!("   Use 'docker ps' to find containers");
+                    println!("   Use 'docker stop <id>' to clean up when done");
+                } else {
+                    if let Err(e) = executor.stop().await {
+                        log::warn!("Failed to stop executor: {}", e);
+                    }
                 }
 
                 // Exit with appropriate code

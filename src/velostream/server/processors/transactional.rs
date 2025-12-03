@@ -129,12 +129,7 @@ impl TransactionalJobProcessor {
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
-        info!(
-            "Job '{}' starting multi-source transactional processing with {} sources and {} sinks",
-            job_name,
-            readers.len(),
-            writers.len()
-        );
+        debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
         // Check transaction support for all readers and writers
         let readers_support_tx: HashMap<String, bool> = readers

@@ -183,6 +183,24 @@ impl QueryExecutor {
         self
     }
 
+    /// Stop the executor and cleanup infrastructure
+    ///
+    /// This method MUST be called before program exit to ensure proper cleanup
+    /// of testcontainers. Failure to call this will leave orphaned Docker
+    /// containers running.
+    pub async fn stop(&mut self) -> TestHarnessResult<()> {
+        log::info!("Stopping QueryExecutor and cleaning up infrastructure...");
+
+        // Drop the server (jobs will stop naturally)
+        self.server = None;
+
+        // Stop infrastructure (cleans up testcontainers)
+        self.infra.stop().await?;
+
+        log::info!("QueryExecutor stopped and infrastructure cleaned up");
+        Ok(())
+    }
+
     /// Load and parse a SQL file without executing
     /// This populates the parsed_queries so sink topic info is available
     pub fn load_sql_file(&mut self, sql_file: impl AsRef<Path>) -> TestHarnessResult<()> {

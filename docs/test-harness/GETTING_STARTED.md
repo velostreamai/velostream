@@ -269,6 +269,21 @@ Debug by checking the actual output:
 velo-test run app.sql --spec test_spec.yaml --verbose
 ```
 
+### Inspect Kafka State
+
+Keep containers running after tests to inspect Kafka state:
+
+```bash
+velo-test run app.sql --spec test_spec.yaml --keep-containers
+```
+
+Then use Docker to inspect:
+```bash
+docker ps                                  # Find container ID
+docker exec <id> kafka-topics --list ...   # List topics
+docker stop <id>                           # Cleanup when done
+```
+
 ## Demo Examples
 
 Complete working examples are in `demo/test_harness_examples/`:

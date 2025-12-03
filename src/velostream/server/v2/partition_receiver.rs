@@ -189,8 +189,8 @@ impl PartitionReceiver {
         observability: Option<crate::velostream::observability::SharedObservabilityManager>,
     ) -> Self {
         debug!(
-            "PartitionReceiver {}: Created with lock-free queue support (Phase 6.8)",
-            partition_id
+            "PartitionReceiver {}: Created for Query: {}",
+            partition_id, query
         );
 
         let observability_wrapper = ObservabilityWrapper::builder()

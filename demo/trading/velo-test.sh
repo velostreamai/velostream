@@ -1,18 +1,24 @@
 #!/bin/bash
 # =============================================================================
-# Financial Trading Demo - Test Harness Runner
+# Financial Trading Demo - velo-test Runner
 # =============================================================================
 # This script runs the velo-test harness against the financial trading SQL app.
 #
 # Usage:
-#   ./test-with-harness.sh              # Run all tests
-#   ./test-with-harness.sh validate     # Validate SQL syntax only
-#   ./test-with-harness.sh smoke        # Quick smoke test
-#   ./test-with-harness.sh stress       # High-volume stress test
+#   ./velo-test.sh              # Run all tests (auto-starts Kafka via Docker)
+#   ./velo-test.sh validate     # Validate SQL syntax only (no Docker needed)
+#   ./velo-test.sh smoke        # Quick smoke test
+#   ./velo-test.sh stress       # High-volume stress test
+#
+# Options:
+#   --query <name>        Run only a specific query
+#   --output <format>     Output format: text, json, junit
+#   --timeout <ms>        Timeout per query in milliseconds
+#   --kafka <servers>     Use external Kafka instead of testcontainers
 #
 # Requirements:
-#   - velo-test binary (build with: cargo build --release)
-#   - Docker (for Kafka testcontainers)
+#   - velo-test binary (build with: cargo build --release --features test-support)
+#   - Docker (for Kafka testcontainers, unless --kafka is specified)
 #
 # See: docs/feature/FR-084-app-test-harness/README.md
 # =============================================================================
@@ -38,7 +44,7 @@ fi
 
 if ! command -v "$VELO_TEST" &> /dev/null; then
     echo -e "${RED}Error: velo-test not found${NC}"
-    echo "Build it with: cargo build --release"
+    echo "Build it with: cargo build --release --features test-support"
     echo "Or set VELO_TEST environment variable to the binary path"
     exit 1
 fi
@@ -54,6 +60,8 @@ TIMEOUT_MS=60000
 MODE="${1:-run}"
 shift || true
 
+KAFKA_SERVERS=""
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --output)
@@ -68,12 +76,42 @@ while [[ $# -gt 0 ]]; do
             QUERY="$2"
             shift 2
             ;;
+        --kafka)
+            KAFKA_SERVERS="$2"
+            shift 2
+            ;;
         *)
             echo -e "${RED}Unknown option: $1${NC}"
             exit 1
             ;;
     esac
 done
+
+# Build Kafka options
+KAFKA_OPTS=""
+if [[ -n "$KAFKA_SERVERS" ]]; then
+    KAFKA_OPTS="--kafka $KAFKA_SERVERS"
+    echo -e "${BLUE}Using external Kafka: $KAFKA_SERVERS${NC}"
+else
+    # Check if Docker is available (needed for testcontainers)
+    if [[ "$MODE" != "validate" ]]; then
+        if ! command -v docker &> /dev/null; then
+            echo -e "${RED}Error: Docker not found${NC}"
+            echo "Testcontainers requires Docker to auto-start Kafka."
+            echo "Either install Docker or use --kafka <servers> to specify external Kafka."
+            exit 1
+        fi
+        if ! docker info &> /dev/null 2>&1; then
+            echo -e "${RED}Error: Docker is not running${NC}"
+            echo "Please start Docker Desktop or the Docker daemon."
+            echo "Alternatively, use --kafka <servers> to specify external Kafka."
+            exit 1
+        fi
+        echo -e "${BLUE}Docker detected - will use testcontainers for Kafka${NC}"
+        # Force testcontainers since configs may have localhost:9092 which won't work
+        KAFKA_OPTS="--use-testcontainers"
+    fi
+fi
 
 echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  FINANCIAL TRADING DEMO - TEST HARNESS${NC}"
@@ -97,6 +135,7 @@ case "$MODE" in
             --schemas "$SCHEMAS_DIR" \
             --timeout-ms 30000 \
             --output "$OUTPUT_FORMAT" \
+            ${KAFKA_OPTS} \
             ${QUERY:+--query "$QUERY"}
         ;;
 
@@ -108,6 +147,7 @@ case "$MODE" in
             --schemas "$SCHEMAS_DIR" \
             --timeout-ms 120000 \
             --output "$OUTPUT_FORMAT" \
+            ${KAFKA_OPTS} \
             ${QUERY:+--query "$QUERY"}
         ;;
 
@@ -125,6 +165,7 @@ case "$MODE" in
             --schemas "$SCHEMAS_DIR" \
             --timeout-ms "$TIMEOUT_MS" \
             --output "$OUTPUT_FORMAT" \
+            ${KAFKA_OPTS} \
             ${QUERY:+--query "$QUERY"}
         ;;
 esac

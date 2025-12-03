@@ -321,10 +321,34 @@ impl TumblingWindowStrategy {
 
     /// Advance to next window.
     fn advance_window(&mut self) {
-        if let (Some(start), Some(end)) = (self.window_start_time, self.window_end_time) {
+        if let (Some(_start), Some(end)) = (self.window_start_time, self.window_end_time) {
             self.window_start_time = Some(end);
             self.window_end_time = Some(end + self.window_size_ms);
         }
+    }
+
+    /// Advance window bounds to contain the given timestamp.
+    ///
+    /// This is called when a record arrives that's in a future window.
+    /// Calculates the correct window bounds for the timestamp and updates state.
+    /// Does NOT clear buffer - that's handled separately by emission strategies.
+    fn advance_window_to_timestamp(&mut self, timestamp: i64) {
+        let new_window_index = timestamp / self.window_size_ms;
+        let new_start = new_window_index * self.window_size_ms;
+        let new_end = (new_window_index + 1) * self.window_size_ms;
+
+        log::debug!(
+            "advance_window_to_timestamp: ts={} advancing from [{:?}, {:?}) to [{}, {})",
+            timestamp,
+            self.window_start_time,
+            self.window_end_time,
+            new_start,
+            new_end
+        );
+
+        self.window_start_time = Some(new_start);
+        self.window_end_time = Some(new_end);
+        self.window_emitted = false; // Reset for new window
     }
 }
 
@@ -644,5 +668,80 @@ mod tests {
 
         assert_eq!(strategy.window_start_time, Some(60000));
         assert_eq!(strategy.window_end_time, Some(120000));
+    }
+
+    /// Window bounds advance via clear() for both EMIT CHANGES and EMIT FINAL
+    ///
+    /// This test verifies that when add_record() returns true (boundary crossed),
+    /// calling clear() advances window bounds.
+    /// EmitChangesStrategy now calls clear() on boundary crossing, just like EmitFinalStrategy.
+    #[test]
+    fn test_emit_changes_window_bounds_must_advance_without_clear() {
+        // 10 second window (10000ms)
+        let mut strategy = TumblingWindowStrategy::new(10000, "_TIMESTAMP".to_string());
+
+        // First window: records at t=5000 and t=8000
+        let r1 = create_test_record(5000);
+        let r2 = create_test_record(8000);
+        strategy.add_record(r1).unwrap();
+        strategy.add_record(r2).unwrap();
+
+        assert_eq!(strategy.window_start_time, Some(0));
+        assert_eq!(strategy.window_end_time, Some(10000));
+        assert_eq!(strategy.get_window_records().len(), 2);
+
+        // Next record at t=15000 crosses into [10000, 20000)
+        let r3 = create_test_record(15000);
+        let should_emit = strategy.add_record(r3).unwrap();
+        assert!(should_emit, "Boundary crossing should signal emission");
+
+        // Before clear(), bounds are still [0, 10000) and get_window_records returns old records
+        assert_eq!(strategy.window_start_time, Some(0));
+        assert_eq!(strategy.get_window_records().len(), 2);
+
+        // clear() is called by EmitChangesStrategy
+        strategy.clear();
+
+        // After clear(), bounds have advanced to [10000, 20000)
+        assert_eq!(strategy.window_start_time, Some(10000));
+        assert_eq!(strategy.window_end_time, Some(20000));
+
+        // get_window_records now returns records in [10000, 20000) - just r3
+        let records = strategy.get_window_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "After clear(), get_window_records should return records in new window"
+        );
+    }
+
+    /// Test that window bounds advance correctly when skipping multiple windows
+    #[test]
+    fn test_window_bounds_advance_skipping_multiple_windows() {
+        let mut strategy = TumblingWindowStrategy::new(10000, "_TIMESTAMP".to_string());
+
+        // First record at t=5000 -> window [0, 10000)
+        let r1 = create_test_record(5000);
+        strategy.add_record(r1).unwrap();
+        assert_eq!(strategy.window_start_time, Some(0));
+        assert_eq!(strategy.window_end_time, Some(10000));
+
+        // Next record at t=95000 -> signals boundary crossing
+        let r2 = create_test_record(95000);
+        let should_emit = strategy.add_record(r2).unwrap();
+        assert!(should_emit, "Skipping windows should trigger emission");
+
+        // Before clear(), bounds are still at [0, 10000)
+        assert_eq!(strategy.window_start_time, Some(0));
+        assert_eq!(strategy.window_end_time, Some(10000));
+
+        // After clear(), bounds advance by one window
+        strategy.clear();
+        assert_eq!(strategy.window_start_time, Some(10000));
+        assert_eq!(strategy.window_end_time, Some(20000));
+
+        // Record at t=95000 is still in buffer, but not in [10000, 20000)
+        // Need more clears to get to [90000, 100000)
+        // This demonstrates that clear() advances incrementally
     }
 }

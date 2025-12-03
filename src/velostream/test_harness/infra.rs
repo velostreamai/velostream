@@ -263,6 +263,10 @@ impl TestHarnessInfra {
     }
 
     /// Stop the test infrastructure and cleanup
+    ///
+    /// This method MUST be called before the program exits to ensure
+    /// proper cleanup of testcontainers. Failure to call this will
+    /// leave orphaned Docker containers running.
     pub async fn stop(&mut self) -> TestHarnessResult<()> {
         if !self.is_running {
             return Ok(());
@@ -291,6 +295,21 @@ impl TestHarnessInfra {
                     log::warn!("Failed to remove temp directory: {}", e);
                 }
             }
+        }
+
+        // Stop and remove the Kafka container (testcontainers)
+        // This is critical - without this, containers are left running!
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(container) = self.kafka_container.take() {
+            log::info!("Stopping Kafka container...");
+            // Explicitly stop and remove the container
+            if let Err(e) = container.stop().await {
+                log::warn!("Failed to stop Kafka container: {}", e);
+            }
+            if let Err(e) = container.rm().await {
+                log::warn!("Failed to remove Kafka container: {}", e);
+            }
+            log::info!("Kafka container stopped and removed");
         }
 
         self.admin_client = None;

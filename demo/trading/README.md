@@ -547,16 +547,16 @@ The test harness validates SQL applications with automated testing. No Kafka inf
 
 ```bash
 # Validate SQL syntax (no Docker/Kafka required)
-./test-with-harness.sh validate
+./velo-test.sh validate
 
 # Run full test suite (requires Docker for Kafka testcontainers)
-./test-with-harness.sh
+./velo-test.sh
 
 # Quick smoke test with minimal data
-./test-with-harness.sh smoke
+./velo-test.sh smoke
 
 # High-volume stress test
-./test-with-harness.sh stress
+./velo-test.sh stress
 ```
 
 ### Test Artifacts
@@ -567,19 +567,19 @@ The test harness validates SQL applications with automated testing. No Kafka inf
 | `schemas/market_data.schema.yaml` | Schema for generating realistic market data |
 | `schemas/trading_positions.schema.yaml` | Schema for generating position data |
 | `schemas/order_book.schema.yaml` | Schema for generating order book events |
-| `test-with-harness.sh` | Test runner script |
+| `velo-test.sh` | Test runner script |
 
 ### Running Specific Tests
 
 ```bash
 # Test a specific query
-./test-with-harness.sh run --query market_data_ts
+./velo-test.sh run --query market_data_ts
 
 # Output in JUnit XML format (for CI/CD)
-./test-with-harness.sh run --output junit > results.xml
+./velo-test.sh run --output junit > results.xml
 
 # Output in JSON format
-./test-with-harness.sh run --output json > results.json
+./velo-test.sh run --output json > results.json
 ```
 
 ### AI-Assisted Schema Generation

@@ -89,6 +89,7 @@ velo-test run <SQL_FILE> [OPTIONS]
 | `--no-topic-prefix` | | Don't prefix topics with run ID |
 | `--bootstrap-servers` | | Kafka bootstrap servers (overrides spec) |
 | `--seed` | | Random seed for reproducibility |
+| `--keep-containers` | | Keep testcontainers running after test (for debugging) |
 
 ### Examples
 
@@ -119,6 +120,9 @@ velo-test run app.sql --spec test_spec.yaml --bootstrap-servers kafka:9092
 
 # Reproducible runs
 velo-test run app.sql --spec test_spec.yaml --seed 42
+
+# Keep containers for debugging (use 'docker ps' to find, 'docker stop' to cleanup)
+velo-test run app.sql --spec test_spec.yaml --keep-containers
 ```
 
 ### Exit Codes
