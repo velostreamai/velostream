@@ -332,6 +332,80 @@ protobuf.schema.file: "./schemas/example.proto"
 
 See [docs/kafka-schema-configuration.md](docs/developer/kafka-schema-configuration.md) for complete configuration guide.
 
+## Environment Variables
+
+Velostream supports environment variable configuration using the `VELOSTREAM_` prefix. Environment variables take precedence over configuration file settings (12-factor app style).
+
+### Kafka Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `VELOSTREAM_KAFKA_BROKERS` | Kafka broker endpoints (comma-separated) | `localhost:9092` |
+| `VELOSTREAM_KAFKA_TOPIC` | Default Kafka topic name | (from config) |
+| `VELOSTREAM_KAFKA_GROUP_ID` | Consumer group ID | `velo-sql-{job}` |
+
+### Server Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `VELOSTREAM_MAX_JOBS` | Maximum concurrent jobs | `100` |
+| `VELOSTREAM_ENABLE_MONITORING` | Enable performance monitoring (`true`/`false`/`1`/`0`) | `false` |
+| `VELOSTREAM_JOB_TIMEOUT_SECS` | Job timeout in seconds | `86400` |
+| `VELOSTREAM_TABLE_CACHE_SIZE` | Table registry cache size | `100` |
+
+### Retry Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `VELOSTREAM_RETRY_INTERVAL_SECS` | Base retry interval in seconds | `1` |
+| `VELOSTREAM_RETRY_MULTIPLIER` | Exponential backoff multiplier | `2.0` |
+| `VELOSTREAM_RETRY_MAX_DELAY_SECS` | Maximum retry delay in seconds | `60` |
+| `VELOSTREAM_RETRY_STRATEGY` | Retry strategy (`fixed` or `exponential`) | `exponential` |
+
+### Topic Configuration
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `VELOSTREAM_DEFAULT_PARTITIONS` | Default Kafka topic partitions | `6` |
+| `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | Default topic replication factor | `3` |
+
+### Usage Examples
+
+```bash
+# Docker/Kubernetes deployment
+export VELOSTREAM_KAFKA_BROKERS="broker1:9092,broker2:9092,broker3:9092"
+export VELOSTREAM_MAX_JOBS=500
+export VELOSTREAM_ENABLE_MONITORING=true
+
+# Test harness with testcontainers (dynamic broker)
+export VELOSTREAM_KAFKA_BROKERS="localhost:${KAFKA_PORT}"
+```
+
+### Resolution Chain
+
+Configuration values are resolved in this order (highest priority first):
+1. Environment variable: `VELOSTREAM_{KEY}`
+2. Configuration file property (from YAML, SQL WITH clause, etc.)
+3. Default value
+
+The `PropertyResolver` utility (`src/velostream/sql/config/resolver.rs`) provides type-safe resolution with logging.
+
+### YAML Variable Substitution
+
+YAML configuration files support inline environment variable substitution using `${VAR:default}` syntax:
+
+```yaml
+# Environment variable takes precedence, falls back to default
+consumer_config:
+  bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
+
+# Supported patterns:
+# ${VAR}          - Required env var (empty string if not set)
+# ${VAR:default}  - Optional env var with default value
+```
+
+This follows **12-factor app** principles where configuration is externalized and explicit.
+
 ## SQL Grammar Rules for Claude
 
 ### ⭐ CRITICAL: SQL Syntax is NOT Optional

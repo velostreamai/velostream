@@ -52,7 +52,8 @@ impl KafkaDataSink {
                 .cloned()
         };
 
-        let brokers = get_sink_prop("brokers")
+        // Extract brokers from properties
+        let brokers_raw = get_sink_prop("brokers")
             .or_else(|| get_sink_prop("bootstrap.servers"))
             .or_else(|| {
                 merged_props
@@ -60,6 +61,17 @@ impl KafkaDataSink {
                     .cloned()
             })
             .unwrap_or_else(|| "localhost:9092".to_string());
+
+        // Apply runtime env var substitution if the value contains ${VAR:default} pattern
+        // This handles cases where YAML was loaded before env vars were set (e.g., testcontainers)
+        use crate::velostream::sql::config::substitute_env_vars;
+        let brokers = substitute_env_vars(&brokers_raw);
+
+        log::info!(
+            "KafkaDataSink: brokers raw='{}', resolved='{}'",
+            brokers_raw,
+            brokers
+        );
         let topic = get_sink_prop("topic")
             .or_else(|| merged_props.get("datasink.topic.name").cloned())
             .unwrap_or_else(|| format!("{}_output", job_name));
@@ -117,6 +129,11 @@ impl KafkaDataSink {
 
         // Add client.id to config for per-client observability
         sink_config.insert("client.id".to_string(), client_id);
+
+        // CRITICAL: Ensure bootstrap.servers uses the RESOLVED value (after env var substitution)
+        // This is essential for testcontainers integration where VELOSTREAM_KAFKA_BROKERS
+        // is set AFTER config loading but BEFORE SQL job execution
+        sink_config.insert("bootstrap.servers".to_string(), brokers.clone());
 
         Self {
             brokers,

@@ -5,8 +5,9 @@ datasink:
   type: kafka
 
   # Standard producer configuration
+  # NOTE: Values use ${ENV_VAR:default} syntax - env var takes precedence (12-factor app style)
   producer_config:
-    bootstrap.servers: "localhost:9092"
+    bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9333}"
     retries: 3
     batch.size: 16384
     buffer_memory: 33554432

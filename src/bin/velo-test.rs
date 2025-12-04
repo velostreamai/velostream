@@ -275,28 +275,75 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Step 3: Validate SQL and extract configuration
             println!("🔧 Initializing test infrastructure...");
             use velostream::velostream::sql::validator::SqlValidator;
-            // Use current working directory for config file resolution
-            // This allows SQL files to reference configs relative to CWD (e.g., 'configs/source.yaml')
-            // rather than relative to the SQL file's directory
-            let validator = SqlValidator::new();
+            // Use the SQL file's directory as base for resolving relative config_file paths
+            // This allows SQL files to use paths like '../configs/source.yaml' correctly
+            // Canonicalize to get absolute path, so relative paths like '../configs/' resolve correctly
+            let sql_dir = sql_file
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .canonicalize()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            let validator = SqlValidator::with_base_dir(&sql_dir);
             let validation_result = validator.validate_application_file(&sql_file);
 
             // Extract bootstrap.servers and schema files from the validated sources
             let mut bootstrap_servers: Option<String> = None;
-            let sql_dir = sql_file.parent().unwrap_or(std::path::Path::new("."));
+
+            // Keys to check for bootstrap servers (in order of preference)
+            let bootstrap_keys = [
+                "bootstrap.servers",
+                "brokers",
+                "datasource.consumer_config.bootstrap.servers",
+                "datasource.config.bootstrap.servers",
+                "consumer_config.bootstrap.servers",
+            ];
 
             for query_result in &validation_result.query_results {
                 for source in &query_result.sources_found {
-                    // Extract bootstrap.servers
-                    if bootstrap_servers.is_none()
-                        && let Some(bs) = source.properties.get("bootstrap.servers")
-                    {
-                        bootstrap_servers = Some(bs.clone());
-                        log::info!(
-                            "Found bootstrap.servers from source '{}': {}",
-                            source.name,
-                            bs
-                        );
+                    // Extract bootstrap.servers from any of the possible key locations
+                    if bootstrap_servers.is_none() {
+                        for key in &bootstrap_keys {
+                            if let Some(bs) = source.properties.get(*key) {
+                                // Check if this is a ${VAR:default} pattern where the env var is not set
+                                // If so, we should start testcontainers (leave bootstrap_servers as None)
+                                let resolved = if bs.contains("${") && bs.contains("}") {
+                                    // Use runtime env var substitution
+                                    use velostream::velostream::sql::config::substitute_env_vars;
+                                    let substituted = substitute_env_vars(bs);
+                                    // If the substitution resulted in the default value (e.g. localhost:9092/9999),
+                                    // it means the env var wasn't set - we should use testcontainers
+                                    if substituted.starts_with("localhost:") {
+                                        log::info!(
+                                            "bootstrap.servers '{}' resolved to default '{}' - will use testcontainers",
+                                            bs,
+                                            substituted
+                                        );
+                                        None // Trigger testcontainers
+                                    } else {
+                                        log::info!(
+                                            "bootstrap.servers '{}' resolved to '{}' from env var",
+                                            bs,
+                                            substituted
+                                        );
+                                        Some(substituted)
+                                    }
+                                } else {
+                                    // Plain value, use as-is
+                                    Some(bs.clone())
+                                };
+
+                                if let Some(bs_resolved) = resolved {
+                                    bootstrap_servers = Some(bs_resolved.clone());
+                                    log::info!(
+                                        "Found bootstrap.servers from source '{}' (key: {}): {}",
+                                        source.name,
+                                        key,
+                                        bs_resolved
+                                    );
+                                }
+                                break;
+                            }
+                        }
                     }
 
                     // Extract and load schema file if specified
@@ -308,7 +355,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ];
                     for key in &schema_file_keys {
                         if let Some(schema_path) = source.properties.get(*key) {
-                            let full_path = sql_dir.join(schema_path);
+                            // Use the testable helper function for path resolution
+                            let full_path =
+                                velostream::velostream::test_harness::utils::resolve_schema_path(
+                                    schema_path,
+                                );
                             log::info!(
                                 "Loading schema for source '{}' from: {}",
                                 source.name,
@@ -485,10 +536,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .with_schema_registry(schema_registry);
 
                 // Initialize StreamJobServer for actual SQL execution
-                // Pass CWD so the server can resolve relative config file paths
-                // (configs are relative to the working directory, not the SQL file)
-                let cwd = std::env::current_dir().unwrap_or_default();
-                let mut executor = match executor.with_server(Some(cwd)).await {
+                // Pass SQL file's parent directory so the server can resolve relative config file paths
+                let sql_dir = sql_file
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .canonicalize()
+                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+                let mut executor = match executor.with_server(Some(sql_dir)).await {
                     Ok(e) => {
                         println!("   SQL execution: enabled (in-process StreamJobServer)");
                         e
@@ -559,6 +613,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let empty_output = CapturedOutput {
                                     query_name: query_test.name.clone(),
                                     sink_name: format!("{}_output", query_test.name),
+                                    topic: None, // No topic for empty output
                                     records: Vec::new(),
                                     execution_time_ms: 0,
                                     warnings: Vec::new(),
@@ -570,17 +625,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 assertion_results.extend(results);
                             }
 
-                            // Report results
-                            let passed = assertion_results.iter().all(|a| a.passed);
-                            if passed {
-                                println!("   ✅ Passed ({} assertions)", assertion_results.len());
+                            // Report results - single pass through assertions
+                            let total = assertion_results.len();
+                            let failed_count =
+                                assertion_results.iter().filter(|a| !a.passed).count();
+
+                            if failed_count == 0 {
+                                println!("   ✅ Passed ({}/{} assertions)", total, total);
                             } else {
-                                let failed_count =
-                                    assertion_results.iter().filter(|a| !a.passed).count();
+                                println!("   ❌ Failed ({}/{} assertions)", failed_count, total);
+                            }
+
+                            // Print details of all assertions
+                            for result in &assertion_results {
+                                let icon = if result.passed { "✅" } else { "❌" };
                                 println!(
-                                    "   ❌ Failed ({}/{} assertions)",
-                                    failed_count,
-                                    assertion_results.len()
+                                    "      {} {}: {}",
+                                    icon, result.assertion_type, result.message
                                 );
                             }
 
@@ -634,10 +695,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Validate { sql_file, verbose } => {
             println!("🔍 Validating SQL: {}", sql_file.display());
 
-            // Use existing SqlValidator
+            // Use existing SqlValidator with SQL file's directory as base for config_file resolution
+            // Canonicalize to get absolute path, so relative paths like '../configs/' resolve correctly
             use velostream::velostream::sql::validator::SqlValidator;
 
-            let validator = SqlValidator::new();
+            let sql_dir = sql_file
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .canonicalize()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+            let validator = SqlValidator::with_base_dir(&sql_dir);
             let result = validator.validate_application_file(&sql_file);
 
             println!();

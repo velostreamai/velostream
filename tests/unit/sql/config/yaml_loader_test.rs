@@ -2,6 +2,7 @@
 
 use std::fs;
 use tempfile::TempDir;
+use velostream::velostream::sql::config::substitute_env_vars;
 use velostream::velostream::sql::config::yaml_loader::{YamlConfigError, YamlConfigLoader};
 
 #[test]
@@ -426,5 +427,104 @@ metadata:
     assert_eq!(
         config["performance_profiles"]["ultra_low_latency"]["fetch.max.wait.ms"],
         10
+    );
+}
+
+// ============================================================================
+// Tests for substitute_env_vars function
+// ============================================================================
+
+#[test]
+fn test_substitute_env_vars_kafka_brokers_pattern() {
+    // Test the exact pattern used in YAML configs
+    let input = "${VELOSTREAM_KAFKA_BROKERS:localhost:9333}";
+
+    // Without env var set → should use default
+    // Safety: This test runs serially and only modifies test-specific env vars
+    unsafe { std::env::remove_var("VELOSTREAM_KAFKA_BROKERS") };
+    assert_eq!(substitute_env_vars(input), "localhost:9333");
+
+    // With env var set → should use env var value
+    unsafe { std::env::set_var("VELOSTREAM_KAFKA_BROKERS", "127.0.0.1:55043") };
+    assert_eq!(substitute_env_vars(input), "127.0.0.1:55043");
+
+    // Cleanup
+    unsafe { std::env::remove_var("VELOSTREAM_KAFKA_BROKERS") };
+}
+
+#[test]
+fn test_substitute_env_vars_default_with_colon() {
+    // Default value contains colon (port number)
+    assert_eq!(
+        substitute_env_vars("${NONEXISTENT_TEST_VAR:localhost:9092}"),
+        "localhost:9092"
+    );
+
+    // Multiple colons in default
+    assert_eq!(
+        substitute_env_vars("${NONEXISTENT_TEST_VAR:host:port:extra}"),
+        "host:port:extra"
+    );
+}
+
+#[test]
+fn test_substitute_env_vars_no_default() {
+    // No default → empty string
+    // Safety: This test runs serially and only modifies test-specific env vars
+    unsafe { std::env::remove_var("NONEXISTENT_TEST_VAR_2") };
+    assert_eq!(substitute_env_vars("${NONEXISTENT_TEST_VAR_2}"), "");
+}
+
+#[test]
+fn test_substitute_env_vars_multiple_vars() {
+    // Safety: This test runs serially and only modifies test-specific env vars
+    unsafe {
+        std::env::set_var("TEST_YAML_HOST", "myhost");
+        std::env::set_var("TEST_YAML_PORT", "9999");
+    }
+
+    let input = "${TEST_YAML_HOST:localhost}:${TEST_YAML_PORT:9092}";
+    assert_eq!(substitute_env_vars(input), "myhost:9999");
+
+    unsafe {
+        std::env::remove_var("TEST_YAML_HOST");
+        std::env::remove_var("TEST_YAML_PORT");
+    }
+}
+
+#[test]
+fn test_substitute_env_vars_embedded_in_string() {
+    // Safety: This test runs serially and only modifies test-specific env vars
+    unsafe { std::env::remove_var("TEST_YAML_VAR") };
+    assert_eq!(
+        substitute_env_vars("prefix_${TEST_YAML_VAR:middle}_suffix"),
+        "prefix_middle_suffix"
+    );
+}
+
+#[test]
+fn test_substitute_env_vars_no_vars() {
+    assert_eq!(substitute_env_vars("no_vars_here"), "no_vars_here");
+    assert_eq!(substitute_env_vars("localhost:9092"), "localhost:9092");
+}
+
+#[test]
+fn test_substitute_env_vars_env_overrides_default() {
+    // Set env var before substitution
+    // Safety: This test runs serially and only modifies test-specific env vars
+    unsafe { std::env::set_var("TEST_OVERRIDE_VAR", "from_env") };
+
+    // Env var should override default
+    assert_eq!(
+        substitute_env_vars("${TEST_OVERRIDE_VAR:from_default}"),
+        "from_env"
+    );
+
+    unsafe { std::env::remove_var("TEST_OVERRIDE_VAR") };
+
+    // Without env var, should use default
+    assert_eq!(
+        substitute_env_vars("${TEST_OVERRIDE_VAR:from_default}"),
+        "from_default"
     );
 }

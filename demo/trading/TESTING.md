@@ -326,23 +326,6 @@ For slow systems, increase timeout:
 ./velo-test.sh run --timeout 120000
 ```
 
-### Config Path Resolution (Validation Mode)
-
-When running `./velo-test.sh validate`, you may see warnings about config file paths:
-
-```
-Failed to load config file 'configs/market_data_source.yaml': File not found: .../sql/configs/...
-```
-
-**Note**: This is expected behavior. The validator resolves config paths relative to the SQL file location (`sql/`), while the SQL file uses paths relative to the demo root (`configs/`).
-
-**This does not affect**:
-- `run` mode - Uses testcontainers with auto-generated configs
-- `smoke` mode - Same as run mode
-- `stress` mode - Same as run mode
-
-The validation warnings indicate the SQL parser successfully parsed all queries. Config resolution only matters for production deployments.
-
 ## Customizing Tests
 
 ### Add New Assertions

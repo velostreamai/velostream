@@ -25,11 +25,12 @@ GROUP BY symbol
 WITH (
     'market_data.type' = 'kafka_source',
     'market_data.topic' = 'market_data',
-    'market_data.config_file' = '../configs/common_kafka_source.yaml',
+    'market_data.config_file' = '../../configs/common_kafka_source.yaml',
     'market_data.datasource.schema.key.field' = 'symbol',
     'market_data.datasource.schema.value.schema.file' = 'schemas/market_data.schema.yaml',
 
     'market_aggregates.type' = 'kafka_sink',
     'market_aggregates.topic' = 'market_aggregates_output',
-    'market_aggregates.config_file' = '../configs/common_kafka_sink.yaml'
+    'market_aggregates.key.field' = 'symbol',
+    'market_aggregates.config_file' = '../../configs/common_kafka_sink.yaml'
 );

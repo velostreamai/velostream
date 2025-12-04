@@ -5,8 +5,9 @@ datasource:
   type: kafka
 
   # Standard consumer configuration
+  # NOTE: Values use ${ENV_VAR:default} syntax - env var takes precedence (12-factor app style)
   consumer_config:
-    bootstrap.servers: "localhost:9092"
+    bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9333}"
     auto.offset.reset: "earliest"
     enable.auto.commit: true
     auto.commit.interval.ms: 100

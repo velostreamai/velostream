@@ -201,7 +201,9 @@ println!("{}", config.summary());
 
 ## Environment Variables
 
-The configuration system supports 5 environment variables:
+The configuration system supports environment variables with the `VELOSTREAM_` prefix:
+
+### Server Configuration
 
 | Variable | Default | Format | Description |
 |----------|---------|--------|-------------|
@@ -210,6 +212,22 @@ The configuration system supports 5 environment variables:
 | `VELOSTREAM_ENABLE_MONITORING` | `false` | `true`/`false`/`1`/`0` | Performance monitoring |
 | `VELOSTREAM_JOB_TIMEOUT_SECS` | `86400` | Integer (seconds) | Job timeout duration |
 | `VELOSTREAM_TABLE_CACHE_SIZE` | `100` | Integer | Table registry cache |
+
+### Retry Configuration
+
+| Variable | Default | Format | Description |
+|----------|---------|--------|-------------|
+| `VELOSTREAM_RETRY_INTERVAL_SECS` | `1` | Integer (seconds) | Base retry interval |
+| `VELOSTREAM_RETRY_MULTIPLIER` | `2.0` | Float | Exponential backoff multiplier |
+| `VELOSTREAM_RETRY_MAX_DELAY_SECS` | `60` | Integer (seconds) | Maximum retry delay |
+| `VELOSTREAM_RETRY_STRATEGY` | `exponential` | `fixed`/`exponential` | Retry strategy |
+
+### Topic Configuration
+
+| Variable | Default | Format | Description |
+|----------|---------|--------|-------------|
+| `VELOSTREAM_DEFAULT_PARTITIONS` | `6` | Integer | Default Kafka topic partitions |
+| `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | `3` | Integer | Default topic replication factor |
 
 ### Example: Setting Environment Variables
 
@@ -230,6 +248,22 @@ export VELOSTREAM_ENABLE_MONITORING="true"
 export VELOSTREAM_JOB_TIMEOUT_SECS="172800"
 export VELOSTREAM_TABLE_CACHE_SIZE="500"
 ```
+
+### YAML Variable Substitution
+
+YAML configuration files support inline environment variable substitution using `${VAR:default}` syntax:
+
+```yaml
+# In common_kafka_source.yaml or any YAML config file
+consumer_config:
+  bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
+
+# Supported patterns:
+# ${VAR}          - Required env var (empty string if not set)
+# ${VAR:default}  - Optional env var with default value
+```
+
+This follows **12-factor app** principles where configuration is externalized and explicit. The substitution happens at YAML load time via `yaml_loader.rs`.
 
 ## StreamJobServer Creation Methods
 

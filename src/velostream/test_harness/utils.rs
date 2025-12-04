@@ -190,6 +190,37 @@ pub fn get_base_dir(file_path: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Resolve a schema file path relative to the current working directory
+///
+/// This function resolves schema paths using the following rules:
+/// 1. Absolute paths are returned as-is
+/// 2. Relative paths are joined with the current working directory
+/// 3. If `std::env::current_dir()` fails, logs a warning and returns the relative path
+///
+/// # Arguments
+/// * `schema_path` - The schema file path (may be absolute or relative)
+///
+/// # Returns
+/// The resolved absolute path, or the original relative path if cwd resolution fails
+pub fn resolve_schema_path(schema_path: &str) -> PathBuf {
+    let path = Path::new(schema_path);
+
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(schema_path),
+        Err(e) => {
+            log::warn!(
+                "Failed to get current directory for schema resolution: {}. Using relative path.",
+                e
+            );
+            path.to_path_buf()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,5 +313,44 @@ mod tests {
             PathBuf::from("/home/user/test")
         );
         assert_eq!(get_base_dir(Path::new("spec.yaml")), PathBuf::from("."));
+    }
+
+    #[test]
+    fn test_resolve_schema_path_absolute() {
+        // Absolute paths should be returned as-is
+        let result = resolve_schema_path("/absolute/path/schema.yaml");
+        assert_eq!(result, PathBuf::from("/absolute/path/schema.yaml"));
+    }
+
+    #[test]
+    fn test_resolve_schema_path_relative() {
+        // Relative paths should be joined with cwd
+        let result = resolve_schema_path("schemas/market_data.yaml");
+
+        // Should be an absolute path (joined with cwd)
+        assert!(
+            result.is_absolute(),
+            "Expected absolute path, got: {:?}",
+            result
+        );
+
+        // Should end with the relative path components
+        assert!(
+            result.ends_with("schemas/market_data.yaml"),
+            "Expected path to end with 'schemas/market_data.yaml', got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_resolve_schema_path_dot_relative() {
+        // Paths starting with ./ should also be resolved
+        let result = resolve_schema_path("./config/schema.yaml");
+
+        assert!(
+            result.is_absolute(),
+            "Expected absolute path, got: {:?}",
+            result
+        );
     }
 }

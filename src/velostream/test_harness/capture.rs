@@ -130,7 +130,8 @@ impl SinkCapture {
 
         let mut records = Vec::new();
         let mut warnings = Vec::new();
-        let mut last_message_time = std::time::Instant::now();
+        let mut last_message_time: Option<std::time::Instant> = None;
+        let mut received_first_message = false;
 
         // Create message stream
         let mut stream = consumer.stream();
@@ -143,12 +144,17 @@ impl SinkCapture {
             }
 
             // Check idle timeout (no messages for a while)
-            if records.len() >= self.config.min_records
-                && last_message_time.elapsed() >= self.config.idle_timeout
+            // Only apply idle timeout AFTER we've received at least one message
+            // This prevents exiting early while waiting for partition assignment
+            if received_first_message
+                && records.len() >= self.config.min_records
+                && last_message_time
+                    .map(|t| t.elapsed() >= self.config.idle_timeout)
+                    .unwrap_or(false)
             {
                 log::debug!(
                     "Idle timeout reached after {:?} with {} records",
-                    last_message_time.elapsed(),
+                    last_message_time.map(|t| t.elapsed()).unwrap_or_default(),
                     records.len()
                 );
                 break;
@@ -165,7 +171,16 @@ impl SinkCapture {
             match tokio::time::timeout(poll_timeout, stream.next()).await {
                 Ok(Some(result)) => match result {
                     Ok(borrowed_message) => {
-                        last_message_time = std::time::Instant::now();
+                        // Mark that we've received our first message - idle timeout now applies
+                        if !received_first_message {
+                            received_first_message = true;
+                            log::debug!(
+                                "Received first message from topic '{}' after {:?}",
+                                topic,
+                                start.elapsed()
+                            );
+                        }
+                        last_message_time = Some(std::time::Instant::now());
 
                         // Get message payload
                         if let Some(payload) = borrowed_message.payload() {
@@ -209,6 +224,7 @@ impl SinkCapture {
         Ok(CapturedOutput {
             query_name: query_name.to_string(),
             sink_name: topic.to_string(),
+            topic: Some(topic.to_string()),
             records,
             execution_time_ms,
             warnings,
@@ -265,6 +281,7 @@ impl SinkCapture {
         Ok(CapturedOutput {
             query_name: query_name.to_string(),
             sink_name: path.display().to_string(),
+            topic: None, // File capture, not Kafka
             records,
             execution_time_ms,
             warnings: Vec::new(),

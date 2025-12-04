@@ -58,7 +58,8 @@
 //!   - Pattern 3 example: `test_configuration_pattern_3_environment_variables`
 //!   - Custom broker examples: `test_custom_kafka_broker_pattern_1` and `test_custom_kafka_broker_pattern_2`
 
-use std::env;
+use crate::velostream::sql::config::PropertyResolver;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -159,28 +160,26 @@ impl StreamJobServerConfig {
     /// let config = StreamJobServerConfig::from_env("prod-group");
     /// ```
     pub fn from_env(base_group_id: impl Into<String>) -> Self {
-        let brokers =
-            env::var("VELOSTREAM_KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".to_string());
+        // Use PropertyResolver for consistent ENV → default resolution chain
+        let resolver = PropertyResolver::default();
+        let empty_props: HashMap<String, String> = HashMap::new();
 
-        let max_jobs = env::var("VELOSTREAM_MAX_JOBS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(100);
+        // Resolve all configuration values using the resolver
+        let brokers = resolver.resolve(
+            "KAFKA_BROKERS",
+            &[], // No property fallbacks for server config
+            &empty_props,
+            "localhost:9092".to_string(),
+        );
 
-        let enable_monitoring = env::var("VELOSTREAM_ENABLE_MONITORING")
-            .ok()
-            .map(|v| v.to_lowercase() == "true" || v == "1")
-            .unwrap_or(false);
+        let max_jobs: usize = resolver.resolve("MAX_JOBS", &[], &empty_props, 100);
 
-        let job_timeout_secs = env::var("VELOSTREAM_JOB_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(86400);
+        let enable_monitoring =
+            resolver.resolve_bool("ENABLE_MONITORING", &[], &empty_props, false);
 
-        let table_cache_size = env::var("VELOSTREAM_TABLE_CACHE_SIZE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(100);
+        let job_timeout_secs: u64 = resolver.resolve("JOB_TIMEOUT_SECS", &[], &empty_props, 86400);
+
+        let table_cache_size: usize = resolver.resolve("TABLE_CACHE_SIZE", &[], &empty_props, 100);
 
         Self {
             kafka_brokers: brokers,

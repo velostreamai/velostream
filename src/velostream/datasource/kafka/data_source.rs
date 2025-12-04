@@ -8,6 +8,7 @@ use crate::velostream::datasource::{DataReader, DataSource, SourceConfig, Source
 // Note: unified config helpers available if needed for more complex validation
 use crate::velostream::schema::{FieldDefinition, Schema};
 use crate::velostream::sql::ast::DataType;
+use crate::velostream::sql::config::PropertyResolver;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -84,29 +85,53 @@ impl KafkaDataSource {
             result
         };
 
-        // Extract brokers from properties, with env var override for test harness
-        // VELOSTREAM_KAFKA_BROKERS allows test harness to override config file values
-        // when using testcontainers or other dynamic Kafka instances
-        let brokers = std::env::var("VELOSTREAM_KAFKA_BROKERS")
-            .ok()
+        // Extract brokers from properties
+        // Priority order: check YAML config keys with ${VAR:default} pattern FIRST,
+        // then fall back to explicit/override keys
+        let brokers_raw = get_source_prop("datasource.consumer_config.bootstrap.servers")
+            .or_else(|| get_source_prop("source.brokers"))
             .or_else(|| get_source_prop("brokers"))
+            .or_else(|| get_source_prop("source.bootstrap.servers"))
             .or_else(|| get_source_prop("bootstrap.servers"))
-            .or_else(|| {
-                merged_props
-                    .get("datasource.consumer_config.bootstrap.servers")
-                    .cloned()
-            })
             .unwrap_or_else(|| "localhost:9092".to_string());
-        let topic = get_source_prop("topic")
-            .or_else(|| merged_props.get("datasource.topic.name").cloned())
+
+        // Apply runtime env var substitution if the value contains ${VAR:default} pattern
+        // This handles cases where YAML was loaded before env vars were set (e.g., testcontainers)
+        use crate::velostream::sql::config::yaml_loader::substitute_env_vars;
+        let brokers = substitute_env_vars(&brokers_raw);
+
+        log::info!(
+            "KafkaDataSource: brokers raw='{}', resolved='{}'",
+            brokers_raw,
+            brokers
+        );
+
+        let resolver = PropertyResolver::default();
+        // Topic resolution: ENV → config → default_topic
+        let topic: String = resolver
+            .resolve_optional(
+                "KAFKA_TOPIC",
+                &[
+                    "source.topic",
+                    "topic",
+                    "datasource.topic.name",
+                    "topic.name",
+                ],
+                &merged_props,
+            )
             .unwrap_or_else(|| default_topic.to_string());
 
         // FAIL FAST validation for suspicious topic names
         Self::validate_topic_name(&topic).expect("Topic validation failed");
 
         // Generate consumer group ID with app-level coordination support
-        // Priority: explicit config > app_name prefix > default fallback
-        let group_id = get_source_prop("group_id")
+        // Priority: ENV → explicit config → app_name prefix → default fallback
+        let group_id: Option<String> = resolver.resolve_optional(
+            "KAFKA_GROUP_ID",
+            &["source.group_id", "group_id", "group.id"],
+            &merged_props,
+        );
+        let group_id = group_id
             .or_else(|| {
                 // Generate app-aware consumer group for multi-JobServer coordination
                 app_name.map(|app| format!("velo-{}-{}", app, job_name))
@@ -117,7 +142,15 @@ impl KafkaDataSource {
             });
 
         // Log consumer group assignment for visibility
-        let source_type = if get_source_prop("group_id").is_some() {
+        // Detect where the group_id came from for observability
+        let source_type = if std::env::var(resolver.env_var_name("KAFKA_GROUP_ID")).is_ok() {
+            "env var override"
+        } else if merged_props
+            .get("source.group_id")
+            .or_else(|| merged_props.get("group_id"))
+            .or_else(|| merged_props.get("group.id"))
+            .is_some()
+        {
             "explicit config"
         } else if app_name.is_some() {
             "app-aware auto-generated"
@@ -293,6 +326,11 @@ impl KafkaDataSource {
 
         // Add client.id to config for per-client observability
         source_config.insert("client.id".to_string(), client_id);
+
+        // CRITICAL: Ensure bootstrap.servers uses the RESOLVED value (after env var substitution)
+        // This is essential for testcontainers integration where VELOSTREAM_KAFKA_BROKERS
+        // is set AFTER config loading but BEFORE SQL job execution
+        source_config.insert("bootstrap.servers".to_string(), brokers.clone());
 
         log::info!(
             "KafkaDataSource: Final source config has {} properties",

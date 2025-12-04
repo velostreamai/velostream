@@ -34,6 +34,7 @@ fn test_assertion_runner_record_count() {
     let output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
+        topic: Some("test_output".to_string()),
         records,
         execution_time_ms: 1000,
         warnings: Vec::new(),
@@ -107,6 +108,7 @@ fn test_assertion_runner_schema_contains() {
     let output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
+        topic: Some("test_output".to_string()),
         records,
         execution_time_ms: 100,
         warnings: Vec::new(),
@@ -164,6 +166,7 @@ fn test_assertion_runner_no_nulls() {
     let output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
+        topic: Some("test_output".to_string()),
         records,
         execution_time_ms: 100,
         warnings: Vec::new(),

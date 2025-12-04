@@ -264,18 +264,23 @@ impl AssertionRunner {
         config: &RecordCountAssertion,
     ) -> AssertionResult {
         let actual = output.records.len();
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
 
         // Check exact equals
         if let Some(expected) = config.equals {
             if actual == expected {
                 return AssertionResult::pass(
                     "record_count",
-                    &format!("Record count matches: {}", actual),
+                    &format!("Record count matches: {} (from {})", actual, location),
                 );
             } else {
                 return AssertionResult::fail(
                     "record_count",
-                    "Record count mismatch",
+                    &format!("Record count mismatch (from {})", location),
                     &expected.to_string(),
                     &actual.to_string(),
                 );
@@ -287,7 +292,7 @@ impl AssertionRunner {
             if actual <= min {
                 return AssertionResult::fail(
                     "record_count",
-                    &format!("Expected > {} records", min),
+                    &format!("Expected > {} records from {}", min, location),
                     &format!("> {}", min),
                     &actual.to_string(),
                 );
@@ -299,7 +304,7 @@ impl AssertionRunner {
             if actual >= max {
                 return AssertionResult::fail(
                     "record_count",
-                    &format!("Expected < {} records", max),
+                    &format!("Expected < {} records from {}", max, location),
                     &format!("< {}", max),
                     &actual.to_string(),
                 );
@@ -311,7 +316,10 @@ impl AssertionRunner {
             if actual < min || actual > max {
                 return AssertionResult::fail(
                     "record_count",
-                    &format!("Expected between {} and {} records", min, max),
+                    &format!(
+                        "Expected between {} and {} records from {}",
+                        min, max, location
+                    ),
                     &format!("[{}, {}]", min, max),
                     &actual.to_string(),
                 );
@@ -324,7 +332,10 @@ impl AssertionRunner {
             log::warn!("Expression evaluation not yet implemented: {}", expr);
         }
 
-        AssertionResult::pass("record_count", &format!("Record count: {}", actual))
+        AssertionResult::pass(
+            "record_count",
+            &format!("Record count: {} (from {})", actual, location),
+        )
     }
 
     /// Assert schema contains required fields
@@ -333,10 +344,16 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &SchemaContainsAssertion,
     ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
         if output.records.is_empty() {
             return AssertionResult::fail(
                 "schema_contains",
-                "No records to check schema",
+                &format!("No records to check schema from {}", location),
                 &config.fields.join(", "),
                 "(no records)",
             );
@@ -346,30 +363,37 @@ impl AssertionRunner {
         let actual_fields: std::collections::HashSet<_> =
             output.records[0].keys().cloned().collect();
 
-        let missing: Vec<_> = config
+        let missing: Vec<&str> = config
             .fields
             .iter()
             .filter(|f| !actual_fields.contains(*f))
+            .map(String::as_str)
             .collect();
+
+        // Pre-compute strings once to avoid duplication
+        let expected_str = config.fields.join(", ");
 
         if missing.is_empty() {
             AssertionResult::pass(
                 "schema_contains",
-                &format!("All required fields present: {}", config.fields.join(", ")),
+                &format!(
+                    "All required fields present in {}: {}",
+                    location, expected_str
+                ),
             )
         } else {
+            // Sort actual fields for consistent, reproducible output
+            let mut sorted_actual: Vec<_> = actual_fields.iter().cloned().collect();
+            sorted_actual.sort();
+            let actual_str = sorted_actual.join(", ");
+
+            let missing_str = missing.join(", ");
+
             AssertionResult::fail(
                 "schema_contains",
-                "Missing required fields",
-                &config.fields.join(", "),
-                &format!(
-                    "missing: {}",
-                    missing
-                        .iter()
-                        .map(|s| s.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+                &format!("Missing required fields in {}: [{}]", location, missing_str),
+                &expected_str,
+                &actual_str,
             )
         }
     }
@@ -380,10 +404,19 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &NoNullsAssertion,
     ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
         let fields_to_check: Vec<&str> = if config.fields.is_empty() {
             // Check all fields
             if output.records.is_empty() {
-                return AssertionResult::pass("no_nulls", "No records to check");
+                return AssertionResult::pass(
+                    "no_nulls",
+                    &format!("No records to check from {}", location),
+                );
             }
             output.records[0].keys().map(|s| s.as_str()).collect()
         } else {
@@ -403,12 +436,16 @@ impl AssertionRunner {
         if null_fields.is_empty() {
             AssertionResult::pass(
                 "no_nulls",
-                &format!("No null values in: {}", fields_to_check.join(", ")),
+                &format!(
+                    "No null values in {} for: {}",
+                    location,
+                    fields_to_check.join(", ")
+                ),
             )
         } else {
             AssertionResult::fail(
                 "no_nulls",
-                "Found null values",
+                &format!("Found null values in {}", location),
                 "no nulls",
                 &format!("nulls at: {}", null_fields.join(", ")),
             )
@@ -421,6 +458,12 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &FieldInSetAssertion,
     ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
         let allowed: std::collections::HashSet<_> = config.values.iter().collect();
         let mut invalid_values = Vec::new();
 
@@ -436,12 +479,18 @@ impl AssertionRunner {
         if invalid_values.is_empty() {
             AssertionResult::pass(
                 "field_in_set",
-                &format!("All '{}' values in allowed set", config.field),
+                &format!(
+                    "All '{}' values in {} are in allowed set",
+                    config.field, location
+                ),
             )
         } else {
             AssertionResult::fail(
                 "field_in_set",
-                &format!("Field '{}' has invalid values", config.field),
+                &format!(
+                    "Field '{}' in {} has invalid values",
+                    config.field, location
+                ),
                 &format!("one of: {}", config.values.join(", ")),
                 &format!("invalid: {}", invalid_values.join(", ")),
             )
@@ -454,6 +503,12 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &FieldValuesAssertion,
     ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
         let mut failures = Vec::new();
 
         for (idx, record) in output.records.iter().enumerate() {
@@ -469,14 +524,17 @@ impl AssertionRunner {
             AssertionResult::pass(
                 "field_values",
                 &format!(
-                    "All '{}' values satisfy {:?}",
-                    config.field, config.operator
+                    "All '{}' values in {} satisfy {:?}",
+                    config.field, location, config.operator
                 ),
             )
         } else {
             AssertionResult::fail(
                 "field_values",
-                &format!("Field '{}' has values that don't match", config.field),
+                &format!(
+                    "Field '{}' in {} has values that don't match",
+                    config.field, location
+                ),
                 &format!("{:?} {:?}", config.operator, config.value),
                 &format!("failures: {}", failures.join(", ")),
             )
@@ -489,6 +547,12 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &AggregateCheckAssertion,
     ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
         let values: Vec<f64> = output
             .records
             .iter()
@@ -499,7 +563,10 @@ impl AssertionRunner {
         if values.is_empty() {
             return AssertionResult::fail(
                 "aggregate_check",
-                &format!("No values found for field '{}'", config.field),
+                &format!(
+                    "No values found for field '{}' in {}",
+                    config.field, location
+                ),
                 &config.expected,
                 "(no values)",
             );
@@ -530,14 +597,17 @@ impl AssertionRunner {
             AssertionResult::pass(
                 "aggregate_check",
                 &format!(
-                    "{:?}({}) = {} (expected: {})",
-                    config.function, config.field, actual, expected
+                    "{:?}({}) in {} = {} (expected: {})",
+                    config.function, config.field, location, actual, expected
                 ),
             )
         } else {
             AssertionResult::fail(
                 "aggregate_check",
-                &format!("{:?}({}) mismatch", config.function, config.field),
+                &format!(
+                    "{:?}({}) mismatch in {}",
+                    config.function, config.field, location
+                ),
                 &expected.to_string(),
                 &actual.to_string(),
             )
@@ -2065,6 +2135,7 @@ mod tests {
         CapturedOutput {
             query_name: "test_query".to_string(),
             sink_name: "test_sink".to_string(),
+            topic: Some("test_topic".to_string()),
             records,
             execution_time_ms: 100,
             warnings: vec![],
@@ -2281,8 +2352,35 @@ mod tests {
         };
 
         let result = runner.assert_schema_contains(&output, &config);
-        assert!(!result.passed);
-        assert!(result.actual.unwrap().contains("missing_field"));
+        assert!(!result.passed, "Expected assertion to fail");
+
+        // Message should contain the missing fields
+        assert!(
+            result.message.contains("missing_field"),
+            "Message should contain 'missing_field', got: {}",
+            result.message
+        );
+
+        // Actual should contain fields that ARE present
+        let actual = result.actual.as_ref().expect("actual should be set");
+        assert!(
+            actual.contains("id"),
+            "Actual should contain 'id', got: {}",
+            actual
+        );
+
+        // Expected should contain all required fields
+        let expected = result.expected.as_ref().expect("expected should be set");
+        assert!(
+            expected.contains("id"),
+            "Expected should contain 'id', got: {}",
+            expected
+        );
+        assert!(
+            expected.contains("missing_field"),
+            "Expected should contain 'missing_field', got: {}",
+            expected
+        );
     }
 
     #[test]
@@ -2956,6 +3054,212 @@ mod tests {
         assert_eq!(
             result.details.get("left_record_count"),
             Some(&"2".to_string())
+        );
+    }
+
+    // ==================== Location in Message Tests ====================
+    // These tests verify that assertion messages include the topic/sink location
+
+    fn create_test_output_with_topic(
+        records: Vec<HashMap<String, FieldValue>>,
+        topic: Option<&str>,
+        sink_name: &str,
+    ) -> CapturedOutput {
+        CapturedOutput {
+            query_name: "test_query".to_string(),
+            sink_name: sink_name.to_string(),
+            topic: topic.map(|t| t.to_string()),
+            records,
+            execution_time_ms: 100,
+            warnings: vec![],
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
+        }
+    }
+
+    #[test]
+    fn test_record_count_message_includes_topic_location() {
+        // Test with topic set
+        let output = create_test_output_with_topic(
+            vec![HashMap::from([("id".to_string(), FieldValue::Integer(1))])],
+            Some("my_output_topic"),
+            "my_sink",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: Some(1),
+            greater_than: None,
+            less_than: None,
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("topic 'my_output_topic'"),
+            "Message should include topic location. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_record_count_message_includes_sink_location_when_no_topic() {
+        // Test with no topic (file sink case)
+        let output = create_test_output_with_topic(
+            vec![HashMap::from([("id".to_string(), FieldValue::Integer(1))])],
+            None,
+            "output_file.jsonl",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = RecordCountAssertion {
+            equals: Some(1),
+            greater_than: None,
+            less_than: None,
+            between: None,
+            expression: None,
+        };
+
+        let result = runner.assert_record_count(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("sink 'output_file.jsonl'"),
+            "Message should include sink location when no topic. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_schema_contains_message_includes_location() {
+        let output = create_test_output_with_topic(
+            vec![HashMap::from([
+                ("id".to_string(), FieldValue::Integer(1)),
+                ("name".to_string(), FieldValue::String("test".to_string())),
+            ])],
+            Some("schema_test_topic"),
+            "schema_sink",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["id".to_string(), "name".to_string()],
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("topic 'schema_test_topic'"),
+            "Schema contains message should include topic. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_no_nulls_message_includes_location() {
+        let output = create_test_output_with_topic(
+            vec![HashMap::from([
+                ("id".to_string(), FieldValue::Integer(1)),
+                ("name".to_string(), FieldValue::String("test".to_string())),
+            ])],
+            Some("no_nulls_topic"),
+            "no_nulls_sink",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = NoNullsAssertion {
+            fields: vec!["id".to_string()],
+        };
+
+        let result = runner.assert_no_nulls(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("topic 'no_nulls_topic'"),
+            "No nulls message should include topic. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_field_in_set_message_includes_location() {
+        let output = create_test_output_with_topic(
+            vec![HashMap::from([(
+                "status".to_string(),
+                FieldValue::String("active".to_string()),
+            )])],
+            Some("field_set_topic"),
+            "field_set_sink",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = FieldInSetAssertion {
+            field: "status".to_string(),
+            values: vec!["active".to_string(), "inactive".to_string()],
+        };
+
+        let result = runner.assert_field_in_set(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("topic 'field_set_topic'"),
+            "Field in set message should include topic. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_field_values_message_includes_location() {
+        let output = create_test_output_with_topic(
+            vec![HashMap::from([(
+                "value".to_string(),
+                FieldValue::Integer(100),
+            )])],
+            Some("field_values_topic"),
+            "field_values_sink",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "value".to_string(),
+            operator: ComparisonOperator::Equals,
+            value: serde_yaml::Value::Number(serde_yaml::Number::from(100)),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("topic 'field_values_topic'"),
+            "Field values message should include topic. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_aggregate_message_includes_location() {
+        let output = create_test_output_with_topic(
+            vec![
+                HashMap::from([("amount".to_string(), FieldValue::Float(10.0))]),
+                HashMap::from([("amount".to_string(), FieldValue::Float(20.0))]),
+                HashMap::from([("amount".to_string(), FieldValue::Float(30.0))]),
+            ],
+            Some("aggregate_topic"),
+            "aggregate_sink",
+        );
+
+        let runner = AssertionRunner::new();
+        let config = AggregateCheckAssertion {
+            field: "amount".to_string(),
+            function: AggregateFunction::Sum,
+            expected: "60".to_string(),
+            tolerance: None,
+        };
+
+        let result = runner.assert_aggregate(&output, &config);
+        assert!(result.passed);
+        assert!(
+            result.message.contains("topic 'aggregate_topic'"),
+            "Aggregate message should include topic. Got: {}",
+            result.message
         );
     }
 }

@@ -504,9 +504,14 @@ impl QueryAnalyzer {
         match source_type {
             DataSourceType::Kafka => {
                 // Ensure we have broker and topic info
-                if !properties.contains_key("bootstrap.servers")
-                    && !properties.contains_key("brokers")
-                {
+                // Check all possible bootstrap server keys from YAML config paths
+                let has_bootstrap = properties.contains_key("bootstrap.servers")
+                    || properties.contains_key("brokers")
+                    || properties.contains_key("datasource.consumer_config.bootstrap.servers")
+                    || properties.contains_key("datasource.config.bootstrap.servers")
+                    || properties.contains_key("consumer_config.bootstrap.servers");
+
+                if !has_bootstrap {
                     properties.insert(
                         "bootstrap.servers".to_string(),
                         "localhost:9092".to_string(),
@@ -691,9 +696,14 @@ impl QueryAnalyzer {
         match sink_type {
             DataSinkType::Kafka => {
                 // Ensure we have broker and topic info
-                if !properties.contains_key("bootstrap.servers")
-                    && !properties.contains_key("brokers")
-                {
+                // Check all possible bootstrap server keys from YAML config paths
+                let has_bootstrap = properties.contains_key("bootstrap.servers")
+                    || properties.contains_key("brokers")
+                    || properties.contains_key("datasink.producer_config.bootstrap.servers")
+                    || properties.contains_key("datasink.config.bootstrap.servers")
+                    || properties.contains_key("producer_config.bootstrap.servers");
+
+                if !has_bootstrap {
                     properties.insert(
                         "bootstrap.servers".to_string(),
                         "localhost:9092".to_string(),

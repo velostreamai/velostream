@@ -504,6 +504,7 @@ fields:
         let simulated_output = CapturedOutput {
             query_name: "filter_stage".to_string(),
             sink_name: filtered_topic.clone(),
+            topic: Some(filtered_topic.clone()),
             records: vec![
                 {
                     let mut r = HashMap::new();
@@ -688,6 +689,7 @@ fields:
     let captured_output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: output_topic.clone(),
+        topic: Some(output_topic.clone()),
         records: records.clone(),
         execution_time_ms: 100,
         warnings: Vec::new(),
@@ -722,4 +724,112 @@ fields:
 
     infra.stop().await.expect("Failed to stop infrastructure");
     println!("✅ End-to-end SQL execution test completed successfully");
+}
+
+/// Test SinkCapture with min_records: 0
+///
+/// This test verifies the fix for a bug where capture with min_records: 0
+/// would exit immediately due to idle timeout before receiving any messages.
+/// The bug was: `records.len() >= 0` is always true, so idle timeout triggered
+/// before Kafka partition assignment completed.
+///
+/// Fix: Idle timeout now only applies AFTER receiving the first message.
+#[tokio::test]
+async fn test_sink_capture_with_min_records_zero() {
+    if std::env::var("SKIP_DOCKER_TESTS").is_ok() {
+        println!("Skipping Docker test");
+        return;
+    }
+
+    let result = TestHarnessInfra::with_testcontainers().await;
+    let mut infra = match result {
+        Ok(infra) => infra,
+        Err(e) => {
+            if e.to_string().contains("Docker") || e.to_string().contains("container") {
+                println!("Skipping test - Docker not available: {}", e);
+                return;
+            }
+            panic!("Unexpected error: {}", e);
+        }
+    };
+
+    infra.start().await.expect("Failed to start");
+    let bootstrap_servers = infra.bootstrap_servers().unwrap().to_string();
+
+    // Create topic
+    let topic = infra
+        .create_topic("min_records_zero_test", 1)
+        .await
+        .expect("Failed to create topic");
+    println!("Created topic: {}", topic);
+
+    // Publish test records
+    let producer = infra.create_producer().expect("Failed to create producer");
+
+    for i in 0..5 {
+        let payload = serde_json::json!({
+            "id": i,
+            "message": format!("test_message_{}", i),
+        });
+        let payload_str = serde_json::to_string(&payload).unwrap();
+
+        producer
+            .send(
+                FutureRecord::<(), _>::to(&topic).payload(&payload_str),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("Failed to send");
+    }
+
+    producer
+        .flush(Duration::from_secs(10))
+        .expect("Failed to flush");
+    println!("Published 5 records to {}", topic);
+
+    // Give Kafka a moment to settle
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    // KEY TEST: Use min_records: 0 with a short idle_timeout
+    // Before the fix, this would return 0 records because:
+    // - records.len() >= min_records (0 >= 0) is always true
+    // - idle_timeout would trigger immediately before partition assignment
+    let capture = SinkCapture::new(&bootstrap_servers).with_config(CaptureConfig {
+        timeout: Duration::from_secs(30),
+        min_records: 0, // This was the problematic case
+        max_records: 100,
+        idle_timeout: Duration::from_secs(3),
+    });
+
+    let captured = capture.capture_topic(&topic, "min_records_zero_test").await;
+
+    match captured {
+        Ok(output) => {
+            println!(
+                "Captured {} records from '{}' in {}ms (min_records: 0)",
+                output.records.len(),
+                output.sink_name,
+                output.execution_time_ms
+            );
+
+            // The fix ensures we still get records even with min_records: 0
+            assert!(
+                output.records.len() > 0,
+                "With min_records: 0, should still capture records. \
+                 Bug was: idle_timeout triggered before partition assignment. \
+                 Got {} records.",
+                output.records.len()
+            );
+
+            println!("✅ SinkCapture with min_records: 0 test passed - bug fix verified");
+        }
+        Err(e) => {
+            panic!(
+                "Capture with min_records: 0 failed: {}. This may indicate the bug regression.",
+                e
+            );
+        }
+    }
+
+    infra.stop().await.expect("Failed to stop");
 }

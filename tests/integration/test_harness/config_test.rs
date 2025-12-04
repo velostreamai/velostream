@@ -195,6 +195,7 @@ fn test_execution_result_structure() {
         outputs: vec![CapturedOutput {
             query_name: "test_query".to_string(),
             sink_name: "output_topic".to_string(),
+            topic: Some("output_topic".to_string()),
             records: vec![
                 {
                     let mut r = HashMap::new();

@@ -66,6 +66,9 @@ pub struct CapturedOutput {
     /// Sink name
     pub sink_name: String,
 
+    /// Kafka topic that was captured (if applicable)
+    pub topic: Option<String>,
+
     /// Captured records
     pub records: Vec<HashMap<String, FieldValue>>,
 
@@ -647,11 +650,15 @@ impl QueryExecutor {
     fn parse_sql(&self, sql_content: &str, sql_file: &Path) -> TestHarnessResult<Vec<ParsedQuery>> {
         use crate::velostream::sql::validator::SqlValidator;
 
-        // Use current working directory for resolving relative config paths
-        // This allows SQL files in subdirectories to reference configs relative to CWD
-        // Example: SQL in `sql/app.sql` can reference `configs/source.yaml` relative to CWD
-        let _ = sql_file; // sql_file path not used for base_dir anymore
-        let validator = SqlValidator::new();
+        // Use SQL file's directory as base for resolving relative config_file paths
+        // This allows SQL files to use paths like '../configs/source.yaml' correctly
+        // Canonicalize to get absolute path, so relative paths resolve correctly
+        let sql_dir = sql_file
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .canonicalize()
+            .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+        let validator = SqlValidator::with_base_dir(&sql_dir);
         let result = validator.validate_sql_content(sql_content);
 
         if !result.is_valid {
