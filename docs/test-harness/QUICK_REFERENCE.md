@@ -88,6 +88,7 @@ constraints:
 | `join_coverage` | `left: orders, right: customers, key: id, min_match_rate: 0.9` |
 | `execution_time` | `max_ms: 5000, min_ms: 100` |
 | `memory_usage` | `max_mb: 100, max_growth_bytes: 52428800` |
+| `throughput` | `min_records_per_second: 100, max_records_per_second: 10000` |
 | `file_exists` | `path: ./out.csv, min_size_bytes: 100` |
 | `file_row_count` | `path: ./out.csv, format: csv, equals: 100` |
 | `file_contains` | `path: ./out.csv, format: csv, field: symbol, expected_values: [A, B], mode: all` |

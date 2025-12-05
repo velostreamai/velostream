@@ -684,7 +684,8 @@ impl KafkaDataWriter {
 #[async_trait]
 impl DataWriter for KafkaDataWriter {
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>> {
-        log::debug!(
+        // Per-record logging at TRACE level to avoid hot path overhead
+        log::trace!(
             "KafkaDataWriter: Sending record to topic '{}', format={:?}",
             self.topic,
             self.format
@@ -726,8 +727,8 @@ impl DataWriter for KafkaDataWriter {
             kafka_record = kafka_record.headers(owned_headers);
         }
 
-        // Send to Kafka with comprehensive debug logging
-        log::debug!(
+        // Per-record logging at TRACE level to avoid hot path overhead
+        log::trace!(
             "KafkaDataWriter: Sending record to topic '{}' with key {:?}, payload_size={} bytes, format={:?}",
             self.topic,
             key,
@@ -741,7 +742,7 @@ impl DataWriter for KafkaDataWriter {
             .await
         {
             Ok(delivery) => {
-                log::debug!(
+                log::trace!(
                     "KafkaDataWriter: Successfully sent record to topic '{}', partition={}, offset={}",
                     self.topic,
                     delivery.partition,
@@ -784,7 +785,7 @@ impl DataWriter for KafkaDataWriter {
         for (index, record_arc) in records.into_iter().enumerate() {
             // Dereference Arc and clone for write() which takes ownership
             let record = (*record_arc).clone();
-            log::debug!(
+            log::trace!(
                 "KafkaDataWriter: Processing record {}/{} in batch for topic '{}'",
                 index + 1,
                 batch_size,

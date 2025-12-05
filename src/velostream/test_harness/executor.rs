@@ -11,7 +11,7 @@ use super::error::{TestHarnessError, TestHarnessResult};
 use super::generator::SchemaDataGenerator;
 use super::infra::TestHarnessInfra;
 use super::schema::SchemaRegistry;
-use super::spec::{InputConfig, QueryTest};
+use super::spec::{InputConfig, QueryTest, TimeSimulationConfig};
 use super::stress::MemoryTracker;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
@@ -69,8 +69,12 @@ pub struct CapturedOutput {
     /// Kafka topic that was captured (if applicable)
     pub topic: Option<String>,
 
-    /// Captured records
+    /// Captured records (value payload)
     pub records: Vec<HashMap<String, FieldValue>>,
+
+    /// Captured message keys (one per record, in same order as records)
+    /// String representation of the Kafka message key
+    pub message_keys: Vec<Option<String>>,
 
     /// Execution time in milliseconds
     pub execution_time_ms: u64,
@@ -516,6 +520,21 @@ impl QueryExecutor {
         })?;
 
         let record_count = input.records.unwrap_or(schema.record_count);
+
+        // Configure time simulation on generator if specified
+        if let Some(ref time_sim) = input.time_simulation {
+            log::info!(
+                "Configuring time simulation: start_time={:?}, time_scale={}, events_per_second={:?}",
+                time_sim.start_time,
+                time_sim.time_scale,
+                time_sim.events_per_second
+            );
+            self.generator.set_time_simulation(time_sim, record_count)?;
+        } else {
+            // Clear any previous time simulation state
+            self.generator.clear_time_simulation();
+        }
+
         let records = self.generator.generate(schema, record_count)?;
 
         // Resolve topic: use source_topics mapping from SQL analysis, then apply overrides
@@ -539,6 +558,21 @@ impl QueryExecutor {
             self.source_topics.contains_key(&input.source)
         );
 
+        // Use rate-controlled publishing if events_per_second is configured
+        if let Some(ref time_sim) = input.time_simulation {
+            if time_sim.events_per_second.is_some() {
+                self.publish_records_with_rate(&topic, &records, time_sim)
+                    .await?;
+                log::info!(
+                    "Published {} records to topic '{}' with rate control",
+                    records.len(),
+                    topic
+                );
+                return Ok(());
+            }
+        }
+
+        // Default: publish all records as fast as possible
         self.publish_records(&topic, &records).await?;
 
         log::info!("Published {} records to topic '{}'", records.len(), topic);
@@ -637,6 +671,113 @@ impl QueryExecutor {
                 query_name: "publish".to_string(),
                 source: Some(e.to_string()),
             })?;
+
+        Ok(())
+    }
+
+    /// Publish records to a Kafka topic with rate control
+    ///
+    /// This method publishes records at a controlled rate based on the
+    /// `events_per_second` setting in the time simulation config.
+    async fn publish_records_with_rate(
+        &self,
+        topic: &str,
+        records: &[HashMap<String, FieldValue>],
+        config: &TimeSimulationConfig,
+    ) -> TestHarnessResult<()> {
+        let producer = self.infra.create_producer()?;
+        let events_per_second = config.events_per_second.unwrap_or(f64::MAX);
+        let batch_size = config.batch_size;
+
+        // Calculate delay between batches
+        // If publishing N records per batch at R records/sec, delay = N/R seconds
+        let batch_delay = if events_per_second < f64::MAX {
+            Duration::from_secs_f64(batch_size as f64 / events_per_second)
+        } else {
+            Duration::ZERO
+        };
+
+        log::info!(
+            "Rate-controlled publishing: {} records at {:.1} events/sec (batch_size={}, delay={:?})",
+            records.len(),
+            events_per_second,
+            batch_size,
+            batch_delay
+        );
+
+        let start_time = std::time::Instant::now();
+        let mut records_sent = 0;
+
+        for batch in records.chunks(batch_size) {
+            for record in batch {
+                // Serialize to JSON
+                let json_value = field_values_to_json(record);
+                let payload = serde_json::to_string(&json_value).map_err(|e| {
+                    TestHarnessError::GeneratorError {
+                        message: format!("Failed to serialize record: {}", e),
+                        schema: "unknown".to_string(),
+                    }
+                })?;
+
+                // Publish to Kafka
+                let delivery_result = producer
+                    .send(
+                        FutureRecord::<(), _>::to(topic).payload(&payload),
+                        Duration::from_secs(5),
+                    )
+                    .await;
+
+                if let Err((e, _)) = delivery_result {
+                    return Err(TestHarnessError::ExecutionError {
+                        message: format!("Failed to publish to topic '{}': {}", topic, e),
+                        query_name: "publish".to_string(),
+                        source: Some(e.to_string()),
+                    });
+                }
+
+                records_sent += 1;
+            }
+
+            // Apply delay between batches (except for last batch)
+            if !batch_delay.is_zero() && records_sent < records.len() {
+                tokio::time::sleep(batch_delay).await;
+            }
+
+            // Log progress every 1000 records or at 10% intervals
+            if records_sent % 1000 == 0
+                || records_sent * 10 / records.len()
+                    > (records_sent - batch.len()) * 10 / records.len()
+            {
+                let elapsed = start_time.elapsed();
+                let actual_rate = records_sent as f64 / elapsed.as_secs_f64();
+                log::debug!(
+                    "Progress: {}/{} records ({:.1}%), actual rate: {:.1}/sec",
+                    records_sent,
+                    records.len(),
+                    (records_sent as f64 / records.len() as f64) * 100.0,
+                    actual_rate
+                );
+            }
+        }
+
+        // Flush to ensure all messages are sent
+        producer
+            .flush(Duration::from_secs(10))
+            .map_err(|e| TestHarnessError::ExecutionError {
+                message: format!("Failed to flush producer: {}", e),
+                query_name: "publish".to_string(),
+                source: Some(e.to_string()),
+            })?;
+
+        let elapsed = start_time.elapsed();
+        let actual_rate = records.len() as f64 / elapsed.as_secs_f64();
+        log::info!(
+            "Rate-controlled publishing complete: {} records in {:?} ({:.1}/sec, target: {:.1}/sec)",
+            records.len(),
+            elapsed,
+            actual_rate,
+            events_per_second
+        );
 
         Ok(())
     }

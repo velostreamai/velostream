@@ -949,16 +949,21 @@ impl KafkaDataReader {
 
     /// Read fixed number of records
     /// FR-081 Phase 2B: Performance-optimized batch reading using tier-appropriate streaming
+    ///
+    /// Polls the Kafka consumer until either:
+    /// - Target batch size is reached
+    /// - No more messages are available (consumer returns None)
+    /// - A consumer error occurs
+    ///
+    /// The Kafka consumer's fetch.max.wait.ms controls how long each poll waits for data.
     async fn read_fixed_size(
         &mut self,
         size: usize,
     ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
         use futures::StreamExt;
-        use tokio::time::timeout;
 
-        let mut records = Vec::with_capacity(size.min(self.batch_config.max_batch_size));
-        let timeout_duration = Duration::from_millis(1000);
         let target_size = size.min(self.batch_config.max_batch_size);
+        let mut records = Vec::with_capacity(target_size);
 
         log::debug!(
             "🔍 FR-081: read_fixed_size using {:?} tier for {} records",
@@ -978,57 +983,38 @@ impl KafkaDataReader {
             }
         };
 
-        for i in 0..target_size {
-            log::trace!(
-                "🔍 read_fixed_size: poll attempt {} of {}",
-                i + 1,
-                target_size
-            );
-            match timeout(timeout_duration, stream.next()).await {
-                Ok(Some(Ok(message))) => {
+        // Poll until we have enough records or no more are available
+        while records.len() < target_size {
+            match stream.next().await {
+                Some(Ok(message)) => {
                     log::trace!(
-                        "🔍 read_fixed_size: poll returned message from partition {} offset {}",
+                        "🔍 read_fixed_size: received message from partition {} offset {}",
                         message.partition(),
                         message.offset()
                     );
                     let record = self.create_stream_record(message)?;
                     records.push(record);
-                    log::trace!(
-                        "🔍 read_fixed_size: created stream record, total records now: {}",
-                        records.len()
-                    );
                 }
-                Ok(Some(Err(e))) => {
-                    // Consumer error (deserialization, protocol, etc.)
+                Some(Err(e)) => {
+                    // Consumer error - return what we have or propagate if empty
                     log::error!(
                         "🚨 Consumer error on topic '{}': {:?}, records so far: {}",
                         self.topic,
                         e,
                         records.len()
                     );
-                    // Break if we have some records, otherwise continue trying
-                    if !records.is_empty() {
-                        break;
+                    if records.is_empty() {
+                        return Err(Box::new(e));
                     }
+                    break;
                 }
-                Ok(None) => {
-                    // Stream ended (consumer closed or partition EOF)
+                None => {
+                    // No more messages available - return what we have
                     log::debug!(
-                        "🔍 read_fixed_size: stream ended, returning {} records",
+                        "🔍 read_fixed_size: no more messages, returning {} records",
                         records.len()
                     );
                     break;
-                }
-                Err(_) => {
-                    // Timeout - break if we have records, otherwise continue
-                    log::debug!(
-                        "🔍 read_fixed_size: poll timeout from topic '{}', records so far: {}",
-                        self.topic,
-                        records.len()
-                    );
-                    if !records.is_empty() {
-                        break;
-                    }
                 }
             }
         }

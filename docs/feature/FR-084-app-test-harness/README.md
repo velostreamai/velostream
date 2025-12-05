@@ -159,6 +159,12 @@ assertions:
     max_bytes: 104857600    # 100 MB max
     max_mb: 100             # Alternative: specify in MB
     max_growth_bytes: 52428800  # Max memory growth during execution
+
+  - type: throughput
+    min_records_per_second: 100       # Minimum throughput
+    max_records_per_second: 10000     # Maximum throughput (for rate limiting)
+    expected_records_per_second: 500  # Expected rate with tolerance
+    tolerance_percent: 20             # Tolerance for expected rate (default: 20%)
 ```
 
 `CapturedOutput` now includes memory metrics:
@@ -384,7 +390,7 @@ queries:
 | Assertion Type | Parameters | Description |
 |----------------|------------|-------------|
 | `record_count` | `operator`, `expected/min/max` | Validate output record count |
-| `schema_contains` | `fields` | Required fields present in output |
+| `schema_contains` | `fields`, `key_field` | Required fields present in output (see below) |
 | `no_nulls` | `fields` | Specified fields have no null values |
 | `field_not_null` | `fields` | Alias for `no_nulls` |
 | `field_values` | `field`, `operator`, `value` | Field values meet condition |
@@ -393,9 +399,33 @@ queries:
 | `join_coverage` | `left`, `right`, `key`, `min_match_rate` | JOIN produces expected matches |
 | `execution_time` | `operator`, `value_ms` | Performance constraint |
 | `memory_usage` | `operator`, `value_mb` | Memory constraint |
+| `throughput` | `min/max/expected_records_per_second`, `tolerance_percent` | Throughput rate constraint |
 | `template` | `name`, `template` | Custom Jinja-style template assertion |
 
 **Operators:** `equals`, `greater_than`, `less_than`, `between`, `not_equals`
+
+#### Key Field Support in `schema_contains`
+
+When using GROUP BY with a key field configured in the SQL (e.g., `'sink.key.field' = 'symbol'`),
+the key is stored in the Kafka message key, not in the value payload. Use `key_field` to validate this:
+
+```yaml
+assertions:
+  - type: schema_contains
+    key_field: symbol        # Field stored in Kafka message key (GROUP BY field)
+    fields:                  # Fields in the value payload
+      - trade_count
+      - total_volume
+      - avg_price
+      - window_start
+      - window_end
+```
+
+**Behavior:**
+- `key_field` (optional): Validates that Kafka message keys are present and non-empty
+- `fields`: Validates fields in the message value payload
+- If `key_field` is specified but no keys are found, the assertion fails
+- Empty string keys are considered invalid (keys must have content)
 
 ### 5. Sequential Pipeline Execution
 
@@ -693,7 +723,7 @@ tests/integration/
 - [x] Test spec generation (`velo-test init`) - [`spec_generator.rs`](../../src/velostream/test_harness/spec_generator.rs)
 - [x] Derived field expressions - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
 - [x] Foreign key relationships in data generation - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
-- [x] `execution_time` and `memory_usage` assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] `execution_time`, `memory_usage`, and `throughput` assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
 - [x] Template-based custom assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
 - [x] Stress test mode - [`stress.rs`](../../src/velostream/test_harness/stress.rs)
 

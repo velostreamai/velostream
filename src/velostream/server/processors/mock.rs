@@ -137,6 +137,9 @@ impl JobProcessor for MockJobProcessor {
             avg_batch_size: 0.0,
             avg_processing_time_ms: 0.0,
             total_processing_time: std::time::Duration::from_secs(0),
+            total_read_time: std::time::Duration::ZERO,
+            total_sql_time: std::time::Duration::ZERO,
+            total_write_time: std::time::Duration::ZERO,
             error_details: vec![],
         })
     }
@@ -168,6 +171,9 @@ impl JobProcessor for MockJobProcessor {
             avg_batch_size: 0.0,
             avg_processing_time_ms: 0.0,
             total_processing_time: std::time::Duration::from_secs(0),
+            total_read_time: std::time::Duration::ZERO,
+            total_sql_time: std::time::Duration::ZERO,
+            total_write_time: std::time::Duration::ZERO,
             error_details: vec![],
         })
     }

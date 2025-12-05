@@ -77,10 +77,14 @@ pub use dlq::{CapturedDlqOutput, DlqCapture, DlqConfig, DlqRecord, DlqStatistics
 pub use error::TestHarnessError;
 pub use fault_injection::{FaultInjectionConfig, FaultInjector, MalformationType};
 pub use file_io::{FileSinkFactory, FileSourceFactory};
+pub use generator::{SchemaDataGenerator, parse_time_spec};
 pub use inference::SchemaInferencer;
 pub use infra::{SharedTestInfra, TestHarnessInfra};
 pub use schema::Schema;
-pub use spec::{FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec};
+pub use spec::{
+    FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec,
+    TimeSimulationConfig,
+};
 pub use spec_generator::SpecGenerator;
 pub use stress::{MemoryTracker, StressConfig, StressMetrics, StressRunner};
 pub use table_state::{TableSnapshot, TableState, TableStateConfig, TableStateManager};

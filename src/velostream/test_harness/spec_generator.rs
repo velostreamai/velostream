@@ -341,6 +341,7 @@ impl SpecGenerator {
                 records: Some(self.default_record_count),
                 from_previous: None,
                 data_file: None,
+                time_simulation: None,
             });
         }
 
@@ -355,6 +356,7 @@ impl SpecGenerator {
                     records: Some(self.default_record_count),
                     from_previous: None,
                     data_file: None,
+                    time_simulation: None,
                 });
             }
         }

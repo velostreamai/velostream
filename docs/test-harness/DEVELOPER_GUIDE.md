@@ -475,6 +475,17 @@ Validate memory consumption.
   max_growth_bytes: 52428800  # Max 50 MB growth during execution
 ```
 
+### throughput
+Validate processing throughput (records per second).
+
+```yaml
+- type: throughput
+  min_records_per_second: 100       # Minimum required throughput
+  max_records_per_second: 10000     # Maximum allowed (for rate limiting)
+  expected_records_per_second: 500  # Expected rate with tolerance
+  tolerance_percent: 20             # Default: 20%
+```
+
 ### template
 Custom assertion using template expressions.
 

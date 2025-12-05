@@ -170,6 +170,30 @@ Validates memory consumption during execution.
   message: "Memory usage should stay reasonable"
 ```
 
+### throughput
+
+Validates processing throughput (records per second).
+
+```yaml
+- type: throughput
+  min_records_per_second: 100       # Minimum required throughput
+  max_records_per_second: 10000     # Maximum allowed throughput (for rate limiting)
+  expected_records_per_second: 500  # Expected rate with tolerance
+  tolerance_percent: 20             # Tolerance percentage (default: 20%)
+  message: "Processing should maintain good throughput"
+```
+
+**Parameters:**
+- `min_records_per_second` - Minimum throughput required (records/sec)
+- `max_records_per_second` - Maximum throughput allowed (records/sec)
+- `expected_records_per_second` - Expected throughput with tolerance
+- `tolerance_percent` - Percentage tolerance for expected rate (default: 20%)
+
+**Use cases:**
+- Performance regression testing
+- Rate limiting validation
+- Capacity planning verification
+
 ## File Assertions
 
 ### file_exists

@@ -147,6 +147,11 @@ pub struct InputConfig {
     /// Static data file (CSV/JSON) - shorthand for file source
     #[serde(default)]
     pub data_file: Option<String>,
+
+    /// Time simulation configuration for controlled event streaming
+    /// Enables rate-limited publishing and sequential timestamps
+    #[serde(default)]
+    pub time_simulation: Option<TimeSimulationConfig>,
 }
 
 /// Source type configuration for inputs
@@ -214,6 +219,115 @@ impl Default for SinkType {
     }
 }
 
+// =============================================================================
+// Time Simulation Configuration
+// =============================================================================
+
+/// Time simulation configuration for realistic event streaming
+///
+/// Enables controlled event timing and timestamp progression for testing
+/// streaming applications with realistic data patterns.
+///
+/// # Example
+/// ```yaml
+/// inputs:
+///   - source: market_data
+///     records: 10000
+///     time_simulation:
+///       start_time: "-4h"        # Start 4 hours ago
+///       time_scale: 10.0         # 10x acceleration
+///       events_per_second: 100   # Publish rate
+///       sequential: true         # Ordered timestamps
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeSimulationConfig {
+    /// Start time for event timestamps.
+    /// Supports relative format ("-4h", "-30m", "-1d") or absolute ISO 8601.
+    /// Defaults to current time if not specified.
+    #[serde(default)]
+    pub start_time: Option<String>,
+
+    /// End time for event timestamps.
+    /// Supports relative format ("now", "+1h") or absolute ISO 8601.
+    /// Defaults to "now" if not specified.
+    #[serde(default)]
+    pub end_time: Option<String>,
+
+    /// Time acceleration factor.
+    /// - 1.0 = real-time (wall-clock matches simulated time)
+    /// - 10.0 = 10x faster (4 hours of events in 24 minutes)
+    /// - 0.5 = half speed (slow motion)
+    #[serde(default = "default_time_scale")]
+    pub time_scale: f64,
+
+    /// Target events per second (actual publish rate).
+    /// If not set, publishes as fast as possible (bulk mode).
+    #[serde(default)]
+    pub events_per_second: Option<f64>,
+
+    /// Generate sequential timestamps (each timestamp > previous).
+    /// When true, timestamps progress linearly through the time range.
+    /// When false, timestamps are randomly distributed (legacy behavior).
+    #[serde(default = "default_sequential")]
+    pub sequential: bool,
+
+    /// Random jitter in milliseconds (±jitter_ms per event).
+    /// Adds realistic variation to publish timing.
+    #[serde(default)]
+    pub jitter_ms: Option<u64>,
+
+    /// Batch size for publishing (publish N events together, then delay).
+    /// Useful for simulating burst patterns.
+    #[serde(default = "default_batch_size")]
+    pub batch_size: usize,
+}
+
+fn default_time_scale() -> f64 {
+    1.0
+}
+
+fn default_sequential() -> bool {
+    true
+}
+
+fn default_batch_size() -> usize {
+    1
+}
+
+impl Default for TimeSimulationConfig {
+    fn default() -> Self {
+        Self {
+            start_time: None,
+            end_time: None,
+            time_scale: default_time_scale(),
+            events_per_second: None,
+            sequential: default_sequential(),
+            jitter_ms: None,
+            batch_size: default_batch_size(),
+        }
+    }
+}
+
+impl TimeSimulationConfig {
+    /// Calculate the inter-event delay for rate-controlled publishing
+    pub fn inter_event_delay(&self) -> Option<std::time::Duration> {
+        self.events_per_second.map(|eps| {
+            let delay_secs = (self.batch_size as f64) / eps;
+            std::time::Duration::from_secs_f64(delay_secs)
+        })
+    }
+
+    /// Check if rate limiting is enabled
+    pub fn has_rate_limit(&self) -> bool {
+        self.events_per_second.is_some()
+    }
+
+    /// Check if sequential timestamps are enabled
+    pub fn is_sequential(&self) -> bool {
+        self.sequential
+    }
+}
+
 /// Assertion configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -257,6 +371,10 @@ pub enum AssertionConfig {
     /// Memory usage constraint
     #[serde(rename = "memory_usage")]
     MemoryUsage(MemoryUsageAssertion),
+
+    /// Throughput rate constraint
+    #[serde(rename = "throughput")]
+    Throughput(ThroughputAssertion),
 
     /// DLQ (Dead Letter Queue) count assertion
     #[serde(rename = "dlq_count")]
@@ -331,8 +449,13 @@ pub struct RecordCountAssertion {
 /// Schema contains assertion
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchemaContainsAssertion {
-    /// Required fields
+    /// Required fields in the message value payload
     pub fields: Vec<String>,
+
+    /// Expected Kafka message key field name (optional)
+    /// When specified, verifies that message keys match this field's expected values
+    #[serde(default)]
+    pub key_field: Option<String>,
 }
 
 /// No nulls assertion
@@ -462,6 +585,30 @@ pub struct MemoryUsageAssertion {
     /// Maximum allowed memory growth in bytes
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_growth_bytes: Option<i64>,
+}
+
+/// Throughput assertion - verifies processing rate meets requirements
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThroughputAssertion {
+    /// Minimum required records per second
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_records_per_second: Option<f64>,
+
+    /// Maximum allowed records per second (for rate limiting tests)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_records_per_second: Option<f64>,
+
+    /// Expected approximate records per second (with tolerance)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_records_per_second: Option<f64>,
+
+    /// Tolerance percentage for expected rate (default 20%)
+    #[serde(default = "default_throughput_tolerance")]
+    pub tolerance_percent: f64,
+}
+
+fn default_throughput_tolerance() -> f64 {
+    20.0
 }
 
 /// DLQ count assertion - verifies error record counts in Dead Letter Queue

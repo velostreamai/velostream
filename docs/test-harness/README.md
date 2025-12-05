@@ -90,7 +90,7 @@ queries:
 - Value range validation
 - Aggregate computations
 - Join coverage analysis
-- Performance metrics
+- Performance metrics (execution time, memory usage, throughput)
 
 ### Output Formats
 - Human-readable text (default)

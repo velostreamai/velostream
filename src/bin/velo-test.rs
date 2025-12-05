@@ -615,6 +615,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     sink_name: format!("{}_output", query_test.name),
                                     topic: None, // No topic for empty output
                                     records: Vec::new(),
+                                    message_keys: Vec::new(), // No keys for empty output
                                     execution_time_ms: 0,
                                     warnings: Vec::new(),
                                     memory_peak_bytes: None,
@@ -643,6 +644,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     "      {} {}: {}",
                                     icon, result.assertion_type, result.message
                                 );
+                                // Show expected/actual for failed assertions
+                                if !result.passed {
+                                    if let (Some(expected), Some(actual)) =
+                                        (&result.expected, &result.actual)
+                                    {
+                                        println!("         Expected: {}", expected);
+                                        println!("         Actual:   {}", actual);
+                                    }
+                                }
                             }
 
                             report_gen.add_query_result(&exec_result, &assertion_results);

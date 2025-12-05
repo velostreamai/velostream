@@ -383,7 +383,7 @@ impl QueryAnalyzer {
         let config_file_key = format!("{}.config_file", table_name);
         let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
-            log::info!(
+            log::debug!(
                 "Loading config file '{}' for source '{}'",
                 config_file_path,
                 table_name
@@ -392,7 +392,7 @@ impl QueryAnalyzer {
                 Ok(file_props) => {
                     // Merge file properties into properties map
                     properties.extend(file_props);
-                    log::info!(
+                    log::debug!(
                         "Loaded {} properties from config file '{}' for source '{}'",
                         properties.len(),
                         config_file_path,
@@ -581,7 +581,7 @@ impl QueryAnalyzer {
         let config_file_key = format!("{}.config_file", table_name);
         let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
-            log::info!(
+            log::debug!(
                 "Loading config file '{}' for sink '{}' (via analyze_sink)",
                 config_file_path,
                 table_name
@@ -590,7 +590,7 @@ impl QueryAnalyzer {
                 Ok(file_props) => {
                     // Merge file properties into properties map
                     properties.extend(file_props);
-                    log::info!(
+                    log::debug!(
                         "Loaded YAML config for sink '{}' with {} properties",
                         table_name,
                         properties.len()
@@ -1143,7 +1143,7 @@ impl QueryAnalyzer {
                 // Check if there's a config_file to load using centralized config_loader
                 // This ensures consistent topic.name normalization across all components
                 if let Some(config_file) = properties.get("config_file").cloned() {
-                    log::info!(
+                    log::debug!(
                         "Loading config file '{}' for sink '{}'",
                         config_file,
                         sink_name
@@ -1155,7 +1155,7 @@ impl QueryAnalyzer {
                             for (yaml_key, yaml_value) in file_props {
                                 properties.entry(yaml_key).or_insert(yaml_value);
                             }
-                            log::info!(
+                            log::debug!(
                                 "Loaded {} properties from config file '{}'",
                                 properties.len(),
                                 config_file
@@ -1169,7 +1169,7 @@ impl QueryAnalyzer {
                         }
                     }
                 } else {
-                    log::info!("No config_file specified for sink '{}'", sink_name);
+                    log::debug!("No config_file specified for sink '{}'", sink_name);
                 }
 
                 // Apply topic normalization again in case SQL properties had topic.name

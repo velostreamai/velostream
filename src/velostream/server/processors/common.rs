@@ -257,6 +257,17 @@ pub struct JobExecutionStats {
     pub total_processing_time: Duration,
     /// Detailed error information for debugging
     pub error_details: Vec<ProcessingError>,
+
+    // Timing breakdown for performance analysis
+    /// Total time spent reading from source (poll + deserialization)
+    #[serde(serialize_with = "serialize_duration_as_ms")]
+    pub total_read_time: Duration,
+    /// Total time spent on SQL processing
+    #[serde(serialize_with = "serialize_duration_as_ms")]
+    pub total_sql_time: Duration,
+    /// Total time spent writing to sink (serialization + produce)
+    #[serde(serialize_with = "serialize_duration_as_ms")]
+    pub total_write_time: Duration,
 }
 
 impl JobExecutionStats {
@@ -320,6 +331,36 @@ impl JobExecutionStats {
         self.start_time
             .map(|s| s.elapsed())
             .unwrap_or(Duration::from_secs(0))
+    }
+
+    /// Add read time (Kafka poll + deserialization)
+    pub fn add_read_time(&mut self, duration: Duration) {
+        self.total_read_time += duration;
+    }
+
+    /// Add SQL processing time
+    pub fn add_sql_time(&mut self, duration: Duration) {
+        self.total_sql_time += duration;
+    }
+
+    /// Add write time (serialization + Kafka produce)
+    pub fn add_write_time(&mut self, duration: Duration) {
+        self.total_write_time += duration;
+    }
+
+    /// Get timing breakdown as percentages of elapsed time
+    pub fn timing_breakdown(&self) -> (f64, f64, f64, f64) {
+        let elapsed = self.elapsed().as_secs_f64();
+        if elapsed <= 0.0 {
+            return (0.0, 0.0, 0.0, 0.0);
+        }
+
+        let read_pct = (self.total_read_time.as_secs_f64() / elapsed) * 100.0;
+        let sql_pct = (self.total_sql_time.as_secs_f64() / elapsed) * 100.0;
+        let write_pct = (self.total_write_time.as_secs_f64() / elapsed) * 100.0;
+        let other_pct = 100.0 - read_pct - sql_pct - write_pct;
+
+        (read_pct, sql_pct, write_pct, other_pct.max(0.0))
     }
 
     /// Sync stats to shared stats for real-time monitoring.
@@ -649,6 +690,25 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
             stats.batches_failed,
             stats.avg_batch_size,
             stats.avg_processing_time_ms
+        );
+    }
+
+    // Log timing breakdown if any timing data was collected
+    let has_timing = stats.total_read_time.as_nanos() > 0
+        || stats.total_sql_time.as_nanos() > 0
+        || stats.total_write_time.as_nanos() > 0;
+
+    if has_timing {
+        let (read_pct, sql_pct, write_pct, other_pct) = stats.timing_breakdown();
+        info!(
+            "  Timing breakdown: read={:.1}ms ({:.1}%), sql={:.1}ms ({:.1}%), write={:.1}ms ({:.1}%), other={:.1}%",
+            stats.total_read_time.as_secs_f64() * 1000.0,
+            read_pct,
+            stats.total_sql_time.as_secs_f64() * 1000.0,
+            sql_pct,
+            stats.total_write_time.as_secs_f64() * 1000.0,
+            write_pct,
+            other_pct
         );
     }
 }

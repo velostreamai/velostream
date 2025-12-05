@@ -500,12 +500,20 @@ impl SimpleJobProcessor {
         for source_name in context.list_sources() {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
-                error!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    &self.observability_wrapper.observability().cloned(),
-                    &job_name,
-                    error_msg,
-                );
+                // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                    debug!(
+                        "Job '{}': {} (benign - no messages consumed yet)",
+                        job_name, error_msg
+                    );
+                } else {
+                    warn!("Job '{}': {}", job_name, error_msg);
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        &job_name,
+                        error_msg,
+                    );
+                }
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -620,7 +628,11 @@ impl SimpleJobProcessor {
             // Read batch from current source
             let deser_start = Instant::now();
             let batch = context.read().await?;
-            let deser_duration = deser_start.elapsed().as_millis() as u64;
+            let deser_elapsed = deser_start.elapsed();
+            let deser_duration = deser_elapsed.as_millis() as u64;
+
+            // Accumulate read time for final stats breakdown
+            stats.add_read_time(deser_elapsed);
 
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
@@ -682,7 +694,11 @@ impl SimpleJobProcessor {
             // Process batch through SQL engine and capture output records (with telemetry)
             let sql_start = Instant::now();
             let batch_result = process_batch(batch, engine, query, job_name).await;
-            let sql_duration = sql_start.elapsed().as_millis() as u64;
+            let sql_elapsed = sql_start.elapsed();
+            let sql_duration = sql_elapsed.as_millis() as u64;
+
+            // Accumulate SQL time for final stats breakdown
+            stats.add_sql_time(sql_elapsed);
 
             // Record SQL processing telemetry and metrics on per-source span
             ObservabilityHelper::record_sql_processing(
@@ -900,7 +916,11 @@ impl SimpleJobProcessor {
                     let record_count = output_owned.len();
                     match context.write_batch_to(&sink_names[0], output_owned).await {
                         Ok(()) => {
-                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+                            let ser_elapsed = ser_start.elapsed();
+                            let ser_duration = ser_elapsed.as_millis() as u64;
+
+                            // Accumulate write time for final stats breakdown
+                            stats.add_write_time(ser_elapsed);
 
                             // Record serialization telemetry and metrics
                             ObservabilityHelper::record_serialization_success(
@@ -947,7 +967,11 @@ impl SimpleJobProcessor {
                             .await
                         {
                             Ok(()) => {
-                                let ser_duration = ser_start.elapsed().as_millis() as u64;
+                                let ser_elapsed = ser_start.elapsed();
+                                let ser_duration = ser_elapsed.as_millis() as u64;
+
+                                // Accumulate write time for final stats breakdown
+                                stats.add_write_time(ser_elapsed);
 
                                 // Record serialization telemetry and metrics
                                 ObservabilityHelper::record_serialization_success(
@@ -1030,16 +1054,26 @@ impl SimpleJobProcessor {
             for source_name in &source_names {
                 if let Err(e) = context.commit_source(source_name).await {
                     let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
-                    error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        job_name,
-                        error_msg,
-                    );
-                    if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
-                        return Err(
-                            format!("Failed to commit source '{}': {:?}", source_name, e).into(),
+                    // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                    if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                        debug!(
+                            "Job '{}': {} (benign - no messages consumed yet)",
+                            job_name, error_msg
                         );
+                    } else {
+                        warn!("Job '{}': {}", job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
+                        if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
+                            return Err(format!(
+                                "Failed to commit source '{}': {:?}",
+                                source_name, e
+                            )
+                            .into());
+                        }
                     }
                 }
             }

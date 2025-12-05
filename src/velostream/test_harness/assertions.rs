@@ -14,7 +14,7 @@ use super::spec::{
     ExecutionTimeAssertion, FieldInSetAssertion, FieldValuesAssertion, FileContainsAssertion,
     FileExistsAssertion, FileMatchesAssertion, FileRowCountAssertion, JoinCoverageAssertion,
     MemoryUsageAssertion, NoNullsAssertion, RecordCountAssertion, SchemaContainsAssertion,
-    TemplateAssertion,
+    TemplateAssertion, ThroughputAssertion,
 };
 use super::utils::{field_value_to_string, resolve_path};
 use crate::velostream::sql::execution::types::FieldValue;
@@ -225,6 +225,7 @@ impl AssertionRunner {
             AssertionConfig::Template(config) => self.assert_template(output, config),
             AssertionConfig::ExecutionTime(config) => self.assert_execution_time(output, config),
             AssertionConfig::MemoryUsage(config) => self.assert_memory_usage(output, config),
+            AssertionConfig::Throughput(config) => self.assert_throughput(output, config),
             // New assertion types - placeholders for now (will be implemented in Phase 12)
             AssertionConfig::DlqCount(_) => {
                 AssertionResult::pass("dlq_count", "DLQ assertion not yet implemented")
@@ -277,14 +278,13 @@ impl AssertionRunner {
                     "record_count",
                     &format!("Record count matches: {} (from {})", actual, location),
                 );
-            } else {
-                return AssertionResult::fail(
-                    "record_count",
-                    &format!("Record count mismatch (from {})", location),
-                    &expected.to_string(),
-                    &actual.to_string(),
-                );
             }
+            return AssertionResult::fail(
+                "record_count",
+                &format!("Record count mismatch (from {})", location),
+                &expected.to_string(),
+                &actual.to_string(),
+            );
         }
 
         // Check greater_than
@@ -359,21 +359,70 @@ impl AssertionRunner {
             );
         }
 
-        // Get fields from first record
-        let actual_fields: std::collections::HashSet<_> =
+        // Get fields from first record (value payload)
+        let actual_value_fields: std::collections::HashSet<_> =
             output.records[0].keys().cloned().collect();
 
-        let missing: Vec<&str> = config
+        // Check for missing value fields
+        let missing_value_fields: Vec<&str> = config
             .fields
             .iter()
-            .filter(|f| !actual_fields.contains(*f))
+            .filter(|f| !actual_value_fields.contains(*f))
             .map(String::as_str)
             .collect();
 
-        // Pre-compute strings once to avoid duplication
-        let expected_str = config.fields.join(", ");
+        // Check key field if specified
+        let key_field_ok = if let Some(key_field_name) = &config.key_field {
+            // Verify we have message keys and at least one is non-empty
+            let has_keys = output
+                .message_keys
+                .iter()
+                .any(|k| matches!(k, Some(s) if !s.is_empty()));
+            if !has_keys {
+                return AssertionResult::fail(
+                    "schema_contains",
+                    &format!(
+                        "Expected key field '{}' in {}, but no message keys found",
+                        key_field_name, location
+                    ),
+                    &format!("key_field: {}", key_field_name),
+                    "no message keys present",
+                );
+            }
+            true
+        } else {
+            true
+        };
 
-        if missing.is_empty() {
+        // Build expected string including key_field if present
+        let expected_parts: Vec<String> = if let Some(key_field) = &config.key_field {
+            let mut parts = vec![format!("key_field: {}", key_field)];
+            parts.push(format!("value_fields: [{}]", config.fields.join(", ")));
+            parts
+        } else {
+            vec![config.fields.join(", ")]
+        };
+        let expected_str = expected_parts.join(", ");
+
+        // Build actual string including key info
+        let mut sorted_actual: Vec<_> = actual_value_fields.iter().cloned().collect();
+        sorted_actual.sort();
+        let actual_str = if config.key_field.is_some() {
+            let key_sample = output
+                .message_keys
+                .iter()
+                .find_map(|k| k.clone())
+                .unwrap_or_else(|| "(none)".to_string());
+            format!(
+                "key: '{}' (sample), value_fields: [{}]",
+                key_sample,
+                sorted_actual.join(", ")
+            )
+        } else {
+            sorted_actual.join(", ")
+        };
+
+        if missing_value_fields.is_empty() && key_field_ok {
             AssertionResult::pass(
                 "schema_contains",
                 &format!(
@@ -382,12 +431,7 @@ impl AssertionRunner {
                 ),
             )
         } else {
-            // Sort actual fields for consistent, reproducible output
-            let mut sorted_actual: Vec<_> = actual_fields.iter().cloned().collect();
-            sorted_actual.sort();
-            let actual_str = sorted_actual.join(", ");
-
-            let missing_str = missing.join(", ");
+            let missing_str = missing_value_fields.join(", ");
 
             AssertionResult::fail(
                 "schema_contains",
@@ -958,6 +1002,124 @@ impl AssertionRunner {
         result
     }
 
+    /// Assert throughput rate is within bounds
+    ///
+    /// Calculates records per second and validates against configured thresholds.
+    fn assert_throughput(
+        &self,
+        output: &CapturedOutput,
+        config: &ThroughputAssertion,
+    ) -> AssertionResult {
+        let record_count = output.records.len();
+        let execution_time_ms = output.execution_time_ms;
+
+        // Calculate throughput (records per second)
+        let throughput = if execution_time_ms > 0 {
+            (record_count as f64) / (execution_time_ms as f64 / 1000.0)
+        } else {
+            // If execution time is 0, we have infinite throughput (or no records)
+            if record_count == 0 {
+                0.0
+            } else {
+                f64::INFINITY
+            }
+        };
+
+        // Check min_records_per_second constraint
+        if let Some(min_rps) = config.min_records_per_second {
+            if throughput < min_rps {
+                return AssertionResult::fail(
+                    "throughput",
+                    &format!(
+                        "Throughput {:.2} records/sec below minimum {:.2} records/sec",
+                        throughput, min_rps
+                    ),
+                    &format!(">= {:.2} records/sec", min_rps),
+                    &format!("{:.2} records/sec", throughput),
+                )
+                .with_detail("constraint", "min_records_per_second")
+                .with_detail("record_count", &record_count.to_string())
+                .with_detail("execution_time_ms", &execution_time_ms.to_string());
+            }
+        }
+
+        // Check max_records_per_second constraint
+        if let Some(max_rps) = config.max_records_per_second {
+            if throughput > max_rps {
+                return AssertionResult::fail(
+                    "throughput",
+                    &format!(
+                        "Throughput {:.2} records/sec exceeds maximum {:.2} records/sec",
+                        throughput, max_rps
+                    ),
+                    &format!("<= {:.2} records/sec", max_rps),
+                    &format!("{:.2} records/sec", throughput),
+                )
+                .with_detail("constraint", "max_records_per_second")
+                .with_detail("record_count", &record_count.to_string())
+                .with_detail("execution_time_ms", &execution_time_ms.to_string());
+            }
+        }
+
+        // Check expected_records_per_second with tolerance
+        if let Some(expected_rps) = config.expected_records_per_second {
+            let tolerance_fraction = config.tolerance_percent / 100.0;
+            let min_allowed = expected_rps * (1.0 - tolerance_fraction);
+            let max_allowed = expected_rps * (1.0 + tolerance_fraction);
+
+            if throughput < min_allowed || throughput > max_allowed {
+                return AssertionResult::fail(
+                    "throughput",
+                    &format!(
+                        "Throughput {:.2} records/sec outside expected range [{:.2}, {:.2}] records/sec (expected {:.2} ± {:.1}%)",
+                        throughput, min_allowed, max_allowed, expected_rps, config.tolerance_percent
+                    ),
+                    &format!("{:.2} ± {:.1}% records/sec", expected_rps, config.tolerance_percent),
+                    &format!("{:.2} records/sec", throughput),
+                )
+                .with_detail("constraint", "expected_records_per_second")
+                .with_detail("expected", &expected_rps.to_string())
+                .with_detail("tolerance_percent", &config.tolerance_percent.to_string())
+                .with_detail("record_count", &record_count.to_string())
+                .with_detail("execution_time_ms", &execution_time_ms.to_string());
+            }
+        }
+
+        // All constraints passed
+        let msg = match (
+            config.min_records_per_second,
+            config.max_records_per_second,
+            config.expected_records_per_second,
+        ) {
+            (Some(min), Some(max), _) => {
+                format!(
+                    "Throughput {:.2} records/sec within bounds [{:.2}, {:.2}]",
+                    throughput, min, max
+                )
+            }
+            (Some(min), None, _) => {
+                format!("Throughput {:.2} records/sec >= {:.2}", throughput, min)
+            }
+            (None, Some(max), _) => {
+                format!("Throughput {:.2} records/sec <= {:.2}", throughput, max)
+            }
+            (None, None, Some(expected)) => {
+                format!(
+                    "Throughput {:.2} records/sec within {:.1}% of expected {:.2}",
+                    throughput, config.tolerance_percent, expected
+                )
+            }
+            (None, None, None) => {
+                format!("Throughput: {:.2} records/sec (no constraints)", throughput)
+            }
+        };
+
+        AssertionResult::pass("throughput", &msg)
+            .with_detail("throughput_rps", &format!("{:.2}", throughput))
+            .with_detail("record_count", &record_count.to_string())
+            .with_detail("execution_time_ms", &execution_time_ms.to_string())
+    }
+
     // ==================== File Assertion Methods ====================
 
     /// Assert file exists and optionally check size
@@ -1053,15 +1215,14 @@ impl AssertionRunner {
                     &format!("Row count matches: {}", actual),
                 )
                 .with_detail("path", &config.path);
-            } else {
-                return AssertionResult::fail(
-                    "file_row_count",
-                    "Row count mismatch",
-                    &expected.to_string(),
-                    &actual.to_string(),
-                )
-                .with_detail("path", &config.path);
             }
+            return AssertionResult::fail(
+                "file_row_count",
+                "Row count mismatch",
+                &expected.to_string(),
+                &actual.to_string(),
+            )
+            .with_detail("path", &config.path);
         }
 
         // Check greater_than
@@ -2132,11 +2293,13 @@ mod tests {
     use super::*;
 
     fn create_test_output(records: Vec<HashMap<String, FieldValue>>) -> CapturedOutput {
+        let message_keys = vec![None; records.len()];
         CapturedOutput {
             query_name: "test_query".to_string(),
             sink_name: "test_sink".to_string(),
             topic: Some("test_topic".to_string()),
             records,
+            message_keys,
             execution_time_ms: 100,
             warnings: vec![],
             memory_peak_bytes: None,
@@ -2333,6 +2496,7 @@ mod tests {
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {
             fields: vec!["id".to_string(), "name".to_string()],
+            key_field: None,
         };
 
         let result = runner.assert_schema_contains(&output, &config);
@@ -2349,6 +2513,7 @@ mod tests {
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {
             fields: vec!["id".to_string(), "missing_field".to_string()],
+            key_field: None,
         };
 
         let result = runner.assert_schema_contains(&output, &config);
@@ -2390,6 +2555,7 @@ mod tests {
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {
             fields: vec!["id".to_string()],
+            key_field: None,
         };
 
         let result = runner.assert_schema_contains(&output, &config);
@@ -2745,6 +2911,7 @@ mod tests {
             }),
             AssertionConfig::SchemaContains(SchemaContainsAssertion {
                 fields: vec!["id".to_string(), "status".to_string()],
+                key_field: None,
             }),
         ];
 
@@ -3065,11 +3232,13 @@ mod tests {
         topic: Option<&str>,
         sink_name: &str,
     ) -> CapturedOutput {
+        let message_keys = vec![None; records.len()];
         CapturedOutput {
             query_name: "test_query".to_string(),
             sink_name: sink_name.to_string(),
             topic: topic.map(|t| t.to_string()),
             records,
+            message_keys,
             execution_time_ms: 100,
             warnings: vec![],
             memory_peak_bytes: None,
@@ -3145,6 +3314,7 @@ mod tests {
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {
             fields: vec!["id".to_string(), "name".to_string()],
+            key_field: None,
         };
 
         let result = runner.assert_schema_contains(&output, &config);
@@ -3152,6 +3322,130 @@ mod tests {
         assert!(
             result.message.contains("topic 'schema_test_topic'"),
             "Schema contains message should include topic. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_schema_contains_with_key_field_pass() {
+        // Create output with message keys
+        let mut output = create_test_output(vec![HashMap::from([
+            ("trade_count".to_string(), FieldValue::Integer(10)),
+            ("total_volume".to_string(), FieldValue::Float(1000.0)),
+        ])]);
+        // Add message keys (simulating GROUP BY symbol producing "AAPL" as key)
+        output.message_keys = vec![Some("AAPL".to_string())];
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["trade_count".to_string(), "total_volume".to_string()],
+            key_field: Some("symbol".to_string()),
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(
+            result.passed,
+            "Expected assertion to pass with key_field. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_schema_contains_with_key_field_missing_keys() {
+        // Create output without message keys (keys are None)
+        let output = create_test_output(vec![HashMap::from([
+            ("trade_count".to_string(), FieldValue::Integer(10)),
+            ("total_volume".to_string(), FieldValue::Float(1000.0)),
+        ])]);
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["trade_count".to_string(), "total_volume".to_string()],
+            key_field: Some("symbol".to_string()),
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(
+            !result.passed,
+            "Expected assertion to fail when key_field specified but keys are missing"
+        );
+        assert!(
+            result.message.contains("symbol") || result.message.contains("key"),
+            "Message should mention missing key field. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_schema_contains_validates_key_values() {
+        // Create output with multiple records and different keys
+        let mut output = create_test_output(vec![
+            HashMap::from([
+                ("trade_count".to_string(), FieldValue::Integer(10)),
+                ("total_volume".to_string(), FieldValue::Float(1000.0)),
+            ]),
+            HashMap::from([
+                ("trade_count".to_string(), FieldValue::Integer(20)),
+                ("total_volume".to_string(), FieldValue::Float(2000.0)),
+            ]),
+            HashMap::from([
+                ("trade_count".to_string(), FieldValue::Integer(30)),
+                ("total_volume".to_string(), FieldValue::Float(3000.0)),
+            ]),
+        ]);
+        // Add message keys for each record (simulating GROUP BY symbol)
+        output.message_keys = vec![
+            Some("AAPL".to_string()),
+            Some("GOOGL".to_string()),
+            Some("MSFT".to_string()),
+        ];
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["trade_count".to_string(), "total_volume".to_string()],
+            key_field: Some("symbol".to_string()),
+        };
+
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(
+            result.passed,
+            "Expected assertion to pass with multiple key values. Got: {}",
+            result.message
+        );
+
+        // Verify message mentions key field was validated
+        assert!(
+            result.message.contains("key field") || result.message.contains("symbol"),
+            "Message should mention key field validation. Got: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_schema_contains_with_empty_key_values() {
+        // Create output with empty string keys (edge case)
+        let mut output = create_test_output(vec![HashMap::from([(
+            "trade_count".to_string(),
+            FieldValue::Integer(10),
+        )])]);
+        output.message_keys = vec![Some("".to_string())]; // Empty key value
+
+        let runner = AssertionRunner::new();
+        let config = SchemaContainsAssertion {
+            fields: vec!["trade_count".to_string()],
+            key_field: Some("symbol".to_string()),
+        };
+
+        // Empty string keys should fail - a valid key must have content
+        let result = runner.assert_schema_contains(&output, &config);
+        assert!(
+            !result.passed,
+            "Empty string key should fail validation. Got: {}",
+            result.message
+        );
+        assert!(
+            result.message.contains("no message keys found"),
+            "Should report no valid keys. Got: {}",
             result.message
         );
     }

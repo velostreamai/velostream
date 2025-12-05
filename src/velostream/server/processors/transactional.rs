@@ -334,12 +334,20 @@ impl TransactionalJobProcessor {
         for source_name in context.list_sources() {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
-                warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    self.observability_wrapper.observability_ref(),
-                    &job_name,
-                    error_msg,
-                );
+                // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                    debug!(
+                        "Job '{}': {} (benign - no messages consumed yet)",
+                        job_name, error_msg
+                    );
+                } else {
+                    warn!("Job '{}': {}", job_name, error_msg);
+                    ErrorTracker::record_error(
+                        self.observability_wrapper.observability_ref(),
+                        &job_name,
+                        error_msg,
+                    );
+                }
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -460,7 +468,11 @@ impl TransactionalJobProcessor {
         let batch_start = Instant::now();
         let deser_start = Instant::now();
         let batch = reader.read().await?;
-        let deser_duration = deser_start.elapsed().as_millis() as u64;
+        let deser_elapsed = deser_start.elapsed();
+        let deser_duration = deser_elapsed.as_millis() as u64;
+
+        // Accumulate read time for final stats breakdown
+        stats.add_read_time(deser_elapsed);
 
         if batch.is_empty() {
             // No data available - abort any active transactions and return
@@ -490,7 +502,11 @@ impl TransactionalJobProcessor {
         // Step 3: Process batch through SQL engine and capture output (with SQL telemetry)
         let sql_start = Instant::now();
         let batch_result = process_batch(batch, engine, query, job_name).await;
-        let sql_duration = sql_start.elapsed().as_millis() as u64;
+        let sql_elapsed = sql_start.elapsed();
+        let sql_duration = sql_elapsed.as_millis() as u64;
+
+        // Accumulate SQL time for final stats breakdown
+        stats.add_sql_time(sql_elapsed);
 
         // Record SQL processing telemetry
         ObservabilityHelper::record_sql_processing(
@@ -562,7 +578,11 @@ impl TransactionalJobProcessor {
                 // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
                 match w.write_batch(output_owned).await {
                     Ok(()) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown
+                        stats.add_write_time(ser_elapsed);
 
                         // Record serialization telemetry on success
                         ObservabilityHelper::record_serialization_success(
@@ -580,7 +600,12 @@ impl TransactionalJobProcessor {
                         );
                     }
                     Err(e) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown (even on error)
+                        stats.add_write_time(ser_elapsed);
+
                         let error_msg =
                             format!("Failed to write {} records to sink: {:?}", record_count, e);
 
@@ -969,7 +994,12 @@ impl TransactionalJobProcessor {
             context.set_active_reader(source_name)?;
             let deser_start = Instant::now();
             let batch = context.read().await?;
-            let deser_duration = deser_start.elapsed().as_millis() as u64;
+            let deser_elapsed = deser_start.elapsed();
+            let deser_duration = deser_elapsed.as_millis() as u64;
+
+            // Accumulate read time for final stats breakdown
+            stats.add_read_time(deser_elapsed);
+
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
@@ -1025,7 +1055,11 @@ impl TransactionalJobProcessor {
             // Process batch through SQL engine and capture output records (with SQL telemetry)
             let sql_start = Instant::now();
             let batch_result = process_batch(batch, engine, query, job_name).await;
-            let sql_duration = sql_start.elapsed().as_millis() as u64;
+            let sql_elapsed = sql_start.elapsed();
+            let sql_duration = sql_elapsed.as_millis() as u64;
+
+            // Accumulate SQL time for final stats breakdown
+            stats.add_sql_time(sql_elapsed);
 
             // Record SQL processing telemetry
             ObservabilityHelper::record_sql_processing(
@@ -1164,7 +1198,11 @@ impl TransactionalJobProcessor {
                 let record_count = output_owned.len();
                 match context.write_batch_to(&sink_names[0], output_owned).await {
                     Ok(()) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown
+                        stats.add_write_time(ser_elapsed);
 
                         // Record serialization telemetry on success
                         ObservabilityHelper::record_serialization_success(
@@ -1182,7 +1220,12 @@ impl TransactionalJobProcessor {
                         );
                     }
                     Err(e) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown (even on error)
+                        stats.add_write_time(ser_elapsed);
+
                         let error_msg = format!(
                             "Failed to write {} records to sink '{}' within transaction: {:?}",
                             record_count, &sink_names[0], e
@@ -1219,7 +1262,11 @@ impl TransactionalJobProcessor {
                         .await
                     {
                         Ok(()) => {
-                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+                            let ser_elapsed = ser_start.elapsed();
+                            let ser_duration = ser_elapsed.as_millis() as u64;
+
+                            // Accumulate write time for final stats breakdown
+                            stats.add_write_time(ser_elapsed);
 
                             // Record serialization telemetry on success
                             ObservabilityHelper::record_serialization_success(
@@ -1237,7 +1284,12 @@ impl TransactionalJobProcessor {
                             );
                         }
                         Err(e) => {
-                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+                            let ser_elapsed = ser_start.elapsed();
+                            let ser_duration = ser_elapsed.as_millis() as u64;
+
+                            // Accumulate write time for final stats breakdown (even on error)
+                            stats.add_write_time(ser_elapsed);
+
                             let error_msg = format!(
                                 "Failed to write {} records to sink '{}' within transaction: {:?}",
                                 record_count, sink_name, e
@@ -1422,14 +1474,23 @@ impl TransactionalJobProcessor {
         for (source_name, is_active) in reader_transactions {
             if *is_active {
                 context.set_active_reader(source_name)?;
-                context
-                    .commit_source(source_name)
-                    .await
-                    .map_err(|e| format!("Failed to commit source '{}': {:?}", source_name, e))?;
-                debug!(
-                    "Job '{}': Committed transaction for source '{}'",
-                    job_name, source_name
-                );
+                if let Err(e) = context.commit_source(source_name).await {
+                    let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
+                    // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                    if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                        debug!(
+                            "Job '{}': {} (benign - no messages consumed yet)",
+                            job_name, error_msg
+                        );
+                    } else {
+                        return Err(error_msg.into());
+                    }
+                } else {
+                    debug!(
+                        "Job '{}': Committed transaction for source '{}'",
+                        job_name, source_name
+                    );
+                }
             }
         }
 

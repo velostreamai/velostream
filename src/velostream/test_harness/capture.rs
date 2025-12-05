@@ -129,6 +129,7 @@ impl SinkCapture {
         log::debug!("Subscribed to topic: {} with group: {}", topic, group_id);
 
         let mut records = Vec::new();
+        let mut message_keys = Vec::new();
         let mut warnings = Vec::new();
         let mut last_message_time: Option<std::time::Instant> = None;
         let mut received_first_message = false;
@@ -182,11 +183,18 @@ impl SinkCapture {
                         }
                         last_message_time = Some(std::time::Instant::now());
 
+                        // Extract message key (if present)
+                        let message_key = borrowed_message
+                            .key()
+                            .and_then(|k| std::str::from_utf8(k).ok())
+                            .map(|s| s.to_string());
+
                         // Get message payload
                         if let Some(payload) = borrowed_message.payload() {
                             match self.deserialize_message(payload) {
                                 Ok(record) => {
                                     records.push(record);
+                                    message_keys.push(message_key);
                                 }
                                 Err(e) => {
                                     warnings.push(format!(
@@ -226,6 +234,7 @@ impl SinkCapture {
             sink_name: topic.to_string(),
             topic: Some(topic.to_string()),
             records,
+            message_keys,
             execution_time_ms,
             warnings,
             memory_peak_bytes: None,
@@ -278,11 +287,15 @@ impl SinkCapture {
         let records = self.parse_jsonl(&content)?;
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
+        // File captures don't have message keys
+        let message_keys = vec![None; records.len()];
+
         Ok(CapturedOutput {
             query_name: query_name.to_string(),
             sink_name: path.display().to_string(),
             topic: None, // File capture, not Kafka
             records,
+            message_keys,
             execution_time_ms,
             warnings: Vec::new(),
             memory_peak_bytes: None,

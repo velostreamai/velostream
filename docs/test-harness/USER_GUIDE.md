@@ -205,6 +205,10 @@ queries:
       - type: memory_usage
         max_mb: 200
         message: "Memory should stay under 200MB"
+
+      - type: throughput
+        min_records_per_second: 100
+        message: "Should process at least 100 records/sec"
 ```
 
 ## Running Tests
@@ -314,6 +318,10 @@ RUST_LOG=velostream::test_harness=debug velo-test run sql/app.sql --spec test_sp
 # Memory usage
 - type: memory_usage
   max_mb: 100
+
+# Throughput rate
+- type: throughput
+  min_records_per_second: 100
 ```
 
 ### File Assertions

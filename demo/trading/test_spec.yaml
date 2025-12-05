@@ -26,6 +26,13 @@ queries:
       - source: in_market_data_stream
         schema: market_data
         records: 1000
+        # Time simulation for realistic market data streaming
+        time_simulation:
+          start_time: "-1h"           # 1 hour of market data
+          end_time: "now"
+          sequential: true            # Sequential for event-time processing
+          events_per_second: 100      # Realistic market feed rate
+          jitter_ms: 50               # Slight variance for realism
     outputs:
       - sink: market_data_ts
         assertions:
@@ -52,6 +59,10 @@ queries:
           # Performance: sub-second processing
           - type: execution_time
             max_ms: 5000
+
+          # Throughput: expect at least 200 records/sec for passthrough
+          - type: throughput
+            min_records_per_second: 200
 
   # ==========================================================================
   # Job 2: tick_buckets - 1-Second Tumbling Window Aggregation
@@ -83,6 +94,10 @@ queries:
           # No nulls in key fields
           - type: no_nulls
             fields: [symbol, bucket_start, bucket_end]
+
+          # Throughput: aggregation should maintain reasonable rate
+          - type: throughput
+            min_records_per_second: 50
 
   # ==========================================================================
   # Job 3: enriched_market_data - Stream-Table JOIN
@@ -218,6 +233,12 @@ queries:
       - source: trading_positions_with_event_time
         schema: trading_positions
         records: 500
+        # Time simulation for position updates
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 50       # Position updates less frequent than market data
       - source: market_data_ts
         from_previous: market_data_ts
     outputs:
@@ -245,6 +266,12 @@ queries:
       - source: in_order_book_stream
         schema: order_book
         records: 1000
+        # Time simulation for order book updates
+        time_simulation:
+          start_time: "-30m"          # 30 minutes of order book data
+          end_time: "now"
+          sequential: true
+          events_per_second: 200      # Order books update very frequently
     outputs:
       - sink: order_flow_imbalance_detection
         assertions:
@@ -261,6 +288,10 @@ queries:
               - buy_ratio
               - sell_ratio
 
+          # Throughput: high-frequency order book should process quickly
+          - type: throughput
+            min_records_per_second: 100
+
   # ==========================================================================
   # Job 10: arbitrage_opportunities_detection - Cross-Exchange Analysis
   # ==========================================================================
@@ -270,9 +301,23 @@ queries:
       - source: in_market_data_stream_a
         schema: market_data
         records: 500
+        # Time simulation for Exchange A market data
+        time_simulation:
+          start_time: "-30m"
+          end_time: "now"
+          sequential: true
+          events_per_second: 100
+          jitter_ms: 10               # Exchange A latency
       - source: in_market_data_stream_b
         schema: market_data
         records: 500
+        # Time simulation for Exchange B market data
+        time_simulation:
+          start_time: "-30m"
+          end_time: "now"
+          sequential: true
+          events_per_second: 100
+          jitter_ms: 25               # Exchange B slightly more latency
     outputs:
       - sink: arbitrage_opportunities_detection
         assertions:
@@ -309,3 +354,7 @@ scenarios:
     default_records: 10000
     timeout_ms: 120000
     queries: [market_data_ts, tick_buckets, volume_spike_analysis]
+    # Stress test should maintain minimum throughput
+    assertions:
+      - type: throughput
+        min_records_per_second: 500

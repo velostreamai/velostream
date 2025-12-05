@@ -5,17 +5,217 @@
 //! - Distribution-based sampling
 //! - Derived field calculation
 //! - Foreign key relationships
+//! - Time simulation for sequential timestamp generation
 
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::schema::{
     Distribution, FieldConstraints, FieldDefinition, FieldType, LogNormalConfig, NormalConfig,
     Schema, SchemaRegistry, SimpleFieldType, ZipfConfig,
 };
+use super::spec::TimeSimulationConfig;
 use crate::velostream::sql::execution::types::FieldValue;
 use chrono::{DateTime, Duration, Utc};
 use rand::distributions::{Distribution as RandDistribution, WeightedIndex};
 use rand::prelude::*;
 use std::collections::HashMap;
+
+// =============================================================================
+// Time Simulation State
+// =============================================================================
+
+/// Tracks state during time-simulated generation
+///
+/// Maintains the current simulated time and calculates sequential timestamps
+/// for each generated record.
+#[derive(Debug, Clone)]
+pub struct TimeSimulationState {
+    /// Current simulated time (progresses per record)
+    current_time: DateTime<Utc>,
+
+    /// Start time of the simulation range
+    start_time: DateTime<Utc>,
+
+    /// End time of the simulation range
+    end_time: DateTime<Utc>,
+
+    /// Simulated time increment per record
+    time_per_record: Duration,
+
+    /// Records generated so far
+    records_generated: usize,
+
+    /// Total records to generate
+    total_records: usize,
+
+    /// RNG for jitter (if enabled)
+    jitter_rng: StdRng,
+
+    /// Jitter range in milliseconds
+    jitter_ms: Option<u64>,
+
+    /// Whether sequential mode is enabled
+    sequential: bool,
+}
+
+impl TimeSimulationState {
+    /// Create a new time simulation state
+    ///
+    /// # Arguments
+    /// * `config` - Time simulation configuration
+    /// * `total_records` - Total number of records to generate
+    /// * `seed` - Optional seed for jitter RNG
+    pub fn new(
+        config: &TimeSimulationConfig,
+        total_records: usize,
+        seed: Option<u64>,
+    ) -> TestHarnessResult<Self> {
+        let now = Utc::now();
+
+        // Parse start time
+        let start_time = match &config.start_time {
+            Some(s) => parse_time_spec_with_reference(s, now)?,
+            None => now - Duration::hours(1), // Default: 1 hour ago
+        };
+
+        // Parse end time
+        let end_time = match &config.end_time {
+            Some(s) => parse_time_spec_with_reference(s, now)?,
+            None => now, // Default: now
+        };
+
+        // Ensure start < end
+        if start_time >= end_time {
+            return Err(TestHarnessError::ConfigError {
+                message: format!(
+                    "start_time ({}) must be before end_time ({})",
+                    start_time, end_time
+                ),
+            });
+        }
+
+        // Calculate time per record
+        let total_duration = end_time - start_time;
+        let time_per_record = if total_records > 1 {
+            total_duration / (total_records as i32 - 1)
+        } else {
+            Duration::zero()
+        };
+
+        let jitter_rng = match seed {
+            Some(s) => StdRng::seed_from_u64(s.wrapping_add(12345)), // Different seed for jitter
+            None => StdRng::from_entropy(),
+        };
+
+        log::debug!(
+            "Time simulation initialized: {} to {} ({} records, {:?} per record)",
+            start_time,
+            end_time,
+            total_records,
+            time_per_record
+        );
+
+        Ok(Self {
+            current_time: start_time,
+            start_time,
+            end_time,
+            time_per_record,
+            records_generated: 0,
+            total_records,
+            jitter_rng,
+            jitter_ms: config.jitter_ms,
+            sequential: config.sequential,
+        })
+    }
+
+    /// Get the next timestamp in the simulation
+    pub fn next_timestamp(&mut self) -> DateTime<Utc> {
+        let base_time = if self.sequential {
+            // Sequential mode: timestamps progress linearly
+            let t = self.current_time;
+            self.current_time = self.current_time + self.time_per_record;
+            self.records_generated += 1;
+            t
+        } else {
+            // Random mode: pick random time in range (legacy behavior)
+            let range_ms = (self.end_time - self.start_time).num_milliseconds();
+            let offset_ms = self.jitter_rng.gen_range(0..range_ms.max(1));
+            self.records_generated += 1;
+            self.start_time + Duration::milliseconds(offset_ms)
+        };
+
+        // Apply jitter if configured
+        if let Some(jitter_ms) = self.jitter_ms {
+            let jitter = self
+                .jitter_rng
+                .gen_range(-(jitter_ms as i64)..=(jitter_ms as i64));
+            base_time + Duration::milliseconds(jitter)
+        } else {
+            base_time
+        }
+    }
+
+    /// Get the number of records generated
+    pub fn records_generated(&self) -> usize {
+        self.records_generated
+    }
+
+    /// Get the current simulated time
+    pub fn current_time(&self) -> DateTime<Utc> {
+        self.current_time
+    }
+
+    /// Check if all records have been generated
+    pub fn is_complete(&self) -> bool {
+        self.records_generated >= self.total_records
+    }
+
+    /// Reset the simulation state to start over
+    pub fn reset(&mut self) {
+        self.current_time = self.start_time;
+        self.records_generated = 0;
+    }
+}
+
+/// Parse a time specification string into a DateTime
+///
+/// Supports:
+/// - Relative: "-4h", "-30m", "-1d", "now", "+1h"
+/// - Absolute: ISO 8601 format "2024-01-15T09:30:00Z"
+///
+/// # Arguments
+/// * `spec` - Time specification string
+///
+/// # Returns
+/// DateTime in UTC
+pub fn parse_time_spec(spec: &str) -> TestHarnessResult<DateTime<Utc>> {
+    parse_time_spec_with_reference(spec, Utc::now())
+}
+
+/// Parse a time specification string into a DateTime using a reference time
+fn parse_time_spec_with_reference(
+    spec: &str,
+    reference: DateTime<Utc>,
+) -> TestHarnessResult<DateTime<Utc>> {
+    let spec = spec.trim();
+
+    // Check for "now"
+    if spec.eq_ignore_ascii_case("now") {
+        return Ok(reference);
+    }
+
+    // Check for relative time
+    if spec.starts_with('-') || spec.starts_with('+') {
+        let offset_secs = parse_relative_time(spec);
+        return Ok(reference + Duration::seconds(offset_secs));
+    }
+
+    // Try ISO 8601 parsing
+    DateTime::parse_from_rfc3339(spec)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|e| TestHarnessError::ConfigError {
+            message: format!("Invalid time specification '{}': {}", spec, e),
+        })
+}
 
 /// Generates test data from schema definitions
 pub struct SchemaDataGenerator {
@@ -31,6 +231,9 @@ pub struct SchemaDataGenerator {
     /// Direct reference data storage (table.field -> list of values)
     /// Used for sampling foreign key values
     reference_data: HashMap<String, Vec<FieldValue>>,
+
+    /// Time simulation state (for sequential timestamp generation)
+    time_state: Option<TimeSimulationState>,
 }
 
 impl SchemaDataGenerator {
@@ -46,6 +249,7 @@ impl SchemaDataGenerator {
             registry: SchemaRegistry::new(),
             reference_cache: HashMap::new(),
             reference_data: HashMap::new(),
+            time_state: None,
         }
     }
 
@@ -53,6 +257,56 @@ impl SchemaDataGenerator {
     pub fn with_registry(mut self, registry: SchemaRegistry) -> Self {
         self.registry = registry;
         self
+    }
+
+    /// Initialize time simulation for sequential timestamp generation
+    ///
+    /// # Arguments
+    /// * `config` - Time simulation configuration
+    /// * `total_records` - Total number of records that will be generated
+    pub fn with_time_simulation(
+        mut self,
+        config: &TimeSimulationConfig,
+        total_records: usize,
+    ) -> TestHarnessResult<Self> {
+        let seed = Some(self.rng.next_u64()); // Generate seed from current RNG
+        self.time_state = Some(TimeSimulationState::new(config, total_records, seed)?);
+        Ok(self)
+    }
+
+    /// Set time simulation state directly
+    pub fn set_time_simulation(
+        &mut self,
+        config: &TimeSimulationConfig,
+        total_records: usize,
+    ) -> TestHarnessResult<()> {
+        let seed = Some(self.rng.next_u64());
+        self.time_state = Some(TimeSimulationState::new(config, total_records, seed)?);
+        Ok(())
+    }
+
+    /// Clear time simulation state
+    pub fn clear_time_simulation(&mut self) {
+        self.time_state = None;
+    }
+
+    /// Check if time simulation is active
+    pub fn has_time_simulation(&self) -> bool {
+        self.time_state.is_some()
+    }
+
+    /// Get the current time simulation state (if any)
+    pub fn time_simulation_state(&self) -> Option<&TimeSimulationState> {
+        self.time_state.as_ref()
+    }
+
+    /// Get the next simulated timestamp (for testing)
+    ///
+    /// Returns None if time simulation is not active.
+    pub fn next_simulated_timestamp(&mut self) -> Option<chrono::NaiveDateTime> {
+        self.time_state
+            .as_mut()
+            .map(|state| state.next_timestamp().naive_utc())
     }
 
     /// Load reference data for foreign key generation
@@ -291,10 +545,21 @@ impl SchemaDataGenerator {
     }
 
     /// Generate timestamp value
+    ///
+    /// If time simulation is active, uses the time simulation state for
+    /// sequential/controlled timestamp generation. Otherwise falls back
+    /// to random timestamps within the configured range.
     fn generate_timestamp_value(
         &mut self,
         constraints: &FieldConstraints,
     ) -> TestHarnessResult<FieldValue> {
+        // If time simulation is active, use it for timestamp generation
+        if let Some(ref mut time_state) = self.time_state {
+            let timestamp = time_state.next_timestamp();
+            return Ok(FieldValue::Timestamp(timestamp.naive_utc()));
+        }
+
+        // Legacy behavior: random timestamp within range
         let now = Utc::now();
 
         let (start, end) = if let Some(ref range) = constraints.timestamp_range {
