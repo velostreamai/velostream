@@ -89,6 +89,9 @@ sysinfo = "0.32"
 # Phase 4B: Fast hash map for GROUP BY optimization
 rustc-hash = "2.0"
 
+# Fast JSON serialization using SIMD (2-3x faster than serde_json)
+sonic-rs = "0.5"
+
 # Phase 6.5: DashMap would be beneficial for concurrent state access, but current architecture
 # uses mem::take(&mut self.group_states) which is incompatible with Arc<DashMap>.
 # Future refactoring: Convert state management to use Arc<DashMap> and streaming references

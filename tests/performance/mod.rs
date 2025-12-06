@@ -28,6 +28,8 @@ pub mod where_clause_performance_test;
 pub mod avro_decimal_roundtrip_test;
 // Removed: fr082_phase1_partitioned_routing_benchmark (Phase 1, replaced by pluggable strategies)
 pub mod fr082_strategy_comparison_benchmark; // FR-082 Phase 2-3: Strategy comparison (V1 vs V2)
+pub mod json_deserialization_benchmark; // JSON deserialization performance analysis
+pub mod json_serialization_benchmark; // JSON serialization: direct vs indirect benchmark
 pub mod kafka_consumer_benchmark;
 pub mod kafka_throughput_testcontainers;
 pub mod microbench_job_server_profiling;
