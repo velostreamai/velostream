@@ -454,7 +454,8 @@ async fn test_multi_source_creation_helpers() {
 
     // Test source creation (will fail without actual sources but tests interface)
     let result =
-        create_multi_source_readers(&sources, "test-creation", None, None, &batch_config).await;
+        create_multi_source_readers(&sources, "test-creation", None, None, &batch_config, false)
+            .await;
 
     match result {
         Ok(readers) => {
@@ -508,8 +509,15 @@ async fn test_multi_sink_creation_helpers() {
 
     let batch_config = None;
 
-    let result =
-        create_multi_sink_writers(&sinks, "test-sink-creation", None, None, &batch_config).await;
+    let result = create_multi_sink_writers(
+        &sinks,
+        "test-sink-creation",
+        None,
+        None,
+        &batch_config,
+        false,
+    )
+    .await;
 
     match result {
         Ok(writers) => {

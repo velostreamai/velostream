@@ -793,15 +793,27 @@ impl StreamJobServer {
                 analysis.required_sinks.len()
             );
 
+            // Extract job processing configuration EARLY - before creating sources/sinks
+            // This allows us to configure transactional.id and isolation.level appropriately
+            let job_config = Self::extract_job_config_from_query(&parsed_query);
+            let use_transactions = job_config.use_transactions;
+
+            info!(
+                "Job '{}' transactional mode: {} (will configure sources/sinks accordingly)",
+                job_name, use_transactions
+            );
+
             // Use multi-source processing for all jobs (handles single-source as special case)
             // Thread app_name from SqlApplication metadata for coordinated consumer groups
             // Thread instance_id for unique client.id generation
+            // Thread use_transactions for isolation.level=read_committed
             match create_multi_source_readers(
                 &analysis.required_sources,
                 &job_name,
                 app_name.as_deref(),
                 instance_id.as_deref(),
                 &batch_config_clone,
+                use_transactions,
             )
             .await
             {
@@ -814,12 +826,14 @@ impl StreamJobServer {
 
                     // Create all sinks
                     // Thread app_name and instance_id for hierarchical client.id generation
+                    // Thread use_transactions for transactional.id injection
                     match create_multi_sink_writers(
                         &analysis.required_sinks,
                         &job_name,
                         app_name.as_deref(),
                         instance_id.as_deref(),
                         &batch_config_clone,
+                        use_transactions,
                     )
                     .await
                     {
@@ -844,20 +858,17 @@ impl StreamJobServer {
                                 );
                             }
 
-                            // Determine processing mode and create appropriate processor
-                            let config = Self::extract_job_config_from_query(&parsed_query);
-                            let use_transactions = config.use_transactions;
-
+                            // Log processing configuration (job_config extracted earlier for source/sink creation)
                             info!(
                                 "Job '{}' processing configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, log_progress={}",
                                 job_name,
-                                config.use_transactions,
-                                config.failure_strategy,
-                                config.max_batch_size,
-                                config.batch_timeout.as_millis(),
-                                config.max_retries,
-                                config.retry_backoff.as_millis(),
-                                config.log_progress
+                                job_config.use_transactions,
+                                job_config.failure_strategy,
+                                job_config.max_batch_size,
+                                job_config.batch_timeout.as_millis(),
+                                job_config.max_retries,
+                                job_config.retry_backoff.as_millis(),
+                                job_config.log_progress
                             );
 
                             info!(

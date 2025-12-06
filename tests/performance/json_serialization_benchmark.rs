@@ -23,8 +23,8 @@
 //! | Indirect | ~1.5M | baseline |
 //! | Direct | ~3.0M | **2x faster** |
 
-use serde::ser::{SerializeMap, Serializer};
 use serde::Serialize;
+use serde::ser::{SerializeMap, Serializer};
 use std::collections::HashMap;
 use std::time::Instant;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
@@ -64,11 +64,9 @@ fn field_value_to_json_value(fv: &FieldValue) -> serde_json::Value {
     match fv {
         FieldValue::String(s) => serde_json::Value::String(s.clone()),
         FieldValue::Integer(i) => serde_json::Value::Number(serde_json::Number::from(*i)),
-        FieldValue::Float(f) => {
-            serde_json::Number::from_f64(*f)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
+        FieldValue::Float(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
         FieldValue::Null => serde_json::Value::Null,
         FieldValue::ScaledInteger(val, scale) => {
@@ -276,8 +274,14 @@ async fn json_serialization_benchmark() {
     println!();
     println!("   | Method            | Rate (rec/s) | vs Baseline |");
     println!("   |-------------------|--------------|-------------|");
-    println!("   | Indirect (OLD)    | {:>12.0} | baseline    |", indirect_rate);
-    println!("   | Direct (NEW)      | {:>12.0} | {:.2}x       |", direct_rate, speedup);
+    println!(
+        "   | Indirect (OLD)    | {:>12.0} | baseline    |",
+        indirect_rate
+    );
+    println!(
+        "   | Direct (NEW)      | {:>12.0} | {:.2}x       |",
+        direct_rate, speedup
+    );
     println!();
 
     if speedup >= 1.5 {
@@ -325,7 +329,10 @@ fn test_json_serialization_sanity() {
     // Test indirect serialization
     let json_obj = build_json_payload(&records[0]);
     let bytes = sonic_rs::to_vec(&json_obj).unwrap();
-    assert!(!bytes.is_empty(), "JSON serialization should produce output");
+    assert!(
+        !bytes.is_empty(),
+        "JSON serialization should produce output"
+    );
 
     // Test direct serialization
     let payload = DirectJsonPayload {
@@ -335,12 +342,18 @@ fn test_json_serialization_sanity() {
         partition: records[0].partition,
     };
     let direct_bytes = sonic_rs::to_vec(&payload).unwrap();
-    assert!(!direct_bytes.is_empty(), "Direct serialization should produce output");
+    assert!(
+        !direct_bytes.is_empty(),
+        "Direct serialization should produce output"
+    );
 
     // Verify we can parse both back
     let parsed: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert!(parsed.is_object(), "Parsed JSON should be an object");
 
     let direct_parsed: serde_json::Value = serde_json::from_slice(&direct_bytes).unwrap();
-    assert!(direct_parsed.is_object(), "Direct parsed JSON should be an object");
+    assert!(
+        direct_parsed.is_object(),
+        "Direct parsed JSON should be an object"
+    );
 }

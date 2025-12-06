@@ -49,6 +49,7 @@ async fn test_datasource_config_creation() {
         app_name: None,
         instance_id: None,
         batch_config: None,
+        use_transactions: false,
     };
 
     assert_eq!(config.default_topic, "default");
@@ -66,6 +67,7 @@ async fn test_kafka_datasource_creation_mock() {
         app_name: None,
         instance_id: None,
         batch_config: None,
+        use_transactions: false,
     };
 
     // Verify that configuration extracts the right values
@@ -89,6 +91,7 @@ async fn test_file_datasource_config() {
         app_name: None,
         instance_id: None,
         batch_config: None,
+        use_transactions: false,
     };
 
     assert_eq!(
@@ -272,6 +275,7 @@ async fn test_datasource_config_properties() {
         app_name: None,
         instance_id: None,
         batch_config: None,
+        use_transactions: false,
     };
 
     // Verify config is created correctly
@@ -301,6 +305,7 @@ fn test_default_values_extraction() {
         app_name: None,
         instance_id: None,
         batch_config: None,
+        use_transactions: false,
     };
 
     // When creating Kafka reader, it should use defaults

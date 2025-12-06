@@ -12,8 +12,8 @@
 
 use std::collections::HashMap;
 use std::time::Instant;
-use velostream::velostream::serialization::json_codec::JsonCodec;
 use velostream::velostream::kafka::serialization::Serde;
+use velostream::velostream::serialization::json_codec::JsonCodec;
 use velostream::velostream::sql::execution::types::FieldValue;
 
 /// Create test JSON payloads
@@ -199,9 +199,19 @@ async fn json_deserialization_benchmark() {
     println!();
     println!("   | Method            | Rate (rec/s) | vs Indirect |");
     println!("   |-------------------|--------------|-------------|");
-    println!("   | Indirect (OLD)    | {:>12.0} | baseline    |", indirect_rate);
-    println!("   | Direct (NEW) ⭐   | {:>12.0} | {:.2}x       |", direct_rate, speedup);
-    println!("   | Parse only        | {:>12.0} | {:.2}x       |", parse_rate, parse_rate / indirect_rate);
+    println!(
+        "   | Indirect (OLD)    | {:>12.0} | baseline    |",
+        indirect_rate
+    );
+    println!(
+        "   | Direct (NEW) ⭐   | {:>12.0} | {:.2}x       |",
+        direct_rate, speedup
+    );
+    println!(
+        "   | Parse only        | {:>12.0} | {:.2}x       |",
+        parse_rate,
+        parse_rate / indirect_rate
+    );
     println!();
 
     if speedup >= 1.5 {

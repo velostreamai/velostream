@@ -99,7 +99,8 @@ async fn test_create_multi_source_readers() {
     let batch_config = None;
 
     // This will fail in CI without actual Kafka, but tests the creation logic
-    let result = create_multi_source_readers(&sources, "test-job", None, None, &batch_config).await;
+    let result =
+        create_multi_source_readers(&sources, "test-job", None, None, &batch_config, false).await;
 
     match result {
         Ok(readers) => {
@@ -131,7 +132,8 @@ async fn test_create_multi_sink_writers() {
     let sinks = create_test_multi_sinks();
     let batch_config = None;
 
-    let result = create_multi_sink_writers(&sinks, "test-job", None, None, &batch_config).await;
+    let result =
+        create_multi_sink_writers(&sinks, "test-job", None, None, &batch_config, false).await;
 
     match result {
         Ok(writers) => {
@@ -366,7 +368,8 @@ async fn test_error_handling_partial_source_failures() {
     });
 
     let result =
-        create_multi_source_readers(&sources, "test-error-handling", None, None, &None).await;
+        create_multi_source_readers(&sources, "test-error-handling", None, None, &None, false)
+            .await;
 
     // Should fail gracefully and provide meaningful error message
     match result {
@@ -418,8 +421,15 @@ async fn test_batch_config_propagation_multi_source() {
         enable_batching: true,
     });
 
-    let result =
-        create_multi_source_readers(&sources, "test-batch-config", None, None, &batch_config).await;
+    let result = create_multi_source_readers(
+        &sources,
+        "test-batch-config",
+        None,
+        None,
+        &batch_config,
+        false,
+    )
+    .await;
 
     // Test that batch config is properly propagated (will fail in CI but tests the interface)
     match result {
@@ -552,6 +562,7 @@ async fn test_complete_multi_source_workflow() {
             None,
             None,
             &None,
+            false,
         )
         .await;
 

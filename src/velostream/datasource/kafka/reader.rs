@@ -948,79 +948,148 @@ impl KafkaDataReader {
     }
 
     /// Read fixed number of records
-    /// FR-081 Phase 2B: Performance-optimized batch reading using tier-appropriate streaming
+    /// FR-081 Phase 2B: Performance-optimized batch reading using blocking poll
+    ///
+    /// Uses blocking poll in a spawn_blocking task for maximum throughput.
+    /// This avoids async stream overhead and matches raw rdkafka performance.
     ///
     /// Polls the Kafka consumer until either:
     /// - Target batch size is reached
-    /// - No more messages are available (consumer returns None)
+    /// - No more messages are available (timeout)
     /// - A consumer error occurs
-    ///
-    /// The Kafka consumer's fetch.max.wait.ms controls how long each poll waits for data.
     async fn read_fixed_size(
         &mut self,
         size: usize,
     ) -> Result<Vec<StreamRecord>, Box<dyn Error + Send + Sync>> {
-        use futures::StreamExt;
-
         let target_size = size.min(self.batch_config.max_batch_size);
-        let mut records = Vec::with_capacity(target_size);
+        let consumer = Arc::clone(&self.consumer);
+        let topic = self.topic.clone();
+        let event_time_config = self.event_time_config.clone();
 
         log::debug!(
-            "🔍 FR-081: read_fixed_size using {:?} tier for {} records",
-            self.tier,
+            "🔍 FR-081: read_fixed_size using blocking poll for {} records",
             target_size
         );
 
-        // FR-081: Use buffered streaming for batch reads (memory efficient)
-        let mut stream: MessageStream<'_> = match &self.tier {
-            ConsumerTier::Buffered { batch_size } => {
-                // Already optimized for batching - use native batch size
-                Box::pin(self.consumer.buffered_stream(*batch_size))
-            }
-            _ => {
-                // Standard/Dedicated: Use buffered stream with target size for better performance
-                Box::pin(self.consumer.buffered_stream(target_size))
-            }
-        };
+        // Use spawn_blocking to run blocking poll in thread pool
+        let messages = tokio::task::spawn_blocking(move || {
+            let mut messages = Vec::with_capacity(target_size);
+            let poll_timeout = Duration::from_millis(100);
 
-        // Poll until we have enough records or no more are available
-        while records.len() < target_size {
-            match stream.next().await {
-                Some(Ok(message)) => {
-                    log::trace!(
-                        "🔍 read_fixed_size: received message from partition {} offset {}",
-                        message.partition(),
-                        message.offset()
-                    );
-                    let record = self.create_stream_record(message)?;
-                    records.push(record);
-                }
-                Some(Err(e)) => {
-                    // Consumer error - return what we have or propagate if empty
-                    log::error!(
-                        "🚨 Consumer error on topic '{}': {:?}, records so far: {}",
-                        self.topic,
-                        e,
-                        records.len()
-                    );
-                    if records.is_empty() {
-                        return Err(Box::new(e));
+            // First, drain all immediately available messages (non-blocking)
+            loop {
+                match consumer.try_poll() {
+                    Ok(Some(msg)) => {
+                        messages.push(msg);
+                        if messages.len() >= target_size {
+                            return messages;
+                        }
                     }
-                    break;
-                }
-                None => {
-                    // No more messages available - return what we have
-                    log::debug!(
-                        "🔍 read_fixed_size: no more messages, returning {} records",
-                        records.len()
-                    );
-                    break;
+                    Ok(None) => break, // No more immediately available
+                    Err(e) => {
+                        log::error!("Consumer error during try_poll: {:?}", e);
+                        break;
+                    }
                 }
             }
+
+            // If we need more, do a blocking poll to wait for data
+            if messages.len() < target_size {
+                match consumer.poll_blocking(poll_timeout) {
+                    Ok(msg) => {
+                        messages.push(msg);
+                        // After getting one message, drain any others that arrived
+                        while messages.len() < target_size {
+                            match consumer.try_poll() {
+                                Ok(Some(msg)) => messages.push(msg),
+                                Ok(None) | Err(_) => break,
+                            }
+                        }
+                    }
+                    Err(crate::velostream::kafka::kafka_error::ConsumerError::Timeout) => {
+                        // Normal timeout - no more messages
+                    }
+                    Err(e) => {
+                        log::error!("Consumer error during blocking poll: {:?}", e);
+                    }
+                }
+            }
+
+            messages
+        })
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+        // Convert messages to StreamRecords
+        let mut records = Vec::with_capacity(messages.len());
+        for message in messages {
+            let record =
+                Self::create_stream_record_from_message(message, &topic, &event_time_config)?;
+            records.push(record);
         }
 
         log::debug!("🔍 read_fixed_size: returning {} records", records.len());
         Ok(records)
+    }
+
+    /// Create StreamRecord from a Message (static version for use in spawn_blocking)
+    fn create_stream_record_from_message(
+        message: crate::velostream::kafka::Message<
+            String,
+            std::collections::HashMap<String, FieldValue>,
+        >,
+        topic: &str,
+        event_time_config: &Option<EventTimeConfig>,
+    ) -> Result<StreamRecord, Box<dyn Error + Send + Sync>> {
+        let mut fields = message.value;
+
+        // Add Kafka metadata as fields
+        fields.insert(
+            "_kafka_partition".to_string(),
+            FieldValue::Integer(message.partition as i64),
+        );
+        fields.insert(
+            "_kafka_offset".to_string(),
+            FieldValue::Integer(message.offset),
+        );
+        fields.insert(
+            "_kafka_topic".to_string(),
+            FieldValue::String(topic.to_string()),
+        );
+
+        if let Some(key) = &message.key {
+            fields.insert("_kafka_key".to_string(), FieldValue::String(key.clone()));
+        }
+
+        // Extract event time if configured
+        let event_time = if let Some(config) = event_time_config {
+            crate::velostream::datasource::extract_event_time(&fields, config).ok()
+        } else {
+            message
+                .timestamp
+                .and_then(chrono::DateTime::from_timestamp_millis)
+        };
+
+        // Get timestamp from message or use current time
+        let timestamp = message
+            .timestamp
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+
+        // Convert Headers to HashMap<String, String>
+        let headers: std::collections::HashMap<String, String> = message
+            .headers
+            .iter()
+            .filter_map(|(k, v)| v.as_ref().map(|val| (k.clone(), val.clone())))
+            .collect();
+
+        Ok(StreamRecord {
+            fields,
+            timestamp,
+            offset: message.offset,
+            partition: message.partition,
+            headers,
+            event_time,
+        })
     }
 
     /// Read records within a time window

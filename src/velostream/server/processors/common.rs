@@ -725,6 +725,8 @@ pub struct DataSourceConfig {
     pub app_name: Option<String>, // For multi-JobServer consumer group coordination
     pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
+    /// Enable transactional mode (isolation.level=read_committed for consumers)
+    pub use_transactions: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -734,6 +736,8 @@ pub struct DataSinkConfig {
     pub app_name: Option<String>, // For hierarchical client.id generation
     pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
+    /// Enable transactional mode (transactional.id for exactly-once producers)
+    pub use_transactions: bool,
 }
 
 /// Result of datasource creation
@@ -827,6 +831,7 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
                 config.app_name.as_deref(),
                 config.instance_id.as_deref(),
                 &config.batch_config,
+                config.use_transactions,
             )
             .await
         }
@@ -848,6 +853,7 @@ async fn create_kafka_reader(
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> DataSourceCreationResult {
     // Extract topic name from properties, or use source name as default
     let topic = props
@@ -858,16 +864,38 @@ async fn create_kafka_reader(
         .unwrap_or_else(|| source_name.to_string());
 
     info!(
-        "Creating Kafka reader for source '{}' with topic '{}' (app: {}, instance: {})",
+        "Creating Kafka reader for source '{}' with topic '{}' (app: {}, instance: {}, transactional: {})",
         source_name,
         topic,
         app_name.unwrap_or("none"),
-        instance_id.unwrap_or("none")
+        instance_id.unwrap_or("none"),
+        use_transactions
     );
+
+    // Build properties with client.id and isolation.level if transactional mode is enabled
+    let mut source_props = props.clone();
+
+    // Generate client.id for consumer identification in logs and monitoring
+    let client_id = format!(
+        "velo_{}_{}_{}_{}",
+        app_name.unwrap_or("default"),
+        job_name,
+        instance_id.unwrap_or("0"),
+        source_name.replace("source_", "")
+    );
+    source_props.insert("client.id".to_string(), client_id.clone());
+    debug!("Setting consumer client.id='{}'", client_id);
+
+    if use_transactions {
+        // Set isolation.level=read_committed for exactly-once consumer semantics
+        // This ensures consumers only see committed transactional messages
+        info!("Enabling transactional consumer with isolation.level=read_committed");
+        source_props.insert("isolation.level".to_string(), "read_committed".to_string());
+    }
 
     // Let KafkaDataSource handle its own configuration extraction
     let mut datasource =
-        KafkaDataSource::from_properties(props, &topic, job_name, app_name, instance_id);
+        KafkaDataSource::from_properties(&source_props, &topic, job_name, app_name, instance_id);
 
     // Self-initialize with the extracted configuration
     datasource
@@ -946,6 +974,7 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
                 config.app_name.as_deref(),
                 config.instance_id.as_deref(),
                 &config.batch_config,
+                config.use_transactions,
             )
             .await
         }
@@ -967,6 +996,7 @@ async fn create_kafka_writer(
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> DataSinkCreationResult {
     // Extract brokers from properties
     // NOTE: Check flattened YAML keys (datasink.producer_config.bootstrap.servers) first
@@ -994,21 +1024,54 @@ async fn create_kafka_writer(
         .unwrap_or_else(|| sink_name.to_string());
 
     info!(
-        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}', instance: {}",
+        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}', instance: {}, transactional: {}",
         sink_name,
         brokers,
         topic,
-        instance_id.unwrap_or("none")
+        instance_id.unwrap_or("none"),
+        use_transactions
     );
 
+    // Build properties with client.id and transactional.id if transactional mode is enabled
+    let mut sink_props = props.clone();
+
+    // Generate client.id for producer identification in logs and monitoring
+    let client_id = format!(
+        "velo_{}_{}_{}_{}",
+        app_name.unwrap_or("default"),
+        job_name,
+        instance_id.unwrap_or("0"),
+        sink_name.replace("sink_", "")
+    );
+    sink_props.insert("client.id".to_string(), client_id.clone());
+    debug!("Setting producer client.id='{}'", client_id);
+
+    if use_transactions {
+        // Generate unique transactional.id: velo_{app}_{job}_{instance}_{sink}
+        // Must be unique per producer instance to avoid conflicts
+        let txn_id = format!(
+            "velo_{}_{}_{}_{}",
+            app_name.unwrap_or("default"),
+            job_name,
+            instance_id.unwrap_or("0"),
+            sink_name.replace("sink_", "")
+        );
+        info!(
+            "Enabling transactional producer with transactional.id='{}'",
+            txn_id
+        );
+        sink_props.insert("transactional.id".to_string(), txn_id);
+    }
+
     // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(props, job_name, app_name, instance_id);
+    let mut datasink = KafkaDataSink::from_properties(&sink_props, job_name, app_name, instance_id);
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
+    // Note: sink_props includes transactional.id if use_transactions is true
     let config = SinkConfig::Kafka {
         brokers,
         topic,
-        properties: props.clone(),
+        properties: sink_props.clone(),
     };
     datasink
         .initialize(config)
@@ -1085,27 +1148,31 @@ async fn create_file_writer(
 /// * `sources` - Data source requirements
 /// * `job_name` - Name of the job
 /// * `app_name` - Optional SQL Application name for consumer group coordination
+/// * `instance_id` - Optional instance ID for unique client.id generation
 /// * `batch_config` - Optional batch configuration
+/// * `use_transactions` - Enable transactional mode (isolation.level=read_committed for Kafka consumers)
 pub async fn create_multi_source_readers(
     sources: &[DataSourceRequirement],
     job_name: &str,
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> MultiSourceCreationResult {
     let mut readers = HashMap::new();
 
     info!(
-        "Creating {} data sources for job '{}'",
+        "Creating {} data sources for job '{}' (transactional={})",
         sources.len(),
-        job_name
+        job_name,
+        use_transactions
     );
 
     for (idx, requirement) in sources.iter().enumerate() {
         let source_name = format!("source_{}_{}", idx, requirement.name);
         info!(
-            "Creating source '{}' of type {:?}",
-            source_name, requirement.source_type
+            "Creating source '{}' of type {:?} (transactional={})",
+            source_name, requirement.source_type, use_transactions
         );
 
         // Use requirement.name as the default topic for this source
@@ -1116,6 +1183,7 @@ pub async fn create_multi_source_readers(
             app_name: app_name.map(|a| a.to_string()),
             instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
+            use_transactions,
         };
 
         match create_datasource_reader(&source_config).await {
@@ -1145,12 +1213,21 @@ pub async fn create_multi_source_readers(
 }
 
 /// Create multiple datasink writers from analysis requirements
+///
+/// # Arguments
+/// * `sinks` - Data sink requirements
+/// * `job_name` - Name of the job
+/// * `app_name` - Optional SQL Application name
+/// * `instance_id` - Optional instance ID for unique client.id generation
+/// * `batch_config` - Optional batch configuration
+/// * `use_transactions` - Enable transactional mode (injects transactional.id for Kafka producers)
 pub async fn create_multi_sink_writers(
     sinks: &[DataSinkRequirement],
     job_name: &str,
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> MultiSinkCreationResult {
     let mut writers = HashMap::new();
 
@@ -1162,13 +1239,18 @@ pub async fn create_multi_sink_writers(
         return Ok(writers);
     }
 
-    info!("Creating {} data sinks for job '{}'", sinks.len(), job_name);
+    info!(
+        "Creating {} data sinks for job '{}' (transactional={})",
+        sinks.len(),
+        job_name,
+        use_transactions
+    );
 
     for (idx, requirement) in sinks.iter().enumerate() {
         let sink_name = format!("sink_{}_{}", idx, requirement.name);
         info!(
-            "Creating sink '{}' of type {:?}",
-            sink_name, requirement.sink_type
+            "Creating sink '{}' of type {:?} (transactional={})",
+            sink_name, requirement.sink_type, use_transactions
         );
 
         let sink_config = DataSinkConfig {
@@ -1177,6 +1259,7 @@ pub async fn create_multi_sink_writers(
             app_name: app_name.map(|a| a.to_string()),
             instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
+            use_transactions,
         };
 
         match create_datasource_writer(&sink_config).await {
