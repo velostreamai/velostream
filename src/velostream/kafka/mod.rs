@@ -26,6 +26,7 @@ pub mod common_config;
 pub mod kafka_error;
 pub mod kafka_fast_consumer;
 pub mod performance_presets;
+pub mod polled_producer;
 
 // Re-export main API (FR-081 Phase 2D: FastConsumer is the primary consumer)
 pub use kafka_fast_consumer::Consumer as FastConsumer;
@@ -44,6 +45,11 @@ pub use utils::convert_kafka_log_level;
 // Re-export common types at root level for easier access
 pub use headers::Headers;
 pub use message::Message;
+
+// Re-export polled producer types
+pub use polled_producer::{
+    AsyncPolledProducer, PolledProducer, SyncPolledProducer, TransactionalPolledProducer,
+};
 
 // Re-export admin client for examples and tests
 

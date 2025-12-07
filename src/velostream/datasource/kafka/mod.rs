@@ -45,7 +45,6 @@ pub mod config_helpers;
 pub mod data_sink;
 pub mod data_source;
 pub mod error;
-pub mod polled_producer;
 pub mod property_keys;
 pub mod reader;
 pub mod writer;
@@ -54,9 +53,6 @@ pub mod writer;
 pub use data_sink::KafkaDataSink;
 pub use data_source::KafkaDataSource;
 pub use error::{KafkaDataSinkError, KafkaDataSourceError};
-pub use polled_producer::{
-    AsyncPolledProducer, PolledProducer, SyncPolledProducer, TransactionalPolledProducer,
-};
 
 // Re-export property keys for standardized configuration
 pub use property_keys::{

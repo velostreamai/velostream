@@ -312,15 +312,9 @@ impl QueryExecutor {
 
         // Determine output topic: use sink topic from SQL config, or fall back to query name
         // (the query name IS the sink name in CREATE STREAM statements)
-        let base_output_topic = parsed_query
+        let output_topic = parsed_query
             .and_then(|pq| pq.sink_topic.clone())
             .unwrap_or_else(|| query.name.clone());
-
-        let output_topic = if let Some(ref overrides) = self.overrides {
-            overrides.override_topic(&base_output_topic)
-        } else {
-            base_output_topic
-        };
 
         log::debug!("Output topic for query '{}': {}", query.name, output_topic);
 
@@ -537,19 +531,13 @@ impl QueryExecutor {
 
         let records = self.generator.generate(schema, record_count)?;
 
-        // Resolve topic: use source_topics mapping from SQL analysis, then apply overrides
+        // Resolve topic: use source_topics mapping from SQL analysis
         // This maps stream name (e.g., "in_market_data_stream") to actual topic (e.g., "in_market_data")
-        let base_topic = self
+        let topic = self
             .source_topics
             .get(&input.source)
             .cloned()
             .unwrap_or_else(|| input.source.clone());
-
-        let topic = if let Some(ref overrides) = self.overrides {
-            overrides.override_topic(&base_topic)
-        } else {
-            base_topic
-        };
 
         log::info!(
             "Publishing to topic '{}' (source: '{}', resolved from SQL: {})",
@@ -596,19 +584,13 @@ impl QueryExecutor {
                 output.query_name
             );
 
-            // Resolve topic: use source_topics mapping from SQL analysis, then apply overrides
+            // Resolve topic: use source_topics mapping from SQL analysis
             // This maps stream name (e.g., "in_market_data_stream") to actual topic (e.g., "in_market_data")
-            let base_topic = self
+            let topic = self
                 .source_topics
                 .get(source)
                 .cloned()
                 .unwrap_or_else(|| source.to_string());
-
-            let topic = if let Some(ref overrides) = self.overrides {
-                overrides.override_topic(&base_topic)
-            } else {
-                base_topic
-            };
 
             log::info!(
                 "Publishing from previous to topic '{}' (source: '{}', resolved from SQL: {})",

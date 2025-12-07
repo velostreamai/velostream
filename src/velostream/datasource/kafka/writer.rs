@@ -7,8 +7,8 @@
 //! Transactional mode is automatically enabled when `transactional.id` is provided in properties.
 
 use crate::velostream::datasource::config::unified::{ConfigFactory, ConfigLogger};
-use crate::velostream::datasource::kafka::polled_producer::TransactionalPolledProducer;
 use crate::velostream::datasource::{BatchConfig, DataWriter};
+use crate::velostream::kafka::polled_producer::{PolledProducer, TransactionalPolledProducer};
 use crate::velostream::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
@@ -708,7 +708,6 @@ impl KafkaDataWriter {
     ) -> Result<(), rdkafka::error::KafkaError> {
         match &self.producer_kind {
             ProducerKind::Transactional(txn_producer) => {
-                use crate::velostream::datasource::kafka::polled_producer::PolledProducer;
                 // Build a BaseRecord for the TransactionalPolledProducer
                 let mut record = BaseRecord::to(topic).payload(payload);
                 if let Some(k) = key {
@@ -731,10 +730,7 @@ impl KafkaDataWriter {
     fn flush_producer(&mut self, timeout: Duration) -> Result<(), rdkafka::error::KafkaError> {
         match &mut self.producer_kind {
             ProducerKind::Async { producer, .. } => producer.flush(timeout),
-            ProducerKind::Transactional(txn_producer) => {
-                use crate::velostream::datasource::kafka::polled_producer::PolledProducer;
-                txn_producer.flush(timeout)
-            }
+            ProducerKind::Transactional(txn_producer) => txn_producer.flush(timeout),
         }
     }
 
@@ -1356,7 +1352,6 @@ impl DataWriter for KafkaDataWriter {
                     self.topic
                 );
 
-                use crate::velostream::datasource::kafka::polled_producer::PolledProducer;
                 match txn_producer.begin_transaction() {
                     Ok(()) => {
                         log::debug!(
@@ -1404,7 +1399,6 @@ impl DataWriter for KafkaDataWriter {
                     self.topic
                 );
 
-                use crate::velostream::datasource::kafka::polled_producer::PolledProducer;
                 match txn_producer.commit_transaction(Duration::from_secs(60)) {
                     Ok(()) => {
                         log::debug!(
@@ -1441,7 +1435,6 @@ impl DataWriter for KafkaDataWriter {
                     self.topic
                 );
 
-                use crate::velostream::datasource::kafka::polled_producer::PolledProducer;
                 match txn_producer.abort_transaction(Duration::from_secs(60)) {
                     Ok(()) => {
                         log::debug!(

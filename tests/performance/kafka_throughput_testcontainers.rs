@@ -2852,7 +2852,7 @@ async fn perf_bottleneck_isolation() {
 async fn perf_polled_producer_comparison() {
     use rdkafka::producer::BaseRecord;
     use std::time::Instant;
-    use velostream::velostream::datasource::kafka::polled_producer::{
+    use velostream::velostream::kafka::polled_producer::{
         AsyncPolledProducer, PolledProducer, SyncPolledProducer,
     };
 

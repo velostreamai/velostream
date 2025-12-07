@@ -413,7 +413,7 @@ enum TxnCommand {
 /// ## Example
 ///
 /// ```rust,no_run
-/// use velostream::velostream::datasource::kafka::polled_producer::TransactionalPolledProducer;
+/// use velostream::velostream::kafka::polled_producer::TransactionalPolledProducer;
 /// use std::time::Duration;
 ///
 /// let producer = TransactionalPolledProducer::new(

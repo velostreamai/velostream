@@ -57,11 +57,6 @@ enum Commands {
         #[arg(long)]
         ai: bool,
 
-        /// Use exact topic names from SQL config (no test prefix)
-        /// Use this when testing against a running SQL job with fixed topic names
-        #[arg(long)]
-        no_topic_prefix: bool,
-
         /// Auto-start Kafka using testcontainers (requires Docker)
         /// If not specified, will auto-start when no external Kafka is available
         #[arg(long)]
@@ -158,7 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             output,
             timeout_ms,
             ai,
-            no_topic_prefix,
             use_testcontainers,
             kafka,
             keep_containers,
@@ -514,20 +508,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or_default()
                         .as_millis() as u32
                 );
-                let mut override_builder = ConfigOverrideBuilder::new(&run_id)
-                    .bootstrap_servers(infra.bootstrap_servers().unwrap());
-
-                // By default, use exact topic names from SQL config (no prefix)
-                // This ensures the test harness and SQL job use the same topic names
-                if !no_topic_prefix {
-                    // no_topic_prefix=false means we should NOT add prefixes (default behavior)
-                    override_builder = override_builder.no_topic_prefix();
-                } else {
-                    // no_topic_prefix=true is a legacy flag that now does nothing (already default)
-                    println!("   Note: --no-topic-prefix is now the default behavior");
-                }
-
-                let overrides = override_builder.build();
+                // Configure test infrastructure overrides (bootstrap servers, etc.)
+                let overrides = ConfigOverrideBuilder::new(&run_id)
+                    .bootstrap_servers(infra.bootstrap_servers().unwrap())
+                    .build();
 
                 // Step 5: Create executor with StreamJobServer for SQL execution
                 let executor = QueryExecutor::new(infra)

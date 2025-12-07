@@ -2,7 +2,6 @@
 //!
 //! Intercepts source/sink configurations and overrides:
 //! - bootstrap.servers → testcontainers Kafka
-//! - topic names → test_{run_id}_{original}
 //! - file paths → temp directory paths
 
 use std::collections::HashMap;
@@ -14,12 +13,6 @@ pub struct ConfigOverrides {
     /// Bootstrap servers override (testcontainers Kafka)
     pub bootstrap_servers: Option<String>,
 
-    /// Topic name prefix (test_{run_id}_)
-    pub topic_prefix: String,
-
-    /// Whether to apply topic prefix (default: true)
-    pub apply_topic_prefix: bool,
-
     /// Temp directory for file sinks
     pub temp_dir: Option<PathBuf>,
 
@@ -29,20 +22,13 @@ pub struct ConfigOverrides {
 
 impl ConfigOverrides {
     /// Create new overrides with run ID
+    #[allow(unused_variables)]
     pub fn new(run_id: &str) -> Self {
         Self {
             bootstrap_servers: None,
-            topic_prefix: format!("test_{}_", run_id),
-            apply_topic_prefix: true,
             temp_dir: None,
             properties: HashMap::new(),
         }
-    }
-
-    /// Disable topic prefix (use exact topic names from config)
-    pub fn without_topic_prefix(mut self) -> Self {
-        self.apply_topic_prefix = false;
-        self
     }
 
     /// Set bootstrap servers override
@@ -61,15 +47,6 @@ impl ConfigOverrides {
     pub fn with_property(mut self, key: &str, value: &str) -> Self {
         self.properties.insert(key.to_string(), value.to_string());
         self
-    }
-
-    /// Override a topic name with the test prefix (if enabled)
-    pub fn override_topic(&self, original: &str) -> String {
-        if self.apply_topic_prefix {
-            format!("{}{}", self.topic_prefix, original)
-        } else {
-            original.to_string()
-        }
     }
 
     /// Override a file path to use temp directory
@@ -103,19 +80,6 @@ impl ConfigOverrides {
             }
             // Also add standard key if none exists
             config.insert("bootstrap.servers".to_string(), servers.clone());
-        }
-
-        // Override topic names
-        let topic_keys: Vec<String> = config
-            .keys()
-            .filter(|k| k.contains("topic"))
-            .cloned()
-            .collect();
-        for key in topic_keys {
-            if let Some(original) = config.get(&key) {
-                let overridden = self.override_topic(original);
-                config.insert(key, overridden);
-            }
         }
 
         // Override file paths
@@ -162,22 +126,6 @@ impl ConfigOverrides {
             }
         }
 
-        // Override topic names in SQL WITH clauses (only if topic prefix is enabled)
-        // Pattern: '<source_name>.topic' = '<topic_name>' or 'topic' = '<topic_name>'
-        if self.apply_topic_prefix {
-            // Match patterns like 'market_data.topic' = 'my_topic' or 'topic' = 'my_topic'
-            if let Ok(re) = regex::Regex::new(r#"'([^']*\.)?topic'\s*=\s*'([^']*)'"#) {
-                result = re
-                    .replace_all(&result, |caps: &regex::Captures| {
-                        let prefix = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                        let topic_name = &caps[2];
-                        let new_topic = self.override_topic(topic_name);
-                        format!("'{}topic' = '{}'", prefix, new_topic)
-                    })
-                    .to_string();
-            }
-        }
-
         result
     }
 }
@@ -215,12 +163,6 @@ impl ConfigOverrideBuilder {
         self
     }
 
-    /// Disable topic prefix (use exact topic names from config)
-    pub fn no_topic_prefix(mut self) -> Self {
-        self.overrides.apply_topic_prefix = false;
-        self
-    }
-
     /// Build the config overrides
     pub fn build(self) -> ConfigOverrides {
         self.overrides
@@ -230,15 +172,6 @@ impl ConfigOverrideBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_topic_override() {
-        let overrides = ConfigOverrides::new("abc123");
-        assert_eq!(
-            overrides.override_topic("market_data"),
-            "test_abc123_market_data"
-        );
-    }
 
     #[test]
     fn test_file_path_override() {
@@ -258,13 +191,12 @@ mod tests {
 
         overrides.apply_to_config(&mut config);
 
+        // Bootstrap servers should be overridden
         assert_eq!(
             config.get("bootstrap.servers"),
             Some(&"localhost:9092".to_string())
         );
-        assert_eq!(
-            config.get("topic"),
-            Some(&"test_abc123_my_topic".to_string())
-        );
+        // Topic should remain unchanged (no prefix support)
+        assert_eq!(config.get("topic"), Some(&"my_topic".to_string()));
     }
 }
