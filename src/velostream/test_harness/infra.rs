@@ -447,6 +447,30 @@ impl TestHarnessInfra {
         Ok(producer)
     }
 
+    /// Create a high-throughput async producer using PolledProducer
+    ///
+    /// This producer uses a dedicated poll thread for handling delivery callbacks,
+    /// which allows non-blocking sends and much higher throughput than FutureProducer.
+    pub fn create_async_producer(
+        &self,
+    ) -> TestHarnessResult<crate::velostream::kafka::polled_producer::AsyncPolledProducer> {
+        let bootstrap_servers =
+            self.bootstrap_servers
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Bootstrap servers not available. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        crate::velostream::kafka::polled_producer::AsyncPolledProducer::with_high_throughput(
+            bootstrap_servers,
+        )
+        .map_err(|e| TestHarnessError::InfraError {
+            message: format!("Failed to create async producer: {}", e),
+            source: Some(e.to_string()),
+        })
+    }
+
     /// Create a Kafka consumer for capturing output
     pub fn create_consumer(
         &self,

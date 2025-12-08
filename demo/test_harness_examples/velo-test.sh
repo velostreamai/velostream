@@ -9,15 +9,20 @@
 #   ./velo-test.sh validate        # Validate all SQL syntax only (no Docker needed)
 #   ./velo-test.sh tier1           # Run tier1_basic tests only
 #   ./velo-test.sh getting_started # Run getting_started example
+#   ./velo-test.sh menu            # Interactive menu to select SQL files only
+#   ./velo-test.sh cases           # Interactive: select SQL file, then test case
 #
 # Usage (from a subdirectory like getting_started):
 #   ../velo-test.sh .              # Run current directory as a test tier
 #   ../velo-test.sh validate .     # Validate SQL in current directory
+#   ../velo-test.sh menu           # Interactive menu for SQL files only
+#   ../velo-test.sh cases          # Interactive: select SQL file → test case
 #
 # Options:
 #   --kafka <servers>     Use external Kafka instead of testcontainers
 #   --timeout <ms>        Timeout per query in milliseconds (default: 60000)
 #   --output <format>     Output format: text, json, junit
+#   -q, --query <name>    Run only a specific test case by name
 #
 # Requirements:
 #   - velo-test binary (build with: cargo build --release --features test-support)
@@ -68,6 +73,7 @@ OUTPUT_FORMAT="text"
 TIMEOUT_MS=60000
 KAFKA_SERVERS=""
 TARGET_DIR=""
+QUERY_FILTER=""
 
 # Parse command line arguments
 MODE="${1:-run}"
@@ -93,12 +99,23 @@ while [[ $# -gt 0 ]]; do
             KAFKA_SERVERS="$2"
             shift 2
             ;;
+        --query|-q)
+            QUERY_FILTER="$2"
+            shift 2
+            ;;
         *)
             echo -e "${RED}Unknown option: $1${NC}"
             exit 1
             ;;
     esac
 done
+
+# Build query filter option
+QUERY_OPTS=""
+if [[ -n "$QUERY_FILTER" ]]; then
+    QUERY_OPTS="--query $QUERY_FILTER"
+    echo -e "${BLUE}Running only query: $QUERY_FILTER${NC}"
+fi
 
 # Build Kafka options
 KAFKA_OPTS=""
@@ -143,6 +160,267 @@ get_tier_dir() {
         tier6) echo "tier6_edge_cases" ;;
         *) echo "" ;;
     esac
+}
+
+# Function to run a single SQL file directly
+run_sql_file() {
+    local sql_file="$1"
+    local sql_dir="$(dirname "$sql_file")"
+    local tier_dir="$(dirname "$sql_dir")"
+
+    # Look for test_spec.yaml in parent directory
+    local spec_file="$tier_dir/test_spec.yaml"
+    local schemas_dir="$tier_dir/schemas"
+
+    # Fall back to shared schemas
+    if [[ ! -d "$schemas_dir" ]]; then
+        schemas_dir="$SCRIPT_DIR/schemas"
+    fi
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Running: $(basename "$sql_file")${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo "  SQL File:  $sql_file"
+
+    if [[ -f "$spec_file" ]]; then
+        echo "  Spec:      $spec_file"
+        echo "  Schemas:   $schemas_dir"
+        echo ""
+        "$VELO_TEST" run "$sql_file" \
+            --spec "$spec_file" \
+            --schemas "$schemas_dir" \
+            --timeout-ms "$TIMEOUT_MS" \
+            --output "$OUTPUT_FORMAT" \
+            ${QUERY_OPTS} \
+            ${KAFKA_OPTS}
+    else
+        echo "  (No spec file - running without assertions)"
+        echo ""
+        "$VELO_TEST" run "$sql_file" \
+            --timeout-ms "$TIMEOUT_MS" \
+            --output "$OUTPUT_FORMAT" \
+            ${QUERY_OPTS} \
+            ${KAFKA_OPTS}
+    fi
+}
+
+# Function to show interactive menu and select SQL file
+show_menu() {
+    local search_dir="$1"
+
+    # Find all SQL files
+    local sql_files=()
+    while IFS= read -r -d '' file; do
+        sql_files+=("$file")
+    done < <(find "$search_dir" -name "*.sql" -type f -print0 | sort -z)
+
+    if [[ ${#sql_files[@]} -eq 0 ]]; then
+        echo -e "${RED}No SQL files found in $search_dir${NC}"
+        return 1
+    fi
+
+    echo -e "${YELLOW}Select a SQL file to run:${NC}"
+    echo ""
+
+    local i=1
+    for sql_file in "${sql_files[@]}"; do
+        # Get relative path for cleaner display
+        local rel_path="${sql_file#$search_dir/}"
+        echo -e "  ${CYAN}$i)${NC} $rel_path"
+        ((i++))
+    done
+
+    echo ""
+    echo -e "  ${CYAN}0)${NC} Exit"
+    echo ""
+
+    while true; do
+        echo -n -e "${GREEN}Enter selection [1-${#sql_files[@]}]: ${NC}"
+        read -r selection
+
+        if [[ "$selection" == "0" || "$selection" == "q" || "$selection" == "Q" ]]; then
+            echo "Exiting."
+            return 0
+        fi
+
+        if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -le ${#sql_files[@]} ]]; then
+            local selected_file="${sql_files[$((selection-1))]}"
+            echo ""
+            run_sql_file "$selected_file"
+            return $?
+        else
+            echo -e "${RED}Invalid selection. Please enter a number between 1 and ${#sql_files[@]}.${NC}"
+        fi
+    done
+}
+
+# Function to show interactive SQL file selection, then test case selection
+show_cases_menu() {
+    local search_dir="$1"
+    local selected_sql=""
+    local sql_dir=""
+    local spec_file=""
+
+    # Step 1: Find all SQL files
+    local sql_files=()
+    while IFS= read -r -d '' file; do
+        sql_files+=("$file")
+    done < <(find "$search_dir" -maxdepth 3 -name "*.sql" -type f -print0 | sort -z)
+
+    if [[ ${#sql_files[@]} -eq 0 ]]; then
+        echo -e "${RED}No SQL files found in $search_dir${NC}"
+        return 1
+    fi
+
+    # Step 2: Select SQL file (if multiple)
+    if [[ ${#sql_files[@]} -eq 1 ]]; then
+        selected_sql="${sql_files[0]}"
+        echo -e "${BLUE}SQL file: $(basename "$selected_sql")${NC}"
+    else
+        echo -e "${YELLOW}Step 1: Select SQL file to run:${NC}"
+        echo ""
+
+        local i=1
+        for sql_file in "${sql_files[@]}"; do
+            local rel_path="${sql_file#$search_dir/}"
+            echo -e "  ${CYAN}$i)${NC} $rel_path"
+            ((i++))
+        done
+
+        echo ""
+        echo -e "  ${CYAN}0)${NC} Exit"
+        echo ""
+
+        while true; do
+            echo -n -e "${GREEN}Enter SQL file [1-${#sql_files[@]}]: ${NC}"
+            read -r selection
+
+            if [[ "$selection" == "0" || "$selection" == "q" || "$selection" == "Q" ]]; then
+                echo "Exiting."
+                return 0
+            fi
+
+            if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -le ${#sql_files[@]} ]]; then
+                selected_sql="${sql_files[$((selection-1))]}"
+                echo ""
+                echo -e "${BLUE}Selected: $(basename "$selected_sql")${NC}"
+                break
+            else
+                echo -e "${RED}Invalid selection.${NC}"
+            fi
+        done
+    fi
+
+    # Step 3: Find test_spec.yaml in the SQL file's directory (or parent)
+    sql_dir="$(dirname "$selected_sql")"
+    spec_file="$sql_dir/test_spec.yaml"
+
+    # Check parent directory if not found (for sql/ subdirectory structure)
+    if [[ ! -f "$spec_file" ]]; then
+        spec_file="$(dirname "$sql_dir")/test_spec.yaml"
+    fi
+
+    # Also check current search directory as fallback
+    if [[ ! -f "$spec_file" ]]; then
+        spec_file="$search_dir/test_spec.yaml"
+    fi
+
+    if [[ ! -f "$spec_file" ]]; then
+        echo -e "${YELLOW}No test_spec.yaml found - running SQL directly${NC}"
+        echo ""
+        run_sql_file "$selected_sql"
+        return $?
+    fi
+
+    echo -e "${BLUE}Using spec: $spec_file${NC}"
+
+    # Step 4: Extract test case names from test_spec.yaml
+    local test_cases=()
+    while IFS= read -r name; do
+        test_cases+=("$name")
+    done < <(grep -E "^[[:space:]]*-[[:space:]]*name:" "$spec_file" | sed 's/.*name:[[:space:]]*//' | tr -d '\r')
+
+    if [[ ${#test_cases[@]} -eq 0 ]]; then
+        echo -e "${YELLOW}No test cases found in spec - running SQL directly${NC}"
+        run_sql_file "$selected_sql"
+        return $?
+    fi
+
+    # Step 5: Select test case
+    echo ""
+    echo -e "${YELLOW}Step 2: Select test case to run:${NC}"
+    echo ""
+
+    local i=1
+    for case_name in "${test_cases[@]}"; do
+        echo -e "  ${CYAN}$i)${NC} $case_name"
+        ((i++))
+    done
+
+    echo ""
+    echo -e "  ${CYAN}a)${NC} Run ALL test cases"
+    echo -e "  ${CYAN}0)${NC} Exit"
+    echo ""
+
+    while true; do
+        echo -n -e "${GREEN}Enter test case [1-${#test_cases[@]}, a, 0]: ${NC}"
+        read -r selection
+
+        if [[ "$selection" == "0" || "$selection" == "q" || "$selection" == "Q" ]]; then
+            echo "Exiting."
+            return 0
+        fi
+
+        if [[ "$selection" == "a" || "$selection" == "A" ]]; then
+            echo ""
+            echo -e "${YELLOW}Running all test cases...${NC}"
+            QUERY_FILTER=""
+            QUERY_OPTS=""
+            run_sql_with_spec "$selected_sql" "$spec_file" "$(dirname "$spec_file")"
+            return $?
+        fi
+
+        if [[ "$selection" =~ ^[0-9]+$ ]] && [[ "$selection" -ge 1 ]] && [[ "$selection" -le ${#test_cases[@]} ]]; then
+            local selected_case="${test_cases[$((selection-1))]}"
+            echo ""
+            echo -e "${YELLOW}Running test case: $selected_case${NC}"
+            QUERY_FILTER="$selected_case"
+            QUERY_OPTS="--query $QUERY_FILTER"
+            run_sql_with_spec "$selected_sql" "$spec_file" "$(dirname "$spec_file")"
+            return $?
+        else
+            echo -e "${RED}Invalid selection.${NC}"
+        fi
+    done
+}
+
+# Helper function to run SQL with spec file
+run_sql_with_spec() {
+    local sql_file="$1"
+    local spec_file="$2"
+    local tier_dir="$3"
+    local schemas_dir="$tier_dir/schemas"
+
+    # Fall back to shared schemas
+    if [[ ! -d "$schemas_dir" ]]; then
+        schemas_dir="$SCRIPT_DIR/schemas"
+    fi
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Running: $(basename "$sql_file")${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo "  SQL File:  $sql_file"
+    echo "  Spec:      $spec_file"
+    echo "  Schemas:   $schemas_dir"
+    echo ""
+
+    "$VELO_TEST" run "$sql_file" \
+        --spec "$spec_file" \
+        --schemas "$schemas_dir" \
+        --timeout-ms "$TIMEOUT_MS" \
+        --output "$OUTPUT_FORMAT" \
+        ${QUERY_OPTS} \
+        ${KAFKA_OPTS}
 }
 
 # Function to run tests for a single tier
@@ -210,6 +488,7 @@ run_tier() {
             --schemas "$schemas_dir" \
             --timeout-ms "$TIMEOUT_MS" \
             --output "$OUTPUT_FORMAT" \
+            ${QUERY_OPTS} \
             ${KAFKA_OPTS}
     fi
 }
@@ -261,6 +540,36 @@ case "$MODE" in
             exit 1
         fi
         run_tier "$MODE" "$tier_dir"
+        ;;
+
+    menu|select)
+        # Interactive menu mode (SQL files)
+        if [[ -n "$TARGET_DIR" ]]; then
+            if [[ "$TARGET_DIR" == "." ]]; then
+                search_dir="$ORIGINAL_DIR"
+            else
+                search_dir="$TARGET_DIR"
+            fi
+        else
+            search_dir="$SCRIPT_DIR"
+        fi
+        cd "$ORIGINAL_DIR"
+        show_menu "$search_dir"
+        ;;
+
+    cases|tests)
+        # Interactive test case menu (from test_spec.yaml)
+        if [[ -n "$TARGET_DIR" ]]; then
+            if [[ "$TARGET_DIR" == "." ]]; then
+                search_dir="$ORIGINAL_DIR"
+            else
+                search_dir="$TARGET_DIR"
+            fi
+        else
+            search_dir="$SCRIPT_DIR"
+        fi
+        cd "$ORIGINAL_DIR"
+        show_cases_menu "$search_dir"
         ;;
 
     run|*)

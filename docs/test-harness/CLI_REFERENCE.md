@@ -379,3 +379,66 @@ velo-test stress app.sql --records 100000 --output json > after.json
 # 4. Compare results
 diff baseline.json after.json
 ```
+
+---
+
+## velo-test.sh Helper Script
+
+The `demo/test_harness_examples/velo-test.sh` script provides convenient wrappers for running tests.
+
+### Usage
+
+```bash
+# From test_harness_examples directory:
+./velo-test.sh                    # Run all tiers
+./velo-test.sh validate           # Validate all SQL
+./velo-test.sh getting_started    # Run specific tier
+./velo-test.sh menu               # Interactive SQL file selection
+./velo-test.sh cases              # Interactive SQL + test case selection
+
+# From a subdirectory (e.g., getting_started):
+../velo-test.sh .                 # Run current directory
+../velo-test.sh cases             # Interactive: SQL file → test case
+../velo-test.sh . -q <name>       # Run specific test case by name
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--kafka <servers>` | Use external Kafka instead of testcontainers |
+| `--timeout <ms>` | Timeout per query in milliseconds |
+| `--output <format>` | Output format: text, json, junit |
+| `-q, --query <name>` | Run only a specific test case by name |
+
+### Interactive Modes
+
+**`menu` mode** - Select SQL file only:
+```
+Select a SQL file to run:
+  1) tier1_basic/01_passthrough.sql
+  2) tier1_basic/02_projection.sql
+  ...
+```
+
+**`cases` mode** - Two-step selection:
+```
+Step 1: Select SQL file to run:
+  1) sql/market_aggregation.sql
+  ...
+
+Step 2: Select test case to run:
+  1) market_aggregates
+  2) market_aggregates_high_volume
+  a) Run ALL test cases
+```
+
+### Examples
+
+```bash
+# Run specific test case directly
+../velo-test.sh . --query market_aggregates_high_volume
+
+# Interactive selection
+../velo-test.sh cases
+```

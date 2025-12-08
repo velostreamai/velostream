@@ -310,7 +310,10 @@ impl JobExecutionStats {
 
     pub fn records_per_second(&self) -> f64 {
         if let Some(start) = self.start_time {
-            let elapsed = start.elapsed().as_secs_f64();
+            // Use last_record_time if available (processing complete),
+            // otherwise use current time (still processing)
+            let end = self.last_record_time.unwrap_or_else(Instant::now);
+            let elapsed = end.duration_since(start).as_secs_f64();
             if elapsed > 0.0 {
                 return self.records_processed as f64 / elapsed;
             }
@@ -327,10 +330,16 @@ impl JobExecutionStats {
         }
     }
 
+    /// Returns the processing duration (start to last record, or start to now if still processing)
     pub fn elapsed(&self) -> Duration {
-        self.start_time
-            .map(|s| s.elapsed())
-            .unwrap_or(Duration::from_secs(0))
+        if let Some(start) = self.start_time {
+            // Use last_record_time if available (processing complete),
+            // otherwise use current time (still processing)
+            let end = self.last_record_time.unwrap_or_else(Instant::now);
+            end.duration_since(start)
+        } else {
+            Duration::from_secs(0)
+        }
     }
 
     /// Add read time (Kafka poll + deserialization)
@@ -629,33 +638,49 @@ fn is_recoverable_error(_error: &crate::velostream::sql::SqlError) -> bool {
 }
 
 /// Log progress for a job
+///
+/// This function is called frequently during processing. It uses smart logging:
+/// - Only logs at INFO level when there's meaningful progress (records processed)
+/// - Uses DEBUG for idle/waiting states to avoid log spam
+/// - WARN for extended periods (30s+) with no data
+/// - ERROR for severe starvation (60s+)
 pub fn log_job_progress(job_name: &str, stats: &JobExecutionStats) {
     let rps = stats.records_per_second();
     let success_rate = stats.success_rate();
     let elapsed = stats.elapsed();
+    let elapsed_secs = elapsed.as_secs();
 
     // Check for data starvation - job running but processing 0 records
-    if stats.records_processed == 0 && elapsed.as_secs() >= 60 {
-        error!(
-            "🚨 DATA STARVATION DETECTED: Job '{}' has processed 0 records for {} seconds",
-            job_name,
-            elapsed.as_secs()
-        );
-        error!("   Possible causes:");
-        error!("   1. Source Kafka topic is empty or not producing messages");
-        error!("   2. Schema deserialization is failing (check for missing schema files)");
-        error!("   3. Consumer group offset is stuck or invalid");
-        error!("   4. Network connectivity issues with data source");
-        error!("   Action required: Investigate source configuration and data flow immediately");
-        error!("   Check: curl http://localhost:9091/metrics | grep velo_streaming_throughput_rps");
-    } else if stats.records_processed == 0 {
-        warn!(
-            "Job '{}': 0 records processed after {} seconds (waiting for data...)",
-            job_name,
-            elapsed.as_secs()
-        );
+    if stats.records_processed == 0 {
+        if elapsed_secs >= 60 && elapsed_secs % 30 == 0 {
+            // Only log error every 30 seconds after 60s mark
+            error!(
+                "🚨 DATA STARVATION DETECTED: Job '{}' has processed 0 records for {} seconds",
+                job_name, elapsed_secs
+            );
+            error!("   Possible causes:");
+            error!("   1. Source Kafka topic is empty or not producing messages");
+            error!("   2. Schema deserialization is failing (check for missing schema files)");
+            error!("   3. Consumer group offset is stuck or invalid");
+            error!("   4. Network connectivity issues with data source");
+        } else if elapsed_secs >= 30 && elapsed_secs % 10 == 0 {
+            // WARN every 10 seconds after 30s mark
+            warn!(
+                "Job '{}': 0 records processed after {} seconds (waiting for data...)",
+                job_name, elapsed_secs
+            );
+        } else if elapsed_secs % 5 == 0 && elapsed_secs > 0 {
+            // DEBUG every 5 seconds for less noise
+            debug!(
+                "Job '{}': waiting for data ({} seconds elapsed)",
+                job_name, elapsed_secs
+            );
+        }
+        // Don't log INFO for 0 records - it's just noise
+        return;
     }
 
+    // Only log at INFO when we have actual progress
     info!(
         "Job '{}': {} records processed ({} batches), {:.2} records/sec, {:.1}% success rate, {:.1}ms avg batch time",
         job_name,

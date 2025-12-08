@@ -13,10 +13,11 @@ use super::infra::TestHarnessInfra;
 use super::schema::SchemaRegistry;
 use super::spec::{InputConfig, QueryTest, TimeSimulationConfig};
 use super::stress::MemoryTracker;
+use crate::velostream::kafka::polled_producer::PolledProducer;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::types::FieldValue;
-use rdkafka::producer::{FutureRecord, Producer};
+use rdkafka::producer::BaseRecord;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -616,7 +617,9 @@ impl QueryExecutor {
         topic: &str,
         records: &[HashMap<String, FieldValue>],
     ) -> TestHarnessResult<()> {
-        let producer = self.infra.create_producer()?;
+        // Use high-throughput async producer with non-blocking sends
+        let mut producer = self.infra.create_async_producer()?;
+        let start_time = std::time::Instant::now();
 
         for record in records {
             // Serialize to JSON
@@ -628,31 +631,38 @@ impl QueryExecutor {
                 }
             })?;
 
-            // Publish to Kafka
-            let delivery_result = producer
-                .send(
-                    FutureRecord::<(), _>::to(topic).payload(&payload),
-                    Duration::from_secs(5),
-                )
-                .await;
-
-            if let Err((e, _)) = delivery_result {
+            // Non-blocking send - the poll thread handles delivery callbacks
+            let base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            if let Err((e, _)) = producer.send(base_record) {
                 return Err(TestHarnessError::ExecutionError {
-                    message: format!("Failed to publish to topic '{}': {}", topic, e),
+                    message: format!("Failed to queue message for topic '{}': {}", topic, e),
                     query_name: "publish".to_string(),
                     source: Some(e.to_string()),
                 });
             }
         }
 
-        // Flush to ensure all messages are sent
+        let queue_time = start_time.elapsed();
+
+        // Flush to ensure all messages are delivered
         producer
-            .flush(Duration::from_secs(10))
+            .flush(Duration::from_secs(30))
             .map_err(|e| TestHarnessError::ExecutionError {
                 message: format!("Failed to flush producer: {}", e),
                 query_name: "publish".to_string(),
                 source: Some(e.to_string()),
             })?;
+
+        let total_time = start_time.elapsed();
+        let rate = records.len() as f64 / total_time.as_secs_f64();
+        log::info!(
+            "High-throughput publishing complete: {} records in {:?} ({:.1}/sec, queue: {:?}, flush: {:?})",
+            records.len(),
+            total_time,
+            rate,
+            queue_time,
+            total_time - queue_time
+        );
 
         Ok(())
     }
@@ -661,13 +671,15 @@ impl QueryExecutor {
     ///
     /// This method publishes records at a controlled rate based on the
     /// `events_per_second` setting in the time simulation config.
+    /// Uses AsyncPolledProducer for high-throughput non-blocking sends.
     async fn publish_records_with_rate(
         &self,
         topic: &str,
         records: &[HashMap<String, FieldValue>],
         config: &TimeSimulationConfig,
     ) -> TestHarnessResult<()> {
-        let producer = self.infra.create_producer()?;
+        // Use high-throughput async producer
+        let mut producer = self.infra.create_async_producer()?;
         let events_per_second = config.events_per_second.unwrap_or(f64::MAX);
         let batch_size = config.batch_size;
 
@@ -701,17 +713,11 @@ impl QueryExecutor {
                     }
                 })?;
 
-                // Publish to Kafka
-                let delivery_result = producer
-                    .send(
-                        FutureRecord::<(), _>::to(topic).payload(&payload),
-                        Duration::from_secs(5),
-                    )
-                    .await;
-
-                if let Err((e, _)) = delivery_result {
+                // Non-blocking send - the poll thread handles delivery callbacks
+                let base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+                if let Err((e, _)) = producer.send(base_record) {
                     return Err(TestHarnessError::ExecutionError {
-                        message: format!("Failed to publish to topic '{}': {}", topic, e),
+                        message: format!("Failed to queue message for topic '{}': {}", topic, e),
                         query_name: "publish".to_string(),
                         source: Some(e.to_string()),
                     });
@@ -742,9 +748,9 @@ impl QueryExecutor {
             }
         }
 
-        // Flush to ensure all messages are sent
+        // Flush to ensure all messages are delivered
         producer
-            .flush(Duration::from_secs(10))
+            .flush(Duration::from_secs(30))
             .map_err(|e| TestHarnessError::ExecutionError {
                 message: format!("Failed to flush producer: {}", e),
                 query_name: "publish".to_string(),

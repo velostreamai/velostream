@@ -567,11 +567,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut report_gen = ReportGenerator::new(&test_spec.application, &run_id);
                 let assertion_runner = AssertionRunner::new();
 
+                // Track if we were interrupted
+                let mut was_interrupted = false;
+
                 for query_test in &queries_to_run {
                     println!("▶️  Executing: {}", query_test.name);
 
-                    // Execute query
-                    match executor.execute_query(query_test).await {
+                    // Use select! to race query execution against Ctrl+C
+                    // This allows us to cancel long-running operations
+                    let exec_result = tokio::select! {
+                        result = executor.execute_query(query_test) => result,
+                        _ = tokio::signal::ctrl_c() => {
+                            eprintln!("\n⚠️  Interrupted - cleaning up containers...");
+                            was_interrupted = true;
+                            break;
+                        }
+                    };
+
+                    // If we broke out of select due to interrupt, exit loop
+                    if was_interrupted {
+                        break;
+                    }
+
+                    // Process the result
+                    match exec_result {
                         Ok(exec_result) => {
                             // Run assertions on captured output
                             let mut assertion_results = Vec::new();
@@ -668,14 +687,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 // Cleanup executor and infrastructure (stops testcontainers)
-                if keep_containers {
+                // Always cleanup on interrupt, regardless of keep_containers flag
+                if keep_containers && !was_interrupted {
                     println!();
                     println!("🐳 Keeping containers running for debugging (--keep-containers)");
                     println!("   Use 'docker ps' to find containers");
                     println!("   Use 'docker stop <id>' to clean up when done");
                 } else {
+                    if was_interrupted {
+                        println!("🧹 Cleaning up containers after interrupt...");
+                    }
                     if let Err(e) = executor.stop().await {
                         log::warn!("Failed to stop executor: {}", e);
+                    }
+                    if was_interrupted {
+                        println!("✅ Containers cleaned up");
+                        std::process::exit(130); // Standard exit code for SIGINT
                     }
                 }
 

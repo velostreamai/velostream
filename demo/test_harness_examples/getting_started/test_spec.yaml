@@ -47,7 +47,7 @@ queries:
 
           # No nulls in value fields (symbol is key, not in value)
           - type: no_nulls
-            fields: [trade_count, avg_price]
+            fields: [ trade_count, avg_price ]
 
           # Performance constraint
           - type: execution_time
@@ -62,14 +62,14 @@ queries:
     description: Test with higher volume to verify scalability
     inputs:
       - source: market_data
-        records: 5000
+        records: 10000
         # Time simulation: 4 hours of data at 10x acceleration
         time_simulation:
           start_time: "-4h"
           end_time: "now"
           sequential: true
           time_scale: 10.0            # 10x acceleration for faster tests
-          events_per_second: 500      # Higher throughput for volume test
+          events_per_second: 5000      # Higher throughput for volume test
     outputs:
       - sink: market_aggregates_output
         assertions:
@@ -104,4 +104,4 @@ queries:
             greater_than: 0
 
           - type: no_nulls
-            fields: [trade_count]
+            fields: [ trade_count ]
