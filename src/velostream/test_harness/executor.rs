@@ -667,10 +667,12 @@ impl QueryExecutor {
         Ok(())
     }
 
-    /// Publish records to a Kafka topic with rate control
+    /// Publish records to Kafka with simulated timestamps
     ///
-    /// This method publishes records at a controlled rate based on the
-    /// `events_per_second` setting in the time simulation config.
+    /// This method publishes records as fast as possible. The `events_per_second`
+    /// setting affects the **simulated timestamps** in the records (set by the generator),
+    /// NOT the actual publishing rate. This is a time simulation, not real-time rate limiting.
+    ///
     /// Uses AsyncPolledProducer for high-throughput non-blocking sends.
     async fn publish_records_with_rate(
         &self,
@@ -680,66 +682,46 @@ impl QueryExecutor {
     ) -> TestHarnessResult<()> {
         // Use high-throughput async producer
         let mut producer = self.infra.create_async_producer()?;
-        let events_per_second = config.events_per_second.unwrap_or(f64::MAX);
-        let batch_size = config.batch_size;
-
-        // Calculate delay between batches
-        // If publishing N records per batch at R records/sec, delay = N/R seconds
-        let batch_delay = if events_per_second < f64::MAX {
-            Duration::from_secs_f64(batch_size as f64 / events_per_second)
-        } else {
-            Duration::ZERO
-        };
+        let simulated_rate = config.events_per_second.unwrap_or(f64::MAX);
 
         log::info!(
-            "Rate-controlled publishing: {} records at {:.1} events/sec (batch_size={}, delay={:?})",
+            "Time-simulation publishing: {} records with simulated rate {:.1} events/sec (no actual delay - timestamps are pre-computed)",
             records.len(),
-            events_per_second,
-            batch_size,
-            batch_delay
+            simulated_rate,
         );
 
         let start_time = std::time::Instant::now();
         let mut records_sent = 0;
 
-        for batch in records.chunks(batch_size) {
-            for record in batch {
-                // Serialize to JSON
-                let json_value = field_values_to_json(record);
-                let payload = serde_json::to_string(&json_value).map_err(|e| {
-                    TestHarnessError::GeneratorError {
-                        message: format!("Failed to serialize record: {}", e),
-                        schema: "unknown".to_string(),
-                    }
-                })?;
-
-                // Non-blocking send - the poll thread handles delivery callbacks
-                let base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
-                if let Err((e, _)) = producer.send(base_record) {
-                    return Err(TestHarnessError::ExecutionError {
-                        message: format!("Failed to queue message for topic '{}': {}", topic, e),
-                        query_name: "publish".to_string(),
-                        source: Some(e.to_string()),
-                    });
+        // Publish all records as fast as possible - timestamps are already simulated in the records
+        for record in records {
+            // Serialize to JSON
+            let json_value = field_values_to_json(record);
+            let payload = serde_json::to_string(&json_value).map_err(|e| {
+                TestHarnessError::GeneratorError {
+                    message: format!("Failed to serialize record: {}", e),
+                    schema: "unknown".to_string(),
                 }
+            })?;
 
-                records_sent += 1;
+            // Non-blocking send - the poll thread handles delivery callbacks
+            let base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            if let Err((e, _)) = producer.send(base_record) {
+                return Err(TestHarnessError::ExecutionError {
+                    message: format!("Failed to queue message for topic '{}': {}", topic, e),
+                    query_name: "publish".to_string(),
+                    source: Some(e.to_string()),
+                });
             }
 
-            // Apply delay between batches (except for last batch)
-            if !batch_delay.is_zero() && records_sent < records.len() {
-                tokio::time::sleep(batch_delay).await;
-            }
+            records_sent += 1;
 
-            // Log progress every 1000 records or at 10% intervals
-            if records_sent % 1000 == 0
-                || records_sent * 10 / records.len()
-                    > (records_sent - batch.len()) * 10 / records.len()
-            {
+            // Log progress every 10000 records
+            if records_sent % 10000 == 0 {
                 let elapsed = start_time.elapsed();
                 let actual_rate = records_sent as f64 / elapsed.as_secs_f64();
                 log::debug!(
-                    "Progress: {}/{} records ({:.1}%), actual rate: {:.1}/sec",
+                    "Progress: {}/{} records ({:.1}%), publishing at {:.1}/sec",
                     records_sent,
                     records.len(),
                     (records_sent as f64 / records.len() as f64) * 100.0,
@@ -760,11 +742,11 @@ impl QueryExecutor {
         let elapsed = start_time.elapsed();
         let actual_rate = records.len() as f64 / elapsed.as_secs_f64();
         log::info!(
-            "Rate-controlled publishing complete: {} records in {:?} ({:.1}/sec, target: {:.1}/sec)",
+            "Time-simulation publishing complete: {} records in {:?} (actual: {:.1}/sec, simulated: {:.1}/sec)",
             records.len(),
             elapsed,
             actual_rate,
-            events_per_second
+            simulated_rate
         );
 
         Ok(())
