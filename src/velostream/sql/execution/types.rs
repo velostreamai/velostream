@@ -4,9 +4,10 @@
 //! - [`FieldValue`] - The value type system supporting SQL data types
 //! - [`StreamRecord`] - The record format for streaming data processing
 
+use crate::velostream::datasource::{EventTimeConfig, extract_event_time};
 use crate::velostream::sql::ast::TimeUnit;
 use crate::velostream::sql::error::SqlError;
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use serde::de::{self, MapAccess, SeqAccess, Visitor};
 use serde::ser::{SerializeMap, SerializeSeq};
@@ -1320,7 +1321,12 @@ pub struct StreamRecord {
     pub event_time: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-impl StreamRecord {}
+impl StreamRecord {
+    /// Kafka metadata field name for topic
+    pub const FIELD_TOPIC: &'static str = "_topic";
+    /// Kafka metadata field name for message key
+    pub const FIELD_KEY: &'static str = "_key";
+}
 
 impl StreamRecord {
     /// Create a new StreamRecord with the given fields
@@ -1336,6 +1342,70 @@ impl StreamRecord {
             partition: 0,
             headers: HashMap::new(),
             event_time: None, // Default to processing-time
+        }
+    }
+
+    /// Create a StreamRecord from Kafka message data
+    ///
+    /// This constructor handles Kafka-specific metadata fields (`_topic`, `_key`) and
+    /// event time extraction. It encapsulates the conversion logic from Kafka messages
+    /// to StreamRecords.
+    ///
+    /// # Arguments
+    /// * `fields` - The deserialized message payload fields
+    /// * `topic` - Kafka topic name (stored as `_topic` field)
+    /// * `key` - Optional message key (stored as `_key` field if present)
+    /// * `timestamp_ms` - Message timestamp in milliseconds (or None for current time)
+    /// * `offset` - Kafka offset
+    /// * `partition` - Kafka partition
+    /// * `headers` - Message headers
+    /// * `event_time_config` - Optional config for extracting event time from fields
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_kafka(
+        mut fields: HashMap<String, FieldValue>,
+        topic: &str,
+        key: Option<&[u8]>,
+        timestamp_ms: Option<i64>,
+        offset: i64,
+        partition: i32,
+        headers: HashMap<String, String>,
+        event_time_config: Option<&EventTimeConfig>,
+    ) -> Self {
+        // Pre-reserve capacity for metadata fields to avoid rehashing
+        // We always add _topic, and conditionally _key
+        fields.reserve(if key.is_some() { 2 } else { 1 });
+
+        // Add Kafka-specific metadata as fields
+        // Use String::from() for static str - same cost but clearer intent
+        fields.insert(
+            String::from(Self::FIELD_TOPIC),
+            FieldValue::String(topic.into()),
+        );
+
+        if let Some(k) = key {
+            // Convert bytes to UTF-8 string, or use lossy conversion for non-UTF8 keys
+            let key_str = String::from_utf8_lossy(k).into_owned();
+            fields.insert(String::from(Self::FIELD_KEY), FieldValue::String(key_str));
+        }
+
+        // Extract event time: use config if provided, otherwise use Kafka timestamp
+        let event_time = if let Some(config) = event_time_config {
+            extract_event_time(&fields, config)
+                .inspect_err(|e| log::trace!("Event time extraction failed: {}", e))
+                .ok()
+        } else {
+            timestamp_ms.and_then(DateTime::from_timestamp_millis)
+        };
+
+        let timestamp = timestamp_ms.unwrap_or_else(|| Utc::now().timestamp_millis());
+
+        Self {
+            fields,
+            timestamp,
+            offset,
+            partition,
+            headers,
+            event_time,
         }
     }
 

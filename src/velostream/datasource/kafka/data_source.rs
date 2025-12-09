@@ -408,110 +408,6 @@ impl KafkaDataSource {
         Ok(())
     }
 
-    /// Apply BatchConfig settings to Kafka consumer properties
-    fn apply_batch_config_to_kafka_properties(
-        &self,
-        kafka_config: &mut std::collections::HashMap<String, String>,
-        batch_config: &crate::velostream::datasource::BatchConfig,
-    ) {
-        use crate::velostream::datasource::BatchStrategy;
-
-        // Only apply batch settings if batching is enabled
-        if !batch_config.enable_batching {
-            return;
-        }
-
-        // Map our BatchConfig to Kafka consumer properties
-        match &batch_config.strategy {
-            BatchStrategy::FixedSize(size) => {
-                // max.poll.records - controls how many records are returned in each poll()
-                let max_records = size.min(&batch_config.max_batch_size).to_string();
-                kafka_config.insert("max.poll.records".to_string(), max_records);
-            }
-            BatchStrategy::TimeWindow(duration) => {
-                // fetch.max.wait.ms - max time to wait for fetch.min.bytes
-                kafka_config.insert(
-                    "fetch.max.wait.ms".to_string(),
-                    duration.as_millis().to_string(),
-                );
-                // Conservative max.poll.records for time-based batching
-                kafka_config.insert(
-                    "max.poll.records".to_string(),
-                    (batch_config.max_batch_size / 2).to_string(),
-                );
-            }
-            BatchStrategy::AdaptiveSize {
-                min_size,
-                max_size: _,
-                target_latency,
-            } => {
-                // Use min_size as conservative starting point
-                kafka_config.insert("max.poll.records".to_string(), min_size.to_string());
-                kafka_config.insert(
-                    "fetch.max.wait.ms".to_string(),
-                    target_latency.as_millis().to_string(),
-                );
-                // Set fetch.min.bytes to encourage batching
-                kafka_config.insert("fetch.min.bytes".to_string(), "10240".to_string());
-                // 10KB
-            }
-            BatchStrategy::MemoryBased(target_bytes) => {
-                // fetch.min.bytes - minimum data to fetch in a request
-                kafka_config.insert("fetch.min.bytes".to_string(), target_bytes.to_string());
-                // Conservative timeout and max records
-                kafka_config.insert(
-                    "fetch.max.wait.ms".to_string(),
-                    batch_config.batch_timeout.as_millis().to_string(),
-                );
-                kafka_config.insert(
-                    "max.poll.records".to_string(),
-                    (batch_config.max_batch_size / 4).to_string(),
-                );
-            }
-            BatchStrategy::LowLatency {
-                max_batch_size,
-                max_wait_time,
-                eager_processing: _,
-            } => {
-                // Optimize Kafka consumer for minimal latency
-                kafka_config.insert("max.poll.records".to_string(), max_batch_size.to_string());
-                kafka_config.insert(
-                    "fetch.max.wait.ms".to_string(),
-                    max_wait_time.as_millis().to_string(),
-                );
-                kafka_config.insert("fetch.min.bytes".to_string(), "1".to_string()); // Don't wait for data accumulation
-                kafka_config.insert("max.partition.fetch.bytes".to_string(), "65536".to_string()); // 64KB limit
-                // Enable auto-commit for low latency (less overhead than manual commits)
-                kafka_config.insert("enable.auto.commit".to_string(), "true".to_string());
-                kafka_config.insert("auto.commit.interval.ms".to_string(), "50".to_string());
-                // Frequent commits
-            }
-            BatchStrategy::MegaBatch { batch_size, .. } => {
-                // High-throughput mega-batch processing (Phase 4 optimization)
-                kafka_config.insert("max.poll.records".to_string(), batch_size.to_string());
-                kafka_config.insert("fetch.max.wait.ms".to_string(), "500".to_string()); // Allow time for batch accumulation
-                kafka_config.insert("fetch.min.bytes".to_string(), "1048576".to_string()); // 1MB minimum fetch
-                kafka_config.insert("fetch.max.bytes".to_string(), "104857600".to_string()); // 100MB max fetch
-                kafka_config.insert(
-                    "max.partition.fetch.bytes".to_string(),
-                    "10485760".to_string(),
-                ); // 10MB per partition
-            }
-        }
-
-        // Always set session.timeout.ms and heartbeat.interval.ms for reliable batching
-        kafka_config
-            .entry("session.timeout.ms".to_string())
-            .or_insert("30000".to_string());
-        kafka_config
-            .entry("heartbeat.interval.ms".to_string())
-            .or_insert("3000".to_string());
-
-        // Optimize for throughput when batching is enabled
-        kafka_config
-            .entry("fetch.max.bytes".to_string())
-            .or_insert("52428800".to_string()); // 50MB
-    }
     /// Create a new Kafka data source
     pub fn new(brokers: String, topic: String) -> Self {
         Self {
@@ -609,59 +505,19 @@ impl KafkaDataSource {
             }
         );
 
-        // Create unified reader with detected format and schema
-        KafkaDataReader::new_with_schema_and_config(
-            &self.brokers,
+        // Create unified reader - batch size is now configured via max.poll.records property
+        // If batch_size was specified, add it to config
+        let mut config = self.config.clone();
+        if let Some(size) = batch_size {
+            config.insert("max.poll.records".to_string(), size.to_string());
+        }
+
+        KafkaDataReader::from_properties(
+            self.brokers.clone(),
             self.topic.clone(),
-            group_id,
-            format,
-            batch_size.map(|size| crate::velostream::datasource::BatchConfig {
-                strategy: crate::velostream::datasource::BatchStrategy::FixedSize(size),
-                ..Default::default()
-            }),
-            schema.as_deref(), // Pass schema if available
+            Some(group_id.to_string()),
+            &config,
             self.event_time_config.clone(),
-            &self.config, // Pass consumer properties from YAML config
-        )
-        .await
-    }
-
-    /// Create a consumer with BatchConfig
-    async fn create_unified_reader_with_batch_config(
-        &self,
-        group_id: &str,
-        batch_config: crate::velostream::datasource::BatchConfig,
-    ) -> Result<KafkaDataReader, Box<dyn std::error::Error + Send + Sync>> {
-        // Get serialization format from config (default to JSON if not specified)
-        // Try multiple common property name patterns
-        let value_format = self
-            .config
-            .get("value.serializer")
-            .or_else(|| self.config.get("schema.value.serializer")) // From YAML config
-            .or_else(|| self.config.get("datasource.schema.value.serializer")) // Full nested path
-            .or_else(|| self.config.get("value.format"))
-            .map(|s| s.as_str())
-            .unwrap_or("json");
-
-        // Parse format using FromStr with proper error handling
-        let format = {
-            use std::str::FromStr;
-            SerializationFormat::from_str(value_format).unwrap_or(SerializationFormat::Json)
-        };
-
-        // Extract schema from config based on format
-        let schema = self.extract_schema_for_format(&format)?;
-
-        // Create unified reader with BatchConfig
-        KafkaDataReader::new_with_batch_config_and_properties(
-            &self.brokers,
-            self.topic.clone(),
-            group_id,
-            format,
-            batch_config,
-            schema.as_deref(), // Pass schema if available
-            self.event_time_config.clone(),
-            &self.config, // Pass consumer properties from YAML config
         )
         .await
     }
@@ -860,13 +716,10 @@ impl DataSource for KafkaDataSource {
                 self.group_id = group_id;
                 self.event_time_config = event_time_config;
 
-                // Start with provided properties
-                let mut kafka_config = properties;
-
-                // Add batch configuration to Kafka consumer properties
-                self.apply_batch_config_to_kafka_properties(&mut kafka_config, &batch_config);
-
-                self.config = kafka_config;
+                // Use provided properties directly for Kafka consumer configuration
+                // BatchConfig is deprecated for Kafka - configure via properties instead:
+                // - max.poll.records, fetch.max.wait.ms, fetch.min.bytes, etc.
+                self.config = properties;
                 Ok(())
             }
             _ => Err(Box::new(KafkaDataSourceError::Configuration(
@@ -876,14 +729,15 @@ impl DataSource for KafkaDataSource {
     }
 
     async fn fetch_schema(&self) -> Result<Schema, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::velostream::sql::execution::types::StreamRecord;
+
         // For Kafka, we'll return a generic schema since message format is flexible
         // In practice, this could integrate with Schema Registry
+        // Note: offset, partition, timestamp are accessed via system columns (_OFFSET, _PARTITION, _TIMESTAMP)
+        // Only topic and key are added to the fields HashMap
         let fields = vec![
-            FieldDefinition::required("key".to_string(), DataType::String),
-            FieldDefinition::required("value".to_string(), DataType::String),
-            FieldDefinition::required("timestamp".to_string(), DataType::Timestamp),
-            FieldDefinition::required("offset".to_string(), DataType::Integer),
-            FieldDefinition::required("partition".to_string(), DataType::Integer),
+            FieldDefinition::optional(StreamRecord::FIELD_KEY.to_string(), DataType::String),
+            FieldDefinition::required(StreamRecord::FIELD_TOPIC.to_string(), DataType::String),
         ];
 
         Ok(Schema::new(fields))
@@ -920,10 +774,21 @@ impl DataSource for KafkaDataSource {
             )) as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        // Create the unified reader with BatchConfig
-        let reader = self
-            .create_unified_reader_with_batch_config(group_id, batch_config)
-            .await?;
+        // Convert BatchConfig to max.poll.records setting
+        let mut config = self.config.clone();
+        config.insert(
+            "max.poll.records".to_string(),
+            batch_config.max_batch_size.to_string(),
+        );
+
+        let reader = KafkaDataReader::from_properties(
+            self.brokers.clone(),
+            self.topic.clone(),
+            Some(group_id.clone()),
+            &config,
+            self.event_time_config.clone(),
+        )
+        .await?;
 
         Ok(Box::new(reader))
     }

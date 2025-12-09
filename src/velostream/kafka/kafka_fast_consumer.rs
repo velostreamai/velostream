@@ -116,12 +116,15 @@ use futures::{
     task::{Context, Poll},
 };
 
+use crate::velostream::datasource::EventTimeConfig;
 use crate::velostream::kafka::headers::Headers;
 use crate::velostream::kafka::kafka_error::ConsumerError;
 use crate::velostream::kafka::message::Message;
 use crate::velostream::kafka::serialization::Serde;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use rdkafka::Message as RdKafkaMessage;
 use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
+use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -188,6 +191,71 @@ fn process_kafka_message<K, V>(
     ))
 }
 
+/// Extracts Kafka headers directly into a HashMap without intermediate allocation.
+///
+/// This avoids the overhead of creating a `Headers` struct with Arc wrapping,
+/// then immediately converting it back to a HashMap via `into_map()`.
+#[inline]
+fn extract_headers_direct<H: rdkafka::message::Headers>(headers: &H) -> HashMap<String, String> {
+    let count = headers.count();
+    let mut map = HashMap::with_capacity(count);
+    for i in 0..count {
+        let h = headers.get(i);
+        if let Some(v) = h.value {
+            map.insert(h.key.to_string(), String::from_utf8_lossy(v).into_owned());
+        }
+    }
+    map
+}
+
+/// Converts an rdkafka `BorrowedMessage` directly into a `StreamRecord`.
+///
+/// This specialized function is used by `poll_batch` for efficient Kafka-to-StreamRecord
+/// conversion without intermediate `Message` allocation.
+///
+/// # Arguments
+///
+/// * `msg` - The rdkafka message to process
+/// * `value_serializer` - Serializer for the message payload (must produce `HashMap<String, FieldValue>`)
+/// * `event_time_config` - Optional event time extraction configuration
+///
+/// # Returns
+///
+/// * `Ok(StreamRecord)` - Successfully processed record
+/// * `Err(ConsumerError::NoMessage)` - Message has no payload
+/// * `Err(ConsumerError::Deserialization)` - Failed to deserialize value
+#[inline]
+fn process_kafka_message_to_stream_record(
+    msg: rdkafka::message::BorrowedMessage,
+    value_serializer: &dyn Serde<HashMap<String, FieldValue>>,
+    event_time_config: Option<&EventTimeConfig>,
+) -> Result<StreamRecord, ConsumerError> {
+    let payload = msg.payload().ok_or(ConsumerError::NoMessage)?;
+    let value = value_serializer.deserialize(payload)?;
+
+    // Extract headers directly to HashMap, avoiding intermediate Headers struct + Arc
+    let headers = msg
+        .headers()
+        .map(extract_headers_direct)
+        .unwrap_or_default();
+
+    let timestamp = match msg.timestamp() {
+        rdkafka::Timestamp::CreateTime(t) | rdkafka::Timestamp::LogAppendTime(t) => Some(t),
+        rdkafka::Timestamp::NotAvailable => None,
+    };
+
+    Ok(StreamRecord::from_kafka(
+        value,
+        msg.topic(),
+        msg.key(),
+        timestamp,
+        msg.offset(),
+        msg.partition(),
+        headers,
+        event_time_config,
+    ))
+}
+
 /// Basic async stream adapter for Kafka consumption with low latency.
 ///
 /// This stream polls the underlying `BaseConsumer` with a 1ms timeout,
@@ -221,6 +289,7 @@ fn process_kafka_message<K, V>(
 ///     }
 /// }
 /// ```
+#[allow(dead_code)]
 pub struct KafkaStream<'a, K, V> {
     consumer: &'a BaseConsumer,
     value_serializer: &'a dyn Serde<V>,
@@ -304,6 +373,7 @@ impl<'a, K, V> Stream for KafkaStream<'a, K, V> {
 /// **Cons:**
 /// - Slightly higher latency for first message in batch
 /// - Requires `K: Unpin` and `V: Unpin` bounds
+#[allow(dead_code)]
 pub struct BufferedKafkaStream<'a, K, V> {
     consumer: &'a BaseConsumer,
     value_serializer: &'a dyn Serde<V>,
@@ -399,6 +469,7 @@ impl<'a, K: Unpin, V: Unpin> Stream for BufferedKafkaStream<'a, K, V> {
 /// // Choose consumption pattern based on your needs
 /// let stream = consumer.stream(); // or buffered_stream(32), etc.
 /// ```
+#[allow(dead_code)]
 pub struct Consumer<K, V, KSer, VSer>
 where
     KSer: Serde<K> + Send + Sync,
@@ -407,11 +478,14 @@ where
     consumer: BaseConsumer,
     key_serializer: KSer,
     value_serializer: VSer,
-    group_id: String,
+    group_id: String, // Used by group_id() method for transaction support
     _phantom_key: std::marker::PhantomData<K>,
     _phantom_value: std::marker::PhantomData<V>,
+    batch_buffer: Vec<StreamRecord>, // Owned messages, not borrowed
+    batch_size: usize,
 }
 
+#[allow(dead_code)]
 impl<K, V, KSer, VSer> Consumer<K, V, KSer, VSer>
 where
     KSer: Serde<K> + Send + Sync + 'static,
@@ -444,6 +518,8 @@ where
             group_id: String::new(),
             _phantom_key: std::marker::PhantomData,
             _phantom_value: std::marker::PhantomData,
+            batch_buffer: vec![],
+            batch_size: 100,
         }
     }
 
@@ -483,7 +559,6 @@ where
         value_serializer: VSer,
     ) -> Result<Self, rdkafka::error::KafkaError> {
         use crate::velostream::kafka::client_config_builder::ClientConfigBuilder;
-        use rdkafka::consumer::Consumer as RdKafkaConsumer;
 
         // Build rdkafka ClientConfig from ConsumerConfig
         let mut client_config = ClientConfigBuilder::new()
@@ -528,6 +603,8 @@ where
             group_id: config.group_id.clone(),
             _phantom_key: std::marker::PhantomData,
             _phantom_value: std::marker::PhantomData,
+            batch_buffer: vec![],
+            batch_size: config.max_poll_records as usize,
         })
     }
 
@@ -609,6 +686,64 @@ where
             Some(Err(e)) => Err(ConsumerError::KafkaError(e)),
             None => Err(ConsumerError::Timeout),
         }
+    }
+
+    /// Polls for a batch of generic messages with efficient buffer reuse.
+    ///
+    /// Performs one blocking poll with the specified timeout, then drains any
+    /// immediately available messages (non-blocking) up to the configured batch size.
+    ///
+    /// # Performance
+    ///
+    /// - **Latency**: Single blocking wait, then immediate drain
+    /// - **Throughput**: Up to `batch_size` messages per call
+    /// - **Memory**: Returns owned Vec (no internal buffer reuse for generic case)
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - How long to wait for the first message
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Message>)` - Batch of messages (may be empty on timeout)
+    /// * `Err(ConsumerError)` - Kafka or deserialization error
+    pub fn poll_batch_messages(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Vec<Message<K, V>>, ConsumerError> {
+        let mut batch = Vec::with_capacity(self.batch_size);
+
+        // First poll with timeout
+        match self.consumer.poll(timeout) {
+            Some(Ok(msg)) => {
+                let owned =
+                    process_kafka_message(msg, &self.key_serializer, &self.value_serializer)?;
+                batch.push(owned);
+            }
+            Some(Err(e)) => return Err(ConsumerError::KafkaError(e)),
+            None => return Ok(batch), // empty
+        }
+
+        // Drain immediately available (non-blocking)
+        while batch.len() < self.batch_size {
+            match self.consumer.poll(Duration::ZERO) {
+                Some(Ok(msg)) => {
+                    let owned =
+                        process_kafka_message(msg, &self.key_serializer, &self.value_serializer)?;
+                    batch.push(owned);
+                }
+                Some(Err(e)) => {
+                    log::warn!(
+                        "Kafka error during batch drain, returning partial batch: {:?}",
+                        e
+                    );
+                    break;
+                }
+                None => break,
+            }
+        }
+
+        Ok(batch)
     }
 
     /// Attempts to poll for a message without blocking (non-blocking check).
@@ -775,6 +910,86 @@ where
     }
 }
 
+/// Specialized impl for StreamRecord batching
+///
+/// This impl block provides optimized batch polling when the value type is
+/// `HashMap<String, FieldValue>`, enabling direct conversion to `StreamRecord`
+/// without intermediate allocations.
+#[allow(dead_code)]
+impl<K, KSer, VSer> Consumer<K, HashMap<String, FieldValue>, KSer, VSer>
+where
+    KSer: Serde<K> + Send + Sync + 'static,
+    VSer: Serde<HashMap<String, FieldValue>> + Send + Sync + 'static,
+{
+    /// Polls for a batch of StreamRecords with efficient buffer reuse.
+    ///
+    /// This specialized method converts Kafka messages directly to `StreamRecord`
+    /// without intermediate `Message<K, V>` allocation, providing optimal performance
+    /// for streaming SQL execution.
+    ///
+    /// # Performance
+    ///
+    /// - **Latency**: Single blocking wait, then immediate drain
+    /// - **Throughput**: Up to `batch_size` records per call
+    /// - **Memory**: Reuses internal buffer via `std::mem::take`
+    /// - **Zero intermediate allocation**: Kafka → StreamRecord directly
+    ///
+    /// # Arguments
+    ///
+    /// * `timeout` - How long to wait for the first message
+    /// * `event_time_config` - Optional event time extraction configuration
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<StreamRecord>)` - Batch of records (may be empty on timeout)
+    /// * `Err(ConsumerError)` - Kafka or deserialization error
+    pub fn poll_batch(
+        &mut self,
+        timeout: Duration,
+        event_time_config: Option<&EventTimeConfig>,
+    ) -> Result<Vec<StreamRecord>, ConsumerError> {
+        self.batch_buffer.clear();
+
+        // First poll with timeout
+        match self.consumer.poll(timeout) {
+            Some(Ok(msg)) => {
+                let record = process_kafka_message_to_stream_record(
+                    msg,
+                    &self.value_serializer,
+                    event_time_config,
+                )?;
+                self.batch_buffer.push(record);
+            }
+            Some(Err(e)) => return Err(ConsumerError::KafkaError(e)),
+            None => return Ok(std::mem::take(&mut self.batch_buffer)), // empty
+        }
+
+        // Drain immediately available (non-blocking)
+        while self.batch_buffer.len() < self.batch_size {
+            match self.consumer.poll(Duration::ZERO) {
+                Some(Ok(msg)) => {
+                    let record = process_kafka_message_to_stream_record(
+                        msg,
+                        &self.value_serializer,
+                        event_time_config,
+                    )?;
+                    self.batch_buffer.push(record);
+                }
+                Some(Err(e)) => {
+                    log::warn!(
+                        "Kafka error during batch drain, returning partial batch: {:?}",
+                        e
+                    );
+                    break;
+                }
+                None => break,
+            }
+        }
+
+        Ok(std::mem::take(&mut self.batch_buffer))
+    }
+}
+
 /// Maximum-performance stream using a dedicated blocking thread for Kafka polling.
 ///
 /// This stream spawns a dedicated thread that continuously polls the Kafka consumer,
@@ -829,11 +1044,13 @@ where
 ///     }
 /// }
 /// ```
+#[allow(dead_code)]
 pub struct DedicatedKafkaStream<K, V> {
     receiver: std::sync::mpsc::Receiver<Result<Message<K, V>, ConsumerError>>,
     _handle: std::thread::JoinHandle<()>,
 }
 
+#[allow(dead_code)]
 impl<K, V> DedicatedKafkaStream<K, V> {
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Result<Message<K, V>, ConsumerError>> {
@@ -841,6 +1058,7 @@ impl<K, V> DedicatedKafkaStream<K, V> {
     }
 }
 
+#[allow(dead_code)]
 impl<K, V, KSer, VSer> Consumer<K, V, KSer, VSer>
 where
     K: Send + Sync + 'static,

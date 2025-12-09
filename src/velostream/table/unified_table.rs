@@ -465,10 +465,12 @@ pub trait UnifiedTable: Send + Sync {
 ///
 /// Returns the key value if this is a simple "key = 'value'" query.
 pub fn parse_key_lookup(where_clause: &str) -> Option<String> {
+    use crate::velostream::sql::execution::types::StreamRecord;
+
     let clause = where_clause.trim();
 
     // Match patterns: key = 'value', key = "value", _key = 'value'
-    for key_name in &["key", "_key"] {
+    for key_name in &["key", StreamRecord::FIELD_KEY] {
         let patterns = [
             format!("{} = '", key_name),
             format!("{} = \"", key_name),
