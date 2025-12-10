@@ -27,6 +27,8 @@ fn create_test_record(text_field: &str) -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -49,6 +51,8 @@ fn create_edge_case_record() -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -350,6 +354,8 @@ async fn test_in_operator_basic() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test cases for IN operator
@@ -434,6 +440,8 @@ async fn test_not_in_operator_basic() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test NOT IN operator - opposite of IN results
@@ -507,6 +515,8 @@ async fn test_in_operator_with_null_values() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test NULL IN list (should never match)
@@ -603,6 +613,8 @@ async fn test_in_operator_edge_cases() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test empty list (should never match)

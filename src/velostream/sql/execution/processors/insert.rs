@@ -118,6 +118,8 @@ impl InsertProcessor {
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             result_records.push(insert_record);
@@ -241,6 +243,8 @@ impl InsertProcessor {
             offset: input_record.offset,           // Preserve INSERT context offset
             partition: input_record.partition,     // Preserve INSERT context partition
             event_time: None,
+            topic: None,
+            key: None,
         })
     }
 

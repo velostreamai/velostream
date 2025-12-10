@@ -165,6 +165,8 @@ async fn test_process_datasource_with_shutdown() {
                         partition: 0,
                         event_time: None,
                         headers: HashMap::new(),
+                        topic: None,
+                        key: None,
                     });
                 }
 
@@ -382,6 +384,8 @@ async fn test_shared_stats_are_updated_during_job_execution() {
                         partition: 0,
                         event_time: None,
                         headers: HashMap::new(),
+                        topic: None,
+                        key: None,
                     });
                 }
 

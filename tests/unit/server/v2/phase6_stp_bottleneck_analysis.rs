@@ -81,6 +81,8 @@ async fn profile_stp_bottlenecks() {
                 partition: r.partition,
                 event_time: r.event_time.clone(),
                 headers: r.headers.clone(),
+                topic: None,
+                key: None,
             })
             .collect();
 

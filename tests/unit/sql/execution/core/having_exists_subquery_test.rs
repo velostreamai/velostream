@@ -56,6 +56,8 @@ fn create_market_data_records() -> Vec<StreamRecord> {
             offset: i as i64,
             partition: 0,
             event_time: None,
+            topic: None,
+            key: None,
         });
     }
 

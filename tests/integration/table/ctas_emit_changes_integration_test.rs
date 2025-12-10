@@ -90,6 +90,8 @@ impl MockDataSource {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             });
         }
 
@@ -304,6 +306,8 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             // Send to configured sink (INTO clause behavior)
@@ -450,6 +454,8 @@ async fn test_ctas_emit_changes_data_flow() {
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             // Send to sink (INTO clause behavior)
@@ -564,6 +570,8 @@ async fn test_ctas_emit_final_vs_emit_changes_behavior() {
             partition: input_record.partition,
             headers: input_record.headers,
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         emit_changes_sink.send_record(output_record).await.unwrap();
@@ -633,6 +641,8 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         });
     }
 
@@ -694,6 +704,8 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
                 partition: record.partition,
                 headers: record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             sink.send_record(cdc_record).await.unwrap();

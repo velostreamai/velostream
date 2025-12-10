@@ -57,6 +57,8 @@ async fn test_concurrent_subquery_execution() {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             // Create a context with unique query ID

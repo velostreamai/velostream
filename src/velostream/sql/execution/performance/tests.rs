@@ -21,13 +21,16 @@ mod tests {
         fields.insert("name".to_string(), FieldValue::String("test".to_string()));
 
         StreamRecord {
-            fields,
-            headers: HashMap::new(),
-            event_time: None,
-            timestamp: 1234567890000,
-            offset: 0,
-            partition: 0,
+          fields,
+          headers: HashMap::new(),
+          event_time: None,
+          timestamp: 1234567890000,
+          offset: 0,
+          partition: 0,
+          topic: None,
+          key: None,
         }
+        
     }
 
     #[test]

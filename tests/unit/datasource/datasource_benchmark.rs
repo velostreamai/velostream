@@ -27,13 +27,16 @@ fn create_test_record(id: u64) -> StreamRecord {
     fields.insert("volume".to_string(), FieldValue::Integer(1000));
     
     StreamRecord {
-        fields,
-        timestamp: chrono::Utc::now().timestamp_millis(),
-        offset: id,
-        partition: 0,
-        event_time: None,
-        headers: HashMap::new(),
+      fields,
+      timestamp: chrono::Utc::now().timestamp_millis(),
+      offset: id,
+      partition: 0,
+      event_time: None,
+      headers: HashMap::new(),
+      topic: None,
+      key: None,
     }
+    
 }
 
 // Benchmark direct Kafka operations (baseline)

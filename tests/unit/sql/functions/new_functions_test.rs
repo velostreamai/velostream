@@ -36,6 +36,8 @@ fn create_test_record() -> StreamRecord {
         offset: 100,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 

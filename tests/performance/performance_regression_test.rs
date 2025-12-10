@@ -112,6 +112,8 @@ fn test_overall_subquery_performance() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     let start = Instant::now();

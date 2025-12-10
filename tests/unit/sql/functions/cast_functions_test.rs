@@ -20,6 +20,8 @@ fn create_mock_record() -> velostream::velostream::sql::execution::StreamRecord 
         partition: 0,
         headers: HashMap::new(),
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 

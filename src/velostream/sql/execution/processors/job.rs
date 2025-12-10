@@ -72,6 +72,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -110,6 +112,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -149,6 +153,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -188,6 +194,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -260,6 +268,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -323,6 +333,8 @@ mod tests {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         let query = StreamingQuery::Select {
@@ -373,6 +385,8 @@ mod tests {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         let result = processor.process_stop_job("test_job", &false, &mut context, &record);

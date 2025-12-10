@@ -515,7 +515,7 @@ impl KafkaDataSource {
         KafkaDataReader::from_properties(
             self.brokers.clone(),
             self.topic.clone(),
-            Some(group_id.to_string()),
+            group_id.to_string(),
             &config,
             self.event_time_config.clone(),
         )
@@ -734,7 +734,7 @@ impl DataSource for KafkaDataSource {
         // For Kafka, we'll return a generic schema since message format is flexible
         // In practice, this could integrate with Schema Registry
         // Note: offset, partition, timestamp are accessed via system columns (_OFFSET, _PARTITION, _TIMESTAMP)
-        // Only topic and key are added to the fields HashMap
+        // Topic and key are stored as struct fields on StreamRecord (accessible as _topic, _key)
         let fields = vec![
             FieldDefinition::optional(StreamRecord::FIELD_KEY.to_string(), DataType::String),
             FieldDefinition::required(StreamRecord::FIELD_TOPIC.to_string(), DataType::String),
@@ -784,7 +784,7 @@ impl DataSource for KafkaDataSource {
         let reader = KafkaDataReader::from_properties(
             self.brokers.clone(),
             self.topic.clone(),
-            Some(group_id.clone()),
+            group_id.clone(),
             &config,
             self.event_time_config.clone(),
         )

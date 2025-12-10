@@ -18,6 +18,8 @@ fn create_test_record(id: i64, amount: f64) -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -97,6 +99,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -147,6 +151,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -183,6 +189,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -221,6 +229,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -259,6 +269,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -301,6 +313,8 @@ mod tests {
                 partition: 0,
                 event_time: None,
                 headers: HashMap::new(),
+                topic: None,
+                key: None,
             };
 
             // Execute query
@@ -342,6 +356,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute CREATE STREAM
@@ -441,6 +457,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -484,6 +502,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         let before_exec = chrono::Utc::now();
@@ -541,6 +561,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         let before_exec = chrono::Utc::now();
@@ -597,6 +619,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;

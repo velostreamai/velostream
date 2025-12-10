@@ -296,6 +296,8 @@ mod tests {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             },
             StreamRecord {
                 fields: {
@@ -308,6 +310,8 @@ mod tests {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             },
             StreamRecord {
                 fields: {
@@ -320,6 +324,8 @@ mod tests {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             },
         ];
 

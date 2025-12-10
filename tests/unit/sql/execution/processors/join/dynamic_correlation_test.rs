@@ -33,6 +33,8 @@ fn create_dynamic_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     timestamp: 1640995200000,
                     offset: 1,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 }
             },
             {
@@ -47,6 +49,8 @@ fn create_dynamic_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     timestamp: 1640995200001,
                     offset: 2,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 }
             },
             // Product reviews
@@ -62,6 +66,8 @@ fn create_dynamic_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     timestamp: 1640995200002,
                     offset: 3,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 }
             },
             {
@@ -76,6 +82,8 @@ fn create_dynamic_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     timestamp: 1640995200003,
                     offset: 4,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 }
             },
         ];
@@ -129,6 +137,8 @@ fn create_customer_record(id: i64, name: &str) -> StreamRecord {
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 
@@ -146,6 +156,8 @@ fn create_product_record(id: i64, name: &str) -> StreamRecord {
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

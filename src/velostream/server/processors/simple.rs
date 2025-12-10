@@ -481,6 +481,12 @@ impl SimpleJobProcessor {
                 .process_data(&mut context, &engine, &query, &job_name, &mut stats)
                 .await;
 
+            // Check if we transitioned to idle (first empty batch after processing)
+            let records_this_batch = stats.records_processed - records_before;
+            if stats.mark_batch(records_this_batch > 0) {
+                log_idle_transition(&job_name, &stats);
+            }
+
             // Sync to shared stats for real-time monitoring
             stats.sync_to_shared(&shared_stats);
 

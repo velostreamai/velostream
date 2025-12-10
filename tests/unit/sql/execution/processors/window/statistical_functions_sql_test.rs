@@ -25,6 +25,8 @@ fn create_test_record(id: i64, value: f64, timestamp: i64) -> StreamRecord {
         timestamp,
         offset: id,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

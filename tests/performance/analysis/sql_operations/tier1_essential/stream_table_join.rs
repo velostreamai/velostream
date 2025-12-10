@@ -139,6 +139,8 @@ fn generate_stream_records(count: usize, table_size: usize) -> Vec<StreamRecord>
             fields,
             headers: HashMap::new(),
             event_time: Some(Utc::now()),
+            topic: None,
+            key: None,
         });
     }
 

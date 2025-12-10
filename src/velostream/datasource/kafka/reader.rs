@@ -149,19 +149,14 @@ impl KafkaDataReader {
     pub async fn from_properties(
         brokers: String,
         topic: String,
-        group_id: Option<String>,
+        group_id: String,
         consumer_properties: &HashMap<String, String>,
         event_time_config: Option<EventTimeConfig>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         Self::validate_topic_configuration(&topic)?;
 
         // Configure consumer from properties
-        let mut consumer_config = ConsumerConfig::new(brokers, topic.clone());
-
-        // Set group ID
-        if let Some(gid) = group_id {
-            consumer_config.group_id = gid;
-        }
+        let mut consumer_config = ConsumerConfig::new(brokers, group_id.clone());
 
         // Apply performance profile first (if specified), then individual properties can override
         consumer_config = Self::apply_performance_profile(consumer_config, consumer_properties);
@@ -176,6 +171,11 @@ impl KafkaDataReader {
 
         // Create the consumer (batch_size set from config.max_poll_records)
         let consumer = Self::create_consumer(consumer_config)?;
+
+        consumer.subscribe(&[&topic]).map_err(|e| {
+            log::error!("Cannot subscribe to topic '{}': {}", topic, e);
+            Box::new(e) as Box<dyn Error + Send + Sync>
+        })?;
 
         Ok(Self {
             consumer,

@@ -268,6 +268,14 @@ pub struct JobExecutionStats {
     /// Total time spent writing to sink (serialization + produce)
     #[serde(serialize_with = "serialize_duration_as_ms")]
     pub total_write_time: Duration,
+
+    // Idle detection
+    /// Whether the last batch had records (for idle transition detection)
+    #[serde(skip)]
+    pub last_batch_had_records: bool,
+    /// Whether we've logged the idle transition (to avoid spam)
+    #[serde(skip)]
+    pub idle_logged: bool,
 }
 
 impl JobExecutionStats {
@@ -389,6 +397,23 @@ impl JobExecutionStats {
                 }
             }
         }
+    }
+
+    /// Mark whether the current batch had records.
+    /// Returns true if this is a transition to idle (was processing, now empty).
+    pub fn mark_batch(&mut self, had_records: bool) -> bool {
+        let transition_to_idle = self.last_batch_had_records && !had_records && !self.idle_logged;
+        self.last_batch_had_records = had_records;
+
+        if had_records {
+            // Reset idle flag when we get records again
+            self.idle_logged = false;
+        } else if transition_to_idle {
+            // Mark that we've logged the idle transition
+            self.idle_logged = true;
+        }
+
+        transition_to_idle
     }
 }
 
@@ -717,6 +742,40 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
             stats.avg_processing_time_ms
         );
     }
+
+    // Log timing breakdown if any timing data was collected
+    let has_timing = stats.total_read_time.as_nanos() > 0
+        || stats.total_sql_time.as_nanos() > 0
+        || stats.total_write_time.as_nanos() > 0;
+
+    if has_timing {
+        let (read_pct, sql_pct, write_pct, other_pct) = stats.timing_breakdown();
+        info!(
+            "  Timing breakdown: read={:.1}ms ({:.1}%), sql={:.1}ms ({:.1}%), write={:.1}ms ({:.1}%), other={:.1}%",
+            stats.total_read_time.as_secs_f64() * 1000.0,
+            read_pct,
+            stats.total_sql_time.as_secs_f64() * 1000.0,
+            sql_pct,
+            stats.total_write_time.as_secs_f64() * 1000.0,
+            write_pct,
+            other_pct
+        );
+    }
+}
+
+/// Log when processor transitions to idle state (first empty batch after processing records)
+/// This helps diagnose when the data stream stops producing records
+pub fn log_idle_transition(job_name: &str, stats: &JobExecutionStats) {
+    let elapsed = stats.elapsed();
+    let rps = stats.records_per_second();
+
+    info!(
+        "Job '{}' ⏸️  IDLE: No more records after processing {} records in {:.2}s ({:.2} records/sec)",
+        job_name,
+        stats.records_processed,
+        elapsed.as_secs_f64(),
+        rps
+    );
 
     // Log timing breakdown if any timing data was collected
     let has_timing = stats.total_read_time.as_nanos() > 0

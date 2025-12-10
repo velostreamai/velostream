@@ -42,6 +42,8 @@ fn create_windowed_record(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -58,6 +60,8 @@ fn create_non_windowed_record(id: i64, value: f64, timestamp: i64) -> StreamReco
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -339,6 +343,8 @@ mod tumble_function_tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Should still read the correct window boundaries

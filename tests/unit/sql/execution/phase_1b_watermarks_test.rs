@@ -60,6 +60,8 @@ fn create_test_record_with_event_time(
         offset: id,
         partition: 0,
         event_time: Some(event_time),
+        topic: None,
+        key: None,
     }
 }
 
@@ -76,6 +78,8 @@ fn create_test_record_legacy(id: i64) -> StreamRecord {
         offset: id,
         partition: 0,
         event_time: None, // Legacy record without event time
+        topic: None,
+        key: None,
     }
 }
 

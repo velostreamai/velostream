@@ -467,11 +467,22 @@ async fn run_throughput_test(
 
     let start = Instant::now();
     let timeout = Duration::from_secs(300); // 5 minute timeout
+    let no_progress_timeout = Duration::from_secs(30); // 30 seconds without progress = give up
     let mut last_progress: u64 = 0;
+    let mut last_progress_time = Instant::now();
 
     while consumed < record_count {
         if start.elapsed() > timeout {
             println!("⚠️ Timeout reached after {:?}", timeout);
+            break;
+        }
+
+        // Check for no-progress timeout
+        if last_progress_time.elapsed() > no_progress_timeout {
+            println!(
+                "⚠️ No progress for {:?} (consumed {} of {}), stopping",
+                no_progress_timeout, consumed, record_count
+            );
             break;
         }
 
@@ -483,6 +494,7 @@ async fn run_throughput_test(
                 let payload = msg.payload().unwrap_or(&[]);
                 total_bytes += payload.len() as u64;
                 consumed += 1;
+                last_progress_time = Instant::now(); // Reset no-progress timer
 
                 // Forward to sink topic - copy data to owned strings
                 let key_owned: Option<String> =
@@ -817,7 +829,7 @@ async fn kafka_throughput_config_comparison() {
 
 /// Compare different payload sizes
 #[tokio::test]
-#[ignore] // Run explicitly: cargo test kafka_throughput_payload_comparison -- --ignored --nocapture
+// #[ignore] // Run explicitly: cargo test kafka_throughput_payload_comparison -- --ignored --nocapture
 async fn kafka_throughput_payload_comparison() {
     const RECORD_COUNT: u64 = 20_000;
 
@@ -1792,6 +1804,8 @@ async fn perf_isolation_datasink_write() {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: Some(Utc::now()),
+                topic: None,
+                key: None,
             })
         })
         .collect();
@@ -2543,6 +2557,8 @@ async fn perf_bottleneck_isolation() {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: Some(Utc::now()),
+                topic: None,
+                key: None,
             }
         })
         .collect();

@@ -37,6 +37,8 @@ fn create_test_record(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -194,6 +196,8 @@ async fn test_in_operator_with_alias_in_case_when() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         }
     };
 
@@ -239,6 +243,8 @@ async fn test_in_operator_with_alias_false_case() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         }
     };
 
@@ -284,6 +290,8 @@ async fn test_not_in_operator_with_alias() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         }
     };
 

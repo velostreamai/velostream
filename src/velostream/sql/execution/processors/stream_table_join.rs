@@ -712,6 +712,8 @@ impl StreamTableJoinProcessor {
             fields: combined_fields,
             headers: stream_record.headers.clone(), // Only clone headers once
             event_time: stream_record.event_time,
+            topic: None,
+            key: None,
         }
     }
 
@@ -726,6 +728,8 @@ impl StreamTableJoinProcessor {
             fields: stream_record.fields.clone(),
             headers: stream_record.headers.clone(),
             event_time: stream_record.event_time,
+            topic: None,
+            key: None,
         }
     }
 
@@ -758,6 +762,8 @@ impl StreamTableJoinProcessor {
             fields: combined_fields,
             headers: stream_record.headers.clone(),
             event_time: stream_record.event_time,
+            topic: None,
+            key: None,
         }
     }
 
@@ -879,6 +885,8 @@ impl StreamTableJoinProcessor {
             fields: combined_fields,
             headers: stream_record.headers.clone(), // Only clone headers once
             event_time: stream_record.event_time,
+            topic: None,
+            key: None,
         }
     }
 
@@ -911,6 +919,8 @@ impl StreamTableJoinProcessor {
             fields: combined_fields,
             headers: stream_record.headers.clone(),
             event_time: stream_record.event_time,
+            topic: None,
+            key: None,
         }
     }
 }
@@ -959,6 +969,8 @@ mod tests {
             fields,
             headers: HashMap::new(),
             event_time: Some(Utc::now()),
+            topic: None,
+            key: None,
         };
 
         // Test simple equality condition

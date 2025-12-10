@@ -141,6 +141,8 @@ impl JobProcessor for MockJobProcessor {
             total_sql_time: std::time::Duration::ZERO,
             total_write_time: std::time::Duration::ZERO,
             error_details: vec![],
+            last_batch_had_records: false,
+            idle_logged: false,
         })
     }
 
@@ -175,6 +177,8 @@ impl JobProcessor for MockJobProcessor {
             total_sql_time: std::time::Duration::ZERO,
             total_write_time: std::time::Duration::ZERO,
             error_details: vec![],
+            last_batch_had_records: false,
+            idle_logged: false,
         })
     }
 }

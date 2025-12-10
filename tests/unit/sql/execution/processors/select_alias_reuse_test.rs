@@ -50,6 +50,8 @@ fn create_test_record() -> StreamRecord {
         offset: 0,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -69,6 +71,8 @@ fn create_multi_record_context() -> Vec<StreamRecord> {
                 offset: 0,
                 partition: 0,
                 event_time: None,
+                topic: None,
+                key: None,
             }
         },
         {
@@ -85,6 +89,8 @@ fn create_multi_record_context() -> Vec<StreamRecord> {
                 offset: 1,
                 partition: 0,
                 event_time: None,
+                topic: None,
+                key: None,
             }
         },
     ]

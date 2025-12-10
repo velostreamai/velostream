@@ -173,6 +173,8 @@ fn create_test_records(count: usize) -> Vec<StreamRecord> {
                 partition: (i % 3) as i32,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             }
         })
         .collect()

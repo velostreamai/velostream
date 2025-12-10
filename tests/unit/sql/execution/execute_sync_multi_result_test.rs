@@ -37,6 +37,8 @@ fn create_record(id: i64, value: i64, timestamp: i64) -> StreamRecord {
         partition: 0,
         headers: HashMap::new(),
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 

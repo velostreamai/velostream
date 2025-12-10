@@ -77,6 +77,8 @@ impl TestMessage {
             partition: 0,
             headers: HashMap::new(),
             event_time: None, // Use processing time by default
+            topic: None,
+            key: None,
         }
     }
 }

@@ -131,6 +131,12 @@ use super::expression::ExpressionEvaluator;
 use super::internal::{
     ExecutionMessage, ExecutionState, GroupByState, QueryExecution, WindowState,
 };
+// Processor imports for Phase 5B integration
+use super::processors::{
+    HeaderMutation, HeaderMutation as ProcessorHeaderMutation, HeaderOperation,
+    HeaderOperation as ProcessorHeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
+    SelectProcessor, WindowContext, WindowProcessor,
+};
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
 use crate::velostream::datasource::{DataReader, DataWriter, create_sink, create_source};
@@ -139,12 +145,6 @@ use crate::velostream::sql::error::SqlError;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-// Processor imports for Phase 5B integration
-use super::processors::{
-    HeaderMutation, HeaderMutation as ProcessorHeaderMutation, HeaderOperation,
-    HeaderOperation as ProcessorHeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
-    SelectProcessor, WindowContext, WindowProcessor,
-};
 
 /// Type alias for context customizer function
 type ContextCustomizer = Arc<dyn Fn(&mut ProcessorContext) + Send + Sync>;
@@ -1187,6 +1187,8 @@ impl StreamExecutionEngine {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         // Process the trigger for all active queries to flush any pending windows

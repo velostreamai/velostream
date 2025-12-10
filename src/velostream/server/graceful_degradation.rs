@@ -244,6 +244,8 @@ impl GracefulDegradationHandler {
             fields: enriched_fields,
             headers: stream_record.headers.clone(),
             event_time: stream_record.event_time,
+            topic: stream_record.topic.clone(),
+            key: stream_record.key.clone(),
         }
     }
 
@@ -267,6 +269,8 @@ impl GracefulDegradationHandler {
             fields: enriched_fields,
             headers: stream_record.headers.clone(),
             event_time: stream_record.event_time,
+            topic: stream_record.topic.clone(),
+            key: stream_record.key.clone(),
         }
     }
 
@@ -393,6 +397,8 @@ mod tests {
             fields,
             headers: HashMap::new(),
             event_time: Some(chrono::Utc::now()),
+            topic: None,
+            key: None,
         }
     }
 

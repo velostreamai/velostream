@@ -653,6 +653,8 @@ impl SelectProcessor {
                     partition: joined_record.partition,
                     headers: joined_record.headers.clone(),
                     event_time: joined_record.event_time,
+                    topic: None,
+                    key: None,
                 };
 
                 FieldValidator::validate_expressions_with_aliases(
@@ -681,6 +683,8 @@ impl SelectProcessor {
                     partition: joined_record.partition,
                     headers: joined_record.headers.clone(),
                     event_time: None,
+                    topic: None,
+                    key: None,
                 };
 
                 // Phase 3: Validate HAVING clause fields exist in combined scope
@@ -729,6 +733,8 @@ impl SelectProcessor {
                         partition: joined_record.partition,
                         headers: joined_record.headers.clone(),
                         event_time: None,
+                        topic: None,
+                        key: None,
                     };
 
                     // Extract expressions from ORDER BY entries
@@ -794,6 +800,8 @@ impl SelectProcessor {
                 partition: joined_record.partition,
                 headers: joined_record.headers,
                 event_time: computed_event_time,
+                topic: None,
+                key: None,
             };
 
             Ok(ProcessorResult {
@@ -1445,6 +1453,8 @@ impl SelectProcessor {
                     partition: record.partition,
                     headers: record.headers.clone(),
                     event_time: None,
+                    topic: None,
+                    key: None,
                 };
 
                 Ok(ProcessorResult {

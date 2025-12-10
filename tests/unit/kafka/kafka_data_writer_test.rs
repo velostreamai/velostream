@@ -29,6 +29,8 @@ fn create_test_record(id: i64, name: &str, amount: f64, timestamp: i64) -> Strea
         offset: id,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -50,6 +52,8 @@ fn create_financial_record(id: i64, price_cents: i64, quantity: i64) -> StreamRe
         offset: id,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -328,6 +332,8 @@ mod kafka_data_writer_tests {
             offset: 0,
             partition: 0,
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         // Should handle empty fields gracefully

@@ -66,6 +66,8 @@ impl BenchmarkDataReader {
                     timestamp: 1640995200000 + (record_id as i64 * 1000),
                     offset: record_id as i64,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 });
             }
 

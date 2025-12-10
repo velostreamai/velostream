@@ -1303,6 +1303,12 @@ impl FieldValue {
 /// This structure represents a single record from a streaming data source like Kafka.
 /// It contains the actual field data plus metadata about the record's position and
 /// timing within the stream.
+///
+/// # Performance Note
+///
+/// The `topic` and `key` fields are stored directly in the struct rather than in the
+/// `fields` HashMap to avoid per-message String allocations for the keys "_topic" and "_key".
+/// These fields are accessible via SQL as `_topic` and `_key` through the `get_field()` method.
 #[derive(Debug, Clone, Default)]
 pub struct StreamRecord {
     /// The actual field data for this record
@@ -1319,6 +1325,12 @@ pub struct StreamRecord {
     /// When None, processing-time (timestamp field) is used
     /// When Some, this timestamp is used for event-time windowing and watermarks
     pub event_time: Option<chrono::DateTime<chrono::Utc>>,
+    /// Kafka topic name (accessible as `_topic` in SQL)
+    /// Stored as struct field to avoid HashMap key allocation per message
+    pub topic: Option<FieldValue>,
+    /// Kafka message key (accessible as `_key` in SQL)
+    /// Stored as struct field to avoid HashMap key allocation per message
+    pub key: Option<FieldValue>,
 }
 
 impl StreamRecord {
@@ -1342,6 +1354,8 @@ impl StreamRecord {
             partition: 0,
             headers: HashMap::new(),
             event_time: None, // Default to processing-time
+            topic: None,
+            key: None,
         }
     }
 
@@ -1351,10 +1365,16 @@ impl StreamRecord {
     /// event time extraction. It encapsulates the conversion logic from Kafka messages
     /// to StreamRecords.
     ///
+    /// # Performance
+    ///
+    /// Topic and key are stored as struct fields rather than in the HashMap to avoid
+    /// per-message String allocations for the keys "_topic" and "_key". They remain
+    /// accessible via SQL using the `get_field()` method.
+    ///
     /// # Arguments
     /// * `fields` - The deserialized message payload fields
-    /// * `topic` - Kafka topic name (stored as `_topic` field)
-    /// * `key` - Optional message key (stored as `_key` field if present)
+    /// * `topic` - Kafka topic name (stored in `topic` field, accessible as `_topic`)
+    /// * `key` - Optional message key (stored in `key` field, accessible as `_key`)
     /// * `timestamp_ms` - Message timestamp in milliseconds (or None for current time)
     /// * `offset` - Kafka offset
     /// * `partition` - Kafka partition
@@ -1362,31 +1382,19 @@ impl StreamRecord {
     /// * `event_time_config` - Optional config for extracting event time from fields
     #[allow(clippy::too_many_arguments)]
     pub fn from_kafka(
-        mut fields: HashMap<String, FieldValue>,
-        topic: &str,
-        key: Option<&[u8]>,
+        fields: HashMap<String, FieldValue>,
+        topic_str: &str,
+        key_bytes: Option<&[u8]>,
         timestamp_ms: Option<i64>,
         offset: i64,
         partition: i32,
         headers: HashMap<String, String>,
         event_time_config: Option<&EventTimeConfig>,
     ) -> Self {
-        // Pre-reserve capacity for metadata fields to avoid rehashing
-        // We always add _topic, and conditionally _key
-        fields.reserve(if key.is_some() { 2 } else { 1 });
-
-        // Add Kafka-specific metadata as fields
-        // Use String::from() for static str - same cost but clearer intent
-        fields.insert(
-            String::from(Self::FIELD_TOPIC),
-            FieldValue::String(topic.into()),
-        );
-
-        if let Some(k) = key {
-            // Convert bytes to UTF-8 string, or use lossy conversion for non-UTF8 keys
-            let key_str = String::from_utf8_lossy(k).into_owned();
-            fields.insert(String::from(Self::FIELD_KEY), FieldValue::String(key_str));
-        }
+        // Store topic and key as struct fields instead of HashMap entries
+        // This avoids 2 String allocations per message for the keys "_topic" and "_key"
+        let topic = Some(FieldValue::String(topic_str.to_string()));
+        let key = key_bytes.map(|k| FieldValue::String(String::from_utf8_lossy(k).into_owned()));
 
         // Extract event time: use config if provided, otherwise use Kafka timestamp
         let event_time = if let Some(config) = event_time_config {
@@ -1406,6 +1414,8 @@ impl StreamRecord {
             partition,
             headers,
             event_time,
+            topic,
+            key,
         }
     }
 
@@ -1427,6 +1437,8 @@ impl StreamRecord {
             partition,
             headers,
             event_time: None, // Default to processing-time
+            topic: None,
+            key: None,
         }
     }
 
@@ -1449,6 +1461,8 @@ impl StreamRecord {
             partition,
             headers,
             event_time: Some(event_time),
+            topic: None,
+            key: None,
         }
     }
 
@@ -1563,27 +1577,54 @@ impl StreamRecord {
     ///
     /// Returns a reference to the field value if it exists, or None if the field
     /// is not present in this record.
+    ///
+    /// # Note
+    ///
+    /// The `_topic` and `_key` fields are stored as struct fields for performance,
+    /// but this method transparently returns them when requested by those names.
     pub fn get_field(&self, name: &str) -> Option<&FieldValue> {
-        self.fields.get(name)
+        // Check struct fields first for _topic and _key (performance optimization)
+        match name {
+            Self::FIELD_TOPIC => self.topic.as_ref(),
+            Self::FIELD_KEY => self.key.as_ref(),
+            _ => self.fields.get(name),
+        }
     }
 
     /// Check if a field exists in this record
     ///
     /// Returns true if the field is present, regardless of its value (including NULL).
     pub fn has_field(&self, name: &str) -> bool {
-        self.fields.contains_key(name)
+        match name {
+            Self::FIELD_TOPIC => self.topic.is_some(),
+            Self::FIELD_KEY => self.key.is_some(),
+            _ => self.fields.contains_key(name),
+        }
     }
 
     /// Get the number of fields in this record
+    ///
+    /// Includes `_topic` and `_key` if present.
     pub fn field_count(&self) -> usize {
-        self.fields.len()
+        let mut count = self.fields.len();
+        if self.topic.is_some() {
+            count += 1;
+        }
+        if self.key.is_some() {
+            count += 1;
+        }
+        count
     }
 
     /// Check if the record contains a specific key
     ///
     /// Returns true if the specified key exists in the record's fields.
     pub fn contains_key(&self, name: &str) -> bool {
-        self.fields.contains_key(name)
+        match name {
+            Self::FIELD_TOPIC => self.topic.is_some(),
+            Self::FIELD_KEY => self.key.is_some(),
+            _ => self.fields.contains_key(name),
+        }
     }
 
     /// Check if the debug representation of this record contains a substring

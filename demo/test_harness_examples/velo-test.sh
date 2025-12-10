@@ -5,7 +5,8 @@
 # This script runs velo-test against the example SQL applications in this demo.
 #
 # Usage (from test_harness_examples directory):
-#   ./velo-test.sh                 # Run all tiers (auto-starts Kafka via Docker)
+#   ./velo-test.sh                 # Interactive: select SQL file → test case (default)
+#   ./velo-test.sh run             # Run all tiers (auto-starts Kafka via Docker)
 #   ./velo-test.sh validate        # Validate all SQL syntax only (no Docker needed)
 #   ./velo-test.sh tier1           # Run tier1_basic tests only
 #   ./velo-test.sh getting_started # Run getting_started example
@@ -13,10 +14,10 @@
 #   ./velo-test.sh cases           # Interactive: select SQL file, then test case
 #
 # Usage (from a subdirectory like getting_started):
+#   ../velo-test.sh                # Interactive: select SQL file → test case (default)
 #   ../velo-test.sh .              # Run current directory as a test tier
 #   ../velo-test.sh validate .     # Validate SQL in current directory
 #   ../velo-test.sh menu           # Interactive menu for SQL files only
-#   ../velo-test.sh cases          # Interactive: select SQL file → test case
 #
 # Options:
 #   --kafka <servers>     Use external Kafka instead of testcontainers
@@ -76,7 +77,7 @@ TARGET_DIR=""
 QUERY_FILTER=""
 
 # Parse command line arguments
-MODE="${1:-run}"
+MODE="${1:-cases}"
 shift || true
 
 # Check if the next argument is a directory path (not an option)

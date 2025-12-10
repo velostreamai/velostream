@@ -42,6 +42,8 @@ async fn test_core_sql_engine_functionality() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Execute the query
@@ -83,6 +85,8 @@ async fn test_financial_precision_maintained() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     let result = engine.execute_with_record(&query, &record).await;
@@ -113,6 +117,8 @@ async fn test_window_functions_functionality() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     let result = engine.execute_with_record(&query, &record).await;
@@ -153,6 +159,8 @@ async fn test_aggregation_functionality() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -191,6 +199,8 @@ async fn test_complex_query_functionality() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     let result = engine.execute_with_record(&query, &record).await;
@@ -228,6 +238,8 @@ async fn test_error_handling_functionality() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // This should handle the type error gracefully
@@ -309,6 +321,8 @@ async fn test_performance_regression_check() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;
@@ -370,6 +384,8 @@ async fn test_end_to_end_integration() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         let result = engine.execute_with_record(&query, &record).await;

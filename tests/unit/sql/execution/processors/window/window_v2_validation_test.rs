@@ -30,6 +30,8 @@ fn create_test_record(timestamp: i64, value: i64) -> StreamRecord {
         timestamp,
         offset: 0,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

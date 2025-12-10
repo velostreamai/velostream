@@ -168,6 +168,8 @@ impl ProfilingDataReader {
             partition: 0,
             headers: HashMap::new(),
             event_time: None, // Not used in profiling
+            topic: None,
+            key: None,
         }
     }
 }

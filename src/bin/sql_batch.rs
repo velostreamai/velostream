@@ -271,6 +271,8 @@ async fn generate_sample_data_for_query(
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         });
     }
 

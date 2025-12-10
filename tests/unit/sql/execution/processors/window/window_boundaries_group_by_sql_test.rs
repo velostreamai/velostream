@@ -43,6 +43,8 @@ fn create_record(record_id: i64, group_key: &str, value: f64, timestamp_ms: i64)
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 

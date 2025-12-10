@@ -25,6 +25,8 @@ fn create_record(fields: Vec<(&str, FieldValue)>) -> StreamRecord {
         partition: 0,
         headers: HashMap::new(),
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -41,6 +43,8 @@ fn create_record_with_timestamp(fields: Vec<(&str, FieldValue)>, timestamp: i64)
         partition: 0,
         headers: HashMap::new(),
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -571,6 +575,8 @@ fn test_emit_changes_exact_market_aggregation_query() {
             partition: 0,
             headers: std::collections::HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         let result = engine.execute_with_record_sync(&query, &record);
@@ -928,6 +934,8 @@ fn test_emit_changes_with_json_roundtrip() {
             partition: 0,
             headers: std::collections::HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         let result = engine.execute_with_record_sync(&query, &record);

@@ -67,6 +67,8 @@ impl PerformanceTestReader {
             timestamp: 1640995200000 + index as i64,
             offset: index as i64,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 }

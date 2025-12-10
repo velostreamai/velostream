@@ -358,6 +358,8 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
             event_time,
+            topic: None,
+            key: None,
         })
     }
 
@@ -545,6 +547,8 @@ impl FileReader {
                         partition: 0,
                         headers: HashMap::new(),
                         event_time,
+                        topic: None,
+                        key: None,
                     };
 
                     self.records_read += 1;
@@ -1150,6 +1154,8 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
             event_time,
+            topic: None,
+            key: None,
         };
 
         Ok(Some(record))
@@ -1193,6 +1199,8 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
             event_time,
+            topic: None,
+            key: None,
         };
 
         Ok(Some(record))

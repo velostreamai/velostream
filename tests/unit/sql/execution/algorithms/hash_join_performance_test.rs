@@ -24,13 +24,16 @@ mod hash_join_performance_tests {
             fields.insert("value".to_string(), FieldValue::String(format!("{}_value_{}", prefix, i)));
             
             StreamRecord {
-                fields,
-                timestamp: i as i64,
-                offset: i as i64,
-                partition: 0,
-        event_time: None,
-                headers: HashMap::new(),
+              fields,
+              timestamp: i as i64,
+              offset: i as i64,
+              partition: 0,
+                    event_time: None,
+              headers: HashMap::new(),
+              topic: None,
+              key: None,
             }
+            
         }).collect()
     }
 

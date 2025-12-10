@@ -38,6 +38,8 @@ fn create_test_record() -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -459,6 +461,8 @@ async fn test_statistical_functions_with_non_numeric_types() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     for function_name in functions {

@@ -37,6 +37,8 @@ fn create_market_data_record(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -291,6 +293,8 @@ async fn test_null_handling() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     let results = execute_sql_query(sql, vec![record]).await.unwrap();

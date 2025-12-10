@@ -249,6 +249,8 @@ fn create_test_batches(record_count: usize, batch_size: usize) -> Vec<Vec<Stream
                 partition: (i % 4) as i32,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             });
         }
         batches.push(batch);

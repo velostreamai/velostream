@@ -95,6 +95,8 @@ impl UpdateProcessor {
                     headers
                 },
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             Ok(Some(updated_record))

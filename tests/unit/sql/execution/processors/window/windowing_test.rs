@@ -63,6 +63,8 @@ fn create_test_record_with_timestamp(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 

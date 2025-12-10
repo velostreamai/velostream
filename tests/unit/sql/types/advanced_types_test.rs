@@ -50,6 +50,8 @@ fn create_test_record_with_advanced_types() -> StreamRecord {
         timestamp: 1234567890000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

@@ -24,6 +24,8 @@ fn create_test_record() -> StreamRecord {
         timestamp: 1234567890000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

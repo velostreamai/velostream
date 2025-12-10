@@ -135,6 +135,8 @@ impl JoinContext {
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }))
     }
 }

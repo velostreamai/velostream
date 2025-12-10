@@ -53,6 +53,8 @@ async fn test_json_from_execution_format() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Serialize the StreamRecord's fields

@@ -147,26 +147,32 @@ async fn test_event_time_support_in_stream_record() {
 
     // Create record without event time (backward compatibility)
     let record_without_event_time = StreamRecord {
-        fields: HashMap::new(),
-        timestamp: 12345,
-        offset: 0,
-        partition: 0,
-        event_time: None,
-        headers: HashMap::new(),
-    };
+      fields: HashMap::new(),
+      timestamp: 12345,
+      offset: 0,
+      partition: 0,
+      event_time: None,
+      headers: HashMap::new(),
+      topic: None,
+      key: None,
+    }
+    ;
 
     assert!(record_without_event_time.event_time.is_none());
 
     // Create record with event time (new capability)
     let event_time = Utc::now();
     let record_with_event_time = StreamRecord {
-        fields: HashMap::new(),
-        timestamp: 12345,
-        offset: 0,
-        partition: 0,
-        headers: HashMap::new(),
-        event_time: Some(event_time),
-    };
+      fields: HashMap::new(),
+      timestamp: 12345,
+      offset: 0,
+      partition: 0,
+      headers: HashMap::new(),
+      event_time: Some(event_time),
+      topic: None,
+      key: None,
+    }
+    ;
 
     assert!(record_with_event_time.event_time.is_some());
     assert_eq!(record_with_event_time.event_time.unwrap(), event_time);
@@ -315,13 +321,16 @@ fn create_test_record() -> StreamRecord {
     fields.insert("name".to_string(), FieldValue::String("test".to_string()));
 
     StreamRecord {
-        fields,
-        timestamp: Utc::now().timestamp_millis(),
-        offset: 0,
-        partition: 0,
-        headers: HashMap::new(),
-        event_time: Some(Utc::now()),
+      fields,
+      timestamp: Utc::now().timestamp_millis(),
+      offset: 0,
+      partition: 0,
+      headers: HashMap::new(),
+      event_time: Some(Utc::now()),
+      topic: None,
+      key: None,
     }
+    
 }
 
 fn create_legacy_test_record() -> StreamRecord {
@@ -330,13 +339,16 @@ fn create_legacy_test_record() -> StreamRecord {
     fields.insert("name".to_string(), FieldValue::String("test".to_string()));
 
     StreamRecord {
-        fields,
-        timestamp: Utc::now().timestamp_millis(),
-        offset: 0,
-        partition: 0,
-        event_time: None,
-        headers: HashMap::new(),
+      fields,
+      timestamp: Utc::now().timestamp_millis(),
+      offset: 0,
+      partition: 0,
+      event_time: None,
+      headers: HashMap::new(),
+      topic: None,
+      key: None,
     }
+    
 }
 
 #[cfg(test)]
@@ -387,17 +399,20 @@ mod performance_tests {
 
         for i in 0..num_records {
             let _record = StreamRecord {
-                fields: {
-                    let mut fields = HashMap::new();
-                    fields.insert("id".to_string(), FieldValue::Integer(i));
-                    fields
-                },
-                timestamp: i as i64,
-                offset: i as i64,
-                partition: 0,
-                headers: HashMap::new(),
-                event_time: Some(Utc::now()),
-            };
+              fields: {
+                  let mut fields = HashMap::new();
+                  fields.insert("id".to_string(), FieldValue::Integer(i));
+                  fields
+              },
+              timestamp: i as i64,
+              offset: i as i64,
+              partition: 0,
+              headers: HashMap::new(),
+              event_time: Some(Utc::now()),
+              topic: None,
+              key: None,
+            }
+            ;
         }
 
         let duration = start.elapsed();

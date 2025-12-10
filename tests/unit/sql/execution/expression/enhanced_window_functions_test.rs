@@ -42,6 +42,8 @@ fn create_test_record(id: i64, category: &str, value: f64, timestamp: i64) -> St
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
