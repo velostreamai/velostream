@@ -100,6 +100,7 @@ sonic-rs = "0.5"
 # FR-084: Testcontainers for test harness (optional, enabled in tests)
 testcontainers = { version = "0.25", optional = true }
 testcontainers-modules = { version = "0.13", features = ["kafka"], optional = true }
+testcontainers-redpanda-rs = { version = "0.12", optional = true }  # Redpanda container (faster startup)
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
@@ -113,7 +114,9 @@ tempfile = "3.12.0"
 futures = "0.3"
 testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["kafka"] }
+testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup than Kafka)
 itoa = "1.0"  # Fast integer-to-string conversion for benchmarks
+once_cell = "1.19"  # Lazy static initialization for shared containers
 
 
 # Performance examples - organized in subfolder
@@ -218,4 +221,4 @@ comprehensive-tests = []  # Enable comprehensive/slow tests that take 40+ second
 telemetry = []  # Phase 3.2: Optional telemetry feature flag for zero-cost observation
                  # When disabled, all telemetry recording overhead is eliminated via dead code elimination
 parallel = ["rayon"]  # Optional parallel processing feature for batch operations (requires rayon)
-test-support = ["testcontainers", "testcontainers-modules"]  # FR-084: Enable testcontainers for test harness
+test-support = ["testcontainers", "testcontainers-modules", "testcontainers-redpanda-rs"]  # FR-084: Enable testcontainers for test harness

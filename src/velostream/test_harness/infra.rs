@@ -49,6 +49,50 @@ use testcontainers::ContainerAsync;
 use testcontainers::runners::AsyncRunner;
 #[cfg(any(test, feature = "test-support"))]
 use testcontainers_modules::kafka::KAFKA_PORT;
+#[cfg(any(test, feature = "test-support"))]
+use testcontainers_redpanda_rs::{Redpanda, REDPANDA_PORT};
+
+/// Type of Kafka-compatible container to use
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContainerType {
+    /// Confluent Kafka (default, widely tested)
+    #[default]
+    Kafka,
+    /// Redpanda (faster startup, Kafka-compatible)
+    Redpanda,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl ContainerType {
+    /// Get container type from environment variable
+    ///
+    /// Set `VELOSTREAM_TEST_CONTAINER=redpanda` to use Redpanda
+    pub fn from_env() -> Self {
+        match std::env::var("VELOSTREAM_TEST_CONTAINER")
+            .unwrap_or_default()
+            .to_lowercase()
+            .as_str()
+        {
+            "redpanda" => ContainerType::Redpanda,
+            _ => ContainerType::Kafka,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        match self {
+            ContainerType::Kafka => "Confluent Kafka",
+            ContainerType::Redpanda => "Redpanda",
+        }
+    }
+}
+
+/// Container instance enum to hold either Kafka or Redpanda
+#[cfg(any(test, feature = "test-support"))]
+enum ContainerInstance {
+    Kafka(ContainerAsync<testcontainers_modules::kafka::Kafka>),
+    Redpanda(ContainerAsync<Redpanda>),
+}
 
 /// Manages testcontainers infrastructure for test execution
 ///
@@ -98,10 +142,10 @@ pub struct TestHarnessInfra {
     /// In-memory schema registry (API-compatible with Confluent Schema Registry)
     schema_registry: Option<Arc<InMemorySchemaRegistryBackend>>,
 
-    /// Kafka container (if started via testcontainers) - only in tests
+    /// Container instance (Kafka or Redpanda) - only in tests
     #[cfg(any(test, feature = "test-support"))]
     #[allow(dead_code)]
-    kafka_container: Option<ContainerAsync<testcontainers_modules::kafka::Kafka>>,
+    container: Option<ContainerInstance>,
 }
 
 impl TestHarnessInfra {
@@ -118,7 +162,7 @@ impl TestHarnessInfra {
             owns_kafka: false,
             schema_registry: None,
             #[cfg(any(test, feature = "test-support"))]
-            kafka_container: None,
+            container: None,
         }
     }
 
@@ -138,7 +182,7 @@ impl TestHarnessInfra {
             owns_kafka: false,
             schema_registry: None,
             #[cfg(any(test, feature = "test-support"))]
-            kafka_container: None,
+            container: None,
         }
     }
 
@@ -159,33 +203,86 @@ impl TestHarnessInfra {
     /// ```
     #[cfg(any(test, feature = "test-support"))]
     pub async fn with_testcontainers() -> TestHarnessResult<Self> {
-        log::info!("Starting Kafka container via testcontainers...");
+        // Use container type from environment variable
+        Self::with_testcontainers_type(ContainerType::from_env()).await
+    }
 
-        // Start Kafka container
-        let kafka_container = testcontainers_modules::kafka::Kafka::default()
-            .start()
-            .await
-            .map_err(|e| TestHarnessError::InfraError {
-                message: format!("Failed to start Kafka container: {}", e),
-                source: Some(e.to_string()),
-            })?;
+    /// Create infrastructure with Redpanda container
+    ///
+    /// Redpanda is a Kafka-compatible streaming platform with faster startup
+    /// time (~3s vs ~10s for Kafka). Use this for faster test iteration.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut infra = TestHarnessInfra::with_redpanda().await?;
+    /// infra.start().await?;
+    /// // run tests...
+    /// infra.stop().await?;
+    /// ```
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn with_redpanda() -> TestHarnessResult<Self> {
+        Self::with_testcontainers_type(ContainerType::Redpanda).await
+    }
 
-        // Get the mapped port
-        let host_port = kafka_container
-            .get_host_port_ipv4(KAFKA_PORT)
-            .await
-            .map_err(|e| TestHarnessError::InfraError {
-                message: format!("Failed to get Kafka port: {}", e),
-                source: Some(e.to_string()),
-            })?;
+    /// Create infrastructure with a specific container type
+    ///
+    /// # Arguments
+    /// * `container_type` - The type of container to start (Kafka or Redpanda)
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn with_testcontainers_type(container_type: ContainerType) -> TestHarnessResult<Self> {
+        log::info!("Starting {} container via testcontainers...", container_type.name());
 
-        let bootstrap_servers = format!("127.0.0.1:{}", host_port);
+        let (bootstrap_servers, container) = match container_type {
+            ContainerType::Kafka => {
+                let kafka_container = testcontainers_modules::kafka::Kafka::default()
+                    .start()
+                    .await
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to start Kafka container: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+
+                let host_port = kafka_container
+                    .get_host_port_ipv4(KAFKA_PORT)
+                    .await
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to get Kafka port: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+
+                let bootstrap = format!("127.0.0.1:{}", host_port);
+                (bootstrap, ContainerInstance::Kafka(kafka_container))
+            }
+            ContainerType::Redpanda => {
+                let redpanda_container = Redpanda::default()
+                    .start()
+                    .await
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to start Redpanda container: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+
+                let host_port = redpanda_container
+                    .get_host_port_ipv4(REDPANDA_PORT)
+                    .await
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to get Redpanda port: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+
+                let bootstrap = format!("127.0.0.1:{}", host_port);
+                (bootstrap, ContainerInstance::Redpanda(redpanda_container))
+            }
+        };
+
         log::info!(
-            "Kafka container started, bootstrap servers: {}",
+            "{} container started, bootstrap servers: {}",
+            container_type.name(),
             bootstrap_servers
         );
 
-        // Give Kafka a moment to be ready
+        // Give the container a moment to be ready
         tokio::time::sleep(Duration::from_secs(2)).await;
 
         let run_id = generate_run_id();
@@ -198,7 +295,7 @@ impl TestHarnessInfra {
             admin_client: None,
             owns_kafka: true,
             schema_registry: None,
-            kafka_container: Some(kafka_container),
+            container: Some(container),
         })
     }
 
@@ -297,19 +394,32 @@ impl TestHarnessInfra {
             }
         }
 
-        // Stop and remove the Kafka container (testcontainers)
+        // Stop and remove the container (testcontainers)
         // This is critical - without this, containers are left running!
         #[cfg(any(test, feature = "test-support"))]
-        if let Some(container) = self.kafka_container.take() {
-            log::info!("Stopping Kafka container...");
-            // Explicitly stop and remove the container
-            if let Err(e) = container.stop().await {
-                log::warn!("Failed to stop Kafka container: {}", e);
+        if let Some(container) = self.container.take() {
+            match container {
+                ContainerInstance::Kafka(kafka_container) => {
+                    log::info!("Stopping Kafka container...");
+                    if let Err(e) = kafka_container.stop().await {
+                        log::warn!("Failed to stop Kafka container: {}", e);
+                    }
+                    if let Err(e) = kafka_container.rm().await {
+                        log::warn!("Failed to remove Kafka container: {}", e);
+                    }
+                    log::info!("Kafka container stopped and removed");
+                }
+                ContainerInstance::Redpanda(redpanda_container) => {
+                    log::info!("Stopping Redpanda container...");
+                    if let Err(e) = redpanda_container.stop().await {
+                        log::warn!("Failed to stop Redpanda container: {}", e);
+                    }
+                    if let Err(e) = redpanda_container.rm().await {
+                        log::warn!("Failed to remove Redpanda container: {}", e);
+                    }
+                    log::info!("Redpanda container stopped and removed");
+                }
             }
-            if let Err(e) = container.rm().await {
-                log::warn!("Failed to remove Kafka container: {}", e);
-            }
-            log::info!("Kafka container stopped and removed");
         }
 
         self.admin_client = None;

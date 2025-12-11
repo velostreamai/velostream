@@ -3558,6 +3558,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "testcontainers-redpanda-rs"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "465db6136f3337037818284f075061c7d88d6f518b163f79b4752f980b8b2f54"
+dependencies = [
+ "log",
+ "testcontainers",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4078,6 +4088,7 @@ dependencies = [
  "logtest",
  "nom",
  "num_cpus",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry-semantic-conventions",
@@ -4102,6 +4113,7 @@ dependencies = [
  "tempfile",
  "testcontainers",
  "testcontainers-modules",
+ "testcontainers-redpanda-rs",
  "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
