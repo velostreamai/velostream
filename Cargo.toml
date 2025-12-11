@@ -113,6 +113,7 @@ tempfile = "3.12.0"
 futures = "0.3"
 testcontainers = "0.25"
 testcontainers-modules = { version = "0.13", features = ["kafka"] }
+itoa = "1.0"  # Fast integer-to-string conversion for benchmarks
 
 
 # Performance examples - organized in subfolder

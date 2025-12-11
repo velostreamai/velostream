@@ -10,31 +10,54 @@
 //!
 //! Run with: cargo test --test kafka_consumer_benchmark --release -- --ignored --nocapture
 
+use chrono::Local;
 use futures::StreamExt;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, Consumer as RdKafkaConsumer};
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::BaseRecord;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use velostream::velostream::kafka::kafka_fast_consumer::Consumer as FastConsumer;
 use velostream::velostream::kafka::serialization::{JsonSerializer, StringSerializer};
+use velostream::velostream::kafka::{AsyncPolledProducer, PolledProducer};
+use velostream::velostream::serialization::avro_codec::AvroCodec;
 use velostream::velostream::sql::execution::types::FieldValue;
+
+/// Helper macro for timestamped println
+macro_rules! tprintln {
+    ($($arg:tt)*) => {
+        println!("[{}] {}", Local::now().format("%H:%M:%S%.3f"), format!($($arg)*))
+    };
+}
 
 // =============================================================================
 // Configuration Constants
 // =============================================================================
 
-const TEST_MESSAGE_COUNT: usize = 10_000;
-const WARMUP_MESSAGES: usize = 100;
+const TEST_MESSAGE_COUNT: usize = 1_000_000;
+const WARMUP_MESSAGES: usize = 1000;
 /// Maximum time to wait for a single message during warmup/benchmark
-const MESSAGE_TIMEOUT: Duration = Duration::from_secs(10);
+const MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
 /// Maximum time to wait for warmup phase to complete
-const WARMUP_TIMEOUT: Duration = Duration::from_secs(30);
+const WARMUP_TIMEOUT: Duration = Duration::from_secs(120);
 /// Maximum time for entire benchmark to complete (per consumer type)
-const BENCHMARK_TIMEOUT: Duration = Duration::from_secs(120);
+const BENCHMARK_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Avro schema for TestMessage structure (id: long, timestamp: long, data: string)
+const AVRO_TEST_MESSAGE_SCHEMA: &str = r#"
+{
+    "type": "record",
+    "name": "TestMessage",
+    "fields": [
+        {"name": "id", "type": "long"},
+        {"name": "timestamp", "type": "long"},
+        {"name": "data", "type": "string"}
+    ]
+}
+"#;
 
 // =============================================================================
 // Test Message Structure
@@ -53,6 +76,15 @@ impl TestMessage {
         Self {
             id,
             timestamp: chrono::Utc::now().timestamp_millis(),
+            data: format!("Test message {}", id),
+        }
+    }
+
+    /// Create with a pre-computed timestamp (faster for bulk production)
+    fn with_timestamp(id: u64, timestamp: i64) -> Self {
+        Self {
+            id,
+            timestamp,
             data: format!("Test message {}", id),
         }
     }
@@ -263,7 +295,7 @@ fn print_comparison(metrics: &[PerformanceMetrics]) {
 /// Kafka test environment for benchmarks
 struct KafkaTestEnv {
     bootstrap_servers: String,
-    producer: FutureProducer,
+    producer: AsyncPolledProducer,
 }
 
 impl KafkaTestEnv {
@@ -272,11 +304,8 @@ impl KafkaTestEnv {
         // Note: Requires Kafka running on localhost:9092
         let bootstrap_servers = "localhost:9092".to_string();
 
-        let producer: FutureProducer = ClientConfig::new()
-            .set("bootstrap.servers", &bootstrap_servers)
-            .set("message.timeout.ms", "5000")
-            .create()
-            .expect("Failed to create producer");
+        let producer = AsyncPolledProducer::with_high_throughput(&bootstrap_servers)
+            .expect("Failed to create AsyncPolledProducer");
 
         Self {
             bootstrap_servers,
@@ -300,32 +329,148 @@ impl KafkaTestEnv {
         Ok(())
     }
 
-    async fn produce_messages(
-        &self,
+    fn produce_messages(
+        &mut self,
         topic: &str,
         count: usize,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Producing {} messages to topic '{}'...", count, topic);
+        tprintln!("Producing {} messages to topic '{}'...", count, topic);
+        let start = Instant::now();
+
+        // Pre-compute timestamp once per batch for speed
+        let batch_timestamp = chrono::Utc::now().timestamp_millis();
+
+        // Reuse key buffer to avoid allocations
+        let mut key_buf = itoa::Buffer::new();
+
+        // Progress reporting interval: every 100K messages or 10% of total, whichever is smaller
+        let progress_interval = (count / 10).max(100_000).min(count);
 
         for i in 0..count {
-            let message = TestMessage::new(i as u64);
+            let message = TestMessage::with_timestamp(i as u64, batch_timestamp);
             let payload = serde_json::to_string(&message)?;
-            let key = i.to_string();
+            let key = key_buf.format(i);
 
-            let record = FutureRecord::to(topic).payload(&payload).key(&key);
+            let record = BaseRecord::to(topic).payload(payload.as_bytes()).key(key);
 
-            self.producer
-                .send(record, Duration::from_secs(5))
-                .await
-                .map_err(|(e, _)| e)?;
+            // Non-blocking send - poll thread handles callbacks
+            let _ = self.producer.send(record);
 
-            if (i + 1) % 1000 == 0 {
-                print!(".");
-                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            // Periodic flush every 10K messages to prevent memory exhaustion
+            if (i + 1) % 10_000 == 0 {
+                self.producer.flush(Duration::from_secs(10))?;
+            }
+
+            if (i + 1) % progress_interval == 0 {
+                let elapsed = start.elapsed().as_secs_f64();
+                let rate = (i + 1) as f64 / elapsed;
+                tprintln!(
+                    "[JSON] Produced {}/{} messages ({:.1}%) - {:.0} msg/s",
+                    i + 1,
+                    count,
+                    ((i + 1) as f64 / count as f64) * 100.0,
+                    rate
+                );
             }
         }
 
-        println!("\nProduced {} messages", count);
+        // Final flush to ensure all messages are delivered
+        tprintln!("Flushing remaining messages...");
+        self.producer.flush(Duration::from_secs(30))?;
+
+        let elapsed = start.elapsed();
+        let rate = count as f64 / elapsed.as_secs_f64();
+        tprintln!(
+            "Produced {} JSON messages in {:.2}s ({:.0} msg/s)",
+            count,
+            elapsed.as_secs_f64(),
+            rate
+        );
+        Ok(())
+    }
+
+    /// Produce Avro-encoded messages to a topic
+    fn produce_avro_messages(
+        &mut self,
+        topic: &str,
+        count: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        tprintln!(
+            "Producing {} Avro-encoded messages to topic '{}'...",
+            count,
+            topic
+        );
+        let start = Instant::now();
+
+        // Create Avro codec with schema matching TestMessage structure
+        let avro_codec = AvroCodec::new(AVRO_TEST_MESSAGE_SCHEMA)?;
+
+        // Pre-compute timestamp once per batch for speed
+        let batch_timestamp = chrono::Utc::now().timestamp_millis();
+
+        // Reuse key buffer to avoid allocations
+        let mut key_buf = itoa::Buffer::new();
+
+        // Pre-allocate HashMap with known capacity (3 fields)
+        // Reuse HashMap by clearing instead of recreating
+        let mut record_data: HashMap<String, FieldValue> = HashMap::with_capacity(3);
+
+        // Pre-allocate field name strings (reused across iterations)
+        let id_key = "id".to_string();
+        let timestamp_key = "timestamp".to_string();
+        let data_key = "data".to_string();
+
+        // Progress reporting interval: every 100K messages or 10% of total, whichever is smaller
+        let progress_interval = (count / 10).max(100_000).min(count);
+
+        for i in 0..count {
+            // Reuse HashMap by clearing and re-inserting
+            record_data.clear();
+            record_data.insert(id_key.clone(), FieldValue::Integer(i as i64));
+            record_data.insert(timestamp_key.clone(), FieldValue::Integer(batch_timestamp));
+            record_data.insert(
+                data_key.clone(),
+                FieldValue::String(format!("Test message {}", i)),
+            );
+
+            let payload = avro_codec.serialize(&record_data)?;
+            let key = key_buf.format(i);
+
+            let record = BaseRecord::to(topic).payload(payload.as_slice()).key(key);
+
+            // Non-blocking send - poll thread handles callbacks
+            let _ = self.producer.send(record);
+
+            // Periodic flush every 10K messages to prevent memory exhaustion
+            if (i + 1) % 10_000 == 0 {
+                self.producer.flush(Duration::from_secs(10))?;
+            }
+
+            if (i + 1) % progress_interval == 0 {
+                let elapsed = start.elapsed().as_secs_f64();
+                let rate = (i + 1) as f64 / elapsed;
+                tprintln!(
+                    "[Avro] Produced {}/{} messages ({:.1}%) - {:.0} msg/s",
+                    i + 1,
+                    count,
+                    ((i + 1) as f64 / count as f64) * 100.0,
+                    rate
+                );
+            }
+        }
+
+        // Final flush to ensure all messages are delivered
+        tprintln!("Flushing remaining Avro messages...");
+        self.producer.flush(Duration::from_secs(30))?;
+
+        let elapsed = start.elapsed();
+        let rate = count as f64 / elapsed.as_secs_f64();
+        tprintln!(
+            "Produced {} Avro messages in {:.2}s ({:.0} msg/s)",
+            count,
+            elapsed.as_secs_f64(),
+            rate
+        );
         Ok(())
     }
 
@@ -357,7 +502,7 @@ where
     S: futures::Stream<Item = Result<T, E>> + Unpin,
     E: std::fmt::Debug,
 {
-    println!("Warming up...");
+    tprintln!("Warming up...");
     let warmup_start = Instant::now();
     let mut warmup_count = 0;
 
@@ -377,7 +522,7 @@ where
     }
 
     let duration = warmup_start.elapsed();
-    println!(
+    tprintln!(
         "Warmed up with {} messages in {:.2}s ({:.0} msg/s)",
         warmup_count,
         duration.as_secs_f64(),
@@ -407,7 +552,7 @@ where
     S: futures::Stream<Item = Result<T, E>> + Unpin,
     E: std::fmt::Debug,
 {
-    println!("Starting benchmark...");
+    tprintln!("Starting benchmark...");
     let mut consumed = 0;
     let mut latencies = Vec::with_capacity(target_count);
     let start = Instant::now();
@@ -443,8 +588,8 @@ where
     }
 
     let duration = start.elapsed();
-    println!(
-        "\nCompleted ({} messages in {:.2}s)",
+    tprintln!(
+        "Completed ({} messages in {:.2}s)",
         consumed,
         duration.as_secs_f64()
     );
@@ -468,7 +613,7 @@ async fn benchmark_async_stream_polling(
     topic: &str,
     message_count: usize,
 ) -> PerformanceMetrics {
-    println!("\n>>> Benchmarking: FastConsumer.stream() (async polling)");
+    tprintln!(">>> Benchmarking: FastConsumer.stream() (async polling)");
 
     let base_consumer = env.create_base_consumer("benchmark-async-stream");
     let consumer = FastConsumer::<String, TestMessage, StringSerializer, JsonSerializer>::new(
@@ -503,8 +648,8 @@ async fn benchmark_buffered_stream_polling(
     message_count: usize,
     buffer_size: usize,
 ) -> PerformanceMetrics {
-    println!(
-        "\n>>> Benchmarking: FastConsumer.buffered_stream({}) (buffered async)",
+    tprintln!(
+        ">>> Benchmarking: FastConsumer.buffered_stream({}) (buffered async)",
         buffer_size
     );
 
@@ -540,7 +685,7 @@ fn benchmark_dedicated_thread_polling(
     topic: &str,
     message_count: usize,
 ) -> PerformanceMetrics {
-    println!("\n>>> Benchmarking: FastConsumer.dedicated_stream() (dedicated thread)");
+    tprintln!(">>> Benchmarking: FastConsumer.dedicated_stream() (dedicated thread)");
 
     let base_consumer = env.create_base_consumer("benchmark-dedicated-thread");
     base_consumer
@@ -555,7 +700,7 @@ fn benchmark_dedicated_thread_polling(
     >::new(base_consumer, StringSerializer, JsonSerializer));
 
     // Warmup with timeout
-    println!("Warming up...");
+    tprintln!("Warming up...");
     let warmup_start = Instant::now();
     let mut warmup_stream = consumer.clone().dedicated_stream();
     let mut warmup_count = 0;
@@ -576,7 +721,7 @@ fn benchmark_dedicated_thread_polling(
         }
     }
     let warmup_duration = warmup_start.elapsed();
-    println!(
+    tprintln!(
         "Warmed up with {} messages in {:.2}s ({:.0} msg/s)",
         warmup_count,
         warmup_duration.as_secs_f64(),
@@ -588,7 +733,7 @@ fn benchmark_dedicated_thread_polling(
     );
 
     // Actual benchmark with timeout
-    println!("Starting benchmark...");
+    tprintln!("Starting benchmark...");
     let mut stream = consumer.dedicated_stream();
     let mut consumed = 0;
     let mut latencies = Vec::with_capacity(message_count);
@@ -626,8 +771,8 @@ fn benchmark_dedicated_thread_polling(
     }
 
     let duration = start.elapsed();
-    println!(
-        "\nCompleted ({} messages in {:.2}s)",
+    tprintln!(
+        "Completed ({} messages in {:.2}s)",
         consumed,
         duration.as_secs_f64()
     );
@@ -650,7 +795,7 @@ fn benchmark_poll_batch(
     topic: &str,
     message_count: usize,
 ) -> PerformanceMetrics {
-    println!("\n>>> Benchmarking: FastConsumer.poll_batch() (sync batch, batch_size=100)");
+    tprintln!(">>> Benchmarking: FastConsumer.poll_batch() (sync batch, batch_size=100)");
 
     let base_consumer = env.create_base_consumer("benchmark-poll-batch");
     base_consumer
@@ -666,7 +811,7 @@ fn benchmark_poll_batch(
     > = FastConsumer::new(base_consumer, StringSerializer, JsonSerializer);
 
     // Warmup with timeout
-    println!("Warming up...");
+    tprintln!("Warming up...");
     let warmup_start = Instant::now();
     let mut warmup_count = 0;
     while warmup_count < WARMUP_MESSAGES && warmup_start.elapsed() < WARMUP_TIMEOUT {
@@ -685,7 +830,7 @@ fn benchmark_poll_batch(
         }
     }
     let warmup_duration = warmup_start.elapsed();
-    println!(
+    tprintln!(
         "Warmed up with {} records in {:.2}s ({:.0} msg/s)",
         warmup_count,
         warmup_duration.as_secs_f64(),
@@ -697,7 +842,7 @@ fn benchmark_poll_batch(
     );
 
     // Actual benchmark with timeout
-    println!("Starting benchmark...");
+    tprintln!("Starting benchmark...");
     let mut consumed = 0;
     let mut latencies = Vec::with_capacity(message_count);
     let start = Instant::now();
@@ -739,14 +884,131 @@ fn benchmark_poll_batch(
     }
 
     let duration = start.elapsed();
-    println!(
-        "\nCompleted ({} records in {:.2}s)",
+    tprintln!(
+        "Completed ({} records in {:.2}s)",
         consumed,
         duration.as_secs_f64()
     );
 
     PerformanceMetrics::new(
         "FastConsumer.poll_batch()".to_string(),
+        warmup_count,
+        warmup_duration,
+        consumed,
+        duration,
+        latencies,
+    )
+}
+
+/// Benchmark FastConsumer.poll_batch() with Avro serialization
+///
+/// This benchmark uses AvroCodec for deserializing Avro-encoded messages
+/// to HashMap<String, FieldValue>, comparing performance against JSON.
+fn benchmark_poll_batch_avro(
+    env: &KafkaTestEnv,
+    topic: &str,
+    message_count: usize,
+) -> PerformanceMetrics {
+    tprintln!(">>> Benchmarking: FastConsumer.poll_batch() with Avro (sync batch, batch_size=100)");
+
+    let base_consumer = env.create_base_consumer("benchmark-poll-batch-avro");
+    base_consumer
+        .subscribe(&[topic])
+        .expect("Failed to subscribe");
+
+    // Create Avro codec with the test message schema
+    let avro_codec = AvroCodec::new(AVRO_TEST_MESSAGE_SCHEMA).expect("Failed to create AvroCodec");
+
+    // poll_batch requires V = HashMap<String, FieldValue>
+    let mut consumer: FastConsumer<
+        String,
+        HashMap<String, FieldValue>,
+        StringSerializer,
+        AvroCodec,
+    > = FastConsumer::new(base_consumer, StringSerializer, avro_codec);
+
+    // Warmup with timeout
+    tprintln!("Warming up...");
+    let warmup_start = Instant::now();
+    let mut warmup_count = 0;
+    while warmup_count < WARMUP_MESSAGES && warmup_start.elapsed() < WARMUP_TIMEOUT {
+        match consumer.poll_batch(Duration::from_millis(100), None) {
+            Ok(batch) => {
+                warmup_count += batch.len();
+                if batch.is_empty() && warmup_start.elapsed() >= WARMUP_TIMEOUT {
+                    eprintln!("Warmup timeout");
+                    break;
+                }
+            }
+            Err(e) => {
+                eprintln!("Warmup error: {:?}", e);
+                break;
+            }
+        }
+    }
+    let warmup_duration = warmup_start.elapsed();
+    tprintln!(
+        "Warmed up with {} records in {:.2}s ({:.0} msg/s)",
+        warmup_count,
+        warmup_duration.as_secs_f64(),
+        if warmup_duration.as_secs_f64() > 0.0 {
+            warmup_count as f64 / warmup_duration.as_secs_f64()
+        } else {
+            0.0
+        }
+    );
+
+    // Actual benchmark with timeout
+    tprintln!("Starting benchmark...");
+    let mut consumed = 0;
+    let mut latencies = Vec::with_capacity(message_count);
+    let start = Instant::now();
+    let mut consecutive_empty = 0;
+
+    while consumed < message_count && start.elapsed() < BENCHMARK_TIMEOUT {
+        let batch_start = Instant::now();
+
+        match consumer.poll_batch(Duration::from_millis(100), None) {
+            Ok(batch) => {
+                if batch.is_empty() {
+                    consecutive_empty += 1;
+                    if consecutive_empty >= 10 {
+                        eprintln!("\n10 consecutive empty batches, stopping benchmark");
+                        break;
+                    }
+                    continue;
+                }
+                consecutive_empty = 0;
+
+                let batch_latency = batch_start.elapsed();
+                let per_record_latency = batch_latency / batch.len() as u32;
+
+                for _ in &batch {
+                    latencies.push(per_record_latency);
+                }
+                consumed += batch.len();
+
+                if consumed % 1000 == 0 || consumed >= message_count {
+                    print!(".");
+                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                }
+            }
+            Err(e) => {
+                eprintln!("Error consuming batch: {:?}", e);
+                break;
+            }
+        }
+    }
+
+    let duration = start.elapsed();
+    tprintln!(
+        "Completed ({} records in {:.2}s)",
+        consumed,
+        duration.as_secs_f64()
+    );
+
+    PerformanceMetrics::new(
+        "FastConsumer.poll_batch() [Avro]".to_string(),
         warmup_count,
         warmup_duration,
         consumed,
@@ -771,7 +1033,7 @@ async fn kafka_consumer_performance_comparison() {
     println!("{}", "=".repeat(80));
 
     // Setup
-    let env = KafkaTestEnv::new().await;
+    let mut env = KafkaTestEnv::new().await;
     let topic = "benchmark-topic";
 
     // Create topic
@@ -781,7 +1043,6 @@ async fn kafka_consumer_performance_comparison() {
 
     // Produce test messages
     env.produce_messages(topic, TEST_MESSAGE_COUNT + WARMUP_MESSAGES)
-        .await
         .expect("Failed to produce messages");
 
     // Wait for messages to be available
@@ -842,14 +1103,13 @@ async fn kafka_consumer_quick_comparison() {
     println!("Messages per test: {}", QUICK_MESSAGE_COUNT);
     println!("{}", "=".repeat(80));
 
-    let env = KafkaTestEnv::new().await;
+    let mut env = KafkaTestEnv::new().await;
     let topic = "quick-benchmark-topic";
 
     env.create_topic(topic)
         .await
         .expect("Failed to create topic");
     env.produce_messages(topic, QUICK_MESSAGE_COUNT + WARMUP_MESSAGES)
-        .await
         .expect("Failed to produce messages");
 
     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -876,4 +1136,182 @@ async fn kafka_consumer_quick_comparison() {
     all_metrics.push(metrics);
 
     print_comparison(&all_metrics);
+}
+
+/// Avro serialization benchmark comparing JSON vs Avro poll_batch performance
+#[tokio::test]
+#[ignore] // Run explicitly with: cargo test kafka_consumer_avro_benchmark --release -- --ignored --nocapture
+async fn kafka_consumer_avro_benchmark() {
+    const AVRO_MESSAGE_COUNT: usize = 50_000;
+
+    println!("\n{}", "=".repeat(80));
+    println!("{:^80}", "JSON vs Avro Serialization Benchmark");
+    println!("{}", "=".repeat(80));
+    println!("Messages per test: {}", AVRO_MESSAGE_COUNT);
+    println!("{}", "=".repeat(80));
+
+    let mut env = KafkaTestEnv::new().await;
+
+    // Create topics for JSON and Avro
+    let json_topic = "benchmark-json-topic";
+    let avro_topic = "benchmark-avro-topic";
+
+    env.create_topic(json_topic)
+        .await
+        .expect("Failed to create JSON topic");
+    env.create_topic(avro_topic)
+        .await
+        .expect("Failed to create Avro topic");
+
+    // Produce messages in both formats
+    env.produce_messages(json_topic, AVRO_MESSAGE_COUNT + WARMUP_MESSAGES)
+        .expect("Failed to produce JSON messages");
+    env.produce_avro_messages(avro_topic, AVRO_MESSAGE_COUNT + WARMUP_MESSAGES)
+        .expect("Failed to produce Avro messages");
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    let mut all_metrics = Vec::new();
+
+    // Benchmark JSON poll_batch
+    let metrics = benchmark_poll_batch(&env, json_topic, AVRO_MESSAGE_COUNT);
+    metrics.print();
+    all_metrics.push(metrics);
+
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Benchmark Avro poll_batch
+    let metrics = benchmark_poll_batch_avro(&env, avro_topic, AVRO_MESSAGE_COUNT);
+    metrics.print();
+    all_metrics.push(metrics);
+
+    // Print comparison table
+    print_comparison(&all_metrics);
+
+    println!("\n{}", "=".repeat(80));
+    println!("JSON vs Avro Benchmark complete!");
+    println!("{}", "=".repeat(80));
+}
+
+/// Pure serialization microbenchmark - isolates deserialization overhead without Kafka
+/// This test compares JSON vs Avro deserialization performance in a tight loop
+#[test]
+#[ignore] // Run explicitly with: cargo test serialization_microbenchmark --release -- --ignored --nocapture
+fn serialization_microbenchmark() {
+    use std::hint::black_box;
+
+    const ITERATIONS: usize = 100_000;
+
+    println!("\n{}", "=".repeat(80));
+    println!("{:^80}", "Pure Serialization Microbenchmark");
+    println!("{}", "=".repeat(80));
+    println!("Iterations: {}", ITERATIONS);
+    println!("{}", "=".repeat(80));
+
+    // Create sample data
+    let sample_json =
+        r#"{"id":12345,"timestamp":1699999999999,"data":"test_message_with_some_realistic_data"}"#;
+
+    // Create Avro codec and serialize the sample data
+    let avro_codec = AvroCodec::new(AVRO_TEST_MESSAGE_SCHEMA).expect("Failed to create AvroCodec");
+    let mut sample_record: HashMap<String, FieldValue> = HashMap::new();
+    sample_record.insert("id".to_string(), FieldValue::Integer(12345));
+    sample_record.insert("timestamp".to_string(), FieldValue::Integer(1699999999999));
+    sample_record.insert(
+        "data".to_string(),
+        FieldValue::String("test_message_with_some_realistic_data".to_string()),
+    );
+    let sample_avro = avro_codec
+        .serialize(&sample_record)
+        .expect("Failed to serialize Avro");
+
+    println!("\nMessage sizes:");
+    println!("  JSON: {} bytes", sample_json.len());
+    println!("  Avro: {} bytes", sample_avro.len());
+
+    // Benchmark JSON deserialization
+    println!("\n--- JSON Deserialization ---");
+    let json_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let result: HashMap<String, FieldValue> =
+            black_box(serde_json::from_str(sample_json).expect("JSON deser failed"));
+        black_box(result);
+    }
+    let json_duration = json_start.elapsed();
+    let json_ns_per_op = json_duration.as_nanos() / ITERATIONS as u128;
+    let json_ops_per_sec = 1_000_000_000.0 / json_ns_per_op as f64;
+    println!(
+        "  Total time: {:?} ({} ns/op, {:.0} ops/sec)",
+        json_duration, json_ns_per_op, json_ops_per_sec
+    );
+
+    // Benchmark Avro deserialization
+    println!("\n--- Avro Deserialization ---");
+    let avro_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let result = black_box(
+            avro_codec
+                .deserialize(&sample_avro)
+                .expect("Avro deser failed"),
+        );
+        black_box(result);
+    }
+    let avro_duration = avro_start.elapsed();
+    let avro_ns_per_op = avro_duration.as_nanos() / ITERATIONS as u128;
+    let avro_ops_per_sec = 1_000_000_000.0 / avro_ns_per_op as f64;
+    println!(
+        "  Total time: {:?} ({} ns/op, {:.0} ops/sec)",
+        avro_duration, avro_ns_per_op, avro_ops_per_sec
+    );
+
+    // Breakdown: Benchmark just apache_avro::from_avro_datum (without FieldValue conversion)
+    println!("\n--- Avro Datum Decode Only (no FieldValue conversion) ---");
+    let schema = avro_codec.schema().clone();
+    let datum_start = Instant::now();
+    for _ in 0..ITERATIONS {
+        let result = black_box(
+            apache_avro::from_avro_datum(&schema, &mut &sample_avro[..], None)
+                .expect("Datum decode failed"),
+        );
+        black_box(result);
+    }
+    let datum_duration = datum_start.elapsed();
+    let datum_ns_per_op = datum_duration.as_nanos() / ITERATIONS as u128;
+    let datum_ops_per_sec = 1_000_000_000.0 / datum_ns_per_op as f64;
+    println!(
+        "  Total time: {:?} ({} ns/op, {:.0} ops/sec)",
+        datum_duration, datum_ns_per_op, datum_ops_per_sec
+    );
+
+    // Summary
+    println!("\n{}", "=".repeat(80));
+    println!("{:^80}", "Summary");
+    println!("{}", "=".repeat(80));
+    println!(
+        "JSON:                    {:.0} ops/sec ({} ns/op)",
+        json_ops_per_sec, json_ns_per_op
+    );
+    println!(
+        "Avro (full):             {:.0} ops/sec ({} ns/op)",
+        avro_ops_per_sec, avro_ns_per_op
+    );
+    println!(
+        "Avro (datum only):       {:.0} ops/sec ({} ns/op)",
+        datum_ops_per_sec, datum_ns_per_op
+    );
+    println!();
+    println!(
+        "Avro vs JSON ratio:      {:.2}x",
+        json_ops_per_sec / avro_ops_per_sec
+    );
+    println!(
+        "FieldValue conversion overhead: {:.2}x of datum decode",
+        (avro_ns_per_op as f64 - datum_ns_per_op as f64) / datum_ns_per_op as f64
+    );
+    println!(
+        "FieldValue conversion time: {} ns/op ({:.1}% of total Avro time)",
+        avro_ns_per_op - datum_ns_per_op,
+        (avro_ns_per_op - datum_ns_per_op) as f64 / avro_ns_per_op as f64 * 100.0
+    );
+    println!("{}", "=".repeat(80));
 }
