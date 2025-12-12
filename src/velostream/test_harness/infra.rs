@@ -28,6 +28,7 @@
 //! ```
 
 use super::error::{TestHarnessError, TestHarnessResult};
+use crate::velostream::kafka::common_config::apply_broker_address_family;
 use crate::velostream::schema::client::registry_client::SchemaReference;
 use crate::velostream::schema::server::registry_backend::{
     InMemorySchemaRegistryBackend, SchemaRegistryBackend,
@@ -42,11 +43,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
+#[cfg(any(test, feature = "test-support"))]
+use testcontainers::runners::AsyncRunner;
 // Testcontainers support - available in any test context
 #[cfg(any(test, feature = "test-support"))]
 use testcontainers::ContainerAsync;
-#[cfg(any(test, feature = "test-support"))]
-use testcontainers::runners::AsyncRunner;
 #[cfg(any(test, feature = "test-support"))]
 use testcontainers_modules::kafka::KAFKA_PORT;
 #[cfg(any(test, feature = "test-support"))]
@@ -334,13 +335,16 @@ impl TestHarnessInfra {
         log::info!("Connecting to Kafka: {}", bootstrap_servers);
 
         // Create admin client for topic management
-        let admin_client: AdminClient<DefaultClientContext> = ClientConfig::new()
-            .set("bootstrap.servers", &bootstrap_servers)
-            .create()
-            .map_err(|e| TestHarnessError::InfraError {
-                message: format!("Failed to create admin client: {}", e),
-                source: Some(e.to_string()),
-            })?;
+        let mut admin_config = ClientConfig::new();
+        admin_config.set("bootstrap.servers", &bootstrap_servers);
+        apply_broker_address_family(&mut admin_config);
+        let admin_client: AdminClient<DefaultClientContext> =
+            admin_config
+                .create()
+                .map_err(|e| TestHarnessError::InfraError {
+                    message: format!("Failed to create admin client: {}", e),
+                    source: Some(e.to_string()),
+                })?;
 
         // Create temp directory for file sinks
         let temp_dir = std::env::temp_dir().join(format!("velo_test_{}", self.run_id));
@@ -549,11 +553,13 @@ impl TestHarnessInfra {
                     source: None,
                 })?;
 
-        let producer: rdkafka::producer::FutureProducer<DefaultClientContext> = ClientConfig::new()
+        let mut config = ClientConfig::new();
+        config
             .set("bootstrap.servers", bootstrap_servers)
-            .set("message.timeout.ms", "5000")
-            .create()
-            .map_err(|e| TestHarnessError::InfraError {
+            .set("message.timeout.ms", "5000");
+        apply_broker_address_family(&mut config);
+        let producer: rdkafka::producer::FutureProducer<DefaultClientContext> =
+            config.create().map_err(|e| TestHarnessError::InfraError {
                 message: format!("Failed to create producer: {}", e),
                 source: Some(e.to_string()),
             })?;
@@ -567,7 +573,7 @@ impl TestHarnessInfra {
     /// which allows non-blocking sends and much higher throughput than FutureProducer.
     pub fn create_async_producer(
         &self,
-    ) -> TestHarnessResult<crate::velostream::kafka::polled_producer::AsyncPolledProducer> {
+    ) -> TestHarnessResult<crate::velostream::kafka::kafka_fast_producer::AsyncPolledProducer> {
         let bootstrap_servers =
             self.bootstrap_servers
                 .as_ref()
@@ -576,7 +582,7 @@ impl TestHarnessInfra {
                     source: None,
                 })?;
 
-        crate::velostream::kafka::polled_producer::AsyncPolledProducer::with_high_throughput(
+        crate::velostream::kafka::kafka_fast_producer::AsyncPolledProducer::with_high_throughput(
             bootstrap_servers,
         )
         .map_err(|e| TestHarnessError::InfraError {
@@ -598,17 +604,18 @@ impl TestHarnessInfra {
                     source: None,
                 })?;
 
+        let mut config = ClientConfig::new();
+        config
+            .set("bootstrap.servers", bootstrap_servers)
+            .set("group.id", group_id)
+            .set("auto.offset.reset", "earliest")
+            .set("enable.auto.commit", "false");
+        apply_broker_address_family(&mut config);
         let consumer: rdkafka::consumer::StreamConsumer<DefaultConsumerContext> =
-            ClientConfig::new()
-                .set("bootstrap.servers", bootstrap_servers)
-                .set("group.id", group_id)
-                .set("auto.offset.reset", "earliest")
-                .set("enable.auto.commit", "false")
-                .create()
-                .map_err(|e| TestHarnessError::InfraError {
-                    message: format!("Failed to create consumer: {}", e),
-                    source: Some(e.to_string()),
-                })?;
+            config.create().map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to create consumer: {}", e),
+                source: Some(e.to_string()),
+            })?;
 
         Ok(consumer)
     }

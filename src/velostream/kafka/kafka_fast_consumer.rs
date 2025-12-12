@@ -567,6 +567,8 @@ where
             .request_timeout(config.common.request_timeout)
             .retry_backoff(config.common.retry_backoff)
             .custom_properties(&config.common.custom_config)
+            // Configure broker address family (env: VELOSTREAM_BROKER_ADDRESS_FAMILY, default: v4)
+            .broker_address_family()
             .build();
 
         // Set consumer-specific configuration

@@ -386,6 +386,43 @@ echo "=== Health Check Complete ==="
    systemctl restart velostream
    ```
 
+#### Issue: Kafka IPv6 Connection Failures
+
+**Symptoms:**
+- Error logs showing `Connect to ipv6#[::1]:port failed: Connection refused`
+- Kafka connection failures despite broker being reachable
+- `AllBrokersDown` errors when brokers are actually running
+
+**Root Cause:**
+When Kafka brokers advertise `localhost` in their metadata, some systems resolve `localhost` to IPv6 `::1` while the broker only listens on IPv4 `127.0.0.1`. This is common with:
+- Docker containers
+- Testcontainers
+- Systems with IPv6 enabled but Kafka not listening on IPv6
+
+**Resolution Steps:**
+1. Set broker address family to IPv4 only:
+   ```bash
+   export VELOSTREAM_BROKER_ADDRESS_FAMILY=v4
+   ```
+
+2. Or for production with proper DNS/IPv6 support:
+   ```bash
+   export VELOSTREAM_BROKER_ADDRESS_FAMILY=any
+   ```
+
+3. Available values:
+   - `v4` - Force IPv4 only (default, safe for containers)
+   - `v6` - Force IPv6 only
+   - `any` - Allow both (librdkafka default)
+
+4. Verify the setting is applied:
+   ```bash
+   # Check logs for broker connection messages
+   journalctl -u velostream | grep -i "broker.address.family"
+   ```
+
+---
+
 #### Issue: High Latency
 
 **Symptoms:**

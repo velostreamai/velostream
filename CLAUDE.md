@@ -343,6 +343,7 @@ Velostream supports environment variable configuration using the `VELOSTREAM_` p
 | `VELOSTREAM_KAFKA_BROKERS` | Kafka broker endpoints (comma-separated) | `localhost:9092` |
 | `VELOSTREAM_KAFKA_TOPIC` | Default Kafka topic name | (from config) |
 | `VELOSTREAM_KAFKA_GROUP_ID` | Consumer group ID | `velo-sql-{job}` |
+| `VELOSTREAM_BROKER_ADDRESS_FAMILY` | Broker address resolution: `v4` (IPv4 only), `v6` (IPv6 only), `any` (both) | `v4` |
 
 ### Server Configuration
 
@@ -379,7 +380,12 @@ export VELOSTREAM_ENABLE_MONITORING=true
 
 # Test harness with testcontainers (dynamic broker)
 export VELOSTREAM_KAFKA_BROKERS="localhost:${KAFKA_PORT}"
+
+# Production with IPv6 or mixed network (disable IPv4-only default)
+export VELOSTREAM_BROKER_ADDRESS_FAMILY=any
 ```
+
+**Note on `VELOSTREAM_BROKER_ADDRESS_FAMILY`**: Defaults to `v4` (IPv4 only) because testcontainers and Docker often advertise `localhost` in Kafka broker metadata, which can resolve to IPv6 `::1` on some systems while the container only listens on IPv4. Set to `any` for production environments with proper DNS or IPv6 support.
 
 ### Resolution Chain
 

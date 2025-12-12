@@ -25,8 +25,8 @@ pub mod client_config_builder;
 pub mod common_config;
 pub mod kafka_error;
 pub mod kafka_fast_consumer;
+pub mod kafka_fast_producer;
 pub mod performance_presets;
-pub mod polled_producer;
 
 // Re-export main API (FR-081 Phase 2D: FastConsumer is the primary consumer)
 pub use kafka_fast_consumer::Consumer as FastConsumer;
@@ -46,8 +46,14 @@ pub use utils::convert_kafka_log_level;
 pub use headers::Headers;
 pub use message::Message;
 
+// Re-export broker address family configuration utilities
+pub use common_config::{
+    BROKER_ADDRESS_FAMILY_ENV, BrokerAddressFamily, apply_broker_address_family,
+    get_broker_address_family,
+};
+
 // Re-export polled producer types
-pub use polled_producer::{
+pub use kafka_fast_producer::{
     AsyncPolledProducer, PolledProducer, SyncPolledProducer, TransactionalPolledProducer,
 };
 

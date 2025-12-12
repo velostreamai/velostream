@@ -22,6 +22,7 @@
 //! - All operations are serialized, eliminating race conditions
 //! - Flush is automatically called before commit
 
+use super::common_config::apply_broker_address_family;
 use rdkafka::ClientConfig;
 use rdkafka::producer::{BaseProducer, BaseRecord, DefaultProducerContext, Producer};
 use std::error::Error;
@@ -111,6 +112,7 @@ impl SyncPolledProducer {
             .set("compression.type", "lz4")
             .set("batch.num.messages", "1000000")
             .set("linger.ms", "5");
+        apply_broker_address_family(&mut config);
         Self::new(config)
     }
 
@@ -126,6 +128,7 @@ impl SyncPolledProducer {
             .set("linger.ms", "5")
             .set("queue.buffering.max.kbytes", "1048576")
             .set("queue.buffering.max.messages", "500000");
+        apply_broker_address_family(&mut config);
         Self::new(config)
     }
 }
@@ -228,6 +231,7 @@ impl AsyncPolledProducer {
             .set("linger.ms", "5")
             .set("queue.buffering.max.kbytes", "1048576")
             .set("queue.buffering.max.messages", "500000");
+        apply_broker_address_family(&mut config);
         Self::new(config)
     }
 
@@ -250,6 +254,7 @@ impl AsyncPolledProducer {
             .set("linger.ms", "5")
             .set("queue.buffering.max.kbytes", "1048576")
             .set("queue.buffering.max.messages", "500000");
+        apply_broker_address_family(&mut config);
         Self::new(config)
     }
 
@@ -414,7 +419,7 @@ enum TxnCommand {
 /// ## Example
 ///
 /// ```rust,no_run
-/// use velostream::velostream::kafka::polled_producer::TransactionalPolledProducer;
+/// use velostream::velostream::kafka::kafka_fast_producer::TransactionalPolledProducer;
 /// use std::time::Duration;
 ///
 /// let producer = TransactionalPolledProducer::new(

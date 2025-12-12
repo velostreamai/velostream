@@ -13,7 +13,7 @@ use super::infra::TestHarnessInfra;
 use super::schema::SchemaRegistry;
 use super::spec::{InputConfig, QueryTest, TimeSimulationConfig};
 use super::stress::MemoryTracker;
-use crate::velostream::kafka::polled_producer::PolledProducer;
+use crate::velostream::kafka::kafka_fast_producer::PolledProducer;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::types::FieldValue;

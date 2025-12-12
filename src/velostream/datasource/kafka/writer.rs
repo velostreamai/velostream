@@ -8,7 +8,8 @@
 
 use crate::velostream::datasource::config::unified::{ConfigFactory, ConfigLogger};
 use crate::velostream::datasource::{BatchConfig, DataWriter};
-use crate::velostream::kafka::polled_producer::{PolledProducer, TransactionalPolledProducer};
+use crate::velostream::kafka::common_config::apply_broker_address_family;
+use crate::velostream::kafka::kafka_fast_producer::{PolledProducer, TransactionalPolledProducer};
 use crate::velostream::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
@@ -342,6 +343,9 @@ impl KafkaDataWriter {
             if !producer_config.contains_key("enable.idempotence") {
                 client_config.set("enable.idempotence", "false"); // Disable for max throughput
             }
+
+            // Configure broker address family (env: VELOSTREAM_BROKER_ADDRESS_FAMILY, default: v4)
+            apply_broker_address_family(&mut client_config);
 
             // Create high-performance BaseProducer (sync, internal batching)
             let producer: BaseProducer<DefaultProducerContext> = client_config.create()?;

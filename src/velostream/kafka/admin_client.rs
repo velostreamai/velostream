@@ -3,6 +3,7 @@
 //! This module provides functionality to create and manage Kafka topics
 //! using the rdkafka admin client.
 
+use super::common_config::apply_broker_address_family;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
@@ -17,10 +18,12 @@ pub struct KafkaAdminClient {
 impl KafkaAdminClient {
     /// Create a new admin client
     pub fn new(bootstrap_servers: &str) -> Result<Self, rdkafka::error::KafkaError> {
-        let admin: AdminClient<DefaultClientContext> = ClientConfig::new()
+        let mut config = ClientConfig::new();
+        config
             .set("bootstrap.servers", bootstrap_servers)
-            .set("client.id", "velo-admin-client")
-            .create()?;
+            .set("client.id", "velo-admin-client");
+        apply_broker_address_family(&mut config);
+        let admin: AdminClient<DefaultClientContext> = config.create()?;
 
         Ok(Self { admin })
     }

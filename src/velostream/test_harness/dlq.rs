@@ -12,6 +12,7 @@ use super::utils::{
     HEADER_ERROR_TIMESTAMP_ALT, HEADER_ERROR_TYPE, HEADER_ERROR_TYPE_ALT, HEADER_SOURCE_TOPIC,
     HEADER_SOURCE_TOPIC_ALT, MAX_SAMPLE_ERRORS,
 };
+use crate::velostream::kafka::common_config::apply_broker_address_family;
 use rdkafka::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
@@ -259,14 +260,16 @@ pub struct DlqCapture {
 impl DlqCapture {
     /// Create a new DLQ capture instance
     pub fn new(bootstrap_servers: &str, topic: &str, group_id: &str) -> TestHarnessResult<Self> {
-        let consumer: StreamConsumer = ClientConfig::new()
+        let mut config = ClientConfig::new();
+        config
             .set("bootstrap.servers", bootstrap_servers)
             .set("group.id", group_id)
             .set("auto.offset.reset", "earliest")
             .set("enable.auto.commit", "false")
-            .set("session.timeout.ms", "6000")
-            .create()
-            .map_err(|e| TestHarnessError::InfraError {
+            .set("session.timeout.ms", "6000");
+        apply_broker_address_family(&mut config);
+        let consumer: StreamConsumer =
+            config.create().map_err(|e| TestHarnessError::InfraError {
                 message: format!("Failed to create DLQ consumer: {}", e),
                 source: None,
             })?;
