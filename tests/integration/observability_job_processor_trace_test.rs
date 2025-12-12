@@ -186,6 +186,7 @@ async fn test_job_processor_with_tracing_enabled_impl() {
             )
             .await
     });
+    let abort_handle = job_handle.abort_handle();
 
     // Let it process for a few seconds
     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -193,12 +194,19 @@ async fn test_job_processor_with_tracing_enabled_impl() {
     // Signal shutdown
     let _ = shutdown_tx.send(()).await;
 
-    // Wait for job to complete
-    match tokio::time::timeout(Duration::from_secs(2), job_handle).await {
-        Ok(Ok(Ok(_))) => println!("   ✅ Job processor completed successfully"),
-        Ok(Ok(Err(e))) => println!("   ⚠️  Job processor error: {}", e),
-        Ok(Err(e)) => println!("   ⚠️  Job handle error: {}", e),
-        Err(_) => println!("   ⚠️  Job processor timeout (expected)"),
+    // Wait for job to complete with timeout, abort if stuck
+    tokio::select! {
+        result = job_handle => {
+            match result {
+                Ok(Ok(_)) => println!("   ✅ Job processor completed successfully"),
+                Ok(Err(e)) => println!("   ⚠️  Job processor error: {}", e),
+                Err(e) => println!("   ⚠️  Job handle error: {}", e),
+            }
+        }
+        _ = tokio::time::sleep(Duration::from_secs(2)) => {
+            println!("   ⚠️  Job processor timeout (expected) - aborting task");
+            abort_handle.abort(); // Explicitly abort the spawned task
+        }
     }
 
     // Step 11: Verify results
