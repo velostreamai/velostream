@@ -180,7 +180,10 @@ async fn test_job_processor_with_tracing_enabled_impl() {
 
     match result {
         Ok(Ok(_)) => println!("   ✅ Job processor completed (no sources)"),
-        Ok(Err(e)) => println!("   ✅ Job processor returned error (expected with no sources): {}", e),
+        Ok(Err(e)) => println!(
+            "   ✅ Job processor returned error (expected with no sources): {}",
+            e
+        ),
         Err(_) => println!("   ✅ Job processor timed out (expected with no sources)"),
     }
 
