@@ -271,6 +271,7 @@ impl Default for StreamJobServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_default_config() {
@@ -368,6 +369,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_defaults() {
         // Clear any existing env vars before and after the test
         // to ensure clean state and avoid interference from other tests
@@ -396,6 +398,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_broker_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_KAFKA_BROKERS", "test-broker:9092");
@@ -408,6 +411,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_max_jobs_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_MAX_JOBS", "250");
@@ -420,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_monitoring_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_ENABLE_MONITORING", "true");
@@ -432,6 +437,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_timeout_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_JOB_TIMEOUT_SECS", "3600");
@@ -444,6 +450,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_cache_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_TABLE_CACHE_SIZE", "500");
@@ -456,6 +463,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_monitoring_1() {
         unsafe {
             std::env::set_var("VELOSTREAM_ENABLE_MONITORING", "1");
@@ -468,6 +476,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_monitoring_false() {
         unsafe {
             std::env::set_var("VELOSTREAM_ENABLE_MONITORING", "false");

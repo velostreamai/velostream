@@ -310,21 +310,28 @@ impl JobExecutionStats {
                 + result.batch_size as f64)
                 / total_batches;
 
+            // Use as_secs_f64() * 1000.0 for sub-millisecond precision (as_millis() truncates to 0 for <1ms)
             self.avg_processing_time_ms = ((self.avg_processing_time_ms * (total_batches - 1.0))
-                + result.processing_time.as_millis() as f64)
+                + result.processing_time.as_secs_f64() * 1000.0)
                 / total_batches;
         }
     }
 
     pub fn records_per_second(&self) -> f64 {
-        if let Some(start) = self.start_time {
-            // Use last_record_time if available (processing complete),
-            // otherwise use current time (still processing)
-            let end = self.last_record_time.unwrap_or_else(Instant::now);
-            let elapsed = end.duration_since(start).as_secs_f64();
-            if elapsed > 0.0 {
-                return self.records_processed as f64 / elapsed;
-            }
+        // Calculate based on actual processing time (read + sql + write)
+        // This gives the true processing rate: records / time_spent_processing
+        // Note: SimpleJobProcessor uses add_read_time/add_sql_time/add_write_time,
+        // while update_from_batch uses total_processing_time - support both
+        let tracked_time = self.total_read_time + self.total_sql_time + self.total_write_time;
+        let processing_time = if tracked_time > Duration::ZERO {
+            tracked_time
+        } else {
+            self.total_processing_time
+        };
+
+        let processing_secs = processing_time.as_secs_f64();
+        if processing_secs > 0.0 {
+            return self.records_processed as f64 / processing_secs;
         }
         0.0
     }
@@ -363,6 +370,19 @@ impl JobExecutionStats {
     /// Add write time (serialization + Kafka produce)
     pub fn add_write_time(&mut self, duration: Duration) {
         self.total_write_time += duration;
+    }
+
+    /// Get effective average processing time per batch in milliseconds.
+    /// Calculates from breakdown times when available, otherwise uses the stored avg_processing_time_ms.
+    pub fn effective_avg_batch_time_ms(&self) -> f64 {
+        // If breakdown times are available, calculate from them
+        let tracked_time = self.total_read_time + self.total_sql_time + self.total_write_time;
+        if tracked_time > Duration::ZERO && self.batches_processed > 0 {
+            return (tracked_time.as_secs_f64() * 1000.0) / self.batches_processed as f64;
+        }
+
+        // Fall back to stored avg_processing_time_ms (populated by update_from_batch)
+        self.avg_processing_time_ms
     }
 
     /// Get timing breakdown as percentages of elapsed time
@@ -662,59 +682,30 @@ fn is_recoverable_error(_error: &crate::velostream::sql::SqlError) -> bool {
     false
 }
 
-/// Log progress for a job
+/// Log progress for a job - shows per-batch throughput only
 ///
-/// This function is called frequently during processing. It uses smart logging:
-/// - Only logs at INFO level when there's meaningful progress (records processed)
-/// - Uses DEBUG for idle/waiting states to avoid log spam
-/// - WARN for extended periods (30s+) with no data
-/// - ERROR for severe starvation (60s+)
-pub fn log_job_progress(job_name: &str, stats: &JobExecutionStats) {
-    let rps = stats.records_per_second();
-    let success_rate = stats.success_rate();
-    let elapsed = stats.elapsed();
-    let elapsed_secs = elapsed.as_secs();
+/// This function is called after each batch. It shows:
+/// - Batch-level stats (records in THIS batch, time for THIS batch)
+/// - NOT cumulative totals (those are shown at the end by log_final_stats)
+///
+/// Parameters:
+/// - batch_records: Number of records processed in this specific batch
+/// - batch_time_ms: Time taken to process this specific batch
+pub fn log_job_progress(job_name: &str, batch_records: usize, batch_time_ms: f64) {
+    // Calculate per-batch throughput
+    let batch_rps = if batch_time_ms > 0.0 {
+        (batch_records as f64 / batch_time_ms) * 1000.0
+    } else {
+        0.0
+    };
 
-    // Check for data starvation - job running but processing 0 records
-    if stats.records_processed == 0 {
-        if elapsed_secs >= 60 && elapsed_secs % 30 == 0 {
-            // Only log error every 30 seconds after 60s mark
-            error!(
-                "🚨 DATA STARVATION DETECTED: Job '{}' has processed 0 records for {} seconds",
-                job_name, elapsed_secs
-            );
-            error!("   Possible causes:");
-            error!("   1. Source Kafka topic is empty or not producing messages");
-            error!("   2. Schema deserialization is failing (check for missing schema files)");
-            error!("   3. Consumer group offset is stuck or invalid");
-            error!("   4. Network connectivity issues with data source");
-        } else if elapsed_secs >= 30 && elapsed_secs % 10 == 0 {
-            // WARN every 10 seconds after 30s mark
-            warn!(
-                "Job '{}': 0 records processed after {} seconds (waiting for data...)",
-                job_name, elapsed_secs
-            );
-        } else if elapsed_secs % 5 == 0 && elapsed_secs > 0 {
-            // DEBUG every 5 seconds for less noise
-            debug!(
-                "Job '{}': waiting for data ({} seconds elapsed)",
-                job_name, elapsed_secs
-            );
-        }
-        // Don't log INFO for 0 records - it's just noise
-        return;
+    // Only log if there were records in this batch
+    if batch_records > 0 {
+        info!(
+            "Job '{}': batch processed {} records in {:.1}ms ({:.0} records/sec)",
+            job_name, batch_records, batch_time_ms, batch_rps
+        );
     }
-
-    // Only log at INFO when we have actual progress
-    info!(
-        "Job '{}': {} records processed ({} batches), {:.2} records/sec, {:.1}% success rate, {:.1}ms avg batch time",
-        job_name,
-        stats.records_processed,
-        stats.batches_processed,
-        rps,
-        success_rate,
-        stats.avg_processing_time_ms
-    );
 }
 
 /// Log final statistics for a job
@@ -739,7 +730,7 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
             stats.batches_processed,
             stats.batches_failed,
             stats.avg_batch_size,
-            stats.avg_processing_time_ms
+            stats.effective_avg_batch_time_ms()
         );
     }
 
@@ -764,37 +755,10 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
 }
 
 /// Log when processor transitions to idle state (first empty batch after processing records)
-/// This helps diagnose when the data stream stops producing records
-pub fn log_idle_transition(job_name: &str, stats: &JobExecutionStats) {
-    let elapsed = stats.elapsed();
-    let rps = stats.records_per_second();
-
-    info!(
-        "Job '{}' ⏸️  IDLE: No more records after processing {} records in {:.2}s ({:.2} records/sec)",
-        job_name,
-        stats.records_processed,
-        elapsed.as_secs_f64(),
-        rps
-    );
-
-    // Log timing breakdown if any timing data was collected
-    let has_timing = stats.total_read_time.as_nanos() > 0
-        || stats.total_sql_time.as_nanos() > 0
-        || stats.total_write_time.as_nanos() > 0;
-
-    if has_timing {
-        let (read_pct, sql_pct, write_pct, other_pct) = stats.timing_breakdown();
-        info!(
-            "  Timing breakdown: read={:.1}ms ({:.1}%), sql={:.1}ms ({:.1}%), write={:.1}ms ({:.1}%), other={:.1}%",
-            stats.total_read_time.as_secs_f64() * 1000.0,
-            read_pct,
-            stats.total_sql_time.as_secs_f64() * 1000.0,
-            sql_pct,
-            stats.total_write_time.as_secs_f64() * 1000.0,
-            write_pct,
-            other_pct
-        );
-    }
+/// This helps diagnose when the data stream stops producing records.
+/// Note: Does NOT log cumulative stats - those are shown at the end by log_final_stats.
+pub fn log_idle_transition(job_name: &str) {
+    debug!("Job '{}' ⏸️  IDLE: waiting for more records...", job_name);
 }
 
 /// Result type for datasource operations

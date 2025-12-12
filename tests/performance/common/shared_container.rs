@@ -35,13 +35,13 @@ use once_cell::sync::OnceCell;
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use testcontainers::runners::AsyncRunner;
 use testcontainers::ContainerAsync;
+use testcontainers::runners::AsyncRunner;
 use testcontainers_modules::kafka::KAFKA_PORT;
-use testcontainers_redpanda_rs::{Redpanda, REDPANDA_PORT};
+use testcontainers_redpanda_rs::{REDPANDA_PORT, Redpanda};
 use tokio::sync::Mutex;
 
 /// Global shared container instance
@@ -102,7 +102,9 @@ pub struct SharedKafkaContainer {
 
 impl SharedKafkaContainer {
     /// Create a new shared container
-    async fn new(container_type: ContainerType) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    async fn new(
+        container_type: ContainerType,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let (bootstrap_servers, container) = match container_type {
             ContainerType::Kafka => {
                 println!("[SharedContainer] Starting Confluent Kafka container...");
@@ -111,10 +113,7 @@ impl SharedKafkaContainer {
                     .await?;
                 let port = container.get_host_port_ipv4(KAFKA_PORT).await?;
                 let bootstrap = format!("127.0.0.1:{}", port);
-                println!(
-                    "[SharedContainer] Kafka container started at {}",
-                    bootstrap
-                );
+                println!("[SharedContainer] Kafka container started at {}", bootstrap);
                 (bootstrap, Some(ContainerInstance::Kafka(container)))
             }
             ContainerType::Redpanda => {
@@ -131,10 +130,7 @@ impl SharedKafkaContainer {
             ContainerType::External => {
                 let bootstrap = std::env::var("VELOSTREAM_KAFKA_BROKERS")
                     .unwrap_or_else(|_| "localhost:9092".to_string());
-                println!(
-                    "[SharedContainer] Using external Kafka at {}",
-                    bootstrap
-                );
+                println!("[SharedContainer] Using external Kafka at {}", bootstrap);
                 (bootstrap, Some(ContainerInstance::External))
             }
         };

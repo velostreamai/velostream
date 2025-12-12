@@ -313,21 +313,35 @@ impl SimpleJobProcessor {
     }
 
     /// Handle batch processing results (success or failure)
-    /// Logs progress and records failures
+    /// Logs per-batch throughput and records failures
+    ///
+    /// `records_processed_this_batch` indicates how many records were processed in this iteration.
+    /// `batch_time_ms` is the time taken for this batch in milliseconds.
     fn handle_batch_result(
         &self,
         result: Result<(), Box<dyn std::error::Error + Send + Sync>>,
         stats: &mut JobExecutionStats,
         job_name: &str,
+        records_processed_this_batch: u64,
+        batch_time_ms: f64,
     ) -> bool {
         match result {
             Ok(()) => {
+                // Log per-batch throughput when:
+                // 1. Progress logging is enabled
+                // 2. Records were actually processed this batch (not an empty poll)
+                // 3. Batch count hits the progress interval
                 if self.config.log_progress
+                    && records_processed_this_batch > 0
                     && stats
                         .batches_processed
                         .is_multiple_of(self.config.progress_interval)
                 {
-                    log_job_progress(job_name, stats);
+                    log_job_progress(
+                        job_name,
+                        records_processed_this_batch as usize,
+                        batch_time_ms,
+                    );
                 }
                 false // No error
             }
@@ -473,25 +487,35 @@ impl SimpleJobProcessor {
             // Reset empty batch counter since we found data
             consecutive_empty_batches = 0;
 
-            // Track records processed before this batch
+            // Track records processed before this batch and start timing
             let records_before = stats.records_processed;
+            let batch_start = Instant::now();
 
             // Process from all sources
             let result = self
                 .process_data(&mut context, &engine, &query, &job_name, &mut stats)
                 .await;
 
-            // Check if we transitioned to idle (first empty batch after processing)
+            // Calculate batch time and records
+            let batch_time_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
             let records_this_batch = stats.records_processed - records_before;
+
+            // Check if we transitioned to idle (first empty batch after processing)
             if stats.mark_batch(records_this_batch > 0) {
-                log_idle_transition(&job_name, &stats);
+                log_idle_transition(&job_name);
             }
 
             // Sync to shared stats for real-time monitoring
             stats.sync_to_shared(&shared_stats);
 
-            // Handle batch result (logs progress or errors)
-            if self.handle_batch_result(result, &mut stats, &job_name) {
+            // Handle batch result (logs per-batch throughput or errors)
+            if self.handle_batch_result(
+                result,
+                &mut stats,
+                &job_name,
+                records_this_batch,
+                batch_time_ms,
+            ) {
                 // On error, apply retry backoff
                 sleep(self.config.retry_backoff).await;
             }

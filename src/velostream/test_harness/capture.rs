@@ -220,6 +220,9 @@ impl SinkCapture {
             }
         }
 
+        // Unsubscribe before dropping to ensure clean shutdown
+        consumer.unsubscribe();
+
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
         log::info!(

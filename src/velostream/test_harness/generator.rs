@@ -132,7 +132,7 @@ impl TimeSimulationState {
         let base_time = if self.sequential {
             // Sequential mode: timestamps progress linearly
             let t = self.current_time;
-            self.current_time = self.current_time + self.time_per_record;
+            self.current_time += self.time_per_record;
             self.records_generated += 1;
             t
         } else {

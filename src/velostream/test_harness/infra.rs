@@ -50,7 +50,7 @@ use testcontainers::runners::AsyncRunner;
 #[cfg(any(test, feature = "test-support"))]
 use testcontainers_modules::kafka::KAFKA_PORT;
 #[cfg(any(test, feature = "test-support"))]
-use testcontainers_redpanda_rs::{Redpanda, REDPANDA_PORT};
+use testcontainers_redpanda_rs::{REDPANDA_PORT, Redpanda};
 
 /// Type of Kafka-compatible container to use
 #[cfg(any(test, feature = "test-support"))]
@@ -230,8 +230,13 @@ impl TestHarnessInfra {
     /// # Arguments
     /// * `container_type` - The type of container to start (Kafka or Redpanda)
     #[cfg(any(test, feature = "test-support"))]
-    pub async fn with_testcontainers_type(container_type: ContainerType) -> TestHarnessResult<Self> {
-        log::info!("Starting {} container via testcontainers...", container_type.name());
+    pub async fn with_testcontainers_type(
+        container_type: ContainerType,
+    ) -> TestHarnessResult<Self> {
+        log::info!(
+            "Starting {} container via testcontainers...",
+            container_type.name()
+        );
 
         let (bootstrap_servers, container) = match container_type {
             ContainerType::Kafka => {
@@ -255,13 +260,12 @@ impl TestHarnessInfra {
                 (bootstrap, ContainerInstance::Kafka(kafka_container))
             }
             ContainerType::Redpanda => {
-                let redpanda_container = Redpanda::default()
-                    .start()
-                    .await
-                    .map_err(|e| TestHarnessError::InfraError {
+                let redpanda_container = Redpanda::default().start().await.map_err(|e| {
+                    TestHarnessError::InfraError {
                         message: format!("Failed to start Redpanda container: {}", e),
                         source: Some(e.to_string()),
-                    })?;
+                    }
+                })?;
 
                 let host_port = redpanda_container
                     .get_host_port_ipv4(REDPANDA_PORT)

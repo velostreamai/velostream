@@ -34,6 +34,9 @@
 
 set -e
 
+# Use Redpanda by default (faster startup: ~3s vs ~10s for Confluent Kafka)
+export VELOSTREAM_TEST_CONTAINER="${VELOSTREAM_TEST_CONTAINER:-redpanda}"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'

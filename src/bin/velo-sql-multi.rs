@@ -3,6 +3,7 @@ use log::{debug, error, info};
 use std::fs;
 use std::time::Duration;
 use velostream::velostream::{
+    server::shutdown::{ShutdownConfig, shutdown_signal},
     server::stream_job_server::StreamJobServer,
     sql::{
         annotation_parser::SqlAnnotationParser, app_parser::SqlApplicationParser,
@@ -136,25 +137,52 @@ async fn start_stream_job_server(
 
     info!("StreamJobServer ready - no jobs deployed");
     info!("Use 'deploy-app' command or HTTP API to deploy SQL applications");
+    info!("Press Ctrl+C or send SIGTERM to initiate graceful shutdown");
 
-    // Status monitoring loop
-    loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
+    // Status monitoring loop with graceful shutdown support
+    let server_clone = server.clone();
+    let monitor_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
 
-        let jobs = server.list_jobs().await;
-        info!("Active jobs: {}", jobs.len());
+            let jobs = server_clone.list_jobs().await;
+            info!("Active jobs: {}", jobs.len());
 
-        for job in &jobs {
-            info!(
-                "  Job '{}' ({}): {:?} - {} records processed",
-                job.name, job.topic, job.status, job.stats.records_processed
-            );
+            for job in &jobs {
+                info!(
+                    "  Job '{}' ({}): {:?} - {} records processed",
+                    job.name, job.topic, job.status, job.stats.records_processed
+                );
+            }
+
+            if jobs.is_empty() {
+                info!("No active jobs. Server will continue running...");
+            }
         }
+    });
 
-        if jobs.is_empty() {
-            info!("No active jobs. Server will continue running...");
-        }
+    // Wait for shutdown signal
+    let signal = shutdown_signal().await;
+
+    // Cancel monitoring
+    monitor_handle.abort();
+
+    // Perform graceful shutdown
+    let shutdown_config = ShutdownConfig::with_timeout(Duration::from_secs(30));
+    let result = server.graceful_shutdown(signal, shutdown_config).await;
+
+    info!("{}", result);
+
+    if result.all_graceful() {
+        info!("Server shutdown completed successfully");
+    } else {
+        error!(
+            "Server shutdown completed with {} jobs force-killed",
+            result.jobs_force_killed
+        );
     }
+
+    Ok(())
 }
 
 /// Start a simple HTTP server for metrics endpoints (StreamJobServer version)
@@ -678,34 +706,59 @@ async fn deploy_sql_application_from_file(
         return Ok(());
     }
 
-    // Keep the jobs running
-    info!("Jobs are now running. Use Ctrl+C to stop.");
+    // Keep the jobs running with graceful shutdown support
+    info!("Jobs are now running. Press Ctrl+C or send SIGTERM to initiate graceful shutdown.");
 
     // Status monitoring loop for the deployed application
-    loop {
-        tokio::time::sleep(Duration::from_secs(30)).await;
+    let app_name = app.metadata.name.clone();
+    let server_clone = server.clone();
+    let monitor_handle = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
 
-        let jobs = server.list_jobs().await;
+            let jobs = server_clone.list_jobs().await;
+            info!("Application '{}' - Active jobs: {}", app_name, jobs.len());
+
+            for job in &jobs {
+                info!(
+                    "  Job '{}' ({}): {:?} - {} records processed",
+                    job.name, job.topic, job.status, job.stats.records_processed
+                );
+            }
+
+            if jobs.is_empty() {
+                info!("No active jobs remaining for application '{}'", app_name);
+                return;
+            }
+        }
+    });
+
+    // Wait for shutdown signal
+    let signal = shutdown_signal().await;
+
+    // Cancel monitoring
+    monitor_handle.abort();
+
+    // Perform graceful shutdown
+    info!(
+        "Received {} - initiating graceful shutdown of application '{}'",
+        signal, app.metadata.name
+    );
+    let shutdown_config = ShutdownConfig::with_timeout(Duration::from_secs(30));
+    let result = server.graceful_shutdown(signal, shutdown_config).await;
+
+    println!("{}", result);
+
+    if result.all_graceful() {
         info!(
-            "Application '{}' - Active jobs: {}",
-            app.metadata.name,
-            jobs.len()
+            "Application '{}' shutdown completed successfully",
+            app.metadata.name
         );
-
-        for job in &jobs {
-            info!(
-                "  Job '{}' ({}): {:?} - {} records processed",
-                job.name, job.topic, job.status, job.stats.records_processed
-            );
-        }
-
-        if jobs.is_empty() {
-            info!(
-                "No active jobs remaining for application '{}'",
-                app.metadata.name
-            );
-            break;
-        }
+    } else {
+        error!(
+            "Application '{}' shutdown completed with {} jobs force-killed",
+            app.metadata.name, result.jobs_force_killed
+        );
     }
 
     Ok(())

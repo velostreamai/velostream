@@ -28,6 +28,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 /// Type alias for table registry to reduce complexity
 type TableRegistry = Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>;
@@ -281,6 +282,10 @@ impl TransactionalJobProcessor {
                 break;
             }
 
+            // Track records processed before this batch for progress logging
+            let records_before = stats.records_processed;
+            let batch_start = Instant::now();
+
             // Process transactional batch from all sources
             match self
                 .process_multi_source_transactional_batch(
@@ -295,12 +300,21 @@ impl TransactionalJobProcessor {
                 .await
             {
                 Ok(()) => {
+                    // Calculate batch timing and records
+                    let batch_time_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
+                    let records_this_batch = stats.records_processed - records_before;
+
+                    // Log per-batch throughput when:
+                    // 1. Progress logging is enabled
+                    // 2. Records were actually processed this batch
+                    // 3. Batch count hits the progress interval
                     if self.config.log_progress
+                        && records_this_batch > 0
                         && stats
                             .batches_processed
                             .is_multiple_of(self.config.progress_interval)
                     {
-                        log_job_progress(&job_name, &stats);
+                        log_job_progress(&job_name, records_this_batch as usize, batch_time_ms);
                     }
                 }
                 Err(e) => {
@@ -317,7 +331,7 @@ impl TransactionalJobProcessor {
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
-                    tokio::time::sleep(self.config.retry_backoff).await;
+                    sleep(self.config.retry_backoff).await;
                 }
             }
 
@@ -644,7 +658,7 @@ impl TransactionalJobProcessor {
                                 "Job '{}': Applying retry backoff of {:?} before retrying batch",
                                 job_name, self.config.retry_backoff
                             );
-                            tokio::time::sleep(self.config.retry_backoff).await;
+                            sleep(self.config.retry_backoff).await;
                             return Err(format!("Sink write failed, will retry: {}", e).into());
                         } else {
                             // This will cause transaction abort in step 6
@@ -878,7 +892,7 @@ impl TransactionalJobProcessor {
         let source_names = context.list_sources();
         if source_names.is_empty() {
             warn!("Job '{}': No sources available for processing", job_name);
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(100)).await;
             return Ok(());
         }
 

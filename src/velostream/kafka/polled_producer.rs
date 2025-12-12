@@ -42,6 +42,7 @@ use std::time::Duration;
 /// poll thread before flushing. This follows the critical rule from rdkafka:
 /// **flush() must run ONLY after polling has stopped**, otherwise both threads
 /// fight over callbacks leading to slowdowns or timeouts.
+#[allow(clippy::result_large_err)] // Error type includes rdkafka types that cannot be changed
 pub trait PolledProducer: Send {
     /// Send a record to Kafka (non-blocking, queues internally)
     fn send<'a>(

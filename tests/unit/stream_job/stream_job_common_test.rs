@@ -126,6 +126,10 @@ async fn test_job_execution_stats_metrics() {
     stats.records_processed = 1000;
     stats.records_failed = 50;
 
+    // Set some processing time so records_per_second() can calculate a rate
+    // In real usage, this is set by add_read_time/add_sql_time/add_write_time
+    stats.total_processing_time = Duration::from_millis(100);
+
     let rps = stats.records_per_second();
     let success_rate = stats.success_rate();
     let elapsed = stats.elapsed();
@@ -260,7 +264,8 @@ async fn test_log_functions() {
     stats.avg_processing_time_ms = 25.5;
 
     // These should not panic
-    log_job_progress("test_job", &stats);
+    // log_job_progress now takes per-batch stats: (job_name, batch_records, batch_time_ms)
+    log_job_progress("test_job", 100, 25.5);
     log_final_stats("test_job", &stats);
 }
 

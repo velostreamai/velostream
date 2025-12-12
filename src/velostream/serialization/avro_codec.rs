@@ -86,10 +86,8 @@ impl AvroCodec {
 
         if let AvroSchema::Record(record_schema) = schema {
             for field in &record_schema.fields {
-                let mut fm = FieldMetadata::default();
-
-                // Check logical type first (handles Date, Timestamp, etc.)
-                fm.logical_type = match &field.schema {
+                // Build FieldMetadata directly to avoid field_reassign_with_default warning
+                let logical_type = match &field.schema {
                     AvroSchema::Date => Some(CachedLogicalType::Date),
                     AvroSchema::TimeMillis => Some(CachedLogicalType::TimeMillis),
                     AvroSchema::TimeMicros => Some(CachedLogicalType::TimeMicros),
@@ -120,15 +118,19 @@ impl AvroCodec {
                     _ => None,
                 };
 
-                // Check if union (nullable)
-                fm.is_union = matches!(&field.schema, AvroSchema::Union(_));
+                let is_union = matches!(&field.schema, AvroSchema::Union(_));
 
-                // Check if expects int
-                fm.expects_int = matches!(&field.schema, AvroSchema::Int)
+                let expects_int = matches!(&field.schema, AvroSchema::Int)
                     || matches!(&field.schema, AvroSchema::Union(u) if u.variants().iter().any(|v| matches!(v, AvroSchema::Int)));
 
-                // Check for decimal type and extract scale
-                fm.decimal_scale = Self::extract_decimal_scale_from_field(field);
+                let decimal_scale = Self::extract_decimal_scale_from_field(field);
+
+                let fm = FieldMetadata {
+                    logical_type,
+                    is_union,
+                    expects_int,
+                    decimal_scale,
+                };
 
                 metadata.insert(field.name.clone(), fm);
             }
@@ -229,16 +231,18 @@ impl AvroCodec {
     }
 
     /// Convert FieldValue to Avro Value with schema-aware field name context
+    /// OPTIMIZED: Uses pre-computed field_metadata cache instead of expensive schema lookups
     fn field_value_to_avro_with_name(
         &self,
         field_value: &FieldValue,
         field_name: Option<&str>,
     ) -> Result<AvroValue, SerializationError> {
-        // Check if this field is a decimal type in the schema
-        let decimal_scale = field_name.and_then(|name| self.get_decimal_scale_from_schema(name));
-
-        // Check for logical type in schema
-        let logical_type = field_name.and_then(|name| self.get_logical_type_from_schema(name));
+        // OPTIMIZATION: O(1) HashMap lookup for field metadata instead of JSON parsing/linear scans
+        let metadata = field_name.and_then(|name| self.field_metadata.get(name));
+        let decimal_scale = metadata.and_then(|m| m.decimal_scale);
+        let logical_type = metadata.and_then(|m| m.logical_type.as_ref().map(|lt| lt.as_str()));
+        let is_union = metadata.map(|m| m.is_union).unwrap_or(false);
+        let expects_int = metadata.map(|m| m.expects_int).unwrap_or(false);
 
         log::debug!(
             "Converting field {:?}: value={:?}, decimal_scale={:?}, logical_type={:?}",
@@ -277,7 +281,7 @@ impl AvroCodec {
                 // Convert Integer to TimestampMicros logical type
                 Ok(AvroValue::TimestampMicros(*i))
             }
-            FieldValue::Integer(i) if self.schema_expects_int(field_name) => {
+            FieldValue::Integer(i) if expects_int => {
                 // Convert Integer to Int when schema expects i32
                 Ok(AvroValue::Int(*i as i32))
             }
@@ -293,11 +297,9 @@ impl AvroCodec {
                 let decimal_bytes = self.scaled_integer_to_decimal_bytes(scaled_value, scale)?;
 
                 // Check if this field is part of a union (nullable)
-                if let Some(name) = field_name {
-                    if self.is_union_field(name) {
-                        // Wrap in Union with variant index 1 (assuming [null, decimal] order)
-                        return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
-                    }
+                if is_union {
+                    // Wrap in Union with variant index 1 (assuming [null, decimal] order)
+                    return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
                 }
 
                 Ok(decimal_bytes)
@@ -309,11 +311,9 @@ impl AvroCodec {
                 let decimal_bytes = self.scaled_integer_to_decimal_bytes(*value, schema_scale)?;
 
                 // Check if this field is part of a union (nullable)
-                if let Some(name) = field_name {
-                    if self.is_union_field(name) {
-                        // Wrap in Union with variant index 1 (assuming [null, decimal] order)
-                        return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
-                    }
+                if is_union {
+                    // Wrap in Union with variant index 1 (assuming [null, decimal] order)
+                    return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
                 }
 
                 Ok(decimal_bytes)

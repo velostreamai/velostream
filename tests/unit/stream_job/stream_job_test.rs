@@ -121,9 +121,10 @@ async fn test_job_execution_stats_tracking() {
 async fn test_job_execution_stats_rps() {
     let mut stats = JobExecutionStats::new();
 
-    // Simulate processing records
+    // Simulate processing records with processing time
     stats.records_processed = 100;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // records_per_second() uses total_processing_time (or read+sql+write times)
+    stats.total_processing_time = Duration::from_millis(100);
 
     let rps = stats.records_per_second();
     // Should be approximately 1000 records/sec (100 records in 0.1 seconds)
@@ -326,6 +327,8 @@ fn test_job_execution_stats() {
     assert!(stats.start_time.is_some());
 
     stats.records_processed = 1000;
+    // records_per_second() uses total_processing_time (or read+sql+write times)
+    stats.total_processing_time = Duration::from_millis(100);
     // Sleep briefly to ensure elapsed time > 0
     std::thread::sleep(Duration::from_millis(10));
 

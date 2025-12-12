@@ -677,6 +677,7 @@ impl KafkaDataWriter {
     ///
     /// For Async mode, directly calls producer.send().
     /// For Transactional mode, this method should not be called - use send_transactional() instead.
+    #[allow(clippy::result_large_err)] // Error type is from rdkafka and cannot be changed
     fn send_async_record<'a, K, P>(
         &self,
         record: BaseRecord<'a, K, P>,

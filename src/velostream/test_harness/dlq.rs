@@ -360,6 +360,15 @@ impl DlqCapture {
     }
 }
 
+/// Ensure proper cleanup on drop to prevent librdkafka hanging
+impl Drop for DlqCapture {
+    fn drop(&mut self) {
+        log::debug!("DlqCapture: Unsubscribing from topic '{}'", self.topic);
+        self.consumer.unsubscribe();
+        log::debug!("DlqCapture: Dropped successfully");
+    }
+}
+
 /// Captured DLQ output for a query
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CapturedDlqOutput {

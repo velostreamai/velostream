@@ -17,6 +17,7 @@ use crate::velostream::server::processors::{
     SharedJobStats, SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
     create_multi_source_readers,
 };
+use crate::velostream::server::shutdown::{ShutdownConfig, ShutdownResult, ShutdownSignal};
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
@@ -1075,6 +1076,191 @@ impl StreamJobServer {
                 query: None,
             })
         }
+    }
+
+    /// Gracefully shutdown all running jobs in response to a signal
+    ///
+    /// This method:
+    /// 1. Stops accepting new jobs
+    /// 2. Sends shutdown signals to all running jobs
+    /// 3. Waits for jobs to commit offsets and flush sinks (with timeout)
+    /// 4. Force-kills any jobs that don't stop within the timeout
+    ///
+    /// # Arguments
+    /// * `signal` - The signal that triggered the shutdown
+    /// * `config` - Shutdown configuration including timeout
+    ///
+    /// # Returns
+    /// A `ShutdownResult` with statistics about the shutdown process
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use velostream::velostream::server::shutdown::{ShutdownConfig, ShutdownSignal, shutdown_signal};
+    /// use velostream::velostream::server::stream_job_server::StreamJobServer;
+    ///
+    /// # async fn example() {
+    /// let server = StreamJobServer::new("localhost:9092".to_string(), "myapp".to_string(), 10);
+    ///
+    /// // Wait for shutdown signal and then gracefully stop
+    /// let signal = shutdown_signal().await;
+    /// let result = server.graceful_shutdown(signal, ShutdownConfig::default()).await;
+    /// println!("{}", result);
+    /// # }
+    /// ```
+    pub async fn graceful_shutdown(
+        &self,
+        signal: ShutdownSignal,
+        config: ShutdownConfig,
+    ) -> ShutdownResult {
+        let start = std::time::Instant::now();
+        let mut jobs_stopped = 0;
+        let mut jobs_force_killed = 0;
+
+        if config.verbose {
+            info!(
+                "Initiating graceful shutdown due to {} (timeout: {:?})",
+                signal, config.timeout
+            );
+        }
+
+        // Dump diagnostics on SIGQUIT if configured
+        if signal == ShutdownSignal::Quit && config.dump_on_quit {
+            self.dump_diagnostics().await;
+        }
+
+        // Get list of all running job names
+        let job_names: Vec<String> = {
+            let jobs = self.jobs.read().await;
+            jobs.keys().cloned().collect()
+        };
+
+        let total_jobs = job_names.len();
+        if config.verbose {
+            info!("Shutting down {} running jobs", total_jobs);
+        }
+
+        // Phase 1: Send shutdown signals to all jobs
+        {
+            let jobs = self.jobs.read().await;
+            for name in &job_names {
+                if let Some(job) = jobs.get(name) {
+                    if config.verbose {
+                        debug!("Sending shutdown signal to job '{}'", name);
+                    }
+                    let _ = job.shutdown_sender.try_send(());
+                }
+            }
+        }
+
+        // Phase 2: Wait for jobs to stop gracefully (with timeout per job)
+        let per_job_timeout = if total_jobs > 0 {
+            config.timeout / total_jobs as u32
+        } else {
+            config.timeout
+        };
+
+        for name in &job_names {
+            let job_start = std::time::Instant::now();
+
+            // Try to gracefully stop the job
+            let graceful_stop = async {
+                // Check if job has already stopped
+                loop {
+                    {
+                        let jobs = self.jobs.read().await;
+                        if !jobs.contains_key(name) {
+                            return true; // Job already stopped
+                        }
+                        if let Some(job) = jobs.get(name) {
+                            if job.execution_handle.is_finished() {
+                                return true; // Job finished
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            };
+
+            match tokio::time::timeout(per_job_timeout, graceful_stop).await {
+                Ok(true) => {
+                    jobs_stopped += 1;
+                    if config.verbose {
+                        info!(
+                            "Job '{}' stopped gracefully in {:?}",
+                            name,
+                            job_start.elapsed()
+                        );
+                    }
+                }
+                Ok(false) | Err(_) => {
+                    // Timeout or job didn't stop - force kill
+                    warn!(
+                        "Job '{}' did not stop within {:?}, force killing",
+                        name, per_job_timeout
+                    );
+
+                    let mut jobs = self.jobs.write().await;
+                    if let Some(job) = jobs.remove(name) {
+                        job.execution_handle.abort();
+                        jobs_force_killed += 1;
+                    }
+                }
+            }
+        }
+
+        // Phase 3: Clean up any remaining jobs
+        {
+            let mut jobs = self.jobs.write().await;
+            for (name, job) in jobs.drain() {
+                warn!("Force killing remaining job '{}'", name);
+                job.execution_handle.abort();
+                jobs_force_killed += 1;
+            }
+        }
+
+        let elapsed = start.elapsed();
+        let completed_gracefully = elapsed <= config.timeout && jobs_force_killed == 0;
+
+        let result = ShutdownResult {
+            signal,
+            jobs_stopped,
+            jobs_force_killed,
+            completed_gracefully,
+            elapsed,
+        };
+
+        if config.verbose {
+            info!("{}", result);
+        }
+
+        result
+    }
+
+    /// Dump diagnostic information for debugging (called on SIGQUIT)
+    async fn dump_diagnostics(&self) {
+        info!("=== VELOSTREAM DIAGNOSTICS DUMP ===");
+
+        // Dump job information
+        let jobs = self.jobs.read().await;
+        info!("Running jobs: {}", jobs.len());
+        for (name, job) in jobs.iter() {
+            info!("  Job '{}': {:?}", name, job.status);
+            if let Ok(stats) = job.shared_stats.read() {
+                info!(
+                    "    Records processed: {}, Failed: {}",
+                    stats.records_processed, stats.records_failed
+                );
+            }
+        }
+
+        // Dump table registry info
+        let table_health = self.get_tables_health().await;
+        info!("Table registry health:");
+        for (table, status) in &table_health {
+            info!("  {}: {}", table, status);
+        }
+
+        info!("=== END DIAGNOSTICS DUMP ===");
     }
 
     pub async fn pause_job(&self, name: &str) -> Result<(), SqlError> {
