@@ -25,14 +25,22 @@ use velostream::velostream::sql::{StreamExecutionEngine, StreamingSqlParser};
 
 #[tokio::test]
 #[serial]
+#[ignore] // This test requires a full Kafka environment with proper cleanup - run manually
 async fn test_job_processor_with_tracing_enabled() {
+    // Skip in CI - this test uses rdkafka resources that have blocking Drop handlers
+    // which can cause hangs even with timeout wrappers
+    if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
+        println!("⚠️  Skipping test in CI environment (blocking rdkafka cleanup)");
+        return;
+    }
+
     // Skip if Kafka isn't running
     if !is_kafka_running() {
         println!("⚠️  Skipping test: Kafka not running");
         return;
     }
 
-    // Wrap entire test in timeout to prevent CI hangs
+    // Wrap entire test in timeout to prevent hangs
     let result = tokio::time::timeout(Duration::from_secs(60), async {
         test_job_processor_with_tracing_enabled_impl().await
     })
