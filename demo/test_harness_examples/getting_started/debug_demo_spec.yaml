@@ -15,10 +15,11 @@ queries:
     description: Stage 1 - Filter high-value trades
     inputs:
       - source: market_data
+        key_field: symbol
         records: 50
         time_simulation:
           start_time: "-2m"
           end_time: "now"
           sequential: true
     # No assertions - just generate data for debugging
-    outputs: []
+    outputs: [ ]

@@ -297,8 +297,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         velostream::velostream::test_harness::Schema,
                                     >(&content)
                                     {
-                                        Ok(schema) => {
-                                            println!("   Loaded schema: {}", schema.name);
+                                        Ok(mut schema) => {
+                                            schema.source_path = Some(path.display().to_string());
+                                            let key_info = schema
+                                                .key_field
+                                                .as_ref()
+                                                .map(|k| format!(", key_field: {}", k))
+                                                .unwrap_or_default();
+                                            println!(
+                                                "   ✓ {} ({} fields{}) ← {}",
+                                                schema.name,
+                                                schema.fields.len(),
+                                                key_info,
+                                                path.display()
+                                            );
                                             schema_registry.register(schema);
                                         }
                                         Err(e) => {
@@ -419,10 +431,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         velostream::velostream::test_harness::Schema,
                                     >(&content)
                                     {
-                                        Ok(schema) => {
+                                        Ok(mut schema) => {
+                                            schema.source_path =
+                                                Some(full_path.display().to_string());
+                                            let key_info = schema
+                                                .key_field
+                                                .as_ref()
+                                                .map(|k| format!(", key_field: {}", k))
+                                                .unwrap_or_default();
                                             println!(
-                                                "   Loaded schema from SQL config: {}",
-                                                schema.name
+                                                "   ✓ {} ({} fields{}) ← {} (from SQL config)",
+                                                schema.name,
+                                                schema.fields.len(),
+                                                key_info,
+                                                full_path.display()
                                             );
                                             schema_registry.register(schema);
                                         }
@@ -1377,7 +1399,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     e
                                 );
                             } else {
-                                println!("   Loaded schema: {}", input.source);
+                                println!("   ✓ {} ← {}", input.source, schema_path.display());
                             }
                         }
                     }
@@ -1482,11 +1504,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .extension()
                             .is_some_and(|ext| ext == "yaml" || ext == "yml")
                             && let Ok(content) = std::fs::read_to_string(&path)
-                            && let Ok(schema) = serde_yaml::from_str::<
+                            && let Ok(mut schema) = serde_yaml::from_str::<
                                 velostream::velostream::test_harness::Schema,
                             >(&content)
                         {
-                            println!("   Loaded schema: {}", schema.name);
+                            schema.source_path = Some(path.display().to_string());
+                            let key_info = schema
+                                .key_field
+                                .as_ref()
+                                .map(|k| format!(", key_field: {}", k))
+                                .unwrap_or_default();
+                            println!(
+                                "   ✓ {} ({} fields{}) ← {}",
+                                schema.name,
+                                schema.fields.len(),
+                                key_info,
+                                path.display()
+                            );
                             schema_registry.register(schema);
                         }
                     }
@@ -1604,18 +1638,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
 
+            // Helper function to resolve statement number to name
+            fn resolve_statement_arg(
+                arg: &str,
+                statements: &[velostream::velostream::test_harness::statement_executor::ParsedStatement],
+            ) -> Option<String> {
+                // First try to parse as a number (1-indexed)
+                if let Ok(num) = arg.parse::<usize>() {
+                    if num >= 1 && num <= statements.len() {
+                        return Some(statements[num - 1].name.clone());
+                    } else {
+                        println!(
+                            "Invalid statement number: {}. Valid range: 1-{}",
+                            num,
+                            statements.len()
+                        );
+                        return None;
+                    }
+                }
+                // Otherwise use as name directly
+                Some(arg.to_string())
+            }
+
             // Interactive debug loop
             println!();
             println!("🐛 Debug Commands:");
             println!("   s, step       - Execute next statement");
             println!("   c, continue   - Run until next breakpoint");
             println!("   r, run        - Run all remaining statements");
-            println!("   b <name>      - Set breakpoint on statement");
-            println!("   u <name>      - Remove breakpoint");
+            println!("   b <N>         - Set breakpoint on statement N");
+            println!("   u <N>         - Remove breakpoint from statement N");
             println!("   l, list       - List all statements");
-            println!("   i <name>      - Inspect output from statement");
+            println!("   i <N>         - Inspect output from statement N");
             println!("   st, status    - Show current state");
             println!("   topics        - List all Kafka topics with offsets");
+            println!("   schema <topic> - Show schema for topic (inferred)");
             println!("   consumers     - List all consumer groups");
             println!("   jobs          - List all jobs with source/sink status");
             println!("   q, quit       - Exit debugger");
@@ -1640,7 +1697,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("📊 Execution finished. You can still inspect state:");
                             println!("   topics    - View topic state and offsets");
                             println!("   jobs      - View job details and statistics");
-                            println!("   i <name>  - Inspect output from a statement");
+                            println!("   i <N>     - Inspect output from statement N");
                             println!("   q         - Exit and cleanup");
                             execution_finished = true;
                         }
@@ -1654,7 +1711,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("📊 You can still inspect state:");
                             println!("   topics    - View topic state and offsets");
                             println!("   jobs      - View job details and statistics");
-                            println!("   i <name>  - Inspect output from a statement");
+                            println!("   i <N>     - Inspect output from statement N");
                             println!("   q         - Exit and cleanup");
                             execution_finished = true;
                         }
@@ -1702,7 +1759,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "" | "s" | "step" => {
                         if execution_finished {
                             println!(
-                                "Execution complete. Use 'topics', 'jobs', 'i <name>', or 'q' to exit."
+                                "Execution complete. Use 'topics', 'jobs', 'i <N>', or 'q' to exit."
                             );
                             None
                         } else {
@@ -1712,7 +1769,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "c" | "continue" => {
                         if execution_finished {
                             println!(
-                                "Execution complete. Use 'topics', 'jobs', 'i <name>', or 'q' to exit."
+                                "Execution complete. Use 'topics', 'jobs', 'i <N>', or 'q' to exit."
                             );
                             None
                         } else {
@@ -1722,7 +1779,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "r" | "run" => {
                         if execution_finished {
                             println!(
-                                "Execution complete. Use 'topics', 'jobs', 'i <name>', or 'q' to exit."
+                                "Execution complete. Use 'topics', 'jobs', 'i <N>', or 'q' to exit."
                             );
                             None
                         } else {
@@ -1733,10 +1790,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if execution_finished {
                             println!("Execution complete. Breakpoints are not available.");
                             None
-                        } else if let Some(name) = parts.get(1) {
-                            Some(DebugCommand::Break(name.to_string()))
+                        } else if let Some(arg) = parts.get(1) {
+                            let statements = session.executor().statements();
+                            resolve_statement_arg(arg, statements).map(DebugCommand::Break)
                         } else {
-                            println!("Usage: b <statement_name>");
+                            println!("Usage: b <N>  (e.g., b 1)");
                             None
                         }
                     }
@@ -1744,10 +1802,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if execution_finished {
                             println!("Execution complete. Breakpoints are not available.");
                             None
-                        } else if let Some(name) = parts.get(1) {
-                            Some(DebugCommand::Unbreak(name.to_string()))
+                        } else if let Some(arg) = parts.get(1) {
+                            let statements = session.executor().statements();
+                            resolve_statement_arg(arg, statements).map(DebugCommand::Unbreak)
                         } else {
-                            println!("Usage: u <statement_name>");
+                            println!("Usage: u <N>  (e.g., u 1)");
                             None
                         }
                     }
@@ -1761,10 +1820,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     "l" | "list" => Some(DebugCommand::List),
                     "i" | "inspect" => {
-                        if let Some(name) = parts.get(1) {
-                            Some(DebugCommand::Inspect(name.to_string()))
+                        if let Some(arg) = parts.get(1) {
+                            let statements = session.executor().statements();
+                            resolve_statement_arg(arg, statements).map(DebugCommand::Inspect)
                         } else {
-                            println!("Usage: i <statement_name>");
+                            println!("Usage: i <N>  (e.g., i 1)");
                             None
                         }
                     }
@@ -1774,16 +1834,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "topics" | "lt" | "list-topics" => Some(DebugCommand::ListTopics),
                     "consumers" | "lc" | "list-consumers" => Some(DebugCommand::ListConsumers),
                     "jobs" | "lj" | "list-jobs" => Some(DebugCommand::ListJobs),
+                    "schema" | "sc" => {
+                        if let Some(arg) = parts.get(1) {
+                            // Resolve topic name - first check if it's a statement number
+                            let statements = session.executor().statements();
+                            if let Ok(num) = arg.parse::<usize>() {
+                                // It's a number - try to get the sink topic from that statement
+                                if num >= 1 && num <= statements.len() {
+                                    let topic_name = statements[num - 1]
+                                        .sink_topic
+                                        .clone()
+                                        .unwrap_or_else(|| arg.to_string());
+                                    Some(DebugCommand::ShowSchema(topic_name))
+                                } else {
+                                    println!(
+                                        "Invalid statement number: {}. Valid range: 1-{}",
+                                        num,
+                                        statements.len()
+                                    );
+                                    None
+                                }
+                            } else {
+                                // It's a topic name
+                                Some(DebugCommand::ShowSchema(arg.to_string()))
+                            }
+                        } else {
+                            println!("Usage: schema <topic_name> or schema <N>");
+                            None
+                        }
+                    }
                     "q" | "quit" | "exit" => Some(DebugCommand::Quit),
                     "h" | "help" | "?" => {
                         if execution_finished {
                             println!("Inspection Commands (execution complete):");
                             println!("  l, list        - List all statements");
-                            println!("  i <name>       - Inspect output from statement");
+                            println!("  i <N>          - Inspect output from statement N");
                             println!("  ia, inspect-all - Inspect all captured outputs");
                             println!("  hi, history    - Show command history");
                             println!("  st, status     - Show current state");
                             println!("  topics         - List all Kafka topics with offsets");
+                            println!(
+                                "  schema <topic> - Show schema for topic (inferred from message)"
+                            );
                             println!("  consumers      - List all consumer groups");
                             println!("  jobs           - List all jobs with source/sink status");
                             println!("  q, quit        - Exit and cleanup");
@@ -1792,15 +1884,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("  s, step        - Execute next statement");
                             println!("  c, continue    - Run until next breakpoint");
                             println!("  r, run         - Run all remaining statements");
-                            println!("  b <name>       - Set breakpoint on statement");
-                            println!("  u <name>       - Remove breakpoint");
+                            println!("  b <N>          - Set breakpoint on statement N");
+                            println!("  u <N>          - Remove breakpoint from statement N");
                             println!("  cb, clear      - Clear all breakpoints");
                             println!("  l, list        - List all statements");
-                            println!("  i <name>       - Inspect output from statement");
+                            println!("  i <N>          - Inspect output from statement N");
                             println!("  ia, inspect-all - Inspect all captured outputs");
                             println!("  hi, history    - Show command history");
                             println!("  st, status     - Show current state");
                             println!("  topics         - List all Kafka topics with offsets");
+                            println!(
+                                "  schema <topic> - Show schema for topic (inferred from message)"
+                            );
                             println!("  consumers      - List all consumer groups");
                             println!("  jobs           - List all jobs with source/sink status");
                             println!("  q, quit        - Exit debugger");
@@ -1958,13 +2053,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         });
 
                                         // Build the last message info string
+                                        // Always show key status (None if not set)
                                         let last_info = match (&key_str, &ts_str) {
                                             (Some(k), Some(t)) => {
                                                 format!(" [last: key=\"{}\", @{}]", k, t)
                                             }
                                             (Some(k), None) => format!(" [last: key=\"{}\"]", k),
-                                            (None, Some(t)) => format!(" [last: @{}]", t),
-                                            (None, None) => String::new(),
+                                            (None, Some(t)) => format!(" [last: key=None, @{}]", t),
+                                            (None, None) => {
+                                                if p.message_count > 0 {
+                                                    " [last: key=None]".to_string()
+                                                } else {
+                                                    String::new()
+                                                }
+                                            }
                                         };
 
                                         println!(
@@ -2088,6 +2190,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     src.records_read, src.bytes_read
                                                 );
                                             }
+                                            // Last record timestamp
+                                            if let Some(ref ts) = src.last_record_time {
+                                                println!(
+                                                    "         last read: {}",
+                                                    ts.format("%H:%M:%S")
+                                                );
+                                            }
                                             if let Some(lag) = src.lag {
                                                 println!("         lag: {} messages", lag);
                                             }
@@ -2135,11 +2244,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                             if let Some(ref acks) = sink.acks {
                                                 println!("         acks: {}", acks);
                                             }
-                                            // Stats
-                                            println!(
-                                                "         stats: {} records, {} bytes",
-                                                sink.records_written, sink.bytes_written
-                                            );
+                                            // Stats - only show if there's data, and only show bytes if non-zero
+                                            if sink.records_written > 0 || sink.bytes_written > 0 {
+                                                if sink.bytes_written > 0 {
+                                                    println!(
+                                                        "         stats: {} records, {} bytes",
+                                                        sink.records_written, sink.bytes_written
+                                                    );
+                                                } else {
+                                                    println!(
+                                                        "         stats: {} records",
+                                                        sink.records_written
+                                                    );
+                                                }
+                                            }
+                                            // Last record timestamp
+                                            if let Some(ref ts) = sink.last_record_time {
+                                                println!(
+                                                    "         last write: {}",
+                                                    ts.format("%H:%M:%S")
+                                                );
+                                            }
                                             if let Some(ref offsets) = sink.produced_offsets {
                                                 let offset_str: Vec<String> = offsets
                                                     .iter()
@@ -2164,6 +2289,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         println!("     📤 Sinks: {}", job.sink_topics.join(", "));
                                     }
                                 }
+                            }
+                            CommandResult::SchemaDisplay(schema) => {
+                                println!();
+                                println!(
+                                    "📋 Schema for '{}' (sampled {} record{}):",
+                                    schema.topic,
+                                    schema.records_sampled,
+                                    if schema.records_sampled == 1 { "" } else { "s" }
+                                );
+                                if schema.fields.is_empty() {
+                                    println!("   (no messages found or topic is empty)");
+                                } else {
+                                    println!(
+                                        "   Key: {}",
+                                        if schema.has_keys { "present" } else { "None" }
+                                    );
+                                    println!("   Fields:");
+                                    for (name, type_name) in &schema.fields {
+                                        println!("     • {}: {}", name, type_name);
+                                    }
+                                    if let Some(ref sample) = schema.sample_value {
+                                        println!("\n   Sample value:");
+                                        for line in sample.lines() {
+                                            println!("     {}", line);
+                                        }
+                                    }
+                                }
+                                println!();
                             }
                             CommandResult::Quit => {
                                 println!("👋 Exiting debugger");

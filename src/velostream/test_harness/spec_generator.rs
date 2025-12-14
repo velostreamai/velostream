@@ -343,6 +343,7 @@ impl SpecGenerator {
                 from_previous: None,
                 data_file: None,
                 time_simulation: None,
+                key_field: None,
             });
         }
 
@@ -358,6 +359,7 @@ impl SpecGenerator {
                     from_previous: None,
                     data_file: None,
                     time_simulation: None,
+                    key_field: None,
                 });
             }
         }

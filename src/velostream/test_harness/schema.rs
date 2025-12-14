@@ -27,6 +27,15 @@ pub struct Schema {
     /// Record count for generation (can be overridden)
     #[serde(default = "default_record_count")]
     pub record_count: usize,
+
+    /// Field to use as Kafka message key (optional)
+    /// When set, the value of this field will be used as the Kafka message key
+    #[serde(default)]
+    pub key_field: Option<String>,
+
+    /// Source path where this schema was loaded from (not serialized)
+    #[serde(skip)]
+    pub source_path: Option<String>,
 }
 
 fn default_record_count() -> usize {
@@ -323,7 +332,9 @@ impl Schema {
             path: path.display().to_string(),
         })?;
 
-        Self::from_yaml(&content, path.display().to_string())
+        let mut schema = Self::from_yaml(&content, path.display().to_string())?;
+        schema.source_path = Some(path.display().to_string());
+        Ok(schema)
     }
 
     /// Parse schema from YAML string
@@ -332,6 +343,12 @@ impl Schema {
             message: e.to_string(),
             file: file_name,
         })
+    }
+
+    /// Set the source path where this schema was loaded from
+    pub fn with_source_path(mut self, path: impl AsRef<Path>) -> Self {
+        self.source_path = Some(path.as_ref().display().to_string());
+        self
     }
 
     /// Validate the schema definition

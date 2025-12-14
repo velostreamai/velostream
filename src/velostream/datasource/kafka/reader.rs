@@ -58,6 +58,121 @@ mod props {
     pub const TOPIC: &str = "topic";
     pub const CONSUMER_GROUP: &str = "consumer.group";
     pub const PERFORMANCE_PROFILE: &str = "performance_profile";
+
+    /// Valid librdkafka consumer configuration properties (allowlist approach)
+    /// Source: https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    pub fn valid_consumer_properties() -> std::collections::HashSet<&'static str> {
+        [
+            // Global configuration
+            "bootstrap.servers",
+            "client.id",
+            "metadata.broker.list",
+            "message.max.bytes",
+            "receive.message.max.bytes",
+            "max.in.flight.requests.per.connection",
+            "max.in.flight",
+            "topic.metadata.refresh.interval.ms",
+            "metadata.max.age.ms",
+            "topic.metadata.refresh.fast.interval.ms",
+            "topic.metadata.refresh.sparse",
+            "topic.metadata.propagation.max.ms",
+            "topic.blacklist",
+            "debug",
+            "socket.timeout.ms",
+            "socket.blocking.max.ms",
+            "socket.send.buffer.bytes",
+            "socket.receive.buffer.bytes",
+            "socket.keepalive.enable",
+            "socket.nagle.disable",
+            "socket.max.fails",
+            "broker.address.ttl",
+            "broker.address.family",
+            "reconnect.backoff.jitter.ms",
+            "reconnect.backoff.ms",
+            "reconnect.backoff.max.ms",
+            "statistics.interval.ms",
+            "log_level",
+            "log.queue",
+            "log.thread.name",
+            "log.connection.close",
+            "api.version.request",
+            "api.version.request.timeout.ms",
+            "api.version.fallback.ms",
+            "broker.version.fallback",
+            // Security
+            "security.protocol",
+            "ssl.cipher.suites",
+            "ssl.curves.list",
+            "ssl.sigalgs.list",
+            "ssl.key.location",
+            "ssl.key.password",
+            "ssl.key.pem",
+            "ssl.certificate.location",
+            "ssl.certificate.pem",
+            "ssl.ca.location",
+            "ssl.ca.pem",
+            "ssl.ca.certificate.stores",
+            "ssl.crl.location",
+            "ssl.keystore.location",
+            "ssl.keystore.password",
+            "ssl.providers",
+            "ssl.engine.location",
+            "enable.ssl.certificate.verification",
+            "ssl.endpoint.identification.algorithm",
+            // SASL
+            "sasl.mechanisms",
+            "sasl.mechanism",
+            "sasl.kerberos.service.name",
+            "sasl.kerberos.principal",
+            "sasl.kerberos.kinit.cmd",
+            "sasl.kerberos.keytab",
+            "sasl.kerberos.min.time.before.relogin",
+            "sasl.username",
+            "sasl.password",
+            "sasl.oauthbearer.config",
+            "enable.sasl.oauthbearer.unsecure.jwt",
+            "sasl.oauthbearer.method",
+            "sasl.oauthbearer.client.id",
+            "sasl.oauthbearer.client.secret",
+            "sasl.oauthbearer.scope",
+            "sasl.oauthbearer.extensions",
+            "sasl.oauthbearer.token.endpoint.url",
+            // Consumer specific
+            "group.id",
+            "group.instance.id",
+            "partition.assignment.strategy",
+            "session.timeout.ms",
+            "heartbeat.interval.ms",
+            "group.protocol.type",
+            "coordinator.query.interval.ms",
+            "max.poll.interval.ms",
+            "enable.auto.commit",
+            "auto.commit.interval.ms",
+            "enable.auto.offset.store",
+            "queued.min.messages",
+            "queued.max.messages.kbytes",
+            "fetch.wait.max.ms",
+            "fetch.message.max.bytes",
+            "fetch.max.bytes",
+            "fetch.min.bytes",
+            "fetch.error.backoff.ms",
+            "max.partition.fetch.bytes",
+            "max.poll.records",
+            "offset.store.method",
+            "isolation.level",
+            "consume.callback.max.messages",
+            "enable.partition.eof",
+            "check.crcs",
+            "allow.auto.create.topics",
+            "auto.offset.reset",
+            // Client rack
+            "client.rack",
+            // Interceptors
+            "plugin.library.paths",
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 use crate::velostream::kafka::consumer_config::ConsumerConfig;
 // Import the unified SerializationFormat from the main module
@@ -397,12 +512,19 @@ impl KafkaDataReader {
                     }
                 }
 
-                // Pass-through to rdkafka
+                // Pass-through to rdkafka (only valid rdkafka properties)
                 _ => {
-                    consumer_config
-                        .common
-                        .custom_config
-                        .insert(key.clone(), value.clone());
+                    let valid_props = props::valid_consumer_properties();
+                    let key_lower = key.to_lowercase();
+                    if valid_props.contains(key_lower.as_str()) {
+                        log::debug!("  Pass-through rdkafka property: {} = {}", key, value);
+                        consumer_config
+                            .common
+                            .custom_config
+                            .insert(key.clone(), value.clone());
+                    } else {
+                        log::debug!("  Skipping non-rdkafka property: {} = {}", key, value);
+                    }
                 }
             }
         }

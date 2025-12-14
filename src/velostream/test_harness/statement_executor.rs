@@ -654,6 +654,8 @@ pub enum DebugCommand {
     ListConsumers,
     /// List all running jobs with state and statistics
     ListJobs,
+    /// Show schema for a topic (inferred from last message)
+    ShowSchema(String),
     /// Quit session
     Quit,
 }
@@ -840,6 +842,8 @@ pub struct DataSourceInfo {
     pub records_read: u64,
     /// Bytes read from this source
     pub bytes_read: u64,
+    /// Timestamp of last record processed (UTC)
+    pub last_record_time: Option<chrono::DateTime<chrono::Utc>>,
     /// Kafka-specific: consumer group
     pub consumer_group: Option<String>,
     /// Kafka-specific: partitions assigned
@@ -884,6 +888,8 @@ pub struct DataSinkInfo {
     pub records_written: u64,
     /// Bytes written to this sink
     pub bytes_written: u64,
+    /// Timestamp of last record written (UTC)
+    pub last_record_time: Option<chrono::DateTime<chrono::Utc>>,
     /// Kafka-specific: target partitions
     pub target_partitions: Option<Vec<i32>>,
     /// Kafka-specific: last produced offsets per partition
@@ -1126,6 +1132,12 @@ impl DebugSession {
                         .map(|s| s.source_topics.clone())
                         .unwrap_or_default();
 
+                    // Compute last record time from job stats if available
+                    let last_record_time = server_job
+                        .stats
+                        .last_record_time
+                        .map(|_| chrono::Utc::now()); // Use current time as approximation
+
                     // Build source info
                     let sources: Vec<DataSourceInfo> = source_topics
                         .iter()
@@ -1134,6 +1146,7 @@ impl DebugSession {
                             name: topic.clone(),
                             records_read: server_job.stats.records_processed,
                             bytes_read: 0,
+                            last_record_time,
                             consumer_group: Some(format!("velo-{}", server_job.name)),
                             partitions: None,
                             current_offsets: None,
@@ -1157,6 +1170,7 @@ impl DebugSession {
                         name: server_job.topic.clone(),
                         records_written: server_job.stats.records_processed,
                         bytes_written: 0,
+                        last_record_time,
                         target_partitions: None,
                         produced_offsets: None,
                         bootstrap_servers: self
@@ -1166,7 +1180,7 @@ impl DebugSession {
                             .map(|s| s.to_string()),
                         format: Some("json".to_string()),
                         compression: Some("none".to_string()),
-                        acks: Some("all".to_string()),
+                        acks: None, // Actual acks setting determined by producer config
                         file_path: None,
                         is_flushed: Some(true),
                         config: HashMap::new(),
@@ -1239,6 +1253,7 @@ impl DebugSession {
                             name: topic.clone(),
                             records_read: 0,
                             bytes_read: 0,
+                            last_record_time: None, // Job from results, no live tracking
                             consumer_group: Some(format!("velo-{}", r.name)),
                             partitions: None,
                             current_offsets: None,
@@ -1271,6 +1286,7 @@ impl DebugSession {
                                 .map(|o| o.records.len() as u64)
                                 .unwrap_or(0),
                             bytes_written: 0,
+                            last_record_time: None, // Job from results, no live tracking
                             target_partitions: None,
                             produced_offsets: None,
                             bootstrap_servers: self
@@ -1280,7 +1296,7 @@ impl DebugSession {
                                 .map(|s| s.to_string()),
                             format: Some("json".to_string()),
                             compression: Some("none".to_string()),
-                            acks: Some("all".to_string()),
+                            acks: None, // Actual acks setting determined by producer config
                             file_path: None,
                             is_flushed: Some(true),
                             config: HashMap::new(),
@@ -1324,6 +1340,21 @@ impl DebugSession {
                     Ok(CommandResult::JobListing(jobs))
                 }
             }
+            DebugCommand::ShowSchema(topic_name) => {
+                // Fetch schema by consuming a few messages from the topic
+                match self
+                    .executor
+                    .infra()
+                    .fetch_topic_schema(&topic_name, 1)
+                    .await
+                {
+                    Ok(schema) => Ok(CommandResult::SchemaDisplay(schema)),
+                    Err(e) => Ok(CommandResult::Message(format!(
+                        "Failed to fetch schema for '{}': {}",
+                        topic_name, e
+                    ))),
+                }
+            }
             DebugCommand::Quit => Ok(CommandResult::Quit),
         }
     }
@@ -1357,8 +1388,25 @@ pub enum CommandResult {
     ConsumerListing(Vec<ConsumerInfo>),
     /// Job listing with state and statistics
     JobListing(Vec<JobInfo>),
+    /// Topic schema display
+    SchemaDisplay(TopicSchema),
     /// Session quit
     Quit,
+}
+
+/// Topic schema information (inferred from message)
+#[derive(Debug, Clone)]
+pub struct TopicSchema {
+    /// Topic name
+    pub topic: String,
+    /// Field names and types (inferred)
+    pub fields: Vec<(String, String)>,
+    /// Sample value (first record as JSON)
+    pub sample_value: Option<String>,
+    /// Whether the topic has message keys
+    pub has_keys: bool,
+    /// Number of records used for inference
+    pub records_sampled: usize,
 }
 
 #[cfg(test)]

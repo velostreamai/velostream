@@ -24,6 +24,7 @@ WITH (
 
     'high_value_trades.type' = 'kafka_sink',
     'high_value_trades.topic' = 'high_value_trades',
+    'high_value_trades.key_field' = 'symbol',
     'high_value_trades.config_file' = '../../configs/common_kafka_sink.yaml'
 );
 
@@ -48,6 +49,7 @@ WITH (
 
     'symbol_aggregates.type' = 'kafka_sink',
     'symbol_aggregates.topic' = 'symbol_aggregates',
+    'symbol_aggregates.key_field' = 'symbol',
     'symbol_aggregates.config_file' = '../../configs/common_kafka_sink.yaml'
 );
 

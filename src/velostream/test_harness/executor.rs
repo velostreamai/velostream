@@ -597,6 +597,55 @@ impl QueryExecutor {
 
         let record_count = input.records.unwrap_or(schema.record_count);
 
+        // Log detailed schema configuration
+        let source_info = schema
+            .source_path
+            .as_ref()
+            .map(|p| format!(" ← {}", p))
+            .unwrap_or_default();
+        log::info!(
+            "📊 Data generation config for '{}' (schema: '{}'{}):",
+            input.source,
+            schema.name,
+            source_info
+        );
+        log::info!("   Records: {}", record_count);
+        log::info!(
+            "   Fields: {}",
+            schema
+                .fields
+                .iter()
+                .map(|f| format!("{}:{:?}", f.name, f.field_type))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        // Log distributions if any
+        for field in &schema.fields {
+            if let Some(ref dist) = field.constraints.distribution {
+                log::info!("   Distribution [{}]: {:?}", field.name, dist);
+            }
+            if let Some(ref enum_vals) = field.constraints.enum_values {
+                log::info!(
+                    "   Enum [{}]: {:?}{}",
+                    field.name,
+                    enum_vals.values,
+                    if enum_vals.weights.is_some() {
+                        " (weighted)"
+                    } else {
+                        ""
+                    }
+                );
+            }
+        }
+        // Determine key_field: InputConfig overrides Schema
+        let key_field: Option<String> =
+            input.key_field.clone().or_else(|| schema.key_field.clone());
+        if let Some(ref kf) = key_field {
+            log::info!("   Kafka message key: field '{}'", kf);
+        } else {
+            log::info!("   Kafka message key: None");
+        }
+
         // Configure time simulation on generator if specified
         if let Some(ref time_sim) = input.time_simulation {
             log::info!(
@@ -631,7 +680,7 @@ impl QueryExecutor {
         // Use rate-controlled publishing if events_per_second is configured
         if let Some(ref time_sim) = input.time_simulation {
             if time_sim.events_per_second.is_some() {
-                self.publish_records_with_rate(&topic, &records, time_sim)
+                self.publish_records_with_rate(&topic, &records, time_sim, key_field.as_deref())
                     .await?;
                 log::info!(
                     "Published {} records to topic '{}' with rate control",
@@ -643,7 +692,8 @@ impl QueryExecutor {
         }
 
         // Default: publish all records as fast as possible
-        self.publish_records(&topic, &records).await?;
+        self.publish_records(&topic, &records, key_field.as_deref())
+            .await?;
 
         log::info!("Published {} records to topic '{}'", records.len(), topic);
 
@@ -699,8 +749,8 @@ impl QueryExecutor {
             source
         );
 
-        // Publish records to Kafka
-        self.publish_records(&topic, &records).await?;
+        // Publish records to Kafka (no key field for file sources)
+        self.publish_records(&topic, &records, None).await?;
 
         log::info!(
             "Published {} records from file '{}' to topic '{}'",
@@ -813,7 +863,8 @@ impl QueryExecutor {
                 self.source_topics.contains_key(source)
             );
 
-            self.publish_records(&topic, &output.records).await?;
+            // Publish records (no key field for from_previous - uses original message keys if any)
+            self.publish_records(&topic, &output.records, None).await?;
         } else {
             log::warn!(
                 "No previous output found for query '{}', skipping",
@@ -825,10 +876,16 @@ impl QueryExecutor {
     }
 
     /// Publish records to a Kafka topic
+    ///
+    /// # Arguments
+    /// * `topic` - Kafka topic name
+    /// * `records` - Records to publish
+    /// * `key_field` - Optional field name to use as Kafka message key
     async fn publish_records(
         &self,
         topic: &str,
         records: &[HashMap<String, FieldValue>],
+        key_field: Option<&str>,
     ) -> TestHarnessResult<()> {
         // Use high-throughput async producer with non-blocking sends
         let mut producer = self.infra.create_async_producer()?;
@@ -849,11 +906,25 @@ impl QueryExecutor {
             // which is critical for windowed queries to work correctly
             let kafka_timestamp = Self::extract_event_time_ms(record);
 
+            // Extract key field value if specified
+            let key_value: Option<String> = key_field.and_then(|kf| {
+                record.get(kf).map(|v| match v {
+                    FieldValue::String(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+            });
+
             // Non-blocking send - the poll thread handles delivery callbacks
             let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
             if let Some(ts) = kafka_timestamp {
                 base_record = base_record.timestamp(ts);
             }
+            // Set the key if we have one - need to keep key_value alive
+            let base_record = if let Some(ref key) = key_value {
+                base_record.key(key.as_str())
+            } else {
+                base_record
+            };
             if let Err((e, _)) = producer.send(base_record) {
                 return Err(TestHarnessError::ExecutionError {
                     message: format!("Failed to queue message for topic '{}': {}", topic, e),
@@ -895,11 +966,18 @@ impl QueryExecutor {
     /// NOT the actual publishing rate. This is a time simulation, not real-time rate limiting.
     ///
     /// Uses AsyncPolledProducer for high-throughput non-blocking sends.
+    ///
+    /// # Arguments
+    /// * `topic` - Kafka topic name
+    /// * `records` - Records to publish
+    /// * `config` - Time simulation configuration
+    /// * `key_field` - Optional field name to use as Kafka message key
     async fn publish_records_with_rate(
         &self,
         topic: &str,
         records: &[HashMap<String, FieldValue>],
         config: &TimeSimulationConfig,
+        key_field: Option<&str>,
     ) -> TestHarnessResult<()> {
         // Use high-throughput async producer
         let mut producer = self.infra.create_async_producer()?;
@@ -930,11 +1008,25 @@ impl QueryExecutor {
             // which is critical for windowed queries to work correctly with time simulation
             let kafka_timestamp = Self::extract_event_time_ms(record);
 
+            // Extract key field value if specified
+            let key_value: Option<String> = key_field.and_then(|kf| {
+                record.get(kf).map(|v| match v {
+                    FieldValue::String(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+            });
+
             // Non-blocking send - the poll thread handles delivery callbacks
             let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
             if let Some(ts) = kafka_timestamp {
                 base_record = base_record.timestamp(ts);
             }
+            // Set the key if we have one
+            let base_record = if let Some(ref key) = key_value {
+                base_record.key(key.as_str())
+            } else {
+                base_record
+            };
             if let Err((e, _)) = producer.send(base_record) {
                 return Err(TestHarnessError::ExecutionError {
                     message: format!("Failed to queue message for topic '{}': {}", topic, e),

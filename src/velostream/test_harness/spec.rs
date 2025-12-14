@@ -366,6 +366,11 @@ pub struct InputConfig {
     /// Enables rate-limited publishing and sequential timestamps
     #[serde(default)]
     pub time_simulation: Option<TimeSimulationConfig>,
+
+    /// Field to use as Kafka message key (optional)
+    /// Overrides key_field from schema if specified
+    #[serde(default)]
+    pub key_field: Option<String>,
 }
 
 /// Source type configuration for inputs
@@ -1659,6 +1664,7 @@ mod tests {
                     from_previous: Some(d.to_string()),
                     data_file: None,
                     time_simulation: None,
+                    key_field: None,
                 })
                 .collect(),
             output: None,

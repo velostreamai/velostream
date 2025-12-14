@@ -170,7 +170,8 @@ impl KafkaDataWriter {
 
         // Extract key field configuration
         let key_field = properties
-            .get("key.field")
+            .get("key_field")
+            .or_else(|| properties.get("key.field"))
             .or_else(|| properties.get("message.key.field"))
             .or_else(|| properties.get("schema.key.field"))
             .cloned();
@@ -210,7 +211,8 @@ impl KafkaDataWriter {
 
         // Extract key field configuration
         let key_field = properties
-            .get("key.field")
+            .get("key_field")
+            .or_else(|| properties.get("key.field"))
             .or_else(|| properties.get("message.key.field"))
             .or_else(|| properties.get("schema.key.field"))
             .cloned();
@@ -912,77 +914,153 @@ impl KafkaDataWriter {
             .collect()
     }
 
-    /// Filter and validate producer properties (aligned with KafkaDataReader pattern)
+    /// Valid librdkafka producer configuration properties (allowlist approach)
+    /// Source: https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    fn valid_producer_properties() -> std::collections::HashSet<&'static str> {
+        [
+            // Global configuration
+            "bootstrap.servers",
+            "client.id",
+            "metadata.broker.list",
+            "message.max.bytes",
+            "message.copy.max.bytes",
+            "receive.message.max.bytes",
+            "max.in.flight.requests.per.connection",
+            "max.in.flight",
+            "topic.metadata.refresh.interval.ms",
+            "metadata.max.age.ms",
+            "topic.metadata.refresh.fast.interval.ms",
+            "topic.metadata.refresh.sparse",
+            "topic.metadata.propagation.max.ms",
+            "topic.blacklist",
+            "debug",
+            "socket.timeout.ms",
+            "socket.blocking.max.ms",
+            "socket.send.buffer.bytes",
+            "socket.receive.buffer.bytes",
+            "socket.keepalive.enable",
+            "socket.nagle.disable",
+            "socket.max.fails",
+            "broker.address.ttl",
+            "broker.address.family",
+            "reconnect.backoff.jitter.ms",
+            "reconnect.backoff.ms",
+            "reconnect.backoff.max.ms",
+            "statistics.interval.ms",
+            "log_level",
+            "log.queue",
+            "log.thread.name",
+            "log.connection.close",
+            "api.version.request",
+            "api.version.request.timeout.ms",
+            "api.version.fallback.ms",
+            "broker.version.fallback",
+            // Security
+            "security.protocol",
+            "ssl.cipher.suites",
+            "ssl.curves.list",
+            "ssl.sigalgs.list",
+            "ssl.key.location",
+            "ssl.key.password",
+            "ssl.key.pem",
+            "ssl.certificate.location",
+            "ssl.certificate.pem",
+            "ssl.ca.location",
+            "ssl.ca.pem",
+            "ssl.ca.certificate.stores",
+            "ssl.crl.location",
+            "ssl.keystore.location",
+            "ssl.keystore.password",
+            "ssl.providers",
+            "ssl.engine.location",
+            "enable.ssl.certificate.verification",
+            "ssl.endpoint.identification.algorithm",
+            // SASL
+            "sasl.mechanisms",
+            "sasl.mechanism",
+            "sasl.kerberos.service.name",
+            "sasl.kerberos.principal",
+            "sasl.kerberos.kinit.cmd",
+            "sasl.kerberos.keytab",
+            "sasl.kerberos.min.time.before.relogin",
+            "sasl.username",
+            "sasl.password",
+            "sasl.oauthbearer.config",
+            "enable.sasl.oauthbearer.unsecure.jwt",
+            "sasl.oauthbearer.method",
+            "sasl.oauthbearer.client.id",
+            "sasl.oauthbearer.client.secret",
+            "sasl.oauthbearer.scope",
+            "sasl.oauthbearer.extensions",
+            "sasl.oauthbearer.token.endpoint.url",
+            // Producer specific
+            "transactional.id",
+            "transaction.timeout.ms",
+            "enable.idempotence",
+            "enable.gapless.guarantee",
+            "queue.buffering.max.messages",
+            "queue.buffering.max.kbytes",
+            "queue.buffering.max.ms",
+            "linger.ms",
+            "message.send.max.retries",
+            "retries",
+            "retry.backoff.ms",
+            "retry.backoff.max.ms",
+            "queue.buffering.backpressure.threshold",
+            "compression.codec",
+            "compression.type",
+            "compression.level",
+            "batch.num.messages",
+            "batch.size",
+            "delivery.report.only.error",
+            "sticky.partitioning.linger.ms",
+            "request.required.acks",
+            "acks",
+            "request.timeout.ms",
+            "message.timeout.ms",
+            "delivery.timeout.ms",
+            "partitioner",
+            "partitioner.consistent.random",
+            "msg_order_cmp",
+            "produce.offset.report",
+            // Client rack
+            "client.rack",
+            // Interceptors
+            "plugin.library.paths",
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    /// Filter producer properties using allowlist of valid librdkafka properties
     ///
-    /// Skips metadata, schema, and datasource properties that shouldn't be passed to Kafka producer.
-    /// This prevents unknown properties from being silently ignored by the Kafka producer.
+    /// Only passes through properties that are known valid librdkafka producer configuration.
+    /// All other properties (schema, format, custom) are skipped.
     fn filter_producer_properties(
         properties: &HashMap<String, String>,
     ) -> (Vec<(String, String)>, Vec<String>) {
+        let valid_rdkafka_props = Self::valid_producer_properties();
         let mut valid_props = Vec::new();
         let mut skipped_props = Vec::new();
-
-        // Properties that are metadata or handled separately
-        let skip_prefixes = [
-            "schema.",     // Schema configuration (handled separately)
-            "value.",      // Value-specific config (Kafka will interpret these)
-            "datasource.", // Datasource-specific config (consumer side)
-            "datasink.",   // Datasink-specific config (topic creation, delivery profiles, etc.)
-            "avro.",       // Avro schema (handled separately)
-            "protobuf.",   // Protobuf schema (handled separately)
-            "proto.",      // Proto schema (handled separately)
-            "json.",       // JSON schema (handled separately)
-        ];
-
-        let skip_exact = [
-            "topic",                   // Topic is not a producer property
-            "consumer.group",          // Consumer group is not a producer property
-            "key.field",               // Key field extraction (handled separately)
-            "message.key.field",       // Key field extraction (handled separately)
-            "schema.key.field",        // Key field extraction (handled separately)
-            "performance_profile",     // Performance profile is metadata
-            "format",                  // Format is handled separately
-            "serializer.format",       // Format is handled separately
-            "value.serializer",        // Format is handled separately
-            "schema.value.serializer", // Format is handled separately
-            "type", // Sink type identifier from SQL WITH clause (e.g., 'kafka_sink')
-        ];
 
         for (key, value) in properties.iter() {
             let key_lower = key.to_lowercase();
 
-            // Check skip prefixes
-            if skip_prefixes
-                .iter()
-                .any(|prefix| key_lower.starts_with(prefix))
-            {
+            if valid_rdkafka_props.contains(key_lower.as_str()) {
                 log::debug!(
-                    "KafkaDataWriter: Skipping property (schema/metadata): {} = {}",
+                    "KafkaDataWriter: Applying producer property: {} = {}",
+                    key,
+                    value
+                );
+                valid_props.push((key.clone(), value.clone()));
+            } else {
+                log::debug!(
+                    "KafkaDataWriter: Skipping non-rdkafka property: {} = {}",
                     key,
                     value
                 );
                 skipped_props.push(key.clone());
-                continue;
             }
-
-            // Check exact skip matches
-            if skip_exact.contains(&key.as_str()) {
-                log::debug!(
-                    "KafkaDataWriter: Skipping property (metadata): {} = {}",
-                    key,
-                    value
-                );
-                skipped_props.push(key.clone());
-                continue;
-            }
-
-            // Valid producer property
-            log::debug!(
-                "KafkaDataWriter: Applying producer property: {} = {}",
-                key,
-                value
-            );
-            valid_props.push((key.clone(), value.clone()));
         }
 
         (valid_props, skipped_props)
@@ -992,13 +1070,13 @@ impl KafkaDataWriter {
     fn log_producer_properties(valid_props: &[(String, String)], skipped_props: &[String]) {
         if !valid_props.is_empty() || !skipped_props.is_empty() {
             log::info!("KafkaDataWriter: Producer Properties Configuration");
-            log::info!("  Valid properties: {}", valid_props.len());
+            log::info!("  Applied properties ({}):", valid_props.len());
             for (key, value) in valid_props {
-                log::debug!("    • {}: {}", key, value);
+                log::info!("    • {}: {}", key, value);
             }
 
             if !skipped_props.is_empty() {
-                log::info!("  Skipped properties: {}", skipped_props.len());
+                log::debug!("  Skipped properties ({}):", skipped_props.len());
                 for key in skipped_props {
                     log::debug!("    • {} (metadata/schema/datasource)", key);
                 }

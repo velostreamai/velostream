@@ -678,6 +678,8 @@ pub fn run_stress_from_spec(
                         description: None,
                         fields: vec![],
                         record_count: 1000,
+                        key_field: None,
+                        source_path: None,
                     };
                     runner.load_schema(&input.source, default_schema)?;
                 }
@@ -745,6 +747,8 @@ mod tests {
                 },
             ],
             record_count: 1000,
+            key_field: None,
+            source_path: None,
         };
 
         let config = StressConfig::with_records(1000).batch_size(100);
@@ -876,6 +880,8 @@ mod tests {
                 description: None,
             }],
             record_count: 1000,
+            key_field: None,
+            source_path: None,
         };
 
         let config = StressConfig::with_records(100)
@@ -911,6 +917,8 @@ mod tests {
                 description: None,
             }],
             record_count: 1000,
+            key_field: None,
+            source_path: None,
         };
 
         let config = StressConfig::with_records(100)

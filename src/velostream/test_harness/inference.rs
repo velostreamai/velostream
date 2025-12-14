@@ -131,6 +131,8 @@ impl SchemaInferencer {
                         description: Some(format!("Schema for stream '{}'", name)),
                         fields,
                         record_count: 1000,
+                        key_field: None,
+                        source_path: None,
                     }));
                 }
 
@@ -143,6 +145,8 @@ impl SchemaInferencer {
                             description: Some(format!("Inferred schema for stream '{}'", name)),
                             fields: field_defs,
                             record_count: 1000,
+                            key_field: None,
+                            source_path: None,
                         }));
                     }
                 }
@@ -174,6 +178,8 @@ impl SchemaInferencer {
                         description: Some(format!("Schema for table '{}'", name)),
                         fields,
                         record_count: 1000,
+                        key_field: None,
+                        source_path: None,
                     }));
                 }
 
@@ -186,6 +192,8 @@ impl SchemaInferencer {
                             description: Some(format!("Inferred schema for table '{}'", name)),
                             fields: field_defs,
                             record_count: 1000,
+                            key_field: None,
+                            source_path: None,
                         }));
                     }
                 }
@@ -202,6 +210,8 @@ impl SchemaInferencer {
                         description: Some("Inferred schema from SELECT".to_string()),
                         fields: field_defs,
                         record_count: 1000,
+                        key_field: None,
+                        source_path: None,
                     }));
                 }
                 Ok(None)
@@ -466,6 +476,8 @@ impl SchemaInferencer {
             description: Some(format!("Inferred from CSV ({} rows sampled)", row_count)),
             fields,
             record_count: row_count.max(1000),
+            key_field: None,
+            source_path: None,
         })
     }
 

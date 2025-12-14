@@ -88,7 +88,6 @@ impl ContainerType {
 }
 
 /// Container instance enum to hold either Kafka or Redpanda
-
 enum ContainerInstance {
     Kafka(ContainerAsync<testcontainers_modules::kafka::Kafka>),
     Redpanda(ContainerAsync<Redpanda>),
@@ -224,7 +223,6 @@ impl TestHarnessInfra {
     /// // run tests...
     /// infra.stop().await?;
     /// ```
-
     pub async fn with_testcontainers() -> TestHarnessResult<Self> {
         // Use container type from environment variable
         Self::with_testcontainers_type(ContainerType::from_env()).await
@@ -243,7 +241,6 @@ impl TestHarnessInfra {
     /// // run tests...
     /// infra.stop().await?;
     /// ```
-
     pub async fn with_redpanda() -> TestHarnessResult<Self> {
         Self::with_testcontainers_type(ContainerType::Redpanda).await
     }
@@ -252,7 +249,6 @@ impl TestHarnessInfra {
     ///
     /// # Arguments
     /// * `container_type` - The type of container to start (Kafka or Redpanda)
-
     pub async fn with_testcontainers_type(
         container_type: ContainerType,
     ) -> TestHarnessResult<Self> {
@@ -951,6 +947,140 @@ impl TestHarnessInfra {
             }
             _ => Ok((None, None)),
         }
+    }
+
+    /// Fetch schema information for a topic by consuming sample messages
+    ///
+    /// Returns inferred schema (field names and types) from the topic's messages.
+    pub async fn fetch_topic_schema(
+        &self,
+        topic: &str,
+        max_records: usize,
+    ) -> TestHarnessResult<super::statement_executor::TopicSchema> {
+        use rdkafka::consumer::{BaseConsumer, Consumer};
+        use rdkafka::message::Message;
+
+        let bootstrap_servers = match &self.bootstrap_servers {
+            Some(servers) => servers,
+            None => {
+                return Err(TestHarnessError::InfraError {
+                    message: "No bootstrap servers configured".to_string(),
+                    source: None,
+                });
+            }
+        };
+
+        // Create a temporary consumer
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", bootstrap_servers);
+        config.set("group.id", format!("__schema_inspector_{}", topic));
+        config.set("enable.auto.commit", "false");
+        config.set("auto.offset.reset", "earliest");
+        apply_broker_address_family(&mut config);
+
+        let consumer: BaseConsumer = config.create().map_err(|e| TestHarnessError::InfraError {
+            message: format!("Failed to create consumer: {}", e),
+            source: Some(e.to_string()),
+        })?;
+
+        // Subscribe to the topic
+        consumer
+            .subscribe(&[topic])
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to subscribe to topic '{}': {}", topic, e),
+                source: Some(e.to_string()),
+            })?;
+
+        // Collect sample messages
+        let mut records: Vec<serde_json::Value> = Vec::new();
+        let mut has_keys = false;
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(5);
+
+        while records.len() < max_records && start.elapsed() < timeout {
+            match consumer.poll(Duration::from_millis(500)) {
+                Some(Ok(msg)) => {
+                    // Check for key
+                    if msg.key().is_some() {
+                        has_keys = true;
+                    }
+
+                    // Parse payload as JSON
+                    if let Some(payload) = msg.payload() {
+                        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(payload) {
+                            records.push(json);
+                        }
+                    }
+                }
+                Some(Err(_)) => continue,
+                None => {
+                    if records.is_empty() {
+                        // No messages yet, keep trying
+                        continue;
+                    } else {
+                        // Got some messages, can stop
+                        break;
+                    }
+                }
+            }
+        }
+
+        if records.is_empty() {
+            return Ok(super::statement_executor::TopicSchema {
+                topic: topic.to_string(),
+                fields: Vec::new(),
+                sample_value: None,
+                has_keys,
+                records_sampled: 0,
+            });
+        }
+
+        // Infer schema from first record
+        let first_record = &records[0];
+        let fields: Vec<(String, String)> = if let Some(obj) = first_record.as_object() {
+            let mut field_list: Vec<(String, String)> = obj
+                .iter()
+                .map(|(k, v)| {
+                    let type_name = match v {
+                        serde_json::Value::Null => "Null".to_string(),
+                        serde_json::Value::Bool(_) => "Boolean".to_string(),
+                        serde_json::Value::Number(n) => {
+                            if n.is_i64() {
+                                "Integer".to_string()
+                            } else {
+                                "Float".to_string()
+                            }
+                        }
+                        serde_json::Value::String(s) => {
+                            // Try to detect timestamps
+                            if s.contains('T') && s.contains(':') {
+                                "DateTime".to_string()
+                            } else {
+                                "String".to_string()
+                            }
+                        }
+                        serde_json::Value::Array(_) => "Array".to_string(),
+                        serde_json::Value::Object(_) => "Object".to_string(),
+                    };
+                    (k.clone(), type_name)
+                })
+                .collect();
+            field_list.sort_by(|a, b| a.0.cmp(&b.0));
+            field_list
+        } else {
+            Vec::new()
+        };
+
+        // Format sample value
+        let sample_value = serde_json::to_string_pretty(first_record).ok();
+
+        Ok(super::statement_executor::TopicSchema {
+            topic: topic.to_string(),
+            fields,
+            sample_value,
+            has_keys,
+            records_sampled: records.len(),
+        })
     }
 
     /// Get consumer group information

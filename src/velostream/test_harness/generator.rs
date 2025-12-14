@@ -1227,6 +1227,8 @@ mod tests {
             description: None,
             fields,
             record_count: 1000,
+            key_field: None,
+            source_path: None,
         }
     }
 

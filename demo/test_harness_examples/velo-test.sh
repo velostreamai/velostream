@@ -79,6 +79,55 @@ KAFKA_SERVERS=""
 TARGET_DIR=""
 QUERY_FILTER=""
 
+# Show help function
+show_help() {
+    echo -e "${CYAN}Usage:${NC} ./velo-test.sh [command] [options]"
+    echo ""
+    echo -e "${YELLOW}Commands:${NC}"
+    echo "  (default)       Interactive: select SQL file → test case"
+    echo "  run             Run all tiers (auto-starts Kafka via Docker)"
+    echo "  validate        Validate all SQL syntax only (no Docker needed)"
+    echo "  tier1-6         Run specific tier tests (e.g., tier1, tier2)"
+    echo "  getting_started Run getting_started example"
+    echo "  menu            Interactive menu to select SQL files only"
+    echo "  cases           Interactive: select SQL file, then test case"
+    echo "  .               Run tests in current directory"
+    echo "  help, -h, --help Show this help message"
+    echo ""
+    echo -e "${YELLOW}Options:${NC}"
+    echo "  --kafka <servers>   Use external Kafka instead of testcontainers"
+    echo "  --timeout <ms>      Timeout per query in milliseconds (default: 60000)"
+    echo "  --output <format>   Output format: text, json, junit"
+    echo "  -q, --query <name>  Run only a specific test case by name"
+    echo ""
+    echo -e "${YELLOW}From a subdirectory:${NC}"
+    echo "  ../velo-test.sh       Interactive: select SQL file → test case"
+    echo "  ../velo-test.sh .     Run current directory as a test tier"
+    echo "  ../velo-test.sh validate .  Validate SQL in current directory"
+    echo ""
+    echo -e "${YELLOW}Examples:${NC}"
+    echo "  ./velo-test.sh                           # Interactive selection"
+    echo "  ./velo-test.sh run                       # Run all tiers"
+    echo "  ./velo-test.sh tier1                     # Run tier1 only"
+    echo "  ./velo-test.sh validate                  # Validate SQL syntax"
+    echo "  ./velo-test.sh --kafka localhost:9092    # Use external Kafka"
+    echo "  ./velo-test.sh tier1 -q test_simple      # Run specific test case"
+    echo ""
+    echo -e "${CYAN}Requirements:${NC}"
+    echo "  • velo-test binary (cargo build --release --features test-support)"
+    echo "  • Docker (for testcontainers, unless --kafka is specified)"
+    echo ""
+    echo "See: docs/feature/FR-084-app-test-harness/README.md"
+}
+
+# Check for help flag first (before MODE parsing)
+case "${1:-}" in
+    -h|--help|help|\?|'?')
+        show_help
+        exit 0
+        ;;
+esac
+
 # Parse command line arguments
 MODE="${1:-cases}"
 shift || true

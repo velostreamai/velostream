@@ -598,6 +598,25 @@ where
         // Create BaseConsumer
         let base_consumer: BaseConsumer = client_config.create()?;
 
+        // Log consumer configuration at INFO level for visibility
+        log::info!("KafkaConsumer[{}]: Consumer Configuration", config.group_id);
+        log::info!("  • bootstrap.servers: {}", config.common.brokers);
+        log::info!("  • group.id: {}", config.group_id);
+        log::info!("  • enable.auto.commit: {}", config.enable_auto_commit);
+        log::info!(
+            "  • auto.commit.interval.ms: {}",
+            config.auto_commit_interval.as_millis()
+        );
+        log::info!(
+            "  • auto.offset.reset: {}",
+            config.auto_offset_reset.as_str()
+        );
+        log::info!("  • isolation.level: {}", config.isolation_level.as_str());
+        log::info!(
+            "  • session.timeout.ms: {}",
+            config.session_timeout.as_millis()
+        );
+
         Ok(Self {
             consumer: base_consumer,
             key_serializer,
