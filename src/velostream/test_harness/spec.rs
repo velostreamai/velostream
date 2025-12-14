@@ -30,6 +30,10 @@ pub struct TestSpec {
     #[serde(default = "default_records")]
     pub default_records: usize,
 
+    /// Topic naming configuration for CI/CD isolation
+    #[serde(default)]
+    pub topic_naming: Option<TopicNamingConfig>,
+
     /// Global configuration overrides
     #[serde(default)]
     pub config: HashMap<String, String>,
@@ -44,6 +48,216 @@ fn default_timeout() -> u64 {
 
 fn default_records() -> usize {
     1000
+}
+
+// =============================================================================
+// Topic Naming Configuration (P1.2)
+// =============================================================================
+
+/// Topic naming configuration for CI/CD isolation and customization
+///
+/// Allows pattern-based topic naming with placeholders for dynamic values.
+/// Useful for CI/CD pipelines, branch isolation, and multi-tenant testing.
+///
+/// # Supported Placeholders
+/// - `{run_id}` - Unique run identifier (auto-generated)
+/// - `{branch}` - Git branch name (from env or config)
+/// - `{user}` - User/CI identity (from env or config)
+/// - `{timestamp}` - Unix timestamp
+/// - `{namespace}` - Custom namespace prefix
+/// - `{base}` - Original topic name
+///
+/// # Example
+/// ```yaml
+/// topic_naming:
+///   pattern: "test_{branch}_{run_id}_{base}"
+///   namespace: "ci"
+///   branch_from_env: "GITHUB_REF_NAME"
+///   user_from_env: "GITHUB_ACTOR"
+///   hash_long_names: true
+///   max_topic_length: 249
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicNamingConfig {
+    /// Topic name pattern with placeholders
+    /// Default: "test_{run_id}_{base}"
+    #[serde(default = "default_topic_pattern")]
+    pub pattern: String,
+
+    /// Custom namespace prefix (replaces {namespace} placeholder)
+    #[serde(default)]
+    pub namespace: Option<String>,
+
+    /// Environment variable for branch name (default: GITHUB_REF_NAME)
+    #[serde(default = "default_branch_env")]
+    pub branch_from_env: String,
+
+    /// Environment variable for user identity (default: GITHUB_ACTOR)
+    #[serde(default = "default_user_env")]
+    pub user_from_env: String,
+
+    /// Static branch name override (takes precedence over env)
+    #[serde(default)]
+    pub branch: Option<String>,
+
+    /// Static user name override (takes precedence over env)
+    #[serde(default)]
+    pub user: Option<String>,
+
+    /// Hash topic names longer than max_topic_length
+    #[serde(default = "default_hash_long_names")]
+    pub hash_long_names: bool,
+
+    /// Maximum topic name length (Kafka default: 249)
+    #[serde(default = "default_max_topic_length")]
+    pub max_topic_length: usize,
+}
+
+fn default_topic_pattern() -> String {
+    "test_{run_id}_{base}".to_string()
+}
+
+fn default_branch_env() -> String {
+    "GITHUB_REF_NAME".to_string()
+}
+
+fn default_user_env() -> String {
+    "GITHUB_ACTOR".to_string()
+}
+
+fn default_hash_long_names() -> bool {
+    true
+}
+
+fn default_max_topic_length() -> usize {
+    249
+}
+
+impl Default for TopicNamingConfig {
+    fn default() -> Self {
+        Self {
+            pattern: default_topic_pattern(),
+            namespace: None,
+            branch_from_env: default_branch_env(),
+            user_from_env: default_user_env(),
+            branch: None,
+            user: None,
+            hash_long_names: default_hash_long_names(),
+            max_topic_length: default_max_topic_length(),
+        }
+    }
+}
+
+impl TopicNamingConfig {
+    /// Create a new config with custom pattern
+    pub fn with_pattern(pattern: &str) -> Self {
+        Self {
+            pattern: pattern.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// Create a config for CI/CD with branch isolation
+    pub fn ci_pattern() -> Self {
+        Self {
+            pattern: "test_{branch}_{run_id}_{base}".to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// Create a config with namespace prefix
+    pub fn with_namespace(namespace: &str) -> Self {
+        Self {
+            pattern: "{namespace}_{run_id}_{base}".to_string(),
+            namespace: Some(namespace.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Resolve a topic name using this configuration
+    pub fn resolve_topic_name(&self, base_name: &str, run_id: &str) -> String {
+        let mut topic = self.pattern.clone();
+
+        // Replace placeholders
+        topic = topic.replace("{run_id}", run_id);
+        topic = topic.replace("{base}", base_name);
+
+        // Replace {timestamp}
+        if topic.contains("{timestamp}") {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            topic = topic.replace("{timestamp}", &ts.to_string());
+        }
+
+        // Replace {branch} - from static config or env
+        if topic.contains("{branch}") {
+            let branch = self
+                .branch
+                .clone()
+                .or_else(|| std::env::var(&self.branch_from_env).ok())
+                .unwrap_or_else(|| "local".to_string());
+            // Sanitize branch name for Kafka topic (replace / and other invalid chars)
+            let branch = sanitize_topic_component(&branch);
+            topic = topic.replace("{branch}", &branch);
+        }
+
+        // Replace {user} - from static config or env
+        if topic.contains("{user}") {
+            let user = self
+                .user
+                .clone()
+                .or_else(|| std::env::var(&self.user_from_env).ok())
+                .unwrap_or_else(|| "unknown".to_string());
+            let user = sanitize_topic_component(&user);
+            topic = topic.replace("{user}", &user);
+        }
+
+        // Replace {namespace}
+        if topic.contains("{namespace}") {
+            let ns = self.namespace.as_deref().unwrap_or("test");
+            topic = topic.replace("{namespace}", ns);
+        }
+
+        // Handle long topic names
+        if self.hash_long_names && topic.len() > self.max_topic_length {
+            topic = hash_long_topic_name(&topic, self.max_topic_length);
+        }
+
+        topic
+    }
+}
+
+/// Sanitize a string for use in Kafka topic names
+/// Kafka topics can contain: a-z, A-Z, 0-9, '.', '_', '-'
+fn sanitize_topic_component(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// Hash a long topic name to fit within max length
+fn hash_long_topic_name(topic: &str, max_len: usize) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    topic.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    // Keep prefix and add hash suffix
+    let hash_suffix = format!("_{:016x}", hash);
+    let prefix_len = max_len.saturating_sub(hash_suffix.len());
+    let prefix = &topic[..prefix_len.min(topic.len())];
+
+    format!("{}{}", prefix, hash_suffix)
 }
 
 /// Test definition for a single query
@@ -420,6 +634,27 @@ pub enum AssertionConfig {
     /// File matches assertion - verifies file matches expected content
     #[serde(rename = "file_matches")]
     FileMatches(FileMatchesAssertion),
+
+    // ==================== Temporal & Statistical assertions (P1.3) ====================
+    /// Window boundary assertion - verifies records fall in correct time windows
+    #[serde(rename = "window_boundary")]
+    WindowBoundary(WindowBoundaryAssertion),
+
+    /// Latency assertion - verifies end-to-end processing latency bounds
+    #[serde(rename = "latency")]
+    Latency(LatencyAssertion),
+
+    /// Distribution assertion - verifies output matches expected statistical distribution
+    #[serde(rename = "distribution")]
+    Distribution(DistributionAssertion),
+
+    /// Percentile assertion - verifies field values against percentile thresholds
+    #[serde(rename = "percentile")]
+    Percentile(PercentileAssertion),
+
+    /// Event time ordering assertion - verifies ordering within time windows
+    #[serde(rename = "event_ordering")]
+    EventOrdering(EventOrderingAssertion),
 }
 
 /// Record count assertion
@@ -924,6 +1159,287 @@ fn default_ignore_order() -> bool {
     true
 }
 
+// =============================================================================
+// Temporal & Statistical Assertions (P1.3)
+// =============================================================================
+
+/// Window boundary assertion - verifies records fall in correct time windows
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: window_boundary
+///     timestamp_field: event_time
+///     window_start_field: window_start
+///     window_end_field: window_end
+///     window_size_ms: 60000  # 1 minute tumbling window
+///     tolerance_ms: 1000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowBoundaryAssertion {
+    /// Field containing the event timestamp
+    pub timestamp_field: String,
+
+    /// Field containing the window start time (from windowed aggregation)
+    #[serde(default)]
+    pub window_start_field: Option<String>,
+
+    /// Field containing the window end time (from windowed aggregation)
+    #[serde(default)]
+    pub window_end_field: Option<String>,
+
+    /// Expected window size in milliseconds
+    #[serde(default)]
+    pub window_size_ms: Option<u64>,
+
+    /// Tolerance for boundary checks in milliseconds
+    #[serde(default = "default_boundary_tolerance")]
+    pub tolerance_ms: u64,
+
+    /// Check that all events fall within their assigned window
+    #[serde(default = "default_true")]
+    pub verify_containment: bool,
+
+    /// Check that window boundaries are aligned to expected intervals
+    #[serde(default)]
+    pub verify_alignment: bool,
+}
+
+fn default_boundary_tolerance() -> u64 {
+    0
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Latency assertion - verifies end-to-end processing latency
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: latency
+///     timestamp_field: event_time
+///     max_latency_ms: 5000
+///     p99_latency_ms: 3000
+///     p95_latency_ms: 2000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LatencyAssertion {
+    /// Field containing the event timestamp (for latency calculation)
+    pub timestamp_field: String,
+
+    /// Maximum allowed latency in milliseconds
+    #[serde(default)]
+    pub max_latency_ms: Option<u64>,
+
+    /// P99 latency threshold in milliseconds
+    #[serde(default)]
+    pub p99_latency_ms: Option<u64>,
+
+    /// P95 latency threshold in milliseconds
+    #[serde(default)]
+    pub p95_latency_ms: Option<u64>,
+
+    /// P50 (median) latency threshold in milliseconds
+    #[serde(default)]
+    pub p50_latency_ms: Option<u64>,
+
+    /// Average latency threshold in milliseconds
+    #[serde(default)]
+    pub avg_latency_ms: Option<u64>,
+
+    /// Minimum records required for latency calculation
+    #[serde(default = "default_latency_min_records")]
+    pub min_records: usize,
+}
+
+fn default_latency_min_records() -> usize {
+    10
+}
+
+/// Distribution assertion - verifies output matches expected statistical distribution
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: distribution
+///     field: price
+///     distribution_type: normal
+///     mean: 100.0
+///     std_dev: 15.0
+///     tolerance: 0.1
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DistributionAssertion {
+    /// Field to analyze
+    pub field: String,
+
+    /// Expected distribution type
+    pub distribution_type: DistributionType,
+
+    /// Expected mean (for normal distribution)
+    #[serde(default)]
+    pub mean: Option<f64>,
+
+    /// Expected standard deviation (for normal distribution)
+    #[serde(default)]
+    pub std_dev: Option<f64>,
+
+    /// Expected minimum value (for uniform distribution)
+    #[serde(default)]
+    pub min_value: Option<f64>,
+
+    /// Expected maximum value (for uniform distribution)
+    #[serde(default)]
+    pub max_value: Option<f64>,
+
+    /// Tolerance for distribution parameters (0.0 to 1.0)
+    #[serde(default = "default_distribution_tolerance")]
+    pub tolerance: f64,
+
+    /// Minimum records required for distribution analysis
+    #[serde(default = "default_distribution_min_records")]
+    pub min_records: usize,
+}
+
+fn default_distribution_tolerance() -> f64 {
+    0.1
+}
+
+fn default_distribution_min_records() -> usize {
+    100
+}
+
+/// Distribution type for statistical validation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DistributionType {
+    /// Normal (Gaussian) distribution
+    Normal,
+    /// Uniform distribution
+    Uniform,
+    /// Exponential distribution
+    Exponential,
+    /// Custom distribution with explicit percentile bounds
+    Custom,
+}
+
+/// Percentile assertion - verifies field values against percentile thresholds
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: percentile
+///     field: response_time
+///     percentiles:
+///       p50: 100  # median should be <= 100ms
+///       p95: 500  # 95th percentile should be <= 500ms
+///       p99: 1000 # 99th percentile should be <= 1000ms
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PercentileAssertion {
+    /// Field to analyze
+    pub field: String,
+
+    /// P50 (median) threshold
+    #[serde(default)]
+    pub p50: Option<f64>,
+
+    /// P75 threshold
+    #[serde(default)]
+    pub p75: Option<f64>,
+
+    /// P90 threshold
+    #[serde(default)]
+    pub p90: Option<f64>,
+
+    /// P95 threshold
+    #[serde(default)]
+    pub p95: Option<f64>,
+
+    /// P99 threshold
+    #[serde(default)]
+    pub p99: Option<f64>,
+
+    /// P99.9 threshold
+    #[serde(default)]
+    pub p999: Option<f64>,
+
+    /// Comparison mode: "less_than" (values must be below threshold) or "greater_than"
+    #[serde(default = "default_percentile_mode")]
+    pub mode: PercentileMode,
+
+    /// Minimum records required for percentile calculation
+    #[serde(default = "default_percentile_min_records")]
+    pub min_records: usize,
+}
+
+fn default_percentile_mode() -> PercentileMode {
+    PercentileMode::LessThan
+}
+
+fn default_percentile_min_records() -> usize {
+    10
+}
+
+/// Percentile comparison mode
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PercentileMode {
+    /// Percentile values must be less than or equal to threshold
+    #[default]
+    LessThan,
+    /// Percentile values must be greater than or equal to threshold
+    GreaterThan,
+}
+
+/// Event ordering assertion - verifies ordering within time windows
+///
+/// # Example
+/// ```yaml
+/// assertions:
+///   - type: event_ordering
+///     timestamp_field: event_time
+///     partition_field: symbol
+///     window_size_ms: 60000
+///     direction: ascending
+///     allow_gaps: false
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventOrderingAssertion {
+    /// Field containing the event timestamp
+    pub timestamp_field: String,
+
+    /// Field to partition by (ordering is checked within each partition)
+    #[serde(default)]
+    pub partition_field: Option<String>,
+
+    /// Window size for ordering check (if windowed)
+    #[serde(default)]
+    pub window_size_ms: Option<u64>,
+
+    /// Expected ordering direction
+    #[serde(default)]
+    pub direction: OrderDirection,
+
+    /// Allow gaps in sequence (non-consecutive timestamps)
+    #[serde(default = "default_allow_gaps")]
+    pub allow_gaps: bool,
+
+    /// Maximum allowed out-of-order percentage
+    #[serde(default)]
+    pub max_out_of_order_percent: Option<f64>,
+
+    /// Maximum allowed time gap between consecutive events in milliseconds
+    #[serde(default)]
+    pub max_gap_ms: Option<u64>,
+}
+
+fn default_allow_gaps() -> bool {
+    true
+}
+
 impl TestSpec {
     /// Load test spec from YAML file
     pub fn from_file(path: impl AsRef<Path>) -> TestHarnessResult<Self> {
@@ -1003,9 +1519,386 @@ impl TestSpec {
     }
 
     /// Get queries in execution order (respecting dependencies)
+    ///
+    /// Uses topological sort to order queries such that any query with
+    /// `from_previous` dependencies comes after its dependencies.
     pub fn execution_order(&self) -> Vec<&QueryTest> {
-        // TODO: Implement topological sort based on from_previous dependencies
-        // For now, return in definition order
-        self.queries.iter().filter(|q| !q.skip).collect()
+        use std::collections::{HashMap, HashSet, VecDeque};
+
+        // Build query map for quick lookup
+        let query_map: HashMap<_, _> = self
+            .queries
+            .iter()
+            .filter(|q| !q.skip)
+            .map(|q| (q.name.as_str(), q))
+            .collect();
+
+        // Build dependency list for each query
+        let mut dependencies: HashMap<&str, Vec<&str>> = HashMap::new();
+        for query in self.queries.iter().filter(|q| !q.skip) {
+            let deps: Vec<&str> = query
+                .inputs
+                .iter()
+                .filter_map(|input| input.from_previous.as_ref())
+                .filter(|prev| query_map.contains_key(prev.as_str()))
+                .map(String::as_str)
+                .collect();
+            dependencies.insert(query.name.as_str(), deps);
+        }
+
+        // Calculate in-degree for each node (number of dependencies)
+        let mut in_degree: HashMap<&str, usize> = HashMap::new();
+        for (name, deps) in &dependencies {
+            in_degree.insert(name, deps.len());
+        }
+
+        // Build reverse map: who depends on each query
+        let mut dependents: HashMap<&str, Vec<&str>> = HashMap::new();
+        for (name, deps) in &dependencies {
+            for dep in deps {
+                dependents.entry(dep).or_default().push(name);
+            }
+        }
+
+        // Start with queries that have no dependencies
+        let mut queue: VecDeque<&str> = in_degree
+            .iter()
+            .filter(|(_, deg)| **deg == 0)
+            .map(|(name, _)| *name)
+            .collect();
+
+        let mut result: Vec<&QueryTest> = Vec::new();
+        let mut visited: HashSet<&str> = HashSet::new();
+
+        while let Some(name) = queue.pop_front() {
+            if visited.contains(name) {
+                continue;
+            }
+            visited.insert(name);
+
+            if let Some(query) = query_map.get(name) {
+                result.push(query);
+            }
+
+            // Decrement in-degree for dependent queries
+            if let Some(deps) = dependents.get(name) {
+                for dependent in deps {
+                    if let Some(deg) = in_degree.get_mut(dependent) {
+                        *deg = deg.saturating_sub(1);
+                        if *deg == 0 && !visited.contains(dependent) {
+                            queue.push_back(dependent);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle cycles: add any remaining queries in definition order
+        if result.len() < query_map.len() {
+            log::warn!(
+                "Dependency cycle detected in query graph. {} of {} queries ordered.",
+                result.len(),
+                query_map.len()
+            );
+            for query in self.queries.iter().filter(|q| !q.skip) {
+                if !visited.contains(query.name.as_str()) {
+                    result.push(query);
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Get the dependency graph as a map of query name -> list of dependencies
+    pub fn dependency_graph(&self) -> std::collections::HashMap<String, Vec<String>> {
+        let mut graph = std::collections::HashMap::new();
+
+        for query in &self.queries {
+            let deps: Vec<String> = query
+                .inputs
+                .iter()
+                .filter_map(|input| input.from_previous.clone())
+                .collect();
+            graph.insert(query.name.clone(), deps);
+        }
+
+        graph
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_simple_query(name: &str) -> QueryTest {
+        QueryTest {
+            name: name.to_string(),
+            description: None,
+            skip: false,
+            inputs: Vec::new(),
+            output: None,
+            outputs: Vec::new(),
+            assertions: Vec::new(),
+            timeout_ms: None,
+        }
+    }
+
+    fn create_query_with_deps(name: &str, deps: Vec<&str>) -> QueryTest {
+        QueryTest {
+            name: name.to_string(),
+            description: None,
+            skip: false,
+            inputs: deps
+                .into_iter()
+                .map(|d| InputConfig {
+                    source: format!("{}_input", d),
+                    source_type: None,
+                    schema: None,
+                    records: None,
+                    from_previous: Some(d.to_string()),
+                    data_file: None,
+                    time_simulation: None,
+                })
+                .collect(),
+            output: None,
+            outputs: Vec::new(),
+            assertions: Vec::new(),
+            timeout_ms: None,
+        }
+    }
+
+    fn create_spec(queries: Vec<QueryTest>) -> TestSpec {
+        TestSpec {
+            application: "test_app".to_string(),
+            description: None,
+            default_timeout_ms: 30000,
+            default_records: 1000,
+            topic_naming: None,
+            config: std::collections::HashMap::new(),
+            queries,
+        }
+    }
+
+    // ==========================================================================
+    // Topic Naming Configuration Tests (P1.2)
+    // ==========================================================================
+
+    #[test]
+    fn test_topic_naming_default_pattern() {
+        let config = TopicNamingConfig::default();
+        let topic = config.resolve_topic_name("market_data", "abc123");
+        assert_eq!(topic, "test_abc123_market_data");
+    }
+
+    #[test]
+    fn test_topic_naming_custom_pattern() {
+        let config = TopicNamingConfig::with_pattern("myprefix_{run_id}_{base}");
+        let topic = config.resolve_topic_name("trades", "xyz789");
+        assert_eq!(topic, "myprefix_xyz789_trades");
+    }
+
+    #[test]
+    fn test_topic_naming_with_namespace() {
+        let config = TopicNamingConfig::with_namespace("ci");
+        let topic = config.resolve_topic_name("orders", "abc123");
+        assert_eq!(topic, "ci_abc123_orders");
+    }
+
+    #[test]
+    fn test_topic_naming_ci_pattern() {
+        // CI pattern includes branch - will use "local" when env not set
+        let config = TopicNamingConfig::ci_pattern();
+        let topic = config.resolve_topic_name("market_data", "abc123");
+        assert!(topic.starts_with("test_"));
+        assert!(topic.contains("abc123"));
+        assert!(topic.ends_with("_market_data"));
+    }
+
+    #[test]
+    fn test_topic_naming_with_static_branch() {
+        let mut config = TopicNamingConfig::with_pattern("test_{branch}_{run_id}_{base}");
+        config.branch = Some("feature-x".to_string());
+        let topic = config.resolve_topic_name("trades", "abc123");
+        assert_eq!(topic, "test_feature-x_abc123_trades");
+    }
+
+    #[test]
+    fn test_topic_naming_sanitize_branch() {
+        let mut config = TopicNamingConfig::with_pattern("test_{branch}_{base}");
+        config.branch = Some("feature/my-branch".to_string());
+        let topic = config.resolve_topic_name("trades", "abc123");
+        // '/' should be replaced with '_'
+        assert_eq!(topic, "test_feature_my-branch_trades");
+    }
+
+    #[test]
+    fn test_topic_naming_with_user() {
+        let mut config = TopicNamingConfig::with_pattern("test_{user}_{run_id}_{base}");
+        config.user = Some("testuser".to_string());
+        let topic = config.resolve_topic_name("orders", "abc123");
+        assert_eq!(topic, "test_testuser_abc123_orders");
+    }
+
+    #[test]
+    fn test_topic_naming_timestamp_placeholder() {
+        let config = TopicNamingConfig::with_pattern("test_{timestamp}_{base}");
+        let topic = config.resolve_topic_name("market_data", "abc123");
+        // Should contain a numeric timestamp
+        let parts: Vec<&str> = topic.split('_').collect();
+        assert_eq!(parts[0], "test");
+        // Second part should be a numeric timestamp
+        assert!(parts[1].parse::<u64>().is_ok());
+        assert_eq!(parts[2], "market");
+        assert_eq!(parts[3], "data");
+    }
+
+    #[test]
+    fn test_topic_naming_long_name_hashing() {
+        let mut config = TopicNamingConfig::default();
+        config.max_topic_length = 50;
+        config.hash_long_names = true;
+
+        // Create a long base name that will exceed the limit
+        let long_base = "this_is_a_very_long_topic_name_that_exceeds_the_maximum";
+        let topic = config.resolve_topic_name(long_base, "abc123");
+
+        assert!(topic.len() <= 50);
+        // Should contain hash suffix
+        assert!(topic.contains("_"));
+    }
+
+    #[test]
+    fn test_topic_naming_no_hashing_when_disabled() {
+        let mut config = TopicNamingConfig::default();
+        config.hash_long_names = false;
+
+        let long_base = "very_long_topic_name";
+        let topic = config.resolve_topic_name(long_base, "abc123");
+
+        // Should keep full name even if long
+        assert!(topic.contains(long_base));
+    }
+
+    #[test]
+    fn test_sanitize_topic_component() {
+        assert_eq!(sanitize_topic_component("simple"), "simple");
+        assert_eq!(sanitize_topic_component("with-dash"), "with-dash");
+        assert_eq!(sanitize_topic_component("with.dot"), "with.dot");
+        assert_eq!(
+            sanitize_topic_component("with_underscore"),
+            "with_underscore"
+        );
+        assert_eq!(sanitize_topic_component("with/slash"), "with_slash");
+        assert_eq!(sanitize_topic_component("with space"), "with_space");
+        assert_eq!(
+            sanitize_topic_component("with@special#chars"),
+            "with_special_chars"
+        );
+    }
+
+    #[test]
+    fn test_execution_order_no_deps() {
+        let spec = create_spec(vec![
+            create_simple_query("query_a"),
+            create_simple_query("query_b"),
+            create_simple_query("query_c"),
+        ]);
+
+        let order = spec.execution_order();
+        assert_eq!(order.len(), 3);
+
+        // All queries should be included (order may vary since no deps)
+        let names: Vec<_> = order.iter().map(|q| q.name.as_str()).collect();
+        assert!(names.contains(&"query_a"));
+        assert!(names.contains(&"query_b"));
+        assert!(names.contains(&"query_c"));
+    }
+
+    #[test]
+    fn test_execution_order_linear_deps() {
+        // a -> b -> c (c depends on b, b depends on a)
+        let spec = create_spec(vec![
+            create_simple_query("query_a"),
+            create_query_with_deps("query_b", vec!["query_a"]),
+            create_query_with_deps("query_c", vec!["query_b"]),
+        ]);
+
+        let order = spec.execution_order();
+        assert_eq!(order.len(), 3);
+
+        let names: Vec<_> = order.iter().map(|q| q.name.as_str()).collect();
+
+        // a must come before b
+        let a_pos = names.iter().position(|n| *n == "query_a").unwrap();
+        let b_pos = names.iter().position(|n| *n == "query_b").unwrap();
+        let c_pos = names.iter().position(|n| *n == "query_c").unwrap();
+
+        assert!(a_pos < b_pos, "query_a should come before query_b");
+        assert!(b_pos < c_pos, "query_b should come before query_c");
+    }
+
+    #[test]
+    fn test_execution_order_diamond_deps() {
+        // Diamond: a -> b, a -> c, b -> d, c -> d
+        let spec = create_spec(vec![
+            create_simple_query("query_a"),
+            create_query_with_deps("query_b", vec!["query_a"]),
+            create_query_with_deps("query_c", vec!["query_a"]),
+            create_query_with_deps("query_d", vec!["query_b", "query_c"]),
+        ]);
+
+        let order = spec.execution_order();
+        assert_eq!(order.len(), 4);
+
+        let names: Vec<_> = order.iter().map(|q| q.name.as_str()).collect();
+
+        let a_pos = names.iter().position(|n| *n == "query_a").unwrap();
+        let b_pos = names.iter().position(|n| *n == "query_b").unwrap();
+        let c_pos = names.iter().position(|n| *n == "query_c").unwrap();
+        let d_pos = names.iter().position(|n| *n == "query_d").unwrap();
+
+        assert!(a_pos < b_pos, "query_a should come before query_b");
+        assert!(a_pos < c_pos, "query_a should come before query_c");
+        assert!(b_pos < d_pos, "query_b should come before query_d");
+        assert!(c_pos < d_pos, "query_c should come before query_d");
+    }
+
+    #[test]
+    fn test_execution_order_skipped_query() {
+        let mut skipped = create_simple_query("query_b");
+        skipped.skip = true;
+
+        let spec = create_spec(vec![
+            create_simple_query("query_a"),
+            skipped,
+            create_simple_query("query_c"),
+        ]);
+
+        let order = spec.execution_order();
+        assert_eq!(order.len(), 2);
+
+        let names: Vec<_> = order.iter().map(|q| q.name.as_str()).collect();
+        assert!(names.contains(&"query_a"));
+        assert!(!names.contains(&"query_b")); // Skipped
+        assert!(names.contains(&"query_c"));
+    }
+
+    #[test]
+    fn test_dependency_graph() {
+        let spec = create_spec(vec![
+            create_simple_query("query_a"),
+            create_query_with_deps("query_b", vec!["query_a"]),
+            create_query_with_deps("query_c", vec!["query_a", "query_b"]),
+        ]);
+
+        let graph = spec.dependency_graph();
+
+        assert_eq!(graph.get("query_a").unwrap().len(), 0);
+        assert_eq!(graph.get("query_b").unwrap(), &vec!["query_a".to_string()]);
+        assert_eq!(
+            graph.get("query_c").unwrap(),
+            &vec!["query_a".to_string(), "query_b".to_string()]
+        );
     }
 }

@@ -184,7 +184,7 @@ impl KafkaDataWriter {
             format,
             key_field,
             schema.as_deref(),
-            &HashMap::new(),
+            properties,
             None,
         )
         .await
@@ -926,7 +926,8 @@ impl KafkaDataWriter {
         let skip_prefixes = [
             "schema.",     // Schema configuration (handled separately)
             "value.",      // Value-specific config (Kafka will interpret these)
-            "datasource.", // Datasource-specific config
+            "datasource.", // Datasource-specific config (consumer side)
+            "datasink.",   // Datasink-specific config (topic creation, delivery profiles, etc.)
             "avro.",       // Avro schema (handled separately)
             "protobuf.",   // Protobuf schema (handled separately)
             "proto.",      // Proto schema (handled separately)
@@ -944,6 +945,7 @@ impl KafkaDataWriter {
             "serializer.format",       // Format is handled separately
             "value.serializer",        // Format is handled separately
             "schema.value.serializer", // Format is handled separately
+            "type", // Sink type identifier from SQL WITH clause (e.g., 'kafka_sink')
         ];
 
         for (key, value) in properties.iter() {
@@ -1352,7 +1354,7 @@ impl DataWriter for KafkaDataWriter {
             ProducerKind::Transactional(txn_producer) => {
                 // TransactionalPolledProducer already has init_transactions() called at construction
                 // Just begin the transaction
-                log::info!(
+                log::debug!(
                     "KafkaDataWriter: Beginning transaction for topic '{}' (transactional mode)",
                     self.topic
                 );
@@ -1399,7 +1401,7 @@ impl DataWriter for KafkaDataWriter {
     async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         match &mut self.producer_kind {
             ProducerKind::Transactional(txn_producer) => {
-                log::info!(
+                log::debug!(
                     "KafkaDataWriter: Committing transaction for topic '{}'",
                     self.topic
                 );
@@ -1435,7 +1437,7 @@ impl DataWriter for KafkaDataWriter {
     async fn abort_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
         match &mut self.producer_kind {
             ProducerKind::Transactional(txn_producer) => {
-                log::info!(
+                log::debug!(
                     "KafkaDataWriter: Aborting transaction for topic '{}'",
                     self.topic
                 );

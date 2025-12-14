@@ -2,8 +2,9 @@
 //!
 //! Provides utilities for CLI argument processing and command execution.
 
+use super::assertions::AssertionRunner;
 use super::error::{TestHarnessError, TestHarnessResult};
-use super::executor::QueryExecutor;
+use super::executor::{CapturedOutput, ExecutionResult, QueryExecutor};
 use super::infra::TestHarnessInfra;
 use super::report::{OutputFormat, ReportGenerator, TestReport};
 use super::schema::SchemaRegistry;
@@ -60,10 +61,11 @@ pub async fn run_tests(config: &RunConfig) -> TestHarnessResult<TestReport> {
     infra.start().await?;
 
     // Create executor
-    let executor = QueryExecutor::new(infra).with_timeout(Duration::from_millis(config.timeout_ms));
+    let mut executor =
+        QueryExecutor::new(infra).with_timeout(Duration::from_millis(config.timeout_ms));
 
     // Create report generator
-    let report_gen = ReportGenerator::new(&spec.application, executor.infra().run_id());
+    let mut report_gen = ReportGenerator::new(&spec.application, executor.infra().run_id());
 
     // Get queries to run
     let queries: Vec<_> = if let Some(ref filter) = config.query_filter {
@@ -85,8 +87,69 @@ pub async fn run_tests(config: &RunConfig) -> TestHarnessResult<TestReport> {
         });
     }
 
-    // Execute queries
-    // TODO: Phase 2 - Implement full execution loop
+    // Create assertion runner
+    let assertion_runner = AssertionRunner::new();
+
+    // Execute queries with assertions
+    for query_test in queries {
+        log::info!("Executing query: {}", query_test.name);
+
+        match executor.execute_query(query_test).await {
+            Ok(exec_result) => {
+                // Run assertions on captured output
+                let mut assertion_results = Vec::new();
+
+                for output in &exec_result.outputs {
+                    // Get assertions for this specific sink (includes fallback to top-level)
+                    let sink_assertions: Vec<_> = query_test
+                        .assertions_for_sink(&output.sink_name)
+                        .into_iter()
+                        .cloned()
+                        .collect();
+                    let results = assertion_runner.run_assertions(output, &sink_assertions);
+                    assertion_results.extend(results);
+                }
+
+                // If no outputs captured, create empty output for assertions
+                let all_assertions: Vec<_> =
+                    query_test.all_assertions().into_iter().cloned().collect();
+                if exec_result.outputs.is_empty() && !all_assertions.is_empty() {
+                    let empty_output = CapturedOutput {
+                        query_name: query_test.name.clone(),
+                        sink_name: format!("{}_output", query_test.name),
+                        topic: None,
+                        records: Vec::new(),
+                        message_keys: Vec::new(),
+                        execution_time_ms: 0,
+                        warnings: Vec::new(),
+                        memory_peak_bytes: None,
+                        memory_growth_bytes: None,
+                    };
+                    let results = assertion_runner.run_assertions(&empty_output, &all_assertions);
+                    assertion_results.extend(results);
+                }
+
+                report_gen.add_query_result(&exec_result, &assertion_results);
+            }
+            Err(e) => {
+                log::error!("Query '{}' failed: {}", query_test.name, e);
+                // Create error result
+                let error_result = ExecutionResult {
+                    query_name: query_test.name.clone(),
+                    success: false,
+                    error: Some(e.to_string()),
+                    outputs: Vec::new(),
+                    execution_time_ms: 0,
+                };
+                report_gen.add_query_result(&error_result, &[]);
+            }
+        }
+    }
+
+    // Cleanup infrastructure
+    if let Err(e) = executor.stop().await {
+        log::warn!("Failed to stop executor: {}", e);
+    }
 
     // Generate report
     let report = report_gen.generate();
@@ -143,6 +206,7 @@ fn generate_minimal_spec(sql_file: &Path) -> TestHarnessResult<TestSpec> {
         description: Some("Auto-generated test spec".to_string()),
         default_timeout_ms: 30000,
         default_records: 1000,
+        topic_naming: None,
         config: std::collections::HashMap::new(),
         queries,
     })

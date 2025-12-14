@@ -1210,8 +1210,42 @@ where
     /// ```
     pub fn commit(&self) -> Result<(), rdkafka::error::KafkaError> {
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
-        self.consumer
-            .commit_consumer_state(rdkafka::consumer::CommitMode::Sync)
+
+        // Log position before commit for debugging transactional consumers
+        let positions = self.consumer.position();
+        let group_id = &self.group_id;
+
+        log::debug!(
+            "KafkaConsumer[{}]: Committing offsets (manual commit, enable.auto.commit=false expected)",
+            group_id
+        );
+
+        if let Ok(ref tpl) = positions {
+            for elem in tpl.elements() {
+                log::debug!(
+                    "KafkaConsumer[{}]: Committing partition {}:{} at offset {:?}",
+                    group_id,
+                    elem.topic(),
+                    elem.partition(),
+                    elem.offset()
+                );
+            }
+        }
+
+        let result = self
+            .consumer
+            .commit_consumer_state(rdkafka::consumer::CommitMode::Sync);
+
+        match &result {
+            Ok(()) => {
+                log::debug!("KafkaConsumer[{}]: Offset commit successful", group_id);
+            }
+            Err(e) => {
+                log::warn!("KafkaConsumer[{}]: Offset commit failed: {:?}", group_id, e);
+            }
+        }
+
+        result
     }
 
     /// Returns the consumer group ID.

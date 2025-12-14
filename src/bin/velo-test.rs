@@ -70,6 +70,41 @@ enum Commands {
         /// Use 'docker ps' to find the container, 'docker stop <id>' to clean up
         #[arg(long)]
         keep_containers: bool,
+
+        /// Execute statements one at a time (step mode)
+        /// Pauses after each statement and displays results
+        #[arg(long)]
+        step: bool,
+    },
+
+    /// Debug SQL application with interactive stepping and breakpoints
+    Debug {
+        /// Path to the SQL file to debug
+        sql_file: PathBuf,
+
+        /// Path to the test specification YAML file
+        #[arg(short, long)]
+        spec: Option<PathBuf>,
+
+        /// Directory containing schema definitions
+        #[arg(long)]
+        schemas: Option<PathBuf>,
+
+        /// Set breakpoints on specific queries (can be used multiple times)
+        #[arg(short, long)]
+        breakpoint: Vec<String>,
+
+        /// Timeout per query in milliseconds
+        #[arg(long, default_value = "30000")]
+        timeout_ms: u64,
+
+        /// External Kafka bootstrap servers (overrides config file)
+        #[arg(long)]
+        kafka: Option<String>,
+
+        /// Keep testcontainers running after completion
+        #[arg(long)]
+        keep_containers: bool,
     },
 
     /// Validate SQL syntax without execution
@@ -137,10 +172,28 @@ enum Commands {
     },
 }
 
+/// Build information constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_TIME: &str = env!("BUILD_TIME");
+const GIT_HASH: &str = env!("GIT_HASH");
+const GIT_BRANCH: &str = env!("GIT_BRANCH");
+
+/// Print version and build information
+fn print_version_info() {
+    println!(
+        "velo-test v{} ({} @ {}) built {}",
+        VERSION, GIT_HASH, GIT_BRANCH, BUILD_TIME
+    );
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // Print version info at startup
+    print_version_info();
+    println!();
 
     let cli = Cli::parse();
 
@@ -156,6 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             use_testcontainers,
             kafka,
             keep_containers,
+            step,
         } => {
             use std::time::Duration;
             use velostream::velostream::test_harness::SpecGenerator;
@@ -548,6 +602,171 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Continue anyway - will fall back to default topic naming
                 }
 
+                // Handle step mode with StatementExecutor
+                if step {
+                    use std::io::{BufRead, Write};
+                    use velostream::velostream::test_harness::statement_executor::{
+                        ExecutionMode, SessionState, StatementExecutor,
+                    };
+
+                    println!();
+                    println!("🐛 Step Mode - Execute statements one at a time");
+                    println!("   Commands: [Enter]=step, q=quit, r=run all remaining");
+                    println!();
+
+                    let mut stmt_executor =
+                        StatementExecutor::with_executor(executor).with_mode(ExecutionMode::Step);
+
+                    // Set spec for input data generation
+                    stmt_executor = stmt_executor.with_spec(test_spec.clone());
+
+                    if let Err(e) = stmt_executor.load_sql(&sql_file) {
+                        eprintln!("❌ Failed to load SQL: {}", e);
+                        std::process::exit(1);
+                    }
+
+                    let statements = stmt_executor.statements();
+                    println!("📝 Loaded {} statements:", statements.len());
+                    for stmt in statements {
+                        println!(
+                            "   [{}] {} ({})",
+                            stmt.index + 1,
+                            stmt.name,
+                            stmt.statement_type.display_name()
+                        );
+                    }
+                    println!();
+
+                    let stdin = std::io::stdin();
+                    let mut stdout = std::io::stdout();
+                    let mut failed = false;
+
+                    loop {
+                        // Check if completed
+                        if matches!(
+                            stmt_executor.state(),
+                            SessionState::Completed | SessionState::Error
+                        ) {
+                            break;
+                        }
+
+                        // Show current statement
+                        let idx = stmt_executor.current_index();
+                        if idx < stmt_executor.statements().len() {
+                            let stmt = &stmt_executor.statements()[idx];
+                            println!(
+                                "▶️  [{}/{}] {} ({})",
+                                idx + 1,
+                                stmt_executor.statements().len(),
+                                stmt.name,
+                                stmt.statement_type.display_name()
+                            );
+                        }
+
+                        // Prompt for input
+                        print!("Step> ");
+                        stdout.flush().ok();
+
+                        let mut input = String::new();
+                        if stdin.lock().read_line(&mut input).is_err() {
+                            break;
+                        }
+
+                        let input = input.trim();
+                        match input {
+                            "q" | "quit" | "exit" => {
+                                println!("🛑 Exiting step mode");
+                                break;
+                            }
+                            "r" | "run" => {
+                                println!("🚀 Running all remaining statements...");
+                                // Switch to full mode and execute all
+                                match stmt_executor.continue_execution().await {
+                                    Ok(results) => {
+                                        for result in &results {
+                                            let icon = if result.success { "✅" } else { "❌" };
+                                            println!(
+                                                "   {} {} ({}ms)",
+                                                icon, result.name, result.execution_time_ms
+                                            );
+                                            if let Some(ref err) = result.error {
+                                                println!("      Error: {}", err);
+                                                failed = true;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("❌ Execution error: {}", e);
+                                        failed = true;
+                                    }
+                                }
+                                break;
+                            }
+                            "" | "s" | "step" => {
+                                // Execute next statement
+                                match stmt_executor.step_next().await {
+                                    Ok(Some(result)) => {
+                                        let icon = if result.success { "✅" } else { "❌" };
+                                        println!(
+                                            "   {} Completed in {}ms",
+                                            icon, result.execution_time_ms
+                                        );
+                                        if let Some(ref err) = result.error {
+                                            println!("      Error: {}", err);
+                                            failed = true;
+                                        }
+                                        if let Some(ref output) = result.output {
+                                            println!(
+                                                "      Output: {} records to {}",
+                                                output.records.len(),
+                                                output.sink_name
+                                            );
+                                        }
+                                        println!();
+                                    }
+                                    Ok(None) => {
+                                        println!("✅ All statements executed");
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("❌ Execution error: {}", e);
+                                        failed = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            _ => {
+                                println!("Unknown command: {}", input);
+                                println!("Commands: [Enter]=step, q=quit, r=run all remaining");
+                            }
+                        }
+                    }
+
+                    // Summary
+                    println!();
+                    println!("📊 Step Mode Summary");
+                    println!("════════════════════");
+                    let results = stmt_executor.results();
+                    let passed = results.iter().filter(|r| r.success).count();
+                    let total = results.len();
+                    println!(
+                        "   Executed: {}/{} statements",
+                        total,
+                        stmt_executor.statements().len()
+                    );
+                    println!("   Passed: {}/{}", passed, total);
+
+                    // Cleanup
+                    if !keep_containers && let Err(e) = stmt_executor.executor_mut().stop().await {
+                        log::warn!("Failed to stop executor: {}", e);
+                    }
+
+                    if failed || passed < total {
+                        std::process::exit(1);
+                    }
+                    return Ok(());
+                }
+
                 // Step 6: Filter queries if specified
                 let queries_to_run: Vec<_> = if let Some(ref query_filter) = query {
                     test_spec
@@ -648,13 +867,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     icon, result.assertion_type, result.message
                                 );
                                 // Show expected/actual for failed assertions
-                                if !result.passed {
-                                    if let (Some(expected), Some(actual)) =
+                                if !result.passed
+                                    && let (Some(expected), Some(actual)) =
                                         (&result.expected, &result.actual)
-                                    {
-                                        println!("         Expected: {}", expected);
-                                        println!("         Actual:   {}", actual);
-                                    }
+                                {
+                                    println!("         Expected: {}", expected);
+                                    println!("         Actual:   {}", actual);
                                 }
                             }
 
@@ -1187,6 +1405,772 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("❌ Stress test failed: {}", e);
                     std::process::exit(1);
                 }
+            }
+        }
+
+        Commands::Debug {
+            sql_file,
+            spec,
+            schemas,
+            breakpoint,
+            timeout_ms,
+            kafka,
+            keep_containers,
+        } => {
+            use std::io::{BufRead, Write};
+            use std::time::Duration;
+            use velostream::velostream::test_harness::SpecGenerator;
+            use velostream::velostream::test_harness::config_override::ConfigOverrideBuilder;
+            use velostream::velostream::test_harness::infra::TestHarnessInfra;
+            use velostream::velostream::test_harness::schema::SchemaRegistry;
+            use velostream::velostream::test_harness::spec::TestSpec;
+            use velostream::velostream::test_harness::statement_executor::{
+                CommandResult, DebugCommand, DebugSession, ExecutionMode, SessionState,
+                StatementExecutor,
+            };
+
+            println!("🐛 Velostream SQL Debugger");
+            println!("════════════════════════════════════════");
+            println!("SQL File: {}", sql_file.display());
+            if let Some(ref s) = spec {
+                println!("Test Spec: {}", s.display());
+            }
+            if !breakpoint.is_empty() {
+                println!("Breakpoints: {:?}", breakpoint);
+            }
+            println!("Timeout: {}ms", timeout_ms);
+            println!();
+
+            // Step 1: Load or generate test spec
+            let test_spec: TestSpec = if let Some(ref spec_path) = spec {
+                let content = match std::fs::read_to_string(spec_path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("❌ Failed to read test spec: {}", e);
+                        std::process::exit(1);
+                    }
+                };
+                match serde_yaml::from_str(&content) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("❌ Failed to parse test spec: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                // Generate from SQL file
+                let generator = SpecGenerator::new();
+                match generator.generate_from_sql(&sql_file) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("❌ Failed to analyze SQL file: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            };
+
+            // Step 2: Load schemas if provided
+            let mut schema_registry = SchemaRegistry::new();
+            if let Some(ref schema_dir) = schemas
+                && schema_dir.exists()
+            {
+                println!("📁 Loading schemas from {}", schema_dir.display());
+                if let Ok(entries) = std::fs::read_dir(schema_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path
+                            .extension()
+                            .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                            && let Ok(content) = std::fs::read_to_string(&path)
+                            && let Ok(schema) = serde_yaml::from_str::<
+                                velostream::velostream::test_harness::Schema,
+                            >(&content)
+                        {
+                            println!("   Loaded schema: {}", schema.name);
+                            schema_registry.register(schema);
+                        }
+                    }
+                }
+            }
+
+            // Step 3: Create infrastructure
+            println!("🔧 Initializing debug infrastructure...");
+
+            // Check for Kafka from CLI or environment
+            let bootstrap_servers = kafka
+                .clone()
+                .or_else(|| std::env::var("KAFKA_BOOTSTRAP_SERVERS").ok());
+
+            let mut infra = if let Some(ref bs) = bootstrap_servers {
+                println!("   Kafka: {}", bs);
+                TestHarnessInfra::with_kafka(bs)
+            } else {
+                println!("🐳 Starting Kafka via testcontainers...");
+                match TestHarnessInfra::with_testcontainers().await {
+                    Ok(i) => {
+                        println!(
+                            "   Kafka: {} (testcontainers)",
+                            i.bootstrap_servers().unwrap_or("unknown")
+                        );
+                        i
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to start testcontainers: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            };
+
+            if let Err(e) = infra.start().await {
+                eprintln!("❌ Failed to start infrastructure: {}", e);
+                std::process::exit(1);
+            }
+
+            // Set environment for SQL job
+            if let Some(bs) = infra.bootstrap_servers() {
+                unsafe {
+                    std::env::set_var("VELOSTREAM_KAFKA_BROKERS", bs);
+                }
+            }
+
+            // Step 4: Create executor
+            let run_id = format!(
+                "{:08x}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u32
+            );
+            let overrides = ConfigOverrideBuilder::new(&run_id)
+                .bootstrap_servers(infra.bootstrap_servers().unwrap_or("localhost:9092"))
+                .build();
+
+            use velostream::velostream::test_harness::executor::QueryExecutor;
+            let executor = QueryExecutor::new(infra)
+                .with_timeout(Duration::from_millis(timeout_ms))
+                .with_overrides(overrides)
+                .with_schema_registry(schema_registry);
+
+            // Initialize with server
+            let sql_dir = sql_file
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .canonicalize()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
+            let executor = match executor.with_server(Some(sql_dir)).await {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("❌ Failed to initialize SQL server: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Step 5: Create debug session
+            let mut stmt_executor = StatementExecutor::with_executor(executor)
+                .with_mode(ExecutionMode::Breakpoint)
+                .with_spec(test_spec);
+
+            // Add breakpoints
+            for bp in &breakpoint {
+                stmt_executor.add_breakpoint(bp);
+                println!("   Breakpoint set: {}", bp);
+            }
+
+            // Load SQL file
+            if let Err(e) = stmt_executor.load_sql(&sql_file) {
+                eprintln!("❌ Failed to load SQL: {}", e);
+                std::process::exit(1);
+            }
+
+            let mut session = DebugSession::new(stmt_executor);
+
+            // Print statements
+            println!();
+            println!("📝 SQL Statements:");
+            let statements = session.executor().statements();
+            for stmt in statements {
+                let bp_marker = if session.executor().breakpoints().contains(&stmt.name) {
+                    "*"
+                } else {
+                    " "
+                };
+                println!(
+                    "  {} [{}] {} ({})",
+                    bp_marker,
+                    stmt.index + 1,
+                    stmt.name,
+                    stmt.statement_type.display_name()
+                );
+            }
+
+            // Interactive debug loop
+            println!();
+            println!("🐛 Debug Commands:");
+            println!("   s, step       - Execute next statement");
+            println!("   c, continue   - Run until next breakpoint");
+            println!("   r, run        - Run all remaining statements");
+            println!("   b <name>      - Set breakpoint on statement");
+            println!("   u <name>      - Remove breakpoint");
+            println!("   l, list       - List all statements");
+            println!("   i <name>      - Inspect output from statement");
+            println!("   st, status    - Show current state");
+            println!("   topics        - List all Kafka topics with offsets");
+            println!("   consumers     - List all consumer groups");
+            println!("   jobs          - List all jobs with source/sink status");
+            println!("   q, quit       - Exit debugger");
+            println!();
+
+            let stdin = std::io::stdin();
+            let mut stdout = std::io::stdout();
+
+            let mut execution_finished = false;
+
+            loop {
+                // Show state
+                let state = session.executor().state();
+                let idx = session.executor().current_index();
+                let total = session.executor().statements().len();
+
+                match state {
+                    SessionState::Completed => {
+                        if !execution_finished {
+                            println!("✅ All statements completed");
+                            println!();
+                            println!("📊 Execution finished. You can still inspect state:");
+                            println!("   topics    - View topic state and offsets");
+                            println!("   jobs      - View job details and statistics");
+                            println!("   i <name>  - Inspect output from a statement");
+                            println!("   q         - Exit and cleanup");
+                            execution_finished = true;
+                        }
+                        println!();
+                        print!("🏁 ");
+                    }
+                    SessionState::Error => {
+                        if !execution_finished {
+                            println!("❌ Execution stopped due to error");
+                            println!();
+                            println!("📊 You can still inspect state:");
+                            println!("   topics    - View topic state and offsets");
+                            println!("   jobs      - View job details and statistics");
+                            println!("   i <name>  - Inspect output from a statement");
+                            println!("   q         - Exit and cleanup");
+                            execution_finished = true;
+                        }
+                        println!();
+                        print!("🔴 ");
+                    }
+                    SessionState::Paused(stmt_idx) => {
+                        let stmt = &session.executor().statements()[*stmt_idx];
+                        println!(
+                            "⏸️  Paused at [{}/{}] {} ({})",
+                            stmt_idx + 1,
+                            total,
+                            stmt.name,
+                            stmt.statement_type.display_name()
+                        );
+                    }
+                    SessionState::NotStarted => {
+                        if idx < total {
+                            let stmt = &session.executor().statements()[idx];
+                            println!("▶️  Ready to execute [{}/{}] {}", idx + 1, total, stmt.name);
+                        }
+                    }
+                    SessionState::Running => {
+                        // Shouldn't happen in interactive mode
+                    }
+                }
+
+                // Show appropriate prompt based on state
+                if execution_finished {
+                    print!("🏁 (inspect) ");
+                } else {
+                    print!("(debug) ");
+                }
+                stdout.flush().ok();
+
+                let mut input = String::new();
+                if stdin.lock().read_line(&mut input).is_err() {
+                    break;
+                }
+
+                let parts: Vec<&str> = input.split_whitespace().collect();
+                let cmd = parts.first().copied().unwrap_or("");
+
+                let debug_cmd = match cmd {
+                    "" | "s" | "step" => {
+                        if execution_finished {
+                            println!(
+                                "Execution complete. Use 'topics', 'jobs', 'i <name>', or 'q' to exit."
+                            );
+                            None
+                        } else {
+                            Some(DebugCommand::Step)
+                        }
+                    }
+                    "c" | "continue" => {
+                        if execution_finished {
+                            println!(
+                                "Execution complete. Use 'topics', 'jobs', 'i <name>', or 'q' to exit."
+                            );
+                            None
+                        } else {
+                            Some(DebugCommand::Continue)
+                        }
+                    }
+                    "r" | "run" => {
+                        if execution_finished {
+                            println!(
+                                "Execution complete. Use 'topics', 'jobs', 'i <name>', or 'q' to exit."
+                            );
+                            None
+                        } else {
+                            Some(DebugCommand::Run)
+                        }
+                    }
+                    "b" | "break" => {
+                        if execution_finished {
+                            println!("Execution complete. Breakpoints are not available.");
+                            None
+                        } else if let Some(name) = parts.get(1) {
+                            Some(DebugCommand::Break(name.to_string()))
+                        } else {
+                            println!("Usage: b <statement_name>");
+                            None
+                        }
+                    }
+                    "u" | "unbreak" => {
+                        if execution_finished {
+                            println!("Execution complete. Breakpoints are not available.");
+                            None
+                        } else if let Some(name) = parts.get(1) {
+                            Some(DebugCommand::Unbreak(name.to_string()))
+                        } else {
+                            println!("Usage: u <statement_name>");
+                            None
+                        }
+                    }
+                    "cb" | "clear" => {
+                        if execution_finished {
+                            println!("Execution complete. Breakpoints are not available.");
+                            None
+                        } else {
+                            Some(DebugCommand::Clear)
+                        }
+                    }
+                    "l" | "list" => Some(DebugCommand::List),
+                    "i" | "inspect" => {
+                        if let Some(name) = parts.get(1) {
+                            Some(DebugCommand::Inspect(name.to_string()))
+                        } else {
+                            println!("Usage: i <statement_name>");
+                            None
+                        }
+                    }
+                    "ia" | "inspect-all" => Some(DebugCommand::InspectAll),
+                    "hi" | "history" => Some(DebugCommand::History),
+                    "st" | "status" => Some(DebugCommand::Status),
+                    "topics" | "lt" | "list-topics" => Some(DebugCommand::ListTopics),
+                    "consumers" | "lc" | "list-consumers" => Some(DebugCommand::ListConsumers),
+                    "jobs" | "lj" | "list-jobs" => Some(DebugCommand::ListJobs),
+                    "q" | "quit" | "exit" => Some(DebugCommand::Quit),
+                    "h" | "help" | "?" => {
+                        if execution_finished {
+                            println!("Inspection Commands (execution complete):");
+                            println!("  l, list        - List all statements");
+                            println!("  i <name>       - Inspect output from statement");
+                            println!("  ia, inspect-all - Inspect all captured outputs");
+                            println!("  hi, history    - Show command history");
+                            println!("  st, status     - Show current state");
+                            println!("  topics         - List all Kafka topics with offsets");
+                            println!("  consumers      - List all consumer groups");
+                            println!("  jobs           - List all jobs with source/sink status");
+                            println!("  q, quit        - Exit and cleanup");
+                        } else {
+                            println!("Debug Commands:");
+                            println!("  s, step        - Execute next statement");
+                            println!("  c, continue    - Run until next breakpoint");
+                            println!("  r, run         - Run all remaining statements");
+                            println!("  b <name>       - Set breakpoint on statement");
+                            println!("  u <name>       - Remove breakpoint");
+                            println!("  cb, clear      - Clear all breakpoints");
+                            println!("  l, list        - List all statements");
+                            println!("  i <name>       - Inspect output from statement");
+                            println!("  ia, inspect-all - Inspect all captured outputs");
+                            println!("  hi, history    - Show command history");
+                            println!("  st, status     - Show current state");
+                            println!("  topics         - List all Kafka topics with offsets");
+                            println!("  consumers      - List all consumer groups");
+                            println!("  jobs           - List all jobs with source/sink status");
+                            println!("  q, quit        - Exit debugger");
+                        }
+                        None
+                    }
+                    _ => {
+                        println!("Unknown command: {}. Type 'h' for help.", cmd);
+                        None
+                    }
+                };
+
+                if let Some(debug_cmd) = debug_cmd {
+                    match session.execute_command(debug_cmd).await {
+                        Ok(result) => match result {
+                            CommandResult::StepResult(Some(res)) => {
+                                let icon = if res.success { "✅" } else { "❌" };
+                                println!(
+                                    "   {} {} completed in {}ms",
+                                    icon, res.name, res.execution_time_ms
+                                );
+                                if let Some(ref err) = res.error {
+                                    println!("      Error: {}", err);
+                                }
+                                if let Some(ref out) = res.output {
+                                    println!(
+                                        "      Output: {} records to {}",
+                                        out.records.len(),
+                                        out.sink_name
+                                    );
+                                }
+
+                                // Auto-display topic state after step
+                                println!();
+                                println!("   📋 Topic State:");
+                                match session
+                                    .execute_command(
+                                        velostream::velostream::test_harness::DebugCommand::ListTopics,
+                                    )
+                                    .await
+                                {
+                                    Ok(CommandResult::TopicListing(topics)) => {
+                                        if topics.is_empty() {
+                                            println!("      (no topics)");
+                                        } else {
+                                            for topic in &topics {
+                                                let test_marker = if topic.is_test_topic {
+                                                    " [test]"
+                                                } else {
+                                                    ""
+                                                };
+                                                println!(
+                                                    "      • {}{}: {} msgs",
+                                                    topic.name, test_marker, topic.total_messages
+                                                );
+                                                for p in &topic.partitions {
+                                                    if p.message_count > 0 {
+                                                        println!(
+                                                            "        P{}: {} msgs [{}..{}]",
+                                                            p.partition,
+                                                            p.message_count,
+                                                            p.low_offset,
+                                                            p.high_offset
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        println!("      (failed to fetch topics: {})", e);
+                                    }
+                                }
+                            }
+                            CommandResult::StepResult(None) => {
+                                println!("✅ No more statements to execute");
+                            }
+                            CommandResult::ExecutionResults(results) => {
+                                for res in &results {
+                                    let icon = if res.success { "✅" } else { "❌" };
+                                    println!(
+                                        "   {} {} ({}ms)",
+                                        icon, res.name, res.execution_time_ms
+                                    );
+                                    if let Some(ref err) = res.error {
+                                        println!("      Error: {}", err);
+                                    }
+                                }
+                                println!("   Executed {} statements", results.len());
+                            }
+                            CommandResult::Message(msg) => {
+                                println!("   {}", msg);
+                            }
+                            CommandResult::Listing(lines) => {
+                                for line in lines {
+                                    println!("   {}", line);
+                                }
+                            }
+                            CommandResult::Output(out) => {
+                                println!("   Sink: {}", out.sink_name);
+                                println!("   Records: {}", out.records.len());
+                                println!("   Execution time: {}ms", out.execution_time_ms);
+                                if !out.records.is_empty() {
+                                    println!("   Sample (first 5):");
+                                    for (i, rec) in out.records.iter().take(5).enumerate() {
+                                        println!("     [{}] {:?}", i + 1, rec);
+                                    }
+                                }
+                            }
+                            CommandResult::AllOutputs(outputs) => {
+                                println!("   {} captured outputs:", outputs.len());
+                                for (name, out) in &outputs {
+                                    println!(
+                                        "   • {} → {} ({} records, {}ms)",
+                                        name,
+                                        out.sink_name,
+                                        out.records.len(),
+                                        out.execution_time_ms
+                                    );
+                                }
+                            }
+                            CommandResult::HistoryListing(lines) => {
+                                println!("   Command history:");
+                                for line in lines {
+                                    println!("   {}", line);
+                                }
+                            }
+                            CommandResult::TopicListing(topics) => {
+                                println!("   📋 Topics ({}):", topics.len());
+                                for topic in &topics {
+                                    let test_marker =
+                                        if topic.is_test_topic { " [test]" } else { "" };
+                                    println!(
+                                        "   • {}{} ({} messages)",
+                                        topic.name, test_marker, topic.total_messages
+                                    );
+                                    for p in &topic.partitions {
+                                        println!(
+                                            "     └─ P{}: {} msgs (offsets: {}..{})",
+                                            p.partition,
+                                            p.message_count,
+                                            p.low_offset,
+                                            p.high_offset
+                                        );
+                                    }
+                                }
+                            }
+                            CommandResult::ConsumerListing(consumers) => {
+                                println!("   👥 Consumers ({}):", consumers.len());
+                                for consumer in &consumers {
+                                    println!("   • {} ({:?})", consumer.group_id, consumer.state);
+                                    println!(
+                                        "     Topics: {}",
+                                        consumer.subscribed_topics.join(", ")
+                                    );
+                                    for pos in &consumer.positions {
+                                        println!(
+                                            "     └─ {}[P{}]: offset {} (lag: {})",
+                                            pos.topic, pos.partition, pos.offset, pos.lag
+                                        );
+                                    }
+                                }
+                            }
+                            CommandResult::JobListing(jobs) => {
+                                use velostream::velostream::test_harness::{
+                                    DataSinkType, DataSourceType, JobType,
+                                };
+                                println!("   🔧 Jobs ({}):", jobs.len());
+                                for job in &jobs {
+                                    let state_icon = match job.state {
+                                        velostream::velostream::test_harness::JobState::Initializing => "🔄",
+                                        velostream::velostream::test_harness::JobState::Running => "▶️",
+                                        velostream::velostream::test_harness::JobState::Completed => "✅",
+                                        velostream::velostream::test_harness::JobState::CompletedNoOutput => "⚠️",
+                                        velostream::velostream::test_harness::JobState::Failed => "❌",
+                                        velostream::velostream::test_harness::JobState::Paused => "⏸️",
+                                        velostream::velostream::test_harness::JobState::Stopped => "⏹️",
+                                    };
+                                    let type_icon = match job.job_type {
+                                        JobType::Stream => "🌊",
+                                        JobType::Table => "📊",
+                                        JobType::Unknown => "❓",
+                                    };
+                                    println!(
+                                        "\n   {} {} {} [{}] ({:?})",
+                                        state_icon,
+                                        type_icon,
+                                        job.name,
+                                        job.job_type.display_name(),
+                                        job.state
+                                    );
+
+                                    // Show SQL (truncated if too long)
+                                    let sql_display = if job.sql.len() > 100 {
+                                        format!("{}...", &job.sql[..100].replace('\n', " "))
+                                    } else {
+                                        job.sql.replace('\n', " ")
+                                    };
+                                    println!("     📝 SQL: {}", sql_display);
+
+                                    // Show stats
+                                    println!(
+                                        "     📈 Stats: {} written, {} errors, {}ms",
+                                        job.stats.records_written,
+                                        job.stats.records_errored,
+                                        job.stats.execution_time_ms
+                                    );
+
+                                    // Show partitioner
+                                    if let Some(ref partitioner) = job.partitioner {
+                                        println!("     🔀 Partitioner: {}", partitioner);
+                                    }
+
+                                    // Table-specific stats
+                                    if job.job_type == JobType::Table {
+                                        println!("     📊 Table State:");
+                                        if let Some(count) = job.table_record_count {
+                                            println!("       Records: {}", count);
+                                        }
+                                        if let Some(keys) = job.table_key_count {
+                                            println!("       Unique keys: {}", keys);
+                                        }
+                                        if let Some(ref updated) = job.table_last_updated {
+                                            println!("       Last updated: {}", updated);
+                                        }
+                                    }
+
+                                    // Display detailed data sources
+                                    if !job.sources.is_empty() {
+                                        println!("     📥 Sources:");
+                                        for src in &job.sources {
+                                            let type_str = match &src.source_type {
+                                                DataSourceType::Kafka => "Kafka",
+                                                DataSourceType::File => "File",
+                                                DataSourceType::Other(s) => s.as_str(),
+                                            };
+                                            println!("       • {} [{}]", src.name, type_str);
+                                            // Show config details
+                                            if let Some(ref servers) = src.bootstrap_servers {
+                                                println!("         bootstrap.servers: {}", servers);
+                                            }
+                                            if let Some(ref group) = src.consumer_group {
+                                                println!("         group.id: {}", group);
+                                            }
+                                            if let Some(ref reset) = src.auto_offset_reset {
+                                                println!("         auto.offset.reset: {}", reset);
+                                            }
+                                            if let Some(ref format) = src.format {
+                                                println!("         format: {}", format);
+                                            }
+                                            // Stats
+                                            if src.records_read > 0 || src.bytes_read > 0 {
+                                                println!(
+                                                    "         stats: {} records, {} bytes",
+                                                    src.records_read, src.bytes_read
+                                                );
+                                            }
+                                            if let Some(lag) = src.lag {
+                                                println!("         lag: {} messages", lag);
+                                            }
+                                            if let Some(ref offsets) = src.current_offsets {
+                                                let offset_str: Vec<String> = offsets
+                                                    .iter()
+                                                    .map(|(p, o)| format!("P{}:{}", p, o))
+                                                    .collect();
+                                                println!(
+                                                    "         offsets: {}",
+                                                    offset_str.join(", ")
+                                                );
+                                            }
+                                            if let Some(ref path) = src.file_path {
+                                                let consumed = if src.fully_consumed == Some(true) {
+                                                    " (EOF)"
+                                                } else {
+                                                    ""
+                                                };
+                                                println!("         path: {}{}", path, consumed);
+                                            }
+                                        }
+                                    }
+
+                                    // Display detailed data sinks
+                                    if !job.sinks.is_empty() {
+                                        println!("     📤 Sinks:");
+                                        for sink in &job.sinks {
+                                            let type_str = match &sink.sink_type {
+                                                DataSinkType::Kafka => "Kafka",
+                                                DataSinkType::File => "File",
+                                                DataSinkType::Other(s) => s.as_str(),
+                                            };
+                                            println!("       • {} [{}]", sink.name, type_str);
+                                            // Show config details
+                                            if let Some(ref servers) = sink.bootstrap_servers {
+                                                println!("         bootstrap.servers: {}", servers);
+                                            }
+                                            if let Some(ref format) = sink.format {
+                                                println!("         format: {}", format);
+                                            }
+                                            if let Some(ref compression) = sink.compression {
+                                                println!("         compression: {}", compression);
+                                            }
+                                            if let Some(ref acks) = sink.acks {
+                                                println!("         acks: {}", acks);
+                                            }
+                                            // Stats
+                                            println!(
+                                                "         stats: {} records, {} bytes",
+                                                sink.records_written, sink.bytes_written
+                                            );
+                                            if let Some(ref offsets) = sink.produced_offsets {
+                                                let offset_str: Vec<String> = offsets
+                                                    .iter()
+                                                    .map(|(p, o)| format!("P{}:{}", p, o))
+                                                    .collect();
+                                                println!(
+                                                    "         produced: {}",
+                                                    offset_str.join(", ")
+                                                );
+                                            }
+                                            if let Some(ref path) = sink.file_path {
+                                                let flushed = if sink.is_flushed == Some(true) {
+                                                    " (flushed)"
+                                                } else {
+                                                    ""
+                                                };
+                                                println!("         path: {}{}", path, flushed);
+                                            }
+                                        }
+                                    } else if !job.sink_topics.is_empty() {
+                                        // Fallback to legacy sink_topics if sinks is empty
+                                        println!("     📤 Sinks: {}", job.sink_topics.join(", "));
+                                    }
+                                }
+                            }
+                            CommandResult::Quit => {
+                                println!("👋 Exiting debugger");
+                                break;
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("❌ Command error: {}", e);
+                        }
+                    }
+                }
+
+                println!();
+            }
+
+            // Cleanup
+            if !keep_containers {
+                println!("🧹 Cleaning up...");
+                if let Err(e) = session.executor_mut().executor_mut().stop().await {
+                    log::warn!("Failed to stop executor: {}", e);
+                }
+            } else {
+                println!("🐳 Keeping containers running (--keep-containers)");
+            }
+
+            // Summary
+            let results = session.executor().results();
+            let passed = results.iter().filter(|r| r.success).count();
+            let total_stmts = session.executor().statements().len();
+            println!();
+            println!("📊 Debug Session Summary");
+            println!("   Executed: {}/{} statements", results.len(), total_stmts);
+            println!("   Passed: {}/{}", passed, results.len());
+
+            if passed < results.len() {
+                std::process::exit(1);
             }
         }
     }

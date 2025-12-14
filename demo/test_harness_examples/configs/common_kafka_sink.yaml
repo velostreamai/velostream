@@ -4,6 +4,10 @@
 datasink:
   type: kafka
 
+  # Delivery profile: high_throughput, low_latency, durable, balanced, development
+  # This sets optimized defaults - individual properties below can override
+  delivery_profile: "balanced"
+
   # Standard producer configuration
   # NOTE: Values use ${ENV_VAR:default} syntax - env var takes precedence (12-factor app style)
   producer_config:
@@ -22,12 +26,3 @@ datasink:
   topic_config:
     replication.factor: 1
     cleanup.policy: "delete"
-
-# Delivery profiles
-delivery_profiles:
-  balanced:
-    acks: "1"
-    linger.ms: 10
-    compression.type: "gzip"
-    delivery_guarantee: "at_least_once"
-    timeout_ms: 10000

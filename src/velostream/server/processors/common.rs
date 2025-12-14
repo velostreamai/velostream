@@ -6,9 +6,16 @@
 use crate::velostream::datasource::{
     DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
     file::{FileDataSink, FileDataSource},
-    kafka::{KafkaDataSink, KafkaDataSource},
+    kafka::{
+        KafkaDataSink, KafkaDataSource,
+        config_helpers::{
+            ClientType, generate_processor_client_id, generate_transactional_id,
+            log_processor_client_id, log_transactional_id,
+        },
+    },
 };
 use crate::velostream::server::processors::SimpleJobProcessor;
+use crate::velostream::sql::config::substitute_env_vars;
 use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
@@ -924,21 +931,26 @@ async fn create_kafka_reader(
     let mut source_props = props.clone();
 
     // Generate client.id for consumer identification in logs and monitoring
-    let client_id = format!(
-        "velo_{}_{}_{}_{}",
-        app_name.unwrap_or("default"),
-        job_name,
-        instance_id.unwrap_or("0"),
-        source_name.replace("source_", "")
-    );
+    let client_id = generate_processor_client_id(app_name, job_name, instance_id, source_name);
     source_props.insert("client.id".to_string(), client_id.clone());
-    debug!("Setting consumer client.id='{}'", client_id);
+    log_processor_client_id(
+        &client_id,
+        ClientType::Source,
+        app_name,
+        job_name,
+        instance_id,
+        source_name,
+    );
 
     if use_transactions {
-        // Set isolation.level=read_committed for exactly-once consumer semantics
-        // This ensures consumers only see committed transactional messages
-        info!("Enabling transactional consumer with isolation.level=read_committed");
+        // Configure consumer for exactly-once semantics:
+        // 1. isolation.level=read_committed - Only see committed transactional messages
+        // 2. enable.auto.commit=false - Manual offset management for transactional guarantees
+        info!(
+            "Enabling transactional consumer with isolation.level=read_committed, enable.auto.commit=false"
+        );
         source_props.insert("isolation.level".to_string(), "read_committed".to_string());
+        source_props.insert("enable.auto.commit".to_string(), "false".to_string());
     }
 
     // Let KafkaDataSource handle its own configuration extraction
@@ -1061,7 +1073,6 @@ async fn create_kafka_writer(
 
     // Apply runtime env var substitution if the value contains ${VAR:default} pattern
     // This handles cases where YAML was loaded before env vars were set (e.g., testcontainers)
-    use crate::velostream::sql::config::substitute_env_vars;
     let brokers = substitute_env_vars(&brokers_raw);
 
     // Extract topic name from properties, or use sink name as default
@@ -1084,35 +1095,33 @@ async fn create_kafka_writer(
     let mut sink_props = props.clone();
 
     // Generate client.id for producer identification in logs and monitoring
-    let client_id = format!(
-        "velo_{}_{}_{}_{}",
-        app_name.unwrap_or("default"),
-        job_name,
-        instance_id.unwrap_or("0"),
-        sink_name.replace("sink_", "")
-    );
+    let client_id = generate_processor_client_id(app_name, job_name, instance_id, sink_name);
     sink_props.insert("client.id".to_string(), client_id.clone());
-    debug!("Setting producer client.id='{}'", client_id);
+    log_processor_client_id(
+        &client_id,
+        ClientType::Sink,
+        app_name,
+        job_name,
+        instance_id,
+        sink_name,
+    );
 
     if use_transactions {
-        // Generate unique transactional.id: velo_{app}_{job}_{instance}_{sink}
-        // Must be unique per producer instance to avoid conflicts
-        let txn_id = format!(
-            "velo_{}_{}_{}_{}",
-            app_name.unwrap_or("default"),
-            job_name,
-            instance_id.unwrap_or("0"),
-            sink_name.replace("sink_", "")
-        );
-        info!(
-            "Enabling transactional producer with transactional.id='{}'",
-            txn_id
-        );
-        sink_props.insert("transactional.id".to_string(), txn_id);
+        // Generate unique transactional.id (must be unique per producer instance)
+        let txn_id = generate_transactional_id(app_name, job_name, instance_id, sink_name);
+        sink_props.insert("transactional.id".to_string(), txn_id.clone());
+        log_transactional_id(&txn_id, app_name, job_name, instance_id, sink_name);
     }
 
     // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(&sink_props, job_name, app_name, instance_id);
+    // Pass use_transactions so the sink knows to configure transactional producer
+    let mut datasink = KafkaDataSink::from_properties(
+        &sink_props,
+        job_name,
+        app_name,
+        instance_id,
+        use_transactions,
+    );
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
     // Note: sink_props includes transactional.id if use_transactions is true

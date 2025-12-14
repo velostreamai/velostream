@@ -28,6 +28,7 @@
 //! ```
 
 use super::error::{TestHarnessError, TestHarnessResult};
+use super::spec::TopicNamingConfig;
 use crate::velostream::kafka::common_config::apply_broker_address_family;
 use crate::velostream::schema::client::registry_client::SchemaReference;
 use crate::velostream::schema::server::registry_backend::{
@@ -43,18 +44,17 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
-#[cfg(any(test, feature = "test-support"))]
 use testcontainers::runners::AsyncRunner;
 // Testcontainers support - available in any test context
-#[cfg(any(test, feature = "test-support"))]
+
 use testcontainers::ContainerAsync;
-#[cfg(any(test, feature = "test-support"))]
+
 use testcontainers_modules::kafka::KAFKA_PORT;
-#[cfg(any(test, feature = "test-support"))]
+
 use testcontainers_redpanda_rs::{REDPANDA_PORT, Redpanda};
 
 /// Type of Kafka-compatible container to use
-#[cfg(any(test, feature = "test-support"))]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ContainerType {
     /// Confluent Kafka (default, widely tested)
@@ -64,7 +64,6 @@ pub enum ContainerType {
     Redpanda,
 }
 
-#[cfg(any(test, feature = "test-support"))]
 impl ContainerType {
     /// Get container type from environment variable
     ///
@@ -89,7 +88,7 @@ impl ContainerType {
 }
 
 /// Container instance enum to hold either Kafka or Redpanda
-#[cfg(any(test, feature = "test-support"))]
+
 enum ContainerInstance {
     Kafka(ContainerAsync<testcontainers_modules::kafka::Kafka>),
     Redpanda(ContainerAsync<Redpanda>),
@@ -143,8 +142,11 @@ pub struct TestHarnessInfra {
     /// In-memory schema registry (API-compatible with Confluent Schema Registry)
     schema_registry: Option<Arc<InMemorySchemaRegistryBackend>>,
 
+    /// Topic naming configuration for CI/CD isolation (P1.2)
+    topic_naming: TopicNamingConfig,
+
     /// Container instance (Kafka or Redpanda) - only in tests
-    #[cfg(any(test, feature = "test-support"))]
+
     #[allow(dead_code)]
     container: Option<ContainerInstance>,
 }
@@ -162,7 +164,8 @@ impl TestHarnessInfra {
             admin_client: None,
             owns_kafka: false,
             schema_registry: None,
-            #[cfg(any(test, feature = "test-support"))]
+            topic_naming: TopicNamingConfig::default(),
+
             container: None,
         }
     }
@@ -182,9 +185,28 @@ impl TestHarnessInfra {
             admin_client: None,
             owns_kafka: false,
             schema_registry: None,
-            #[cfg(any(test, feature = "test-support"))]
+            topic_naming: TopicNamingConfig::default(),
+
             container: None,
         }
+    }
+
+    /// Set custom topic naming configuration
+    ///
+    /// Use this to configure how topics are named for CI/CD isolation.
+    pub fn with_topic_naming(mut self, config: TopicNamingConfig) -> Self {
+        self.topic_naming = config;
+        self
+    }
+
+    /// Set topic naming configuration (mutable)
+    pub fn set_topic_naming(&mut self, config: TopicNamingConfig) {
+        self.topic_naming = config;
+    }
+
+    /// Get the current topic naming configuration
+    pub fn topic_naming(&self) -> &TopicNamingConfig {
+        &self.topic_naming
     }
 
     /// Create infrastructure with a Kafka container using testcontainers
@@ -202,7 +224,7 @@ impl TestHarnessInfra {
     /// // run tests...
     /// infra.stop().await?;
     /// ```
-    #[cfg(any(test, feature = "test-support"))]
+
     pub async fn with_testcontainers() -> TestHarnessResult<Self> {
         // Use container type from environment variable
         Self::with_testcontainers_type(ContainerType::from_env()).await
@@ -221,7 +243,7 @@ impl TestHarnessInfra {
     /// // run tests...
     /// infra.stop().await?;
     /// ```
-    #[cfg(any(test, feature = "test-support"))]
+
     pub async fn with_redpanda() -> TestHarnessResult<Self> {
         Self::with_testcontainers_type(ContainerType::Redpanda).await
     }
@@ -230,7 +252,7 @@ impl TestHarnessInfra {
     ///
     /// # Arguments
     /// * `container_type` - The type of container to start (Kafka or Redpanda)
-    #[cfg(any(test, feature = "test-support"))]
+
     pub async fn with_testcontainers_type(
         container_type: ContainerType,
     ) -> TestHarnessResult<Self> {
@@ -300,6 +322,7 @@ impl TestHarnessInfra {
             admin_client: None,
             owns_kafka: true,
             schema_registry: None,
+            topic_naming: TopicNamingConfig::default(),
             container: Some(container),
         })
     }
@@ -404,7 +427,7 @@ impl TestHarnessInfra {
 
         // Stop and remove the container (testcontainers)
         // This is critical - without this, containers are left running!
-        #[cfg(any(test, feature = "test-support"))]
+
         if let Some(container) = self.container.take() {
             match container {
                 ContainerInstance::Kafka(kafka_container) => {
@@ -449,8 +472,26 @@ impl TestHarnessInfra {
         self.temp_dir.as_ref()
     }
 
-    /// Generate a test topic name with run ID prefix
+    /// Generate a test topic name using the configured naming pattern
+    ///
+    /// The default pattern is `test_{run_id}_{base}`, but can be customized
+    /// via `TopicNamingConfig` for CI/CD isolation.
+    ///
+    /// # Supported Placeholders
+    /// - `{run_id}` - Unique run identifier
+    /// - `{base}` - Original topic name
+    /// - `{branch}` - Git branch (from env or config)
+    /// - `{user}` - User identity (from env or config)
+    /// - `{timestamp}` - Unix timestamp
+    /// - `{namespace}` - Custom namespace prefix
     pub fn topic_name(&self, base_name: &str) -> String {
+        self.topic_naming
+            .resolve_topic_name(base_name, &self.run_id)
+    }
+
+    /// Generate a test topic name with the original (legacy) pattern
+    /// Always uses `test_{run_id}_{base}` regardless of topic_naming config
+    pub fn topic_name_legacy(&self, base_name: &str) -> String {
         format!("test_{}_{}", self.run_id, base_name)
     }
 
@@ -761,6 +802,177 @@ impl TestHarnessInfra {
     /// Check if schema registry is available
     pub fn has_schema_registry(&self) -> bool {
         self.schema_registry.is_some()
+    }
+
+    // =========================================================================
+    // Debug Inspection Methods (for list-topics, list-consumers commands)
+    // =========================================================================
+
+    /// Get list of topics created by this test harness
+    pub fn created_topics(&self) -> &[String] {
+        &self.created_topics
+    }
+
+    /// Fetch topic metadata including partition info, offsets, and message counts
+    ///
+    /// Returns information about all topics or a specific topic if name is provided.
+    pub async fn fetch_topic_info(
+        &self,
+        topic_filter: Option<&str>,
+    ) -> TestHarnessResult<Vec<super::statement_executor::TopicInfo>> {
+        use super::statement_executor::{PartitionInfo, TopicInfo};
+        use rdkafka::consumer::Consumer;
+
+        let consumer = self.create_consumer("__topic_inspector")?;
+
+        // Fetch cluster metadata
+        let metadata = consumer
+            .fetch_metadata(topic_filter, Duration::from_secs(10))
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to fetch metadata: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        let mut topics = Vec::new();
+
+        for topic_metadata in metadata.topics() {
+            let topic_name = topic_metadata.name().to_string();
+
+            // Filter by test harness topics if no specific filter provided
+            let is_test_topic = self.created_topics.contains(&topic_name);
+
+            // If filter specified, only include matching topic
+            if let Some(filter) = topic_filter {
+                if topic_name != filter {
+                    continue;
+                }
+            }
+
+            let mut partitions = Vec::new();
+            let mut total_messages = 0i64;
+
+            for partition in topic_metadata.partitions() {
+                let partition_id = partition.id();
+
+                // Fetch watermarks (low and high offsets)
+                let (low, high) = consumer
+                    .fetch_watermarks(&topic_name, partition_id, Duration::from_secs(5))
+                    .unwrap_or((0, 0));
+
+                let message_count = high - low;
+                total_messages += message_count;
+
+                partitions.push(PartitionInfo {
+                    partition: partition_id,
+                    low_offset: low,
+                    high_offset: high,
+                    message_count,
+                    latest_timestamp_ms: None, // Would need to consume last message to get this
+                });
+            }
+
+            topics.push(TopicInfo {
+                name: topic_name,
+                partitions,
+                total_messages,
+                is_test_topic,
+            });
+        }
+
+        // Sort by name for consistent output
+        topics.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Ok(topics)
+    }
+
+    /// Get consumer group information
+    ///
+    /// Lists all consumer groups from Kafka and returns their metadata.
+    /// This queries the Kafka broker to get actual consumer group state.
+    pub async fn get_consumer_info(
+        &self,
+    ) -> TestHarnessResult<Vec<super::statement_executor::ConsumerInfo>> {
+        use super::statement_executor::{ConsumerInfo, ConsumerState};
+        use rdkafka::consumer::{BaseConsumer, Consumer};
+
+        let bootstrap_servers = match &self.bootstrap_servers {
+            Some(servers) => servers,
+            None => {
+                return Err(TestHarnessError::InfraError {
+                    message: "Bootstrap servers not available. Call start() first.".to_string(),
+                    source: None,
+                });
+            }
+        };
+
+        // Create a temporary consumer to fetch group list
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", bootstrap_servers);
+        apply_broker_address_family(&mut config);
+
+        let consumer: BaseConsumer = config.create().map_err(|e| TestHarnessError::InfraError {
+            message: format!("Failed to create consumer for group list: {}", e),
+            source: Some(e.to_string()),
+        })?;
+
+        // Fetch all consumer groups (None = all groups)
+        let group_list = consumer
+            .fetch_group_list(None, Duration::from_secs(10))
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to fetch consumer groups: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        let mut consumers = Vec::new();
+
+        for group in group_list.groups() {
+            // Filter to only show test harness related consumer groups
+            // (groups with "test_harness" or "velo_" prefix - underscore delimiter format)
+            let group_id = group.name();
+            if !group_id.contains("test_harness") && !group_id.starts_with("velo_") {
+                continue;
+            }
+
+            // Get group members and their topic subscriptions
+            let subscribed_topics: Vec<String> = Vec::new();
+            for member in group.members() {
+                if let Some(assignment) = member.assignment() {
+                    // Parse the assignment bytes to get topic-partitions
+                    // The assignment is a serialized list of topic-partitions
+                    // For simplicity, we'll just note the member exists
+                    log::debug!(
+                        "Group {} member {} has {} bytes of assignment",
+                        group_id,
+                        member.id(),
+                        assignment.len()
+                    );
+                }
+            }
+
+            // Determine consumer state based on group state
+            let state = match group.state() {
+                "Stable" => ConsumerState::Active,
+                "Empty" => ConsumerState::Stopped,
+                "PreparingRebalance" | "CompletingRebalance" => ConsumerState::Active,
+                "Dead" => ConsumerState::Stopped,
+                _ => ConsumerState::Unknown,
+            };
+
+            // Note: Getting actual topic subscriptions and positions requires
+            // more detailed admin API calls which are complex. For now we just
+            // report the group and its state.
+            consumers.push(ConsumerInfo {
+                group_id: group_id.to_string(),
+                subscribed_topics,
+                positions: vec![], // Would require describe_consumer_groups for details
+                state,
+            });
+        }
+
+        // Sort by group ID for consistent display
+        consumers.sort_by(|a, b| a.group_id.cmp(&b.group_id));
+
+        Ok(consumers)
     }
 }
 

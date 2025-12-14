@@ -291,6 +291,7 @@ fields:
             records: Some(25),
             from_previous: None,
             data_file: None,
+            time_simulation: None,
         }],
         output: None,
         outputs: Vec::new(),
@@ -304,6 +305,7 @@ fields:
             }),
             AssertionConfig::SchemaContains(SchemaContainsAssertion {
                 fields: vec!["id".to_string(), "name".to_string(), "value".to_string()],
+                key_field: None,
             }),
         ],
         timeout_ms: Some(30000),
@@ -472,6 +474,7 @@ fields:
             records: Some(50),
             from_previous: None,
             data_file: None,
+            time_simulation: None,
         }],
         output: None,
         outputs: Vec::new(),
@@ -521,6 +524,7 @@ fields:
                     r
                 },
             ],
+            message_keys: vec![None, None],
             execution_time_ms: 100,
             warnings: Vec::new(),
             memory_peak_bytes: None,
@@ -691,6 +695,7 @@ fields:
         sink_name: output_topic.clone(),
         topic: Some(output_topic.clone()),
         records: records.clone(),
+        message_keys: vec![None; records.len()],
         execution_time_ms: 100,
         warnings: Vec::new(),
         memory_peak_bytes: None,
@@ -708,6 +713,7 @@ fields:
         }),
         AssertionConfig::SchemaContains(SchemaContainsAssertion {
             fields: vec!["id".to_string(), "value".to_string()],
+            key_field: None,
         }),
     ];
 

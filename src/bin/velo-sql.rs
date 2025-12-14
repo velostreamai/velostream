@@ -12,7 +12,7 @@ use velostream::velostream::{
 };
 
 #[derive(Parser)]
-#[command(name = "velo-sql-multi")]
+#[command(name = "velo-sql")]
 #[command(about = "Velostream StreamJobServer - Execute multiple streaming SQL jobs concurrently")]
 #[command(version = "1.0.0")]
 struct Cli {
@@ -330,13 +330,28 @@ async fn handle_multi_metrics_request(request: &str, server: &StreamJobServer) -
     }
 }
 
+/// Build information constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_TIME: &str = env!("BUILD_TIME");
+const GIT_HASH: &str = env!("GIT_HASH");
+const GIT_BRANCH: &str = env!("GIT_BRANCH");
+
+/// Print version and build information
+fn print_version_info() {
+    println!(
+        "velo-sql v{} ({} @ {}) built {}",
+        VERSION, GIT_HASH, GIT_BRANCH, BUILD_TIME
+    );
+}
+
 #[tokio::main]
 async fn main() -> velostream::velostream::error::VeloResult<()> {
     // Initialize logging
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    // Log build timestamp
-    info!("🏗️  Binary built: {}", env!("BUILD_TIME"));
+    // Print version info at startup
+    print_version_info();
+    println!();
 
     let cli = Cli::parse();
 

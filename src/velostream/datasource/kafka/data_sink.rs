@@ -1,5 +1,7 @@
 //! Kafka data sink implementation
 
+use super::error::KafkaDataSinkError;
+use super::writer::KafkaDataWriter;
 use crate::velostream::config::{
     ConfigSchemaProvider, GlobalSchemaContext, PropertyDefault, PropertyValidation,
 };
@@ -9,12 +11,10 @@ use crate::velostream::datasource::{
 };
 // Note: unified config helpers available if needed for more complex validation
 use crate::velostream::schema::Schema;
+use crate::velostream::sql::config::substitute_env_vars;
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
-
-use super::error::KafkaDataSinkError;
-use super::writer::KafkaDataWriter;
 
 /// Kafka DataSink implementation
 pub struct KafkaDataSink {
@@ -39,6 +39,7 @@ impl KafkaDataSink {
         job_name: &str,
         app_name: Option<&str>,
         instance_id: Option<&str>,
+        use_transactions: bool,
     ) -> Self {
         // Load and merge config file with provided properties
         // Uses common config_loader helper
@@ -64,7 +65,6 @@ impl KafkaDataSink {
 
         // Apply runtime env var substitution if the value contains ${VAR:default} pattern
         // This handles cases where YAML was loaded before env vars were set (e.g., testcontainers)
-        use crate::velostream::sql::config::substitute_env_vars;
         let brokers = substitute_env_vars(&brokers_raw);
 
         log::info!(
@@ -77,9 +77,27 @@ impl KafkaDataSink {
             .unwrap_or_else(|| format!("{}_output", job_name));
 
         // Create filtered config with sink. properties
+        // Supports multiple property prefix conventions:
+        // - sink.* (standard prefix for sink properties)
+        // - datasink.producer_config.* (YAML config file convention)
+        // - unprefixed (direct properties)
         let mut sink_config = HashMap::new();
         for (key, value) in merged_props.iter() {
-            if key.starts_with("sink.") {
+            // Handle datasink.producer_config.* properties (from YAML config files)
+            // These are Kafka producer properties nested under datasink.producer_config
+            if let Some(config_key) = key.strip_prefix("datasink.producer_config.") {
+                // Skip non-rdkafka properties
+                if config_key == "bootstrap.servers" {
+                    // bootstrap.servers is handled separately with env var substitution
+                    continue;
+                }
+                log::debug!(
+                    "KafkaDataSink: Including producer property from datasink.producer_config: {} = {}",
+                    config_key,
+                    value
+                );
+                sink_config.insert(config_key.to_string(), value.clone());
+            } else if key.starts_with("sink.") {
                 // Remove sink. prefix for the config map
                 let config_key = key.strip_prefix("sink.").unwrap().to_string();
 
@@ -102,6 +120,7 @@ impl KafkaDataSink {
 
                 sink_config.insert(config_key, value.clone());
             } else if !key.starts_with("source.")
+                && !key.starts_with("datasink.")  // Skip other datasink.* properties (topic_config, delivery_profile handled separately)
                 && !merged_props.contains_key(&format!("sink.{}", key))
             {
                 // Include unprefixed properties only if there's no prefixed version and it's not a source property
@@ -109,25 +128,16 @@ impl KafkaDataSink {
             }
         }
 
-        // Generate client ID with hierarchical format for observability in Kafka UI
-        // Format: velo-{app_name}-{job_name}-{instance_id}-snk
-        // This ensures jobs from same app sort together, then by instance/run
-        let client_id = match (app_name, instance_id) {
-            (Some(app), Some(inst)) => format!("velo-{}-{}-{}-snk", app, job_name, inst),
-            (Some(app), None) => format!("velo-{}-{}-snk", app, job_name),
-            (None, Some(inst)) => format!("velo-{}-{}-snk", inst, job_name),
-            (None, None) => format!("velo-{}-snk", job_name),
-        };
-
-        log::info!(
-            "Kafka producer client.id: '{}' (app: {}, job: {}, instance: {})",
-            client_id,
-            app_name.unwrap_or("none"),
+        // Generate and log client ID using shared helper
+        use super::config_helpers::{ClientType, generate_client_id, log_client_id};
+        let client_id = generate_client_id(app_name, job_name, instance_id, ClientType::Sink);
+        log_client_id(
+            &client_id,
+            ClientType::Sink,
+            app_name,
             job_name,
-            instance_id.unwrap_or("none")
+            instance_id,
         );
-
-        // Add client.id to config for per-client observability
         sink_config.insert("client.id".to_string(), client_id);
 
         // CRITICAL: Ensure bootstrap.servers uses the RESOLVED value (after env var substitution)
@@ -135,10 +145,134 @@ impl KafkaDataSink {
         // is set AFTER config loading but BEFORE SQL job execution
         sink_config.insert("bootstrap.servers".to_string(), brokers.clone());
 
+        // Apply delivery profile first (if specified), then transactions can override
+        Self::apply_delivery_profile(&mut sink_config, &merged_props);
+
+        // Transactional mode overrides - acks=all is required for exactly-once
+        if use_transactions {
+            sink_config.insert("acks".to_string(), "all".to_string());
+            sink_config.insert("enable.idempotence".to_string(), "true".to_string());
+        }
+
         Self {
             brokers,
             topic,
             config: sink_config,
+        }
+    }
+
+    /// Apply delivery profile to producer configuration
+    ///
+    /// Delivery profiles provide optimized defaults for common producer use cases:
+    /// - `high_throughput`: Maximum messages/sec, larger batches, leader-only acks
+    /// - `low_latency`: Minimal latency, no batching, no compression
+    /// - `durable` / `max_durability`: Maximum safety, acks=all, idempotence enabled
+    /// - `balanced`: Good default balance of throughput and reliability
+    /// - `development`: Fast feedback for development environments
+    fn apply_delivery_profile(
+        sink_config: &mut HashMap<String, String>,
+        properties: &HashMap<String, String>,
+    ) {
+        use super::property_keys::DELIVERY_PROFILE;
+
+        let profile = properties
+            .get(DELIVERY_PROFILE)
+            .or_else(|| properties.get("sink.delivery_profile"))
+            .or_else(|| properties.get("datasink.delivery_profile"))
+            .map(|s| s.as_str());
+
+        match profile {
+            Some("high_throughput") => {
+                log::info!("KafkaDataSink: Applying 'high_throughput' delivery profile");
+                sink_config
+                    .entry("acks".to_string())
+                    .or_insert_with(|| "1".to_string());
+                sink_config
+                    .entry("batch.size".to_string())
+                    .or_insert_with(|| "65536".to_string()); // 64KB
+                sink_config
+                    .entry("linger.ms".to_string())
+                    .or_insert_with(|| "10".to_string());
+                sink_config
+                    .entry("compression.type".to_string())
+                    .or_insert_with(|| "lz4".to_string());
+                sink_config
+                    .entry("buffer.memory".to_string())
+                    .or_insert_with(|| "67108864".to_string()); // 64MB
+            }
+            Some("low_latency") => {
+                log::info!("KafkaDataSink: Applying 'low_latency' delivery profile");
+                sink_config
+                    .entry("acks".to_string())
+                    .or_insert_with(|| "1".to_string());
+                sink_config
+                    .entry("batch.size".to_string())
+                    .or_insert_with(|| "1024".to_string()); // 1KB
+                sink_config
+                    .entry("linger.ms".to_string())
+                    .or_insert_with(|| "0".to_string());
+                sink_config
+                    .entry("compression.type".to_string())
+                    .or_insert_with(|| "none".to_string());
+            }
+            Some("durable") | Some("max_durability") => {
+                log::info!("KafkaDataSink: Applying 'durable' delivery profile");
+                sink_config
+                    .entry("acks".to_string())
+                    .or_insert_with(|| "all".to_string());
+                sink_config
+                    .entry("enable.idempotence".to_string())
+                    .or_insert_with(|| "true".to_string());
+                sink_config
+                    .entry("retries".to_string())
+                    .or_insert_with(|| "2147483647".to_string()); // Max retries
+                sink_config
+                    .entry("max.in.flight.requests.per.connection".to_string())
+                    .or_insert_with(|| "1".to_string());
+                sink_config
+                    .entry("compression.type".to_string())
+                    .or_insert_with(|| "snappy".to_string());
+            }
+            Some("balanced") => {
+                log::info!("KafkaDataSink: Applying 'balanced' delivery profile");
+                sink_config
+                    .entry("acks".to_string())
+                    .or_insert_with(|| "1".to_string());
+                sink_config
+                    .entry("batch.size".to_string())
+                    .or_insert_with(|| "16384".to_string()); // 16KB
+                sink_config
+                    .entry("linger.ms".to_string())
+                    .or_insert_with(|| "5".to_string());
+                sink_config
+                    .entry("compression.type".to_string())
+                    .or_insert_with(|| "snappy".to_string());
+            }
+            Some("development") => {
+                log::info!("KafkaDataSink: Applying 'development' delivery profile");
+                sink_config
+                    .entry("acks".to_string())
+                    .or_insert_with(|| "1".to_string());
+                sink_config
+                    .entry("retries".to_string())
+                    .or_insert_with(|| "3".to_string());
+                sink_config
+                    .entry("compression.type".to_string())
+                    .or_insert_with(|| "none".to_string());
+                sink_config
+                    .entry("request.timeout.ms".to_string())
+                    .or_insert_with(|| "10000".to_string());
+            }
+            Some(unknown) => {
+                log::warn!(
+                    "KafkaDataSink: Unknown delivery_profile '{}', using defaults. \
+                     Valid options: high_throughput, low_latency, durable, balanced, development",
+                    unknown
+                );
+            }
+            None => {
+                // No profile specified - use defaults (will be set by writer if not present)
+            }
         }
     }
 
@@ -595,7 +729,7 @@ impl ConfigSchemaProvider for KafkaDataSink {
             "bootstrap.servers",
             PropertyDefault::GlobalLookup("kafka.bootstrap.servers".to_string()),
         );
-        defaults.insert("acks", PropertyDefault::Static("all".to_string()));
+        defaults.insert("acks", PropertyDefault::Static("1".to_string()));
         defaults.insert("retries", PropertyDefault::Static("2147483647".to_string())); // Max retries
         defaults.insert("batch.size", PropertyDefault::Static("16384".to_string())); // 16KB
         defaults.insert("linger.ms", PropertyDefault::Static("5".to_string()));

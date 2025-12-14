@@ -436,6 +436,7 @@ impl DataReader for KafkaDataReader {
     }
 
     async fn commit(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        log::debug!("KafkaDataReader: Manual offset commit requested");
         self.consumer
             .commit()
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
@@ -456,10 +457,14 @@ impl DataReader for KafkaDataReader {
     }
 
     async fn begin_transaction(&mut self) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        log::debug!(
+            "KafkaDataReader: Begin transaction (consumer side - preparing for exactly-once)"
+        );
         Ok(true)
     }
 
     async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+        log::debug!("KafkaDataReader: Commit transaction requested - committing consumer offsets");
         self.commit().await
     }
 

@@ -8,10 +8,13 @@
 use super::capture::{CaptureConfig, SinkCapture};
 use super::config_override::ConfigOverrides;
 use super::error::{TestHarnessError, TestHarnessResult};
+use super::file_io::{FileSinkFactory, FileSourceFactory};
 use super::generator::SchemaDataGenerator;
 use super::infra::TestHarnessInfra;
 use super::schema::SchemaRegistry;
-use super::spec::{InputConfig, QueryTest, TimeSimulationConfig};
+use super::spec::{
+    FileFormat, InputConfig, OutputConfig, QueryTest, SinkType, SourceType, TimeSimulationConfig,
+};
 use super::stress::MemoryTracker;
 use crate::velostream::kafka::kafka_fast_producer::PolledProducer;
 use crate::velostream::server::config::StreamJobServerConfig;
@@ -52,6 +55,9 @@ pub struct QueryExecutor {
 
     /// Parsed queries from SQL file (query_name -> ParsedQuery)
     parsed_queries: HashMap<String, ParsedQuery>,
+
+    /// Parsed queries in SQL file order (preserves statement order from source file)
+    parsed_queries_ordered: Vec<ParsedQuery>,
 
     /// Global source name -> topic name mapping (aggregated from all parsed queries)
     /// Used to resolve the actual Kafka topic when publishing test data
@@ -121,6 +127,7 @@ impl QueryExecutor {
             schema_registry: SchemaRegistry::new(),
             generator: SchemaDataGenerator::new(None),
             parsed_queries: HashMap::new(),
+            parsed_queries_ordered: Vec::new(),
             source_topics: HashMap::new(),
         }
     }
@@ -147,11 +154,12 @@ impl QueryExecutor {
                 })?;
 
         let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
-        let mut config = StreamJobServerConfig::new(
-            bootstrap_servers.to_string(),
-            format!("test-harness-{}", run_id),
-        )
-        .with_max_jobs(10);
+        let group_id =
+            crate::velostream::datasource::kafka::config_helpers::generate_test_harness_group_id(
+                &run_id, None,
+            );
+        let mut config =
+            StreamJobServerConfig::new(bootstrap_servers.to_string(), group_id).with_max_jobs(10);
 
         // Set base_dir for resolving relative config file paths in SQL
         if let Some(dir) = base_dir {
@@ -191,6 +199,20 @@ impl QueryExecutor {
         self
     }
 
+    /// List all jobs from the StreamJobServer
+    ///
+    /// Returns job summaries for all deployed jobs, including those that are
+    /// running, stopped, or completed.
+    pub async fn list_server_jobs(
+        &self,
+    ) -> Vec<crate::velostream::server::stream_job_server::JobSummary> {
+        if let Some(ref server) = self.server {
+            server.list_jobs().await
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Stop the executor and cleanup infrastructure
     ///
     /// This method MUST be called before program exit to ensure proper cleanup
@@ -223,6 +245,9 @@ impl QueryExecutor {
 
         // Parse SQL to extract queries
         let parsed_queries = self.parse_sql(&sql_content, sql_file)?;
+
+        // Store queries in order (preserves SQL file statement order)
+        self.parsed_queries_ordered = parsed_queries.clone();
 
         // Store parsed queries and build global source_topics mapping
         for parsed in parsed_queries.iter() {
@@ -377,11 +402,50 @@ impl QueryExecutor {
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
-        // Step 3: Capture outputs from sink topic
+        // Step 3: Capture outputs from sink (Kafka topic or file)
         memory_tracker.sample();
         let mut captured_outputs = Vec::new();
 
-        if let Some(bootstrap_servers) = self.infra.bootstrap_servers() {
+        // Check if output is configured as a file sink
+        let file_sink_config =
+            query
+                .output
+                .as_ref()
+                .map(|o| &o.sink_type)
+                .and_then(|st| match st {
+                    SinkType::File { path, format } => Some((path.clone(), format.clone())),
+                    SinkType::Kafka { .. } => None,
+                });
+
+        if let Some((file_path, file_format)) = file_sink_config {
+            // Capture from file sink
+            log::info!(
+                "Capturing output from file sink: {} (format: {:?})",
+                file_path,
+                file_format
+            );
+
+            match self
+                .capture_file_output(&query.name, &file_path, &file_format)
+                .await
+            {
+                Ok(mut output) => {
+                    memory_tracker.sample();
+                    output.memory_peak_bytes = memory_tracker.peak_memory();
+                    if let (Some(start_mem), Some(current_mem)) = (
+                        memory_tracker.start_memory(),
+                        memory_tracker.current_memory(),
+                    ) {
+                        output.memory_growth_bytes = Some(current_mem as i64 - start_mem as i64);
+                    }
+                    captured_outputs.push(output);
+                }
+                Err(e) => {
+                    log::warn!("Failed to capture from file '{}': {}", file_path, e);
+                }
+            }
+        } else if let Some(bootstrap_servers) = self.infra.bootstrap_servers() {
+            // Capture from Kafka topic (default)
             let capture = SinkCapture::new(bootstrap_servers).with_config(CaptureConfig {
                 timeout: self.timeout,
                 min_records: 0,
@@ -493,9 +557,10 @@ impl QueryExecutor {
     /// Publish input data for a query
     async fn publish_input_data(&mut self, input: &InputConfig) -> TestHarnessResult<()> {
         log::info!(
-            "Publishing input data for source: {} (schema: {:?})",
+            "Publishing input data for source: {} (schema: {:?}, source_type: {:?})",
             input.source,
-            input.schema
+            input.schema,
+            input.source_type
         );
 
         // Check if we should use previous query output
@@ -505,7 +570,23 @@ impl QueryExecutor {
                 .await;
         }
 
-        // Generate data from schema
+        // Check if input is from a file source
+        if let Some(SourceType::File { path, format, .. }) = &input.source_type {
+            return self
+                .load_from_file_source(&input.source, path, format)
+                .await;
+        }
+
+        // Check for shorthand data_file configuration (convenience for file sources)
+        if let Some(ref data_file) = input.data_file {
+            // Infer format from file extension
+            let format = infer_file_format(data_file);
+            return self
+                .load_from_file_source(&input.source, data_file, &format)
+                .await;
+        }
+
+        // Generate data from schema (default Kafka source behavior)
         let schema_name = input.schema.as_deref().unwrap_or(&input.source);
         let schema = self.schema_registry.get(schema_name).ok_or_else(|| {
             TestHarnessError::SchemaParseError {
@@ -567,6 +648,138 @@ impl QueryExecutor {
         log::info!("Published {} records to topic '{}'", records.len(), topic);
 
         Ok(())
+    }
+
+    /// Load input data from a file source and publish to Kafka
+    async fn load_from_file_source(
+        &self,
+        source: &str,
+        path: &str,
+        format: &FileFormat,
+    ) -> TestHarnessResult<()> {
+        log::info!(
+            "Loading input data from file source: {} (path: {}, format: {:?})",
+            source,
+            path,
+            format
+        );
+
+        // Resolve the file path (relative to current directory)
+        let file_path = Path::new(path);
+        let full_path = if file_path.is_absolute() {
+            file_path.to_path_buf()
+        } else {
+            std::env::current_dir().unwrap_or_default().join(file_path)
+        };
+
+        // Load records from file
+        let stream_records = FileSourceFactory::load_records(&full_path, format)?;
+
+        log::info!(
+            "Loaded {} records from file '{}'",
+            stream_records.len(),
+            full_path.display()
+        );
+
+        // Convert StreamRecord to HashMap<String, FieldValue> for publishing
+        let records: Vec<HashMap<String, FieldValue>> =
+            stream_records.into_iter().map(|sr| sr.fields).collect();
+
+        // Resolve topic: use source_topics mapping from SQL analysis
+        let topic = self
+            .source_topics
+            .get(source)
+            .cloned()
+            .unwrap_or_else(|| source.to_string());
+
+        log::info!(
+            "Publishing {} records from file to topic '{}' (source: '{}')",
+            records.len(),
+            topic,
+            source
+        );
+
+        // Publish records to Kafka
+        self.publish_records(&topic, &records).await?;
+
+        log::info!(
+            "Published {} records from file '{}' to topic '{}'",
+            records.len(),
+            path,
+            topic
+        );
+
+        Ok(())
+    }
+
+    /// Capture output from a file sink
+    async fn capture_file_output(
+        &self,
+        query_name: &str,
+        path: &str,
+        format: &FileFormat,
+    ) -> TestHarnessResult<CapturedOutput> {
+        let start = std::time::Instant::now();
+
+        log::info!(
+            "Capturing output from file sink: {} (format: {:?})",
+            path,
+            format
+        );
+
+        // Resolve the file path
+        let file_path = Path::new(path);
+        let full_path = if file_path.is_absolute() {
+            file_path.to_path_buf()
+        } else {
+            // Try to resolve relative to temp directory if available
+            self.infra
+                .temp_file_path(path)
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().join(file_path))
+        };
+
+        // Wait for file to exist (with timeout)
+        let wait_timeout = Duration::from_secs(10);
+        let wait_start = std::time::Instant::now();
+        while !full_path.exists() && wait_start.elapsed() < wait_timeout {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        if !full_path.exists() {
+            return Err(TestHarnessError::CaptureError {
+                message: format!("File not found after {:?} timeout", wait_timeout),
+                sink_name: path.to_string(),
+                source: None,
+            });
+        }
+
+        // Load records from file
+        let stream_records = FileSinkFactory::read_output(&full_path, format)?;
+
+        log::info!(
+            "Captured {} records from file '{}'",
+            stream_records.len(),
+            full_path.display()
+        );
+
+        // Convert StreamRecord to HashMap<String, FieldValue>
+        let records: Vec<HashMap<String, FieldValue>> =
+            stream_records.into_iter().map(|sr| sr.fields).collect();
+
+        let record_count = records.len();
+        let execution_time_ms = start.elapsed().as_millis() as u64;
+
+        Ok(CapturedOutput {
+            query_name: query_name.to_string(),
+            sink_name: path.to_string(),
+            topic: None, // File sink, not Kafka
+            records,
+            message_keys: vec![None; record_count], // Files don't have message keys
+            execution_time_ms,
+            warnings: Vec::new(),
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
+        })
     }
 
     /// Publish records from previous query output
@@ -631,8 +844,16 @@ impl QueryExecutor {
                 }
             })?;
 
+            // Extract event_time from record and set as Kafka message timestamp
+            // This ensures _TIMESTAMP (Kafka message time) matches the event_time in the data
+            // which is critical for windowed queries to work correctly
+            let kafka_timestamp = Self::extract_event_time_ms(record);
+
             // Non-blocking send - the poll thread handles delivery callbacks
-            let base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            if let Some(ts) = kafka_timestamp {
+                base_record = base_record.timestamp(ts);
+            }
             if let Err((e, _)) = producer.send(base_record) {
                 return Err(TestHarnessError::ExecutionError {
                     message: format!("Failed to queue message for topic '{}': {}", topic, e),
@@ -704,8 +925,16 @@ impl QueryExecutor {
                 }
             })?;
 
+            // Extract event_time from record and set as Kafka message timestamp
+            // This ensures _TIMESTAMP (Kafka message time) matches the simulated event_time
+            // which is critical for windowed queries to work correctly with time simulation
+            let kafka_timestamp = Self::extract_event_time_ms(record);
+
             // Non-blocking send - the poll thread handles delivery callbacks
-            let base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            if let Some(ts) = kafka_timestamp {
+                base_record = base_record.timestamp(ts);
+            }
             if let Err((e, _)) = producer.send(base_record) {
                 return Err(TestHarnessError::ExecutionError {
                     message: format!("Failed to queue message for topic '{}': {}", topic, e),
@@ -868,6 +1097,45 @@ impl QueryExecutor {
     /// Get all captured outputs
     pub fn all_outputs(&self) -> &HashMap<String, CapturedOutput> {
         &self.outputs
+    }
+
+    /// Get parsed queries
+    pub fn parsed_queries(&self) -> &HashMap<String, ParsedQuery> {
+        &self.parsed_queries
+    }
+
+    /// Get parsed queries in SQL file order (preserves statement order)
+    pub fn parsed_queries_ordered(&self) -> &[ParsedQuery] {
+        &self.parsed_queries_ordered
+    }
+
+    /// Extract event_time from a record and convert to milliseconds since epoch.
+    ///
+    /// Looks for common timestamp field names: event_time, timestamp, time, created_at.
+    /// Returns None if no timestamp field is found (Kafka will use current time).
+    ///
+    /// This is critical for time simulation - we need to set the Kafka message timestamp
+    /// to match the simulated event_time so that windows work correctly.
+    fn extract_event_time_ms(record: &HashMap<String, FieldValue>) -> Option<i64> {
+        // Try common timestamp field names in priority order
+        const TIMESTAMP_FIELDS: &[&str] = &["event_time", "timestamp", "time", "created_at"];
+
+        for field_name in TIMESTAMP_FIELDS {
+            if let Some(value) = record.get(*field_name) {
+                match value {
+                    FieldValue::Timestamp(dt) => {
+                        return Some(dt.and_utc().timestamp_millis());
+                    }
+                    FieldValue::Integer(ms) => {
+                        // Assume milliseconds since epoch
+                        return Some(*ms);
+                    }
+                    _ => continue,
+                }
+            }
+        }
+
+        None
     }
 }
 
@@ -1084,9 +1352,73 @@ fn field_value_to_json(value: &FieldValue) -> serde_json::Value {
     }
 }
 
+/// Infer file format from file extension
+fn infer_file_format(path: &str) -> FileFormat {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".csv") {
+        FileFormat::Csv
+    } else if lower.ends_with(".jsonl") || lower.ends_with(".ndjson") {
+        FileFormat::JsonLines
+    } else if lower.ends_with(".json") {
+        FileFormat::Json
+    } else {
+        // Default to JSON Lines for unknown extensions
+        log::warn!(
+            "Unknown file extension for '{}', defaulting to JSON Lines format",
+            path
+        );
+        FileFormat::JsonLines
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_infer_file_format_csv() {
+        assert!(matches!(infer_file_format("data.csv"), FileFormat::Csv));
+        assert!(matches!(infer_file_format("data.CSV"), FileFormat::Csv));
+        assert!(matches!(
+            infer_file_format("/path/to/data.csv"),
+            FileFormat::Csv
+        ));
+    }
+
+    #[test]
+    fn test_infer_file_format_json() {
+        assert!(matches!(infer_file_format("data.json"), FileFormat::Json));
+        assert!(matches!(infer_file_format("data.JSON"), FileFormat::Json));
+    }
+
+    #[test]
+    fn test_infer_file_format_jsonl() {
+        assert!(matches!(
+            infer_file_format("data.jsonl"),
+            FileFormat::JsonLines
+        ));
+        assert!(matches!(
+            infer_file_format("data.ndjson"),
+            FileFormat::JsonLines
+        ));
+        assert!(matches!(
+            infer_file_format("data.NDJSON"),
+            FileFormat::JsonLines
+        ));
+    }
+
+    #[test]
+    fn test_infer_file_format_unknown() {
+        // Unknown extensions default to JSON Lines
+        assert!(matches!(
+            infer_file_format("data.txt"),
+            FileFormat::JsonLines
+        ));
+        assert!(matches!(
+            infer_file_format("data.parquet"),
+            FileFormat::JsonLines
+        ));
+    }
 
     #[test]
     fn test_extract_stream_name() {

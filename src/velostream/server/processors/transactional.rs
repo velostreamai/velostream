@@ -437,7 +437,23 @@ impl TransactionalJobProcessor {
         writer_supports_tx: bool,
         stats: &mut JobExecutionStats,
     ) -> DataSourceResult<bool> {
-        // Step 1: Begin transactions if supported
+        // Step 1: Read batch from datasource FIRST (before starting transactions)
+        // This avoids unnecessary begin/abort cycles for empty batches
+        let batch_start = Instant::now();
+        let deser_start = Instant::now();
+        let batch = reader.read().await?;
+        let deser_elapsed = deser_start.elapsed();
+        let deser_duration = deser_elapsed.as_millis() as u64;
+
+        // Accumulate read time for final stats breakdown
+        stats.add_read_time(deser_elapsed);
+
+        if batch.is_empty() {
+            // No data available - no need to start or abort transactions
+            return Ok(true); // Signal empty batch to caller
+        }
+
+        // Step 2: Begin transactions only when we have data to process
         let reader_tx_active = if reader_supports_tx {
             match reader.begin_transaction().await? {
                 true => {
@@ -477,23 +493,6 @@ impl TransactionalJobProcessor {
         } else {
             false
         };
-
-        // Step 2: Read batch from datasource (with deserialization telemetry)
-        let batch_start = Instant::now();
-        let deser_start = Instant::now();
-        let batch = reader.read().await?;
-        let deser_elapsed = deser_start.elapsed();
-        let deser_duration = deser_elapsed.as_millis() as u64;
-
-        // Accumulate read time for final stats breakdown
-        stats.add_read_time(deser_elapsed);
-
-        if batch.is_empty() {
-            // No data available - abort any active transactions and return
-            self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
-                .await?;
-            return Ok(true); // Signal empty batch to caller
-        }
 
         // Create batch span with trace extraction from first record
         let mut batch_span_guard = ObservabilityHelper::start_batch_span(
@@ -1640,7 +1639,7 @@ impl TransactionalJobProcessor {
 
 /// Implement JobProcessor trait for TransactionalJobProcessor (V1 Architecture)
 #[async_trait::async_trait]
-impl crate::velostream::server::processors::JobProcessor for TransactionalJobProcessor {
+impl JobProcessor for TransactionalJobProcessor {
     fn num_partitions(&self) -> usize {
         1 // V1 uses single-threaded, single partition
     }
@@ -1669,10 +1668,10 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
 
     async fn process_job(
         &self,
-        reader: Box<dyn crate::velostream::datasource::DataReader>,
-        writer: Option<Box<dyn crate::velostream::datasource::DataWriter>>,
-        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
-        query: crate::velostream::sql::StreamingQuery,
+        reader: Box<dyn DataReader>,
+        writer: Option<Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
         shared_stats: Option<SharedJobStats>,
@@ -1682,12 +1681,12 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
         TransactionalJobProcessor::process_multi_job(
             self,
             {
-                let mut readers = std::collections::HashMap::new();
+                let mut readers = HashMap::new();
                 readers.insert("default_reader".to_string(), reader);
                 readers
             },
             {
-                let mut writers = std::collections::HashMap::new();
+                let mut writers = HashMap::new();
                 if let Some(w) = writer {
                     writers.insert("default_writer".to_string(), w);
                 }
@@ -1704,16 +1703,10 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
 
     async fn process_multi_job(
         &self,
-        readers: std::collections::HashMap<
-            String,
-            Box<dyn crate::velostream::datasource::DataReader>,
-        >,
-        writers: std::collections::HashMap<
-            String,
-            Box<dyn crate::velostream::datasource::DataWriter>,
-        >,
-        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
-        query: crate::velostream::sql::StreamingQuery,
+        readers: HashMap<String, Box<dyn DataReader>>,
+        writers: HashMap<String, Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
         shared_stats: Option<SharedJobStats>,

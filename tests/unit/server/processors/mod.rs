@@ -12,6 +12,7 @@ pub mod profiling_helper_test;
 pub mod scenario_4_tumbling_hang_test;
 pub mod simple_dlq_test;
 pub mod sql_engine_partition_batching_test;
+pub mod transactional_kafka_config_test;
 pub mod transactional_multi_source_sink_write_test;
 pub mod window_adapter_instrumentation_test;
 pub mod window_adapter_profiling_test;

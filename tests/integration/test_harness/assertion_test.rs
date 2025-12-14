@@ -35,7 +35,8 @@ fn test_assertion_runner_record_count() {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
         topic: Some("test_output".to_string()),
-        records,
+        records: records.clone(),
+        message_keys: vec![None; records.len()],
         execution_time_ms: 1000,
         warnings: Vec::new(),
         memory_peak_bytes: None,
@@ -109,7 +110,8 @@ fn test_assertion_runner_schema_contains() {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
         topic: Some("test_output".to_string()),
-        records,
+        records: records.clone(),
+        message_keys: vec![None; records.len()],
         execution_time_ms: 100,
         warnings: Vec::new(),
         memory_peak_bytes: None,
@@ -125,6 +127,7 @@ fn test_assertion_runner_schema_contains() {
             "price".to_string(),
             "volume".to_string(),
         ],
+        key_field: None,
     });
 
     let results = runner.run_assertions(&output, &[pass_assertion]);
@@ -137,6 +140,7 @@ fn test_assertion_runner_schema_contains() {
     // Test schema contains - should fail (missing field)
     let fail_assertion = AssertionConfig::SchemaContains(SchemaContainsAssertion {
         fields: vec!["symbol".to_string(), "nonexistent_field".to_string()],
+        key_field: None,
     });
 
     let results = runner.run_assertions(&output, &[fail_assertion]);
@@ -167,7 +171,8 @@ fn test_assertion_runner_no_nulls() {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
         topic: Some("test_output".to_string()),
-        records,
+        records: records.clone(),
+        message_keys: vec![None; records.len()],
         execution_time_ms: 100,
         warnings: Vec::new(),
         memory_peak_bytes: None,

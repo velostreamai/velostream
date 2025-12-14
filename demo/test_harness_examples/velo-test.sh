@@ -315,25 +315,87 @@ show_cases_menu() {
         done
     fi
 
-    # Step 3: Find test_spec.yaml in the SQL file's directory (or parent)
+    # Step 3: Find matching spec file for the SQL file
     sql_dir="$(dirname "$selected_sql")"
-    spec_file="$sql_dir/test_spec.yaml"
+    sql_basename="$(basename "$selected_sql" .sql)"
+    local parent_dir="$(dirname "$sql_dir")"
+    spec_file=""
 
-    # Check parent directory if not found (for sql/ subdirectory structure)
-    if [[ ! -f "$spec_file" ]]; then
-        spec_file="$(dirname "$sql_dir")/test_spec.yaml"
+    # Priority 1: Look for <sql_basename>_spec.yaml in parent dir (e.g., debug_demo_spec.yaml)
+    if [[ -f "$parent_dir/${sql_basename}_spec.yaml" ]]; then
+        spec_file="$parent_dir/${sql_basename}_spec.yaml"
+    # Priority 2: Look for <sql_basename>.spec.yaml in parent dir
+    elif [[ -f "$parent_dir/${sql_basename}.spec.yaml" ]]; then
+        spec_file="$parent_dir/${sql_basename}.spec.yaml"
+    # Priority 3: Look for spec with matching application: field
+    elif [[ -z "$spec_file" ]]; then
+        for candidate in "$parent_dir"/*spec*.yaml "$sql_dir"/*spec*.yaml "$search_dir"/*spec*.yaml; do
+            if [[ -f "$candidate" ]]; then
+                local app_name=$(grep -E "^application:" "$candidate" 2>/dev/null | sed 's/application:[[:space:]]*//' | tr -d '\r')
+                if [[ "$app_name" == "$sql_basename" ]]; then
+                    spec_file="$candidate"
+                    break
+                fi
+            fi
+        done
     fi
 
-    # Also check current search directory as fallback
-    if [[ ! -f "$spec_file" ]]; then
-        spec_file="$search_dir/test_spec.yaml"
-    fi
-
-    if [[ ! -f "$spec_file" ]]; then
-        echo -e "${YELLOW}No test_spec.yaml found - running SQL directly${NC}"
+    # No matching spec found - offer options instead of wrong fallback
+    if [[ -z "$spec_file" || ! -f "$spec_file" ]]; then
+        echo -e "${YELLOW}No matching spec file for $(basename "$selected_sql")${NC}"
         echo ""
-        run_sql_file "$selected_sql"
-        return $?
+        echo -e "  ${CYAN}1)${NC} Run without assertions (just execute SQL)"
+        echo -e "  ${CYAN}2)${NC} Debug interactively (step-by-step)"
+        echo -e "  ${CYAN}0)${NC} Go back"
+        echo ""
+
+        while true; do
+            echo -n -e "${GREEN}Choose option [1-2, 0]: ${NC}"
+            read -r choice
+
+            case "$choice" in
+                1)
+                    echo ""
+                    run_sql_file "$selected_sql"
+                    return $?
+                    ;;
+                2)
+                    echo ""
+                    echo -e "${CYAN}Starting interactive debugger...${NC}"
+                    # Build debug command with optional spec for data generation
+                    local debug_opts=""
+
+                    # Check if there's a spec file for data generation
+                    local debug_spec="${parent_dir}/${sql_basename}_spec.yaml"
+                    if [[ -f "$debug_spec" ]]; then
+                        debug_opts="--spec $debug_spec"
+                        # Add schemas directory
+                        local schemas_dir="$parent_dir/schemas"
+                        if [[ ! -d "$schemas_dir" ]]; then
+                            schemas_dir="$SCRIPT_DIR/schemas"
+                        fi
+                        if [[ -d "$schemas_dir" ]]; then
+                            debug_opts="$debug_opts --schemas $schemas_dir"
+                        fi
+                        echo -e "${BLUE}Using spec for data generation: $debug_spec${NC}"
+                    fi
+
+                    # Add kafka option if external
+                    if [[ -n "$KAFKA_SERVERS" ]]; then
+                        debug_opts="$debug_opts --kafka $KAFKA_SERVERS"
+                    fi
+
+                    "$VELO_TEST" debug "$selected_sql" $debug_opts
+                    return $?
+                    ;;
+                0|q|Q)
+                    return 0
+                    ;;
+                *)
+                    echo -e "${RED}Invalid choice${NC}"
+                    ;;
+            esac
+        done
     fi
 
     echo -e "${BLUE}Using spec: $spec_file${NC}"
@@ -363,11 +425,12 @@ show_cases_menu() {
 
     echo ""
     echo -e "  ${CYAN}a)${NC} Run ALL test cases"
+    echo -e "  ${CYAN}d)${NC} Debug interactively (step-by-step)"
     echo -e "  ${CYAN}0)${NC} Exit"
     echo ""
 
     while true; do
-        echo -n -e "${GREEN}Enter test case [1-${#test_cases[@]}, a, 0]: ${NC}"
+        echo -n -e "${GREEN}Enter test case [1-${#test_cases[@]}, a, d, 0]: ${NC}"
         read -r selection
 
         if [[ "$selection" == "0" || "$selection" == "q" || "$selection" == "Q" ]]; then
@@ -381,6 +444,27 @@ show_cases_menu() {
             QUERY_FILTER=""
             QUERY_OPTS=""
             run_sql_with_spec "$selected_sql" "$spec_file" "$(dirname "$spec_file")"
+            return $?
+        fi
+
+        if [[ "$selection" == "d" || "$selection" == "D" ]]; then
+            echo ""
+            echo -e "${CYAN}Starting interactive debugger...${NC}"
+            # Build debug command with spec for data generation
+            local debug_opts="--spec $spec_file"
+            local schemas_dir="$(dirname "$spec_file")/schemas"
+            if [[ ! -d "$schemas_dir" ]]; then
+                schemas_dir="$SCRIPT_DIR/schemas"
+            fi
+            if [[ -d "$schemas_dir" ]]; then
+                debug_opts="$debug_opts --schemas $schemas_dir"
+            fi
+            # Add kafka option if external
+            if [[ -n "$KAFKA_SERVERS" ]]; then
+                debug_opts="$debug_opts --kafka $KAFKA_SERVERS"
+            fi
+            echo -e "${BLUE}Using spec for data generation: $spec_file${NC}"
+            "$VELO_TEST" debug "$selected_sql" $debug_opts
             return $?
         fi
 

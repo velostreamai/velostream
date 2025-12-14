@@ -99,6 +99,7 @@ impl SpecGenerator {
             description: Some("Auto-generated test specification".to_string()),
             default_timeout_ms: self.default_timeout_ms,
             default_records: self.default_record_count,
+            topic_naming: None,
             config: HashMap::new(),
             queries,
         })

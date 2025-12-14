@@ -797,11 +797,19 @@ impl StreamJobServer {
             // Extract job processing configuration EARLY - before creating sources/sinks
             // This allows us to configure transactional.id and isolation.level appropriately
             let job_config = Self::extract_job_config_from_query(&parsed_query);
-            let use_transactions = job_config.use_transactions;
+
+            // Determine use_transactions from both WITH clause properties AND @job_mode annotation
+            // The @job_mode: transactional annotation should enable transactions even without
+            // explicit WITH ('mode' = 'transactional') property
+            let use_transactions = job_config.use_transactions
+                || matches!(
+                    processor_config_for_spawn,
+                    JobProcessorConfig::Transactional
+                );
 
             info!(
-                "Job '{}' transactional mode: {} (will configure sources/sinks accordingly)",
-                job_name, use_transactions
+                "Job '{}' transactional mode: {} (config: {}, processor: {:?})",
+                job_name, use_transactions, job_config.use_transactions, processor_config_for_spawn
             );
 
             // Use multi-source processing for all jobs (handles single-source as special case)
@@ -828,6 +836,25 @@ impl StreamJobServer {
                     // Create all sinks
                     // Thread app_name and instance_id for hierarchical client.id generation
                     // Thread use_transactions for transactional.id injection
+                    log::debug!(
+                        "Job '{}': Creating sinks. Required sinks count: {}, use_transactions: {}",
+                        job_name,
+                        analysis.required_sinks.len(),
+                        use_transactions
+                    );
+                    for (i, sink) in analysis.required_sinks.iter().enumerate() {
+                        log::debug!(
+                            "Job '{}': Sink[{}] name='{}', type={:?}, props_count={}",
+                            job_name,
+                            i,
+                            sink.name,
+                            sink.sink_type,
+                            sink.properties.len()
+                        );
+                        for (k, v) in &sink.properties {
+                            log::debug!("Job '{}': Sink[{}] property: {} = {}", job_name, i, k, v);
+                        }
+                    }
                     match create_multi_sink_writers(
                         &analysis.required_sinks,
                         &job_name,
@@ -844,12 +871,18 @@ impl StreamJobServer {
                                 job_name,
                                 writers.len()
                             );
+                            log::debug!(
+                                "Job '{}': Writers map keys: {:?}",
+                                job_name,
+                                writers.keys().collect::<Vec<_>>()
+                            );
 
                             // Add stdout as fallback if no sinks were created
                             if writers.is_empty() {
-                                info!(
-                                    "Job '{}' no sinks created, adding stdout as default",
-                                    job_name
+                                log::warn!(
+                                    "Job '{}': STDOUT FALLBACK - No sinks were successfully created, adding stdout as default. Required sinks: {}",
+                                    job_name,
+                                    analysis.required_sinks.len()
                                 );
                                 writers.insert(
                                     "stdout_default".to_string(),

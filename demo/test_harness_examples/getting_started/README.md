@@ -51,14 +51,95 @@ export PATH="$PATH:$(pwd)/target/release"
 
 ## Files
 
-| File | Description |
-|------|-------------|
-| `sql/market_aggregation.sql` | Main demo - aggregates market data into OHLCV bars |
-| `sql/simple_passthrough.sql` | Simple passthrough for basic pipeline testing |
-| `schemas/market_data.schema.yaml` | Schema for generating test data |
-| `test_spec.yaml` | Test specification for market_aggregation.sql |
+| File | Purpose | How to Run |
+|------|---------|------------|
+| `sql/market_aggregation.sql` | Automated testing demo | `test_spec.yaml` |
+| `sql/debug_demo.sql` | Interactive debugging demo | `velo-test debug` |
+| `sql/simple_passthrough.sql` | Simple passthrough example | Run without spec |
+| `schemas/market_data.schema.yaml` | Schema for generating test data | |
 
-> **Note**: The `test_spec.yaml` is configured for `market_aggregation.sql`. When using `velo-test.sh`, it will use the first SQL file found in the directory.
+### Using velo-test.sh Interactive Mode
+
+```bash
+# Interactive mode - select SQL file, then action
+../velo-test.sh cases .
+
+# Example flow for debug_demo.sql:
+# Step 1: Select SQL file to run:
+#   1) sql/debug_demo.sql
+#   2) sql/market_aggregation.sql
+# Enter SQL file [1-3]: 1
+#
+# No matching spec file for debug_demo.sql
+#   1) Run without assertions (just execute SQL)
+#   2) Debug interactively (step-by-step)    ← Select this!
+# Choose option [1-2, 0]: 2
+# Starting interactive debugger...
+```
+
+### Direct velo-test Commands
+
+```bash
+# Market aggregation - automated testing with spec
+velo-test run sql/market_aggregation.sql --spec test_spec.yaml --schemas schemas/
+
+# Debug demo - interactive step-by-step debugging
+velo-test debug sql/debug_demo.sql
+
+# Simple passthrough - just run without assertions
+velo-test run sql/simple_passthrough.sql --schemas schemas/
+```
+
+## Step-by-Step Debugging Demo
+
+The `sql/debug_demo.sql` is a 3-stage pipeline perfect for learning the debugger:
+
+```bash
+# Validate the demo
+velo-test validate sql/debug_demo.sql
+
+# Debug interactively (requires Docker for Kafka)
+velo-test debug sql/debug_demo.sql
+
+# Set a breakpoint on the aggregation stage
+velo-test debug sql/debug_demo.sql -b symbol_aggregates
+```
+
+**Debug Commands:**
+- `s` / `step` - Execute next statement
+- `c` / `continue` - Run until next breakpoint
+- `r` / `run` - Run all remaining statements
+- `b <name>` / `break` - Set breakpoint on statement
+- `u <name>` / `unbreak` - Remove breakpoint
+- `cb` / `clear` - Clear all breakpoints
+- `l` / `list` - List all statements
+- `i <name>` / `inspect` - Inspect output from statement
+- `ia` / `inspect-all` - Inspect all captured outputs
+- `hi` / `history` - Show command history
+- `st` / `status` - Show current state
+- `q` / `quit` - Exit debugger
+
+**Example session:**
+```
+🐛 Velostream SQL Debugger
+════════════════════════════════════════
+SQL File: sql/debug_demo.sql
+
+📝 SQL Statements:
+   [1] high_value_trades (CREATE STREAM)
+   [2] symbol_aggregates (CREATE TABLE)
+   [3] flagged_symbols (CREATE STREAM)
+
+▶️  Ready to execute [1/3] high_value_trades
+(debug) s
+   ✅ high_value_trades completed in 156ms
+      Output: 8 records to high_value_trades
+
+▶️  Ready to execute [2/3] symbol_aggregates
+(debug) s
+   ✅ symbol_aggregates completed in 203ms
+      Output: 3 records to symbol_aggregates
+```
 
 ## What This Demo Tests
 

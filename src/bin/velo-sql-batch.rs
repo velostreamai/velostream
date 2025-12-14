@@ -282,6 +282,20 @@ async fn generate_sample_data_for_query(
 // Note: convert_field_to_internal function removed as part of StreamRecord optimization
 // No longer needed since we use StreamRecord directly without conversions
 
+/// Build information constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_TIME: &str = env!("BUILD_TIME");
+const GIT_HASH: &str = env!("GIT_HASH");
+const GIT_BRANCH: &str = env!("GIT_BRANCH");
+
+/// Print version and build information
+fn print_version_info() {
+    println!(
+        "velo-sql-batch v{} ({} @ {}) built {}",
+        VERSION, GIT_HASH, GIT_BRANCH, BUILD_TIME
+    );
+}
+
 #[tokio::main]
 async fn main() -> VeloResult<()> {
     let cli = Cli::parse();
@@ -289,6 +303,10 @@ async fn main() -> VeloResult<()> {
     // Initialize logging based on verbosity
     let log_level = if cli.verbose { "debug" } else { "info" };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
+
+    // Print version info at startup
+    print_version_info();
+    println!();
 
     info!("🚀 SQL Batch Execution Starting");
     info!("  📄 File: {}", cli.file);

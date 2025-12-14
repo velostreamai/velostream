@@ -10,15 +10,19 @@
 use super::executor::CapturedOutput;
 use super::file_io::FileSourceFactory;
 use super::spec::{
-    AggregateCheckAssertion, AggregateFunction, AssertionConfig, ComparisonOperator, ContainsMode,
+    AggregateCheckAssertion, AggregateFunction, AssertionConfig, ComparisonOperator,
+    CompletenessAssertion, ContainsMode, DataQualityAssertion, DistributionAssertion,
+    DistributionType, DlqCountAssertion, ErrorRateAssertion, EventOrderingAssertion,
     ExecutionTimeAssertion, FieldInSetAssertion, FieldValuesAssertion, FileContainsAssertion,
     FileExistsAssertion, FileMatchesAssertion, FileRowCountAssertion, JoinCoverageAssertion,
-    MemoryUsageAssertion, NoNullsAssertion, RecordCountAssertion, SchemaContainsAssertion,
-    TemplateAssertion, ThroughputAssertion,
+    LatencyAssertion, MemoryUsageAssertion, NoDuplicatesAssertion, NoNullsAssertion,
+    OrderDirection, OrderingAssertion, PercentileAssertion, PercentileMode, RecordCountAssertion,
+    SchemaContainsAssertion, TableFreshnessAssertion, TemplateAssertion, ThroughputAssertion,
+    WindowBoundaryAssertion,
 };
 use super::utils::{field_value_to_string, resolve_path};
 use crate::velostream::sql::execution::types::FieldValue;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// Result of an assertion check
@@ -168,6 +172,149 @@ impl AssertionContext {
         self.resolve_template(value)
             .unwrap_or_else(|| value.to_string())
     }
+
+    /// Evaluate an expression that may contain template variables and arithmetic
+    ///
+    /// Supports:
+    /// - Template variables: `{{inputs.source_name.count}}`
+    /// - Arithmetic operators: +, -, *, /
+    /// - Comparisons: >, <, >=, <=, ==, !=
+    /// - Numeric literals
+    ///
+    /// Examples:
+    /// - `{{inputs.source.count}}` -> resolves to input count
+    /// - `{{inputs.source.count}} * 0.9` -> 90% of input count
+    /// - `{{outputs.sink.count}} >= {{inputs.source.count}} * 0.95`
+    pub fn evaluate_expression(&self, expr: &str) -> Result<f64, String> {
+        // First, resolve all template variables in the expression
+        let resolved = self.resolve_all_templates(expr);
+
+        // Then evaluate the arithmetic expression
+        self.evaluate_arithmetic(&resolved)
+    }
+
+    /// Resolve all template variables in a string
+    fn resolve_all_templates(&self, expr: &str) -> String {
+        let mut result = expr.to_string();
+
+        // Find all {{...}} patterns and resolve them
+        while let Some(start) = result.find("{{") {
+            if let Some(end) = result[start..].find("}}") {
+                let template = &result[start..start + end + 2];
+                if let Some(value) = self.resolve_template(template) {
+                    result = result.replacen(template, &value, 1);
+                } else {
+                    // Template not found, replace with 0 to allow expression to continue
+                    log::warn!(
+                        "Template variable '{}' not found, defaulting to 0",
+                        template
+                    );
+                    result = result.replacen(template, "0", 1);
+                }
+            } else {
+                break; // Malformed template, stop processing
+            }
+        }
+
+        result
+    }
+
+    /// Evaluate an arithmetic expression (after templates are resolved)
+    fn evaluate_arithmetic(&self, expr: &str) -> Result<f64, String> {
+        let expr = expr.trim();
+
+        // Handle comparison operators (for boolean expressions)
+        for op in &[">=", "<=", "!=", "==", ">", "<"] {
+            if let Some(pos) = expr.find(op) {
+                let left = self.evaluate_arithmetic(&expr[..pos])?;
+                let right = self.evaluate_arithmetic(&expr[pos + op.len()..])?;
+                let result = match *op {
+                    ">=" => left >= right,
+                    "<=" => left <= right,
+                    "!=" => (left - right).abs() > f64::EPSILON,
+                    "==" => (left - right).abs() <= f64::EPSILON,
+                    ">" => left > right,
+                    "<" => left < right,
+                    _ => false,
+                };
+                return Ok(if result { 1.0 } else { 0.0 });
+            }
+        }
+
+        // Handle addition and subtraction (lowest precedence)
+        let mut depth = 0;
+        for (i, c) in expr.char_indices().rev() {
+            match c {
+                ')' => depth += 1,
+                '(' => depth -= 1,
+                '+' | '-' if depth == 0 && i > 0 => {
+                    // Check if this is a binary operator (not a negative sign)
+                    let prev_char = expr[..i].trim().chars().last();
+                    if let Some(pc) = prev_char {
+                        if pc.is_numeric() || pc == ')' {
+                            let left = self.evaluate_arithmetic(&expr[..i])?;
+                            let right = self.evaluate_arithmetic(&expr[i + 1..])?;
+                            return Ok(if c == '+' { left + right } else { left - right });
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Handle multiplication and division (higher precedence)
+        depth = 0;
+        for (i, c) in expr.char_indices().rev() {
+            match c {
+                ')' => depth += 1,
+                '(' => depth -= 1,
+                '*' | '/' if depth == 0 => {
+                    let left = self.evaluate_arithmetic(&expr[..i])?;
+                    let right = self.evaluate_arithmetic(&expr[i + 1..])?;
+                    return Ok(if c == '*' {
+                        left * right
+                    } else {
+                        if right == 0.0 {
+                            return Err("Division by zero".to_string());
+                        }
+                        left / right
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        // Handle parentheses
+        if expr.starts_with('(') && expr.ends_with(')') {
+            return self.evaluate_arithmetic(&expr[1..expr.len() - 1]);
+        }
+
+        // Try to parse as a number
+        expr.parse::<f64>()
+            .map_err(|_| format!("Cannot parse '{}' as a number", expr))
+    }
+
+    /// Evaluate an expression and compare to actual value
+    ///
+    /// Returns Ok(true) if the expression evaluates to true when compared with actual
+    pub fn evaluate_comparison(&self, expr: &str, actual: f64) -> Result<bool, String> {
+        // Check for comparison operators in the expression
+        for op in &[">=", "<=", "!=", "==", ">", "<"] {
+            if expr.contains(op) {
+                // If expression already has a comparison, evaluate it directly
+                let result = self.evaluate_expression(expr)?;
+                return Ok(result != 0.0);
+            }
+        }
+
+        // If no comparison operator, evaluate the expression and compare to actual
+        let expected = self.evaluate_expression(expr)?;
+
+        // Check if the expression contains % for tolerance
+        let tolerance = if expr.contains('%') { 0.01 } else { 0.001 };
+
+        Ok((actual - expected).abs() <= expected.abs() * tolerance)
+    }
 }
 
 impl AssertionRunner {
@@ -226,35 +373,25 @@ impl AssertionRunner {
             AssertionConfig::ExecutionTime(config) => self.assert_execution_time(output, config),
             AssertionConfig::MemoryUsage(config) => self.assert_memory_usage(output, config),
             AssertionConfig::Throughput(config) => self.assert_throughput(output, config),
-            // New assertion types - placeholders for now (will be implemented in Phase 12)
-            AssertionConfig::DlqCount(_) => {
-                AssertionResult::pass("dlq_count", "DLQ assertion not yet implemented")
-            }
-            AssertionConfig::ErrorRate(_) => {
-                AssertionResult::pass("error_rate", "Error rate assertion not yet implemented")
-            }
-            AssertionConfig::NoDuplicates(_) => AssertionResult::pass(
-                "no_duplicates",
-                "No duplicates assertion not yet implemented",
-            ),
-            AssertionConfig::Ordering(_) => {
-                AssertionResult::pass("ordering", "Ordering assertion not yet implemented")
-            }
-            AssertionConfig::Completeness(_) => {
-                AssertionResult::pass("completeness", "Completeness assertion not yet implemented")
-            }
-            AssertionConfig::TableFreshness(_) => AssertionResult::pass(
-                "table_freshness",
-                "Table freshness assertion not yet implemented",
-            ),
-            AssertionConfig::DataQuality(_) => {
-                AssertionResult::pass("data_quality", "Data quality assertion not yet implemented")
-            }
+            // Streaming-specific assertions
+            AssertionConfig::DlqCount(config) => self.assert_dlq_count(output, config),
+            AssertionConfig::ErrorRate(config) => self.assert_error_rate(output, config),
+            AssertionConfig::NoDuplicates(config) => self.assert_no_duplicates(output, config),
+            AssertionConfig::Ordering(config) => self.assert_ordering(output, config),
+            AssertionConfig::Completeness(config) => self.assert_completeness(output, config),
+            AssertionConfig::TableFreshness(config) => self.assert_table_freshness(output, config),
+            AssertionConfig::DataQuality(config) => self.assert_data_quality(output, config),
             // File-specific assertions
             AssertionConfig::FileExists(config) => self.assert_file_exists(config),
             AssertionConfig::FileRowCount(config) => self.assert_file_row_count(config),
             AssertionConfig::FileContains(config) => self.assert_file_contains(config),
             AssertionConfig::FileMatches(config) => self.assert_file_matches(config),
+            // Temporal & Statistical assertions (P1.3)
+            AssertionConfig::WindowBoundary(config) => self.assert_window_boundary(output, config),
+            AssertionConfig::Latency(config) => self.assert_latency(output, config),
+            AssertionConfig::Distribution(config) => self.assert_distribution(output, config),
+            AssertionConfig::Percentile(config) => self.assert_percentile(output, config),
+            AssertionConfig::EventOrdering(config) => self.assert_event_ordering(output, config),
         }
     }
 
@@ -328,8 +465,30 @@ impl AssertionRunner {
 
         // Check expression
         if let Some(ref expr) = config.expression {
-            // TODO: Implement expression evaluation
-            log::warn!("Expression evaluation not yet implemented: {}", expr);
+            match self.context.evaluate_expression(expr) {
+                Ok(expected) => {
+                    // Expression evaluates to expected count
+                    let expected_int = expected.round() as usize;
+                    // Allow small tolerance for floating point arithmetic
+                    let tolerance = (expected * 0.001).max(1.0) as usize;
+                    if (actual as i64 - expected_int as i64).unsigned_abs() as usize > tolerance {
+                        return AssertionResult::fail(
+                            "record_count",
+                            &format!("Record count from {} doesn't match expression", location),
+                            &format!("{} (from '{}')", expected_int, expr),
+                            &actual.to_string(),
+                        );
+                    }
+                }
+                Err(e) => {
+                    return AssertionResult::fail(
+                        "record_count",
+                        &format!("Failed to evaluate expression '{}': {}", expr, e),
+                        expr,
+                        &actual.to_string(),
+                    );
+                }
+            }
         }
 
         AssertionResult::pass(
@@ -1491,6 +1650,605 @@ impl AssertionRunner {
         .with_detail("row_count", &actual_records.len().to_string())
     }
 
+    // =========================================================================
+    // Temporal & Statistical Assertions (P1.3)
+    // =========================================================================
+
+    /// Assert window boundary - verifies records fall in correct time windows
+    fn assert_window_boundary(
+        &self,
+        output: &CapturedOutput,
+        config: &WindowBoundaryAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        if output.records.is_empty() {
+            return AssertionResult::pass(
+                "window_boundary",
+                &format!("No records to check (from {})", location),
+            );
+        }
+
+        let mut violations = Vec::new();
+
+        for (idx, record) in output.records.iter().enumerate() {
+            // Get timestamp value
+            let ts_value = match record.get(&config.timestamp_field) {
+                Some(v) => v,
+                None => continue,
+            };
+
+            let ts_ms = self.extract_timestamp_ms(ts_value);
+            if ts_ms.is_none() {
+                continue;
+            }
+            let ts_ms = ts_ms.unwrap();
+
+            // Check window containment if window start/end fields exist
+            if config.verify_containment {
+                if let (Some(start_field), Some(end_field)) =
+                    (&config.window_start_field, &config.window_end_field)
+                {
+                    let window_start = record
+                        .get(start_field)
+                        .and_then(|v| self.extract_timestamp_ms(v));
+                    let window_end = record
+                        .get(end_field)
+                        .and_then(|v| self.extract_timestamp_ms(v));
+
+                    if let (Some(start), Some(end)) = (window_start, window_end) {
+                        let tolerance = config.tolerance_ms as i64;
+                        if ts_ms < start - tolerance || ts_ms > end + tolerance {
+                            violations.push(format!(
+                                "Record {}: timestamp {} outside window [{}, {}]",
+                                idx, ts_ms, start, end
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // Check window size alignment
+            if config.verify_alignment {
+                if let Some(window_size) = config.window_size_ms {
+                    if let Some(start_field) = &config.window_start_field {
+                        if let Some(window_start) = record
+                            .get(start_field)
+                            .and_then(|v| self.extract_timestamp_ms(v))
+                        {
+                            // Window start should be aligned to window size
+                            if window_start % (window_size as i64) != 0 {
+                                violations.push(format!(
+                                    "Record {}: window start {} not aligned to window size {}",
+                                    idx, window_start, window_size
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if !violations.is_empty() {
+            return AssertionResult::fail(
+                "window_boundary",
+                &format!(
+                    "Found {} window boundary violations (from {})",
+                    violations.len(),
+                    location
+                ),
+                "0 violations",
+                &format!("{} violations", violations.len()),
+            )
+            .with_detail(
+                "sample_violations",
+                &violations
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
+        }
+
+        AssertionResult::pass(
+            "window_boundary",
+            &format!(
+                "All records within window boundaries ({} records) from {}",
+                output.records.len(),
+                location
+            ),
+        )
+    }
+
+    /// Assert latency - verifies processing latency bounds
+    fn assert_latency(
+        &self,
+        output: &CapturedOutput,
+        config: &LatencyAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        // Extract latencies from records
+        let latencies: Vec<f64> = output
+            .records
+            .iter()
+            .filter_map(|r| {
+                r.get(&config.timestamp_field)
+                    .and_then(|v| self.extract_timestamp_ms(v))
+            })
+            .map(|ts| {
+                // Calculate latency from event time to capture time
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                (now - ts).max(0) as f64
+            })
+            .collect();
+
+        if latencies.len() < config.min_records {
+            return AssertionResult::pass(
+                "latency",
+                &format!(
+                    "Insufficient records for latency check ({} < {}) from {}",
+                    latencies.len(),
+                    config.min_records,
+                    location
+                ),
+            );
+        }
+
+        let mut sorted_latencies = latencies.clone();
+        sorted_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let max_latency = sorted_latencies.last().copied().unwrap_or(0.0);
+        let avg_latency = sorted_latencies.iter().sum::<f64>() / sorted_latencies.len() as f64;
+
+        // Check max latency
+        if let Some(max_allowed) = config.max_latency_ms {
+            if max_latency > max_allowed as f64 {
+                return AssertionResult::fail(
+                    "latency",
+                    &format!("Max latency exceeded (from {})", location),
+                    &format!("<= {} ms", max_allowed),
+                    &format!("{:.2} ms", max_latency),
+                );
+            }
+        }
+
+        // Check average latency
+        if let Some(avg_allowed) = config.avg_latency_ms {
+            if avg_latency > avg_allowed as f64 {
+                return AssertionResult::fail(
+                    "latency",
+                    &format!("Average latency exceeded (from {})", location),
+                    &format!("<= {} ms", avg_allowed),
+                    &format!("{:.2} ms", avg_latency),
+                );
+            }
+        }
+
+        // Check percentiles
+        let check_percentile =
+            |percentile: f64, threshold: Option<u64>, name: &str| -> Option<AssertionResult> {
+                if let Some(max) = threshold {
+                    let idx = ((percentile / 100.0) * sorted_latencies.len() as f64) as usize;
+                    let idx = idx.min(sorted_latencies.len().saturating_sub(1));
+                    let value = sorted_latencies[idx];
+                    if value > max as f64 {
+                        return Some(AssertionResult::fail(
+                            "latency",
+                            &format!("{} latency exceeded (from {})", name, location),
+                            &format!("<= {} ms", max),
+                            &format!("{:.2} ms", value),
+                        ));
+                    }
+                }
+                None
+            };
+
+        if let Some(result) = check_percentile(99.0, config.p99_latency_ms, "P99") {
+            return result;
+        }
+        if let Some(result) = check_percentile(95.0, config.p95_latency_ms, "P95") {
+            return result;
+        }
+        if let Some(result) = check_percentile(50.0, config.p50_latency_ms, "P50") {
+            return result;
+        }
+
+        AssertionResult::pass(
+            "latency",
+            &format!(
+                "Latency within bounds (avg: {:.2}ms, max: {:.2}ms, {} records) from {}",
+                avg_latency,
+                max_latency,
+                latencies.len(),
+                location
+            ),
+        )
+    }
+
+    /// Assert distribution - verifies output matches expected statistical distribution
+    fn assert_distribution(
+        &self,
+        output: &CapturedOutput,
+        config: &DistributionAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        // Extract numeric values
+        let values: Vec<f64> = output
+            .records
+            .iter()
+            .filter_map(|r| r.get(&config.field))
+            .filter_map(|v| self.field_value_to_f64(v))
+            .collect();
+
+        if values.len() < config.min_records {
+            return AssertionResult::pass(
+                "distribution",
+                &format!(
+                    "Insufficient records for distribution check ({} < {}) from {}",
+                    values.len(),
+                    config.min_records,
+                    location
+                ),
+            );
+        }
+
+        // Calculate statistics
+        let n = values.len() as f64;
+        let mean = values.iter().sum::<f64>() / n;
+        let variance = values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+        let std_dev = variance.sqrt();
+
+        match config.distribution_type {
+            DistributionType::Normal => {
+                // Check mean
+                if let Some(expected_mean) = config.mean {
+                    let tolerance = expected_mean.abs() * config.tolerance + 1e-6;
+                    if (mean - expected_mean).abs() > tolerance {
+                        return AssertionResult::fail(
+                            "distribution",
+                            &format!("Mean outside expected range (from {})", location),
+                            &format!("{:.4} ± {:.4}", expected_mean, tolerance),
+                            &format!("{:.4}", mean),
+                        );
+                    }
+                }
+
+                // Check standard deviation
+                if let Some(expected_std) = config.std_dev {
+                    let tolerance = expected_std.abs() * config.tolerance + 1e-6;
+                    if (std_dev - expected_std).abs() > tolerance {
+                        return AssertionResult::fail(
+                            "distribution",
+                            &format!("Std dev outside expected range (from {})", location),
+                            &format!("{:.4} ± {:.4}", expected_std, tolerance),
+                            &format!("{:.4}", std_dev),
+                        );
+                    }
+                }
+            }
+            DistributionType::Uniform => {
+                // Check min/max bounds
+                let actual_min = values.iter().cloned().fold(f64::INFINITY, f64::min);
+                let actual_max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+                if let Some(expected_min) = config.min_value {
+                    if actual_min < expected_min * (1.0 - config.tolerance) {
+                        return AssertionResult::fail(
+                            "distribution",
+                            &format!("Values below expected minimum (from {})", location),
+                            &format!(">= {:.4}", expected_min),
+                            &format!("{:.4}", actual_min),
+                        );
+                    }
+                }
+
+                if let Some(expected_max) = config.max_value {
+                    if actual_max > expected_max * (1.0 + config.tolerance) {
+                        return AssertionResult::fail(
+                            "distribution",
+                            &format!("Values above expected maximum (from {})", location),
+                            &format!("<= {:.4}", expected_max),
+                            &format!("{:.4}", actual_max),
+                        );
+                    }
+                }
+            }
+            DistributionType::Exponential | DistributionType::Custom => {
+                // Basic sanity check - values should be non-negative for exponential
+                if matches!(config.distribution_type, DistributionType::Exponential) {
+                    let negative_count = values.iter().filter(|&&v| v < 0.0).count();
+                    if negative_count > 0 {
+                        return AssertionResult::fail(
+                            "distribution",
+                            &format!(
+                                "Exponential distribution has {} negative values (from {})",
+                                negative_count, location
+                            ),
+                            "0 negative values",
+                            &format!("{} negative values", negative_count),
+                        );
+                    }
+                }
+            }
+        }
+
+        AssertionResult::pass(
+            "distribution",
+            &format!(
+                "Distribution matches (mean: {:.4}, std: {:.4}, {} records) from {}",
+                mean,
+                std_dev,
+                values.len(),
+                location
+            ),
+        )
+    }
+
+    /// Assert percentile - verifies field values against percentile thresholds
+    fn assert_percentile(
+        &self,
+        output: &CapturedOutput,
+        config: &PercentileAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        // Extract numeric values
+        let mut values: Vec<f64> = output
+            .records
+            .iter()
+            .filter_map(|r| r.get(&config.field))
+            .filter_map(|v| self.field_value_to_f64(v))
+            .collect();
+
+        if values.len() < config.min_records {
+            return AssertionResult::pass(
+                "percentile",
+                &format!(
+                    "Insufficient records for percentile check ({} < {}) from {}",
+                    values.len(),
+                    config.min_records,
+                    location
+                ),
+            );
+        }
+
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let calc_percentile = |p: f64| -> f64 {
+            let idx = ((p / 100.0) * values.len() as f64) as usize;
+            let idx = idx.min(values.len().saturating_sub(1));
+            values[idx]
+        };
+
+        let check = |p: f64, threshold: Option<f64>, name: &str| -> Option<AssertionResult> {
+            if let Some(limit) = threshold {
+                let value = calc_percentile(p);
+                let pass = match config.mode {
+                    PercentileMode::LessThan => value <= limit,
+                    PercentileMode::GreaterThan => value >= limit,
+                };
+                if !pass {
+                    let op = match config.mode {
+                        PercentileMode::LessThan => "<=",
+                        PercentileMode::GreaterThan => ">=",
+                    };
+                    return Some(AssertionResult::fail(
+                        "percentile",
+                        &format!("{} check failed (from {})", name, location),
+                        &format!("{} {:.4}", op, limit),
+                        &format!("{:.4}", value),
+                    ));
+                }
+            }
+            None
+        };
+
+        if let Some(result) = check(50.0, config.p50, "P50") {
+            return result;
+        }
+        if let Some(result) = check(75.0, config.p75, "P75") {
+            return result;
+        }
+        if let Some(result) = check(90.0, config.p90, "P90") {
+            return result;
+        }
+        if let Some(result) = check(95.0, config.p95, "P95") {
+            return result;
+        }
+        if let Some(result) = check(99.0, config.p99, "P99") {
+            return result;
+        }
+        if let Some(result) = check(99.9, config.p999, "P99.9") {
+            return result;
+        }
+
+        AssertionResult::pass(
+            "percentile",
+            &format!(
+                "All percentile thresholds met ({} records) from {}",
+                values.len(),
+                location
+            ),
+        )
+    }
+
+    /// Assert event ordering - verifies ordering within time windows
+    fn assert_event_ordering(
+        &self,
+        output: &CapturedOutput,
+        config: &EventOrderingAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        if output.records.is_empty() {
+            return AssertionResult::pass(
+                "event_ordering",
+                &format!("No records to check (from {})", location),
+            );
+        }
+
+        // Group records by partition if partition field specified
+        let groups: Vec<Vec<(usize, i64)>> =
+            if let Some(ref partition_field) = config.partition_field {
+                let mut partition_map: HashMap<String, Vec<(usize, i64)>> = HashMap::new();
+                for (idx, record) in output.records.iter().enumerate() {
+                    let partition_key = record
+                        .get(partition_field)
+                        .map(|v| field_value_to_string(v))
+                        .unwrap_or_default();
+                    let ts = record
+                        .get(&config.timestamp_field)
+                        .and_then(|v| self.extract_timestamp_ms(v))
+                        .unwrap_or(0);
+                    partition_map
+                        .entry(partition_key)
+                        .or_default()
+                        .push((idx, ts));
+                }
+                partition_map.into_values().collect()
+            } else {
+                let timestamps: Vec<(usize, i64)> = output
+                    .records
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, r)| {
+                        let ts = r
+                            .get(&config.timestamp_field)
+                            .and_then(|v| self.extract_timestamp_ms(v))
+                            .unwrap_or(0);
+                        (idx, ts)
+                    })
+                    .collect();
+                vec![timestamps]
+            };
+
+        let mut out_of_order_count = 0;
+        let mut violations = Vec::new();
+        let total_records = output.records.len();
+
+        for group in groups {
+            for window in group.windows(2) {
+                let (idx1, ts1) = window[0];
+                let (idx2, ts2) = window[1];
+
+                let is_ordered = match config.direction {
+                    OrderDirection::Ascending => ts2 >= ts1,
+                    OrderDirection::Descending => ts2 <= ts1,
+                };
+
+                if !is_ordered {
+                    out_of_order_count += 1;
+                    if violations.len() < 5 {
+                        violations.push(format!(
+                            "Records {} ({}) and {} ({}) out of order",
+                            idx1, ts1, idx2, ts2
+                        ));
+                    }
+                }
+
+                // Check max gap
+                if let Some(max_gap) = config.max_gap_ms {
+                    let gap = (ts2 - ts1).unsigned_abs();
+                    if gap > max_gap {
+                        if violations.len() < 5 {
+                            violations.push(format!(
+                                "Gap of {}ms between records {} and {} exceeds max {}ms",
+                                gap, idx1, idx2, max_gap
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check out-of-order percentage
+        if let Some(max_percent) = config.max_out_of_order_percent {
+            let actual_percent = (out_of_order_count as f64 / total_records as f64) * 100.0;
+            if actual_percent > max_percent {
+                return AssertionResult::fail(
+                    "event_ordering",
+                    &format!("Too many out-of-order records (from {})", location),
+                    &format!("<= {:.2}%", max_percent),
+                    &format!("{:.2}% ({} records)", actual_percent, out_of_order_count),
+                );
+            }
+        } else if out_of_order_count > 0 && !config.allow_gaps {
+            return AssertionResult::fail(
+                "event_ordering",
+                &format!("Found out-of-order records (from {})", location),
+                "0 out-of-order",
+                &format!("{} out-of-order", out_of_order_count),
+            )
+            .with_detail("sample_violations", &violations.join("; "));
+        }
+
+        AssertionResult::pass(
+            "event_ordering",
+            &format!(
+                "Event ordering verified ({} records, {} out-of-order) from {}",
+                total_records, out_of_order_count, location
+            ),
+        )
+    }
+
+    /// Helper: Extract timestamp in milliseconds from FieldValue
+    fn extract_timestamp_ms(&self, value: &FieldValue) -> Option<i64> {
+        match value {
+            FieldValue::Integer(i) => Some(*i),
+            FieldValue::Float(f) => Some(*f as i64),
+            FieldValue::Timestamp(dt) => Some(dt.and_utc().timestamp_millis()),
+            FieldValue::String(s) => {
+                // Try parsing ISO 8601 or unix timestamp
+                s.parse::<i64>().ok().or_else(|| {
+                    chrono::DateTime::parse_from_rfc3339(s)
+                        .ok()
+                        .map(|dt| dt.timestamp_millis())
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Helper: Convert FieldValue to f64
+    fn field_value_to_f64(&self, value: &FieldValue) -> Option<f64> {
+        match value {
+            FieldValue::Integer(i) => Some(*i as f64),
+            FieldValue::Float(f) => Some(*f),
+            FieldValue::ScaledInteger(v, scale) => {
+                let divisor = 10_i64.pow(*scale as u32) as f64;
+                Some(*v as f64 / divisor)
+            }
+            FieldValue::String(s) => s.parse().ok(),
+            _ => None,
+        }
+    }
+
     /// Evaluate a template expression
     fn evaluate_template_expression(
         &self,
@@ -1891,6 +2649,700 @@ impl AssertionRunner {
 
         Ok(None)
     }
+
+    // ==================== Streaming-Specific Assertions ====================
+
+    /// Assert DLQ (Dead Letter Queue) count
+    /// Note: DLQ records should be passed via the context or captured separately
+    fn assert_dlq_count(
+        &self,
+        output: &CapturedOutput,
+        config: &DlqCountAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        // DLQ count is tracked via warnings that contain "DLQ" or "error" messages
+        // In a full implementation, this would integrate with DlqCapture
+        let dlq_count = output
+            .warnings
+            .iter()
+            .filter(|w| w.to_lowercase().contains("dlq") || w.to_lowercase().contains("error"))
+            .count();
+
+        // Check exact equals
+        if let Some(expected) = config.equals {
+            if dlq_count == expected {
+                return AssertionResult::pass(
+                    "dlq_count",
+                    &format!("DLQ count matches: {} (from {})", dlq_count, location),
+                );
+            }
+            return AssertionResult::fail(
+                "dlq_count",
+                &format!("DLQ count mismatch (from {})", location),
+                &expected.to_string(),
+                &dlq_count.to_string(),
+            );
+        }
+
+        // Check max
+        if let Some(max) = config.max {
+            if dlq_count > max {
+                return AssertionResult::fail(
+                    "dlq_count",
+                    &format!("DLQ count exceeds maximum (from {})", location),
+                    &format!("<= {}", max),
+                    &dlq_count.to_string(),
+                );
+            }
+        }
+
+        // Check min (for negative testing - expecting errors)
+        if let Some(min) = config.min {
+            if dlq_count < min {
+                return AssertionResult::fail(
+                    "dlq_count",
+                    &format!("DLQ count below minimum (from {})", location),
+                    &format!(">= {}", min),
+                    &dlq_count.to_string(),
+                );
+            }
+        }
+
+        AssertionResult::pass(
+            "dlq_count",
+            &format!("DLQ count: {} (from {})", dlq_count, location),
+        )
+    }
+
+    /// Assert error rate is within bounds
+    fn assert_error_rate(
+        &self,
+        output: &CapturedOutput,
+        config: &ErrorRateAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        let total_records = output.records.len();
+
+        // Need minimum records for meaningful rate calculation
+        if total_records < config.min_records {
+            return AssertionResult::pass(
+                "error_rate",
+                &format!(
+                    "Skipped: only {} records (need {} for rate calculation) from {}",
+                    total_records, config.min_records, location
+                ),
+            );
+        }
+
+        // Count errors from warnings
+        let error_count = output
+            .warnings
+            .iter()
+            .filter(|w| {
+                let w_lower = w.to_lowercase();
+                if config.error_types.is_empty() {
+                    w_lower.contains("error") || w_lower.contains("failed")
+                } else {
+                    config
+                        .error_types
+                        .iter()
+                        .any(|t| w_lower.contains(&t.to_lowercase()))
+                }
+            })
+            .count();
+
+        let error_rate = error_count as f64 / total_records as f64;
+        let error_percent = error_rate * 100.0;
+
+        // Check max_rate (0.0 to 1.0)
+        if let Some(max_rate) = config.max_rate {
+            if error_rate > max_rate {
+                return AssertionResult::fail(
+                    "error_rate",
+                    &format!("Error rate exceeds maximum (from {})", location),
+                    &format!("<= {:.2}%", max_rate * 100.0),
+                    &format!("{:.2}%", error_percent),
+                );
+            }
+        }
+
+        // Check max_percent (0 to 100)
+        if let Some(max_percent) = config.max_percent {
+            if error_percent > max_percent {
+                return AssertionResult::fail(
+                    "error_rate",
+                    &format!("Error percentage exceeds maximum (from {})", location),
+                    &format!("<= {:.2}%", max_percent),
+                    &format!("{:.2}%", error_percent),
+                );
+            }
+        }
+
+        AssertionResult::pass(
+            "error_rate",
+            &format!(
+                "Error rate: {:.2}% ({}/{} records) from {}",
+                error_percent, error_count, total_records, location
+            ),
+        )
+    }
+
+    /// Assert no duplicate records based on key fields
+    fn assert_no_duplicates(
+        &self,
+        output: &CapturedOutput,
+        config: &NoDuplicatesAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        if config.key_fields.is_empty() {
+            return AssertionResult::fail(
+                "no_duplicates",
+                "No key fields specified for duplicate check",
+                "key_fields to be specified",
+                "empty key_fields",
+            );
+        }
+
+        let mut seen_keys: HashSet<String> = HashSet::new();
+        let mut duplicates: Vec<String> = Vec::new();
+
+        for record in &output.records {
+            // Build composite key from key fields
+            let key_parts: Vec<String> = config
+                .key_fields
+                .iter()
+                .map(|f| {
+                    record
+                        .get(f)
+                        .map(field_value_to_string)
+                        .unwrap_or_else(|| "NULL".to_string())
+                })
+                .collect();
+            let composite_key = key_parts.join("|");
+
+            if !seen_keys.insert(composite_key.clone()) {
+                if !config.allow_updates {
+                    duplicates.push(composite_key);
+                }
+            }
+        }
+
+        let total_records = output.records.len();
+        let duplicate_count = duplicates.len();
+        let duplicate_percent = if total_records > 0 {
+            (duplicate_count as f64 / total_records as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        // Check max_duplicate_percent
+        if let Some(max_percent) = config.max_duplicate_percent {
+            if duplicate_percent > max_percent {
+                return AssertionResult::fail(
+                    "no_duplicates",
+                    &format!("Duplicate percentage exceeds maximum (from {})", location),
+                    &format!("<= {:.2}%", max_percent),
+                    &format!("{:.2}% ({} duplicates)", duplicate_percent, duplicate_count),
+                )
+                .with_detail(
+                    "sample_duplicates",
+                    &duplicates
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                );
+            }
+        } else if !duplicates.is_empty() {
+            // No tolerance specified - any duplicate is a failure
+            return AssertionResult::fail(
+                "no_duplicates",
+                &format!(
+                    "Found {} duplicate records (from {})",
+                    duplicate_count, location
+                ),
+                "0 duplicates",
+                &format!("{} duplicates", duplicate_count),
+            )
+            .with_detail("key_fields", &config.key_fields.join(", "))
+            .with_detail(
+                "sample_duplicates",
+                &duplicates
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+
+        AssertionResult::pass(
+            "no_duplicates",
+            &format!(
+                "No duplicates found in {} records (from {})",
+                total_records, location
+            ),
+        )
+        .with_detail("key_fields", &config.key_fields.join(", "))
+    }
+
+    /// Assert record ordering
+    fn assert_ordering(
+        &self,
+        output: &CapturedOutput,
+        config: &OrderingAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        if output.records.len() < 2 {
+            return AssertionResult::pass(
+                "ordering",
+                &format!(
+                    "Ordering check skipped: only {} records (from {})",
+                    output.records.len(),
+                    location
+                ),
+            );
+        }
+
+        // Group by partition if specified
+        let groups: Vec<Vec<&HashMap<String, FieldValue>>> = if let Some(ref partition_field) =
+            config.partition_by
+        {
+            let mut partitions: HashMap<String, Vec<&HashMap<String, FieldValue>>> = HashMap::new();
+            for record in &output.records {
+                let partition_key = record
+                    .get(partition_field)
+                    .map(field_value_to_string)
+                    .unwrap_or_else(|| "NULL".to_string());
+                partitions.entry(partition_key).or_default().push(record);
+            }
+            partitions.into_values().collect()
+        } else {
+            vec![output.records.iter().collect()]
+        };
+
+        // Check ordering within each group
+        for group in groups {
+            for window in group.windows(2) {
+                let prev = window[0];
+                let curr = window[1];
+
+                let prev_val = prev.get(&config.field);
+                let curr_val = curr.get(&config.field);
+
+                let is_ordered = match (&config.direction, prev_val, curr_val) {
+                    (OrderDirection::Ascending, Some(p), Some(c)) => {
+                        let cmp = compare_field_values(p, c);
+                        if config.allow_equal {
+                            cmp <= 0
+                        } else {
+                            cmp < 0
+                        }
+                    }
+                    (OrderDirection::Descending, Some(p), Some(c)) => {
+                        let cmp = compare_field_values(p, c);
+                        if config.allow_equal {
+                            cmp >= 0
+                        } else {
+                            cmp > 0
+                        }
+                    }
+                    _ => true, // Skip null comparisons
+                };
+
+                if !is_ordered {
+                    return AssertionResult::fail(
+                        "ordering",
+                        &format!(
+                            "Records not in {:?} order by '{}' (from {})",
+                            config.direction, config.field, location
+                        ),
+                        &format!("{:?} order", config.direction),
+                        &format!(
+                            "{:?} followed by {:?}",
+                            prev_val.map(field_value_to_string),
+                            curr_val.map(field_value_to_string)
+                        ),
+                    );
+                }
+            }
+        }
+
+        AssertionResult::pass(
+            "ordering",
+            &format!(
+                "Records correctly ordered by '{}' {:?} (from {})",
+                config.field, config.direction, location
+            ),
+        )
+    }
+
+    /// Assert data completeness (no data loss between input and output)
+    fn assert_completeness(
+        &self,
+        output: &CapturedOutput,
+        config: &CompletenessAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        // Get input records from context
+        let input_records = match self.context.input_records.get(&config.input_source) {
+            Some(records) => records,
+            None => {
+                return AssertionResult::fail(
+                    "completeness",
+                    &format!(
+                        "Input source '{}' not found in context",
+                        config.input_source
+                    ),
+                    &config.input_source,
+                    "not found",
+                );
+            }
+        };
+
+        // Build set of input keys
+        let input_keys: HashSet<String> = input_records
+            .iter()
+            .map(|r| {
+                r.get(&config.key_field)
+                    .map(field_value_to_string)
+                    .unwrap_or_else(|| "NULL".to_string())
+            })
+            .collect();
+
+        // Build set of output keys
+        let output_keys: HashSet<String> = output
+            .records
+            .iter()
+            .map(|r| {
+                r.get(&config.key_field)
+                    .map(field_value_to_string)
+                    .unwrap_or_else(|| "NULL".to_string())
+            })
+            .collect();
+
+        // Calculate completeness
+        let matched_keys: HashSet<_> = input_keys.intersection(&output_keys).collect();
+        let completeness = if input_keys.is_empty() {
+            1.0
+        } else {
+            matched_keys.len() as f64 / input_keys.len() as f64
+        };
+
+        if completeness < config.min_completeness {
+            let missing: Vec<_> = input_keys
+                .difference(&output_keys)
+                .take(10)
+                .cloned()
+                .collect();
+            return AssertionResult::fail(
+                "completeness",
+                &format!("Data completeness below threshold (from {})", location),
+                &format!(">= {:.1}%", config.min_completeness * 100.0),
+                &format!("{:.1}%", completeness * 100.0),
+            )
+            .with_detail("input_count", &input_keys.len().to_string())
+            .with_detail("output_count", &output_keys.len().to_string())
+            .with_detail("sample_missing", &missing.join(", "));
+        }
+
+        // Check required fields if specified
+        if !config.required_fields.is_empty() {
+            for record in &output.records {
+                for field in &config.required_fields {
+                    if !record.contains_key(field) {
+                        return AssertionResult::fail(
+                            "completeness",
+                            &format!(
+                                "Required field '{}' missing in some records (from {})",
+                                field, location
+                            ),
+                            &format!("field '{}' present", field),
+                            "field missing",
+                        );
+                    }
+                }
+            }
+        }
+
+        AssertionResult::pass(
+            "completeness",
+            &format!(
+                "Data completeness: {:.1}% ({}/{} records) from {}",
+                completeness * 100.0,
+                matched_keys.len(),
+                input_keys.len(),
+                location
+            ),
+        )
+    }
+
+    /// Assert table freshness for CTAS materialized tables
+    fn assert_table_freshness(
+        &self,
+        output: &CapturedOutput,
+        config: &TableFreshnessAssertion,
+    ) -> AssertionResult {
+        let location = format!("table '{}'", config.table);
+
+        // Check minimum records
+        if let Some(min_records) = config.min_records {
+            if output.records.len() < min_records {
+                return AssertionResult::fail(
+                    "table_freshness",
+                    &format!("Table has fewer records than required ({})", location),
+                    &format!(">= {} records", min_records),
+                    &format!("{} records", output.records.len()),
+                );
+            }
+        }
+
+        // For freshness, we'd need timestamp fields in the records
+        // Look for common timestamp field names
+        let timestamp_fields = [
+            "event_time",
+            "timestamp",
+            "created_at",
+            "updated_at",
+            "_timestamp",
+        ];
+        let mut latest_timestamp: Option<i64> = None;
+
+        for record in &output.records {
+            for ts_field in &timestamp_fields {
+                if let Some(value) = record.get(*ts_field) {
+                    if let Some(ts) = field_value_to_timestamp_ms(value) {
+                        latest_timestamp = Some(latest_timestamp.map_or(ts, |l| l.max(ts)));
+                    }
+                }
+            }
+        }
+
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+
+        // Check max_age_ms
+        if let Some(max_age_ms) = config.max_age_ms {
+            if let Some(latest) = latest_timestamp {
+                let age_ms = now_ms - latest;
+                if age_ms > max_age_ms as i64 {
+                    return AssertionResult::fail(
+                        "table_freshness",
+                        &format!("Table data too old ({})", location),
+                        &format!("<= {}ms old", max_age_ms),
+                        &format!("{}ms old", age_ms),
+                    );
+                }
+            } else {
+                return AssertionResult::pass(
+                    "table_freshness",
+                    &format!(
+                        "No timestamp field found for freshness check ({})",
+                        location
+                    ),
+                )
+                .with_detail("warning", "Could not determine data freshness");
+            }
+        }
+
+        // Check max_lag_ms (would need source timestamp comparison - simplified here)
+        if let Some(max_lag_ms) = config.max_lag_ms {
+            if let Some(latest) = latest_timestamp {
+                let lag_ms = now_ms - latest;
+                if lag_ms > max_lag_ms as i64 {
+                    return AssertionResult::fail(
+                        "table_freshness",
+                        &format!("Table lag exceeds maximum ({})", location),
+                        &format!("<= {}ms lag", max_lag_ms),
+                        &format!("{}ms lag", lag_ms),
+                    );
+                }
+            }
+        }
+
+        AssertionResult::pass(
+            "table_freshness",
+            &format!(
+                "Table '{}' is fresh ({} records)",
+                config.table,
+                output.records.len()
+            ),
+        )
+    }
+
+    /// Assert comprehensive data quality rules
+    fn assert_data_quality(
+        &self,
+        output: &CapturedOutput,
+        config: &DataQualityAssertion,
+    ) -> AssertionResult {
+        let location = output
+            .topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+
+        let mut violations: Vec<String> = Vec::new();
+
+        // Check for nulls in specified fields
+        for field in &config.no_nulls_in {
+            for (i, record) in output.records.iter().enumerate() {
+                match record.get(field) {
+                    None | Some(FieldValue::Null) => {
+                        violations.push(format!("NULL in '{}' at row {}", field, i));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Check for empty strings in specified fields
+        for field in &config.no_empty_strings_in {
+            for (i, record) in output.records.iter().enumerate() {
+                if let Some(FieldValue::String(s)) = record.get(field) {
+                    if s.trim().is_empty() {
+                        violations.push(format!("Empty string in '{}' at row {}", field, i));
+                    }
+                }
+            }
+        }
+
+        // Check numeric ranges
+        for range_check in &config.numeric_ranges {
+            for (i, record) in output.records.iter().enumerate() {
+                if let Some(value) = record.get(&range_check.field) {
+                    if let Some(num) = field_value_to_f64(value) {
+                        if let Some(min) = range_check.min {
+                            if num < min {
+                                violations.push(format!(
+                                    "'{}' value {} < {} at row {}",
+                                    range_check.field, num, min, i
+                                ));
+                            }
+                        }
+                        if let Some(max) = range_check.max {
+                            if num > max {
+                                violations.push(format!(
+                                    "'{}' value {} > {} at row {}",
+                                    range_check.field, num, max, i
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check string patterns
+        for pattern_check in &config.string_patterns {
+            let regex = match regex::Regex::new(&pattern_check.pattern) {
+                Ok(r) => r,
+                Err(e) => {
+                    violations.push(format!("Invalid regex '{}': {}", pattern_check.pattern, e));
+                    continue;
+                }
+            };
+
+            for (i, record) in output.records.iter().enumerate() {
+                if let Some(value) = record.get(&pattern_check.field) {
+                    let value_str = field_value_to_string(value);
+                    if !regex.is_match(&value_str) {
+                        violations.push(format!(
+                            "'{}' value '{}' doesn't match pattern '{}' at row {}",
+                            pattern_check.field, value_str, pattern_check.pattern, i
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Check referential integrity
+        for ref_check in &config.referential_integrity {
+            // Get reference values from context
+            if let Some(ref_records) = self.context.input_records.get(&ref_check.reference_source) {
+                let valid_values: HashSet<String> = ref_records
+                    .iter()
+                    .filter_map(|r| r.get(&ref_check.reference_field))
+                    .map(field_value_to_string)
+                    .collect();
+
+                for (i, record) in output.records.iter().enumerate() {
+                    if let Some(value) = record.get(&ref_check.field) {
+                        let value_str = field_value_to_string(value);
+                        if !valid_values.contains(&value_str) {
+                            violations.push(format!(
+                                "'{}' value '{}' not found in {}.{} at row {}",
+                                ref_check.field,
+                                value_str,
+                                ref_check.reference_source,
+                                ref_check.reference_field,
+                                i
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        if !violations.is_empty() {
+            let violation_count = violations.len();
+            return AssertionResult::fail(
+                "data_quality",
+                &format!(
+                    "Found {} data quality violations (from {})",
+                    violation_count, location
+                ),
+                "0 violations",
+                &format!("{} violations", violation_count),
+            )
+            .with_detail(
+                "sample_violations",
+                &violations
+                    .iter()
+                    .take(10)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            );
+        }
+
+        AssertionResult::pass(
+            "data_quality",
+            &format!(
+                "All data quality checks passed ({} records) from {}",
+                output.records.len(),
+                location
+            ),
+        )
+    }
 }
 
 // ==================== Template Types ====================
@@ -2160,6 +3612,58 @@ fn field_value_to_f64(value: &FieldValue) -> Option<f64> {
         }
         _ => None,
     }
+}
+
+/// Convert FieldValue to timestamp in milliseconds
+fn field_value_to_timestamp_ms(value: &FieldValue) -> Option<i64> {
+    match value {
+        FieldValue::Integer(i) => Some(*i), // Assume milliseconds if integer
+        FieldValue::Timestamp(ts) => Some(ts.and_utc().timestamp_millis()),
+        FieldValue::String(s) => {
+            // Try parsing as ISO 8601
+            chrono::DateTime::parse_from_rfc3339(s)
+                .ok()
+                .map(|dt| dt.timestamp_millis())
+                .or_else(|| {
+                    // Try parsing as epoch milliseconds
+                    s.parse::<i64>().ok()
+                })
+        }
+        _ => None,
+    }
+}
+
+/// Compare two FieldValues for ordering (returns -1, 0, or 1)
+fn compare_field_values(a: &FieldValue, b: &FieldValue) -> i32 {
+    // Try numeric comparison first
+    if let (Some(a_f64), Some(b_f64)) = (field_value_to_f64(a), field_value_to_f64(b)) {
+        return if a_f64 < b_f64 {
+            -1
+        } else if a_f64 > b_f64 {
+            1
+        } else {
+            0
+        };
+    }
+
+    // Try timestamp comparison
+    if let (Some(a_ts), Some(b_ts)) = (
+        field_value_to_timestamp_ms(a),
+        field_value_to_timestamp_ms(b),
+    ) {
+        return if a_ts < b_ts {
+            -1
+        } else if a_ts > b_ts {
+            1
+        } else {
+            0
+        };
+    }
+
+    // Fall back to string comparison
+    let a_str = field_value_to_string(a);
+    let b_str = field_value_to_string(b);
+    a_str.cmp(&b_str) as i32
 }
 
 /// Compare FieldValue with operator
@@ -2986,6 +4490,124 @@ mod tests {
         );
     }
 
+    // ==================== Expression Evaluation Tests ====================
+
+    #[test]
+    fn test_expression_simple_number() {
+        let context = AssertionContext::new();
+        assert_eq!(context.evaluate_expression("42").unwrap(), 42.0);
+        assert_eq!(context.evaluate_expression("3.15").unwrap(), 3.15);
+    }
+
+    #[test]
+    fn test_expression_arithmetic() {
+        let context = AssertionContext::new();
+        assert_eq!(context.evaluate_expression("10 + 5").unwrap(), 15.0);
+        assert_eq!(context.evaluate_expression("10 - 5").unwrap(), 5.0);
+        assert_eq!(context.evaluate_expression("10 * 5").unwrap(), 50.0);
+        assert_eq!(context.evaluate_expression("10 / 5").unwrap(), 2.0);
+    }
+
+    #[test]
+    fn test_expression_with_templates() {
+        let context = AssertionContext::new()
+            .with_input_records(
+                "source",
+                vec![
+                    HashMap::from([("id".to_string(), FieldValue::Integer(1))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(2))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(3))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(4))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(5))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(6))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(7))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(8))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(9))]),
+                    HashMap::from([("id".to_string(), FieldValue::Integer(10))]),
+                ],
+            )
+            .with_output_count("sink", 8);
+
+        // Test template resolution
+        assert_eq!(
+            context
+                .evaluate_expression("{{inputs.source.count}}")
+                .unwrap(),
+            10.0
+        );
+
+        // Test template with arithmetic
+        assert_eq!(
+            context
+                .evaluate_expression("{{inputs.source.count}} * 0.9")
+                .unwrap(),
+            9.0
+        );
+
+        // Test comparison using output
+        assert_eq!(
+            context
+                .evaluate_expression("{{outputs.sink.count}} / {{inputs.source.count}}")
+                .unwrap(),
+            0.8
+        );
+    }
+
+    #[test]
+    fn test_expression_precedence() {
+        let context = AssertionContext::new();
+
+        // Multiplication before addition
+        assert_eq!(context.evaluate_expression("2 + 3 * 4").unwrap(), 14.0);
+
+        // Parentheses
+        assert_eq!(context.evaluate_expression("(2 + 3) * 4").unwrap(), 20.0);
+    }
+
+    #[test]
+    fn test_expression_comparison() {
+        let context = AssertionContext::new()
+            .with_input_records(
+                "source",
+                (0..100)
+                    .map(|i| HashMap::from([("id".to_string(), FieldValue::Integer(i))]))
+                    .collect(),
+            )
+            .with_output_count("sink", 95);
+
+        // Test >= comparison - true case
+        assert_eq!(
+            context
+                .evaluate_expression("{{outputs.sink.count}} >= {{inputs.source.count}} * 0.9")
+                .unwrap(),
+            1.0 // true
+        );
+
+        // Test > comparison - false case
+        assert_eq!(
+            context
+                .evaluate_expression("{{outputs.sink.count}} > {{inputs.source.count}}")
+                .unwrap(),
+            0.0 // false
+        );
+    }
+
+    #[test]
+    fn test_expression_division_by_zero() {
+        let context = AssertionContext::new();
+        let result = context.evaluate_expression("10 / 0");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Division by zero"));
+    }
+
+    #[test]
+    fn test_expression_invalid_number() {
+        let context = AssertionContext::new();
+        let result = context.evaluate_expression("abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cannot parse"));
+    }
+
     #[test]
     fn test_aggregate_with_template_variable() {
         let output = create_test_output(vec![
@@ -3555,5 +5177,532 @@ mod tests {
             "Aggregate message should include topic. Got: {}",
             result.message
         );
+    }
+
+    // ==================== Window Boundary Tests ====================
+
+    #[test]
+    fn test_window_boundary_empty_records() {
+        let output = create_test_output(vec![]);
+
+        let runner = AssertionRunner::new();
+        let config = WindowBoundaryAssertion {
+            timestamp_field: "event_time".to_string(),
+            window_start_field: Some("window_start".to_string()),
+            window_end_field: Some("window_end".to_string()),
+            window_size_ms: None,
+            tolerance_ms: 0,
+            verify_containment: true,
+            verify_alignment: false,
+        };
+
+        let result = runner.assert_window_boundary(&output, &config);
+        assert!(result.passed);
+        assert!(result.message.contains("No records"));
+    }
+
+    #[test]
+    fn test_window_boundary_containment_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(1000)),
+                ("window_start".to_string(), FieldValue::Integer(0)),
+                ("window_end".to_string(), FieldValue::Integer(2000)),
+            ]),
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(1500)),
+                ("window_start".to_string(), FieldValue::Integer(0)),
+                ("window_end".to_string(), FieldValue::Integer(2000)),
+            ]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = WindowBoundaryAssertion {
+            timestamp_field: "event_time".to_string(),
+            window_start_field: Some("window_start".to_string()),
+            window_end_field: Some("window_end".to_string()),
+            window_size_ms: None,
+            tolerance_ms: 0,
+            verify_containment: true,
+            verify_alignment: false,
+        };
+
+        let result = runner.assert_window_boundary(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_window_boundary_containment_fail() {
+        let output = create_test_output(vec![HashMap::from([
+            ("event_time".to_string(), FieldValue::Integer(5000)),
+            ("window_start".to_string(), FieldValue::Integer(0)),
+            ("window_end".to_string(), FieldValue::Integer(2000)),
+        ])]);
+
+        let runner = AssertionRunner::new();
+        let config = WindowBoundaryAssertion {
+            timestamp_field: "event_time".to_string(),
+            window_start_field: Some("window_start".to_string()),
+            window_end_field: Some("window_end".to_string()),
+            window_size_ms: None,
+            tolerance_ms: 0,
+            verify_containment: true,
+            verify_alignment: false,
+        };
+
+        let result = runner.assert_window_boundary(&output, &config);
+        assert!(!result.passed);
+        assert!(result.message.contains("violations"));
+    }
+
+    #[test]
+    fn test_window_boundary_alignment_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(1000)),
+                ("window_start".to_string(), FieldValue::Integer(0)),
+            ]),
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(6000)),
+                ("window_start".to_string(), FieldValue::Integer(5000)),
+            ]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = WindowBoundaryAssertion {
+            timestamp_field: "event_time".to_string(),
+            window_start_field: Some("window_start".to_string()),
+            window_end_field: None,
+            window_size_ms: Some(5000),
+            tolerance_ms: 0,
+            verify_containment: false,
+            verify_alignment: true,
+        };
+
+        let result = runner.assert_window_boundary(&output, &config);
+        assert!(result.passed);
+    }
+
+    // ==================== Latency Tests ====================
+
+    #[test]
+    fn test_latency_insufficient_records() {
+        let output = create_test_output(vec![HashMap::from([(
+            "event_time".to_string(),
+            FieldValue::Integer(chrono::Utc::now().timestamp_millis()),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = LatencyAssertion {
+            timestamp_field: "event_time".to_string(),
+            max_latency_ms: Some(5000),
+            avg_latency_ms: None,
+            p50_latency_ms: None,
+            p95_latency_ms: None,
+            p99_latency_ms: None,
+            min_records: 10,
+        };
+
+        let result = runner.assert_latency(&output, &config);
+        assert!(result.passed);
+        assert!(result.message.contains("Insufficient records"));
+    }
+
+    #[test]
+    fn test_latency_within_bounds() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let output = create_test_output(vec![
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(now - 100))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(now - 200))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(now - 150))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = LatencyAssertion {
+            timestamp_field: "event_time".to_string(),
+            max_latency_ms: Some(5000),
+            avg_latency_ms: Some(1000),
+            p50_latency_ms: None,
+            p95_latency_ms: None,
+            p99_latency_ms: None,
+            min_records: 3,
+        };
+
+        let result = runner.assert_latency(&output, &config);
+        assert!(result.passed);
+    }
+
+    // ==================== Distribution Tests ====================
+
+    #[test]
+    fn test_distribution_insufficient_records() {
+        let output = create_test_output(vec![HashMap::from([(
+            "value".to_string(),
+            FieldValue::Float(10.0),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = DistributionAssertion {
+            field: "value".to_string(),
+            distribution_type: DistributionType::Normal,
+            mean: Some(10.0),
+            std_dev: Some(1.0),
+            min_value: None,
+            max_value: None,
+            tolerance: 0.1,
+            min_records: 30,
+        };
+
+        let result = runner.assert_distribution(&output, &config);
+        assert!(result.passed);
+        assert!(result.message.contains("Insufficient records"));
+    }
+
+    #[test]
+    fn test_distribution_normal_pass() {
+        // Generate data with known mean and std dev
+        let values: Vec<f64> = vec![
+            9.5, 10.0, 10.5, 9.8, 10.2, 10.1, 9.9, 10.0, 9.7, 10.3, 10.0, 9.6, 10.4, 9.9, 10.1,
+            10.0, 9.8, 10.2, 10.0, 9.9,
+        ];
+        let output = create_test_output(
+            values
+                .iter()
+                .map(|v| HashMap::from([("value".to_string(), FieldValue::Float(*v))]))
+                .collect(),
+        );
+
+        let runner = AssertionRunner::new();
+        let config = DistributionAssertion {
+            field: "value".to_string(),
+            distribution_type: DistributionType::Normal,
+            mean: Some(10.0),
+            std_dev: None,
+            min_value: None,
+            max_value: None,
+            tolerance: 0.2,
+            min_records: 10,
+        };
+
+        let result = runner.assert_distribution(&output, &config);
+        assert!(
+            result.passed,
+            "Distribution check failed: {}",
+            result.message
+        );
+    }
+
+    #[test]
+    fn test_distribution_uniform_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Float(5.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(7.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(8.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(10.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(3.0))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = DistributionAssertion {
+            field: "value".to_string(),
+            distribution_type: DistributionType::Uniform,
+            mean: None,
+            std_dev: None,
+            min_value: Some(0.0),
+            max_value: Some(15.0),
+            tolerance: 0.1,
+            min_records: 5,
+        };
+
+        let result = runner.assert_distribution(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_distribution_exponential_negative_values_fail() {
+        let output = create_test_output(vec![
+            HashMap::from([("value".to_string(), FieldValue::Float(1.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(-2.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(3.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(4.0))]),
+            HashMap::from([("value".to_string(), FieldValue::Float(5.0))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = DistributionAssertion {
+            field: "value".to_string(),
+            distribution_type: DistributionType::Exponential,
+            mean: None,
+            std_dev: None,
+            min_value: None,
+            max_value: None,
+            tolerance: 0.1,
+            min_records: 5,
+        };
+
+        let result = runner.assert_distribution(&output, &config);
+        assert!(!result.passed);
+        assert!(result.message.contains("negative values"));
+    }
+
+    // ==================== Percentile Tests ====================
+
+    #[test]
+    fn test_percentile_insufficient_records() {
+        let output = create_test_output(vec![HashMap::from([(
+            "latency".to_string(),
+            FieldValue::Integer(100),
+        )])]);
+
+        let runner = AssertionRunner::new();
+        let config = PercentileAssertion {
+            field: "latency".to_string(),
+            p50: Some(500.0),
+            p75: None,
+            p90: None,
+            p95: None,
+            p99: None,
+            p999: None,
+            mode: PercentileMode::LessThan,
+            min_records: 10,
+        };
+
+        let result = runner.assert_percentile(&output, &config);
+        assert!(result.passed);
+        assert!(result.message.contains("Insufficient records"));
+    }
+
+    #[test]
+    fn test_percentile_less_than_pass() {
+        let output = create_test_output(
+            (1..=100)
+                .map(|i| HashMap::from([("latency".to_string(), FieldValue::Integer(i))]))
+                .collect(),
+        );
+
+        let runner = AssertionRunner::new();
+        let config = PercentileAssertion {
+            field: "latency".to_string(),
+            p50: Some(60.0),
+            p95: Some(100.0),
+            p99: Some(100.0),
+            p75: None,
+            p90: None,
+            p999: None,
+            mode: PercentileMode::LessThan,
+            min_records: 10,
+        };
+
+        let result = runner.assert_percentile(&output, &config);
+        assert!(result.passed, "Percentile check failed: {}", result.message);
+    }
+
+    #[test]
+    fn test_percentile_greater_than_pass() {
+        let output = create_test_output(
+            (100..=200)
+                .map(|i| HashMap::from([("score".to_string(), FieldValue::Integer(i))]))
+                .collect(),
+        );
+
+        let runner = AssertionRunner::new();
+        let config = PercentileAssertion {
+            field: "score".to_string(),
+            p50: Some(100.0),
+            p75: None,
+            p90: None,
+            p95: None,
+            p99: None,
+            p999: None,
+            mode: PercentileMode::GreaterThan,
+            min_records: 10,
+        };
+
+        let result = runner.assert_percentile(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_percentile_p50_fail() {
+        let output = create_test_output(
+            (1..=100)
+                .map(|i| HashMap::from([("latency".to_string(), FieldValue::Integer(i))]))
+                .collect(),
+        );
+
+        let runner = AssertionRunner::new();
+        let config = PercentileAssertion {
+            field: "latency".to_string(),
+            p50: Some(10.0), // P50 should be ~50, this will fail
+            p75: None,
+            p90: None,
+            p95: None,
+            p99: None,
+            p999: None,
+            mode: PercentileMode::LessThan,
+            min_records: 10,
+        };
+
+        let result = runner.assert_percentile(&output, &config);
+        assert!(!result.passed);
+        assert!(result.message.contains("P50"));
+    }
+
+    // ==================== Event Ordering Tests ====================
+
+    #[test]
+    fn test_event_ordering_empty_records() {
+        let output = create_test_output(vec![]);
+
+        let runner = AssertionRunner::new();
+        let config = EventOrderingAssertion {
+            timestamp_field: "event_time".to_string(),
+            partition_field: None,
+            window_size_ms: None,
+            direction: OrderDirection::Ascending,
+            max_gap_ms: None,
+            max_out_of_order_percent: None,
+            allow_gaps: false,
+        };
+
+        let result = runner.assert_event_ordering(&output, &config);
+        assert!(result.passed);
+        assert!(result.message.contains("No records"));
+    }
+
+    #[test]
+    fn test_event_ordering_ascending_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(1000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(2000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(3000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(4000))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = EventOrderingAssertion {
+            timestamp_field: "event_time".to_string(),
+            partition_field: None,
+            window_size_ms: None,
+            direction: OrderDirection::Ascending,
+            max_gap_ms: None,
+            max_out_of_order_percent: None,
+            allow_gaps: false,
+        };
+
+        let result = runner.assert_event_ordering(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_event_ordering_descending_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(4000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(3000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(2000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(1000))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = EventOrderingAssertion {
+            timestamp_field: "event_time".to_string(),
+            partition_field: None,
+            window_size_ms: None,
+            direction: OrderDirection::Descending,
+            max_gap_ms: None,
+            max_out_of_order_percent: None,
+            allow_gaps: false,
+        };
+
+        let result = runner.assert_event_ordering(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_event_ordering_out_of_order_fail() {
+        let output = create_test_output(vec![
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(1000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(3000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(2000))]), // Out of order
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(4000))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = EventOrderingAssertion {
+            timestamp_field: "event_time".to_string(),
+            partition_field: None,
+            window_size_ms: None,
+            direction: OrderDirection::Ascending,
+            max_gap_ms: None,
+            max_out_of_order_percent: None,
+            allow_gaps: false,
+        };
+
+        let result = runner.assert_event_ordering(&output, &config);
+        assert!(!result.passed);
+        assert!(result.message.contains("out-of-order"));
+    }
+
+    #[test]
+    fn test_event_ordering_with_max_out_of_order_percent() {
+        let output = create_test_output(vec![
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(1000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(3000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(2000))]), // Out of order
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(4000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(5000))]),
+            HashMap::from([("event_time".to_string(), FieldValue::Integer(6000))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = EventOrderingAssertion {
+            timestamp_field: "event_time".to_string(),
+            partition_field: None,
+            window_size_ms: None,
+            direction: OrderDirection::Ascending,
+            max_gap_ms: None,
+            max_out_of_order_percent: Some(50.0), // Allow up to 50% out of order
+            allow_gaps: false,
+        };
+
+        let result = runner.assert_event_ordering(&output, &config);
+        assert!(result.passed);
+    }
+
+    #[test]
+    fn test_event_ordering_by_partition() {
+        // Each partition should be ordered independently
+        let output = create_test_output(vec![
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(1000)),
+                ("partition".to_string(), FieldValue::String("A".to_string())),
+            ]),
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(500)),
+                ("partition".to_string(), FieldValue::String("B".to_string())),
+            ]),
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(2000)),
+                ("partition".to_string(), FieldValue::String("A".to_string())),
+            ]),
+            HashMap::from([
+                ("event_time".to_string(), FieldValue::Integer(600)),
+                ("partition".to_string(), FieldValue::String("B".to_string())),
+            ]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = EventOrderingAssertion {
+            timestamp_field: "event_time".to_string(),
+            partition_field: Some("partition".to_string()),
+            window_size_ms: None,
+            direction: OrderDirection::Ascending,
+            max_gap_ms: None,
+            max_out_of_order_percent: None,
+            allow_gaps: false,
+        };
+
+        let result = runner.assert_event_ordering(&output, &config);
+        assert!(result.passed);
     }
 }

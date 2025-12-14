@@ -97,10 +97,10 @@ sonic-rs = "0.5"
 # Future refactoring: Convert state management to use Arc<DashMap> and streaming references
 # instead of owned HashMap moves.
 
-# FR-084: Testcontainers for test harness (optional, enabled in tests)
-testcontainers = { version = "0.25", optional = true }
-testcontainers-modules = { version = "0.13", features = ["kafka"], optional = true }
-testcontainers-redpanda-rs = { version = "0.12", optional = true }  # Redpanda container (faster startup)
+# FR-084: Testcontainers for test harness (used by velo-test binary)
+testcontainers = "0.25"
+testcontainers-modules = { version = "0.13", features = ["kafka"] }
+testcontainers-redpanda-rs = "0.12"  # Redpanda container (faster startup)
 
 [build-dependencies]
 prost-build = { version = "0.14.1" }
@@ -185,13 +185,13 @@ path = "examples/test_batch_with_clause.rs"
 
 # Multi-Job SQL Server Binary
 [[bin]]
-name = "velo-sql-multi"
-path = "src/bin/velo-sql-multi.rs"
+name = "velo-sql"
+path = "src/bin/velo-sql.rs"
 
 # Velostream CLI Binary
 [[bin]]
 name = "velo-cli"
-path = "src/bin/velo_cli.rs"
+path = "src/bin/velo-cli.rs"
 
 # File Processing Demo Binary
 [[bin]]
@@ -205,14 +205,13 @@ path = "demo/datasource-demo/complete_pipeline_demo.rs"
 
 # SQL Batch Execution Binary
 [[bin]]
-name = "sql-batch"
-path = "src/bin/sql_batch.rs"
+name = "velo-sql-batch"
+path = "src/bin/velo-sql-batch.rs"
 
-# FR-084: Test Harness CLI Binary (requires test-support for testcontainers)
+# FR-084: Test Harness CLI Binary
 [[bin]]
 name = "velo-test"
 path = "src/bin/velo-test.rs"
-required-features = ["test-support"]
 
 # Features for test categorization
 [features]
@@ -221,4 +220,3 @@ comprehensive-tests = []  # Enable comprehensive/slow tests that take 40+ second
 telemetry = []  # Phase 3.2: Optional telemetry feature flag for zero-cost observation
                  # When disabled, all telemetry recording overhead is eliminated via dead code elimination
 parallel = ["rayon"]  # Optional parallel processing feature for batch operations (requires rayon)
-test-support = ["testcontainers", "testcontainers-modules", "testcontainers-redpanda-rs"]  # FR-084: Enable testcontainers for test harness

@@ -4,7 +4,9 @@
 //! - Testcontainers-based Kafka infrastructure
 //! - Schema-driven test data generation
 //! - Sequential query execution with sink capture
+//! - Statement-by-statement debugging with breakpoints
 //! - Template-based assertions with rich diagnostics
+//! - Temporal and statistical assertions
 //! - AI-powered failure analysis (optional)
 //!
 //! # Architecture
@@ -43,6 +45,33 @@
 //!
 //! # Stress testing
 //! velo-test stress app.sql --records 100000 --duration 60
+//!
+//! # Step-by-step execution
+//! velo-test run app.sql --step
+//!
+//! # Interactive debugging with breakpoints
+//! velo-test debug app.sql --breakpoint query_name
+//! ```
+//!
+//! # Statement-by-Statement Debugging
+//!
+//! The test harness supports interactive debugging for complex SQL pipelines:
+//!
+//! ```rust,ignore
+//! use velostream::test_harness::{StatementExecutor, ExecutionMode, DebugSession};
+//!
+//! // Create executor in step mode
+//! let mut executor = StatementExecutor::new(infra, timeout)
+//!     .with_mode(ExecutionMode::Step);
+//!
+//! // Add breakpoints
+//! executor.add_breakpoint("aggregation_query");
+//!
+//! // Load and execute
+//! executor.load_sql(&sql_file)?;
+//! while let Some(result) = executor.step_next().await? {
+//!     println!("Executed: {} - {}", result.name, result.success);
+//! }
 //! ```
 
 // Allow dead_code and unused_imports for public API items used by the velo-test binary
@@ -67,6 +96,7 @@ pub mod report;
 pub mod schema;
 pub mod spec;
 pub mod spec_generator;
+pub mod statement_executor;
 pub mod stress;
 pub mod table_state;
 pub mod utils;
@@ -83,8 +113,14 @@ pub use infra::{SharedTestInfra, TestHarnessInfra};
 pub use schema::Schema;
 pub use spec::{
     FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec,
-    TimeSimulationConfig,
+    TimeSimulationConfig, TopicNamingConfig,
 };
 pub use spec_generator::SpecGenerator;
+pub use statement_executor::{
+    CommandResult, ConsumerInfo, ConsumerPosition, ConsumerState, DataSinkInfo, DataSinkType,
+    DataSourceInfo, DataSourceType, DebugCommand, DebugSession, ExecutionMode, JobInfo, JobState,
+    JobStats, JobType, ParsedStatement, PartitionInfo, SessionState, StatementExecutor,
+    StatementResult, StatementType, TopicInfo,
+};
 pub use stress::{MemoryTracker, StressConfig, StressMetrics, StressRunner};
 pub use table_state::{TableSnapshot, TableState, TableStateConfig, TableStateManager};

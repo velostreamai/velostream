@@ -30,10 +30,7 @@ fn test_config_override_builder() {
         Some("localhost:9092".to_string())
     );
 
-    // Test topic override (uses run_id prefix automatically)
-    let original_topic = "my_topic";
-    let overridden = overrides.override_topic(original_topic);
-    assert_eq!(overridden, "test_run_123_my_topic");
+    // Note: Topic prefixing is handled by TestHarnessInfra.topic_name(), not ConfigOverrides
 
     // Test custom setting
     let custom = overrides.properties.get("custom.setting");
@@ -208,6 +205,7 @@ fn test_execution_result_structure() {
                     r
                 },
             ],
+            message_keys: vec![None, None],
             execution_time_ms: 500,
             warnings: vec!["Minor warning".to_string()],
             memory_peak_bytes: Some(1024 * 1024),

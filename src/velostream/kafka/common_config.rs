@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
 
 /// Environment variable name for broker address family configuration
@@ -25,27 +26,43 @@ impl BrokerAddressFamily {
         }
     }
 
-    /// Parse from string (case-insensitive)
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "v4" | "ipv4" => BrokerAddressFamily::V4,
-            "v6" | "ipv6" => BrokerAddressFamily::V6,
-            "any" | "both" => BrokerAddressFamily::Any,
-            _ => {
-                log::warn!(
-                    "Invalid broker address family '{}', using default 'v4'. \
-                     Valid values: v4, v6, any",
-                    s
-                );
-                BrokerAddressFamily::V4
-            }
-        }
-    }
-
     /// Returns true if this family should be explicitly configured
     /// (i.e., not the librdkafka default "any")
     pub fn should_configure(&self) -> bool {
         *self != BrokerAddressFamily::Any
+    }
+}
+
+/// Error type for parsing BrokerAddressFamily
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseBrokerAddressFamilyError {
+    pub invalid_value: String,
+}
+
+impl std::fmt::Display for ParseBrokerAddressFamilyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Invalid broker address family '{}'. Valid values: v4, v6, any",
+            self.invalid_value
+        )
+    }
+}
+
+impl std::error::Error for ParseBrokerAddressFamilyError {}
+
+impl FromStr for BrokerAddressFamily {
+    type Err = ParseBrokerAddressFamilyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "v4" | "ipv4" => Ok(BrokerAddressFamily::V4),
+            "v6" | "ipv6" => Ok(BrokerAddressFamily::V6),
+            "any" | "both" => Ok(BrokerAddressFamily::Any),
+            _ => Err(ParseBrokerAddressFamilyError {
+                invalid_value: s.to_string(),
+            }),
+        }
     }
 }
 
@@ -72,7 +89,18 @@ impl Default for BrokerAddressFamily {
 /// - Network environment has IPv6 connectivity issues
 pub fn get_broker_address_family() -> BrokerAddressFamily {
     std::env::var(BROKER_ADDRESS_FAMILY_ENV)
-        .map(|v| BrokerAddressFamily::from_str(&v))
+        .ok()
+        .and_then(|v| {
+            v.parse()
+                .map_err(|e: ParseBrokerAddressFamilyError| {
+                    log::warn!(
+                        "Invalid broker address family '{}', using default 'v4'. \
+                     Valid values: v4, v6, any",
+                        e.invalid_value
+                    );
+                })
+                .ok()
+        })
         .unwrap_or_default()
 }
 
@@ -272,30 +300,38 @@ mod tests {
 
     #[test]
     fn test_broker_address_family_parsing() {
-        assert_eq!(BrokerAddressFamily::from_str("v4"), BrokerAddressFamily::V4);
         assert_eq!(
-            BrokerAddressFamily::from_str("ipv4"),
+            "v4".parse::<BrokerAddressFamily>().unwrap(),
             BrokerAddressFamily::V4
         );
-        assert_eq!(BrokerAddressFamily::from_str("V4"), BrokerAddressFamily::V4);
-        assert_eq!(BrokerAddressFamily::from_str("v6"), BrokerAddressFamily::V6);
         assert_eq!(
-            BrokerAddressFamily::from_str("ipv6"),
+            "ipv4".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V4
+        );
+        assert_eq!(
+            "V4".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V4
+        );
+        assert_eq!(
+            "v6".parse::<BrokerAddressFamily>().unwrap(),
             BrokerAddressFamily::V6
         );
         assert_eq!(
-            BrokerAddressFamily::from_str("any"),
+            "ipv6".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V6
+        );
+        assert_eq!(
+            "any".parse::<BrokerAddressFamily>().unwrap(),
             BrokerAddressFamily::Any
         );
         assert_eq!(
-            BrokerAddressFamily::from_str("both"),
+            "both".parse::<BrokerAddressFamily>().unwrap(),
             BrokerAddressFamily::Any
         );
-        // Invalid values default to v4
-        assert_eq!(
-            BrokerAddressFamily::from_str("invalid"),
-            BrokerAddressFamily::V4
-        );
+        // Invalid values return an error
+        assert!("invalid".parse::<BrokerAddressFamily>().is_err());
+        let err = "invalid".parse::<BrokerAddressFamily>().unwrap_err();
+        assert_eq!(err.invalid_value, "invalid");
     }
 
     #[test]

@@ -690,9 +690,27 @@ impl VelostreamMonitor {
     }
 }
 
+/// Build information constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const BUILD_TIME: &str = env!("BUILD_TIME");
+const GIT_HASH: &str = env!("GIT_HASH");
+const GIT_BRANCH: &str = env!("GIT_BRANCH");
+
+/// Print version and build information
+fn print_version_info() {
+    println!(
+        "velo-cli v{} ({} @ {}) built {}",
+        VERSION, GIT_HASH, GIT_BRANCH, BUILD_TIME
+    );
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // Print version info at startup
+    print_version_info();
+    println!();
 
     let cli = Cli::parse();
 

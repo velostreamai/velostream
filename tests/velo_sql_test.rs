@@ -1,6 +1,6 @@
-//! Integration tests for the velo-sql-multi binary
+//! Integration tests for the velo-sql binary
 //!
-//! These tests verify the end-to-end functionality of the velo-sql-multi server,
+//! These tests verify the end-to-end functionality of the velo-sql server,
 //! including the CLI interface, server startup, metrics endpoints, and SQL application deployment.
 
 use std::{
@@ -10,17 +10,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Test that the velo-sql-multi binary can be built successfully
+/// Test that the velo-sql binary can be built successfully
 #[test]
-fn test_velo_sql_multi_binary_builds() {
+fn test_velo_sql_binary_builds() {
     let output = Command::new("cargo")
-        .args(["build", "--bin", "velo-sql-multi", "--no-default-features"])
+        .args(["build", "--bin", "velo-sql", "--no-default-features"])
         .output()
         .expect("Failed to execute cargo build command");
 
     assert!(
         output.status.success(),
-        "Failed to build velo-sql-multi binary: {}",
+        "Failed to build velo-sql binary: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
@@ -32,13 +32,13 @@ fn test_cli_help_output() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "--help",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi --help");
+        .expect("Failed to run velo-sql --help");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -57,13 +57,13 @@ fn test_cli_invalid_arguments() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "invalid-command",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi with invalid command");
+        .expect("Failed to run velo-sql with invalid command");
 
     // Should exit with non-zero status
     assert!(!output.status.success());
@@ -79,14 +79,14 @@ fn test_server_subcommand_args() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "server",
             "--help",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi server --help");
+        .expect("Failed to run velo-sql server --help");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -106,14 +106,14 @@ fn test_deploy_app_subcommand_args() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "deploy-app",
             "--help",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi deploy-app --help");
+        .expect("Failed to run velo-sql deploy-app --help");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -132,7 +132,7 @@ fn test_deploy_app_missing_file() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "deploy-app",
@@ -140,7 +140,7 @@ fn test_deploy_app_missing_file() {
             "nonexistent.sql",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi deploy-app");
+        .expect("Failed to run velo-sql deploy-app");
 
     // Should fail due to missing file
     assert!(!output.status.success());
@@ -172,7 +172,7 @@ WHERE amount > 100;
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "deploy-app",
@@ -185,7 +185,7 @@ WHERE amount > 100;
             "test-group",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi deploy-app");
+        .expect("Failed to run velo-sql deploy-app");
 
     // Clean up temp file
     let _ = fs::remove_file(temp_file);
@@ -214,7 +214,7 @@ fn test_metrics_endpoints_structure() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "server",
@@ -224,7 +224,7 @@ fn test_metrics_endpoints_structure() {
             "--help", // This will show help instead of starting server
         ])
         .output()
-        .expect("Failed to run velo-sql-multi server with metrics args");
+        .expect("Failed to run velo-sql server with metrics args");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -242,7 +242,7 @@ fn test_configuration_validation() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "server",
@@ -250,7 +250,7 @@ fn test_configuration_validation() {
             "99999999", // Invalid port number
         ])
         .output()
-        .expect("Failed to run velo-sql-multi with invalid port");
+        .expect("Failed to run velo-sql with invalid port");
 
     // Should handle invalid arguments gracefully
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -266,7 +266,7 @@ fn test_max_jobs_validation() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "server",
@@ -275,7 +275,7 @@ fn test_max_jobs_validation() {
             "--help", // Show help to avoid starting server
         ])
         .output()
-        .expect("Failed to run velo-sql-multi with max-jobs 0");
+        .expect("Failed to run velo-sql with max-jobs 0");
 
     // Should accept the argument (validation may happen at runtime)
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -301,7 +301,7 @@ INVALID QUERY STRUCTURE
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "deploy-app",
@@ -311,7 +311,7 @@ INVALID QUERY STRUCTURE
             "true",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi deploy-app with invalid SQL");
+        .expect("Failed to run velo-sql deploy-app with invalid SQL");
 
     // Clean up temp file
     let _ = fs::remove_file(temp_file);
@@ -363,7 +363,7 @@ FROM transactions;
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "deploy-app",
@@ -414,7 +414,7 @@ fn test_error_recovery_and_shutdown() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "server",
@@ -450,7 +450,7 @@ fn test_logging_output() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "server",
@@ -462,7 +462,7 @@ fn test_logging_output() {
 
     // Should run without panicking even with logging enabled
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("velo-sql-multi") || stdout.contains("Usage:"));
+    assert!(stdout.contains("velo-sql") || stdout.contains("Usage:"));
 }
 
 /// Test version information
@@ -472,20 +472,18 @@ fn test_version_information() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "--version",
         ])
         .output()
-        .expect("Failed to run velo-sql-multi --version");
+        .expect("Failed to run velo-sql --version");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Should show version information
-    assert!(
-        stdout.contains("velo-sql-multi") || stdout.contains("1.0.0") || stdout.contains("version")
-    );
+    assert!(stdout.contains("velo-sql") || stdout.contains("1.0.0") || stdout.contains("version"));
 }
 
 /// Performance baseline test
@@ -494,24 +492,24 @@ fn test_startup_performance() {
     let start_time = Instant::now();
 
     // Use pre-built binary if available, otherwise fall back to cargo run
-    let binary_path = "target/release/velo-sql-multi";
+    let binary_path = "target/release/velo-sql";
     let output = if std::path::Path::new(binary_path).exists() {
         Command::new(binary_path)
             .args(["--help"])
             .output()
-            .expect("Failed to run velo-sql-multi --help")
+            .expect("Failed to run velo-sql --help")
     } else {
         Command::new("cargo")
             .args([
                 "run",
                 "--bin",
-                "velo-sql-multi",
+                "velo-sql",
                 "--no-default-features",
                 "--",
                 "--help",
             ])
             .output()
-            .expect("Failed to run velo-sql-multi --help")
+            .expect("Failed to run velo-sql --help")
     };
 
     let elapsed = start_time.elapsed();
@@ -534,7 +532,7 @@ fn test_binary_dependencies() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "--version",
@@ -564,7 +562,7 @@ fn test_memory_usage() {
         .args([
             "run",
             "--bin",
-            "velo-sql-multi",
+            "velo-sql",
             "--no-default-features",
             "--",
             "--help",
@@ -599,7 +597,7 @@ fn test_concurrent_help_requests() {
                 .args([
                     "run",
                     "--bin",
-                    "velo-sql-multi",
+                    "velo-sql",
                     "--no-default-features",
                     "--",
                     "--help",
@@ -611,7 +609,7 @@ fn test_concurrent_help_requests() {
 
             let stdout = String::from_utf8_lossy(&output.stdout);
             assert!(
-                stdout.contains("velo-sql-multi"),
+                stdout.contains("velo-sql"),
                 "Help {} should contain binary name",
                 i
             );
@@ -662,7 +660,7 @@ fn test_end_to_end_smoke_test() {
     let start_time = Instant::now();
 
     // Use pre-built binary if available, otherwise fall back to cargo run
-    let binary_path = "target/release/velo-sql-multi";
+    let binary_path = "target/release/velo-sql";
     let use_prebuilt = std::path::Path::new(binary_path).exists();
 
     // Test 1: Version command
@@ -676,7 +674,7 @@ fn test_end_to_end_smoke_test() {
             .args([
                 "run",
                 "--bin",
-                "velo-sql-multi",
+                "velo-sql",
                 "--no-default-features",
                 "--",
                 "--version",
@@ -698,7 +696,7 @@ fn test_end_to_end_smoke_test() {
             .args([
                 "run",
                 "--bin",
-                "velo-sql-multi",
+                "velo-sql",
                 "--no-default-features",
                 "--",
                 "--help",
@@ -720,7 +718,7 @@ fn test_end_to_end_smoke_test() {
             .args([
                 "run",
                 "--bin",
-                "velo-sql-multi",
+                "velo-sql",
                 "--no-default-features",
                 "--",
                 "server",
@@ -742,7 +740,7 @@ fn test_end_to_end_smoke_test() {
             .args([
                 "run",
                 "--bin",
-                "velo-sql-multi",
+                "velo-sql",
                 "--no-default-features",
                 "--",
                 "deploy-app",

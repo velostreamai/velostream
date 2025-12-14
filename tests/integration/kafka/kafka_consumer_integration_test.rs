@@ -395,6 +395,251 @@ async fn test_consumer_commit() {
     }
 }
 
+/// Test that consumer offset commit actually persists the offset.
+/// This verifies the fix for the "NoOffset" error where commit_consumer_state
+/// fails because offsets weren't properly stored.
+///
+/// The test:
+/// 1. Produces messages to a topic
+/// 2. Consumes messages with manual commit (enable.auto.commit=false)
+/// 3. Commits the offset after consuming
+/// 4. Creates a NEW consumer with the same group ID
+/// 5. Verifies the new consumer does NOT receive the already-committed messages
+#[tokio::test]
+#[ignore] // Requires Docker - run with: cargo test --ignored
+async fn test_consumer_offset_commit_persists() {
+    let env = KafkaTestEnv::new().await;
+    let topic = "test-offset-commit-persists";
+    let group_id = "test-group-offset-persist";
+
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
+
+    // Produce 5 test messages
+    let messages = json_messages(&[
+        ("k1", "v1"),
+        ("k2", "v2"),
+        ("k3", "v3"),
+        ("k4", "v4"),
+        ("k5", "v5"),
+    ]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
+
+    // Consumer 1: Consume 3 messages and commit
+    {
+        let config = ConsumerConfig::new(env.bootstrap_servers(), group_id)
+            .auto_commit(false, Duration::from_secs(5));
+
+        let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
+            config,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer 1");
+
+        consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+        let mut stream = consumer.stream();
+        let mut received_count = 0;
+
+        // Consume exactly 3 messages
+        tokio::select! {
+            _ = async {
+                while let Some(result) = stream.next().await {
+                    match result {
+                        Ok(msg) => {
+                            received_count += 1;
+                            println!("Consumer 1 received message {}: key={:?}", received_count, msg.key());
+                            if received_count >= 3 {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            panic!("Consumer 1 error: {}", e);
+                        }
+                    }
+                }
+            } => {}
+            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                panic!("Timeout waiting for messages in consumer 1");
+            }
+        }
+
+        assert_eq!(
+            received_count, 3,
+            "Consumer 1 should have received 3 messages"
+        );
+
+        // Commit the offset - this should persist offset 3 (next offset to read)
+        let commit_result = consumer.commit();
+        assert!(
+            commit_result.is_ok(),
+            "Commit should succeed, got error: {:?}",
+            commit_result.err()
+        );
+        println!("Consumer 1: Offset committed successfully");
+
+        // Drop consumer 1 - stream is already dropped
+        drop(stream);
+    }
+
+    // Wait a bit for the commit to propagate
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    // Consumer 2: Same group ID - should start from committed offset (after message 3)
+    {
+        let config = ConsumerConfig::new(env.bootstrap_servers(), group_id)
+            .auto_commit(false, Duration::from_secs(5));
+
+        let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
+            config,
+            JsonSerializer,
+            JsonSerializer,
+        )
+        .expect("Failed to create consumer 2");
+
+        consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+        let mut stream = consumer.stream();
+        let mut received_messages: Vec<String> = Vec::new();
+
+        // Consumer 2 should only receive the remaining 2 messages (k4, k5)
+        tokio::select! {
+            _ = async {
+                while let Some(result) = stream.next().await {
+                    match result {
+                        Ok(msg) => {
+                            let key = msg.key().cloned().unwrap_or_default();
+                            println!("Consumer 2 received: key={}", key);
+                            received_messages.push(key);
+                            if received_messages.len() >= 2 {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            panic!("Consumer 2 error: {}", e);
+                        }
+                    }
+                }
+            } => {}
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                // Timeout is OK if we received 2 messages or 0 (if commit worked perfectly)
+                println!("Consumer 2 timed out after receiving {} messages", received_messages.len());
+            }
+        }
+
+        // Verify consumer 2 only received the uncommitted messages
+        assert_eq!(
+            received_messages.len(),
+            2,
+            "Consumer 2 should only receive 2 remaining messages (k4, k5), but got: {:?}",
+            received_messages
+        );
+
+        // Verify it's the correct messages (k4, k5)
+        assert!(
+            received_messages.iter().any(|k| k.contains("k4")),
+            "Consumer 2 should have received k4, got: {:?}",
+            received_messages
+        );
+        assert!(
+            received_messages.iter().any(|k| k.contains("k5")),
+            "Consumer 2 should have received k5, got: {:?}",
+            received_messages
+        );
+
+        // Should NOT have received k1, k2, k3 (already committed)
+        assert!(
+            !received_messages.iter().any(|k| k.contains("k1")),
+            "Consumer 2 should NOT have received k1 (already committed), got: {:?}",
+            received_messages
+        );
+    }
+
+    println!("✅ Offset commit persistence test passed!");
+}
+
+/// Test that verifies the consumer commit behavior with transactional settings.
+/// This specifically tests the scenario where enable.auto.commit=false and
+/// we rely on manual commit after processing.
+#[tokio::test]
+#[ignore] // Requires Docker - run with: cargo test --ignored
+async fn test_transactional_consumer_manual_commit() {
+    let env = KafkaTestEnv::new().await;
+    let topic = "test-txn-manual-commit";
+    let group_id = "test-group-txn-commit";
+
+    env.create_topic(topic, 1)
+        .await
+        .expect("Failed to create topic");
+
+    // Produce messages
+    let messages = json_messages(&[("txn-k1", "txn-v1"), ("txn-k2", "txn-v2")]);
+    env.produce_messages(topic, messages)
+        .await
+        .expect("Failed to produce messages");
+
+    // Create consumer with transactional-like settings
+    let config = ConsumerConfig::new(env.bootstrap_servers(), group_id)
+        .auto_commit(false, Duration::from_secs(5));
+
+    let consumer = FastConsumer::<String, String, JsonSerializer, JsonSerializer>::with_config(
+        config,
+        JsonSerializer,
+        JsonSerializer,
+    )
+    .expect("Failed to create consumer");
+
+    consumer.subscribe(&[topic]).expect("Failed to subscribe");
+
+    let mut stream = consumer.stream();
+    let mut received_count = 0;
+
+    // Consume all messages
+    tokio::select! {
+        _ = async {
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(msg) => {
+                        received_count += 1;
+                        println!("Received message {}: key={:?}", received_count, msg.key());
+                        if received_count >= 2 {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        panic!("Consumer error: {}", e);
+                    }
+                }
+            }
+        } => {}
+        _ = tokio::time::sleep(Duration::from_secs(30)) => {
+            panic!("Timeout waiting for messages");
+        }
+    }
+
+    assert_eq!(received_count, 2, "Should have received 2 messages");
+
+    // Now commit - this should NOT fail with "NoOffset"
+    let commit_result = consumer.commit();
+
+    // Log the result for debugging
+    match &commit_result {
+        Ok(()) => println!("✅ Commit succeeded"),
+        Err(e) => println!("❌ Commit failed: {:?}", e),
+    }
+
+    // The commit should succeed
+    assert!(
+        commit_result.is_ok(),
+        "Manual commit should succeed after consuming messages. Error: {:?}",
+        commit_result.err()
+    );
+}
+
 // ===== Performance Tier Integration Tests =====
 
 #[tokio::test]

@@ -48,8 +48,8 @@ pub use message::Message;
 
 // Re-export broker address family configuration utilities
 pub use common_config::{
-    BROKER_ADDRESS_FAMILY_ENV, BrokerAddressFamily, apply_broker_address_family,
-    get_broker_address_family,
+    BROKER_ADDRESS_FAMILY_ENV, BrokerAddressFamily, ParseBrokerAddressFamilyError,
+    apply_broker_address_family, get_broker_address_family,
 };
 
 // Re-export polled producer types

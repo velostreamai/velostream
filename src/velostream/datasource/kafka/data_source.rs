@@ -131,15 +131,11 @@ impl KafkaDataSource {
             &["source.group_id", "group_id", "group.id"],
             &merged_props,
         );
-        let group_id = group_id
-            .or_else(|| {
-                // Generate app-aware consumer group for multi-JobServer coordination
-                app_name.map(|app| format!("velo-{}-{}", app, job_name))
-            })
-            .unwrap_or_else(|| {
-                // Fallback to job-only grouping for backward compatibility
-                format!("velo-sql-{}", job_name)
-            });
+        let group_id = group_id.unwrap_or_else(|| {
+            // Generate app-aware consumer group using unified format (underscores as delimiters)
+            use super::config_helpers::generate_consumer_group_id;
+            generate_consumer_group_id(app_name, job_name)
+        });
 
         // Log consumer group assignment for visibility
         // Detect where the group_id came from for observability
@@ -152,10 +148,8 @@ impl KafkaDataSource {
             .is_some()
         {
             "explicit config"
-        } else if app_name.is_some() {
-            "app-aware auto-generated"
         } else {
-            "legacy fallback"
+            "auto-generated"
         };
         log::info!(
             "Kafka consumer group ID: '{}' (source: {}, job: {}, app: {})",
@@ -165,22 +159,15 @@ impl KafkaDataSource {
             app_name.unwrap_or("none")
         );
 
-        // Generate client ID with hierarchical format for observability in Kafka UI
-        // Format: velo-{app_name}-{job_name}-{instance_id}-src
-        // This ensures jobs from same app sort together, then by instance/run
-        let client_id = match (app_name, instance_id) {
-            (Some(app), Some(inst)) => format!("velo-{}-{}-{}-src", app, job_name, inst),
-            (Some(app), None) => format!("velo-{}-{}-src", app, job_name),
-            (None, Some(inst)) => format!("velo-{}-{}-src", inst, job_name),
-            (None, None) => format!("velo-{}-src", job_name),
-        };
-
-        log::info!(
-            "Kafka consumer client.id: '{}' (app: {}, job: {}, instance: {})",
-            client_id,
-            app_name.unwrap_or("none"),
+        // Generate and log client ID using shared helper
+        use super::config_helpers::{ClientType, generate_client_id, log_client_id};
+        let client_id = generate_client_id(app_name, job_name, instance_id, ClientType::Source);
+        log_client_id(
+            &client_id,
+            ClientType::Source,
+            app_name,
             job_name,
-            instance_id.unwrap_or("none")
+            instance_id,
         );
 
         // Create filtered config with source. properties

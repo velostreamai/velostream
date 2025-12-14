@@ -77,6 +77,87 @@ All demos use schemas from the `schemas/` directory:
 - `order_event.schema.yaml` - E-commerce order events
 - `user_activity.schema.yaml` - User activity events
 
+## Step-by-Step Debugging
+
+The test harness supports step-by-step execution for debugging complex SQL pipelines.
+
+### Step Mode (--step flag)
+
+Execute statements one at a time with the `--step` flag:
+
+```bash
+# Step through each statement interactively
+velo-test run tier5_complex/40_pipeline.sql --step
+
+# Commands:
+#   [Enter] - Execute next statement
+#   r       - Run all remaining statements
+#   q       - Quit
+```
+
+### Interactive Debug Mode
+
+For more control, use the `debug` subcommand:
+
+```bash
+# Interactive debugger with breakpoints
+velo-test debug tier5_complex/40_pipeline.sql --breakpoint regional_summary
+
+# Commands:
+#   s, step        - Execute next statement
+#   c, continue    - Run until next breakpoint
+#   r, run         - Run all remaining statements
+#   b <name>       - Set breakpoint on statement
+#   u <name>       - Remove breakpoint
+#   cb, clear      - Clear all breakpoints
+#   l, list        - List all statements
+#   i <name>       - Inspect output from statement
+#   ia, inspect-all - Inspect all captured outputs
+#   hi, history    - Show command history
+#   st, status     - Show current state
+#   q, quit        - Exit debugger
+```
+
+### Example: Debugging the Pipeline Demo
+
+The `tier5_complex/40_pipeline.sql` has 3 stages - ideal for step debugging:
+
+```bash
+cd demo/test_harness_examples
+
+# 1. First validate the SQL
+../velo-test.sh validate tier5_complex/40_pipeline.sql
+
+# 2. Debug with step mode
+velo-test debug tier5_complex/40_pipeline.sql
+
+# Output:
+# 🐛 Velostream SQL Debugger
+# ════════════════════════════════════════
+# SQL File: tier5_complex/40_pipeline.sql
+#
+# 📝 SQL Statements:
+#    [1] cleaned_transactions (CREATE STREAM)
+#    [2] regional_summary (CREATE TABLE)
+#    [3] flagged_regions (CREATE STREAM)
+#
+# ▶️  Ready to execute [1/3] cleaned_transactions
+# (debug) s
+#    ✅ cleaned_transactions completed in 245ms
+#       Output: 10 records to cleaned_transactions
+```
+
+### Setting Breakpoints
+
+Set breakpoints on specific queries:
+
+```bash
+# Break at the aggregation stage
+velo-test debug tier5_complex/40_pipeline.sql -b regional_summary
+
+# The debugger will run until it hits 'regional_summary'
+```
+
 ## Writing New Demo Apps
 
 1. Create SQL file in appropriate tier directory
