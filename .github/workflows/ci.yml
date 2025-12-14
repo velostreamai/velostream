@@ -117,11 +117,6 @@ jobs:
         components: rustfmt,clippy
         cache-suffix: comprehensive
 
-    - name: Build test binaries
-      run: |
-        echo "🏗️ Building velo-sql-multi binary for integration tests..."
-        cargo build --release --bin velo-sql-multi --no-default-features
-
     - name: Run comprehensive tests
       id: comprehensive-tests
       run: |

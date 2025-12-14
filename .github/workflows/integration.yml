@@ -158,14 +158,14 @@ jobs:
 
     - name: Build and test SQL server
       run: |
-        echo "🏗️ Building velo-sql-multi binary at $(date)..."
-        cargo build --release --bin velo-sql-multi --no-default-features
-        echo "✅ velo-sql-multi binary built successfully"
+        echo "🏗️ Building velo-sql binary at $(date)..."
+        cargo build --release --bin velo-sql --no-default-features
+        echo "✅ velo-sql binary built successfully"
 
-        echo "🧪 Testing multi-job SQL server at $(date)..."
-        echo "Command: cargo test multi_job::sql_server_test --no-default-features -- --nocapture"
+        echo "🧪 Testing stream job server at $(date)..."
+        echo "Command: cargo test stream_job_server_test --no-default-features -- --nocapture"
         echo "Timeout: 60 seconds"
-        timeout 60 cargo test multi_job::sql_server_test --no-default-features -- --nocapture || {
+        timeout 60 cargo test stream_job_server_test --no-default-features -- --nocapture || {
           echo "⚠️ SQL server test timed out after 60 seconds (expected in CI)"
         }
         echo "✅ SQL server test completed"
