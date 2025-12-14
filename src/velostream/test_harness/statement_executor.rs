@@ -671,6 +671,8 @@ pub struct PartitionInfo {
     pub message_count: i64,
     /// Timestamp of latest message (if available)
     pub latest_timestamp_ms: Option<i64>,
+    /// Key of the latest message (if available)
+    pub latest_key: Option<String>,
 }
 
 /// Topic information for debugging

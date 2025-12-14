@@ -1939,12 +1939,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         topic.name, test_marker, topic.total_messages
                                     );
                                     for p in &topic.partitions {
+                                        // Format timestamp if available
+                                        let ts_str = p.latest_timestamp_ms.map(|ts| {
+                                            use chrono::{TimeZone, Utc};
+                                            Utc.timestamp_millis_opt(ts)
+                                                .single()
+                                                .map(|dt| dt.format("%H:%M:%S").to_string())
+                                                .unwrap_or_else(|| format!("{}ms", ts))
+                                        });
+
+                                        // Format key if available (truncate if too long)
+                                        let key_str = p.latest_key.as_ref().map(|k| {
+                                            if k.len() > 20 {
+                                                format!("{}...", &k[..17])
+                                            } else {
+                                                k.clone()
+                                            }
+                                        });
+
+                                        // Build the last message info string
+                                        let last_info = match (&key_str, &ts_str) {
+                                            (Some(k), Some(t)) => {
+                                                format!(" [last: key=\"{}\", @{}]", k, t)
+                                            }
+                                            (Some(k), None) => format!(" [last: key=\"{}\"]", k),
+                                            (None, Some(t)) => format!(" [last: @{}]", t),
+                                            (None, None) => String::new(),
+                                        };
+
                                         println!(
-                                            "     └─ P{}: {} msgs (offsets: {}..{})",
+                                            "     └─ P{}: {} msgs (offsets: {}..{}){}",
                                             p.partition,
                                             p.message_count,
                                             p.low_offset,
-                                            p.high_offset
+                                            p.high_offset,
+                                            last_info
                                         );
                                     }
                                 }

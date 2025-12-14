@@ -862,12 +862,22 @@ impl TestHarnessInfra {
                 let message_count = high - low;
                 total_messages += message_count;
 
+                // Fetch the last message to get timestamp and key
+                let (latest_timestamp_ms, latest_key) = if high > low {
+                    self.fetch_last_message_info(&topic_name, partition_id, high - 1)
+                        .await
+                        .unwrap_or((None, None))
+                } else {
+                    (None, None)
+                };
+
                 partitions.push(PartitionInfo {
                     partition: partition_id,
                     low_offset: low,
                     high_offset: high,
                     message_count,
-                    latest_timestamp_ms: None, // Would need to consume last message to get this
+                    latest_timestamp_ms,
+                    latest_key,
                 });
             }
 
@@ -883,6 +893,64 @@ impl TestHarnessInfra {
         topics.sort_by(|a, b| a.name.cmp(&b.name));
 
         Ok(topics)
+    }
+
+    /// Fetch the last message info (timestamp and key) for a specific partition
+    async fn fetch_last_message_info(
+        &self,
+        topic: &str,
+        partition: i32,
+        offset: i64,
+    ) -> TestHarnessResult<(Option<i64>, Option<String>)> {
+        use rdkafka::Offset;
+        use rdkafka::consumer::{BaseConsumer, Consumer};
+        use rdkafka::message::Message;
+
+        let bootstrap_servers = match &self.bootstrap_servers {
+            Some(servers) => servers,
+            None => return Ok((None, None)),
+        };
+
+        // Create a temporary consumer to fetch the specific message
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", bootstrap_servers);
+        config.set("group.id", format!("__last_msg_inspector_{}", partition));
+        config.set("enable.auto.commit", "false");
+        config.set("auto.offset.reset", "earliest");
+        apply_broker_address_family(&mut config);
+
+        let consumer: BaseConsumer = match config.create() {
+            Ok(c) => c,
+            Err(_) => return Ok((None, None)),
+        };
+
+        // Assign to specific partition and offset
+        let mut tpl = rdkafka::TopicPartitionList::new();
+        tpl.add_partition_offset(topic, partition, Offset::Offset(offset))
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to set partition offset: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        consumer
+            .assign(&tpl)
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to assign partition: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        // Poll for the message with a short timeout
+        match consumer.poll(Duration::from_millis(500)) {
+            Some(Ok(msg)) => {
+                let timestamp_ms = msg.timestamp().to_millis();
+                let key = msg
+                    .key()
+                    .and_then(|k| std::str::from_utf8(k).ok())
+                    .map(|s| s.to_string());
+                Ok((timestamp_ms, key))
+            }
+            _ => Ok((None, None)),
+        }
     }
 
     /// Get consumer group information
