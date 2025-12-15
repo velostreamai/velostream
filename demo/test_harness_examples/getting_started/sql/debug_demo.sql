@@ -45,6 +45,7 @@ EMIT CHANGES
 WITH (
     'high_value_trades.type' = 'kafka_source',
     'high_value_trades.topic' = 'high_value_trades',
+    'high_value_trades.key_field' = 'symbol',
     'high_value_trades.config_file' = '../../configs/common_kafka_source.yaml',
 
     'symbol_aggregates.type' = 'kafka_sink',
@@ -73,6 +74,7 @@ EMIT CHANGES
 WITH (
     'symbol_aggregates.type' = 'kafka_source',
     'symbol_aggregates.topic' = 'symbol_aggregates',
+    'symbol_aggregates.key_field' = 'symbol',
     'symbol_aggregates.config_file' = '../../configs/common_kafka_source.yaml',
 
     'flagged_symbols.type' = 'kafka_sink',

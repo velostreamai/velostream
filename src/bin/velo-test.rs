@@ -2246,7 +2246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "h" | "help" | "?" => {
                         if execution_finished {
                             println!("Inspection Commands (execution complete):");
-                            println!("  l, list        - List all statements");
+                            println!("  l, list        - List all statements with SQL");
                             println!("  i <N>          - Inspect output from statement N");
                             println!("  ia, inspect-all - Inspect all captured outputs");
                             println!("  hi, history    - Show command history");
@@ -2257,6 +2257,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                             println!("  consumers      - List all consumer groups");
                             println!("  jobs           - List all jobs with source/sink status");
+                            println!();
+                            println!("Data Visibility:");
+                            println!(
+                                "  messages <topic|N> [--last N] [--first N] - Peek at topic messages"
+                            );
+                            println!(
+                                "     (Use topic number from 'topics' list, e.g., 'messages 1')"
+                            );
+                            println!("  head <stmt> [-n N]   - Show first N records (default: 10)");
+                            println!("  tail <stmt> [-n N]   - Show last N records (default: 10)");
+                            println!(
+                                "  filter <stmt> <field><op><value> - Filter records (op: =,!=,>,<,~)"
+                            );
+                            println!("  export <stmt> <file> - Export records to JSON/CSV file");
+                            println!();
                             println!("  q, quit        - Exit and cleanup");
                         } else {
                             println!("Debug Commands:");
