@@ -585,17 +585,33 @@ pub async fn process_batch(
                 });
 
                 // Log first 3 errors to avoid log spam
+                // Use error! for non-recoverable errors (schema issues, field not found, etc.)
+                // Use warn! for recoverable errors (transient network issues, etc.)
                 if index < 3 {
-                    warn!(
-                        "Job '{}' failed to process record {}: {} [Recoverable: {}]",
-                        job_name, index, detailed_msg, recoverable
-                    );
+                    if recoverable {
+                        warn!(
+                            "Job '{}' failed to process record {}: {} [Recoverable]",
+                            job_name, index, detailed_msg
+                        );
+                    } else {
+                        error!(
+                            "Job '{}' failed to process record {}: {} [Non-recoverable]",
+                            job_name, index, detailed_msg
+                        );
+                    }
                     debug!("Full error details: {:?}", e);
                 } else if index == 3 {
-                    warn!(
-                        "Job '{}' (suppressing further error logs for batch, {} errors total)",
-                        job_name, batch_size
-                    );
+                    if recoverable {
+                        warn!(
+                            "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                            job_name, batch_size
+                        );
+                    } else {
+                        error!(
+                            "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                            job_name, batch_size
+                        );
+                    }
                 }
             }
         }
