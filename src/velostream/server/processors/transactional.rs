@@ -1522,6 +1522,8 @@ impl TransactionalJobProcessor {
         writer_transactions: &HashMap<String, bool>,
         job_name: &str,
     ) -> DataSourceResult<()> {
+        let mut aborted_count = 0;
+
         // Abort sink transactions first
         for (sink_name, is_active) in writer_transactions {
             if *is_active {
@@ -1534,10 +1536,13 @@ impl TransactionalJobProcessor {
                 }
 
                 match context.abort_writer().await {
-                    Ok(()) => debug!(
-                        "Job '{}': Aborted transaction for sink '{}'",
-                        job_name, sink_name
-                    ),
+                    Ok(()) => {
+                        debug!(
+                            "Job '{}': Aborted transaction for sink '{}'",
+                            job_name, sink_name
+                        );
+                        aborted_count += 1;
+                    }
                     Err(e) => {
                         let error_msg = format!(
                             "Failed to abort transaction for sink '{}': {:?}",
@@ -1566,10 +1571,13 @@ impl TransactionalJobProcessor {
                 }
 
                 match context.abort_reader().await {
-                    Ok(()) => debug!(
-                        "Job '{}': Aborted transaction for source '{}'",
-                        job_name, source_name
-                    ),
+                    Ok(()) => {
+                        debug!(
+                            "Job '{}': Aborted transaction for source '{}'",
+                            job_name, source_name
+                        );
+                        aborted_count += 1;
+                    }
                     Err(e) => {
                         let error_msg = format!(
                             "Failed to abort transaction for source '{}': {:?}",
@@ -1586,7 +1594,13 @@ impl TransactionalJobProcessor {
             }
         }
 
-        warn!("Job '{}': Aborted all multi-source transactions", job_name);
+        // Only log if we actually aborted something
+        if aborted_count > 0 {
+            debug!(
+                "Job '{}': Aborted {} multi-source transaction(s)",
+                job_name, aborted_count
+            );
+        }
         Ok(())
     }
 
