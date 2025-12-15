@@ -4,13 +4,34 @@
 //! - Schema inference from SQL and data files
 //! - Failure analysis and fix suggestions
 //! - Test specification generation
+//!
+//! # Testing
+//!
+//! The [`AiProvider`] trait allows mocking the Claude API for tests:
+//!
+//! ```rust,ignore
+//! use velostream::velostream::test_harness::ai::{AiProvider, MockAiProvider, AiAnalysis};
+//!
+//! let mock = MockAiProvider::new()
+//!     .with_analysis(AiAnalysis {
+//!         summary: "Test failure due to missing data".to_string(),
+//!         root_cause: Some("Schema mismatch".to_string()),
+//!         suggestions: vec!["Fix schema".to_string()],
+//!         confidence: 0.9,
+//!     });
+//!
+//! // Use mock in tests instead of real API
+//! let analysis = mock.analyze_failure(&context).await?;
+//! ```
 
 use super::assertions::AssertionResult;
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::schema::Schema;
 use super::spec::TestSpec;
+use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 /// Claude API endpoint
@@ -18,6 +39,231 @@ const CLAUDE_API_URL: &str = "https://api.anthropic.com/v1/messages";
 
 /// Default model to use
 const DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
+
+// ============================================================================
+// AI Provider Trait
+// ============================================================================
+
+/// Trait for AI operations - allows mocking the Claude API for tests
+///
+/// This trait defines the interface for AI-powered features. The default
+/// implementation ([`AiAssistant`]) calls the real Claude API. For testing,
+/// use [`MockAiProvider`] which returns canned responses.
+#[async_trait]
+pub trait AiProvider: Send + Sync {
+    /// Check if AI is available (API key configured)
+    fn is_available(&self) -> bool;
+
+    /// Infer schema from SQL and CSV samples
+    async fn infer_schema(
+        &self,
+        sql_content: &str,
+        csv_samples: &[CsvSample],
+    ) -> TestHarnessResult<Schema>;
+
+    /// Analyze assertion failure and provide suggestions
+    async fn analyze_failure(&self, context: &AnalysisContext) -> TestHarnessResult<AiAnalysis>;
+
+    /// Generate test specification from SQL
+    async fn generate_test_spec(
+        &self,
+        sql_content: &str,
+        app_name: &str,
+    ) -> TestHarnessResult<TestSpec>;
+}
+
+// ============================================================================
+// Mock AI Provider (for testing)
+// ============================================================================
+
+/// Mock AI provider for testing without calling the real Claude API
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let mock = MockAiProvider::new()
+///     .with_analysis(AiAnalysis {
+///         summary: "Test summary".to_string(),
+///         root_cause: Some("Root cause".to_string()),
+///         suggestions: vec!["Fix 1".to_string()],
+///         confidence: 0.85,
+///     });
+///
+/// let result = mock.analyze_failure(&context).await?;
+/// assert_eq!(result.confidence, 0.85);
+/// ```
+pub struct MockAiProvider {
+    /// Canned schema response
+    schema_response: Arc<RwLock<Option<Schema>>>,
+
+    /// Canned analysis response
+    analysis_response: Arc<RwLock<Option<AiAnalysis>>>,
+
+    /// Canned test spec response
+    test_spec_response: Arc<RwLock<Option<TestSpec>>>,
+
+    /// Whether to simulate availability
+    available: bool,
+
+    /// Record of calls for verification
+    calls: Arc<RwLock<Vec<MockCall>>>,
+}
+
+/// Record of a mock call for test verification
+#[derive(Debug, Clone)]
+pub enum MockCall {
+    InferSchema { sql: String, sample_count: usize },
+    AnalyzeFailure { query_name: String },
+    GenerateTestSpec { sql: String, app_name: String },
+}
+
+impl MockAiProvider {
+    /// Create a new mock provider (available by default)
+    pub fn new() -> Self {
+        Self {
+            schema_response: Arc::new(RwLock::new(None)),
+            analysis_response: Arc::new(RwLock::new(None)),
+            test_spec_response: Arc::new(RwLock::new(None)),
+            available: true,
+            calls: Arc::new(RwLock::new(Vec::new())),
+        }
+    }
+
+    /// Create a mock that simulates unavailability (no API key)
+    pub fn unavailable() -> Self {
+        Self {
+            available: false,
+            ..Self::new()
+        }
+    }
+
+    /// Set canned schema response
+    pub fn with_schema(self, schema: Schema) -> Self {
+        *self.schema_response.write().unwrap() = Some(schema);
+        self
+    }
+
+    /// Set canned analysis response
+    pub fn with_analysis(self, analysis: AiAnalysis) -> Self {
+        *self.analysis_response.write().unwrap() = Some(analysis);
+        self
+    }
+
+    /// Set canned test spec response
+    pub fn with_test_spec(self, spec: TestSpec) -> Self {
+        *self.test_spec_response.write().unwrap() = Some(spec);
+        self
+    }
+
+    /// Get recorded calls for verification
+    pub async fn get_calls(&self) -> Vec<MockCall> {
+        self.calls.read().unwrap().clone()
+    }
+
+    /// Clear recorded calls
+    pub async fn clear_calls(&self) {
+        self.calls.write().unwrap().clear();
+    }
+}
+
+impl Default for MockAiProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl AiProvider for MockAiProvider {
+    fn is_available(&self) -> bool {
+        self.available
+    }
+
+    async fn infer_schema(
+        &self,
+        sql_content: &str,
+        csv_samples: &[CsvSample],
+    ) -> TestHarnessResult<Schema> {
+        // Record the call
+        self.calls.write().unwrap().push(MockCall::InferSchema {
+            sql: sql_content.to_string(),
+            sample_count: csv_samples.len(),
+        });
+
+        if !self.available {
+            return Err(TestHarnessError::AiError {
+                message: "AI not available (mock)".to_string(),
+                source: None,
+            });
+        }
+
+        self.schema_response
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| TestHarnessError::AiError {
+                message: "No mock schema response configured".to_string(),
+                source: None,
+            })
+    }
+
+    async fn analyze_failure(&self, context: &AnalysisContext) -> TestHarnessResult<AiAnalysis> {
+        // Record the call
+        self.calls.write().unwrap().push(MockCall::AnalyzeFailure {
+            query_name: context.query_name.clone(),
+        });
+
+        if !self.available {
+            return Err(TestHarnessError::AiError {
+                message: "AI not available (mock)".to_string(),
+                source: None,
+            });
+        }
+
+        self.analysis_response
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| TestHarnessError::AiError {
+                message: "No mock analysis response configured".to_string(),
+                source: None,
+            })
+    }
+
+    async fn generate_test_spec(
+        &self,
+        sql_content: &str,
+        app_name: &str,
+    ) -> TestHarnessResult<TestSpec> {
+        // Record the call
+        self.calls
+            .write()
+            .unwrap()
+            .push(MockCall::GenerateTestSpec {
+                sql: sql_content.to_string(),
+                app_name: app_name.to_string(),
+            });
+
+        if !self.available {
+            return Err(TestHarnessError::AiError {
+                message: "AI not available (mock)".to_string(),
+                source: None,
+            });
+        }
+
+        self.test_spec_response
+            .read()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| TestHarnessError::AiError {
+                message: "No mock test spec response configured".to_string(),
+                source: None,
+            })
+    }
+}
+
+// ============================================================================
+// Real AI Assistant (Claude API)
+// ============================================================================
 
 /// AI assistant for test harness
 pub struct AiAssistant {
@@ -587,6 +833,36 @@ Return ONLY the YAML test spec, no explanations.
 impl Default for AiAssistant {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[async_trait]
+impl AiProvider for AiAssistant {
+    fn is_available(&self) -> bool {
+        self.enabled && self.api_key.is_some()
+    }
+
+    async fn infer_schema(
+        &self,
+        sql_content: &str,
+        csv_samples: &[CsvSample],
+    ) -> TestHarnessResult<Schema> {
+        // Delegate to the inherent method
+        AiAssistant::infer_schema(self, sql_content, csv_samples).await
+    }
+
+    async fn analyze_failure(&self, context: &AnalysisContext) -> TestHarnessResult<AiAnalysis> {
+        // Delegate to the inherent method
+        AiAssistant::analyze_failure(self, context).await
+    }
+
+    async fn generate_test_spec(
+        &self,
+        sql_content: &str,
+        app_name: &str,
+    ) -> TestHarnessResult<TestSpec> {
+        // Delegate to the inherent method
+        AiAssistant::generate_test_spec(self, sql_content, app_name).await
     }
 }
 

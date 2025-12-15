@@ -656,8 +656,124 @@ pub enum DebugCommand {
     ListJobs,
     /// Show schema for a topic (inferred from last message)
     ShowSchema(String),
+
+    // === Data Visibility Commands ===
+    /// Peek at messages from a Kafka topic
+    Messages {
+        /// Topic name
+        topic: String,
+        /// Show last N messages (from end)
+        last: Option<usize>,
+        /// Show first N messages (from beginning)
+        first: Option<usize>,
+        /// Start from specific offset
+        offset: Option<i64>,
+        /// Filter by partition
+        partition: Option<i32>,
+    },
+    /// Show first N records from a statement's captured output
+    Head {
+        /// Statement name
+        statement: String,
+        /// Number of records (default: 10)
+        limit: usize,
+    },
+    /// Show last N records from a statement's captured output
+    Tail {
+        /// Statement name
+        statement: String,
+        /// Number of records (default: 10)
+        limit: usize,
+    },
+    /// Filter records by field value
+    Filter {
+        /// Statement name
+        statement: String,
+        /// Field name
+        field: String,
+        /// Filter operator
+        operator: FilterOperator,
+        /// Value to compare
+        value: String,
+    },
+    /// Export records to file
+    Export {
+        /// Statement name
+        statement: String,
+        /// Output file path
+        path: std::path::PathBuf,
+        /// Export format
+        format: ExportFormat,
+    },
+
     /// Quit session
     Quit,
+}
+
+/// Filter operators for the filter command
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FilterOperator {
+    /// Equals (=)
+    Eq,
+    /// Not equals (!=)
+    Ne,
+    /// Greater than (>)
+    Gt,
+    /// Less than (<)
+    Lt,
+    /// Greater than or equal (>=)
+    Gte,
+    /// Less than or equal (<=)
+    Lte,
+    /// Contains substring
+    Contains,
+}
+
+impl FilterOperator {
+    /// Parse operator from string representation
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "=" | "==" => Some(Self::Eq),
+            "!=" | "<>" => Some(Self::Ne),
+            ">" => Some(Self::Gt),
+            "<" => Some(Self::Lt),
+            ">=" => Some(Self::Gte),
+            "<=" => Some(Self::Lte),
+            "~" | "contains" => Some(Self::Contains),
+            _ => None,
+        }
+    }
+
+    /// Get display symbol
+    pub fn symbol(&self) -> &'static str {
+        match self {
+            Self::Eq => "=",
+            Self::Ne => "!=",
+            Self::Gt => ">",
+            Self::Lt => "<",
+            Self::Gte => ">=",
+            Self::Lte => "<=",
+            Self::Contains => "contains",
+        }
+    }
+}
+
+/// Export format for the export command
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportFormat {
+    /// JSON format (default)
+    Json,
+    /// CSV format
+    Csv,
+}
+
+impl std::fmt::Display for ExportFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportFormat::Json => write!(f, "JSON"),
+            ExportFormat::Csv => write!(f, "CSV"),
+        }
+    }
 }
 
 /// Topic partition information
@@ -1355,6 +1471,195 @@ impl DebugSession {
                     ))),
                 }
             }
+
+            // === Data Visibility Commands ===
+            DebugCommand::Messages {
+                topic,
+                last,
+                first,
+                offset,
+                partition,
+            } => {
+                // Determine how many messages to fetch and from where
+                let limit = last.or(first).unwrap_or(5);
+                let from_end = last.is_some() || (first.is_none() && offset.is_none());
+
+                match self
+                    .executor
+                    .infra()
+                    .peek_topic_messages(&topic, limit, from_end, offset, partition)
+                    .await
+                {
+                    Ok(messages) => {
+                        if messages.is_empty() {
+                            Ok(CommandResult::Message(format!(
+                                "No messages found in topic '{}'",
+                                topic
+                            )))
+                        } else {
+                            Ok(CommandResult::MessagesResult(messages))
+                        }
+                    }
+                    Err(e) => Ok(CommandResult::Message(format!(
+                        "Failed to read messages from '{}': {}",
+                        topic, e
+                    ))),
+                }
+            }
+
+            DebugCommand::Head { statement, limit } => {
+                if let Some(output) = self.executor.get_output(&statement) {
+                    let total = output.records.len();
+                    let records: Vec<_> = output.records.iter().take(limit).cloned().collect();
+                    Ok(CommandResult::RecordsResult {
+                        statement,
+                        records,
+                        total_count: total,
+                        showing: format!("first {}", limit),
+                    })
+                } else {
+                    Ok(CommandResult::Message(format!(
+                        "No output found for '{}'. Run the statement first.",
+                        statement
+                    )))
+                }
+            }
+
+            DebugCommand::Tail { statement, limit } => {
+                if let Some(output) = self.executor.get_output(&statement) {
+                    let total = output.records.len();
+                    let skip = total.saturating_sub(limit);
+                    let records: Vec<_> = output.records.iter().skip(skip).cloned().collect();
+                    Ok(CommandResult::RecordsResult {
+                        statement,
+                        records,
+                        total_count: total,
+                        showing: format!("last {}", limit),
+                    })
+                } else {
+                    Ok(CommandResult::Message(format!(
+                        "No output found for '{}'. Run the statement first.",
+                        statement
+                    )))
+                }
+            }
+
+            DebugCommand::Filter {
+                statement,
+                field,
+                operator,
+                value,
+            } => {
+                if let Some(output) = self.executor.get_output(&statement) {
+                    let total = output.records.len();
+                    let filter_expr = format!("{} {} {}", field, operator.symbol(), value);
+
+                    // Filter records that match the condition
+                    let matched: Vec<(usize, _)> = output
+                        .records
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, record)| {
+                            if let Some(field_value) = record.get(&field) {
+                                match_filter(field_value, &operator, &value)
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|(idx, rec)| (idx, rec.clone()))
+                        .collect();
+
+                    let matched_count = matched.len();
+                    Ok(CommandResult::FilteredResult {
+                        statement,
+                        records: matched,
+                        total_count: total,
+                        matched_count,
+                        filter_expr,
+                    })
+                } else {
+                    Ok(CommandResult::Message(format!(
+                        "No output found for '{}'. Run the statement first.",
+                        statement
+                    )))
+                }
+            }
+
+            DebugCommand::Export {
+                statement,
+                path,
+                format,
+            } => {
+                if let Some(output) = self.executor.get_output(&statement) {
+                    let record_count = output.records.len();
+
+                    let content = match format {
+                        ExportFormat::Json => {
+                            // Convert to JSON array
+                            let json_records: Vec<serde_json::Value> = output
+                                .records
+                                .iter()
+                                .map(|rec| {
+                                    let obj: serde_json::Map<String, serde_json::Value> = rec
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), field_value_to_json(v)))
+                                        .collect();
+                                    serde_json::Value::Object(obj)
+                                })
+                                .collect();
+                            serde_json::to_string_pretty(&json_records)
+                                .unwrap_or_else(|e| format!("JSON error: {}", e))
+                        }
+                        ExportFormat::Csv => {
+                            // Get all field names from first record
+                            if output.records.is_empty() {
+                                String::new()
+                            } else {
+                                let fields: Vec<&String> = output.records[0].keys().collect();
+                                let mut csv = fields
+                                    .iter()
+                                    .map(|s| s.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(",");
+                                csv.push('\n');
+                                for record in &output.records {
+                                    let row: Vec<String> = fields
+                                        .iter()
+                                        .map(|f| {
+                                            record
+                                                .get(*f)
+                                                .map(field_value_to_csv_string)
+                                                .unwrap_or_default()
+                                        })
+                                        .collect();
+                                    csv.push_str(&row.join(","));
+                                    csv.push('\n');
+                                }
+                                csv
+                            }
+                        }
+                    };
+
+                    match std::fs::write(&path, content) {
+                        Ok(()) => Ok(CommandResult::ExportResult {
+                            path,
+                            record_count,
+                            format,
+                        }),
+                        Err(e) => Ok(CommandResult::Message(format!(
+                            "Failed to write to '{}': {}",
+                            path.display(),
+                            e
+                        ))),
+                    }
+                } else {
+                    Ok(CommandResult::Message(format!(
+                        "No output found for '{}'. Run the statement first.",
+                        statement
+                    )))
+                }
+            }
+
             DebugCommand::Quit => Ok(CommandResult::Quit),
         }
     }
@@ -1362,6 +1667,135 @@ impl DebugSession {
     /// Get command history
     pub fn history(&self) -> &[DebugCommand] {
         &self.history
+    }
+}
+
+/// Match a field value against a filter condition
+fn match_filter(
+    field_value: &crate::velostream::sql::execution::types::FieldValue,
+    operator: &FilterOperator,
+    value: &str,
+) -> bool {
+    use crate::velostream::sql::execution::types::FieldValue;
+
+    // Convert field value to string for comparison
+    let field_str = match field_value {
+        FieldValue::String(s) => s.clone(),
+        FieldValue::Integer(i) => i.to_string(),
+        FieldValue::Float(f) => f.to_string(),
+        FieldValue::Boolean(b) => b.to_string(),
+        FieldValue::ScaledInteger(v, scale) => {
+            let divisor = 10_i64.pow(*scale as u32);
+            format!("{}.{}", v / divisor, (v % divisor).abs())
+        }
+        FieldValue::Null => "null".to_string(),
+        _ => format!("{:?}", field_value),
+    };
+
+    match operator {
+        FilterOperator::Eq => field_str == value,
+        FilterOperator::Ne => field_str != value,
+        FilterOperator::Contains => field_str.contains(value),
+        FilterOperator::Gt | FilterOperator::Lt | FilterOperator::Gte | FilterOperator::Lte => {
+            // Try numeric comparison
+            if let (Ok(field_num), Ok(value_num)) = (field_str.parse::<f64>(), value.parse::<f64>())
+            {
+                match operator {
+                    FilterOperator::Gt => field_num > value_num,
+                    FilterOperator::Lt => field_num < value_num,
+                    FilterOperator::Gte => field_num >= value_num,
+                    FilterOperator::Lte => field_num <= value_num,
+                    _ => false,
+                }
+            } else {
+                // Fall back to string comparison
+                match operator {
+                    FilterOperator::Gt => field_str.as_str() > value,
+                    FilterOperator::Lt => field_str.as_str() < value,
+                    FilterOperator::Gte => field_str.as_str() >= value,
+                    FilterOperator::Lte => field_str.as_str() <= value,
+                    _ => false,
+                }
+            }
+        }
+    }
+}
+
+/// Convert FieldValue to JSON
+fn field_value_to_json(
+    fv: &crate::velostream::sql::execution::types::FieldValue,
+) -> serde_json::Value {
+    use crate::velostream::sql::execution::types::FieldValue;
+
+    match fv {
+        FieldValue::Null => serde_json::Value::Null,
+        FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+        FieldValue::Integer(i) => serde_json::Value::Number((*i).into()),
+        FieldValue::Float(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        FieldValue::String(s) => serde_json::Value::String(s.clone()),
+        FieldValue::ScaledInteger(v, scale) => {
+            let divisor = 10_f64.powi(*scale as i32);
+            serde_json::Number::from_f64(*v as f64 / divisor)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null)
+        }
+        FieldValue::Timestamp(ts) => serde_json::Value::String(ts.to_string()),
+        FieldValue::Date(d) => serde_json::Value::String(d.to_string()),
+        FieldValue::Decimal(d) => serde_json::Value::String(d.to_string()),
+        FieldValue::Interval { value, unit } => {
+            serde_json::Value::String(format!("{} {:?}", value, unit))
+        }
+        FieldValue::Array(arr) => {
+            serde_json::Value::Array(arr.iter().map(field_value_to_json).collect())
+        }
+        FieldValue::Map(map) | FieldValue::Struct(map) => {
+            let obj: serde_json::Map<String, serde_json::Value> = map
+                .iter()
+                .map(|(k, v)| (k.clone(), field_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(obj)
+        }
+    }
+}
+
+/// Convert FieldValue to CSV-safe string
+fn field_value_to_csv_string(fv: &crate::velostream::sql::execution::types::FieldValue) -> String {
+    use crate::velostream::sql::execution::types::FieldValue;
+
+    match fv {
+        FieldValue::Null => "".to_string(),
+        FieldValue::Boolean(b) => b.to_string(),
+        FieldValue::Integer(i) => i.to_string(),
+        FieldValue::Float(f) => f.to_string(),
+        FieldValue::String(s) => {
+            // Escape quotes and wrap in quotes if contains comma
+            if s.contains(',') || s.contains('"') || s.contains('\n') {
+                format!("\"{}\"", s.replace('"', "\"\""))
+            } else {
+                s.clone()
+            }
+        }
+        FieldValue::ScaledInteger(v, scale) => {
+            let divisor = 10_f64.powi(*scale as i32);
+            format!("{}", *v as f64 / divisor)
+        }
+        FieldValue::Timestamp(ts) => ts.to_string(),
+        FieldValue::Date(d) => d.to_string(),
+        FieldValue::Decimal(d) => d.to_string(),
+        FieldValue::Interval { value, unit } => format!("{} {:?}", value, unit),
+        FieldValue::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(field_value_to_csv_string).collect();
+            format!("[{}]", items.join(";"))
+        }
+        FieldValue::Map(map) | FieldValue::Struct(map) => {
+            let items: Vec<String> = map
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, field_value_to_csv_string(v)))
+                .collect();
+            format!("{{{}}}", items.join(";"))
+        }
     }
 }
 
@@ -1390,8 +1824,56 @@ pub enum CommandResult {
     JobListing(Vec<JobInfo>),
     /// Topic schema display
     SchemaDisplay(TopicSchema),
+
+    // === Data Visibility Results ===
+    /// Messages from a Kafka topic
+    MessagesResult(Vec<TopicMessage>),
+    /// Head/tail records from captured output
+    RecordsResult {
+        statement: String,
+        records: Vec<
+            std::collections::HashMap<String, crate::velostream::sql::execution::types::FieldValue>,
+        >,
+        total_count: usize,
+        showing: String, // "first 10" or "last 10"
+    },
+    /// Filtered records from captured output
+    FilteredResult {
+        statement: String,
+        records: Vec<(
+            usize,
+            std::collections::HashMap<String, crate::velostream::sql::execution::types::FieldValue>,
+        )>, // (index, record)
+        total_count: usize,
+        matched_count: usize,
+        filter_expr: String,
+    },
+    /// Export confirmation
+    ExportResult {
+        path: std::path::PathBuf,
+        record_count: usize,
+        format: ExportFormat,
+    },
+
     /// Session quit
     Quit,
+}
+
+/// A message from a Kafka topic
+#[derive(Debug, Clone)]
+pub struct TopicMessage {
+    /// Partition the message came from
+    pub partition: i32,
+    /// Offset of the message
+    pub offset: i64,
+    /// Message key (if any)
+    pub key: Option<String>,
+    /// Message value as JSON string
+    pub value: String,
+    /// Timestamp (if available)
+    pub timestamp_ms: Option<i64>,
+    /// Message headers (if any)
+    pub headers: Vec<(String, String)>,
 }
 
 /// Topic schema information (inferred from message)

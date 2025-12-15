@@ -23,6 +23,7 @@ The test harness enables you to:
 | [Assertions Reference](./ASSERTIONS.md) | All assertion types and options |
 | [Schema Reference](./SCHEMAS.md) | Schema definition format and constraints |
 | [CLI Reference](./CLI_REFERENCE.md) | All CLI commands and options |
+| [AI Features](./AI_FEATURES.md) | AI-powered schema inference, test generation, and failure analysis |
 
 ## Quick Start
 

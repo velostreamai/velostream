@@ -16,10 +16,11 @@
 | Phase 10 | In-Memory Schema Registry | 0.5 day | ✅ COMPLETE | Phase 1 |
 | Phase 11 | Advanced Testing (DLQ, Fault Injection, Table State) | 1 day | ✅ COMPLETE | Phase 3 |
 | Phase 12 | File-Based Testing Support | 0.5 day | ✅ COMPLETE | Phase 1 |
+| Phase 13 | Interactive Debug Mode | 1-2 days | ✅ COMPLETE | Phase 2 |
 | Documentation | Developer Guide | 0.5 day | ✅ COMPLETE | All |
 | Demo Apps | Test Fixtures | 4 days | ✅ COMPLETE | Parallel with Phase 2-3 |
 
-**Total Estimated LoE: 18-24 days**
+**Total Estimated LoE: 20-26 days**
 
 **Status: 100% COMPLETE**
 
@@ -463,19 +464,21 @@ demo/test_harness_examples/
 
 ### Key Deliverables
 
-1. **CLI Tool** (`velo-test`): `run`, `validate`, `init`, `infer-schema`, `stress` commands
+1. **CLI Tool** (`velo-test`): `run`, `validate`, `init`, `infer-schema`, `stress`, `debug` commands
 2. **Schema-driven data generation** with distributions, constraints, derived fields
 3. **Comprehensive assertion framework** with 10+ assertion types
 4. **Multiple output formats**: Text, JSON, JUnit XML
 5. **Stress testing** with throughput and memory tracking
 6. **AI-powered features**: Schema inference, failure analysis, test generation
 7. **24 demo SQL applications** across 6 tiers of complexity
+8. **Interactive Debug Mode** with step-by-step execution, breakpoints, and data visibility
 
 ### What's Next?
 
 FR-084 is feature-complete. Potential follow-up work:
 - [x] Integration tests with real Kafka clusters (testcontainers)
 - [x] Documentation and user guides (DEVELOPER_GUIDE.md, QUICK_REFERENCE.md, GETTING_STARTED.md)
+- [x] Interactive debug mode with data visibility commands
 - [ ] Performance benchmarking of the test harness itself
 - [ ] CI/CD integration examples
 
@@ -782,3 +785,65 @@ assertions:
 
 **Demo Example:**
 See `demo/test_harness_examples/tier1_basic/file_io/` for a complete file-based testing example
+
+### ✅ Phase 13: Interactive Debug Mode (Completed)
+
+Full-featured interactive debugger for step-by-step SQL execution and data inspection:
+
+| Module | File | Features |
+|--------|------|----------|
+| **Debug CLI** | [`velo-test.rs`](../../src/bin/velo-test.rs) | `debug` command with REPL interface |
+| **Statement Executor** | [`statement_executor.rs`](../../src/velostream/test_harness/statement_executor.rs) | Debug commands, session state, breakpoints |
+| **Infrastructure** | [`infra.rs`](../../src/velostream/test_harness/infra.rs) | Topic inspection, message peeking |
+
+**Debug Commands:**
+
+| Category | Commands |
+|----------|----------|
+| **Execution Control** | `step`, `continue`, `run`, `break <N>`, `unbreak <N>`, `clear` |
+| **State Inspection** | `list`, `status`, `inspect <N>`, `inspect-all`, `history` |
+| **Infrastructure** | `topics`, `consumers`, `jobs`, `schema <topic>` |
+| **Data Visibility** | `messages <topic\|N>`, `head <stmt>`, `tail <stmt>`, `filter <stmt>`, `export <stmt>` |
+
+**Key Features:**
+
+- **Numbered Topic References**: After `topics`, use `messages 1` instead of full topic name
+- **Enhanced Message Display**: Shows partition, offset, timestamp, key, headers, and formatted JSON value
+- **Filter Expressions**: `filter 1 status=FAILED`, `filter 1 price>100`, `filter 1 message~error`
+- **Export**: `export 1 results.json` or `export 1 results.csv`
+- **Breakpoints**: Set on statement names or numbers, pause before execution
+- **Post-Completion Inspection**: Continue inspecting state after execution finishes
+
+**Example Session:**
+
+```bash
+$ velo-test debug app.sql --spec test_spec.yaml --breakpoint 3
+
+🐛 Velostream SQL Debugger
+════════════════════════════════════════
+
+📝 SQL Statements:
+    [1] create_stream (CREATE STREAM)
+  * [3] enriched (SELECT)           <- breakpoint
+
+(debug) step
+   ✅ create_stream completed in 234ms
+
+(debug) topics
+   📋 Topics (1):
+   [1] test_abc_input [test] (100 messages)
+
+(debug) messages 1 --last 2
+📨 2 messages:
+  [1] P0:offset 98
+      key: AAPL
+      value: {"symbol": "AAPL", "price": 178.50}
+
+(debug) run
+✅ All statements completed
+
+(debug) export 3 results.json
+✅ Exported 100 records to results.json (JSON)
+```
+
+See [README.md#interactive-debug-mode](./README.md#interactive-debug-mode) for full documentation.

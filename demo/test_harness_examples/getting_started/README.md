@@ -106,18 +106,36 @@ velo-test debug sql/debug_demo.sql -b symbol_aggregates
 ```
 
 **Debug Commands:**
+
+*Execution Control:*
 - `s` / `step` - Execute next statement
 - `c` / `continue` - Run until next breakpoint
 - `r` / `run` - Run all remaining statements
-- `b <name>` / `break` - Set breakpoint on statement
-- `u <name>` / `unbreak` - Remove breakpoint
+- `b <N>` / `break` - Set breakpoint on statement N
+- `u <N>` / `unbreak` - Remove breakpoint
 - `cb` / `clear` - Clear all breakpoints
+- `q` / `quit` - Exit debugger
+
+*State Inspection:*
 - `l` / `list` - List all statements
-- `i <name>` / `inspect` - Inspect output from statement
+- `i <N>` / `inspect` - Inspect output from statement N
 - `ia` / `inspect-all` - Inspect all captured outputs
 - `hi` / `history` - Show command history
 - `st` / `status` - Show current state
-- `q` / `quit` - Exit debugger
+
+*Infrastructure:*
+- `topics` - List all Kafka topics (numbered for quick access)
+- `consumers` - List consumer groups with lag
+- `jobs` - List jobs with source/sink details
+- `schema <topic>` - Show inferred schema for topic
+
+*Data Visibility:*
+- `messages <topic|N>` - Peek topic messages (use number from `topics`)
+- `messages <N> --last 5` - Show last 5 messages
+- `head <stmt> [-n N]` - Show first N records (default: 10)
+- `tail <stmt> [-n N]` - Show last N records (default: 10)
+- `filter <stmt> <expr>` - Filter records (e.g., `filter 1 status=FAILED`)
+- `export <stmt> <file>` - Export records to JSON/CSV
 
 **Example session:**
 ```
@@ -135,10 +153,32 @@ SQL File: sql/debug_demo.sql
    ✅ high_value_trades completed in 156ms
       Output: 8 records to high_value_trades
 
-▶️  Ready to execute [2/3] symbol_aggregates
+(debug) topics
+   📋 Topics (1):
+   [1] test_abc_market_data [test] (50 messages)
+     └─ P0: 50 msgs (offsets: 0..50) [last: key="AAPL", @14:30:45]
+
+(debug) messages 1 --last 2
+📨 2 messages:
+  [1] P0:offset 48
+      timestamp: 2025-01-15 14:30:44.123
+      key: AAPL
+      value: {"symbol": "AAPL", "price": 178.50, "quantity": 100}
+
 (debug) s
    ✅ symbol_aggregates completed in 203ms
       Output: 3 records to symbol_aggregates
+
+(debug) head 2 -n 3
+📊 First (3 of 3 records) from 'symbol_aggregates':
+  [1] {"symbol":"AAPL","total_value":17850.00,"count":10}
+  [2] {"symbol":"GOOGL","total_value":14230.00,"count":8}
+  [3] {"symbol":"MSFT","total_value":21260.00,"count":5}
+
+(debug) filter 2 symbol=AAPL
+🔍 Filtered 'symbol_aggregates' where symbol=AAPL:
+   Found 1 of 3 records matching
+  [1] {"symbol":"AAPL","total_value":17850.00,"count":10}
 ```
 
 ## What This Demo Tests

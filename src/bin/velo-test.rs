@@ -10,6 +10,7 @@
 //!   velo-test infer-schema app.sql --data-dir data/ --output schemas/
 
 use clap::{Parser, Subcommand};
+use serde_json;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -1447,8 +1448,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             use velostream::velostream::test_harness::schema::SchemaRegistry;
             use velostream::velostream::test_harness::spec::TestSpec;
             use velostream::velostream::test_harness::statement_executor::{
-                CommandResult, DebugCommand, DebugSession, ExecutionMode, SessionState,
-                StatementExecutor,
+                CommandResult, DebugCommand, DebugSession, ExecutionMode, ExportFormat,
+                FilterOperator, SessionState, StatementExecutor,
             };
 
             println!("🐛 Velostream SQL Debugger");
@@ -1660,6 +1661,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(arg.to_string())
             }
 
+            // Helper function to prompt user to select a statement from a list
+            fn prompt_statement_selection(
+                statements: &[velostream::velostream::test_harness::statement_executor::ParsedStatement],
+                stdin: &std::io::Stdin,
+                stdout: &mut std::io::Stdout,
+            ) -> Option<String> {
+                use std::io::Write;
+
+                if statements.is_empty() {
+                    println!("No statements available.");
+                    return None;
+                }
+
+                println!("Select a statement:");
+                for (i, stmt) in statements.iter().enumerate() {
+                    println!("  [{}] {} ({:?})", i + 1, stmt.name, stmt.statement_type);
+                }
+                print!("Enter number [1-{}]: ", statements.len());
+                let _ = stdout.flush();
+
+                let mut input = String::new();
+                if stdin.read_line(&mut input).is_ok() {
+                    let input = input.trim();
+                    if let Ok(num) = input.parse::<usize>()
+                        && (1..=statements.len()).contains(&num)
+                    {
+                        return Some(statements[num - 1].name.clone());
+                    }
+                    if !input.is_empty() {
+                        println!("Invalid selection: {}", input);
+                    }
+                }
+                None
+            }
+
+            /// Parse a filter expression like "field=value" or "field > value"
+            fn parse_filter_expr(expr: &str) -> (String, Option<FilterOperator>, String) {
+                // Try operators in order of length (longest first to avoid partial matches)
+                let operators = [
+                    (">=", FilterOperator::Gte),
+                    ("<=", FilterOperator::Lte),
+                    ("!=", FilterOperator::Ne),
+                    ("<>", FilterOperator::Ne),
+                    ("==", FilterOperator::Eq),
+                    ("=", FilterOperator::Eq),
+                    (">", FilterOperator::Gt),
+                    ("<", FilterOperator::Lt),
+                    ("~", FilterOperator::Contains),
+                ];
+
+                for (op_str, op) in operators {
+                    if let Some(idx) = expr.find(op_str) {
+                        let field = expr[..idx].trim().to_string();
+                        let value = expr[idx + op_str.len()..].trim().to_string();
+                        return (field, Some(op), value);
+                    }
+                }
+
+                // No operator found
+                (expr.to_string(), None, String::new())
+            }
+
             // Interactive debug loop
             println!();
             println!("🐛 Debug Commands:");
@@ -1675,6 +1738,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("   schema <topic> - Show schema for topic (inferred)");
             println!("   consumers     - List all consumer groups");
             println!("   jobs          - List all jobs with source/sink status");
+            println!();
+            println!("📊 Data Visibility:");
+            println!("   messages <topic|N> [--last N] [--first N] - Peek at topic messages");
+            println!("      (Use topic number from 'topics' list, e.g., 'messages 1')");
+            println!("   head <stmt> [-n N]   - Show first N records (default: 10)");
+            println!("   tail <stmt> [-n N]   - Show last N records (default: 10)");
+            println!("   filter <stmt> <field><op><value> - Filter records (op: =,!=,>,<,~)");
+            println!("   export <stmt> <file> - Export records to JSON/CSV file");
+            println!();
             println!("   q, quit       - Exit debugger");
             println!();
 
@@ -1682,6 +1754,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut stdout = std::io::stdout();
 
             let mut execution_finished = false;
+            // Cache topic names for numbered references (e.g., "messages 1" instead of "messages my_long_topic")
+            let mut last_topic_list: Vec<String> = Vec::new();
 
             loop {
                 // Show state
@@ -1863,6 +1937,284 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             None
                         }
                     }
+
+                    // === Data Visibility Commands ===
+                    "messages" | "msg" | "m" => {
+                        if let Some(topic_arg) = parts.get(1) {
+                            // Resolve topic: either a number (from topics list) or a name
+                            let topic_name = if let Ok(num) = topic_arg.parse::<usize>() {
+                                // It's a number - look up in cached topic list
+                                if num == 0 || num > last_topic_list.len() {
+                                    if last_topic_list.is_empty() {
+                                        println!(
+                                            "No topics cached. Run 'topics' first to see available topics."
+                                        );
+                                    } else {
+                                        println!(
+                                            "Topic number {} out of range (1-{}). Run 'topics' to see list.",
+                                            num,
+                                            last_topic_list.len()
+                                        );
+                                    }
+                                    None
+                                } else {
+                                    Some(last_topic_list[num - 1].clone())
+                                }
+                            } else {
+                                // It's a name - use directly
+                                Some(topic_arg.to_string())
+                            };
+
+                            if let Some(topic) = topic_name {
+                                // Parse options: --last N, --first N, --offset O, --partition P
+                                let mut last: Option<usize> = None;
+                                let mut first: Option<usize> = None;
+                                let mut offset: Option<i64> = None;
+                                let mut partition: Option<i32> = None;
+
+                                let mut i = 2;
+                                while i < parts.len() {
+                                    match parts[i] {
+                                        "--last" | "-l" => {
+                                            if let Some(n) = parts.get(i + 1) {
+                                                last = n.parse().ok();
+                                                i += 1;
+                                            }
+                                        }
+                                        "--first" | "-f" => {
+                                            if let Some(n) = parts.get(i + 1) {
+                                                first = n.parse().ok();
+                                                i += 1;
+                                            }
+                                        }
+                                        "--offset" | "-o" => {
+                                            if let Some(o) = parts.get(i + 1) {
+                                                offset = o.parse().ok();
+                                                i += 1;
+                                            }
+                                        }
+                                        "--partition" | "-p" => {
+                                            if let Some(p) = parts.get(i + 1) {
+                                                partition = p.parse().ok();
+                                                i += 1;
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                    i += 1;
+                                }
+
+                                // Default to last 5 if no option specified
+                                if last.is_none() && first.is_none() && offset.is_none() {
+                                    last = Some(5);
+                                }
+
+                                Some(DebugCommand::Messages {
+                                    topic,
+                                    last,
+                                    first,
+                                    offset,
+                                    partition,
+                                })
+                            } else {
+                                None
+                            }
+                        } else {
+                            println!(
+                                "Usage: messages <topic|N> [--last N] [--first N] [--offset O] [--partition P]"
+                            );
+                            println!("  e.g., messages my_topic --last 10");
+                            println!(
+                                "  e.g., messages 1 --last 5  (uses topic #1 from 'topics' list)"
+                            );
+                            None
+                        }
+                    }
+
+                    "head" | "hd" => {
+                        let statements = session.executor().statements();
+                        let limit = parts
+                            .iter()
+                            .position(|p| *p == "-n")
+                            .and_then(|idx| parts.get(idx + 1))
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(10);
+
+                        let stmt_name = if let Some(arg) = parts.get(1) {
+                            // Skip if arg is "-n" (user typed "head -n 5")
+                            if *arg == "-n" {
+                                prompt_statement_selection(statements, &stdin, &mut stdout)
+                            } else {
+                                resolve_statement_arg(arg, statements)
+                            }
+                        } else {
+                            prompt_statement_selection(statements, &stdin, &mut stdout)
+                        };
+
+                        stmt_name.map(|stmt| DebugCommand::Head {
+                            statement: stmt,
+                            limit,
+                        })
+                    }
+
+                    "tail" | "tl" => {
+                        let statements = session.executor().statements();
+                        let limit = parts
+                            .iter()
+                            .position(|p| *p == "-n")
+                            .and_then(|idx| parts.get(idx + 1))
+                            .and_then(|n| n.parse().ok())
+                            .unwrap_or(10);
+
+                        let stmt_name = if let Some(arg) = parts.get(1) {
+                            // Skip if arg is "-n" (user typed "tail -n 5")
+                            if *arg == "-n" {
+                                prompt_statement_selection(statements, &stdin, &mut stdout)
+                            } else {
+                                resolve_statement_arg(arg, statements)
+                            }
+                        } else {
+                            prompt_statement_selection(statements, &stdin, &mut stdout)
+                        };
+
+                        stmt_name.map(|stmt| DebugCommand::Tail {
+                            statement: stmt,
+                            limit,
+                        })
+                    }
+
+                    "filter" | "f" => {
+                        // Usage: filter <statement> <field>=<value>
+                        // or: filter <statement> <field> <op> <value>
+                        let statements = session.executor().statements();
+
+                        if parts.len() >= 3 {
+                            let arg = parts[1];
+
+                            if let Some(statement) = resolve_statement_arg(arg, statements) {
+                                let expr = parts[2..].join(" ");
+                                // Parse expression: field=value or field > value etc.
+                                let (field, operator, value) = parse_filter_expr(&expr);
+
+                                if let Some(op) = operator {
+                                    Some(DebugCommand::Filter {
+                                        statement,
+                                        field,
+                                        operator: op,
+                                        value,
+                                    })
+                                } else {
+                                    println!(
+                                        "Invalid filter expression. Use: field=value, field>value, field<value, field~value (contains)"
+                                    );
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else if parts.len() == 1 {
+                            // No args - prompt for statement first, then expression
+                            use std::io::Write;
+                            if let Some(statement) =
+                                prompt_statement_selection(statements, &stdin, &mut stdout)
+                            {
+                                print!("Filter expression (e.g., status=FAILED): ");
+                                let _ = stdout.flush();
+                                let mut expr_input = String::new();
+                                if stdin.read_line(&mut expr_input).is_ok() {
+                                    let expr = expr_input.trim();
+                                    if !expr.is_empty() {
+                                        let (field, operator, value) = parse_filter_expr(expr);
+                                        if let Some(op) = operator {
+                                            Some(DebugCommand::Filter {
+                                                statement,
+                                                field,
+                                                operator: op,
+                                                value,
+                                            })
+                                        } else {
+                                            println!("Invalid filter expression.");
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            println!("Usage: filter <statement> <field>=<value>");
+                            println!("  e.g., filter 1 status=FAILED");
+                            println!("  Operators: = != > < >= <= ~ (contains)");
+                            None
+                        }
+                    }
+
+                    "export" | "ex" => {
+                        let statements = session.executor().statements();
+
+                        if parts.len() >= 3 {
+                            let arg = parts[1];
+                            let path_str = parts[2];
+
+                            if let Some(statement) = resolve_statement_arg(arg, statements) {
+                                let path = std::path::PathBuf::from(path_str);
+                                let format = if path_str.ends_with(".csv") {
+                                    ExportFormat::Csv
+                                } else {
+                                    ExportFormat::Json
+                                };
+
+                                Some(DebugCommand::Export {
+                                    statement,
+                                    path,
+                                    format,
+                                })
+                            } else {
+                                None
+                            }
+                        } else if parts.len() == 1 {
+                            // No args - prompt for statement first, then filename
+                            use std::io::Write;
+                            if let Some(statement) =
+                                prompt_statement_selection(statements, &stdin, &mut stdout)
+                            {
+                                print!("Export filename (e.g., results.json or data.csv): ");
+                                let _ = stdout.flush();
+                                let mut path_input = String::new();
+                                if stdin.read_line(&mut path_input).is_ok() {
+                                    let path_str = path_input.trim();
+                                    if !path_str.is_empty() {
+                                        let path = std::path::PathBuf::from(path_str);
+                                        let format = if path_str.ends_with(".csv") {
+                                            ExportFormat::Csv
+                                        } else {
+                                            ExportFormat::Json
+                                        };
+                                        Some(DebugCommand::Export {
+                                            statement,
+                                            path,
+                                            format,
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            println!("Usage: export <statement> <file.json|file.csv>");
+                            println!("  e.g., export 1 results.json");
+                            None
+                        }
+                    }
+
                     "q" | "quit" | "exit" => Some(DebugCommand::Quit),
                     "h" | "help" | "?" => {
                         if execution_finished {
@@ -1898,6 +2250,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                             println!("  consumers      - List all consumer groups");
                             println!("  jobs           - List all jobs with source/sink status");
+                            println!();
+                            println!("Data Visibility:");
+                            println!(
+                                "  messages <topic|N> [--last N] [--first N] - Peek at topic messages"
+                            );
+                            println!(
+                                "     (Use topic number from 'topics' list, e.g., 'messages 1')"
+                            );
+                            println!("  head <stmt> [-n N]   - Show first N records (default: 10)");
+                            println!("  tail <stmt> [-n N]   - Show last N records (default: 10)");
+                            println!(
+                                "  filter <stmt> <field><op><value> - Filter records (op: =,!=,>,<,~)"
+                            );
+                            println!("  export <stmt> <file> - Export records to JSON/CSV file");
+                            println!();
                             println!("  q, quit        - Exit debugger");
                         }
                         None
@@ -2025,13 +2392,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                             CommandResult::TopicListing(topics) => {
+                                // Store topic names for numbered references
+                                last_topic_list = topics.iter().map(|t| t.name.clone()).collect();
+
                                 println!("   📋 Topics ({}):", topics.len());
-                                for topic in &topics {
+                                println!("   (Use number with 'messages N' for quick access)");
+                                for (idx, topic) in topics.iter().enumerate() {
                                     let test_marker =
                                         if topic.is_test_topic { " [test]" } else { "" };
                                     println!(
-                                        "   • {}{} ({} messages)",
-                                        topic.name, test_marker, topic.total_messages
+                                        "   [{}] {}{} ({} messages)",
+                                        idx + 1,
+                                        topic.name,
+                                        test_marker,
+                                        topic.total_messages
                                     );
                                     for p in &topic.partitions {
                                         // Format timestamp if available
@@ -2316,6 +2690,132 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         }
                                     }
                                 }
+                                println!();
+                            }
+                            CommandResult::MessagesResult(messages) => {
+                                println!();
+                                if messages.is_empty() {
+                                    println!("📨 No messages found");
+                                } else {
+                                    println!(
+                                        "📨 {} message{}:",
+                                        messages.len(),
+                                        if messages.len() == 1 { "" } else { "s" }
+                                    );
+                                    for (idx, msg) in messages.iter().enumerate() {
+                                        // Format timestamp
+                                        let ts_str = msg.timestamp_ms.map(|ts| {
+                                            use chrono::{TimeZone, Utc};
+                                            Utc.timestamp_millis_opt(ts)
+                                                .single()
+                                                .map(|dt| {
+                                                    dt.format("%Y-%m-%d %H:%M:%S%.3f").to_string()
+                                                })
+                                                .unwrap_or_else(|| format!("{}ms", ts))
+                                        });
+
+                                        println!("  ─────────────────────────────────────────");
+                                        println!(
+                                            "  [{}] P{}:offset {}",
+                                            idx + 1,
+                                            msg.partition,
+                                            msg.offset
+                                        );
+                                        if let Some(ts) = ts_str {
+                                            println!("      timestamp: {}", ts);
+                                        }
+                                        println!(
+                                            "      key: {}",
+                                            msg.key.as_deref().unwrap_or("<null>")
+                                        );
+                                        if !msg.headers.is_empty() {
+                                            println!("      headers:");
+                                            for (hk, hv) in &msg.headers {
+                                                // Truncate long header values
+                                                let display_val = if hv.len() > 50 {
+                                                    format!("{}...", &hv[..47])
+                                                } else {
+                                                    hv.clone()
+                                                };
+                                                println!("        {}: {}", hk, display_val);
+                                            }
+                                        }
+                                        // Pretty print JSON value if possible
+                                        let formatted_value =
+                                            serde_json::from_str::<serde_json::Value>(&msg.value)
+                                                .ok()
+                                                .and_then(|v| serde_json::to_string_pretty(&v).ok())
+                                                .unwrap_or_else(|| msg.value.clone());
+                                        println!("      value:");
+                                        for line in formatted_value.lines() {
+                                            println!("        {}", line);
+                                        }
+                                    }
+                                }
+                                println!();
+                            }
+                            CommandResult::RecordsResult {
+                                statement,
+                                records,
+                                total_count,
+                                showing,
+                            } => {
+                                println!();
+                                if records.is_empty() {
+                                    println!("📊 No records found for statement '{}'", statement);
+                                } else {
+                                    println!(
+                                        "📊 {} ({} of {} records) from '{}':",
+                                        showing,
+                                        records.len(),
+                                        total_count,
+                                        statement
+                                    );
+                                    for (idx, record) in records.iter().enumerate() {
+                                        // Format record as JSON
+                                        let json = serde_json::to_string(record)
+                                            .unwrap_or_else(|_| format!("{:?}", record));
+                                        println!("  [{}] {}", idx + 1, json);
+                                    }
+                                }
+                                println!();
+                            }
+                            CommandResult::FilteredResult {
+                                statement,
+                                records,
+                                total_count,
+                                matched_count,
+                                filter_expr,
+                            } => {
+                                println!();
+                                println!("🔍 Filtered '{}' where {}:", statement, filter_expr);
+                                println!(
+                                    "   Found {} of {} records matching",
+                                    matched_count, total_count
+                                );
+                                if records.is_empty() {
+                                    println!("   (no matching records)");
+                                } else {
+                                    for (idx, record) in records.iter() {
+                                        let json = serde_json::to_string(record)
+                                            .unwrap_or_else(|_| format!("{:?}", record));
+                                        println!("  [{}] {}", idx, json);
+                                    }
+                                }
+                                println!();
+                            }
+                            CommandResult::ExportResult {
+                                path,
+                                record_count,
+                                format,
+                            } => {
+                                println!();
+                                println!(
+                                    "✅ Exported {} records to {} ({})",
+                                    record_count,
+                                    path.display(),
+                                    format
+                                );
                                 println!();
                             }
                             CommandResult::Quit => {

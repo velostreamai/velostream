@@ -1083,6 +1083,184 @@ impl TestHarnessInfra {
         })
     }
 
+    /// Peek at messages from a Kafka topic
+    ///
+    /// Reads messages from a topic for debugging purposes. Can read from
+    /// the beginning, end, or a specific offset.
+    pub async fn peek_topic_messages(
+        &self,
+        topic: &str,
+        limit: usize,
+        from_end: bool,
+        start_offset: Option<i64>,
+        partition_filter: Option<i32>,
+    ) -> TestHarnessResult<Vec<super::statement_executor::TopicMessage>> {
+        use rdkafka::Offset;
+        use rdkafka::consumer::{BaseConsumer, Consumer};
+        use rdkafka::message::Message;
+        use rdkafka::topic_partition_list::TopicPartitionList;
+
+        let bootstrap_servers = match &self.bootstrap_servers {
+            Some(servers) => servers,
+            None => {
+                return Err(TestHarnessError::InfraError {
+                    message: "No bootstrap servers configured".to_string(),
+                    source: None,
+                });
+            }
+        };
+
+        // Create a temporary consumer
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", bootstrap_servers);
+        config.set(
+            "group.id",
+            format!("__message_peek_{}_{}", topic, uuid::Uuid::new_v4()),
+        );
+        config.set("enable.auto.commit", "false");
+        config.set(
+            "auto.offset.reset",
+            if from_end { "latest" } else { "earliest" },
+        );
+        apply_broker_address_family(&mut config);
+
+        let consumer: BaseConsumer = config.create().map_err(|e| TestHarnessError::InfraError {
+            message: format!("Failed to create consumer: {}", e),
+            source: Some(e.to_string()),
+        })?;
+
+        // Get topic metadata to find partitions
+        let metadata = consumer
+            .fetch_metadata(Some(topic), Duration::from_secs(5))
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to fetch metadata for '{}': {}", topic, e),
+                source: Some(e.to_string()),
+            })?;
+
+        let topic_metadata = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .ok_or_else(|| TestHarnessError::InfraError {
+                message: format!("Topic '{}' not found", topic),
+                source: None,
+            })?;
+
+        let partitions: Vec<i32> = topic_metadata
+            .partitions()
+            .iter()
+            .map(|p| p.id())
+            .filter(|p| partition_filter.is_none_or(|f| *p == f))
+            .collect();
+
+        if partitions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Assign partitions with appropriate offsets
+        let mut tpl = TopicPartitionList::new();
+        for partition in &partitions {
+            if let Some(offset) = start_offset {
+                tpl.add_partition_offset(topic, *partition, Offset::Offset(offset))
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to set offset: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+            } else if from_end {
+                // For "last N" messages, we need to calculate the offset
+                let (low, high) = consumer
+                    .fetch_watermarks(topic, *partition, Duration::from_secs(5))
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to fetch watermarks: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+                let start = (high - limit as i64).max(low);
+                tpl.add_partition_offset(topic, *partition, Offset::Offset(start))
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to set offset: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+            } else {
+                tpl.add_partition_offset(topic, *partition, Offset::Beginning)
+                    .map_err(|e| TestHarnessError::InfraError {
+                        message: format!("Failed to set offset: {}", e),
+                        source: Some(e.to_string()),
+                    })?;
+            }
+        }
+
+        consumer
+            .assign(&tpl)
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to assign partitions: {}", e),
+                source: Some(e.to_string()),
+            })?;
+
+        // Collect messages
+        let mut messages: Vec<super::statement_executor::TopicMessage> = Vec::new();
+        let start = std::time::Instant::now();
+        let timeout = Duration::from_secs(5);
+
+        while messages.len() < limit && start.elapsed() < timeout {
+            match consumer.poll(Duration::from_millis(500)) {
+                Some(Ok(msg)) => {
+                    let key = msg.key().map(|k| String::from_utf8_lossy(k).to_string());
+
+                    let value = msg
+                        .payload()
+                        .map(|p| String::from_utf8_lossy(p).to_string())
+                        .unwrap_or_else(|| "<empty>".to_string());
+
+                    let timestamp_ms = msg.timestamp().to_millis();
+
+                    // Extract headers
+                    let headers: Vec<(String, String)> = msg
+                        .headers()
+                        .map(|hdrs| {
+                            use rdkafka::message::Headers;
+                            (0..hdrs.count())
+                                .map(|i| {
+                                    let header = hdrs.get(i);
+                                    (
+                                        header.key.to_string(),
+                                        header
+                                            .value
+                                            .map(|v| String::from_utf8_lossy(v).to_string())
+                                            .unwrap_or_default(),
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    messages.push(super::statement_executor::TopicMessage {
+                        partition: msg.partition(),
+                        offset: msg.offset(),
+                        key,
+                        value,
+                        timestamp_ms,
+                        headers,
+                    });
+                }
+                Some(Err(_)) => continue,
+                None => {
+                    if messages.is_empty() {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Sort by offset if reading from end
+        if from_end {
+            messages.sort_by_key(|m| m.offset);
+        }
+
+        Ok(messages)
+    }
+
     /// Get consumer group information
     ///
     /// Lists all consumer groups from Kafka and returns their metadata.
