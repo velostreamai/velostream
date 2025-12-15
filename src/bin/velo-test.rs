@@ -1620,7 +1620,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut session = DebugSession::new(stmt_executor);
 
-            // Print statements
+            // Print statements with full SQL
             println!();
             println!("📝 SQL Statements:");
             let statements = session.executor().statements();
@@ -1637,6 +1637,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     stmt.name,
                     stmt.statement_type.display_name()
                 );
+                // Show full SQL indented
+                for sql_line in stmt.sql_text.lines() {
+                    println!("      {}", sql_line);
+                }
+                println!(); // Blank line between statements
             }
 
             // Helper function to resolve statement number to name
@@ -1676,7 +1681,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("Select a statement:");
                 for (i, stmt) in statements.iter().enumerate() {
-                    println!("  [{}] {} ({:?})", i + 1, stmt.name, stmt.statement_type);
+                    println!(
+                        "  [{}] {} ({})",
+                        i + 1,
+                        stmt.name,
+                        stmt.statement_type.display_name()
+                    );
+                    // Show full SQL indented
+                    for sql_line in stmt.sql_text.lines() {
+                        println!("      {}", sql_line);
+                    }
+                    println!(); // Blank line between statements
                 }
                 print!("Enter number [1-{}]: ", statements.len());
                 let _ = stdout.flush();
@@ -1768,11 +1783,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if !execution_finished {
                             println!("✅ All statements completed");
                             println!();
-                            println!("📊 Execution finished. You can still inspect state:");
-                            println!("   topics    - View topic state and offsets");
-                            println!("   jobs      - View job details and statistics");
-                            println!("   i <N>     - Inspect output from statement N");
-                            println!("   q         - Exit and cleanup");
+                            println!("📊 Execution finished. You can still inspect data:");
+                            println!("   l, list      - List all statements with SQL");
+                            println!("   topics       - View topic state and offsets");
+                            println!("   jobs         - View job details and statistics");
+                            println!("   i <N>        - Inspect output from statement N");
+                            println!("   messages <topic|N> - Peek at topic messages");
+                            println!("   head <N>     - Show first records from statement N");
+                            println!("   tail <N>     - Show last records from statement N");
+                            println!("   filter <N> <expr> - Filter records (e.g., status=FAILED)");
+                            println!("   export <N> <file> - Export to JSON/CSV");
+                            println!("   q            - Exit and cleanup");
                             execution_finished = true;
                         }
                         println!();
@@ -1782,11 +1803,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if !execution_finished {
                             println!("❌ Execution stopped due to error");
                             println!();
-                            println!("📊 You can still inspect state:");
-                            println!("   topics    - View topic state and offsets");
-                            println!("   jobs      - View job details and statistics");
-                            println!("   i <N>     - Inspect output from statement N");
-                            println!("   q         - Exit and cleanup");
+                            println!("📊 You can still inspect data:");
+                            println!("   l, list      - List all statements with SQL");
+                            println!("   topics       - View topic state and offsets");
+                            println!("   jobs         - View job details and statistics");
+                            println!("   i <N>        - Inspect output from statement N");
+                            println!("   messages <topic|N> - Peek at topic messages");
+                            println!("   head <N>     - Show first records from statement N");
+                            println!("   tail <N>     - Show last records from statement N");
+                            println!("   filter <N> <expr> - Filter records (e.g., status=FAILED)");
+                            println!("   export <N> <file> - Export to JSON/CSV");
+                            println!("   q            - Exit and cleanup");
                             execution_finished = true;
                         }
                         println!();

@@ -1095,29 +1095,33 @@ impl DebugSession {
             }
             DebugCommand::List => {
                 let statements = self.executor.statements();
-                let lines: Vec<String> = statements
-                    .iter()
-                    .map(|s| {
-                        let bp = if self.executor.breakpoints().contains(&s.name) {
-                            "*"
-                        } else {
-                            " "
-                        };
-                        let current = if s.index == self.executor.current_index() {
-                            ">"
-                        } else {
-                            " "
-                        };
-                        format!(
-                            "{}{} [{}] {} ({})",
-                            current,
-                            bp,
-                            s.index + 1,
-                            s.name,
-                            s.statement_type.display_name()
-                        )
-                    })
-                    .collect();
+                let mut lines: Vec<String> = Vec::new();
+                for s in statements {
+                    let bp = if self.executor.breakpoints().contains(&s.name) {
+                        "*"
+                    } else {
+                        " "
+                    };
+                    let current = if s.index == self.executor.current_index() {
+                        ">"
+                    } else {
+                        " "
+                    };
+                    // Header line with markers, number, name, and type
+                    lines.push(format!(
+                        "{}{} [{}] {} ({})",
+                        current,
+                        bp,
+                        s.index + 1,
+                        s.name,
+                        s.statement_type.display_name()
+                    ));
+                    // SQL text, indented
+                    for sql_line in s.sql_text.lines() {
+                        lines.push(format!("      {}", sql_line));
+                    }
+                    lines.push(String::new()); // Blank line between statements
+                }
                 Ok(CommandResult::Listing(lines))
             }
             DebugCommand::Status => Ok(CommandResult::Message(self.executor.state_summary())),
