@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::test_harness::config_override::ConfigOverrideBuilder;
 use velostream::velostream::test_harness::executor::CapturedOutput;
 use velostream::velostream::test_harness::schema::{Schema, SchemaRegistry};
@@ -185,6 +185,12 @@ fn test_demo_spec_loading() {
 fn test_execution_result_structure() {
     use velostream::velostream::test_harness::executor::ExecutionResult;
 
+    let mut fields1 = HashMap::new();
+    fields1.insert("id".to_string(), FieldValue::Integer(1));
+
+    let mut fields2 = HashMap::new();
+    fields2.insert("id".to_string(), FieldValue::Integer(2));
+
     let result = ExecutionResult {
         query_name: "test_query".to_string(),
         success: true,
@@ -193,19 +199,7 @@ fn test_execution_result_structure() {
             query_name: "test_query".to_string(),
             sink_name: "output_topic".to_string(),
             topic: Some("output_topic".to_string()),
-            records: vec![
-                {
-                    let mut r = HashMap::new();
-                    r.insert("id".to_string(), FieldValue::Integer(1));
-                    r
-                },
-                {
-                    let mut r = HashMap::new();
-                    r.insert("id".to_string(), FieldValue::Integer(2));
-                    r
-                },
-            ],
-            message_keys: vec![None, None],
+            records: vec![StreamRecord::new(fields1), StreamRecord::new(fields2)],
             execution_time_ms: 500,
             warnings: vec!["Minor warning".to_string()],
             memory_peak_bytes: Some(1024 * 1024),

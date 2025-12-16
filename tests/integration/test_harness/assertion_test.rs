@@ -9,7 +9,7 @@
 #![cfg(feature = "test-support")]
 
 use std::collections::HashMap;
-use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::test_harness::assertions::{AssertionContext, AssertionRunner};
 use velostream::velostream::test_harness::executor::CapturedOutput;
 use velostream::velostream::test_harness::spec::{
@@ -21,22 +21,21 @@ use velostream::velostream::test_harness::spec::{
 fn test_assertion_runner_record_count() {
     let mut records = Vec::new();
     for i in 0..50 {
-        let mut record = HashMap::new();
-        record.insert("id".to_string(), FieldValue::Integer(i));
-        record.insert(
+        let mut fields = HashMap::new();
+        fields.insert("id".to_string(), FieldValue::Integer(i));
+        fields.insert(
             "name".to_string(),
             FieldValue::String(format!("item_{}", i)),
         );
-        record.insert("value".to_string(), FieldValue::Float(i as f64 * 1.5));
-        records.push(record);
+        fields.insert("value".to_string(), FieldValue::Float(i as f64 * 1.5));
+        records.push(StreamRecord::new(fields));
     }
 
     let output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
         topic: Some("test_output".to_string()),
-        records: records.clone(),
-        message_keys: vec![None; records.len()],
+        records,
         execution_time_ms: 1000,
         warnings: Vec::new(),
         memory_peak_bytes: None,
@@ -99,19 +98,17 @@ fn test_assertion_runner_record_count() {
 /// Test schema_contains assertion
 #[test]
 fn test_assertion_runner_schema_contains() {
-    let mut records = Vec::new();
-    let mut record = HashMap::new();
-    record.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
-    record.insert("price".to_string(), FieldValue::Float(150.0));
-    record.insert("volume".to_string(), FieldValue::Integer(1000));
-    records.push(record);
+    let mut fields = HashMap::new();
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("price".to_string(), FieldValue::Float(150.0));
+    fields.insert("volume".to_string(), FieldValue::Integer(1000));
+    let records = vec![StreamRecord::new(fields)];
 
     let output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
         topic: Some("test_output".to_string()),
-        records: records.clone(),
-        message_keys: vec![None; records.len()],
+        records,
         execution_time_ms: 100,
         warnings: Vec::new(),
         memory_peak_bytes: None,
@@ -155,24 +152,21 @@ fn test_assertion_runner_schema_contains() {
 /// Test no_nulls assertion
 #[test]
 fn test_assertion_runner_no_nulls() {
-    let mut records = Vec::new();
+    let mut fields1 = HashMap::new();
+    fields1.insert("id".to_string(), FieldValue::Integer(1));
+    fields1.insert("name".to_string(), FieldValue::String("test".to_string()));
 
-    let mut record1 = HashMap::new();
-    record1.insert("id".to_string(), FieldValue::Integer(1));
-    record1.insert("name".to_string(), FieldValue::String("test".to_string()));
-    records.push(record1);
+    let mut fields2 = HashMap::new();
+    fields2.insert("id".to_string(), FieldValue::Integer(2));
+    fields2.insert("name".to_string(), FieldValue::Null); // Null value!
 
-    let mut record2 = HashMap::new();
-    record2.insert("id".to_string(), FieldValue::Integer(2));
-    record2.insert("name".to_string(), FieldValue::Null); // Null value!
-    records.push(record2);
+    let records = vec![StreamRecord::new(fields1), StreamRecord::new(fields2)];
 
     let output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: "test_output".to_string(),
         topic: Some("test_output".to_string()),
-        records: records.clone(),
-        message_keys: vec![None; records.len()],
+        records,
         execution_time_ms: 100,
         warnings: Vec::new(),
         memory_peak_bytes: None,

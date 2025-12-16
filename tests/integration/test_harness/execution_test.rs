@@ -12,7 +12,7 @@
 use rdkafka::producer::{FutureRecord, Producer};
 use std::collections::HashMap;
 use std::time::Duration;
-use velostream::velostream::sql::execution::types::FieldValue;
+use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::test_harness::TestHarnessInfra;
 use velostream::velostream::test_harness::assertions::AssertionRunner;
 use velostream::velostream::test_harness::capture::{CaptureConfig, SinkCapture};
@@ -166,12 +166,12 @@ async fn test_sink_capture_from_kafka_topic() {
 
             // Verify record structure
             if let Some(first) = output.records.first() {
-                assert!(first.contains_key("id"), "Record should have 'id' field");
+                assert!(first.fields.contains_key("id"), "Record should have 'id' field");
                 assert!(
-                    first.contains_key("message"),
+                    first.fields.contains_key("message"),
                     "Record should have 'message' field"
                 );
-                println!("First record: {:?}", first);
+                println!("First record: {:?}", first.fields);
             }
 
             println!("✅ SinkCapture test passed");
@@ -504,27 +504,21 @@ fields:
 
     // Simulate storing output from stage 1 for chaining test
     if let Ok(ref _exec_result) = result1 {
+        let mut fields1 = HashMap::new();
+        fields1.insert("id".to_string(), FieldValue::Integer(1));
+        fields1.insert("category".to_string(), FieldValue::String("A".to_string()));
+        fields1.insert("amount".to_string(), FieldValue::Float(100.0));
+
+        let mut fields2 = HashMap::new();
+        fields2.insert("id".to_string(), FieldValue::Integer(2));
+        fields2.insert("category".to_string(), FieldValue::String("B".to_string()));
+        fields2.insert("amount".to_string(), FieldValue::Float(200.0));
+
         let simulated_output = CapturedOutput {
             query_name: "filter_stage".to_string(),
             sink_name: filtered_topic.clone(),
             topic: Some(filtered_topic.clone()),
-            records: vec![
-                {
-                    let mut r = HashMap::new();
-                    r.insert("id".to_string(), FieldValue::Integer(1));
-                    r.insert("category".to_string(), FieldValue::String("A".to_string()));
-                    r.insert("amount".to_string(), FieldValue::Float(100.0));
-                    r
-                },
-                {
-                    let mut r = HashMap::new();
-                    r.insert("id".to_string(), FieldValue::Integer(2));
-                    r.insert("category".to_string(), FieldValue::String("B".to_string()));
-                    r.insert("amount".to_string(), FieldValue::Float(200.0));
-                    r
-                },
-            ],
-            message_keys: vec![None, None],
+            records: vec![StreamRecord::new(fields1), StreamRecord::new(fields2)],
             execution_time_ms: 100,
             warnings: Vec::new(),
             memory_peak_bytes: None,
@@ -690,12 +684,13 @@ fields:
     }
 
     // Run assertions on the generated data
+    // Convert HashMap<String, FieldValue> to Vec<StreamRecord>
+    let stream_records: Vec<StreamRecord> = records.iter().map(|r| StreamRecord::new(r.clone())).collect();
     let captured_output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: output_topic.clone(),
         topic: Some(output_topic.clone()),
-        records: records.clone(),
-        message_keys: vec![None; records.len()],
+        records: stream_records,
         execution_time_ms: 100,
         warnings: Vec::new(),
         memory_peak_bytes: None,
