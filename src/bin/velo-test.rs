@@ -1757,10 +1757,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("📊 Data Visibility:");
             println!("   messages <topic|N> [--last N] [--first N] - Peek at topic messages");
             println!("      (Use topic number from 'topics' list, e.g., 'messages 1')");
-            println!("   head <stmt> [-n N]   - Show first N records (default: 10)");
-            println!("   tail <stmt> [-n N]   - Show last N records (default: 10)");
-            println!("   filter <stmt> <field><op><value> - Filter records (op: =,!=,>,<,~)");
-            println!("   export <stmt> <file> - Export records to JSON/CSV file");
+            println!("   head <stmt|N> [-n N]   - Show first N records (default: 10)");
+            println!("   tail <stmt|N> [-n N]   - Show last N records (default: 10)");
+            println!("   filter <stmt|N> <field><op><value> - Filter records (op: =,!=,>,<,~)");
+            println!("   export <stmt|N> <file> - Export records to JSON/CSV file");
             println!();
             println!("   q, quit       - Exit debugger");
             println!();
@@ -2265,12 +2265,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!(
                                 "     (Use topic number from 'topics' list, e.g., 'messages 1')"
                             );
-                            println!("  head <stmt> [-n N]   - Show first N records (default: 10)");
-                            println!("  tail <stmt> [-n N]   - Show last N records (default: 10)");
+                            println!("  head <stmt|N> [-n N]   - Show first N records (default: 10)");
+                            println!("  tail <stmt|N> [-n N]   - Show last N records (default: 10)");
                             println!(
-                                "  filter <stmt> <field><op><value> - Filter records (op: =,!=,>,<,~)"
+                                "  filter <stmt|N> <field><op><value> - Filter records (op: =,!=,>,<,~)"
                             );
-                            println!("  export <stmt> <file> - Export records to JSON/CSV file");
+                            println!("  export <stmt|N> <file> - Export records to JSON/CSV file");
                             println!();
                             println!("  q, quit        - Exit and cleanup");
                         } else {
@@ -2300,12 +2300,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!(
                                 "     (Use topic number from 'topics' list, e.g., 'messages 1')"
                             );
-                            println!("  head <stmt> [-n N]   - Show first N records (default: 10)");
-                            println!("  tail <stmt> [-n N]   - Show last N records (default: 10)");
+                            println!("  head <stmt|N> [-n N]   - Show first N records (default: 10)");
+                            println!("  tail <stmt|N> [-n N]   - Show last N records (default: 10)");
                             println!(
-                                "  filter <stmt> <field><op><value> - Filter records (op: =,!=,>,<,~)"
+                                "  filter <stmt|N> <field><op><value> - Filter records (op: =,!=,>,<,~)"
                             );
-                            println!("  export <stmt> <file> - Export records to JSON/CSV file");
+                            println!("  export <stmt|N> <file> - Export records to JSON/CSV file");
                             println!();
                             println!("  q, quit        - Exit debugger");
                         }
