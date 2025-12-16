@@ -943,6 +943,8 @@ impl QueryExecutor {
 
     /// Publish records to a Kafka topic
     ///
+    /// Converts HashMap records to StreamRecords and delegates to publish_stream_records.
+    ///
     /// # Arguments
     /// * `topic` - Kafka topic name
     /// * `records` - Records to publish
@@ -953,76 +955,24 @@ impl QueryExecutor {
         records: &[HashMap<String, FieldValue>],
         key_field: Option<&str>,
     ) -> TestHarnessResult<()> {
-        // Use high-throughput async producer with non-blocking sends
-        let mut producer = self.infra.create_async_producer()?;
-        let start_time = std::time::Instant::now();
-
-        for record in records {
-            // Serialize to JSON
-            let json_value = field_values_to_json(record);
-            let payload = serde_json::to_string(&json_value).map_err(|e| {
-                TestHarnessError::GeneratorError {
-                    message: format!("Failed to serialize record: {}", e),
-                    schema: "unknown".to_string(),
+        // Convert HashMap records to StreamRecords
+        let stream_records: Vec<StreamRecord> = records
+            .iter()
+            .map(|record| {
+                let mut sr = StreamRecord::new(record.clone());
+                // Extract key from specified field
+                if let Some(kf) = key_field {
+                    sr.key = record.get(kf).cloned();
                 }
-            })?;
+                // Extract event_time and set as timestamp
+                if let Some(ts) = Self::extract_event_time_ms(record) {
+                    sr.timestamp = ts;
+                }
+                sr
+            })
+            .collect();
 
-            // Extract event_time from record and set as Kafka message timestamp
-            // This ensures _TIMESTAMP (Kafka message time) matches the event_time in the data
-            // which is critical for windowed queries to work correctly
-            let kafka_timestamp = Self::extract_event_time_ms(record);
-
-            // Extract key field value if specified
-            let key_value: Option<String> = key_field.and_then(|kf| {
-                record.get(kf).map(|v| match v {
-                    FieldValue::String(s) => s.clone(),
-                    other => format!("{:?}", other),
-                })
-            });
-
-            // Non-blocking send - the poll thread handles delivery callbacks
-            let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
-            if let Some(ts) = kafka_timestamp {
-                base_record = base_record.timestamp(ts);
-            }
-            // Set the key if we have one - need to keep key_value alive
-            let base_record = if let Some(ref key) = key_value {
-                base_record.key(key.as_str())
-            } else {
-                base_record
-            };
-            if let Err((e, _)) = producer.send(base_record) {
-                return Err(TestHarnessError::ExecutionError {
-                    message: format!("Failed to queue message for topic '{}': {}", topic, e),
-                    query_name: "publish".to_string(),
-                    source: Some(e.to_string()),
-                });
-            }
-        }
-
-        let queue_time = start_time.elapsed();
-
-        // Flush to ensure all messages are delivered
-        producer
-            .flush(Duration::from_secs(30))
-            .map_err(|e| TestHarnessError::ExecutionError {
-                message: format!("Failed to flush producer: {}", e),
-                query_name: "publish".to_string(),
-                source: Some(e.to_string()),
-            })?;
-
-        let total_time = start_time.elapsed();
-        let rate = records.len() as f64 / total_time.as_secs_f64();
-        log::info!(
-            "High-throughput publishing complete: {} records in {:?} ({:.1}/sec, queue: {:?}, flush: {:?})",
-            records.len(),
-            total_time,
-            rate,
-            queue_time,
-            total_time - queue_time
-        );
-
-        Ok(())
+        self.publish_stream_records(topic, &stream_records).await
     }
 
     /// Publish records to Kafka with simulated timestamps
