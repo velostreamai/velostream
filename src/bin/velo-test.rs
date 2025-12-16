@@ -2265,8 +2265,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!(
                                 "     (Use topic number from 'topics' list, e.g., 'messages 1')"
                             );
-                            println!("  head <stmt|N> [-n N]   - Show first N records (default: 10)");
-                            println!("  tail <stmt|N> [-n N]   - Show last N records (default: 10)");
+                            println!(
+                                "  head <stmt|N> [-n N]   - Show first N records (default: 10)"
+                            );
+                            println!(
+                                "  tail <stmt|N> [-n N]   - Show last N records (default: 10)"
+                            );
                             println!(
                                 "  filter <stmt|N> <field><op><value> - Filter records (op: =,!=,>,<,~)"
                             );
@@ -2300,8 +2304,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!(
                                 "     (Use topic number from 'topics' list, e.g., 'messages 1')"
                             );
-                            println!("  head <stmt|N> [-n N]   - Show first N records (default: 10)");
-                            println!("  tail <stmt|N> [-n N]   - Show last N records (default: 10)");
+                            println!(
+                                "  head <stmt|N> [-n N]   - Show first N records (default: 10)"
+                            );
+                            println!(
+                                "  tail <stmt|N> [-n N]   - Show last N records (default: 10)"
+                            );
                             println!(
                                 "  filter <stmt|N> <field><op><value> - Filter records (op: =,!=,>,<,~)"
                             );
@@ -2813,11 +2821,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         total_count,
                                         statement
                                     );
-                                    for (idx, record) in records.iter().enumerate() {
+                                    for (idx, (key, record)) in records.iter().enumerate() {
                                         // Format record as JSON
                                         let json = serde_json::to_string(record)
                                             .unwrap_or_else(|_| format!("{:?}", record));
-                                        println!("  [{}] {}", idx + 1, json);
+                                        let key_str = key.as_deref().unwrap_or("<null>");
+                                        println!("  [{}] key={} value={}", idx + 1, key_str, json);
                                     }
                                 }
                                 println!();
@@ -2838,10 +2847,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if records.is_empty() {
                                     println!("   (no matching records)");
                                 } else {
-                                    for (idx, record) in records.iter() {
+                                    for (idx, key, record) in records.iter() {
                                         let json = serde_json::to_string(record)
                                             .unwrap_or_else(|_| format!("{:?}", record));
-                                        println!("  [{}] {}", idx, json);
+                                        let key_str = key.as_deref().unwrap_or("<null>");
+                                        println!("  [{}] key={} value={}", idx, key_str, json);
                                     }
                                 }
                                 println!();

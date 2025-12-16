@@ -1514,7 +1514,14 @@ impl DebugSession {
             DebugCommand::Head { statement, limit } => {
                 if let Some(output) = self.executor.get_output(&statement) {
                     let total = output.records.len();
-                    let records: Vec<_> = output.records.iter().take(limit).cloned().collect();
+                    // Zip records with their keys
+                    let records: Vec<_> = output
+                        .records
+                        .iter()
+                        .zip(output.message_keys.iter().chain(std::iter::repeat(&None)))
+                        .take(limit)
+                        .map(|(rec, key)| (key.clone(), rec.clone()))
+                        .collect();
                     Ok(CommandResult::RecordsResult {
                         statement,
                         records,
@@ -1533,7 +1540,14 @@ impl DebugSession {
                 if let Some(output) = self.executor.get_output(&statement) {
                     let total = output.records.len();
                     let skip = total.saturating_sub(limit);
-                    let records: Vec<_> = output.records.iter().skip(skip).cloned().collect();
+                    // Zip records with their keys
+                    let records: Vec<_> = output
+                        .records
+                        .iter()
+                        .zip(output.message_keys.iter().chain(std::iter::repeat(&None)))
+                        .skip(skip)
+                        .map(|(rec, key)| (key.clone(), rec.clone()))
+                        .collect();
                     Ok(CommandResult::RecordsResult {
                         statement,
                         records,
@@ -1558,19 +1572,20 @@ impl DebugSession {
                     let total = output.records.len();
                     let filter_expr = format!("{} {} {}", field, operator.symbol(), value);
 
-                    // Filter records that match the condition
-                    let matched: Vec<(usize, _)> = output
+                    // Filter records that match the condition, including keys
+                    let matched: Vec<(usize, Option<String>, _)> = output
                         .records
                         .iter()
+                        .zip(output.message_keys.iter().chain(std::iter::repeat(&None)))
                         .enumerate()
-                        .filter(|(_, record)| {
+                        .filter(|(_, (record, _))| {
                             if let Some(field_value) = record.get(&field) {
                                 match_filter(field_value, &operator, &value)
                             } else {
                                 false
                             }
                         })
-                        .map(|(idx, rec)| (idx, rec.clone()))
+                        .map(|(idx, (rec, key))| (idx, key.clone(), rec.clone()))
                         .collect();
 
                     let matched_count = matched.len();
@@ -1835,19 +1850,23 @@ pub enum CommandResult {
     /// Head/tail records from captured output
     RecordsResult {
         statement: String,
-        records: Vec<
+        /// Records with their corresponding Kafka keys: (key, record)
+        records: Vec<(
+            Option<String>,
             std::collections::HashMap<String, crate::velostream::sql::execution::types::FieldValue>,
-        >,
+        )>,
         total_count: usize,
         showing: String, // "first 10" or "last 10"
     },
     /// Filtered records from captured output
     FilteredResult {
         statement: String,
+        /// Filtered records with index and key: (index, key, record)
         records: Vec<(
             usize,
+            Option<String>,
             std::collections::HashMap<String, crate::velostream::sql::execution::types::FieldValue>,
-        )>, // (index, record)
+        )>,
         total_count: usize,
         matched_count: usize,
         filter_expr: String,
