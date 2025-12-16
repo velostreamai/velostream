@@ -166,7 +166,10 @@ async fn test_sink_capture_from_kafka_topic() {
 
             // Verify record structure
             if let Some(first) = output.records.first() {
-                assert!(first.fields.contains_key("id"), "Record should have 'id' field");
+                assert!(
+                    first.fields.contains_key("id"),
+                    "Record should have 'id' field"
+                );
                 assert!(
                     first.fields.contains_key("message"),
                     "Record should have 'message' field"
@@ -685,7 +688,10 @@ fields:
 
     // Run assertions on the generated data
     // Convert HashMap<String, FieldValue> to Vec<StreamRecord>
-    let stream_records: Vec<StreamRecord> = records.iter().map(|r| StreamRecord::new(r.clone())).collect();
+    let stream_records: Vec<StreamRecord> = records
+        .iter()
+        .map(|r| StreamRecord::new(r.clone()))
+        .collect();
     let captured_output = CapturedOutput {
         query_name: "test_query".to_string(),
         sink_name: output_topic.clone(),

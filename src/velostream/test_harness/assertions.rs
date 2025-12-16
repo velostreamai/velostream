@@ -402,11 +402,7 @@ impl AssertionRunner {
         config: &RecordCountAssertion,
     ) -> AssertionResult {
         let actual = output.records.len();
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         // Check exact equals
         if let Some(expected) = config.equals {
@@ -503,11 +499,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &SchemaContainsAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         if output.records.is_empty() {
             return AssertionResult::fail(
@@ -611,11 +603,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &NoNullsAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         let fields_to_check: Vec<&str> = if config.fields.is_empty() {
             // Check all fields
@@ -669,11 +657,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &FieldInSetAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         let allowed: std::collections::HashSet<_> = config.values.iter().collect();
         let mut invalid_values = Vec::new();
@@ -714,11 +698,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &FieldValuesAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         let mut failures = Vec::new();
 
@@ -758,11 +738,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &AggregateCheckAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         let values: Vec<f64> = output
             .records
@@ -1668,11 +1644,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &WindowBoundaryAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         if output.records.is_empty() {
             return AssertionResult::pass(
@@ -1782,11 +1754,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &LatencyAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         // Extract latencies from records
         let latencies: Vec<f64> = output
@@ -1896,11 +1864,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &DistributionAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         // Extract numeric values
         let values: Vec<f64> = output
@@ -2020,11 +1984,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &PercentileAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         // Extract numeric values
         let mut values: Vec<f64> = output
@@ -2112,11 +2072,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &EventOrderingAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         if output.records.is_empty() {
             return AssertionResult::pass(
@@ -2674,11 +2630,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &DlqCountAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         // DLQ count is tracked via warnings that contain "DLQ" or "error" messages
         // In a full implementation, this would integrate with DlqCapture
@@ -2740,11 +2692,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &ErrorRateAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         let total_records = output.records.len();
 
@@ -2818,11 +2766,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &NoDuplicatesAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         if config.key_fields.is_empty() {
             return AssertionResult::fail(
@@ -2924,11 +2868,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &OrderingAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         if output.records.len() < 2 {
             return AssertionResult::pass(
@@ -3020,11 +2960,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &CompletenessAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         // Get input records from context
         let input_records = match self.context.input_records.get(&config.input_source) {
@@ -3221,11 +3157,7 @@ impl AssertionRunner {
         output: &CapturedOutput,
         config: &DataQualityAssertion,
     ) -> AssertionResult {
-        let location = output
-            .topic
-            .as_ref()
-            .map(|t| format!("topic '{}'", t))
-            .unwrap_or_else(|| format!("sink '{}'", output.sink_name));
+        let location = output.location();
 
         let mut violations: Vec<String> = Vec::new();
 

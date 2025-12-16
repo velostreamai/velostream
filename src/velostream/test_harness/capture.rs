@@ -7,10 +7,9 @@
 
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::CapturedOutput;
-use crate::velostream::kafka::common_config::apply_broker_address_family;
+use super::infra::create_kafka_config;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use futures::StreamExt;
-use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, DefaultConsumerContext, StreamConsumer};
 use rdkafka::message::{Headers, Message};
 use std::collections::HashMap;
@@ -104,17 +103,13 @@ impl SinkCapture {
         );
 
         // Create Kafka consumer
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", &self.bootstrap_servers)
-            .set("group.id", &group_id)
-            .set("auto.offset.reset", "earliest")
-            .set("enable.auto.commit", "false")
-            .set("session.timeout.ms", "10000")
-            .set("fetch.wait.max.ms", "100");
-        apply_broker_address_family(&mut config);
         let consumer: StreamConsumer<DefaultConsumerContext> =
-            config
+            create_kafka_config(&self.bootstrap_servers)
+                .set("group.id", &group_id)
+                .set("auto.offset.reset", "earliest")
+                .set("enable.auto.commit", "false")
+                .set("session.timeout.ms", "10000")
+                .set("fetch.wait.max.ms", "100")
                 .create()
                 .map_err(|e| TestHarnessError::CaptureError {
                     message: format!("Failed to create Kafka consumer: {}", e),

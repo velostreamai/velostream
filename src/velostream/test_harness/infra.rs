@@ -87,6 +87,25 @@ impl ContainerType {
     }
 }
 
+/// Create a base Kafka ClientConfig with bootstrap servers and address family configured.
+///
+/// This helper reduces boilerplate when creating Kafka clients. Additional settings
+/// can be chained on the returned config.
+///
+/// # Example
+/// ```rust,ignore
+/// let config = create_kafka_config("localhost:9092")
+///     .set("group.id", "my-group")
+///     .set("auto.offset.reset", "earliest");
+/// let consumer: StreamConsumer = config.create()?;
+/// ```
+pub fn create_kafka_config(bootstrap_servers: &str) -> ClientConfig {
+    let mut config = ClientConfig::new();
+    config.set("bootstrap.servers", bootstrap_servers);
+    apply_broker_address_family(&mut config);
+    config
+}
+
 /// Container instance enum to hold either Kafka or Redpanda
 enum ContainerInstance {
     Kafka(ContainerAsync<testcontainers_modules::kafka::Kafka>),
@@ -354,11 +373,8 @@ impl TestHarnessInfra {
         log::info!("Connecting to Kafka: {}", bootstrap_servers);
 
         // Create admin client for topic management
-        let mut admin_config = ClientConfig::new();
-        admin_config.set("bootstrap.servers", &bootstrap_servers);
-        apply_broker_address_family(&mut admin_config);
         let admin_client: AdminClient<DefaultClientContext> =
-            admin_config
+            create_kafka_config(&bootstrap_servers)
                 .create()
                 .map_err(|e| TestHarnessError::InfraError {
                     message: format!("Failed to create admin client: {}", e),
@@ -590,16 +606,14 @@ impl TestHarnessInfra {
                     source: None,
                 })?;
 
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", bootstrap_servers)
-            .set("message.timeout.ms", "5000");
-        apply_broker_address_family(&mut config);
         let producer: rdkafka::producer::FutureProducer<DefaultClientContext> =
-            config.create().map_err(|e| TestHarnessError::InfraError {
-                message: format!("Failed to create producer: {}", e),
-                source: Some(e.to_string()),
-            })?;
+            create_kafka_config(bootstrap_servers)
+                .set("message.timeout.ms", "5000")
+                .create()
+                .map_err(|e| TestHarnessError::InfraError {
+                    message: format!("Failed to create producer: {}", e),
+                    source: Some(e.to_string()),
+                })?;
 
         Ok(producer)
     }
@@ -641,18 +655,16 @@ impl TestHarnessInfra {
                     source: None,
                 })?;
 
-        let mut config = ClientConfig::new();
-        config
-            .set("bootstrap.servers", bootstrap_servers)
-            .set("group.id", group_id)
-            .set("auto.offset.reset", "earliest")
-            .set("enable.auto.commit", "false");
-        apply_broker_address_family(&mut config);
         let consumer: rdkafka::consumer::StreamConsumer<DefaultConsumerContext> =
-            config.create().map_err(|e| TestHarnessError::InfraError {
-                message: format!("Failed to create consumer: {}", e),
-                source: Some(e.to_string()),
-            })?;
+            create_kafka_config(bootstrap_servers)
+                .set("group.id", group_id)
+                .set("auto.offset.reset", "earliest")
+                .set("enable.auto.commit", "false")
+                .create()
+                .map_err(|e| TestHarnessError::InfraError {
+                    message: format!("Failed to create consumer: {}", e),
+                    source: Some(e.to_string()),
+                })?;
 
         Ok(consumer)
     }
@@ -908,14 +920,12 @@ impl TestHarnessInfra {
         };
 
         // Create a temporary consumer to fetch the specific message
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", bootstrap_servers);
-        config.set("group.id", format!("__last_msg_inspector_{}", partition));
-        config.set("enable.auto.commit", "false");
-        config.set("auto.offset.reset", "earliest");
-        apply_broker_address_family(&mut config);
-
-        let consumer: BaseConsumer = match config.create() {
+        let consumer: BaseConsumer = match create_kafka_config(bootstrap_servers)
+            .set("group.id", format!("__last_msg_inspector_{}", partition))
+            .set("enable.auto.commit", "false")
+            .set("auto.offset.reset", "earliest")
+            .create()
+        {
             Ok(c) => c,
             Err(_) => return Ok((None, None)),
         };
@@ -971,17 +981,15 @@ impl TestHarnessInfra {
         };
 
         // Create a temporary consumer
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", bootstrap_servers);
-        config.set("group.id", format!("__schema_inspector_{}", topic));
-        config.set("enable.auto.commit", "false");
-        config.set("auto.offset.reset", "earliest");
-        apply_broker_address_family(&mut config);
-
-        let consumer: BaseConsumer = config.create().map_err(|e| TestHarnessError::InfraError {
-            message: format!("Failed to create consumer: {}", e),
-            source: Some(e.to_string()),
-        })?;
+        let consumer: BaseConsumer = create_kafka_config(bootstrap_servers)
+            .set("group.id", format!("__schema_inspector_{}", topic))
+            .set("enable.auto.commit", "false")
+            .set("auto.offset.reset", "earliest")
+            .create()
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to create consumer: {}", e),
+                source: Some(e.to_string()),
+            })?;
 
         // Subscribe to the topic
         consumer
@@ -1111,23 +1119,21 @@ impl TestHarnessInfra {
         };
 
         // Create a temporary consumer
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", bootstrap_servers);
-        config.set(
-            "group.id",
-            format!("__message_peek_{}_{}", topic, uuid::Uuid::new_v4()),
-        );
-        config.set("enable.auto.commit", "false");
-        config.set(
-            "auto.offset.reset",
-            if from_end { "latest" } else { "earliest" },
-        );
-        apply_broker_address_family(&mut config);
-
-        let consumer: BaseConsumer = config.create().map_err(|e| TestHarnessError::InfraError {
-            message: format!("Failed to create consumer: {}", e),
-            source: Some(e.to_string()),
-        })?;
+        let consumer: BaseConsumer = create_kafka_config(bootstrap_servers)
+            .set(
+                "group.id",
+                &format!("__message_peek_{}_{}", topic, uuid::Uuid::new_v4()),
+            )
+            .set("enable.auto.commit", "false")
+            .set(
+                "auto.offset.reset",
+                if from_end { "latest" } else { "earliest" },
+            )
+            .create()
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to create consumer: {}", e),
+                source: Some(e.to_string()),
+            })?;
 
         // Get topic metadata to find partitions
         let metadata = consumer
@@ -1282,14 +1288,13 @@ impl TestHarnessInfra {
         };
 
         // Create a temporary consumer to fetch group list
-        let mut config = ClientConfig::new();
-        config.set("bootstrap.servers", bootstrap_servers);
-        apply_broker_address_family(&mut config);
-
-        let consumer: BaseConsumer = config.create().map_err(|e| TestHarnessError::InfraError {
-            message: format!("Failed to create consumer for group list: {}", e),
-            source: Some(e.to_string()),
-        })?;
+        let consumer: BaseConsumer =
+            create_kafka_config(bootstrap_servers)
+                .create()
+                .map_err(|e| TestHarnessError::InfraError {
+                    message: format!("Failed to create consumer for group list: {}", e),
+                    source: Some(e.to_string()),
+                })?;
 
         // Fetch all consumer groups (None = all groups)
         let group_list = consumer

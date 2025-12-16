@@ -92,6 +92,16 @@ pub struct CapturedOutput {
     pub memory_growth_bytes: Option<i64>,
 }
 
+impl CapturedOutput {
+    /// Get a human-readable location description (topic or sink name)
+    pub fn location(&self) -> String {
+        self.topic
+            .as_ref()
+            .map(|t| format!("topic '{}'", t))
+            .unwrap_or_else(|| format!("sink '{}'", self.sink_name))
+    }
+}
+
 /// Result of query execution
 #[derive(Debug)]
 pub struct ExecutionResult {
