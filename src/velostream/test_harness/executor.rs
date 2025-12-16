@@ -865,6 +865,89 @@ impl QueryExecutor {
         Ok(())
     }
 
+    /// Serialize a StreamRecord to JSON payload
+    fn serialize_record(record: &StreamRecord) -> TestHarnessResult<String> {
+        let json_value = field_values_to_json(&record.fields);
+        serde_json::to_string(&json_value).map_err(|e| TestHarnessError::GeneratorError {
+            message: format!("Failed to serialize record: {}", e),
+            schema: "unknown".to_string(),
+        })
+    }
+
+    /// Extract key from StreamRecord as String
+    fn extract_key_string(record: &StreamRecord) -> Option<String> {
+        record.key.as_ref().map(|k| k.to_string())
+    }
+
+    /// Get timestamp from StreamRecord (prefers record.timestamp, falls back to event_time field)
+    fn get_record_timestamp(record: &StreamRecord) -> Option<i64> {
+        if record.timestamp > 0 {
+            Some(record.timestamp)
+        } else {
+            Self::extract_event_time_ms(&record.fields)
+        }
+    }
+
+    /// Send a single record to a producer (non-blocking)
+    fn send_record(
+        producer: &mut crate::velostream::kafka::kafka_fast_producer::AsyncPolledProducer,
+        topic: &str,
+        payload: &str,
+        key: Option<&str>,
+        timestamp: Option<i64>,
+    ) -> TestHarnessResult<()> {
+        let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+        if let Some(ts) = timestamp {
+            base_record = base_record.timestamp(ts);
+        }
+        let base_record = if let Some(k) = key {
+            base_record.key(k)
+        } else {
+            base_record
+        };
+        if let Err((e, _)) = producer.send(base_record) {
+            return Err(TestHarnessError::ExecutionError {
+                message: format!("Failed to queue message for topic '{}': {}", topic, e),
+                query_name: "publish".to_string(),
+                source: Some(e.to_string()),
+            });
+        }
+        Ok(())
+    }
+
+    /// Flush producer and return error if failed
+    fn flush_producer(
+        producer: &mut crate::velostream::kafka::kafka_fast_producer::AsyncPolledProducer,
+    ) -> TestHarnessResult<()> {
+        producer
+            .flush(Duration::from_secs(30))
+            .map_err(|e| TestHarnessError::ExecutionError {
+                message: format!("Failed to flush producer: {}", e),
+                query_name: "publish".to_string(),
+                source: Some(e.to_string()),
+            })
+    }
+
+    /// Convert HashMap records to StreamRecords with optional key field extraction
+    fn to_stream_records(
+        records: &[HashMap<String, FieldValue>],
+        key_field: Option<&str>,
+    ) -> Vec<StreamRecord> {
+        records
+            .iter()
+            .map(|record| {
+                let mut sr = StreamRecord::new(record.clone());
+                if let Some(kf) = key_field {
+                    sr.key = record.get(kf).cloned();
+                }
+                if let Some(ts) = Self::extract_event_time_ms(record) {
+                    sr.timestamp = ts;
+                }
+                sr
+            })
+            .collect()
+    }
+
     /// Publish StreamRecords to Kafka, preserving original keys and timestamps
     async fn publish_stream_records(
         &self,
@@ -875,62 +958,19 @@ impl QueryExecutor {
         let start_time = std::time::Instant::now();
 
         for record in records {
-            // Serialize fields to JSON
-            let json_value = field_values_to_json(&record.fields);
-            let payload = serde_json::to_string(&json_value).map_err(|e| {
-                TestHarnessError::GeneratorError {
-                    message: format!("Failed to serialize record: {}", e),
-                    schema: "unknown".to_string(),
-                }
-            })?;
-
-            // Use the original timestamp from the StreamRecord
-            let kafka_timestamp = if record.timestamp > 0 {
-                Some(record.timestamp)
-            } else {
-                Self::extract_event_time_ms(&record.fields)
-            };
-
-            // Use the original key from the StreamRecord
-            let key_value: Option<String> = record.key.as_ref().map(|k| match k {
-                FieldValue::String(s) => s.clone(),
-                other => format!("{:?}", other),
-            });
-
-            // Build and send the record
-            let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
-            if let Some(ts) = kafka_timestamp {
-                base_record = base_record.timestamp(ts);
-            }
-            let base_record = if let Some(ref key) = key_value {
-                base_record.key(key.as_str())
-            } else {
-                base_record
-            };
-            if let Err((e, _)) = producer.send(base_record) {
-                return Err(TestHarnessError::ExecutionError {
-                    message: format!("Failed to queue message for topic '{}': {}", topic, e),
-                    query_name: "publish".to_string(),
-                    source: Some(e.to_string()),
-                });
-            }
+            let payload = Self::serialize_record(record)?;
+            let key = Self::extract_key_string(record);
+            let timestamp = Self::get_record_timestamp(record);
+            Self::send_record(&mut producer, topic, &payload, key.as_deref(), timestamp)?;
         }
 
         let queue_time = start_time.elapsed();
-
-        // Flush to ensure all messages are delivered
-        producer
-            .flush(Duration::from_secs(30))
-            .map_err(|e| TestHarnessError::ExecutionError {
-                message: format!("Failed to flush producer: {}", e),
-                query_name: "publish".to_string(),
-                source: Some(e.to_string()),
-            })?;
+        Self::flush_producer(&mut producer)?;
 
         let total_time = start_time.elapsed();
         let rate = records.len() as f64 / total_time.as_secs_f64();
         log::info!(
-            "Published {} StreamRecords in {:?} ({:.1}/sec, queue: {:?}, flush: {:?})",
+            "Published {} records in {:?} ({:.1}/sec, queue: {:?}, flush: {:?})",
             records.len(),
             total_time,
             rate,
@@ -955,33 +995,15 @@ impl QueryExecutor {
         records: &[HashMap<String, FieldValue>],
         key_field: Option<&str>,
     ) -> TestHarnessResult<()> {
-        // Convert HashMap records to StreamRecords
-        let stream_records: Vec<StreamRecord> = records
-            .iter()
-            .map(|record| {
-                let mut sr = StreamRecord::new(record.clone());
-                // Extract key from specified field
-                if let Some(kf) = key_field {
-                    sr.key = record.get(kf).cloned();
-                }
-                // Extract event_time and set as timestamp
-                if let Some(ts) = Self::extract_event_time_ms(record) {
-                    sr.timestamp = ts;
-                }
-                sr
-            })
-            .collect();
-
+        let stream_records = Self::to_stream_records(records, key_field);
         self.publish_stream_records(topic, &stream_records).await
     }
 
-    /// Publish records to Kafka with simulated timestamps
+    /// Publish records to Kafka with simulated timestamps and progress logging
     ///
     /// This method publishes records as fast as possible. The `events_per_second`
     /// setting affects the **simulated timestamps** in the records (set by the generator),
     /// NOT the actual publishing rate. This is a time simulation, not real-time rate limiting.
-    ///
-    /// Uses AsyncPolledProducer for high-throughput non-blocking sends.
     ///
     /// # Arguments
     /// * `topic` - Kafka topic name
@@ -995,92 +1017,45 @@ impl QueryExecutor {
         config: &TimeSimulationConfig,
         key_field: Option<&str>,
     ) -> TestHarnessResult<()> {
-        // Use high-throughput async producer
+        let stream_records = Self::to_stream_records(records, key_field);
         let mut producer = self.infra.create_async_producer()?;
         let simulated_rate = config.events_per_second.unwrap_or(f64::MAX);
 
         log::info!(
-            "Time-simulation publishing: {} records with simulated rate {:.1} events/sec (no actual delay - timestamps are pre-computed)",
-            records.len(),
+            "Time-simulation publishing: {} records with simulated rate {:.1} events/sec",
+            stream_records.len(),
             simulated_rate,
         );
 
         let start_time = std::time::Instant::now();
-        let mut records_sent = 0;
 
-        // Publish all records as fast as possible - timestamps are already simulated in the records
-        for record in records {
-            // Serialize to JSON
-            let json_value = field_values_to_json(record);
-            let payload = serde_json::to_string(&json_value).map_err(|e| {
-                TestHarnessError::GeneratorError {
-                    message: format!("Failed to serialize record: {}", e),
-                    schema: "unknown".to_string(),
-                }
-            })?;
-
-            // Extract event_time from record and set as Kafka message timestamp
-            // This ensures _TIMESTAMP (Kafka message time) matches the simulated event_time
-            // which is critical for windowed queries to work correctly with time simulation
-            let kafka_timestamp = Self::extract_event_time_ms(record);
-
-            // Extract key field value if specified
-            let key_value: Option<String> = key_field.and_then(|kf| {
-                record.get(kf).map(|v| match v {
-                    FieldValue::String(s) => s.clone(),
-                    other => format!("{:?}", other),
-                })
-            });
-
-            // Non-blocking send - the poll thread handles delivery callbacks
-            let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
-            if let Some(ts) = kafka_timestamp {
-                base_record = base_record.timestamp(ts);
-            }
-            // Set the key if we have one
-            let base_record = if let Some(ref key) = key_value {
-                base_record.key(key.as_str())
-            } else {
-                base_record
-            };
-            if let Err((e, _)) = producer.send(base_record) {
-                return Err(TestHarnessError::ExecutionError {
-                    message: format!("Failed to queue message for topic '{}': {}", topic, e),
-                    query_name: "publish".to_string(),
-                    source: Some(e.to_string()),
-                });
-            }
-
-            records_sent += 1;
+        for (idx, record) in stream_records.iter().enumerate() {
+            let payload = Self::serialize_record(record)?;
+            let key = Self::extract_key_string(record);
+            let timestamp = Self::get_record_timestamp(record);
+            Self::send_record(&mut producer, topic, &payload, key.as_deref(), timestamp)?;
 
             // Log progress every 10000 records
-            if records_sent % 10000 == 0 {
+            if (idx + 1) % 10000 == 0 {
                 let elapsed = start_time.elapsed();
-                let actual_rate = records_sent as f64 / elapsed.as_secs_f64();
+                let actual_rate = (idx + 1) as f64 / elapsed.as_secs_f64();
                 log::debug!(
                     "Progress: {}/{} records ({:.1}%), publishing at {:.1}/sec",
-                    records_sent,
-                    records.len(),
-                    (records_sent as f64 / records.len() as f64) * 100.0,
+                    idx + 1,
+                    stream_records.len(),
+                    ((idx + 1) as f64 / stream_records.len() as f64) * 100.0,
                     actual_rate
                 );
             }
         }
 
-        // Flush to ensure all messages are delivered
-        producer
-            .flush(Duration::from_secs(30))
-            .map_err(|e| TestHarnessError::ExecutionError {
-                message: format!("Failed to flush producer: {}", e),
-                query_name: "publish".to_string(),
-                source: Some(e.to_string()),
-            })?;
+        Self::flush_producer(&mut producer)?;
 
         let elapsed = start_time.elapsed();
-        let actual_rate = records.len() as f64 / elapsed.as_secs_f64();
+        let actual_rate = stream_records.len() as f64 / elapsed.as_secs_f64();
         log::info!(
-            "Time-simulation publishing complete: {} records in {:?} (actual: {:.1}/sec, simulated: {:.1}/sec)",
-            records.len(),
+            "Time-simulation complete: {} records in {:?} (actual: {:.1}/sec, simulated: {:.1}/sec)",
+            stream_records.len(),
             elapsed,
             actual_rate,
             simulated_rate
