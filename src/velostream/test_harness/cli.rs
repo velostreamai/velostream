@@ -119,7 +119,6 @@ pub async fn run_tests(config: &RunConfig) -> TestHarnessResult<TestReport> {
                         sink_name: format!("{}_output", query_test.name),
                         topic: None,
                         records: Vec::new(),
-                        message_keys: Vec::new(),
                         execution_time_ms: 0,
                         warnings: Vec::new(),
                         memory_peak_bytes: None,

@@ -21,7 +21,7 @@ use super::spec::{
     WindowBoundaryAssertion,
 };
 use super::utils::{field_value_to_string, resolve_path};
-use crate::velostream::sql::execution::types::FieldValue;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -520,7 +520,7 @@ impl AssertionRunner {
 
         // Get fields from first record (value payload)
         let actual_value_fields: std::collections::HashSet<_> =
-            output.records[0].keys().cloned().collect();
+            output.records[0].fields.keys().cloned().collect();
 
         // Check for missing value fields
         let missing_value_fields: Vec<&str> = config
@@ -532,11 +532,11 @@ impl AssertionRunner {
 
         // Check key field if specified
         let key_field_ok = if let Some(key_field_name) = &config.key_field {
-            // Verify we have message keys and at least one is non-empty
+            // Verify we have message keys (from StreamRecord.key) and at least one is non-empty
             let has_keys = output
-                .message_keys
+                .records
                 .iter()
-                .any(|k| matches!(k, Some(s) if !s.is_empty()));
+                .any(|r| matches!(&r.key, Some(FieldValue::String(s)) if !s.is_empty()));
             if !has_keys {
                 return AssertionResult::fail(
                     "schema_contains",
@@ -568,9 +568,13 @@ impl AssertionRunner {
         sorted_actual.sort();
         let actual_str = if config.key_field.is_some() {
             let key_sample = output
-                .message_keys
+                .records
                 .iter()
-                .find_map(|k| k.clone())
+                .find_map(|r| match &r.key {
+                    Some(FieldValue::String(s)) => Some(s.clone()),
+                    Some(other) => Some(format!("{:?}", other)),
+                    None => None,
+                })
                 .unwrap_or_else(|| "(none)".to_string());
             format!(
                 "key: '{}' (sample), value_fields: [{}]",
@@ -621,7 +625,11 @@ impl AssertionRunner {
                     &format!("No records to check from {}", location),
                 );
             }
-            output.records[0].keys().map(|s| s.as_str()).collect()
+            output.records[0]
+                .fields
+                .keys()
+                .map(|s| s.as_str())
+                .collect()
         } else {
             config.fields.iter().map(|s| s.as_str()).collect()
         };
@@ -630,7 +638,7 @@ impl AssertionRunner {
 
         for field in &fields_to_check {
             for (idx, record) in output.records.iter().enumerate() {
-                if let Some(FieldValue::Null) = record.get(*field) {
+                if let Some(FieldValue::Null) = record.fields.get(*field) {
                     null_fields.push(format!("{}[{}]", field, idx));
                 }
             }
@@ -671,7 +679,7 @@ impl AssertionRunner {
         let mut invalid_values = Vec::new();
 
         for (idx, record) in output.records.iter().enumerate() {
-            if let Some(value) = record.get(&config.field) {
+            if let Some(value) = record.fields.get(&config.field) {
                 let value_str = field_value_to_string(value);
                 if !allowed.contains(&value_str) {
                     invalid_values.push(format!("[{}]={}", idx, value_str));
@@ -715,7 +723,7 @@ impl AssertionRunner {
         let mut failures = Vec::new();
 
         for (idx, record) in output.records.iter().enumerate() {
-            if let Some(value) = record.get(&config.field) {
+            if let Some(value) = record.fields.get(&config.field) {
                 let matches = compare_field_value(value, &config.operator, &config.value);
                 if !matches {
                     failures.push(format!("[{}]={}", idx, field_value_to_string(value)));
@@ -759,7 +767,7 @@ impl AssertionRunner {
         let values: Vec<f64> = output
             .records
             .iter()
-            .filter_map(|r| r.get(&config.field))
+            .filter_map(|r| r.fields.get(&config.field))
             .filter_map(|v| field_value_to_f64(v))
             .collect();
 
@@ -1677,7 +1685,7 @@ impl AssertionRunner {
 
         for (idx, record) in output.records.iter().enumerate() {
             // Get timestamp value
-            let ts_value = match record.get(&config.timestamp_field) {
+            let ts_value = match record.fields.get(&config.timestamp_field) {
                 Some(v) => v,
                 None => continue,
             };
@@ -1694,9 +1702,11 @@ impl AssertionRunner {
                     (&config.window_start_field, &config.window_end_field)
                 {
                     let window_start = record
+                        .fields
                         .get(start_field)
                         .and_then(|v| self.extract_timestamp_ms(v));
                     let window_end = record
+                        .fields
                         .get(end_field)
                         .and_then(|v| self.extract_timestamp_ms(v));
 
@@ -1717,6 +1727,7 @@ impl AssertionRunner {
                 if let Some(window_size) = config.window_size_ms {
                     if let Some(start_field) = &config.window_start_field {
                         if let Some(window_start) = record
+                            .fields
                             .get(start_field)
                             .and_then(|v| self.extract_timestamp_ms(v))
                         {
@@ -1782,7 +1793,8 @@ impl AssertionRunner {
             .records
             .iter()
             .filter_map(|r| {
-                r.get(&config.timestamp_field)
+                r.fields
+                    .get(&config.timestamp_field)
                     .and_then(|v| self.extract_timestamp_ms(v))
             })
             .map(|ts| {
@@ -1894,7 +1906,7 @@ impl AssertionRunner {
         let values: Vec<f64> = output
             .records
             .iter()
-            .filter_map(|r| r.get(&config.field))
+            .filter_map(|r| r.fields.get(&config.field))
             .filter_map(|v| self.field_value_to_f64(v))
             .collect();
 
@@ -2018,7 +2030,7 @@ impl AssertionRunner {
         let mut values: Vec<f64> = output
             .records
             .iter()
-            .filter_map(|r| r.get(&config.field))
+            .filter_map(|r| r.fields.get(&config.field))
             .filter_map(|v| self.field_value_to_f64(v))
             .collect();
 
@@ -2119,10 +2131,12 @@ impl AssertionRunner {
                 let mut partition_map: HashMap<String, Vec<(usize, i64)>> = HashMap::new();
                 for (idx, record) in output.records.iter().enumerate() {
                     let partition_key = record
+                        .fields
                         .get(partition_field)
                         .map(|v| field_value_to_string(v))
                         .unwrap_or_default();
                     let ts = record
+                        .fields
                         .get(&config.timestamp_field)
                         .and_then(|v| self.extract_timestamp_ms(v))
                         .unwrap_or(0);
@@ -2139,6 +2153,7 @@ impl AssertionRunner {
                     .enumerate()
                     .map(|(idx, r)| {
                         let ts = r
+                            .fields
                             .get(&config.timestamp_field)
                             .and_then(|v| self.extract_timestamp_ms(v))
                             .unwrap_or(0);
@@ -2531,7 +2546,7 @@ impl AssertionRunner {
         let mut values: Vec<f64> = Vec::new();
 
         for record in ctx.records {
-            if let Some(value) = record.get(field) {
+            if let Some(value) = record.fields.get(field) {
                 if let Some(num) = field_value_to_f64(value) {
                     values.push(num);
                 }
@@ -2588,7 +2603,7 @@ impl AssertionRunner {
             let rest = &expr[ctx.item_name.len()..];
             if rest.starts_with('.') {
                 let field = &rest[1..];
-                if let Some(value) = ctx.record.get(field) {
+                if let Some(value) = ctx.record.fields.get(field) {
                     return Ok(TemplateResult::Value(field_value_to_template_value(value)));
                 }
                 return Err(format!("Unknown field: {}", field));
@@ -2625,7 +2640,7 @@ impl AssertionRunner {
                         let rest = &expr[bracket_end + 1..];
                         if rest.starts_with('.') {
                             let field = &rest[1..];
-                            if let Some(value) = ctx.records[index].get(field) {
+                            if let Some(value) = ctx.records[index].fields.get(field) {
                                 return Ok(Some(TemplateResult::Value(
                                     field_value_to_template_value(value),
                                 )));
@@ -2828,6 +2843,7 @@ impl AssertionRunner {
                 .iter()
                 .map(|f| {
                     record
+                        .fields
                         .get(f)
                         .map(field_value_to_string)
                         .unwrap_or_else(|| "NULL".to_string())
@@ -2926,12 +2942,12 @@ impl AssertionRunner {
         }
 
         // Group by partition if specified
-        let groups: Vec<Vec<&HashMap<String, FieldValue>>> = if let Some(ref partition_field) =
-            config.partition_by
+        let groups: Vec<Vec<&StreamRecord>> = if let Some(ref partition_field) = config.partition_by
         {
-            let mut partitions: HashMap<String, Vec<&HashMap<String, FieldValue>>> = HashMap::new();
+            let mut partitions: HashMap<String, Vec<&StreamRecord>> = HashMap::new();
             for record in &output.records {
                 let partition_key = record
+                    .fields
                     .get(partition_field)
                     .map(field_value_to_string)
                     .unwrap_or_else(|| "NULL".to_string());
@@ -2948,8 +2964,8 @@ impl AssertionRunner {
                 let prev = window[0];
                 let curr = window[1];
 
-                let prev_val = prev.get(&config.field);
-                let curr_val = curr.get(&config.field);
+                let prev_val = prev.fields.get(&config.field);
+                let curr_val = curr.fields.get(&config.field);
 
                 let is_ordered = match (&config.direction, prev_val, curr_val) {
                     (OrderDirection::Ascending, Some(p), Some(c)) => {
@@ -3041,7 +3057,8 @@ impl AssertionRunner {
             .records
             .iter()
             .map(|r| {
-                r.get(&config.key_field)
+                r.fields
+                    .get(&config.key_field)
                     .map(field_value_to_string)
                     .unwrap_or_else(|| "NULL".to_string())
             })
@@ -3136,7 +3153,7 @@ impl AssertionRunner {
 
         for record in &output.records {
             for ts_field in &timestamp_fields {
-                if let Some(value) = record.get(*ts_field) {
+                if let Some(value) = record.fields.get(*ts_field) {
                     if let Some(ts) = field_value_to_timestamp_ms(value) {
                         latest_timestamp = Some(latest_timestamp.map_or(ts, |l| l.max(ts)));
                     }
@@ -3215,7 +3232,7 @@ impl AssertionRunner {
         // Check for nulls in specified fields
         for field in &config.no_nulls_in {
             for (i, record) in output.records.iter().enumerate() {
-                match record.get(field) {
+                match record.fields.get(field) {
                     None | Some(FieldValue::Null) => {
                         violations.push(format!("NULL in '{}' at row {}", field, i));
                     }
@@ -3227,7 +3244,7 @@ impl AssertionRunner {
         // Check for empty strings in specified fields
         for field in &config.no_empty_strings_in {
             for (i, record) in output.records.iter().enumerate() {
-                if let Some(FieldValue::String(s)) = record.get(field) {
+                if let Some(FieldValue::String(s)) = record.fields.get(field) {
                     if s.trim().is_empty() {
                         violations.push(format!("Empty string in '{}' at row {}", field, i));
                     }
@@ -3238,7 +3255,7 @@ impl AssertionRunner {
         // Check numeric ranges
         for range_check in &config.numeric_ranges {
             for (i, record) in output.records.iter().enumerate() {
-                if let Some(value) = record.get(&range_check.field) {
+                if let Some(value) = record.fields.get(&range_check.field) {
                     if let Some(num) = field_value_to_f64(value) {
                         if let Some(min) = range_check.min {
                             if num < min {
@@ -3272,7 +3289,7 @@ impl AssertionRunner {
             };
 
             for (i, record) in output.records.iter().enumerate() {
-                if let Some(value) = record.get(&pattern_check.field) {
+                if let Some(value) = record.fields.get(&pattern_check.field) {
                     let value_str = field_value_to_string(value);
                     if !regex.is_match(&value_str) {
                         violations.push(format!(
@@ -3295,7 +3312,7 @@ impl AssertionRunner {
                     .collect();
 
                 for (i, record) in output.records.iter().enumerate() {
-                    if let Some(value) = record.get(&ref_check.field) {
+                    if let Some(value) = record.fields.get(&ref_check.field) {
                         let value_str = field_value_to_string(value);
                         if !valid_values.contains(&value_str) {
                             violations.push(format!(
@@ -3376,14 +3393,14 @@ enum AggType {
 
 /// Template evaluation context
 struct TemplateContext<'a> {
-    records: &'a [HashMap<String, FieldValue>],
+    records: &'a [StreamRecord],
     context: &'a AssertionContext,
 }
 
 /// Record iteration context
 struct RecordContext<'a> {
     item_name: &'a str,
-    record: &'a HashMap<String, FieldValue>,
+    record: &'a StreamRecord,
     parent: &'a TemplateContext<'a>,
 }
 
@@ -3752,8 +3769,6 @@ fn compare_field_value(
 
 // ==================== File Assertion Helper Functions ====================
 
-use crate::velostream::sql::execution::types::StreamRecord;
-
 /// Convert a record to a string for set-based comparison
 fn record_to_compare_string(record: &StreamRecord, fields: &[&String]) -> String {
     let mut parts: Vec<String> = fields
@@ -3797,13 +3812,36 @@ mod tests {
     use super::*;
 
     fn create_test_output(records: Vec<HashMap<String, FieldValue>>) -> CapturedOutput {
-        let message_keys = vec![None; records.len()];
         CapturedOutput {
             query_name: "test_query".to_string(),
             sink_name: "test_sink".to_string(),
             topic: Some("test_topic".to_string()),
-            records,
-            message_keys,
+            records: records.into_iter().map(StreamRecord::new).collect(),
+            execution_time_ms: 100,
+            warnings: vec![],
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
+        }
+    }
+
+    fn create_test_output_with_keys(
+        records: Vec<HashMap<String, FieldValue>>,
+        keys: Vec<Option<String>>,
+    ) -> CapturedOutput {
+        let stream_records: Vec<StreamRecord> = records
+            .into_iter()
+            .zip(keys.into_iter())
+            .map(|(fields, key)| {
+                let mut rec = StreamRecord::new(fields);
+                rec.key = key.map(|k| FieldValue::String(k));
+                rec
+            })
+            .collect();
+        CapturedOutput {
+            query_name: "test_query".to_string(),
+            sink_name: "test_sink".to_string(),
+            topic: Some("test_topic".to_string()),
+            records: stream_records,
             execution_time_ms: 100,
             warnings: vec![],
             memory_peak_bytes: None,
@@ -4854,13 +4892,11 @@ mod tests {
         topic: Option<&str>,
         sink_name: &str,
     ) -> CapturedOutput {
-        let message_keys = vec![None; records.len()];
         CapturedOutput {
             query_name: "test_query".to_string(),
             sink_name: sink_name.to_string(),
             topic: topic.map(|t| t.to_string()),
-            records,
-            message_keys,
+            records: records.into_iter().map(StreamRecord::new).collect(),
             execution_time_ms: 100,
             warnings: vec![],
             memory_peak_bytes: None,
@@ -4950,13 +4986,14 @@ mod tests {
 
     #[test]
     fn test_schema_contains_with_key_field_pass() {
-        // Create output with message keys
-        let mut output = create_test_output(vec![HashMap::from([
-            ("trade_count".to_string(), FieldValue::Integer(10)),
-            ("total_volume".to_string(), FieldValue::Float(1000.0)),
-        ])]);
-        // Add message keys (simulating GROUP BY symbol producing "AAPL" as key)
-        output.message_keys = vec![Some("AAPL".to_string())];
+        // Create output with message keys (simulating GROUP BY symbol producing "AAPL" as key)
+        let output = create_test_output_with_keys(
+            vec![HashMap::from([
+                ("trade_count".to_string(), FieldValue::Integer(10)),
+                ("total_volume".to_string(), FieldValue::Float(1000.0)),
+            ])],
+            vec![Some("AAPL".to_string())],
+        );
 
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {
@@ -5000,27 +5037,28 @@ mod tests {
 
     #[test]
     fn test_schema_contains_validates_key_values() {
-        // Create output with multiple records and different keys
-        let mut output = create_test_output(vec![
-            HashMap::from([
-                ("trade_count".to_string(), FieldValue::Integer(10)),
-                ("total_volume".to_string(), FieldValue::Float(1000.0)),
-            ]),
-            HashMap::from([
-                ("trade_count".to_string(), FieldValue::Integer(20)),
-                ("total_volume".to_string(), FieldValue::Float(2000.0)),
-            ]),
-            HashMap::from([
-                ("trade_count".to_string(), FieldValue::Integer(30)),
-                ("total_volume".to_string(), FieldValue::Float(3000.0)),
-            ]),
-        ]);
-        // Add message keys for each record (simulating GROUP BY symbol)
-        output.message_keys = vec![
-            Some("AAPL".to_string()),
-            Some("GOOGL".to_string()),
-            Some("MSFT".to_string()),
-        ];
+        // Create output with multiple records and different keys (simulating GROUP BY symbol)
+        let output = create_test_output_with_keys(
+            vec![
+                HashMap::from([
+                    ("trade_count".to_string(), FieldValue::Integer(10)),
+                    ("total_volume".to_string(), FieldValue::Float(1000.0)),
+                ]),
+                HashMap::from([
+                    ("trade_count".to_string(), FieldValue::Integer(20)),
+                    ("total_volume".to_string(), FieldValue::Float(2000.0)),
+                ]),
+                HashMap::from([
+                    ("trade_count".to_string(), FieldValue::Integer(30)),
+                    ("total_volume".to_string(), FieldValue::Float(3000.0)),
+                ]),
+            ],
+            vec![
+                Some("AAPL".to_string()),
+                Some("GOOGL".to_string()),
+                Some("MSFT".to_string()),
+            ],
+        );
 
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {
@@ -5046,11 +5084,13 @@ mod tests {
     #[test]
     fn test_schema_contains_with_empty_key_values() {
         // Create output with empty string keys (edge case)
-        let mut output = create_test_output(vec![HashMap::from([(
-            "trade_count".to_string(),
-            FieldValue::Integer(10),
-        )])]);
-        output.message_keys = vec![Some("".to_string())]; // Empty key value
+        let output = create_test_output_with_keys(
+            vec![HashMap::from([(
+                "trade_count".to_string(),
+                FieldValue::Integer(10),
+            )])],
+            vec![Some("".to_string())], // Empty key value
+        );
 
         let runner = AssertionRunner::new();
         let config = SchemaContainsAssertion {

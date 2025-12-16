@@ -8,11 +8,11 @@
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::CapturedOutput;
 use crate::velostream::kafka::common_config::apply_broker_address_family;
-use crate::velostream::sql::execution::types::FieldValue;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use futures::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, DefaultConsumerContext, StreamConsumer};
-use rdkafka::message::Message;
+use rdkafka::message::{Headers, Message};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
@@ -133,8 +133,7 @@ impl SinkCapture {
 
         log::debug!("Subscribed to topic: {} with group: {}", topic, group_id);
 
-        let mut records = Vec::new();
-        let mut message_keys = Vec::new();
+        let mut records: Vec<StreamRecord> = Vec::new();
         let mut warnings = Vec::new();
         let mut last_message_time: Option<std::time::Instant> = None;
         let mut received_first_message = false;
@@ -188,18 +187,56 @@ impl SinkCapture {
                         }
                         last_message_time = Some(std::time::Instant::now());
 
-                        // Extract message key (if present)
-                        let message_key = borrowed_message
-                            .key()
-                            .and_then(|k| std::str::from_utf8(k).ok())
-                            .map(|s| s.to_string());
-
-                        // Get message payload
+                        // Get message payload and build StreamRecord with full metadata
                         if let Some(payload) = borrowed_message.payload() {
                             match self.deserialize_message(payload) {
-                                Ok(record) => {
-                                    records.push(record);
-                                    message_keys.push(message_key);
+                                Ok(fields) => {
+                                    // Extract message key as FieldValue
+                                    let key = borrowed_message.key().map(|k| {
+                                        std::str::from_utf8(k)
+                                            .map(|s| FieldValue::String(s.to_string()))
+                                            .unwrap_or_else(|_| {
+                                                FieldValue::String(format!("{:?}", k))
+                                            })
+                                    });
+
+                                    // Extract headers
+                                    let headers = borrowed_message
+                                        .headers()
+                                        .map(|h| {
+                                            h.iter()
+                                                .map(|header| {
+                                                    (
+                                                        header.key.to_string(),
+                                                        header
+                                                            .value
+                                                            .map(|v| {
+                                                                String::from_utf8_lossy(v)
+                                                                    .to_string()
+                                                            })
+                                                            .unwrap_or_default(),
+                                                    )
+                                                })
+                                                .collect::<HashMap<String, String>>()
+                                        })
+                                        .unwrap_or_default();
+
+                                    // Build StreamRecord with full Kafka metadata
+                                    let stream_record = StreamRecord {
+                                        fields,
+                                        timestamp: borrowed_message
+                                            .timestamp()
+                                            .to_millis()
+                                            .unwrap_or(0),
+                                        offset: borrowed_message.offset(),
+                                        partition: borrowed_message.partition(),
+                                        headers,
+                                        event_time: None, // Not extracted during capture
+                                        topic: Some(FieldValue::String(topic.to_string())),
+                                        key,
+                                    };
+
+                                    records.push(stream_record);
                                 }
                                 Err(e) => {
                                     warnings.push(format!(
@@ -242,7 +279,6 @@ impl SinkCapture {
             sink_name: topic.to_string(),
             topic: Some(topic.to_string()),
             records,
-            message_keys,
             execution_time_ms,
             warnings,
             memory_peak_bytes: None,
@@ -291,19 +327,16 @@ impl SinkCapture {
                 source: None,
             })?;
 
-        // Parse JSONL format
-        let records = self.parse_jsonl(&content)?;
+        // Parse JSONL format and convert to StreamRecords
+        let field_maps = self.parse_jsonl(&content)?;
+        let records: Vec<StreamRecord> = field_maps.into_iter().map(StreamRecord::new).collect();
         let execution_time_ms = start.elapsed().as_millis() as u64;
-
-        // File captures don't have message keys
-        let message_keys = vec![None; records.len()];
 
         Ok(CapturedOutput {
             query_name: query_name.to_string(),
             sink_name: path.display().to_string(),
             topic: None, // File capture, not Kafka
             records,
-            message_keys,
             execution_time_ms,
             warnings: Vec::new(),
             memory_peak_bytes: None,

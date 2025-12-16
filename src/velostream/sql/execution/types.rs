@@ -52,6 +52,53 @@ pub enum FieldValue {
     Interval { value: i64, unit: TimeUnit },
 }
 
+/// Display implementation for FieldValue for clean string formatting
+impl fmt::Display for FieldValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FieldValue::Null => write!(f, "NULL"),
+            FieldValue::Integer(i) => write!(f, "{}", i),
+            FieldValue::Float(v) => write!(f, "{}", v),
+            FieldValue::String(s) => write!(f, "{}", s),
+            FieldValue::Boolean(b) => write!(f, "{}", b),
+            FieldValue::Date(d) => write!(f, "{}", d),
+            FieldValue::Timestamp(t) => write!(f, "{}", t),
+            FieldValue::Decimal(d) => write!(f, "{}", d),
+            FieldValue::ScaledInteger(value, scale) => {
+                if *scale == 0 {
+                    write!(f, "{}", value)
+                } else {
+                    let divisor = 10_i64.pow(*scale as u32);
+                    let whole = value / divisor;
+                    let frac = (value % divisor).abs();
+                    write!(f, "{}.{:0>width$}", whole, frac, width = *scale as usize)
+                }
+            }
+            FieldValue::Array(arr) => {
+                write!(f, "[")?;
+                for (i, v) in arr.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", v)?;
+                }
+                write!(f, "]")
+            }
+            FieldValue::Map(map) | FieldValue::Struct(map) => {
+                write!(f, "{{")?;
+                for (i, (k, v)) in map.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", k, v)?;
+                }
+                write!(f, "}}")
+            }
+            FieldValue::Interval { value, unit } => write!(f, "{} {:?}", value, unit),
+        }
+    }
+}
+
 /// Phase 4B: Hash implementation for FieldValue to support GroupKey optimization
 ///
 /// This enables zero-allocation group keys using Arc<[FieldValue]> instead of Vec<String>.

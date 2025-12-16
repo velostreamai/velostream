@@ -19,7 +19,7 @@ use super::stress::MemoryTracker;
 use crate::velostream::kafka::kafka_fast_producer::PolledProducer;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
-use crate::velostream::sql::execution::types::FieldValue;
+use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use rdkafka::producer::BaseRecord;
 use std::collections::HashMap;
 use std::path::Path;
@@ -76,12 +76,8 @@ pub struct CapturedOutput {
     /// Kafka topic that was captured (if applicable)
     pub topic: Option<String>,
 
-    /// Captured records (value payload)
-    pub records: Vec<HashMap<String, FieldValue>>,
-
-    /// Captured message keys (one per record, in same order as records)
-    /// String representation of the Kafka message key
-    pub message_keys: Vec<Option<String>>,
+    /// Captured records with full Kafka metadata (key, headers, partition, offset, timestamp)
+    pub records: Vec<StreamRecord>,
 
     /// Execution time in milliseconds
     pub execution_time_ms: u64,
@@ -812,19 +808,13 @@ impl QueryExecutor {
             full_path.display()
         );
 
-        // Convert StreamRecord to HashMap<String, FieldValue>
-        let records: Vec<HashMap<String, FieldValue>> =
-            stream_records.into_iter().map(|sr| sr.fields).collect();
-
-        let record_count = records.len();
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
         Ok(CapturedOutput {
             query_name: query_name.to_string(),
             sink_name: path.to_string(),
             topic: None, // File sink, not Kafka
-            records,
-            message_keys: vec![None; record_count], // Files don't have message keys
+            records: stream_records,
             execution_time_ms,
             warnings: Vec::new(),
             memory_peak_bytes: None,
@@ -863,14 +853,90 @@ impl QueryExecutor {
                 self.source_topics.contains_key(source)
             );
 
-            // Publish records (no key field for from_previous - uses original message keys if any)
-            self.publish_records(&topic, &output.records, None).await?;
+            // Publish StreamRecords preserving original keys
+            self.publish_stream_records(&topic, &output.records).await?;
         } else {
             log::warn!(
                 "No previous output found for query '{}', skipping",
                 previous_query
             );
         }
+
+        Ok(())
+    }
+
+    /// Publish StreamRecords to Kafka, preserving original keys and timestamps
+    async fn publish_stream_records(
+        &self,
+        topic: &str,
+        records: &[StreamRecord],
+    ) -> TestHarnessResult<()> {
+        let mut producer = self.infra.create_async_producer()?;
+        let start_time = std::time::Instant::now();
+
+        for record in records {
+            // Serialize fields to JSON
+            let json_value = field_values_to_json(&record.fields);
+            let payload = serde_json::to_string(&json_value).map_err(|e| {
+                TestHarnessError::GeneratorError {
+                    message: format!("Failed to serialize record: {}", e),
+                    schema: "unknown".to_string(),
+                }
+            })?;
+
+            // Use the original timestamp from the StreamRecord
+            let kafka_timestamp = if record.timestamp > 0 {
+                Some(record.timestamp)
+            } else {
+                Self::extract_event_time_ms(&record.fields)
+            };
+
+            // Use the original key from the StreamRecord
+            let key_value: Option<String> = record.key.as_ref().map(|k| match k {
+                FieldValue::String(s) => s.clone(),
+                other => format!("{:?}", other),
+            });
+
+            // Build and send the record
+            let mut base_record = BaseRecord::<str, [u8]>::to(topic).payload(payload.as_bytes());
+            if let Some(ts) = kafka_timestamp {
+                base_record = base_record.timestamp(ts);
+            }
+            let base_record = if let Some(ref key) = key_value {
+                base_record.key(key.as_str())
+            } else {
+                base_record
+            };
+            if let Err((e, _)) = producer.send(base_record) {
+                return Err(TestHarnessError::ExecutionError {
+                    message: format!("Failed to queue message for topic '{}': {}", topic, e),
+                    query_name: "publish".to_string(),
+                    source: Some(e.to_string()),
+                });
+            }
+        }
+
+        let queue_time = start_time.elapsed();
+
+        // Flush to ensure all messages are delivered
+        producer
+            .flush(Duration::from_secs(30))
+            .map_err(|e| TestHarnessError::ExecutionError {
+                message: format!("Failed to flush producer: {}", e),
+                query_name: "publish".to_string(),
+                source: Some(e.to_string()),
+            })?;
+
+        let total_time = start_time.elapsed();
+        let rate = records.len() as f64 / total_time.as_secs_f64();
+        log::info!(
+            "Published {} StreamRecords in {:?} ({:.1}/sec, queue: {:?}, flush: {:?})",
+            records.len(),
+            total_time,
+            rate,
+            queue_time,
+            total_time - queue_time
+        );
 
         Ok(())
     }

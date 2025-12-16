@@ -860,7 +860,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     sink_name: format!("{}_output", query_test.name),
                                     topic: None, // No topic for empty output
                                     records: Vec::new(),
-                                    message_keys: Vec::new(), // No keys for empty output
                                     execution_time_ms: 0,
                                     warnings: Vec::new(),
                                     memory_peak_bytes: None,
@@ -2821,12 +2820,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         total_count,
                                         statement
                                     );
-                                    for (idx, (key, record)) in records.iter().enumerate() {
-                                        // Format record as JSON
-                                        let json = serde_json::to_string(record)
-                                            .unwrap_or_else(|_| format!("{:?}", record));
-                                        let key_str = key.as_deref().unwrap_or("<null>");
-                                        println!("  [{}] key={} value={}", idx + 1, key_str, json);
+                                    for (idx, record) in records.iter().enumerate() {
+                                        // Format record fields as JSON
+                                        let json = serde_json::to_string(&record.fields)
+                                            .unwrap_or_else(|_| format!("{:?}", record.fields));
+                                        // Extract key as string
+                                        let key_str = record
+                                            .key
+                                            .as_ref()
+                                            .map(|k| k.to_string())
+                                            .unwrap_or_else(|| "<null>".to_string());
+                                        // Show partition:offset for context
+                                        let pos_str =
+                                            format!("p{}@{}", record.partition, record.offset);
+                                        // Show headers if present
+                                        let headers_str = if record.headers.is_empty() {
+                                            String::new()
+                                        } else {
+                                            format!(" headers={:?}", record.headers)
+                                        };
+                                        println!(
+                                            "  [{}] key={} {} value={}{}",
+                                            idx + 1,
+                                            key_str,
+                                            pos_str,
+                                            json,
+                                            headers_str
+                                        );
                                     }
                                 }
                                 println!();
@@ -2847,11 +2867,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if records.is_empty() {
                                     println!("   (no matching records)");
                                 } else {
-                                    for (idx, key, record) in records.iter() {
-                                        let json = serde_json::to_string(record)
-                                            .unwrap_or_else(|_| format!("{:?}", record));
-                                        let key_str = key.as_deref().unwrap_or("<null>");
-                                        println!("  [{}] key={} value={}", idx, key_str, json);
+                                    for (idx, record) in records.iter() {
+                                        let json = serde_json::to_string(&record.fields)
+                                            .unwrap_or_else(|_| format!("{:?}", record.fields));
+                                        let key_str = record
+                                            .key
+                                            .as_ref()
+                                            .map(|k| k.to_string())
+                                            .unwrap_or_else(|| "<null>".to_string());
+                                        let pos_str =
+                                            format!("p{}@{}", record.partition, record.offset);
+                                        println!(
+                                            "  [{}] key={} {} value={}",
+                                            idx, key_str, pos_str, json
+                                        );
                                     }
                                 }
                                 println!();

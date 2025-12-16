@@ -28,6 +28,7 @@ use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::{CapturedOutput, ExecutionResult, ParsedQuery, QueryExecutor};
 use super::infra::TestHarnessInfra;
 use super::spec::{QueryTest, TestSpec};
+use crate::velostream::sql::execution::types::StreamRecord;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
@@ -1514,14 +1515,8 @@ impl DebugSession {
             DebugCommand::Head { statement, limit } => {
                 if let Some(output) = self.executor.get_output(&statement) {
                     let total = output.records.len();
-                    // Zip records with their keys
-                    let records: Vec<_> = output
-                        .records
-                        .iter()
-                        .zip(output.message_keys.iter().chain(std::iter::repeat(&None)))
-                        .take(limit)
-                        .map(|(rec, key)| (key.clone(), rec.clone()))
-                        .collect();
+                    // Get first N records (StreamRecords already contain full metadata)
+                    let records: Vec<_> = output.records.iter().take(limit).cloned().collect();
                     Ok(CommandResult::RecordsResult {
                         statement,
                         records,
@@ -1540,14 +1535,8 @@ impl DebugSession {
                 if let Some(output) = self.executor.get_output(&statement) {
                     let total = output.records.len();
                     let skip = total.saturating_sub(limit);
-                    // Zip records with their keys
-                    let records: Vec<_> = output
-                        .records
-                        .iter()
-                        .zip(output.message_keys.iter().chain(std::iter::repeat(&None)))
-                        .skip(skip)
-                        .map(|(rec, key)| (key.clone(), rec.clone()))
-                        .collect();
+                    // Get last N records (StreamRecords already contain full metadata)
+                    let records: Vec<_> = output.records.iter().skip(skip).cloned().collect();
                     Ok(CommandResult::RecordsResult {
                         statement,
                         records,
@@ -1572,20 +1561,19 @@ impl DebugSession {
                     let total = output.records.len();
                     let filter_expr = format!("{} {} {}", field, operator.symbol(), value);
 
-                    // Filter records that match the condition, including keys
-                    let matched: Vec<(usize, Option<String>, _)> = output
+                    // Filter records that match the condition
+                    let matched: Vec<(usize, StreamRecord)> = output
                         .records
                         .iter()
-                        .zip(output.message_keys.iter().chain(std::iter::repeat(&None)))
                         .enumerate()
-                        .filter(|(_, (record, _))| {
-                            if let Some(field_value) = record.get(&field) {
+                        .filter(|(_, record)| {
+                            if let Some(field_value) = record.fields.get(&field) {
                                 match_filter(field_value, &operator, &value)
                             } else {
                                 false
                             }
                         })
-                        .map(|(idx, (rec, key))| (idx, key.clone(), rec.clone()))
+                        .map(|(idx, rec)| (idx, rec.clone()))
                         .collect();
 
                     let matched_count = matched.len();
@@ -1614,15 +1602,48 @@ impl DebugSession {
 
                     let content = match format {
                         ExportFormat::Json => {
-                            // Convert to JSON array
+                            // Convert to JSON array (export includes full metadata)
                             let json_records: Vec<serde_json::Value> = output
                                 .records
                                 .iter()
                                 .map(|rec| {
-                                    let obj: serde_json::Map<String, serde_json::Value> = rec
+                                    let mut obj: serde_json::Map<String, serde_json::Value> = rec
+                                        .fields
                                         .iter()
                                         .map(|(k, v)| (k.clone(), field_value_to_json(v)))
                                         .collect();
+                                    // Include Kafka metadata in export
+                                    if let Some(key) = &rec.key {
+                                        obj.insert("_key".to_string(), field_value_to_json(key));
+                                    }
+                                    if !rec.headers.is_empty() {
+                                        let headers_obj: serde_json::Map<
+                                            String,
+                                            serde_json::Value,
+                                        > = rec
+                                            .headers
+                                            .iter()
+                                            .map(|(k, v)| {
+                                                (k.clone(), serde_json::Value::String(v.clone()))
+                                            })
+                                            .collect();
+                                        obj.insert(
+                                            "_headers".to_string(),
+                                            serde_json::Value::Object(headers_obj),
+                                        );
+                                    }
+                                    obj.insert(
+                                        "_partition".to_string(),
+                                        serde_json::Value::Number(rec.partition.into()),
+                                    );
+                                    obj.insert(
+                                        "_offset".to_string(),
+                                        serde_json::Value::Number(rec.offset.into()),
+                                    );
+                                    obj.insert(
+                                        "_timestamp".to_string(),
+                                        serde_json::Value::Number(rec.timestamp.into()),
+                                    );
                                     serde_json::Value::Object(obj)
                                 })
                                 .collect();
@@ -1634,7 +1655,8 @@ impl DebugSession {
                             if output.records.is_empty() {
                                 String::new()
                             } else {
-                                let fields: Vec<&String> = output.records[0].keys().collect();
+                                let fields: Vec<&String> =
+                                    output.records[0].fields.keys().collect();
                                 let mut csv = fields
                                     .iter()
                                     .map(|s| s.as_str())
@@ -1646,6 +1668,7 @@ impl DebugSession {
                                         .iter()
                                         .map(|f| {
                                             record
+                                                .fields
                                                 .get(*f)
                                                 .map(field_value_to_csv_string)
                                                 .unwrap_or_default()
@@ -1847,26 +1870,19 @@ pub enum CommandResult {
     // === Data Visibility Results ===
     /// Messages from a Kafka topic
     MessagesResult(Vec<TopicMessage>),
-    /// Head/tail records from captured output
+    /// Head/tail records from captured output (full StreamRecord with Kafka metadata)
     RecordsResult {
         statement: String,
-        /// Records with their corresponding Kafka keys: (key, record)
-        records: Vec<(
-            Option<String>,
-            std::collections::HashMap<String, crate::velostream::sql::execution::types::FieldValue>,
-        )>,
+        /// Records with full Kafka metadata (key, headers, partition, offset, timestamp)
+        records: Vec<StreamRecord>,
         total_count: usize,
         showing: String, // "first 10" or "last 10"
     },
     /// Filtered records from captured output
     FilteredResult {
         statement: String,
-        /// Filtered records with index and key: (index, key, record)
-        records: Vec<(
-            usize,
-            Option<String>,
-            std::collections::HashMap<String, crate::velostream::sql::execution::types::FieldValue>,
-        )>,
+        /// Filtered records with original index: (index, record)
+        records: Vec<(usize, StreamRecord)>,
         total_count: usize,
         matched_count: usize,
         filter_expr: String,
