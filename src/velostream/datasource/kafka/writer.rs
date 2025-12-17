@@ -127,6 +127,8 @@ pub struct KafkaDataWriter {
     key_field: Option<String>, // Field name to use as message key
     avro_codec: Option<AvroCodec>,
     protobuf_codec: Option<ProtobufCodec>,
+    /// Track if we've warned about null keys (warn once per writer instance)
+    warned_null_key: std::sync::atomic::AtomicBool,
 }
 
 impl KafkaDataWriter {
@@ -378,9 +380,10 @@ impl KafkaDataWriter {
             producer_kind,
             topic: topic.clone(),
             format,
-            key_field: key_field.or(Some("key".to_string())), // Default to "key" field
+            key_field, // No default - if not configured, records use round-robin partitioning
             avro_codec,
             protobuf_codec,
+            warned_null_key: std::sync::atomic::AtomicBool::new(false),
         };
 
         log::info!(
@@ -747,7 +750,7 @@ impl KafkaDataWriter {
 
     /// Extract message key from StreamRecord fields
     fn extract_key(&self, record: &StreamRecord) -> Option<String> {
-        if let Some(key_field) = &self.key_field {
+        let key = if let Some(key_field) = &self.key_field {
             match record.fields.get(key_field) {
                 Some(FieldValue::String(s)) => Some(s.clone()),
                 Some(FieldValue::Integer(i)) => Some(i.to_string()),
@@ -771,12 +774,39 @@ impl KafkaDataWriter {
                     }
                 }
                 Some(FieldValue::Boolean(b)) => Some(b.to_string()),
-                Some(FieldValue::Null) | None => None,
+                Some(FieldValue::Null) | None => {
+                    // key_field is configured but field is null/missing
+                    if !self
+                        .warned_null_key
+                        .swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        log::warn!(
+                            "Writing record with NULL key to topic '{}' (key_field='{}' is null/missing). \
+                             Records with NULL keys use round-robin partitioning, which may break ordering guarantees.",
+                            self.topic,
+                            key_field
+                        );
+                    }
+                    None
+                }
                 _ => None,
             }
         } else {
+            // No key_field configured at all
+            if !self
+                .warned_null_key
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                log::warn!(
+                    "Writing records with NULL keys to topic '{}' (no key_field configured). \
+                     Records with NULL keys use round-robin partitioning. \
+                     Configure 'key_field' in sink properties for consistent partitioning.",
+                    self.topic
+                );
+            }
             None
-        }
+        };
+        key
     }
 
     /// Convert StreamRecord to appropriate payload format (consolidated serialization logic)

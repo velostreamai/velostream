@@ -35,7 +35,7 @@ use crate::velostream::sql::ast::{
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
-use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState};
+use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState, GroupKey};
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
@@ -615,6 +615,7 @@ impl WindowAdapter {
                 &aggregate_expressions,
                 &accumulator,
                 window_stats,
+                None, // No GROUP BY for this case
             )?;
             return Ok(vec![result_record]);
         }
@@ -648,7 +649,7 @@ impl WindowAdapter {
 
         // Build result record for each group (with HAVING filter using accumulators)
         let mut results = Vec::new();
-        for accumulator in group_state.groups.values() {
+        for (group_key, accumulator) in group_state.groups.iter() {
             // Evaluate HAVING clause using THIS group's accumulator
             if let Some(having_expr) = having {
                 let having_passes =
@@ -665,6 +666,7 @@ impl WindowAdapter {
                 &aggregate_expressions,
                 accumulator,
                 window_stats,
+                Some((group_exprs, group_key)),
             )?;
             results.push(result_record);
         }
@@ -733,13 +735,46 @@ impl WindowAdapter {
     }
 
     /// Build a result StreamRecord from computed aggregate values
+    ///
+    /// # Arguments
+    /// * `fields` - SELECT fields to include in output
+    /// * `_aggregate_expressions` - Aggregate expressions (for reference)
+    /// * `accumulator` - Group accumulator with aggregate values
+    /// * `window_stats` - Window timing information
+    /// * `group_by_info` - Optional GROUP BY expressions and key values
     fn build_result_record(
         fields: &[SelectField],
         _aggregate_expressions: &[(String, Expr)],
         accumulator: &GroupAccumulator,
         window_stats: &WindowStats,
+        group_by_info: Option<(&Vec<Expr>, &GroupKey)>,
     ) -> Result<StreamRecord, SqlError> {
         let mut result_fields = HashMap::new();
+
+        // CRITICAL FIX: Inject GROUP BY key values into the result
+        // The group_by_info contains the GROUP BY expressions (for column names)
+        // and the GroupKey (for the actual values like "AAPL", "GOOGL", etc.)
+        if let Some((group_exprs, group_key)) = group_by_info {
+            let key_values = group_key.values();
+            for (idx, expr) in group_exprs.iter().enumerate() {
+                if idx < key_values.len() {
+                    // Extract column name from GROUP BY expression
+                    // For qualified columns like "table.column", extract just the column part
+                    let col_name = match expr {
+                        Expr::Column(name) => {
+                            // Handle "table.column" format - extract just the column name
+                            if let Some(dot_pos) = name.rfind('.') {
+                                name[dot_pos + 1..].to_string()
+                            } else {
+                                name.clone()
+                            }
+                        }
+                        _ => format!("group_key_{}", idx),
+                    };
+                    result_fields.insert(col_name, key_values[idx].clone());
+                }
+            }
+        }
 
         // Inject window system columns into a synthetic sample record for expression evaluation
         // This allows _window_start and _window_end to be resolved by ExpressionEvaluator

@@ -92,6 +92,7 @@ pub mod file_io;
 pub mod generator;
 pub mod inference;
 pub mod infra;
+pub mod log_capture;
 pub mod report;
 pub mod schema;
 pub mod spec;
@@ -110,6 +111,11 @@ pub use file_io::{FileSinkFactory, FileSourceFactory};
 pub use generator::{SchemaDataGenerator, parse_time_spec};
 pub use inference::SchemaInferencer;
 pub use infra::{SharedTestInfra, TestHarnessInfra, create_kafka_config};
+pub use log_capture::{
+    CapturedLogEntry, clear as clear_log_buffer, entries_since, errors_since,
+    init_capturing_logger, init_capturing_logger_with_level, is_capture_enabled,
+    recent_entries as recent_log_entries, set_capture_enabled, stats as log_stats, warnings_since,
+};
 pub use schema::Schema;
 pub use spec::{
     FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec,

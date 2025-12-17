@@ -1088,9 +1088,23 @@ impl StreamJobServer {
     }
 
     pub async fn stop_job(&self, name: &str) -> Result<(), SqlError> {
-        let mut jobs = self.jobs.write().await;
+        self.stop_job_with_timeout(name, Duration::from_secs(10))
+            .await
+    }
 
-        if let Some(job) = jobs.remove(name) {
+    /// Stop a job with a configurable timeout for graceful shutdown
+    pub async fn stop_job_with_timeout(
+        &self,
+        name: &str,
+        timeout: Duration,
+    ) -> Result<(), SqlError> {
+        // First, get the job and send shutdown signal (while holding write lock briefly)
+        let job = {
+            let mut jobs = self.jobs.write().await;
+            jobs.remove(name)
+        };
+
+        if let Some(job) = job {
             info!("Stopping job '{}'", name);
 
             // Send shutdown signal
@@ -1098,10 +1112,30 @@ impl StreamJobServer {
                 warn!("Failed to send shutdown signal to job '{}': {:?}", name, e);
             }
 
-            // Abort the execution task
-            job.execution_handle.abort();
+            // Wait for job to finish gracefully (with timeout)
+            let wait_for_completion = async {
+                loop {
+                    if job.execution_handle.is_finished() {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            };
 
-            info!("Successfully stopped job '{}'", name);
+            match tokio::time::timeout(timeout, wait_for_completion).await {
+                Ok(_) => {
+                    info!("Successfully stopped job '{}' (graceful)", name);
+                }
+                Err(_) => {
+                    warn!(
+                        "Job '{}' did not stop within {:?}, forcing abort",
+                        name, timeout
+                    );
+                    job.execution_handle.abort();
+                    info!("Successfully stopped job '{}' (forced)", name);
+                }
+            }
+
             Ok(())
         } else {
             Err(SqlError::ExecutionError {

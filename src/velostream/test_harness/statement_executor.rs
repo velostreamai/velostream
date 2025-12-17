@@ -27,11 +27,13 @@ use super::capture::SinkCapture;
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::{CapturedOutput, ExecutionResult, ParsedQuery, QueryExecutor};
 use super::infra::TestHarnessInfra;
+use super::log_capture::{self, CapturedLogEntry};
 use super::spec::{QueryTest, TestSpec};
+use super::table_state::TableSnapshot;
 use crate::velostream::sql::execution::types::StreamRecord;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Execution mode for statement executor
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -63,8 +65,11 @@ pub struct StatementResult {
     /// Error message if failed
     pub error: Option<String>,
 
-    /// Captured output (if any)
+    /// Captured output (if any, for stream/sink statements)
     pub output: Option<CapturedOutput>,
+
+    /// Table snapshot (if any, for CREATE TABLE statements)
+    pub table_snapshot: Option<TableSnapshot>,
 
     /// Execution time in milliseconds
     pub execution_time_ms: u64,
@@ -74,6 +79,9 @@ pub struct StatementResult {
 
     /// Statement type (CREATE STREAM, CREATE TABLE, etc.)
     pub statement_type: StatementType,
+
+    /// Captured ERROR and WARN logs during execution
+    pub captured_logs: Vec<CapturedLogEntry>,
 }
 
 /// Type of SQL statement
@@ -522,6 +530,59 @@ impl StatementExecutor {
         let execution_time_ms = start.elapsed().as_millis() as u64;
         let hit_breakpoint = self.is_breakpoint(&statement.name);
 
+        // Capture ERROR/WARN logs that occurred during this step
+        let captured_logs = log_capture::entries_since(start);
+
+        // For CREATE TABLE statements, create a table snapshot from the captured output
+        let table_snapshot = if statement.statement_type == StatementType::CreateTable {
+            output.as_ref().map(|out| {
+                use super::table_state::TableStateStats;
+                use crate::velostream::sql::execution::types::FieldValue;
+                use std::collections::HashMap;
+
+                // Convert StreamRecords to the table snapshot format
+                let records: HashMap<String, HashMap<String, FieldValue>> = out
+                    .records
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, rec)| {
+                        // Use index as key if no key field available
+                        let key = rec
+                            .key
+                            .as_ref()
+                            .map(|k| match k {
+                                FieldValue::String(s) => s.clone(),
+                                other => format!("{:?}", other),
+                            })
+                            .unwrap_or_else(|| format!("row_{}", idx));
+                        (key, rec.fields.clone())
+                    })
+                    .collect();
+
+                let record_count = records.len();
+
+                TableSnapshot {
+                    name: statement.name.clone(),
+                    records,
+                    key_fields: vec![],
+                    stats: TableStateStats {
+                        record_count,
+                        total_inserts: record_count,
+                        total_updates: 0,
+                        total_deletes: 0,
+                        total_tombstones: 0,
+                        peak_record_count: record_count,
+                    },
+                    snapshot_time: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                }
+            })
+        } else {
+            None
+        };
+
         Ok(StatementResult {
             index: self.current_index,
             name: statement.name,
@@ -529,9 +590,11 @@ impl StatementExecutor {
             success,
             error,
             output,
+            table_snapshot,
             execution_time_ms,
             hit_breakpoint,
             statement_type: statement.statement_type,
+            captured_logs,
         })
     }
 
@@ -1096,6 +1159,7 @@ impl DebugSession {
             }
             DebugCommand::List => {
                 let statements = self.executor.statements();
+                let results = self.executor.results();
                 let mut lines: Vec<String> = Vec::new();
                 for s in statements {
                     let bp = if self.executor.breakpoints().contains(&s.name) {
@@ -1108,18 +1172,40 @@ impl DebugSession {
                     } else {
                         " "
                     };
-                    // Header line with markers, number, name, and type
+                    // Find result for this statement (if executed)
+                    let result = results.iter().find(|r| r.name == s.name);
+                    let status = match result {
+                        Some(r) if r.success => "✅",
+                        Some(_) => "❌",
+                        None => "⏸️",
+                    };
+                    // Header line with markers, number, name, type, and status
                     lines.push(format!(
-                        "{}{} [{}] {} ({})",
+                        "{}{} [{}] {} ({}) {}",
                         current,
                         bp,
                         s.index + 1,
                         s.name,
-                        s.statement_type.display_name()
+                        s.statement_type.display_name(),
+                        status
                     ));
                     // SQL text, indented
                     for sql_line in s.sql_text.lines() {
                         lines.push(format!("      {}", sql_line));
+                    }
+                    // Show captured logs for executed statements (top 5)
+                    if let Some(r) = result {
+                        if !r.captured_logs.is_empty() {
+                            let log_count = r.captured_logs.len();
+                            let display_count = log_count.min(5);
+                            lines.push(format!(
+                                "      📋 Logs ({} captured, showing {}):",
+                                log_count, display_count
+                            ));
+                            for entry in r.captured_logs.iter().take(5) {
+                                lines.push(format!("         {}", entry.display_short()));
+                            }
+                        }
                     }
                     lines.push(String::new()); // Blank line between statements
                 }
@@ -1128,7 +1214,18 @@ impl DebugSession {
             DebugCommand::Status => Ok(CommandResult::Message(self.executor.state_summary())),
             DebugCommand::Inspect(name) => {
                 if let Some(output) = self.executor.get_output(&name) {
-                    Ok(CommandResult::Output(output.clone()))
+                    // Find captured logs for this statement
+                    let logs = self
+                        .executor
+                        .results()
+                        .iter()
+                        .find(|r| r.name == name)
+                        .map(|r| r.captured_logs.clone())
+                        .unwrap_or_default();
+                    Ok(CommandResult::OutputWithLogs {
+                        output: output.clone(),
+                        logs,
+                    })
                 } else {
                     Ok(CommandResult::Message(format!(
                         "No output found for '{}'",
@@ -1854,6 +1951,11 @@ pub enum CommandResult {
     Listing(Vec<String>),
     /// Captured output from a single statement
     Output(CapturedOutput),
+    /// Captured output with associated logs from execution
+    OutputWithLogs {
+        output: CapturedOutput,
+        logs: Vec<super::log_capture::CapturedLogEntry>,
+    },
     /// All captured outputs from executed statements
     AllOutputs(HashMap<String, CapturedOutput>),
     /// Command history listing

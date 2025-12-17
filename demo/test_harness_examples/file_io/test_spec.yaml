@@ -1,15 +1,15 @@
-# File-based Test Example
-# This demonstrates using CSV files as input sources and file-based assertions
+# File-based Trade Analysis Test
+# Demonstrates CSV file input/output with SQL enrichment
+# No Kafka required!
 
 application: file_io_demo
-description: Demonstrates file-based input sources and output assertions
+description: Demonstrates file-based SQL processing - enriches trades with calculated fields
 
 default_timeout_ms: 30000
-default_records: 100
 
 queries:
-  - name: trade_passthrough
-    description: Simple passthrough query reading from CSV file
+  - name: enriched_trades
+    description: Enriches trade data with trade_value and trade_size classification
     inputs:
       - source: trades
         source_type:
@@ -23,18 +23,18 @@ queries:
         path: ./output_trades.csv
         format: csv
     assertions:
-      # Basic assertion - check the output file exists
+      # Check the output file exists
       - type: file_exists
         path: ./output_trades.csv
         min_size_bytes: 100
 
-      # Check row count matches input
+      # Check row count (all 6 trades have volume >= 50)
       - type: file_row_count
         path: ./output_trades.csv
         format: csv
         equals: 6
 
-      # Verify specific symbols are present
+      # Verify all symbols are present
       - type: file_contains
         path: ./output_trades.csv
         format: csv
@@ -45,7 +45,18 @@ queries:
           - MSFT
         mode: all
 
-      # Verify output matches expected
+      # Verify trade_size categories exist
+      - type: file_contains
+        path: ./output_trades.csv
+        format: csv
+        field: trade_size
+        expected_values:
+          - SMALL
+          - MEDIUM
+          - LARGE
+        mode: all
+
+      # Verify output matches expected (with numeric tolerance for trade_value)
       - type: file_matches
         actual_path: ./output_trades.csv
         expected_path: ./expected_output.csv

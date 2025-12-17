@@ -189,8 +189,9 @@ fn print_version_info() {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize logging with capture support for debugger step execution
+    // This wraps env_logger and captures ERROR/WARN logs to a ring buffer
+    velostream::velostream::test_harness::init_capturing_logger();
 
     // Print version info at startup
     print_version_info();
@@ -716,6 +717,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 println!("      Error: {}", err);
                                                 failed = true;
                                             }
+                                            // Show table snapshot for CREATE TABLE statements
+                                            if let Some(ref snapshot) = result.table_snapshot {
+                                                println!(
+                                                    "      📊 Table: {} rows",
+                                                    snapshot.stats.record_count
+                                                );
+                                            }
+                                            // Show captured ERROR/WARN logs (top 5 per statement)
+                                            if !result.captured_logs.is_empty() {
+                                                let log_count = result.captured_logs.len();
+                                                let display_count = log_count.min(5);
+                                                println!(
+                                                    "      📋 Logs ({} captured, showing {}):",
+                                                    log_count, display_count
+                                                );
+                                                for entry in result.captured_logs.iter().take(5) {
+                                                    println!("         {}", entry.display_short());
+                                                }
+                                            }
                                         }
                                     }
                                     Err(e) => {
@@ -744,6 +764,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 output.records.len(),
                                                 output.sink_name
                                             );
+                                        }
+                                        // Show table snapshot for CREATE TABLE statements
+                                        if let Some(ref snapshot) = result.table_snapshot {
+                                            println!(
+                                                "      📊 Table: {} rows",
+                                                snapshot.stats.record_count
+                                            );
+                                            if !snapshot.records.is_empty() {
+                                                println!("      Sample (first 5):");
+                                                for (idx, (key, fields)) in
+                                                    snapshot.records.iter().take(5).enumerate()
+                                                {
+                                                    let field_str: String = fields
+                                                        .iter()
+                                                        .take(4)
+                                                        .map(|(k, v)| format!("{}={:?}", k, v))
+                                                        .collect::<Vec<_>>()
+                                                        .join(", ");
+                                                    println!(
+                                                        "         [{}] {} → {{{}}}",
+                                                        idx + 1,
+                                                        key,
+                                                        field_str
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        // Show captured ERROR/WARN logs (top 5)
+                                        if !result.captured_logs.is_empty() {
+                                            let log_count = result.captured_logs.len();
+                                            let display_count = log_count.min(5);
+                                            println!(
+                                                "      📋 Logs ({} captured, showing {}):",
+                                                log_count, display_count
+                                            );
+                                            for entry in result.captured_logs.iter().take(5) {
+                                                println!("         {}", entry.display_short());
+                                            }
                                         }
                                         println!();
                                     }
@@ -2343,6 +2401,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         out.sink_name
                                     );
                                 }
+                                // Show table snapshot for CREATE TABLE statements
+                                if let Some(ref snapshot) = res.table_snapshot {
+                                    println!(
+                                        "      📊 Table: {} rows",
+                                        snapshot.stats.record_count
+                                    );
+                                    if !snapshot.records.is_empty() {
+                                        println!("      Sample (first 5):");
+                                        for (idx, (key, fields)) in
+                                            snapshot.records.iter().take(5).enumerate()
+                                        {
+                                            let field_str: String = fields
+                                                .iter()
+                                                .take(4)
+                                                .map(|(k, v)| format!("{}={:?}", k, v))
+                                                .collect::<Vec<_>>()
+                                                .join(", ");
+                                            println!(
+                                                "         [{}] {} → {{{}}}",
+                                                idx + 1,
+                                                key,
+                                                field_str
+                                            );
+                                        }
+                                    }
+                                }
+                                // Show captured ERROR/WARN logs (top 5)
+                                if !res.captured_logs.is_empty() {
+                                    let log_count = res.captured_logs.len();
+                                    let display_count = log_count.min(5);
+                                    println!(
+                                        "      📋 Logs ({} captured, showing {}):",
+                                        log_count, display_count
+                                    );
+                                    for entry in res.captured_logs.iter().take(5) {
+                                        println!("         {}", entry.display_short());
+                                    }
+                                }
 
                                 // Auto-display topic state after step
                                 println!();
@@ -2400,6 +2496,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     if let Some(ref err) = res.error {
                                         println!("      Error: {}", err);
                                     }
+                                    // Show table snapshot for CREATE TABLE statements
+                                    if let Some(ref snapshot) = res.table_snapshot {
+                                        println!(
+                                            "      📊 Table: {} rows",
+                                            snapshot.stats.record_count
+                                        );
+                                    }
+                                    // Show captured ERROR/WARN logs (top 5 per statement)
+                                    if !res.captured_logs.is_empty() {
+                                        let log_count = res.captured_logs.len();
+                                        let display_count = log_count.min(5);
+                                        println!(
+                                            "      📋 Logs ({} captured, showing {}):",
+                                            log_count, display_count
+                                        );
+                                        for entry in res.captured_logs.iter().take(5) {
+                                            println!("         {}", entry.display_short());
+                                        }
+                                    }
                                 }
                                 println!("   Executed {} statements", results.len());
                             }
@@ -2418,7 +2533,88 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if !out.records.is_empty() {
                                     println!("   Sample (first 5):");
                                     for (i, rec) in out.records.iter().take(5).enumerate() {
-                                        println!("     [{}] {:?}", i + 1, rec);
+                                        let key_json = rec
+                                            .key
+                                            .as_ref()
+                                            .map(|k| {
+                                                serde_json::to_string(k)
+                                                    .unwrap_or_else(|_| format!("{:?}", k))
+                                            })
+                                            .unwrap_or_else(|| "null".to_string());
+                                        let value_json = serde_json::to_string_pretty(&rec.fields)
+                                            .unwrap_or_else(|_| format!("{:?}", rec.fields));
+                                        let headers_json = if rec.headers.is_empty() {
+                                            "{}".to_string()
+                                        } else {
+                                            serde_json::to_string(&rec.headers)
+                                                .unwrap_or_else(|_| format!("{:?}", rec.headers))
+                                        };
+                                        println!(
+                                            "     [{}] p{}@{}",
+                                            i + 1,
+                                            rec.partition,
+                                            rec.offset
+                                        );
+                                        println!("         key: {}", key_json);
+                                        println!(
+                                            "         value: {}",
+                                            value_json.replace('\n', "\n                ")
+                                        );
+                                        if !rec.headers.is_empty() {
+                                            println!("         headers: {}", headers_json);
+                                        }
+                                    }
+                                }
+                            }
+                            CommandResult::OutputWithLogs { output, logs } => {
+                                println!("   Sink: {}", output.sink_name);
+                                println!("   Records: {}", output.records.len());
+                                println!("   Execution time: {}ms", output.execution_time_ms);
+                                if !output.records.is_empty() {
+                                    println!("   Sample (first 5):");
+                                    for (i, rec) in output.records.iter().take(5).enumerate() {
+                                        let key_json = rec
+                                            .key
+                                            .as_ref()
+                                            .map(|k| {
+                                                serde_json::to_string(k)
+                                                    .unwrap_or_else(|_| format!("{:?}", k))
+                                            })
+                                            .unwrap_or_else(|| "null".to_string());
+                                        let value_json = serde_json::to_string_pretty(&rec.fields)
+                                            .unwrap_or_else(|_| format!("{:?}", rec.fields));
+                                        let headers_json = if rec.headers.is_empty() {
+                                            "{}".to_string()
+                                        } else {
+                                            serde_json::to_string(&rec.headers)
+                                                .unwrap_or_else(|_| format!("{:?}", rec.headers))
+                                        };
+                                        println!(
+                                            "     [{}] p{}@{}",
+                                            i + 1,
+                                            rec.partition,
+                                            rec.offset
+                                        );
+                                        println!("         key: {}", key_json);
+                                        println!(
+                                            "         value: {}",
+                                            value_json.replace('\n', "\n                ")
+                                        );
+                                        if !rec.headers.is_empty() {
+                                            println!("         headers: {}", headers_json);
+                                        }
+                                    }
+                                }
+                                // Show captured ERROR/WARN logs (top 5)
+                                if !logs.is_empty() {
+                                    let log_count = logs.len();
+                                    let display_count = log_count.min(5);
+                                    println!(
+                                        "   📋 Logs ({} captured, showing {}):",
+                                        log_count, display_count
+                                    );
+                                    for entry in logs.iter().take(5) {
+                                        println!("      {}", entry.display_short());
                                     }
                                 }
                             }
@@ -2820,6 +3016,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         total_count,
                                         statement
                                     );
+
+                                    // Extract and display schema/header from first record
+                                    if let Some(first) = records.first() {
+                                        let mut field_names: Vec<&String> =
+                                            first.fields.keys().collect();
+                                        field_names.sort(); // Consistent ordering
+                                        println!(
+                                            "   Schema: [{}]",
+                                            field_names
+                                                .iter()
+                                                .map(|s| s.as_str())
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        );
+                                        println!("   ─────────────────────────────────────────");
+                                    }
+
                                     for (idx, record) in records.iter().enumerate() {
                                         // Format record fields as JSON
                                         let json = serde_json::to_string(&record.fields)
@@ -2867,6 +3080,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if records.is_empty() {
                                     println!("   (no matching records)");
                                 } else {
+                                    // Extract and display schema/header from first record
+                                    if let Some((_, first)) = records.first() {
+                                        let mut field_names: Vec<&String> =
+                                            first.fields.keys().collect();
+                                        field_names.sort(); // Consistent ordering
+                                        println!(
+                                            "   Schema: [{}]",
+                                            field_names
+                                                .iter()
+                                                .map(|s| s.as_str())
+                                                .collect::<Vec<_>>()
+                                                .join(", ")
+                                        );
+                                        println!("   ─────────────────────────────────────────");
+                                    }
+
                                     for (idx, record) in records.iter() {
                                         let json = serde_json::to_string(&record.fields)
                                             .unwrap_or_else(|_| format!("{:?}", record.fields));

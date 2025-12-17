@@ -6,6 +6,8 @@ This directory contains demo SQL applications for testing the Velostream SQL App
 
 ```
 test_harness_examples/
+├── file_io/              # File-based I/O demo (no Kafka required!)
+├── getting_started/      # Simple examples to get started
 ├── tier1_basic/          # Basic SQL operations (SELECT, WHERE, CAST)
 ├── tier2_aggregations/   # Aggregation functions and windows
 ├── tier3_joins/          # Stream-table and stream-stream joins
@@ -16,6 +18,19 @@ test_harness_examples/
 ├── configs/              # Shared Kafka configuration templates
 └── data/                 # Sample CSV data files for table sources
 ```
+
+## Quick Start: File I/O Demo (No Kafka Required!)
+
+The fastest way to try the test harness - pure file-based testing:
+
+```bash
+cd demo/test_harness_examples/file_io
+
+# Run the demo
+velo-test run passthrough.sql --spec test_spec.yaml
+```
+
+This reads from `input_trades.csv`, processes through SQL, and writes to `output_trades.csv`.
 
 ## Quick Start with velo-test.sh
 
@@ -31,6 +46,7 @@ The `velo-test.sh` script provides an easy way to run tests:
 # Run specific tier
 ./velo-test.sh tier1
 ./velo-test.sh getting_started
+./velo-test.sh file_io
 
 # From a subdirectory (e.g., getting_started/)
 ../velo-test.sh .

@@ -21,6 +21,8 @@ pub struct KafkaDataSink {
     brokers: String,
     topic: String,
     config: HashMap<String, String>,
+    /// Field name to use as Kafka message key (extracted from key_field property)
+    key_field: Option<String>,
 }
 
 impl KafkaDataSink {
@@ -30,6 +32,7 @@ impl KafkaDataSink {
             brokers,
             topic,
             config: HashMap::new(),
+            key_field: None,
         }
     }
 
@@ -154,10 +157,26 @@ impl KafkaDataSink {
             sink_config.insert("enable.idempotence".to_string(), "true".to_string());
         }
 
+        // Extract key_field for message key extraction (not a Kafka producer property)
+        let key_field = get_sink_prop("key_field")
+            .or_else(|| get_sink_prop("key.field"))
+            .or_else(|| get_sink_prop("message.key.field"))
+            .or_else(|| merged_props.get("key_field").cloned())
+            .or_else(|| merged_props.get("key.field").cloned());
+
+        if let Some(ref kf) = key_field {
+            log::info!(
+                "KafkaDataSink: Configured key_field='{}' for topic '{}'",
+                kf,
+                topic
+            );
+        }
+
         Self {
             brokers,
             topic,
             config: sink_config,
+            key_field,
         }
     }
 
@@ -291,7 +310,12 @@ impl KafkaDataSink {
         // Format is now handled by KafkaDataWriter::from_properties
 
         // Create writer with properties-based configuration
-        KafkaDataWriter::from_properties(&self.brokers, self.topic.clone(), &self.config).await
+        // Include key_field in properties for the writer
+        let mut writer_props = self.config.clone();
+        if let Some(ref kf) = self.key_field {
+            writer_props.insert("key_field".to_string(), kf.clone());
+        }
+        KafkaDataWriter::from_properties(&self.brokers, self.topic.clone(), &writer_props).await
     }
 
     /// Create a unified writer with batch configuration optimizations
@@ -301,10 +325,15 @@ impl KafkaDataSink {
     ) -> Result<KafkaDataWriter, Box<dyn std::error::Error + Send + Sync>> {
         // Let the KafkaDataWriter handle batch configuration directly
         // This provides better integration and more accurate configuration
+        // Include key_field in properties for the writer
+        let mut writer_props = self.config.clone();
+        if let Some(ref kf) = self.key_field {
+            writer_props.insert("key_field".to_string(), kf.clone());
+        }
         KafkaDataWriter::from_properties_with_batch_config(
             &self.brokers,
             self.topic.clone(),
-            &self.config,
+            &writer_props,
             batch_config,
         )
         .await
@@ -1182,6 +1211,7 @@ impl Default for KafkaDataSink {
             brokers: "localhost:9092".to_string(),
             topic: "default_topic".to_string(),
             config: HashMap::new(),
+            key_field: None,
         }
     }
 }
