@@ -10,7 +10,6 @@
 //!   velo-test infer-schema app.sql --data-dir data/ --output schemas/
 
 use clap::{Parser, Subcommand};
-use serde_json;
 use std::path::PathBuf;
 
 #[derive(Parser)]

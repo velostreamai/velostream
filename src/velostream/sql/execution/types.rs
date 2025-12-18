@@ -1343,6 +1343,96 @@ impl FieldValue {
     pub fn is_financial(&self) -> bool {
         matches!(self, FieldValue::ScaledInteger(_, _))
     }
+
+    /// Convert this value to a serde_json::Value for JSON serialization
+    ///
+    /// Used for compound GROUP BY keys and other JSON serialization needs.
+    /// Preserves precision for financial types by using string representation.
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            FieldValue::String(s) => serde_json::Value::String(s.clone()),
+            FieldValue::Integer(i) => serde_json::Value::Number((*i).into()),
+            FieldValue::Float(f) => serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            FieldValue::Boolean(b) => serde_json::Value::Bool(*b),
+            FieldValue::Null => serde_json::Value::Null,
+            FieldValue::ScaledInteger(val, scale) => {
+                // Format as decimal string for precision preservation
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = val / divisor;
+                let fractional_part = (val % divisor).abs();
+                let formatted = if fractional_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    format!(
+                        "{}.{:0>width$}",
+                        integer_part,
+                        fractional_part,
+                        width = *scale as usize
+                    )
+                };
+                serde_json::Value::String(formatted)
+            }
+            FieldValue::Decimal(d) => serde_json::Value::String(d.to_string()),
+            FieldValue::Timestamp(ts) => {
+                serde_json::Value::String(ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string())
+            }
+            FieldValue::Date(d) => serde_json::Value::String(d.format("%Y-%m-%d").to_string()),
+            FieldValue::Interval { value, unit } => {
+                serde_json::Value::String(format!("{} {:?}", value, unit))
+            }
+            FieldValue::Array(arr) => {
+                serde_json::Value::Array(arr.iter().map(|v| v.to_json()).collect())
+            }
+            FieldValue::Map(map) => {
+                let obj: serde_json::Map<String, serde_json::Value> =
+                    map.iter().map(|(k, v)| (k.clone(), v.to_json())).collect();
+                serde_json::Value::Object(obj)
+            }
+            FieldValue::Struct(fields) => {
+                let obj: serde_json::Map<String, serde_json::Value> = fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_json()))
+                    .collect();
+                serde_json::Value::Object(obj)
+            }
+        }
+    }
+
+    /// Convert this value to a string suitable for use as a Kafka message key
+    ///
+    /// Used by the Kafka writer to extract message keys from FieldValue.
+    /// Returns a simple string representation without JSON quoting for simple values.
+    pub fn to_key_string(&self) -> String {
+        match self {
+            FieldValue::String(s) => s.clone(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Null => String::new(),
+            FieldValue::ScaledInteger(val, scale) => {
+                let divisor = 10_i64.pow(*scale as u32);
+                let integer_part = val / divisor;
+                let fractional_part = (val % divisor).abs();
+                if fractional_part == 0 {
+                    integer_part.to_string()
+                } else {
+                    let frac_str = format!("{:0width$}", fractional_part, width = *scale as usize);
+                    let frac_trimmed = frac_str.trim_end_matches('0');
+                    if frac_trimmed.is_empty() {
+                        integer_part.to_string()
+                    } else {
+                        format!("{}.{}", integer_part, frac_trimmed)
+                    }
+                }
+            }
+            FieldValue::Decimal(d) => d.to_string(),
+            FieldValue::Timestamp(ts) => ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
+            FieldValue::Date(d) => d.format("%Y-%m-%d").to_string(),
+            _ => format!("{:?}", self),
+        }
+    }
 }
 
 /// A record in a streaming data source

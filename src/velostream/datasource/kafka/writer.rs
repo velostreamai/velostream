@@ -748,9 +748,20 @@ impl KafkaDataWriter {
     // Key Extraction and Serialization
     // =========================================================================
 
-    /// Extract message key from StreamRecord fields
+    /// Extract message key from StreamRecord
+    ///
+    /// Priority:
+    /// 1. record.key - set by GROUP BY queries (single value or JSON compound key)
+    /// 2. key_field config - explicit field name to use as key
+    /// 3. None - null key (round-robin partitioning)
     fn extract_key(&self, record: &StreamRecord) -> Option<String> {
-        let key = if let Some(key_field) = &self.key_field {
+        // Priority 1: Use record.key if set (from GROUP BY)
+        if let Some(ref key_value) = record.key {
+            return Some(key_value.to_key_string());
+        }
+
+        // Priority 2: Use configured key_field
+        if let Some(key_field) = &self.key_field {
             match record.fields.get(key_field) {
                 Some(FieldValue::String(s)) => Some(s.clone()),
                 Some(FieldValue::Integer(i)) => Some(i.to_string()),
@@ -805,8 +816,7 @@ impl KafkaDataWriter {
                 );
             }
             None
-        };
-        key
+        }
     }
 
     /// Convert StreamRecord to appropriate payload format (consolidated serialization logic)

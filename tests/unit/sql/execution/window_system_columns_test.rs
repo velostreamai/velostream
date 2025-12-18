@@ -2,7 +2,11 @@
 //!
 //! These tests verify that window system columns are correctly
 //! populated in result records from windowed aggregation queries.
+//!
+//! Also includes tests for GROUP BY key → record.key functionality (FR-089).
 
+use chrono::NaiveDate;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 use velostream::velostream::sql::StreamingQuery;
 use velostream::velostream::sql::ast::{Expr, SelectField};
@@ -590,6 +594,26 @@ fn test_create_table_populates_system_columns() {
 
     // Verify the result has window_start and window_end populated
     println!("CREATE TABLE output record fields: {:?}", output.fields);
+    println!("CREATE TABLE output record key: {:?}", output.key);
+
+    // Check that record.key is set from GROUP BY (FR-089 fix)
+    assert!(
+        output.key.is_some(),
+        "record.key should be set from GROUP BY symbol. Got: {:?}",
+        output.key
+    );
+    match output.key.as_ref().unwrap() {
+        FieldValue::String(s) => {
+            assert_eq!(
+                s, "AAPL",
+                "record.key should be 'AAPL' from GROUP BY symbol"
+            );
+            println!("✅ record.key = {:?} (correctly set from GROUP BY)", s);
+        }
+        other => {
+            panic!("record.key should be String('AAPL'), got {:?}", other);
+        }
+    }
 
     // Check window_start
     let window_start = output.fields.get("window_start");
@@ -633,5 +657,303 @@ fn test_create_table_populates_system_columns() {
         other => {
             panic!("window_end should be Integer, got {:?}", other);
         }
+    }
+}
+
+// =============================================================================
+// FR-089: GROUP BY key → record.key Tests
+// =============================================================================
+
+/// Test FieldValue::to_json() for all common types
+#[test]
+fn test_field_value_to_json_all_types() {
+    // String
+    let v = FieldValue::String("hello".to_string());
+    assert_eq!(v.to_json(), serde_json::json!("hello"));
+
+    // Integer
+    let v = FieldValue::Integer(42);
+    assert_eq!(v.to_json(), serde_json::json!(42));
+
+    // Float
+    let v = FieldValue::Float(123.456);
+    assert_eq!(v.to_json(), serde_json::json!(123.456));
+
+    // Boolean
+    let v = FieldValue::Boolean(true);
+    assert_eq!(v.to_json(), serde_json::json!(true));
+
+    // Null
+    let v = FieldValue::Null;
+    assert_eq!(v.to_json(), serde_json::Value::Null);
+
+    // ScaledInteger (financial precision)
+    let v = FieldValue::ScaledInteger(12345, 2); // 123.45
+    assert_eq!(v.to_json(), serde_json::json!("123.45"));
+
+    // Negative ScaledInteger
+    let v = FieldValue::ScaledInteger(-12345, 2); // -123.45
+    assert_eq!(v.to_json(), serde_json::json!("-123.45"));
+
+    // Zero ScaledInteger
+    let v = FieldValue::ScaledInteger(0, 2);
+    assert_eq!(v.to_json(), serde_json::json!("0"));
+
+    // Float NaN becomes null (can't represent NaN in JSON)
+    let v = FieldValue::Float(f64::NAN);
+    assert_eq!(v.to_json(), serde_json::Value::Null);
+
+    // Float Infinity becomes null (can't represent Infinity in JSON)
+    let v = FieldValue::Float(f64::INFINITY);
+    assert_eq!(v.to_json(), serde_json::Value::Null);
+
+    // Decimal
+    let v = FieldValue::Decimal(Decimal::new(12345, 2)); // 123.45
+    assert_eq!(v.to_json(), serde_json::json!("123.45"));
+
+    // Date
+    let v = FieldValue::Date(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    assert_eq!(v.to_json(), serde_json::json!("2024-01-15"));
+
+    // Array
+    let v = FieldValue::Array(vec![
+        FieldValue::Integer(1),
+        FieldValue::Integer(2),
+        FieldValue::Integer(3),
+    ]);
+    assert_eq!(v.to_json(), serde_json::json!([1, 2, 3]));
+
+    // Map
+    let mut map = HashMap::new();
+    map.insert("a".to_string(), FieldValue::Integer(1));
+    map.insert("b".to_string(), FieldValue::Integer(2));
+    let v = FieldValue::Map(map);
+    let json = v.to_json();
+    assert!(json.is_object());
+    assert_eq!(json.get("a"), Some(&serde_json::json!(1)));
+    assert_eq!(json.get("b"), Some(&serde_json::json!(2)));
+}
+
+/// Test FieldValue::to_key_string() for all common types
+#[test]
+fn test_field_value_to_key_string_all_types() {
+    // String - returned as-is (no quotes)
+    assert_eq!(
+        FieldValue::String("AAPL".to_string()).to_key_string(),
+        "AAPL"
+    );
+
+    // Integer
+    assert_eq!(FieldValue::Integer(42).to_key_string(), "42");
+    assert_eq!(FieldValue::Integer(-100).to_key_string(), "-100");
+
+    // Float
+    assert_eq!(FieldValue::Float(123.456).to_key_string(), "123.456");
+
+    // Boolean
+    assert_eq!(FieldValue::Boolean(true).to_key_string(), "true");
+    assert_eq!(FieldValue::Boolean(false).to_key_string(), "false");
+
+    // Null - empty string
+    assert_eq!(FieldValue::Null.to_key_string(), "");
+
+    // ScaledInteger (financial precision) - trailing zeros trimmed
+    assert_eq!(
+        FieldValue::ScaledInteger(12345, 2).to_key_string(),
+        "123.45"
+    );
+    assert_eq!(FieldValue::ScaledInteger(12300, 2).to_key_string(), "123"); // .00 trimmed
+    assert_eq!(FieldValue::ScaledInteger(12340, 2).to_key_string(), "123.4"); // trailing 0 trimmed
+
+    // Negative ScaledInteger
+    assert_eq!(
+        FieldValue::ScaledInteger(-12345, 2).to_key_string(),
+        "-123.45"
+    );
+    assert_eq!(FieldValue::ScaledInteger(-100, 2).to_key_string(), "-1"); // -1.00 trimmed
+
+    // Zero
+    assert_eq!(FieldValue::ScaledInteger(0, 2).to_key_string(), "0");
+
+    // Decimal
+    assert_eq!(
+        FieldValue::Decimal(Decimal::new(12345, 2)).to_key_string(),
+        "123.45"
+    );
+
+    // Float edge cases
+    assert_eq!(FieldValue::Float(f64::NAN).to_key_string(), "NaN");
+    assert_eq!(FieldValue::Float(f64::INFINITY).to_key_string(), "inf");
+    assert_eq!(FieldValue::Float(f64::NEG_INFINITY).to_key_string(), "-inf");
+}
+
+/// Test compound GROUP BY keys are serialized as JSON
+#[test]
+fn test_compound_group_by_key_json_serialization() {
+    use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+
+    // Query with compound GROUP BY (symbol, exchange)
+    let sql = r#"
+        SELECT
+            symbol,
+            exchange,
+            AVG(price) AS avg_price
+        FROM market_data
+        GROUP BY symbol, exchange
+        WINDOW TUMBLING(10s)
+        EMIT CHANGES
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse(sql).expect("Query should parse");
+
+    let mut context = ProcessorContext::new("test_compound_key");
+
+    // Create test record
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(5000));
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert(
+        "exchange".to_string(),
+        FieldValue::String("NYSE".to_string()),
+    );
+    fields.insert("price".to_string(), FieldValue::Float(150.0));
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 5000;
+
+    let result = WindowAdapter::process_with_v2("test_query", &query, &record, &mut context)
+        .expect("Should process record");
+
+    assert!(result.is_some(), "Should emit result");
+    let output = result.unwrap();
+
+    // record.key should be JSON for compound keys
+    assert!(
+        output.key.is_some(),
+        "record.key should be set for compound GROUP BY"
+    );
+
+    match output.key.as_ref().unwrap() {
+        FieldValue::String(key_json) => {
+            println!("Compound key JSON: {}", key_json);
+            // Parse and verify JSON structure
+            let parsed: serde_json::Value = serde_json::from_str(key_json)
+                .expect("record.key should be valid JSON for compound keys");
+            assert!(parsed.is_object(), "Compound key should be JSON object");
+            assert_eq!(parsed.get("symbol"), Some(&serde_json::json!("AAPL")));
+            assert_eq!(parsed.get("exchange"), Some(&serde_json::json!("NYSE")));
+            println!("✅ Compound GROUP BY key correctly serialized as JSON");
+        }
+        other => panic!("Compound key should be JSON string, got {:?}", other),
+    }
+
+    // Verify GROUP BY fields are also in output.fields
+    assert_eq!(
+        output.fields.get("symbol"),
+        Some(&FieldValue::String("AAPL".to_string()))
+    );
+    assert_eq!(
+        output.fields.get("exchange"),
+        Some(&FieldValue::String("NYSE".to_string()))
+    );
+}
+
+/// Test qualified column names (table.column) in GROUP BY
+#[test]
+fn test_qualified_column_names_in_group_by() {
+    use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+
+    // Query with qualified column name in GROUP BY
+    let sql = r#"
+        SELECT
+            market_data.symbol,
+            AVG(price) AS avg_price
+        FROM market_data
+        GROUP BY market_data.symbol
+        WINDOW TUMBLING(10s)
+        EMIT CHANGES
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse(sql).expect("Query should parse");
+
+    let mut context = ProcessorContext::new("test_qualified_column");
+
+    // Create test record
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(5000));
+    fields.insert(
+        "symbol".to_string(),
+        FieldValue::String("GOOGL".to_string()),
+    );
+    fields.insert("price".to_string(), FieldValue::Float(2800.0));
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 5000;
+
+    let result = WindowAdapter::process_with_v2("test_query", &query, &record, &mut context)
+        .expect("Should process record");
+
+    assert!(result.is_some(), "Should emit result");
+    let output = result.unwrap();
+
+    // record.key should be set (just "GOOGL", not "market_data.symbol")
+    assert!(output.key.is_some(), "record.key should be set");
+    match output.key.as_ref().unwrap() {
+        FieldValue::String(s) => {
+            assert_eq!(s, "GOOGL", "Key should be 'GOOGL' not 'market_data.GOOGL'");
+            println!("✅ Qualified column name correctly extracted: {}", s);
+        }
+        other => panic!("Key should be String, got {:?}", other),
+    }
+
+    // Output should have "symbol" field (extracted from "market_data.symbol")
+    assert!(
+        output.fields.get("symbol").is_some() || output.fields.get("market_data.symbol").is_some(),
+        "Output should have symbol field. Got: {:?}",
+        output.fields.keys().collect::<Vec<_>>()
+    );
+}
+
+/// Test integer GROUP BY key
+#[test]
+fn test_integer_group_by_key() {
+    use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+
+    let sql = r#"
+        SELECT
+            region_id,
+            SUM(amount) AS total
+        FROM sales
+        GROUP BY region_id
+        WINDOW TUMBLING(10s)
+        EMIT CHANGES
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse(sql).expect("Query should parse");
+
+    let mut context = ProcessorContext::new("test_integer_key");
+
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(5000));
+    fields.insert("region_id".to_string(), FieldValue::Integer(42));
+    fields.insert("amount".to_string(), FieldValue::Float(100.0));
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 5000;
+
+    let result = WindowAdapter::process_with_v2("test_query", &query, &record, &mut context)
+        .expect("Should process record");
+
+    assert!(result.is_some());
+    let output = result.unwrap();
+
+    // record.key should be Integer(42)
+    assert!(output.key.is_some(), "record.key should be set");
+    match output.key.as_ref().unwrap() {
+        FieldValue::Integer(i) => {
+            assert_eq!(*i, 42);
+            println!("✅ Integer GROUP BY key correctly set: {}", i);
+        }
+        other => panic!("Key should be Integer(42), got {:?}", other),
     }
 }

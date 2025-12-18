@@ -21,6 +21,7 @@
 - Always ensure that the code passes all pre-commit checks before marking any task as complete.
 - Always ensure that the code passes all CI/CD checks before marking any task as complete.
 - Always check CLIPPY errors and fix them before marking any task as complete.
+- When fixing a BUG - reproduce the bug in a test, applying the fix and then verify the test passes
 - Look at run-commit.sh for pre-commit checks and ensure that all checks pass before marking any task as complete.
 
 ## Project Overview
@@ -334,41 +335,42 @@ See [docs/kafka-schema-configuration.md](docs/developer/kafka-schema-configurati
 
 ## Environment Variables
 
-Velostream supports environment variable configuration using the `VELOSTREAM_` prefix. Environment variables take precedence over configuration file settings (12-factor app style).
+Velostream supports environment variable configuration using the `VELOSTREAM_` prefix. Environment variables take
+precedence over configuration file settings (12-factor app style).
 
 ### Kafka Configuration
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `VELOSTREAM_KAFKA_BROKERS` | Kafka broker endpoints (comma-separated) | `localhost:9092` |
-| `VELOSTREAM_KAFKA_TOPIC` | Default Kafka topic name | (from config) |
-| `VELOSTREAM_KAFKA_GROUP_ID` | Consumer group ID | `velo-sql-{job}` |
-| `VELOSTREAM_BROKER_ADDRESS_FAMILY` | Broker address resolution: `v4` (IPv4 only), `v6` (IPv6 only), `any` (both) | `v4` |
+| Environment Variable               | Description                                                                 | Default          |
+|------------------------------------|-----------------------------------------------------------------------------|------------------|
+| `VELOSTREAM_KAFKA_BROKERS`         | Kafka broker endpoints (comma-separated)                                    | `localhost:9092` |
+| `VELOSTREAM_KAFKA_TOPIC`           | Default Kafka topic name                                                    | (from config)    |
+| `VELOSTREAM_KAFKA_GROUP_ID`        | Consumer group ID                                                           | `velo-sql-{job}` |
+| `VELOSTREAM_BROKER_ADDRESS_FAMILY` | Broker address resolution: `v4` (IPv4 only), `v6` (IPv6 only), `any` (both) | `v4`             |
 
 ### Server Configuration
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `VELOSTREAM_MAX_JOBS` | Maximum concurrent jobs | `100` |
+| Environment Variable           | Description                                            | Default |
+|--------------------------------|--------------------------------------------------------|---------|
+| `VELOSTREAM_MAX_JOBS`          | Maximum concurrent jobs                                | `100`   |
 | `VELOSTREAM_ENABLE_MONITORING` | Enable performance monitoring (`true`/`false`/`1`/`0`) | `false` |
-| `VELOSTREAM_JOB_TIMEOUT_SECS` | Job timeout in seconds | `86400` |
-| `VELOSTREAM_TABLE_CACHE_SIZE` | Table registry cache size | `100` |
+| `VELOSTREAM_JOB_TIMEOUT_SECS`  | Job timeout in seconds                                 | `86400` |
+| `VELOSTREAM_TABLE_CACHE_SIZE`  | Table registry cache size                              | `100`   |
 
 ### Retry Configuration
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `VELOSTREAM_RETRY_INTERVAL_SECS` | Base retry interval in seconds | `1` |
-| `VELOSTREAM_RETRY_MULTIPLIER` | Exponential backoff multiplier | `2.0` |
-| `VELOSTREAM_RETRY_MAX_DELAY_SECS` | Maximum retry delay in seconds | `60` |
-| `VELOSTREAM_RETRY_STRATEGY` | Retry strategy (`fixed` or `exponential`) | `exponential` |
+| Environment Variable              | Description                               | Default       |
+|-----------------------------------|-------------------------------------------|---------------|
+| `VELOSTREAM_RETRY_INTERVAL_SECS`  | Base retry interval in seconds            | `1`           |
+| `VELOSTREAM_RETRY_MULTIPLIER`     | Exponential backoff multiplier            | `2.0`         |
+| `VELOSTREAM_RETRY_MAX_DELAY_SECS` | Maximum retry delay in seconds            | `60`          |
+| `VELOSTREAM_RETRY_STRATEGY`       | Retry strategy (`fixed` or `exponential`) | `exponential` |
 
 ### Topic Configuration
 
-| Environment Variable | Description | Default |
-|---------------------|-------------|---------|
-| `VELOSTREAM_DEFAULT_PARTITIONS` | Default Kafka topic partitions | `6` |
-| `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | Default topic replication factor | `3` |
+| Environment Variable                    | Description                      | Default |
+|-----------------------------------------|----------------------------------|---------|
+| `VELOSTREAM_DEFAULT_PARTITIONS`         | Default Kafka topic partitions   | `6`     |
+| `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | Default topic replication factor | `3`     |
 
 ### Usage Examples
 
@@ -385,11 +387,14 @@ export VELOSTREAM_KAFKA_BROKERS="localhost:${KAFKA_PORT}"
 export VELOSTREAM_BROKER_ADDRESS_FAMILY=any
 ```
 
-**Note on `VELOSTREAM_BROKER_ADDRESS_FAMILY`**: Defaults to `v4` (IPv4 only) because testcontainers and Docker often advertise `localhost` in Kafka broker metadata, which can resolve to IPv6 `::1` on some systems while the container only listens on IPv4. Set to `any` for production environments with proper DNS or IPv6 support.
+**Note on `VELOSTREAM_BROKER_ADDRESS_FAMILY`**: Defaults to `v4` (IPv4 only) because testcontainers and Docker often
+advertise `localhost` in Kafka broker metadata, which can resolve to IPv6 `::1` on some systems while the container only
+listens on IPv4. Set to `any` for production environments with proper DNS or IPv6 support.
 
 ### Resolution Chain
 
 Configuration values are resolved in this order (highest priority first):
+
 1. Environment variable: `VELOSTREAM_{KEY}`
 2. Configuration file property (from YAML, SQL WITH clause, etc.)
 3. Default value
@@ -419,12 +424,14 @@ This follows **12-factor app** principles where configuration is externalized an
 When writing SQL for this project, **DO NOT GUESS**. The parser has strict grammar rules that must be followed exactly.
 
 **Truth Sources (in order of preference)**:
+
 1. [`docs/sql/COPY_PASTE_EXAMPLES.md`](docs/sql/COPY_PASTE_EXAMPLES.md) - Working examples for all query types
 2. [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Formal EBNF grammar and AST structure
 3. [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules specifically for Claude
 4. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
 
 **Before writing ANY SQL**:
+
 - ✅ Search for similar example in COPY_PASTE_EXAMPLES.md
 - ✅ Verify syntax matches PARSER_GRAMMAR.md
 - ✅ Check CLAUDE SQL_GRAMMAR_RULES.md for common mistakes
@@ -434,40 +441,51 @@ When writing SQL for this project, **DO NOT GUESS**. The parser has strict gramm
 
 Velostream has **TWO different window mechanisms in different parts of the AST**:
 
-| Feature | Time Window | ROWS Window |
-|---------|------------|-----------|
-| **Syntax** | `WINDOW TUMBLING(...)` | `ROWS WINDOW BUFFER N ROWS` |
-| **Location** | SELECT statement (top-level) | OVER clause (inside function) |
-| **Use Case** | Time-bucketed aggregations | Row-count window functions |
-| **Watermarks** | ✅ YES | ❌ NO |
-| **Example** | `GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)` | `AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol)` |
+| Feature        | Time Window                                            | ROWS Window                                                         |
+|----------------|--------------------------------------------------------|---------------------------------------------------------------------|
+| **Syntax**     | `WINDOW TUMBLING(...)`                                 | `ROWS WINDOW BUFFER N ROWS`                                         |
+| **Location**   | SELECT statement (top-level)                           | OVER clause (inside function)                                       |
+| **Use Case**   | Time-bucketed aggregations                             | Row-count window functions                                          |
+| **Watermarks** | ✅ YES                                                  | ❌ NO                                                                |
+| **Example**    | `GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)` | `AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol)` |
 
 ### Most Common SQL Mistakes
 
 ```sql
-❌ ROWS BUFFER 100 ROWS         → ✅ ROWS WINDOW BUFFER 100 ROWS
-❌ ROWS WINDOW BUFFER 100       → ✅ ROWS WINDOW BUFFER 100 ROWS
-❌ SELECT * WHERE x > 100       → ✅ SELECT * FROM table WHERE x > 100
-❌ AVG(price) OVER ROWS WINDOW  → ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
-❌ GROUP BY ... PARTITION BY ... → ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
+❌
+ROWS BUFFER 100 ROWS
+→ ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ ROWS WINDOW BUFFER 100
+→ ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ SELECT * WHERE x > 100
+→ ✅ SELECT * FROM table WHERE x > 100
+❌ AVG(price) OVER ROWS WINDOW
+→ ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
+❌ GROUP BY ... PARTITION BY ...
+→ ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
 ```
 
 ### Clause Order (Must be Exact)
 
 ```sql
-SELECT ...
-FROM ...
-[WHERE ...]
-[GROUP BY ...]
-[HAVING ...]
-[WINDOW ...]          -- Time-based windows (optional)
-[ORDER BY ...]
-[LIMIT ...]
+SELECT...
+    FROM...
+    [
+WHERE...]
+    [
+GROUP BY...]
+    [
+HAVING...]
+    [WINDOW...] -- Time-based windows (optional)
+    [
+ORDER BY...]
+    [LIMIT...]
 ```
 
 **NOT optional.** If clauses appear out of order, the query will fail.
 
 See full details in:
+
 - [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Complete formal grammar
 - [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules for Claude (14 specific rules)
 

@@ -28,10 +28,7 @@ use super::strategies::{
 };
 use super::traits::{EmissionStrategy, WindowStats, WindowStrategy};
 use super::types::SharedRecord;
-use crate::velostream::sql::SqlError;
-use crate::velostream::sql::ast::{
-    EmitMode, Expr, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
-};
+use crate::velostream::sql::ast::{EmitMode, Expr, LiteralValue, RowsEmitMode, SelectField, StreamingQuery, WindowSpec};
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
 use crate::velostream::sql::execution::expression::ExpressionEvaluator;
@@ -39,8 +36,28 @@ use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
+use crate::velostream::sql::SqlError;
 use log::warn;
+use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
+
+/// Extract column name from a GROUP BY expression.
+///
+/// For `Expr::Column("table.column")`, returns just "column".
+/// For other expressions, returns a fallback like "key_0".
+fn extract_group_column_name(expr: &Expr, idx: usize) -> String {
+    match expr {
+        Expr::Column(name) => {
+            // Handle "table.column" format - extract just the column name
+            if let Some(dot_pos) = name.rfind('.') {
+                name[dot_pos + 1..].to_string()
+            } else {
+                name.clone()
+            }
+        }
+        _ => format!("key_{}", idx),
+    }
+}
 
 /// Window V2 state stored in ProcessorContext
 ///
@@ -460,9 +477,9 @@ impl WindowAdapter {
                 } else {
                     // For ROWS windows, check the emit_mode in the window spec
                     if let Some(WindowSpec::Rows {
-                        emit_mode: rows_emit,
-                        ..
-                    }) = window
+                                    emit_mode: rows_emit,
+                                    ..
+                                }) = window
                     {
                         matches!(rows_emit, RowsEmitMode::EveryRecord)
                     } else {
@@ -758,19 +775,7 @@ impl WindowAdapter {
             let key_values = group_key.values();
             for (idx, expr) in group_exprs.iter().enumerate() {
                 if idx < key_values.len() {
-                    // Extract column name from GROUP BY expression
-                    // For qualified columns like "table.column", extract just the column part
-                    let col_name = match expr {
-                        Expr::Column(name) => {
-                            // Handle "table.column" format - extract just the column name
-                            if let Some(dot_pos) = name.rfind('.') {
-                                name[dot_pos + 1..].to_string()
-                            } else {
-                                name.clone()
-                            }
-                        }
-                        _ => format!("group_key_{}", idx),
-                    };
+                    let col_name = extract_group_column_name(expr, idx);
                     result_fields.insert(col_name, key_values[idx].clone());
                 }
             }
@@ -826,42 +831,83 @@ impl WindowAdapter {
                                 // For other expressions, format the expr
                                 format!("{:?}", expr).replace(' ', "_")
                             };
-                            let value =
-                                ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
-                            result_fields.insert(field_name, value);
+
+                            // CRITICAL: Don't overwrite GROUP BY keys that were already injected
+                            // The sample record may not have the GROUP BY column, returning Null
+                            // which would overwrite the correct value from group_by_info
+                            if let Vacant(e) =
+                                result_fields.entry(field_name)
+                            {
+                                let value =
+                                    ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
+                                e.insert(value);
+                            }
                         }
                     }
                 }
                 SelectField::Column(col_name) => {
                     // Non-aggregate column - use sample record (with window cols injected)
-                    if let Some(value) = sample_with_window_cols
-                        .as_ref()
-                        .and_then(|s| s.fields.get(col_name))
-                    {
-                        result_fields.insert(col_name.clone(), value.clone());
+                    // Don't overwrite GROUP BY keys that were already injected
+                    if !result_fields.contains_key(col_name) {
+                        if let Some(value) = sample_with_window_cols
+                            .as_ref()
+                            .and_then(|s| s.fields.get(col_name))
+                        {
+                            result_fields.insert(col_name.clone(), value.clone());
+                        }
                     }
                 }
                 SelectField::AliasedColumn { column, alias } => {
                     // Non-aggregate column with alias - use sample record (with window cols)
-                    if let Some(value) = sample_with_window_cols
-                        .as_ref()
-                        .and_then(|s| s.fields.get(column))
-                    {
-                        result_fields.insert(alias.clone(), value.clone());
+                    // Don't overwrite GROUP BY keys that were already injected
+                    if !result_fields.contains_key(alias) {
+                        if let Some(value) = sample_with_window_cols
+                            .as_ref()
+                            .and_then(|s| s.fields.get(column))
+                        {
+                            result_fields.insert(alias.clone(), value.clone());
+                        }
                     }
                 }
                 SelectField::Wildcard => {
                     // SELECT * - include all fields from sample record (with window cols)
+                    // Don't overwrite GROUP BY keys that were already injected
                     if let Some(sample) = &sample_with_window_cols {
                         for (key, value) in &sample.fields {
-                            result_fields.insert(key.clone(), value.clone());
+                            if !result_fields.contains_key(key) {
+                                result_fields.insert(key.clone(), value.clone());
+                            }
                         }
                     }
                 }
             }
         }
 
-        Ok(StreamRecord::new(result_fields))
+        let mut result = StreamRecord::new(result_fields);
+
+        // Set record.key from GROUP BY key for Kafka partitioning
+        // Single GROUP BY column: use value directly
+        // Compound GROUP BY: serialize as JSON object
+        if let Some((group_exprs, group_key)) = group_by_info {
+            let key_values = group_key.values();
+            if key_values.len() == 1 {
+                // Single key - use value directly
+                result.key = Some(key_values[0].clone());
+            } else if !key_values.is_empty() {
+                // Compound key - serialize as JSON object
+                let mut key_map = serde_json::Map::new();
+                for (idx, expr) in group_exprs.iter().enumerate() {
+                    if idx < key_values.len() {
+                        let col_name = extract_group_column_name(expr, idx);
+                        key_map.insert(col_name, key_values[idx].to_json());
+                    }
+                }
+                let key_json = serde_json::Value::Object(key_map).to_string();
+                result.key = Some(FieldValue::String(key_json));
+            }
+        }
+
+        Ok(result)
     }
 
     /// Evaluate HAVING clause expression using accumulator for aggregate values.
@@ -915,10 +961,10 @@ impl WindowAdapter {
                     // Non-aggregate expression - should be a literal
                     match left.as_ref() {
                         Expr::Literal(lit) => match lit {
-                            crate::velostream::sql::ast::LiteralValue::Integer(i) => {
+                            LiteralValue::Integer(i) => {
                                 FieldValue::Integer(*i)
                             }
-                            crate::velostream::sql::ast::LiteralValue::Float(f) => {
+                            LiteralValue::Float(f) => {
                                 FieldValue::Float(*f)
                             }
                             _ => FieldValue::Null,
@@ -929,10 +975,10 @@ impl WindowAdapter {
 
                 let right_value = match right.as_ref() {
                     Expr::Literal(lit) => match lit {
-                        crate::velostream::sql::ast::LiteralValue::Integer(i) => {
+                        LiteralValue::Integer(i) => {
                             FieldValue::Integer(*i)
                         }
-                        crate::velostream::sql::ast::LiteralValue::Float(f) => {
+                        LiteralValue::Float(f) => {
                             FieldValue::Float(*f)
                         }
                         _ => FieldValue::Null,
@@ -1129,10 +1175,10 @@ impl WindowAdapter {
             }
             // Literal value
             Expr::Literal(lit) => match lit {
-                crate::velostream::sql::ast::LiteralValue::Integer(i) => {
+                LiteralValue::Integer(i) => {
                     Ok(FieldValue::Integer(*i))
                 }
-                crate::velostream::sql::ast::LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
+                LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
                 _ => Ok(FieldValue::Null),
             },
             _ => Ok(FieldValue::Null),
@@ -1184,8 +1230,8 @@ impl WindowAdapter {
                     // Prefer fields with relevant keywords
                     if func_lower == "sum"
                         && (field_lower.contains("total")
-                            || field_lower.contains("sum")
-                            || field_lower.contains("value"))
+                        || field_lower.contains("sum")
+                        || field_lower.contains("value"))
                     {
                         return Some(field_name.clone());
                     }
