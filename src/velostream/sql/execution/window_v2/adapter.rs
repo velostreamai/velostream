@@ -28,18 +28,20 @@ use super::strategies::{
 };
 use super::traits::{EmissionStrategy, WindowStats, WindowStrategy};
 use super::types::SharedRecord;
-use crate::velostream::sql::ast::{EmitMode, Expr, LiteralValue, RowsEmitMode, SelectField, StreamingQuery, WindowSpec};
+use crate::velostream::sql::SqlError;
+use crate::velostream::sql::ast::{
+    EmitMode, Expr, LiteralValue, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
+};
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
-use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
 use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState, GroupKey};
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
-use crate::velostream::sql::SqlError;
 use log::warn;
-use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry::Vacant;
 
 /// Extract column name from a GROUP BY expression.
 ///
@@ -477,9 +479,9 @@ impl WindowAdapter {
                 } else {
                     // For ROWS windows, check the emit_mode in the window spec
                     if let Some(WindowSpec::Rows {
-                                    emit_mode: rows_emit,
-                                    ..
-                                }) = window
+                        emit_mode: rows_emit,
+                        ..
+                    }) = window
                     {
                         matches!(rows_emit, RowsEmitMode::EveryRecord)
                     } else {
@@ -725,28 +727,13 @@ impl WindowAdapter {
         Ok(aggregates)
     }
 
-    /// Check if an expression is an aggregate function
+    /// Check if an expression is an aggregate function.
+    ///
+    /// Uses the centralized function catalog to determine if a function is aggregate,
+    /// avoiding hardcoded string matches throughout the codebase.
     fn is_aggregate_expression(expr: &Expr) -> bool {
         match expr {
-            Expr::Function { name, .. } => {
-                let name_upper = name.to_uppercase();
-                matches!(
-                    name_upper.as_str(),
-                    "COUNT"
-                        | "SUM"
-                        | "AVG"
-                        | "MIN"
-                        | "MAX"
-                        | "STDDEV"
-                        | "VARIANCE"
-                        | "COUNT_DISTINCT"
-                        | "APPROX_COUNT_DISTINCT"
-                        | "FIRST"
-                        | "LAST"
-                        | "STRING_AGG"
-                        | "GROUP_CONCAT"
-                )
-            }
+            Expr::Function { name, .. } => is_aggregate_function(name),
             _ => false,
         }
     }
@@ -835,9 +822,7 @@ impl WindowAdapter {
                             // CRITICAL: Don't overwrite GROUP BY keys that were already injected
                             // The sample record may not have the GROUP BY column, returning Null
                             // which would overwrite the correct value from group_by_info
-                            if let Vacant(e) =
-                                result_fields.entry(field_name)
-                            {
+                            if let Vacant(e) = result_fields.entry(field_name) {
                                 let value =
                                     ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
                                 e.insert(value);
@@ -961,12 +946,8 @@ impl WindowAdapter {
                     // Non-aggregate expression - should be a literal
                     match left.as_ref() {
                         Expr::Literal(lit) => match lit {
-                            LiteralValue::Integer(i) => {
-                                FieldValue::Integer(*i)
-                            }
-                            LiteralValue::Float(f) => {
-                                FieldValue::Float(*f)
-                            }
+                            LiteralValue::Integer(i) => FieldValue::Integer(*i),
+                            LiteralValue::Float(f) => FieldValue::Float(*f),
                             _ => FieldValue::Null,
                         },
                         _ => FieldValue::Null,
@@ -975,12 +956,8 @@ impl WindowAdapter {
 
                 let right_value = match right.as_ref() {
                     Expr::Literal(lit) => match lit {
-                        LiteralValue::Integer(i) => {
-                            FieldValue::Integer(*i)
-                        }
-                        LiteralValue::Float(f) => {
-                            FieldValue::Float(*f)
-                        }
+                        LiteralValue::Integer(i) => FieldValue::Integer(*i),
+                        LiteralValue::Float(f) => FieldValue::Float(*f),
                         _ => FieldValue::Null,
                     },
                     _ => {
@@ -1175,9 +1152,7 @@ impl WindowAdapter {
             }
             // Literal value
             Expr::Literal(lit) => match lit {
-                LiteralValue::Integer(i) => {
-                    Ok(FieldValue::Integer(*i))
-                }
+                LiteralValue::Integer(i) => Ok(FieldValue::Integer(*i)),
                 LiteralValue::Float(f) => Ok(FieldValue::Float(*f)),
                 _ => Ok(FieldValue::Null),
             },
@@ -1230,8 +1205,8 @@ impl WindowAdapter {
                     // Prefer fields with relevant keywords
                     if func_lower == "sum"
                         && (field_lower.contains("total")
-                        || field_lower.contains("sum")
-                        || field_lower.contains("value"))
+                            || field_lower.contains("sum")
+                            || field_lower.contains("value"))
                     {
                         return Some(field_name.clone());
                     }

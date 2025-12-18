@@ -9,6 +9,7 @@
 
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{BinaryOperator, Expr};
+use crate::velostream::sql::execution::expression::is_aggregate_function;
 use std::collections::HashSet;
 
 /// Information about whether expression contains aggregates
@@ -21,26 +22,11 @@ struct AggregateInfo {
 pub struct AggregationValidator;
 
 impl AggregationValidator {
-    /// List of known aggregate function names
-    fn aggregate_functions() -> HashSet<&'static str> {
-        let mut functions = HashSet::new();
-        functions.insert("COUNT");
-        functions.insert("SUM");
-        functions.insert("AVG");
-        functions.insert("MIN");
-        functions.insert("MAX");
-        functions.insert("STDDEV");
-        functions.insert("STDDEV_POP");
-        functions.insert("STDDEV_SAMP");
-        functions.insert("VAR_POP");
-        functions.insert("VAR_SAMP");
-        functions.insert("VARIANCE");
-        functions.insert("MEDIAN");
-        functions.insert("PERCENTILE");
-        functions.insert("GROUP_CONCAT");
-        functions.insert("ARRAY_AGG");
-        functions.insert("STRING_AGG");
-        functions
+    /// Check if a function name is an aggregate function.
+    ///
+    /// Uses the centralized function catalog instead of a hardcoded list.
+    fn is_aggregate_func(name: &str) -> bool {
+        is_aggregate_function(name)
     }
 
     /// Check if an expression contains aggregate functions
@@ -183,12 +169,9 @@ impl AggregationValidator {
     /// Recursively check if expression contains aggregate functions
     fn check_for_aggregate(expr: &Expr) -> AggregateInfo {
         match expr {
-            Expr::Function { name, .. } => {
-                let agg_funcs = Self::aggregate_functions();
-                AggregateInfo {
-                    contains_aggregate: agg_funcs.contains(name.to_uppercase().as_str()),
-                }
-            }
+            Expr::Function { name, .. } => AggregateInfo {
+                contains_aggregate: Self::is_aggregate_func(name),
+            },
             Expr::WindowFunction { .. } => AggregateInfo {
                 contains_aggregate: false, // Window functions are not aggregates in GROUP BY sense
             },
@@ -253,8 +236,7 @@ impl AggregationValidator {
                 }
             }
             Expr::Function { name, args } => {
-                let agg_funcs = Self::aggregate_functions();
-                let is_aggregate = agg_funcs.contains(name.to_uppercase().as_str());
+                let is_aggregate = Self::is_aggregate_func(name);
 
                 for arg in args {
                     Self::collect_non_aggregated_fields(

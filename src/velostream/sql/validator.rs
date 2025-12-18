@@ -6,6 +6,7 @@
 use crate::velostream::sql::{
     ast::{Expr, SelectField, StreamingQuery, SubqueryType},
     config::with_clause_parser::WithClauseParser,
+    execution::expression::is_aggregate_function,
     parser::{
         StreamingSqlParser, annotations::parse_metric_annotations, validator::AggregateValidator,
     },
@@ -513,13 +514,12 @@ impl SqlValidator {
         }
     }
 
-    /// Check if expression contains aggregation functions
+    /// Check if expression contains aggregation functions.
+    ///
+    /// Uses the centralized function catalog instead of a hardcoded list.
     fn is_aggregation_expr(&self, expr: &Expr) -> bool {
         match expr {
-            Expr::Function { name, .. } => {
-                let name_upper = name.to_uppercase();
-                matches!(name_upper.as_str(), "COUNT" | "SUM" | "AVG" | "MIN" | "MAX")
-            }
+            Expr::Function { name, .. } => is_aggregate_function(name),
             Expr::BinaryOp { left, right, .. } => {
                 self.is_aggregation_expr(left) || self.is_aggregation_expr(right)
             }

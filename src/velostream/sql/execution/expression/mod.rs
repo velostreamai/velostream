@@ -13,6 +13,7 @@
 //! - Type coercion and casting
 //! - NULL handling according to SQL semantics
 
+pub mod catalog;
 pub mod evaluator;
 pub mod function_metadata;
 pub mod functions;
@@ -20,6 +21,11 @@ pub mod subquery_executor;
 pub mod window_functions;
 
 // Re-export the main API
+pub use catalog::{
+    all_function_names, find_functions_by_prefix, function_count_by_category,
+    generate_function_catalog, get_function_category, is_aggregate_function,
+    is_function_in_category, is_valid_function, is_window_function,
+};
 pub use evaluator::{ExpressionEvaluator, SelectAliasContext};
 pub use function_metadata::{FunctionCategory, SqlFunctionDef};
 pub use subquery_executor::SubqueryExecutor;

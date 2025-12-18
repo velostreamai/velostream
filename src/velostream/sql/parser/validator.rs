@@ -11,8 +11,9 @@
 //!     with GROUP BY or WINDOW clauses
 //!   - Prevents undefined behavior from aggregates without grouping context
 
-use crate::velostream::sql::ast::{BinaryOperator, Expr, SelectField, StreamingQuery};
+use crate::velostream::sql::ast::{Expr, SelectField, StreamingQuery};
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::expression::is_aggregate_function as catalog_is_aggregate;
 
 /// Validates aggregate function usage in SQL queries.
 ///
@@ -157,19 +158,10 @@ impl AggregateValidator {
     }
 
     /// Check if a function name is an aggregate function.
+    ///
+    /// Uses the centralized function catalog instead of a hardcoded list.
     fn is_aggregate_function(name: &str) -> bool {
-        matches!(
-            name.to_uppercase().as_str(),
-            "COUNT"
-                | "SUM"
-                | "AVG"
-                | "MIN"
-                | "MAX"
-                | "STDDEV"
-                | "VARIANCE"
-                | "COLLECT_LIST"
-                | "COLLECT_SET"
-        )
+        catalog_is_aggregate(name)
     }
 }
 
@@ -177,7 +169,7 @@ impl AggregateValidator {
 mod tests {
     use super::*;
     use crate::velostream::sql::ast::{
-        Expr, LiteralValue, SelectField, StreamSource, StreamingQuery, WindowSpec,
+        BinaryOperator, Expr, LiteralValue, SelectField, StreamSource, StreamingQuery, WindowSpec,
     };
     use std::time::Duration;
 

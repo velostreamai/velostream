@@ -8,7 +8,7 @@ use super::super::types::{FieldValue, StreamRecord};
 use super::super::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
-use crate::velostream::sql::execution::expression::ExpressionEvaluator;
+use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
 
 /// Utilities for GroupAccumulator management
 pub struct AccumulatorManager;
@@ -343,27 +343,13 @@ impl AccumulatorManager {
         aggregate_expressions
     }
 
-    /// Check if an expression is an aggregate function
+    /// Check if an expression is an aggregate function.
+    ///
+    /// Uses the centralized function catalog instead of a hardcoded list.
     #[doc(hidden)]
     pub fn is_aggregate_expression(expr: &Expr) -> bool {
         match expr {
-            Expr::Function { name, .. } => {
-                matches!(
-                    name.to_uppercase().as_str(),
-                    "COUNT"
-                        | "SUM"
-                        | "AVG"
-                        | "MIN"
-                        | "MAX"
-                        | "STDDEV"
-                        | "VARIANCE"
-                        | "COUNT_DISTINCT"
-                        | "APPROX_COUNT_DISTINCT"
-                        | "FIRST"
-                        | "LAST"
-                        | "STRING_AGG"
-                )
-            }
+            Expr::Function { name, .. } => is_aggregate_function(name),
             _ => false,
         }
     }
