@@ -23,41 +23,9 @@
 //! | Indirect | ~1.5M | baseline |
 //! | Direct | ~3.0M | **2x faster** |
 
-use serde::Serialize;
-use serde::ser::{SerializeMap, Serializer};
 use std::collections::HashMap;
 use std::time::Instant;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-
-/// Direct serialization wrapper (matches writer.rs DirectJsonPayload)
-struct DirectJsonPayload<'a> {
-    fields: &'a HashMap<String, FieldValue>,
-    timestamp: i64,
-    offset: i64,
-    partition: i32,
-}
-
-impl<'a> Serialize for DirectJsonPayload<'a> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let field_count = self.fields.len() + 3; // +3 for metadata
-        let mut map = serializer.serialize_map(Some(field_count))?;
-
-        // Serialize all fields directly
-        for (field_name, field_value) in self.fields {
-            map.serialize_entry(field_name, field_value)?;
-        }
-
-        // Add metadata fields
-        map.serialize_entry("_timestamp", &self.timestamp)?;
-        map.serialize_entry("_offset", &self.offset)?;
-        map.serialize_entry("_partition", &self.partition)?;
-
-        map.end()
-    }
-}
 
 /// Convert a FieldValue to a serde_json::Value for serialization (OLD method)
 fn field_value_to_json_value(fv: &FieldValue) -> serde_json::Value {
@@ -199,18 +167,16 @@ fn benchmark_indirect(records: &[StreamRecord]) -> (f64, usize) {
 
 /// Benchmark DIRECT serialization (NEW method)
 /// FieldValue → bytes (no intermediate Value)
+///
+/// This matches the current writer behavior: just serialize record.fields directly.
+/// No metadata injection (_timestamp, _offset, _partition).
 fn benchmark_direct(records: &[StreamRecord]) -> (f64, usize) {
     let start = Instant::now();
     let mut total_bytes = 0usize;
 
     for record in records {
-        let payload = DirectJsonPayload {
-            fields: &record.fields,
-            timestamp: record.timestamp,
-            offset: record.offset,
-            partition: record.partition,
-        };
-        let bytes = sonic_rs::to_vec(&payload).expect("direct serialization failed");
+        // Direct serialization of fields HashMap - same as writer.rs
+        let bytes = sonic_rs::to_vec(&record.fields).expect("direct serialization failed");
         total_bytes += bytes.len();
     }
 
@@ -290,33 +256,29 @@ async fn json_serialization_benchmark() {
         println!("   Direct serialization is {:.1}x faster!", speedup);
     }
 
-    // Verify outputs are equivalent
-    println!("\n   Verifying output equivalence...");
+    // Verify outputs
+    println!("\n   Verifying output...");
     let test_record = &records[0];
 
-    let payload = DirectJsonPayload {
-        fields: &test_record.fields,
-        timestamp: test_record.timestamp,
-        offset: test_record.offset,
-        partition: test_record.partition,
-    };
-
     let indirect_output = sonic_rs::to_vec(&build_json_payload(test_record)).unwrap();
-    let direct_output = sonic_rs::to_vec(&payload).unwrap();
+    let direct_output = sonic_rs::to_vec(&test_record.fields).unwrap();
 
     let indirect_parsed: serde_json::Value = serde_json::from_slice(&indirect_output).unwrap();
     let direct_parsed: serde_json::Value = serde_json::from_slice(&direct_output).unwrap();
 
-    if indirect_parsed == direct_parsed {
-        println!("   Direct and indirect outputs are semantically equivalent");
-    } else {
-        // Check critical fields
-        if indirect_parsed.get("_timestamp") == direct_parsed.get("_timestamp")
-            && indirect_parsed.get("_offset") == direct_parsed.get("_offset")
-        {
-            println!("   Metadata fields match (field order may differ)");
-        }
-    }
+    // Note: Indirect still adds metadata, Direct (new) does not
+    // The key difference is direct is faster and doesn't inject unnecessary metadata
+    println!(
+        "   Indirect output fields: {}",
+        indirect_parsed.as_object().map(|m| m.len()).unwrap_or(0)
+    );
+    println!(
+        "   Direct output fields: {}",
+        direct_parsed.as_object().map(|m| m.len()).unwrap_or(0)
+    );
+    println!(
+        "   Direct serialization does not inject _timestamp/_offset/_partition (correct behavior)"
+    );
 
     println!("\n═══════════════════════════════════════════════════════════════════");
     println!("   JSON SERIALIZATION BENCHMARK COMPLETE");
@@ -328,7 +290,7 @@ async fn json_serialization_benchmark() {
 fn test_json_serialization_sanity() {
     let records = create_test_records(100);
 
-    // Test indirect serialization
+    // Test indirect serialization (OLD method with metadata injection)
     let json_obj = build_json_payload(&records[0]);
     let bytes = sonic_rs::to_vec(&json_obj).unwrap();
     assert!(
@@ -336,14 +298,8 @@ fn test_json_serialization_sanity() {
         "JSON serialization should produce output"
     );
 
-    // Test direct serialization
-    let payload = DirectJsonPayload {
-        fields: &records[0].fields,
-        timestamp: records[0].timestamp,
-        offset: records[0].offset,
-        partition: records[0].partition,
-    };
-    let direct_bytes = sonic_rs::to_vec(&payload).unwrap();
+    // Test direct serialization (NEW method - just serialize fields)
+    let direct_bytes = sonic_rs::to_vec(&records[0].fields).unwrap();
     assert!(
         !direct_bytes.is_empty(),
         "Direct serialization should produce output"
@@ -357,5 +313,11 @@ fn test_json_serialization_sanity() {
     assert!(
         direct_parsed.is_object(),
         "Direct parsed JSON should be an object"
+    );
+
+    // Direct should NOT have metadata fields
+    assert!(
+        direct_parsed.get("_timestamp").is_none(),
+        "Direct serialization should not inject _timestamp"
     );
 }

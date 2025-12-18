@@ -79,5 +79,6 @@ WITH (
 
     'flagged_symbols.type' = 'kafka_sink',
     'flagged_symbols.topic' = 'flagged_symbols_output',
+    'flagged_symbols.key_field' = 'symbol',
     'flagged_symbols.config_file' = '../../configs/common_kafka_sink.yaml'
 );

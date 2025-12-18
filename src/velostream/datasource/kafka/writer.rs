@@ -19,8 +19,6 @@ use rdkafka::{
     ClientConfig,
     producer::{BaseProducer, BaseRecord, DefaultProducerContext, Producer},
 };
-use serde::Serialize;
-use serde::ser::{SerializeMap, Serializer};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
@@ -42,52 +40,6 @@ enum ProducerKind {
     },
     /// Transactional mode: TransactionalPolledProducer for exactly-once semantics
     Transactional(TransactionalPolledProducer),
-}
-
-/// A wrapper for direct JSON serialization of StreamRecord fields with metadata.
-///
-/// This avoids the intermediate serde_json::Value allocation, providing 2-4x faster
-/// serialization by directly writing to the output.
-struct DirectJsonPayload<'a> {
-    fields: &'a HashMap<String, FieldValue>,
-    exclude_key: Option<&'a str>,
-    timestamp: i64,
-    offset: i64,
-    partition: i32,
-}
-
-impl<'a> Serialize for DirectJsonPayload<'a> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Count fields: all fields minus excluded + 3 metadata fields
-        let excluded_count = if let Some(key) = self.exclude_key {
-            if self.fields.contains_key(key) { 1 } else { 0 }
-        } else {
-            0
-        };
-        let field_count = self.fields.len() - excluded_count + 3; // +3 for metadata
-
-        let mut map = serializer.serialize_map(Some(field_count))?;
-
-        // Serialize all fields directly (excluding key field if set)
-        for (field_name, field_value) in self.fields {
-            if let Some(key) = self.exclude_key {
-                if field_name == key {
-                    continue;
-                }
-            }
-            map.serialize_entry(field_name, field_value)?;
-        }
-
-        // Add metadata fields
-        map.serialize_entry("_timestamp", &self.timestamp)?;
-        map.serialize_entry("_offset", &self.offset)?;
-        map.serialize_entry("_partition", &self.partition)?;
-
-        map.end()
-    }
 }
 
 use crate::velostream::kafka::serialization_format::SerializationFormat;
@@ -834,28 +786,20 @@ impl KafkaDataWriter {
 
     /// Serialize to JSON format using direct serialization (no intermediate Value allocation)
     ///
-    /// Uses sonic-rs SIMD-accelerated serialization.
+    /// Uses sonic-rs SIMD-accelerated serialization directly on record.fields.
+    /// This is consistent with Avro/Protobuf serialization - all formats serialize
+    /// the fields HashMap as-is, preserving any upstream metadata (like _timestamp).
     ///
-    /// Performance: 2-4x faster than building serde_json::Value first because:
-    /// - No intermediate Value tree allocation
-    /// - No string cloning for field values
-    /// - Direct serialization from FieldValue to bytes
-    /// - SIMD-accelerated output
+    /// Note: We do NOT inject _timestamp, _offset, _partition here because:
+    /// - _offset and _partition are meaningless to downstream consumers (they have their own)
+    /// - _timestamp should be preserved from upstream if present in fields
     fn serialize_json(
         &self,
         record: &StreamRecord,
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-        // Create direct payload wrapper - no intermediate allocation
-        let payload = DirectJsonPayload {
-            fields: &record.fields,
-            exclude_key: self.key_field.as_deref(),
-            timestamp: record.timestamp,
-            offset: record.offset,
-            partition: record.partition,
-        };
-
         // Direct serialization with sonic-rs SIMD acceleration
-        sonic_rs::to_vec(&payload).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        // Same approach as Avro/Protobuf - just serialize the fields
+        sonic_rs::to_vec(&record.fields).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     /// Serialize to Avro format
@@ -898,12 +842,8 @@ impl KafkaDataWriter {
     ) -> Result<Value, Box<dyn Error + Send + Sync>> {
         let mut json_obj = serde_json::Map::new();
 
-        // Convert all fields to JSON, excluding key field if used as message key
+        // Convert all fields to JSON (key field included for complete payloads)
         for (field_name, field_value) in &record.fields {
-            if self.should_exclude_field_from_payload(field_name) {
-                continue;
-            }
-
             let json_value = field_value_to_json(field_value)
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
             json_obj.insert(field_name.clone(), json_value);
@@ -915,15 +855,6 @@ impl KafkaDataWriter {
         }
 
         Ok(Value::Object(json_obj))
-    }
-
-    /// Check if field should be excluded from payload (e.g., key field used as message key)
-    fn should_exclude_field_from_payload(&self, field_name: &str) -> bool {
-        if let Some(key_field) = &self.key_field {
-            field_name == key_field
-        } else {
-            false
-        }
     }
 
     /// Add metadata fields to JSON object

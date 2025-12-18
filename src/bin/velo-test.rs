@@ -2540,12 +2540,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     .unwrap_or_else(|_| format!("{:?}", k))
                                             })
                                             .unwrap_or_else(|| "null".to_string());
-                                        let value_json = serde_json::to_string_pretty(&rec.fields)
-                                            .unwrap_or_else(|_| format!("{:?}", rec.fields));
+                                        // Sort fields for consistent output
+                                        let sorted_fields: std::collections::BTreeMap<_, _> =
+                                            rec.fields.iter().collect();
+                                        let value_json =
+                                            serde_json::to_string_pretty(&sorted_fields)
+                                                .unwrap_or_else(|_| format!("{:?}", rec.fields));
                                         let headers_json = if rec.headers.is_empty() {
                                             "{}".to_string()
                                         } else {
-                                            serde_json::to_string(&rec.headers)
+                                            // Sort headers for consistent output
+                                            let sorted_headers: std::collections::BTreeMap<_, _> =
+                                                rec.headers.iter().collect();
+                                            serde_json::to_string(&sorted_headers)
                                                 .unwrap_or_else(|_| format!("{:?}", rec.headers))
                                         };
                                         println!(
@@ -2580,12 +2587,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                     .unwrap_or_else(|_| format!("{:?}", k))
                                             })
                                             .unwrap_or_else(|| "null".to_string());
-                                        let value_json = serde_json::to_string_pretty(&rec.fields)
-                                            .unwrap_or_else(|_| format!("{:?}", rec.fields));
+                                        // Sort fields for consistent output
+                                        let sorted_fields: std::collections::BTreeMap<_, _> =
+                                            rec.fields.iter().collect();
+                                        let value_json =
+                                            serde_json::to_string_pretty(&sorted_fields)
+                                                .unwrap_or_else(|_| format!("{:?}", rec.fields));
                                         let headers_json = if rec.headers.is_empty() {
                                             "{}".to_string()
                                         } else {
-                                            serde_json::to_string(&rec.headers)
+                                            // Sort headers for consistent output
+                                            let sorted_headers: std::collections::BTreeMap<_, _> =
+                                                rec.headers.iter().collect();
+                                            serde_json::to_string(&sorted_headers)
                                                 .unwrap_or_else(|_| format!("{:?}", rec.headers))
                                         };
                                         println!(
@@ -2984,16 +2998,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                                 println!("        {}: {}", hk, display_val);
                                             }
                                         }
-                                        // Pretty print JSON value if possible
+                                        // Format JSON value with sorted keys (compact, single line)
                                         let formatted_value =
                                             serde_json::from_str::<serde_json::Value>(&msg.value)
                                                 .ok()
-                                                .and_then(|v| serde_json::to_string_pretty(&v).ok())
+                                                .map(|v| {
+                                                    // Convert to BTreeMap for sorted keys
+                                                    if let serde_json::Value::Object(map) = v {
+                                                        let sorted: std::collections::BTreeMap<
+                                                            _,
+                                                            _,
+                                                        > = map.into_iter().collect();
+                                                        serde_json::to_string(&sorted)
+                                                            .unwrap_or_else(|_| msg.value.clone())
+                                                    } else {
+                                                        serde_json::to_string(&v)
+                                                            .unwrap_or_else(|_| msg.value.clone())
+                                                    }
+                                                })
                                                 .unwrap_or_else(|| msg.value.clone());
-                                        println!("      value:");
-                                        for line in formatted_value.lines() {
-                                            println!("        {}", line);
-                                        }
+                                        println!("      value: {}", formatted_value);
                                     }
                                 }
                                 println!();
@@ -3033,8 +3057,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
 
                                     for (idx, record) in records.iter().enumerate() {
-                                        // Format record fields as JSON
-                                        let json = serde_json::to_string(&record.fields)
+                                        // Format record fields as JSON with sorted keys
+                                        let sorted_fields: std::collections::BTreeMap<_, _> =
+                                            record.fields.iter().collect();
+                                        let json = serde_json::to_string(&sorted_fields)
                                             .unwrap_or_else(|_| format!("{:?}", record.fields));
                                         // Extract key as string
                                         let key_str = record
@@ -3096,7 +3122,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
 
                                     for (idx, record) in records.iter() {
-                                        let json = serde_json::to_string(&record.fields)
+                                        // Format record fields as JSON with sorted keys
+                                        let sorted_fields: std::collections::BTreeMap<_, _> =
+                                            record.fields.iter().collect();
+                                        let json = serde_json::to_string(&sorted_fields)
                                             .unwrap_or_else(|_| format!("{:?}", record.fields));
                                         let key_str = record
                                             .key

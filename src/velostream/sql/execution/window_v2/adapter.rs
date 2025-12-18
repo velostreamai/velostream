@@ -868,7 +868,7 @@ impl WindowAdapter {
             }
         }
 
-        let mut result = StreamRecord::new(result_fields);
+        let mut result = StreamRecord::new(result_fields.clone());
 
         // Set record.key from GROUP BY key for Kafka partitioning
         // Single GROUP BY column: use value directly
@@ -876,7 +876,6 @@ impl WindowAdapter {
         if let Some((group_exprs, group_key)) = group_by_info {
             let key_values = group_key.values();
             if key_values.len() == 1 {
-                // Single key - use value directly
                 result.key = Some(key_values[0].clone());
             } else if !key_values.is_empty() {
                 // Compound key - serialize as JSON object

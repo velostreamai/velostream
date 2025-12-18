@@ -78,17 +78,25 @@ use tokio::sync::Mutex;
 struct MockDataWriter {
     count: Arc<AtomicUsize>,
     samples: Arc<Mutex<Vec<StreamRecord>>>,
+    keys_present: Arc<AtomicUsize>,
+    keys_missing: Arc<AtomicUsize>,
 }
 
 impl MockDataWriter {
-    fn new() -> (Self, Arc<AtomicUsize>) {
+    fn new() -> (Self, Arc<AtomicUsize>, Arc<AtomicUsize>, Arc<AtomicUsize>) {
         let count = Arc::new(AtomicUsize::new(0));
+        let keys_present = Arc::new(AtomicUsize::new(0));
+        let keys_missing = Arc::new(AtomicUsize::new(0));
         (
             Self {
                 count: count.clone(),
                 samples: Arc::new(Mutex::new(Vec::new())),
+                keys_present: keys_present.clone(),
+                keys_missing: keys_missing.clone(),
             },
             count,
+            keys_present,
+            keys_missing,
         )
     }
 }
@@ -111,6 +119,29 @@ impl DataWriter for MockDataWriter {
         self.count.fetch_add(count, Ordering::SeqCst);
         let mut samples = self.samples.lock().await;
         for record in records.iter() {
+            // Track key presence for debugging GROUP BY key propagation
+            if record.key.is_some() {
+                self.keys_present.fetch_add(1, Ordering::SeqCst);
+                // Log first few keys for debugging
+                let present = self.keys_present.load(Ordering::SeqCst);
+                if present <= 5 {
+                    println!(
+                        "  🔑 MockDataWriter: Record {} has key={:?}",
+                        present, record.key
+                    );
+                }
+            } else {
+                self.keys_missing.fetch_add(1, Ordering::SeqCst);
+                // Log first few missing keys
+                let missing = self.keys_missing.load(Ordering::SeqCst);
+                if missing <= 3 {
+                    println!(
+                        "  ⚠️ MockDataWriter: Record has NO key, fields={:?}",
+                        record.fields.keys().collect::<Vec<_>>()
+                    );
+                }
+            }
+
             let total_count = self.count.load(Ordering::SeqCst);
             if total_count % 10000 == 0 {
                 samples.push(record.as_ref().clone());
@@ -255,7 +286,8 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
     );
 
     let data_source = MockDataSource::new(records, batch_size);
-    let (mut data_writer, output_counter) = MockDataWriter::new();
+    let (data_writer, output_counter, keys_present_counter, keys_missing_counter) =
+        MockDataWriter::new();
     let samples_ref = data_writer.samples.clone();
 
     let parser = StreamingSqlParser::new();
@@ -311,6 +343,8 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
         Ok(stats) => {
             let job_throughput = num_records as f64 / duration.as_secs_f64();
             let job_emit_count = output_counter.load(Ordering::SeqCst);
+            let keys_present = keys_present_counter.load(Ordering::SeqCst);
+            let keys_missing = keys_missing_counter.load(Ordering::SeqCst);
 
             println!(
                 "   ✅ Job Server: {} input records → {} emitted results in {:.2}ms ({:.0} rec/sec)\n",
@@ -319,6 +353,21 @@ async fn scenario_3b_tumbling_emit_changes_baseline() {
                 duration.as_millis(),
                 job_throughput
             );
+
+            // FR-089: Key propagation diagnostics
+            println!("🔑 GROUP BY KEY PROPAGATION DIAGNOSTICS:");
+            println!("═══════════════════════════════════════════════════════════");
+            println!("   Records with key:    {}", keys_present);
+            println!("   Records without key: {}", keys_missing);
+            println!(
+                "   Key propagation:     {}%",
+                if job_emit_count > 0 {
+                    (keys_present as f64 / job_emit_count as f64 * 100.0) as u32
+                } else {
+                    0
+                }
+            );
+            println!("═══════════════════════════════════════════════════════════\n");
 
             // Display JobServer metrics
             let metrics = JobServerMetrics::from_stats(&stats, duration.as_micros());
