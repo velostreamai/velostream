@@ -166,12 +166,13 @@ WITH (
 
 When multiple methods are used, this priority order applies:
 
-1. **`sink.key_field = 'null'`** → Explicit null key (round-robin)
-2. **`sink.key_fields = 'a,b'`** → Compound key from config
-3. **`sink.key_field = 'symbol'`** → Single key from config
-4. **Inline KEY annotation** → `SELECT symbol KEY, ...`
-5. **GROUP BY implicit** → Auto-generated from GROUP BY columns
-6. **No configuration** → Null key (round-robin partitioning)
+1. **Inline KEY annotation** → `SELECT symbol KEY, ...` (recommended)
+2. **GROUP BY implicit** → Auto-generated from GROUP BY columns
+3. **`sink.key_field = 'symbol'`** → Single key from config (legacy)
+4. **`sink.key_fields = 'a,b'`** → Compound key from config (legacy)
+5. **No configuration** → Null key (round-robin partitioning)
+
+> **Note**: Use `sink.key_field = 'null'` to explicitly request null keys (round-robin) when needed.
 
 ### Priority Example
 
@@ -286,6 +287,64 @@ WITH (...);
 ```
 
 Both produce the same result, but KEY annotation is more explicit and self-documenting.
+
+---
+
+## Accessing Source Keys (`_key` Pseudo-Column)
+
+The original Kafka message key from the source topic is accessible via the `_key` pseudo-column on StreamRecord.
+
+### Using `_key` in SQL
+
+```sql
+-- Access the source key in SELECT
+SELECT _key, symbol, price, volume
+FROM market_data
+WHERE _key IS NOT NULL;
+
+-- Re-key based on source key combined with other fields
+SELECT _key AS original_key, symbol KEY, price
+FROM market_data;
+
+-- Filter based on source key
+SELECT * FROM market_data
+WHERE _key = 'AAPL';
+```
+
+### How It Works
+
+The `_key` pseudo-column is automatically populated from the Kafka message key when consuming from a source topic:
+
+```rust
+// StreamRecord provides access to source key
+pub struct StreamRecord {
+    pub fields: HashMap<String, FieldValue>,
+    pub key: Option<FieldValue>,     // accessible as _key
+    pub topic: Option<FieldValue>,   // accessible as _topic
+    // ...
+}
+
+impl StreamRecord {
+    pub fn get_field(&self, name: &str) -> Option<&FieldValue> {
+        match name {
+            "_key" => self.key.as_ref(),
+            "_topic" => self.topic.as_ref(),
+            _ => self.fields.get(name),
+        }
+    }
+}
+```
+
+### Dual-Write Pattern (Industry Standard)
+
+Following the industry standard (ksqlDB, Flink), key fields are written to **both**:
+- The Kafka message key (for partitioning)
+- The value payload (for downstream SQL access)
+
+This means you don't typically need `_key` unless:
+- Re-keying to a different field
+- The source uses a simple string key not present in the value
+- Debugging or auditing key propagation
 
 ---
 

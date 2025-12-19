@@ -1,19 +1,34 @@
 # FR-089: Compound Keys & Explicit Key Configuration
 
-## Status: ✅ Partially Complete
+## Status: ✅ Complete
 
-### Recent Fixes (2025-01)
+### Implementation Summary (2025-01)
 
 1. **✅ GROUP BY keys now included in output** - Fixed key field exclusion from JSON payload that was breaking downstream GROUP BY operations
 2. **✅ Consistent serialization** - JSON/Avro/Protobuf all now serialize only `record.fields` (no metadata injection)
 3. **✅ Inline KEY syntax** - Added ksqlDB-style `KEY` annotation in SELECT: `SELECT symbol KEY, price FROM trades`
 4. **✅ Hot-path optimization** - Removed debug statements from key extraction for low-latency performance
+5. **✅ SQL Migration Complete** - All demo and example SQL files migrated to use inline KEY syntax
+6. **✅ Source key available as `_key`** - Inbound Kafka message key accessible via `_key` pseudo-column on StreamRecord
+7. **✅ Documentation** - KEY_CONFIGURATION.md guide created with comprehensive examples
 
-### Remaining Work
+### Migration Status
 
-- [ ] JSON key parsing on consume (Phase 3)
-- [ ] Comprehensive error handling (Phase 4)
-- [ ] Full documentation (Phase 5)
+| Component | Status |
+|-----------|--------|
+| Parser support for KEY annotation | ✅ Complete |
+| Key extraction in writer | ✅ Complete |
+| Compound key serialization | ✅ Complete |
+| demo/trading/*.sql | ✅ Migrated |
+| demo/datasource-demo/*.sql | ✅ Migrated |
+| demo/test_harness_examples/**/*.sql | ✅ Migrated |
+| examples/*.sql | ✅ Migrated |
+| Source key as `_key` pseudo-column | ✅ Implemented |
+
+### Optional Future Enhancements
+
+- [ ] `value.fields-include` option (like Flink) to control whether KEY fields appear in value payload
+- [ ] JSON key parsing on consume for compound key field extraction
 
 ---
 
