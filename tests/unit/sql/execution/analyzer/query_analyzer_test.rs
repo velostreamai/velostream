@@ -71,6 +71,7 @@ fn test_select_query_analysis() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders_topic".to_string()),
         from_alias: None,
         joins: None,
@@ -122,6 +123,7 @@ fn test_select_query_with_table_source() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Table("transactions_table".to_string()),
         from_alias: None,
         joins: None,
@@ -182,6 +184,7 @@ fn test_create_stream_analysis() {
 
     let select_query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -373,6 +376,7 @@ fn test_empty_query_analysis() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("empty_topic".to_string()),
         from_alias: None,
         joins: None,
@@ -412,6 +416,7 @@ fn test_subquery_analysis() {
 
     let inner_query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("inner_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -431,6 +436,7 @@ fn test_subquery_analysis() {
 
     let outer_query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Subquery(Box::new(inner_query)),
         from_alias: None,
         joins: None,
@@ -472,6 +478,7 @@ fn test_analyzer_with_custom_group_id() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("test_topic".to_string()),
         from_alias: None,
         joins: None,
@@ -520,6 +527,7 @@ fn test_file_source_inference() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("file:///data/test.csv".to_string()),
         from_alias: None,
         joins: None,

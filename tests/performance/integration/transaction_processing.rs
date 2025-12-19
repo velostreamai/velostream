@@ -266,6 +266,7 @@ fn create_benchmark_query() -> StreamingQuery {
             SelectField::Column("price".to_string()),
             SelectField::Column("volume".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("benchmark_data".to_string()),
         from_alias: None,
         joins: None,

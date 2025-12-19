@@ -60,6 +60,7 @@ async fn test_execute_simple_select() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -103,6 +104,7 @@ async fn test_execute_specific_columns() {
                 alias: Some("total".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -148,6 +150,7 @@ async fn test_execute_with_literals() {
                 alias: Some("message".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -191,6 +194,7 @@ async fn test_missing_column_returns_error() {
             expr: Expr::Column("nonexistent_column".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -224,6 +228,7 @@ async fn test_multiple_records_processing() {
 
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -269,6 +274,7 @@ async fn test_null_value_handling() {
             expr: Expr::Column("status".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,

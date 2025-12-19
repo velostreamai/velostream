@@ -180,6 +180,7 @@ mod tests {
     ) -> StreamingQuery {
         StreamingQuery::Select {
             fields,
+            key_fields: None,
             from: StreamSource::Stream("test_stream".to_string()),
             from_alias: None,
             joins: None,

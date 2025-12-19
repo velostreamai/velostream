@@ -1,12 +1,29 @@
 # FR-089: Compound Keys & Explicit Key Configuration
 
+## Status: ✅ Partially Complete
+
+### Recent Fixes (2025-01)
+
+1. **✅ GROUP BY keys now included in output** - Fixed key field exclusion from JSON payload that was breaking downstream GROUP BY operations
+2. **✅ Consistent serialization** - JSON/Avro/Protobuf all now serialize only `record.fields` (no metadata injection)
+3. **✅ Inline KEY syntax** - Added ksqlDB-style `KEY` annotation in SELECT: `SELECT symbol KEY, price FROM trades`
+4. **✅ Hot-path optimization** - Removed debug statements from key extraction for low-latency performance
+
+### Remaining Work
+
+- [ ] JSON key parsing on consume (Phase 3)
+- [ ] Comprehensive error handling (Phase 4)
+- [ ] Full documentation (Phase 5)
+
+---
+
 ## Overview
 
 Implement proper Kafka message key handling for GROUP BY queries with support for compound keys, explicit key configuration, and JSON key parsing on consume.
 
 ### Problem Statement
 
-1. **GROUP BY keys not propagated**: When using `GROUP BY symbol`, the `symbol` field was missing from output records, breaking Kafka partitioning
+1. **~~GROUP BY keys not propagated~~**: ✅ FIXED - Key fields are now always included in JSON payload
 2. **No compound key support**: `GROUP BY region, product` has no way to create a proper compound Kafka key
 3. **Silent null keys**: Missing key configuration silently produces null keys (round-robin partitioning)
 4. **No key field extraction on consume**: JSON keys from upstream cannot be easily queried
@@ -14,6 +31,7 @@ Implement proper Kafka message key handling for GROUP BY queries with support fo
 ### Solution
 
 - GROUP BY queries automatically generate JSON keys from GROUP BY columns
+- **NEW: Inline KEY syntax** - `SELECT symbol KEY, price FROM trades` (ksqlDB-style)
 - Explicit `key_field` / `key_fields` configuration for non-GROUP BY queries
 - `key_field = 'null'` for explicit round-robin partitioning
 - Error if no key configuration and no GROUP BY (prevent accidental null keys)

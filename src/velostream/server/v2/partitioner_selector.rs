@@ -116,6 +116,7 @@ impl PartitionerSelection {
 ///
 /// let query = StreamingQuery::Select {
 ///     fields: vec![SelectField::Wildcard],
+///     key_fields: None,
 ///     from: StreamSource::Stream("trades".to_string()),
 ///     from_alias: None,
 ///     joins: None,
@@ -341,6 +342,7 @@ mod tests {
     fn test_pure_select_uses_sticky_default() {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("orders".to_string()),
             from_alias: None,
             joins: None,
@@ -378,6 +380,7 @@ mod tests {
                     alias: Some("count".to_string()),
                 },
             ],
+            key_fields: None,
             from: StreamSource::Stream("market_data".to_string()),
             from_alias: None,
             joins: None,
@@ -406,6 +409,7 @@ mod tests {
         // ROWS window without GROUP BY: pure analytic function, no aggregation
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Column("symbol".to_string())],
+            key_fields: None,
             from: StreamSource::Stream("market_data".to_string()),
             from_alias: None,
             joins: None,
@@ -449,6 +453,7 @@ mod tests {
         // (Note: This is a semantically unusual query, but we handle it correctly)
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Column("symbol".to_string())],
+            key_fields: None,
             from: StreamSource::Stream("market_data".to_string()),
             from_alias: None,
             joins: None,
@@ -493,6 +498,7 @@ mod tests {
                 SelectField::Column("trader_id".to_string()),
                 SelectField::Column("symbol".to_string()),
             ],
+            key_fields: None,
             from: StreamSource::Stream("market_data".to_string()),
             from_alias: None,
             joins: None,
@@ -530,6 +536,7 @@ mod tests {
     fn test_window_without_order_by_uses_hash() {
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Column("symbol".to_string())],
+            key_fields: None,
             from: StreamSource::Stream("market_data".to_string()),
             from_alias: None,
             joins: None,
@@ -560,6 +567,7 @@ mod tests {
         // Tumbling window always requires hash, even without explicit GROUP BY
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("trades".to_string()),
             from_alias: None,
             joins: None,
@@ -593,6 +601,7 @@ mod tests {
         // ROWS window (analytic) with ORDER BY - pure analytic operation
         let query = StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("trades".to_string()),
             from_alias: None,
             joins: None,
@@ -636,6 +645,7 @@ mod tests {
                 SelectField::Column("trader_id".to_string()),
                 SelectField::Column("symbol".to_string()),
             ],
+            key_fields: None,
             from: StreamSource::Stream("trades".to_string()),
             from_alias: None,
             joins: None,

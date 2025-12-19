@@ -23,6 +23,7 @@ fn test_scenario_0_pure_select_should_use_hash() {
             SelectField::Column("customer_id".to_string()),
             SelectField::Column("total_amount".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -63,6 +64,7 @@ fn test_scenario_1_rows_window_without_group_by_should_use_sticky() {
             SelectField::Column("symbol".to_string()),
             SelectField::Column("price".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -126,6 +128,7 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
                 alias: Some("avg_price".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -167,6 +170,7 @@ fn test_scenario_3a_tumbling_with_group_by_should_use_hash() {
             SelectField::Column("trader_id".to_string()),
             SelectField::Column("symbol".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -222,6 +226,7 @@ fn test_scenario_3b_emit_changes_with_group_by_should_use_hash() {
                 alias: Some("trade_count".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -263,6 +268,7 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
         columns: None,
         as_select: Box::new(StreamingQuery::Select {
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("orders".to_string()),
             from_alias: None,
             joins: None,
@@ -301,6 +307,7 @@ fn test_routing_keys_extracted_correctly_for_multi_column_group_by() {
     // Verify that routing keys are correctly extracted from complex GROUP BY
     let query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("trades".to_string()),
         from_alias: None,
         joins: None,
@@ -344,6 +351,7 @@ fn test_user_explicit_choice_principle_documented() {
 
     let window_query = StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,

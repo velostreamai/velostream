@@ -1320,6 +1320,7 @@ mod tests {
         // Test EMIT CHANGES detection
         let query_emit_changes = StreamingQuery::Select {
             fields: vec![],
+            key_fields: None,
             from: crate::velostream::sql::ast::StreamSource::Stream("test".to_string()),
             from_alias: None,
             joins: None,
@@ -1345,6 +1346,7 @@ mod tests {
         // Test EMIT FINAL (default)
         let query_emit_final = StreamingQuery::Select {
             fields: vec![],
+            key_fields: None,
             from: crate::velostream::sql::ast::StreamSource::Stream("test".to_string()),
             from_alias: None,
             joins: None,

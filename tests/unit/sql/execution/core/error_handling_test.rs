@@ -56,6 +56,7 @@ async fn test_arithmetic_error_handling() {
             },
             alias: Some("invalid_operation".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,

@@ -171,6 +171,7 @@ async fn test_insert_select() {
                 alias: Some("name".to_string()),
             },
         ],
+        key_fields: None,
         from_alias: None,
         from: velostream::velostream::sql::ast::StreamSource::Table("source_table".to_string()),
         joins: None,

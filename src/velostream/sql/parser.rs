@@ -280,6 +280,9 @@ pub enum TokenType {
     SingleLineComment, // -- comment text
     MultiLineComment,  // /* comment text */
 
+    // Key annotation (ksqlDB-style)
+    Key, // KEY (for Kafka message key designation)
+
     // Special
     Eof,       // End of input
     Semicolon, // ; (statement terminator)
@@ -400,6 +403,9 @@ impl StreamingSqlParser {
         keywords.insert("UNBOUNDED".to_string(), TokenType::Unbounded);
         keywords.insert("OVER".to_string(), TokenType::Over);
         keywords.insert("NULL".to_string(), TokenType::Null);
+
+        // Key annotation (ksqlDB-style)
+        keywords.insert("KEY".to_string(), TokenType::Key);
 
         Self { keywords }
     }
@@ -1094,7 +1100,7 @@ impl<'a> TokenParser<'a> {
     fn parse_select(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
-        let fields = self.parse_select_fields()?;
+        let (fields, key_fields) = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
@@ -1358,6 +1364,7 @@ impl<'a> TokenParser<'a> {
             // Create the nested SELECT query
             let select_query = StreamingQuery::Select {
                 fields,
+                key_fields: key_fields.clone(),
                 from: from_source,
                 from_alias,
                 joins,
@@ -1418,6 +1425,7 @@ impl<'a> TokenParser<'a> {
 
         let select_query = StreamingQuery::Select {
             fields,
+            key_fields: key_fields.clone(),
             from: from_source,
             from_alias,
             joins,
@@ -1465,7 +1473,7 @@ impl<'a> TokenParser<'a> {
         // to allow CREATE TABLE parser to continue with WITH clause
         self.expect(TokenType::Select)?;
 
-        let fields = self.parse_select_fields()?;
+        let (fields, key_fields) = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
@@ -1656,6 +1664,7 @@ impl<'a> TokenParser<'a> {
 
         Ok(StreamingQuery::Select {
             fields,
+            key_fields,
             from: from_source,
             from_alias,
             joins,
@@ -1677,7 +1686,7 @@ impl<'a> TokenParser<'a> {
     fn parse_select_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
-        let fields = self.parse_select_fields()?;
+        let (fields, key_fields) = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
@@ -1893,6 +1902,7 @@ impl<'a> TokenParser<'a> {
 
         let select_query = StreamingQuery::Select {
             fields,
+            key_fields,
             from: from_source,
             from_alias,
             joins,
@@ -1935,8 +1945,15 @@ impl<'a> TokenParser<'a> {
         }
     }
 
-    fn parse_select_fields(&mut self) -> Result<Vec<SelectField>, SqlError> {
+    /// Parse SELECT fields with optional KEY annotation (ksqlDB-style).
+    ///
+    /// Syntax: SELECT field1 KEY, field2, field3 KEY FROM ...
+    ///
+    /// Returns (fields, key_fields) where key_fields contains the names of
+    /// fields marked with KEY for Kafka message key designation.
+    fn parse_select_fields(&mut self) -> Result<(Vec<SelectField>, Option<Vec<String>>), SqlError> {
         let mut fields = Vec::new();
+        let mut key_fields = Vec::new();
 
         loop {
             if self.current_token().token_type == TokenType::Asterisk {
@@ -1950,6 +1967,29 @@ impl<'a> TokenParser<'a> {
                 } else {
                     None
                 };
+
+                // Check for KEY annotation after expression/alias
+                let is_key = if self.current_token().token_type == TokenType::Key {
+                    self.advance();
+                    true
+                } else {
+                    false
+                };
+
+                // If marked as KEY, extract the field name for key_fields
+                if is_key {
+                    let field_name = alias.clone().or_else(|| {
+                        if let Expr::Column(name) = &expr {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(name) = field_name {
+                        key_fields.push(name);
+                    }
+                }
+
                 fields.push(SelectField::Expression { expr, alias });
             }
 
@@ -1960,7 +2000,13 @@ impl<'a> TokenParser<'a> {
             }
         }
 
-        Ok(fields)
+        let key_fields_opt = if key_fields.is_empty() {
+            None
+        } else {
+            Some(key_fields)
+        };
+
+        Ok((fields, key_fields_opt))
     }
 
     fn parse_join_clauses(&mut self) -> Result<Option<Vec<JoinClause>>, SqlError> {

@@ -175,6 +175,7 @@ pub enum EmitMode {
 ///     // SELECT query
 ///     let select_query = StreamingQuery::Select {
 ///         fields: vec![SelectField::Wildcard],
+///         key_fields: None,
 ///         from_alias: None,
 ///         from: StreamSource::Stream("orders".to_string()),
 ///         joins: None,
@@ -209,6 +210,9 @@ pub enum StreamingQuery {
     Select {
         /// Fields to select (columns, expressions, aggregates)
         fields: Vec<SelectField>,
+        /// Fields marked with KEY annotation for Kafka message key (ksqlDB-style)
+        /// Example: SELECT symbol KEY, price FROM trades
+        key_fields: Option<Vec<String>>,
         /// Source stream or table
         from: StreamSource,
         /// Optional alias for the FROM source (e.g., "c" in "FROM customers c")
@@ -1210,6 +1214,7 @@ impl TimeUnit {
 /// ```
 pub struct SelectBuilder {
     fields: Vec<SelectField>,
+    key_fields: Option<Vec<String>>,
     from: StreamSource,
     from_alias: Option<String>,
     joins: Option<Vec<JoinClause>>,
@@ -1232,6 +1237,7 @@ impl SelectBuilder {
     pub fn new(fields: Vec<SelectField>, from: StreamSource) -> Self {
         SelectBuilder {
             fields,
+            key_fields: None,
             from,
             from_alias: None,
             joins: None,
@@ -1248,6 +1254,11 @@ impl SelectBuilder {
             num_partitions: None,
             partitioning_strategy: None,
         }
+    }
+
+    pub fn with_key_fields(mut self, key_fields: Vec<String>) -> Self {
+        self.key_fields = Some(key_fields);
+        self
     }
 
     pub fn with_from_alias(mut self, alias: String) -> Self {
@@ -1324,6 +1335,7 @@ impl SelectBuilder {
     pub fn build(self) -> StreamingQuery {
         StreamingQuery::Select {
             fields: self.fields,
+            key_fields: self.key_fields,
             from: self.from,
             from_alias: self.from_alias,
             joins: self.joins,
@@ -1831,6 +1843,7 @@ impl fmt::Display for StreamingQuery {
         match self {
             StreamingQuery::Select {
                 fields,
+                key_fields,
                 from,
                 from_alias,
                 joins,
@@ -1849,8 +1862,37 @@ impl fmt::Display for StreamingQuery {
             } => {
                 // SELECT clause
                 write!(f, "SELECT ")?;
-                let field_strs: Vec<String> =
-                    fields.iter().map(|field| field.to_string()).collect();
+
+                // Format fields with KEY annotation if present
+                let field_strs: Vec<String> = fields
+                    .iter()
+                    .map(|field| {
+                        let field_str = field.to_string();
+                        // Check if this field is marked as KEY
+                        let field_name = match field {
+                            SelectField::Column(name) => Some(name.clone()),
+                            SelectField::AliasedColumn { alias, .. } => Some(alias.clone()),
+                            SelectField::Expression { alias, expr } => {
+                                alias.clone().or_else(|| {
+                                    if let Expr::Column(name) = expr {
+                                        Some(name.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                            }
+                            SelectField::Wildcard => None,
+                        };
+                        if let Some(keys) = key_fields {
+                            if let Some(ref name) = field_name {
+                                if keys.contains(name) {
+                                    return format!("{} KEY", field_str);
+                                }
+                            }
+                        }
+                        field_str
+                    })
+                    .collect();
                 write!(f, "{}", field_strs.join(", "))?;
 
                 // FROM clause

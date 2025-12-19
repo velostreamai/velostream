@@ -291,6 +291,7 @@ async fn test_window_processor_watermark_aware_processing() {
 
     let query = StreamingQuery::Select {
         fields: vec![], // Simplified for test
+        key_fields: None,
         from_alias: None,
         from: velostream::velostream::sql::ast::StreamSource::Table("test_stream".to_string()),
         joins: None,

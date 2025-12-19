@@ -85,6 +85,7 @@ async fn test_like_operator() {
                 },
                 alias: Some("like_result".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: None,
@@ -150,6 +151,7 @@ async fn test_not_like_operator() {
                 },
                 alias: Some("not_like_result".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: None,
@@ -217,6 +219,7 @@ async fn test_like_operator_edge_cases() {
                 },
                 alias: Some("like_result".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: None,
@@ -262,6 +265,7 @@ async fn test_like_operator_edge_cases() {
             },
             alias: Some("null_like_result".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: None,
@@ -301,6 +305,7 @@ async fn test_like_operator_edge_cases() {
             },
             alias: Some("number_like_result".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: None,
@@ -383,6 +388,7 @@ async fn test_in_operator_basic() {
                 expr: Expr::Column("id".to_string()), // Just select id to have some output
                 alias: None,
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: Some(Expr::BinaryOp {
@@ -464,6 +470,7 @@ async fn test_not_in_operator_basic() {
                 expr: Expr::Column("id".to_string()),
                 alias: None,
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: Some(Expr::BinaryOp {
@@ -525,6 +532,7 @@ async fn test_in_operator_with_null_values() {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {
@@ -563,6 +571,7 @@ async fn test_in_operator_with_null_values() {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {
@@ -629,6 +638,7 @@ async fn test_in_operator_edge_cases() {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {
@@ -663,6 +673,7 @@ async fn test_in_operator_edge_cases() {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {

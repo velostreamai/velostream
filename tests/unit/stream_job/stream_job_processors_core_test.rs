@@ -213,6 +213,7 @@ fn create_test_records(count: usize) -> Vec<StreamRecord> {
 fn create_test_query() -> StreamingQuery {
     StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,

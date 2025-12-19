@@ -121,6 +121,14 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 | `_window_start` | Window start timestamp |
 | `_window_end` | Window end timestamp |
 
+### Kafka Message Key Annotation (FR-089)
+
+| Syntax | Description |
+|--------|-------------|
+| `column KEY` | Mark column as Kafka message key |
+| `column AS alias KEY` | Mark aliased column as key |
+| `col1 KEY, col2 KEY` | Compound key (multiple columns) |
+
 ---
 
 ## CSAS vs CTAS - When to Use Which
@@ -601,6 +609,98 @@ WITH (
 ```
 
 **When to use**: Join then aggregate
+
+---
+
+## Kafka Message Keys - KEY Annotation (FR-089)
+
+The `KEY` annotation allows you to explicitly specify which field(s) should be used as the Kafka message key.
+This is essential for proper partitioning in downstream consumers.
+
+### Single Key Field (CSAS)
+
+```sql
+CREATE STREAM keyed_trades AS
+SELECT symbol KEY, price, quantity, event_time
+FROM trades
+WHERE price > 0
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'keyed_trades.type' = 'kafka_sink',
+    'keyed_trades.topic' = 'keyed_trades_output',
+    'keyed_trades.format' = 'json'
+);
+```
+
+**When to use**: Ensure consistent partitioning by a specific field
+
+### Compound Key (Multiple Fields) (CSAS)
+
+```sql
+CREATE STREAM region_product_keyed AS
+SELECT region KEY, product KEY, quantity, revenue
+FROM orders
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'region_product_keyed.type' = 'kafka_sink',
+    'region_product_keyed.topic' = 'region_product_output',
+    'region_product_keyed.format' = 'json'
+);
+```
+
+**When to use**: Partition by multiple fields (creates JSON compound key: `{"region":"US","product":"Widget"}`)
+
+### KEY with Alias (CSAS)
+
+```sql
+CREATE STREAM symbol_keyed AS
+SELECT stock_symbol AS sym KEY, price, volume
+FROM market_data
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.topic' = 'market_data_input',
+    'market_data.format' = 'json',
+    'symbol_keyed.type' = 'kafka_sink',
+    'symbol_keyed.topic' = 'symbol_keyed_output',
+    'symbol_keyed.format' = 'json'
+);
+```
+
+**When to use**: Rename field and use alias as key
+
+### KEY with GROUP BY Aggregation (CTAS)
+
+```sql
+CREATE TABLE symbol_stats AS
+SELECT symbol KEY, COUNT(*) as trade_count, AVG(price) as avg_price
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+EMIT CHANGES
+WITH (
+    'trades.type' = 'kafka_source',
+    'trades.topic' = 'trades_input',
+    'trades.format' = 'json',
+    'symbol_stats.type' = 'kafka_sink',
+    'symbol_stats.topic' = 'symbol_stats_output',
+    'symbol_stats.format' = 'json'
+);
+```
+
+**When to use**: Explicitly set key for aggregated output (GROUP BY columns are implicitly keyed, but KEY makes it explicit)
+
+### KEY vs GROUP BY Behavior
+
+| Scenario | Key Behavior |
+|----------|--------------|
+| `GROUP BY symbol` (no KEY) | Kafka key auto-generated from GROUP BY columns |
+| `SELECT symbol KEY ... GROUP BY symbol` | Explicit KEY annotation (same result, more explicit) |
+| `SELECT symbol KEY ... ` (no GROUP BY) | KEY annotation sets the Kafka message key |
+| No KEY, no GROUP BY | Must use `sink.key_field` property or get null key |
 
 ---
 

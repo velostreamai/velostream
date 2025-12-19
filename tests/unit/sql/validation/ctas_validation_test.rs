@@ -15,6 +15,7 @@ use velostream::velostream::sql::validator::SqlValidator;
 fn create_basic_select() -> StreamingQuery {
     StreamingQuery::Select {
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -383,6 +384,7 @@ fn test_aggregation_without_group_by_warning() {
                 },
                 alias: Some("total_count".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("orders_stream".to_string()),
             from_alias: None,
             joins: None,
@@ -432,6 +434,7 @@ fn test_aggregation_with_group_by_valid() {
                     alias: Some("total_count".to_string()),
                 },
             ],
+            key_fields: None,
             from: StreamSource::Stream("orders_stream".to_string()),
             from_alias: None,
             joins: None,

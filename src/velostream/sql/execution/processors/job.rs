@@ -339,6 +339,7 @@ mod tests {
 
         let query = StreamingQuery::Select {
             fields: vec![],
+            key_fields: None,
             from: crate::velostream::sql::ast::StreamSource::Stream("test_stream".to_string()),
             from_alias: None,
             joins: None,

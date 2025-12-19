@@ -508,6 +508,57 @@ If you can't find your syntax in any of these, ask the user before proceeding.
 
 ---
 
+## Rule 15: KEY Annotation for Kafka Message Keys (FR-089)
+
+The `KEY` keyword marks a field as the Kafka message key. It goes **after** the field or alias.
+
+### Syntax
+
+```sql
+SELECT column KEY, ...                     -- Single key
+SELECT col1 KEY, col2 KEY, ...            -- Compound key
+SELECT column AS alias KEY, ...           -- KEY with alias (alias becomes key name)
+```
+
+### Correct ✅
+
+```sql
+-- Single key
+SELECT symbol KEY, price FROM trades
+
+-- Compound key (produces JSON: {"region":"US","product":"Widget"})
+SELECT region KEY, product KEY, SUM(qty) FROM orders GROUP BY region, product
+
+-- KEY with alias (uses alias name as key)
+SELECT stock_symbol AS sym KEY, price FROM market_data
+
+-- KEY with GROUP BY
+SELECT symbol KEY, COUNT(*) as trade_count
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+```
+
+### Wrong ❌
+
+```sql
+❌ SELECT KEY symbol, price FROM trades    -- KEY must come AFTER field/alias
+❌ SELECT symbol, KEY price FROM trades    -- KEY must come AFTER field/alias
+❌ SELECT KEY, price FROM trades           -- KEY is not a column name
+```
+
+### Key Behavior
+
+| Scenario | Kafka Key |
+|----------|-----------|
+| `symbol KEY` (single field) | Raw value: `"AAPL"` |
+| `a KEY, b KEY` (compound) | JSON: `{"a":"X","b":"Y"}` |
+| `col AS alias KEY` | Uses alias name |
+| `GROUP BY symbol` (no KEY) | Auto-generates from GROUP BY columns |
+| No KEY, no GROUP BY | Null key or use `sink.key_field` property |
+
+---
+
 ## Final Checklist Before Submitting SQL
 
 - [ ] Syntax matches `COPY_PASTE_EXAMPLES.md` or `PARSER_GRAMMAR.md`
@@ -519,6 +570,7 @@ If you can't find your syntax in any of these, ask the user before proceeding.
 - [ ] ROWS WINDOW includes "ROWS" after buffer size
 - [ ] No confusion between GROUP BY and PARTITION BY
 - [ ] ROWS WINDOW uses count-based buffers, WINDOW uses time-based intervals
+- [ ] KEY annotation placed AFTER field/alias (not before)
 
 **If any check fails, fix it before submitting.**
 
