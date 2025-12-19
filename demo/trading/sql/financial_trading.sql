@@ -93,7 +93,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM tick_buckets AS
 SELECT
-    symbol,
+    symbol KEY,
     TUMBLE_START(_event_time, INTERVAL '1' SECOND) as bucket_start,
     TUMBLE_END(_event_time, INTERVAL '1' SECOND) as bucket_end,
     AVG(price) as avg_price,
@@ -385,7 +385,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM price_movement_debug AS
 SELECT
-    symbol,
+    symbol KEY,
     COUNT(*) as record_count,
     AVG(price) as avg_price,
     STDDEV(price) as stddev_price,
@@ -520,7 +520,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM volume_spike_analysis AS
 SELECT
-    symbol,
+    symbol KEY,
     _window_start AS window_start,
     _window_end AS window_end,
 
@@ -943,7 +943,7 @@ WITH (
 -- @partitioning_strategy: smart_repartition
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
-    symbol,
+    symbol KEY,
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) AS buy_volume,
     SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) AS sell_volume,
     SUM(quantity) AS total_volume,
@@ -1028,7 +1028,7 @@ WITH (
 
 CREATE STREAM price_movement_simple AS
 SELECT
-    symbol,
+    symbol KEY,
     COUNT(*) as record_count,
     AVG(price) as avg_price,
     _window_start AS window_start,

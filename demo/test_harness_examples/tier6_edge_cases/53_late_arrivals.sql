@@ -9,7 +9,7 @@
 -- Windowed aggregation with late event tolerance (uses CREATE TABLE for GROUP BY)
 CREATE TABLE sensor_aggregates AS
 SELECT
-    sensor_id,
+    sensor_id KEY,
     COUNT(*) AS reading_count,
     AVG(value) AS avg_value,
     MIN(value) AS min_value,

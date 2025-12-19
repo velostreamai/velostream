@@ -30,7 +30,7 @@ WITH (
 -- Aggregation that might have empty groups (uses CREATE TABLE for GROUP BY)
 CREATE TABLE category_totals AS
 SELECT
-    category,
+    category KEY,
     COUNT(*) AS transaction_count,
     SUM(amount) AS total_amount,
     _window_start AS window_start,

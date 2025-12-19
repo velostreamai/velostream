@@ -8,7 +8,7 @@
 
 CREATE TABLE tumbling_output AS
 SELECT
-    symbol,
+    symbol KEY,
     COUNT(*) AS trade_count,
     SUM(volume) AS total_volume,
     AVG(price) AS avg_price,

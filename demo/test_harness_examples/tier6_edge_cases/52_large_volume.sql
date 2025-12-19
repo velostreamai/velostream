@@ -33,8 +33,8 @@ WITH (
 -- Aggregation at scale (uses CREATE TABLE for GROUP BY)
 CREATE TABLE regional_stats AS
 SELECT
-    region,
-    event_type,
+    region KEY,
+    event_type KEY,
     COUNT(*) AS event_count,
     SUM(value) AS total_value,
     AVG(value) AS avg_value,

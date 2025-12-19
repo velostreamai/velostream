@@ -70,8 +70,8 @@ EMIT CHANGES;
 
 -- Merchant category analytics (1-minute tumbling windows)
 CREATE TABLE merchant_analytics AS
-SELECT 
-    merchant_category,
+SELECT
+    merchant_category KEY,
     'tumbling_1m_window' AS window_info,  -- Fixed: Simplified window info
     COUNT(*) AS transaction_count,
     SUM(amount) AS total_amount,
@@ -98,7 +98,7 @@ EMIT CHANGES;
 -- Customer spending patterns (5-minute sliding windows)  
 CREATE TABLE customer_spending_patterns AS
 SELECT
-    customer_id,
+    customer_id KEY,
     '5_minute_sliding_window' AS window_info,
     COUNT(*) AS transaction_frequency,
     SUM(amount) AS total_spent,
@@ -269,7 +269,7 @@ EMIT CHANGES;
 -- Customer lifetime value calculation
 CREATE TABLE customer_ltv AS
 SELECT
-    customer_id,
+    customer_id KEY,
     '10_minute_session_window' AS session_window,  -- Fixed: SESSION_WINDOW not supported
     COUNT(*) AS session_transactions,
     SUM(amount) AS session_total,
@@ -297,9 +297,9 @@ EMIT CHANGES;
 
 -- Cross-category spending analysis
 CREATE TABLE cross_category_analysis AS
-SELECT 
+SELECT
     '2_minute_window' AS window_info,
-    merchant_category,
+    merchant_category KEY,
     COUNT(*) AS transaction_count,
     SUM(amount) AS category_total,
     -- Percentage calculation using subquery (subqueries ARE supported)
