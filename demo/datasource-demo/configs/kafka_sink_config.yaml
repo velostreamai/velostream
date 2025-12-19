@@ -60,7 +60,6 @@ processing:
     dead_letter_topic: "processed-transactions-errors"
     
   # Key extraction (for partitioning)
-  key.field: "transaction_id"
   
   # Headers to add
   headers:

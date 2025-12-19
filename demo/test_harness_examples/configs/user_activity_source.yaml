@@ -11,4 +11,3 @@ performance_profile: balanced
 
 datasource:
   schema:
-    key.field: user_id

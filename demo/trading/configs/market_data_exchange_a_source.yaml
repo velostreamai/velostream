@@ -16,7 +16,6 @@ performance_profile: ultra_low_latency
 # Topic-specific schema
 datasource:
   schema:
-    key.field: symbol
     value.serializer: json
     # Avro alternative:
     # value.serializer: avro

@@ -14,7 +14,6 @@ delivery_profile: critical
 
 datasink:
   schema:
-    key.field: position_id
     value.serializer: json
 
   topic_config:

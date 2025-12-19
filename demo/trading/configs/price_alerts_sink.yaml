@@ -12,7 +12,6 @@ delivery_profile: high_priority
 
 # Topic-specific schema
 schema:
-  key.field: symbol
   value.serializer: json
   # Avro alternative:
   # value.serializer: avro

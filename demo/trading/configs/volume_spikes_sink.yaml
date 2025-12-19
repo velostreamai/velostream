@@ -14,7 +14,6 @@ datasink:
     batch.size: 16384
 
   schema:
-    key.field: symbol
     value.serializer: json
     # Avro alternative:
     # value.serializer: avro

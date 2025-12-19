@@ -9,7 +9,6 @@ topic:
 
 # Topic-specific schema
 schema:
-  key.field: trader_id
   # this type  will always be json for this demo
 
 

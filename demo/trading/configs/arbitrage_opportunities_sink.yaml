@@ -9,7 +9,6 @@ topic:
   replication.factor: 3
 
 schema:
-  key.field: symbol
   value.serializer: json
 
   headers:
