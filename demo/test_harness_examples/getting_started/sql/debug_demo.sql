@@ -8,7 +8,7 @@
 -- Stage 1: Filter high-value trades
 CREATE STREAM high_value_trades AS
 SELECT
-    symbol,
+    symbol KEY,
     price,
     volume,
     price * volume AS trade_value
@@ -24,7 +24,6 @@ WITH (
 
     'high_value_trades.type' = 'kafka_sink',
     'high_value_trades.topic' = 'high_value_trades',
-    'high_value_trades.key_field' = 'symbol',
     'high_value_trades.config_file' = '../../configs/common_kafka_sink.yaml'
 );
 
@@ -32,7 +31,7 @@ WITH (
 -- @job_mode: simple
 CREATE TABLE symbol_aggregates AS
 SELECT
-    symbol,
+    symbol KEY,
     COUNT(*) AS trade_count,
     SUM(trade_value) AS total_value,
     AVG(price) AS avg_price,
@@ -45,12 +44,10 @@ EMIT CHANGES
 WITH (
     'high_value_trades.type' = 'kafka_source',
     'high_value_trades.topic' = 'high_value_trades',
-    'high_value_trades.key_field' = 'symbol',
     'high_value_trades.config_file' = '../../configs/common_kafka_source.yaml',
 
     'symbol_aggregates.type' = 'kafka_sink',
     'symbol_aggregates.topic' = 'symbol_aggregates',
-    'symbol_aggregates.key_field' = 'symbol',
     'symbol_aggregates.config_file' = '../../configs/common_kafka_sink.yaml'
 );
 
@@ -58,7 +55,7 @@ WITH (
 -- @job_mode: transactional
 CREATE STREAM flagged_symbols AS
 SELECT
-    symbol,
+    symbol KEY,
     trade_count,
     total_value,
     avg_price,
@@ -74,11 +71,9 @@ EMIT CHANGES
 WITH (
     'symbol_aggregates.type' = 'kafka_source',
     'symbol_aggregates.topic' = 'symbol_aggregates',
-    'symbol_aggregates.key_field' = 'symbol',
     'symbol_aggregates.config_file' = '../../configs/common_kafka_source.yaml',
 
     'flagged_symbols.type' = 'kafka_sink',
     'flagged_symbols.topic' = 'flagged_symbols_output',
-    'flagged_symbols.key_field' = 'symbol',
     'flagged_symbols.config_file' = '../../configs/common_kafka_sink.yaml'
 );

@@ -6,7 +6,7 @@
 -- @job_mode: simple
 CREATE STREAM market_output AS
 SELECT
-    symbol,
+    symbol KEY,
     price,
     volume
 FROM market_data
