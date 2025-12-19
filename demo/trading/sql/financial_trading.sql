@@ -40,7 +40,7 @@
 -- @partitioning_strategy: always_hash
 CREATE STREAM market_data_ts AS
 SELECT
-    symbol,
+    symbol KEY,
     exchange,
     timestamp,
     timestamp as _event_time,
@@ -140,7 +140,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM enriched_market_data AS
 SELECT
-    m.symbol,
+    m.symbol KEY,
     m.exchange,
     m.price,
     m.bid_price,
@@ -210,12 +210,12 @@ WITH (
 -- @job_name: advanced_price_movement_alerts
 -- @partitioning_strategy: smart_repartition
 CREATE STREAM advanced_price_movement_alerts AS
-SELECT 
-    symbol,
+SELECT
+    symbol KEY,
     price,
     volume,
     event_time,
-    
+
     -- Phase 3: Advanced window functions
     LAG(price, 1) OVER (
         ROWS WINDOW
@@ -340,7 +340,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM compliant_market_data AS
 SELECT
-    m.symbol,
+    m.symbol KEY,
     m.exchange,
     m.price,
     m.bid_price,
@@ -457,7 +457,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM active_hours_market_data AS
 SELECT
-    m.symbol,
+    m.symbol KEY,
     m.exchange,
     m.price,
     m.bid_price,
@@ -618,8 +618,8 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM trading_positions_with_event_time AS
 SELECT
-    trader_id,
-    symbol,
+    trader_id KEY,
+    symbol KEY,
     position_size,
     current_pnl,
     timestamp,
@@ -651,8 +651,8 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
-    p.trader_id,
-    p.symbol,
+    p.trader_id KEY,
+    p.symbol KEY,
     p.position_size,
     p.current_pnl,
     p.event_time AS position_time,
@@ -774,7 +774,7 @@ WITH (
 
 CREATE STREAM risk_hierarchy_validation AS
 SELECT
-    p.trader_id,
+    p.trader_id KEY,
     p.desk_id,
     p.position_id,
     p.symbol,
@@ -982,8 +982,8 @@ WITH (
 -- @job_name: arbitrage_opportunities_detection
 -- @partitioning_strategy: always_hash
 CREATE STREAM arbitrage_opportunities_detection AS
-SELECT 
-    a.symbol,
+SELECT
+    a.symbol KEY,
     a.exchange as exchange_a,
     b.exchange as exchange_b,
     a.bid_price as bid_a,
