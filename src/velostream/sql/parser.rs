@@ -1947,12 +1947,12 @@ impl<'a> TokenParser<'a> {
         }
     }
 
-    /// Parse SELECT fields with optional KEY annotation (ksqlDB-style).
+    /// Parse SELECT fields with optional PRIMARY KEY annotation (SQL standard).
     ///
-    /// Syntax: SELECT field1 KEY, field2, field3 KEY FROM ...
+    /// Syntax: SELECT field1 PRIMARY KEY, field2, field3 PRIMARY KEY FROM ...
     ///
     /// Returns (fields, key_fields) where key_fields contains the names of
-    /// fields marked with KEY for Kafka message key designation.
+    /// fields marked with PRIMARY KEY for Kafka message key designation.
     fn parse_select_fields(&mut self) -> Result<(Vec<SelectField>, Option<Vec<String>>), SqlError> {
         let mut fields = Vec::new();
         let mut key_fields = Vec::new();
@@ -1986,7 +1986,7 @@ impl<'a> TokenParser<'a> {
                     false
                 };
 
-                // If marked as KEY, extract the field name for key_fields
+                // If marked as PRIMARY KEY, extract the field name for key_fields
                 if is_key {
                     let field_name = alias.clone().or_else(|| {
                         if let Expr::Column(name) = &expr {

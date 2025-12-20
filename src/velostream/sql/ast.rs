@@ -210,8 +210,8 @@ pub enum StreamingQuery {
     Select {
         /// Fields to select (columns, expressions, aggregates)
         fields: Vec<SelectField>,
-        /// Fields marked with KEY annotation for Kafka message key (ksqlDB-style)
-        /// Example: SELECT symbol KEY, price FROM trades
+        /// Fields marked with PRIMARY KEY annotation for Kafka message key (SQL standard)
+        /// Example: SELECT symbol PRIMARY KEY, price FROM trades
         key_fields: Option<Vec<String>>,
         /// Source stream or table
         from: StreamSource,
@@ -1863,12 +1863,12 @@ impl fmt::Display for StreamingQuery {
                 // SELECT clause
                 write!(f, "SELECT ")?;
 
-                // Format fields with KEY annotation if present
+                // Format fields with PRIMARY KEY annotation if present
                 let field_strs: Vec<String> = fields
                     .iter()
                     .map(|field| {
                         let field_str = field.to_string();
-                        // Check if this field is marked as KEY
+                        // Check if this field is marked as PRIMARY KEY
                         let field_name = match field {
                             SelectField::Column(name) => Some(name.clone()),
                             SelectField::AliasedColumn { alias, .. } => Some(alias.clone()),
@@ -1886,7 +1886,7 @@ impl fmt::Display for StreamingQuery {
                         if let Some(keys) = key_fields {
                             if let Some(ref name) = field_name {
                                 if keys.contains(name) {
-                                    return format!("{} KEY", field_str);
+                                    return format!("{} PRIMARY KEY", field_str);
                                 }
                             }
                         }

@@ -42,7 +42,7 @@ fn test_single_key_annotation() {
                 panic!("Expected Expression field");
             }
 
-            // Second field is price (no KEY)
+            // Second field is price (no PRIMARY KEY)
             if let SelectField::Expression { expr, .. } = &fields[1] {
                 assert!(matches!(expr, Expr::Column(name) if name == "price"));
             }
@@ -185,7 +185,8 @@ fn test_no_key_annotation() {
 #[test]
 fn test_key_annotation_with_expression_aliased() {
     let parser = StreamingSqlParser::new();
-    let result = parser.parse("SELECT UPPER(symbol) as symbol_upper PRIMARY KEY, price FROM trades");
+    let result =
+        parser.parse("SELECT UPPER(symbol) as symbol_upper PRIMARY KEY, price FROM trades");
 
     assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
     let query = result.unwrap();
@@ -282,7 +283,7 @@ fn test_key_annotation_display() {
 
     // Should contain "PRIMARY KEY" in output for the symbol field
     assert!(
-        display.contains("symbol KEY") || display.contains("PRIMARY KEY"),
+        display.contains("symbol PRIMARY KEY"),
         "Display output should contain PRIMARY KEY annotation: {}",
         display
     );
