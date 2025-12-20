@@ -8,7 +8,7 @@
 -- Stage 1: Filter high-value trades
 CREATE STREAM high_value_trades AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     price,
     volume,
     price * volume AS trade_value
@@ -31,7 +31,7 @@ WITH (
 -- @job_mode: simple
 CREATE TABLE symbol_aggregates AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     COUNT(*) AS trade_count,
     SUM(trade_value) AS total_value,
     AVG(price) AS avg_price,
@@ -55,7 +55,7 @@ WITH (
 -- @job_mode: transactional
 CREATE STREAM flagged_symbols AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     trade_count,
     total_value,
     avg_price,

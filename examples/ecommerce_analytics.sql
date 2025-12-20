@@ -46,7 +46,7 @@ WHERE amount > 500;
 -- Windowed aggregation for customer tier analysis
 CREATE STREAM customer_segments AS
 SELECT
-    customer_id KEY,
+    customer_id PRIMARY KEY,
     COUNT(*) as order_count,
     SUM(amount) as total_spent,
     AVG(amount) as avg_order_value,
@@ -63,8 +63,8 @@ WINDOW TUMBLING(1h);
 -- Windowed analytics for product performance metrics
 CREATE STREAM product_analytics_stream AS
 SELECT
-    JSON_VALUE(payload, '$.product_id') as product_id KEY,
-    JSON_VALUE(payload, '$.category') as category KEY,
+    JSON_VALUE(payload, '$.product_id') as product_id PRIMARY KEY,
+    JSON_VALUE(payload, '$.category') as category PRIMARY KEY,
     COUNT(*) as view_count,
     COUNT(CASE WHEN JSON_VALUE(payload, '$.action') = 'purchase' THEN 1 END) as purchase_count,
     AVG(CAST(JSON_VALUE(payload, '$.price') AS FLOAT)) as avg_price

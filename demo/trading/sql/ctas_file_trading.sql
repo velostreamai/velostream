@@ -55,7 +55,7 @@ WITH (
 
 CREATE TABLE portfolio_summary
 AS SELECT
-    trader_id KEY,
+    trader_id PRIMARY KEY,
     COUNT(DISTINCT symbol) as num_positions,
     COUNT(DISTINCT sector) as num_sectors,
     SUM(position_size * avg_price) as gross_exposure,
@@ -124,8 +124,8 @@ WITH (
 
 CREATE TABLE trading_performance
 AS SELECT
-    trader_id KEY,
-    symbol KEY,
+    trader_id PRIMARY KEY,
+    symbol PRIMARY KEY,
     DATE_TRUNC('day', timestamp) as trading_date,
     COUNT(*) as num_trades,
     SUM(quantity * price) as total_notional,
@@ -158,7 +158,7 @@ WITH (
 
 CREATE TABLE sector_concentration
 AS SELECT
-    sector KEY,
+    sector PRIMARY KEY,
     COUNT(DISTINCT trader_id) as num_traders,
     COUNT(DISTINCT symbol) as num_symbols,
     SUM(ABS(position_size * avg_price)) as sector_exposure,

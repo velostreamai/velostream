@@ -40,7 +40,7 @@
 -- @partitioning_strategy: always_hash
 CREATE STREAM market_data_ts AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     exchange,
     timestamp,
     timestamp as _event_time,
@@ -93,7 +93,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM tick_buckets AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     TUMBLE_START(_event_time, INTERVAL '1' SECOND) as bucket_start,
     TUMBLE_END(_event_time, INTERVAL '1' SECOND) as bucket_end,
     AVG(price) as avg_price,
@@ -140,7 +140,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM enriched_market_data AS
 SELECT
-    m.symbol KEY,
+    m.symbol PRIMARY KEY,
     m.exchange,
     m.price,
     m.bid_price,
@@ -211,7 +211,7 @@ WITH (
 -- @partitioning_strategy: smart_repartition
 CREATE STREAM advanced_price_movement_alerts AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     price,
     volume,
     event_time,
@@ -340,7 +340,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM compliant_market_data AS
 SELECT
-    m.symbol KEY,
+    m.symbol PRIMARY KEY,
     m.exchange,
     m.price,
     m.bid_price,
@@ -385,7 +385,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM price_movement_debug AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     COUNT(*) as record_count,
     AVG(price) as avg_price,
     STDDEV(price) as stddev_price,
@@ -457,7 +457,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM active_hours_market_data AS
 SELECT
-    m.symbol KEY,
+    m.symbol PRIMARY KEY,
     m.exchange,
     m.price,
     m.bid_price,
@@ -520,7 +520,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM volume_spike_analysis AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     _window_start AS window_start,
     _window_end AS window_end,
 
@@ -618,8 +618,8 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM trading_positions_with_event_time AS
 SELECT
-    trader_id KEY,
-    symbol KEY,
+    trader_id PRIMARY KEY,
+    symbol PRIMARY KEY,
     position_size,
     current_pnl,
     timestamp,
@@ -651,8 +651,8 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
-    p.trader_id KEY,
-    p.symbol KEY,
+    p.trader_id PRIMARY KEY,
+    p.symbol PRIMARY KEY,
     p.position_size,
     p.current_pnl,
     p.event_time AS position_time,
@@ -774,7 +774,7 @@ WITH (
 
 CREATE STREAM risk_hierarchy_validation AS
 SELECT
-    p.trader_id KEY,
+    p.trader_id PRIMARY KEY,
     p.desk_id,
     p.position_id,
     p.symbol,
@@ -943,7 +943,7 @@ WITH (
 -- @partitioning_strategy: smart_repartition
 CREATE STREAM order_flow_imbalance_detection AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) AS buy_volume,
     SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) AS sell_volume,
     SUM(quantity) AS total_volume,
@@ -983,7 +983,7 @@ WITH (
 -- @partitioning_strategy: always_hash
 CREATE STREAM arbitrage_opportunities_detection AS
 SELECT
-    a.symbol KEY,
+    a.symbol PRIMARY KEY,
     a.exchange as exchange_a,
     b.exchange as exchange_b,
     a.bid_price as bid_a,
@@ -1028,7 +1028,7 @@ WITH (
 
 CREATE STREAM price_movement_simple AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     COUNT(*) as record_count,
     AVG(price) as avg_price,
     _window_start AS window_start,

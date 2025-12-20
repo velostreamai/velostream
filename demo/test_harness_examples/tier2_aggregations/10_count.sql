@@ -8,7 +8,7 @@
 
 CREATE TABLE count_output AS
 SELECT
-    category KEY,
+    category PRIMARY KEY,
     COUNT(*) AS total_count,
     COUNT(value) AS value_count
 FROM input_stream

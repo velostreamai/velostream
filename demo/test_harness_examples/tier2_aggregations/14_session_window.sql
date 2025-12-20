@@ -8,7 +8,7 @@
 
 CREATE TABLE session_output AS
 SELECT
-    user_id KEY,
+    user_id PRIMARY KEY,
     COUNT(*) AS actions_in_session,
     SUM(duration_ms) AS total_duration,
     MIN(event_time) AS session_start,

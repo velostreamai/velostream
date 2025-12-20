@@ -35,7 +35,7 @@ WITH (
 -- Stage 2: Aggregate by region (uses CREATE TABLE for GROUP BY aggregation)
 CREATE TABLE regional_summary AS
 SELECT
-    region KEY,
+    region PRIMARY KEY,
     COUNT(*) AS transaction_count,
     SUM(total_amount) AS total_revenue,
     AVG(total_amount) AS avg_transaction,

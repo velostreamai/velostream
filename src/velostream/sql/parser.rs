@@ -280,8 +280,9 @@ pub enum TokenType {
     SingleLineComment, // -- comment text
     MultiLineComment,  // /* comment text */
 
-    // Key annotation (ksqlDB-style)
-    Key, // KEY (for Kafka message key designation)
+    // Primary Key annotation (SQL standard)
+    Primary, // PRIMARY (for PRIMARY KEY)
+    Key,     // KEY (for PRIMARY KEY designation)
 
     // Special
     Eof,       // End of input
@@ -404,7 +405,8 @@ impl StreamingSqlParser {
         keywords.insert("OVER".to_string(), TokenType::Over);
         keywords.insert("NULL".to_string(), TokenType::Null);
 
-        // Key annotation (ksqlDB-style)
+        // Primary Key annotation (SQL standard)
+        keywords.insert("PRIMARY".to_string(), TokenType::Primary);
         keywords.insert("KEY".to_string(), TokenType::Key);
 
         Self { keywords }
@@ -1968,10 +1970,18 @@ impl<'a> TokenParser<'a> {
                     None
                 };
 
-                // Check for KEY annotation after expression/alias
-                let is_key = if self.current_token().token_type == TokenType::Key {
+                // Check for PRIMARY KEY annotation after expression/alias (SQL standard)
+                let is_key = if self.current_token().token_type == TokenType::Primary {
                     self.advance();
-                    true
+                    if self.current_token().token_type == TokenType::Key {
+                        self.advance();
+                        true
+                    } else {
+                        return Err(SqlError::parse_error(
+                            "Expected KEY after PRIMARY",
+                            Some(self.current_token().position),
+                        ));
+                    }
                 } else {
                     false
                 };

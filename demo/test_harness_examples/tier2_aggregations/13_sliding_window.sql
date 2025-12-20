@@ -8,7 +8,7 @@
 
 CREATE TABLE sliding_output AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     COUNT(*) AS trade_count,
     AVG(price) AS moving_avg,
     STDDEV(price) AS price_stddev,

@@ -177,7 +177,7 @@ WITH (
 
 CREATE STREAM hashtag_trending_analysis AS
 SELECT
-    hashtag KEY,
+    hashtag PRIMARY KEY,
     COUNT(DISTINCT post_id) as post_count,
     COUNT(DISTINCT user_id) as unique_users,
     SUM(engagement_score) as total_engagement,

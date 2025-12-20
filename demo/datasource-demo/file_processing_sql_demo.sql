@@ -45,7 +45,7 @@ CREATE STREAM analytics_results AS
 SELECT
     TUMBLE_START(INTERVAL '5' MINUTE) as window_start,
     TUMBLE_END(INTERVAL '5' MINUTE) as window_end,
-    merchant_category KEY,
+    merchant_category PRIMARY KEY,
 
     -- Aggregations with exact precision
     COUNT(*) as transaction_count,
@@ -94,7 +94,7 @@ WINDOW TUMBLING(30s);
 -- Demonstrates FR-047 advanced analytics with unified syntax
 CREATE STREAM customer_sessions AS
 SELECT
-    customer_id KEY,
+    customer_id PRIMARY KEY,
     SESSION_START() as session_start,
     SESSION_END() as session_end,
 

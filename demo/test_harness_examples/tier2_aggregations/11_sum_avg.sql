@@ -8,7 +8,7 @@
 
 CREATE TABLE sum_avg_output AS
 SELECT
-    category KEY,
+    category PRIMARY KEY,
     SUM(amount) AS total_amount,
     AVG(amount) AS avg_amount,
     MIN(amount) AS min_amount,

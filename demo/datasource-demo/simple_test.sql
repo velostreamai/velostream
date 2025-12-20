@@ -6,7 +6,7 @@ SELECT transaction_id, customer_id, amount
 FROM 'file://./demo_data/financial_transactions.csv';
 
 -- Aggregation query with URI-based source and destination
-SELECT customer_id KEY, SUM(amount) as total_amount
+SELECT customer_id PRIMARY KEY, SUM(amount) as total_amount
 FROM 'file://./demo_data/financial_transactions.csv'
 GROUP BY customer_id
 INTO 'file://./demo_output/customer_totals.jsonl'

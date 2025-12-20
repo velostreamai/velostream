@@ -10,7 +10,7 @@
 -- @job_mode: simple
 CREATE STREAM market_aggregates AS
 SELECT
-    symbol KEY,
+    symbol PRIMARY KEY,
     COUNT(*) AS trade_count,
     SUM(volume) AS total_volume,
     AVG(price) AS avg_price,

@@ -15,21 +15,21 @@ Velostream supports three ways to configure Kafka message keys:
 
 | Method | Syntax | Use Case |
 |--------|--------|----------|
-| **Inline KEY annotation** | `SELECT symbol KEY, ...` | Explicit key declaration in SQL |
+| **Inline PRIMARY KEY** | `SELECT symbol PRIMARY KEY, ...` | Explicit key declaration in SQL (recommended) |
 | **GROUP BY implicit key** | `GROUP BY symbol` | Auto-generated from GROUP BY columns |
-| **Property-based** | `sink.key_field = 'symbol'` | Configuration in WITH clause |
+| **Property-based** | `sink.key_field = 'symbol'` | Configuration in WITH clause (legacy) |
 
 ---
 
-## Method 1: Inline KEY Annotation (Recommended)
+## Method 1: Inline PRIMARY KEY Annotation (Recommended)
 
-The `KEY` keyword marks a field as the Kafka message key directly in SQL.
+The `PRIMARY KEY` keywords mark a field as the Kafka message key directly in SQL. This follows SQL standard syntax used by Flink, RisingWave, and Materialize.
 
 ### Single Key
 
 ```sql
 CREATE STREAM keyed_trades AS
-SELECT symbol KEY, price, quantity, event_time
+SELECT symbol PRIMARY KEY, price, quantity, event_time
 FROM trades
 WITH (
     'trades.type' = 'kafka_source',
@@ -47,18 +47,18 @@ WITH (
 
 ```sql
 CREATE STREAM region_product_stream AS
-SELECT region KEY, product KEY, quantity, revenue
+SELECT region PRIMARY KEY, product PRIMARY KEY, quantity, revenue
 FROM orders
 WITH (...);
 ```
 
 **Result**: Kafka key = `{"region":"US","product":"Widget"}` (JSON object)
 
-### KEY with Alias
+### PRIMARY KEY with Alias
 
 ```sql
 CREATE STREAM aliased_key AS
-SELECT stock_symbol AS sym KEY, price
+SELECT stock_symbol AS sym PRIMARY KEY, price
 FROM market_data
 WITH (...);
 ```
@@ -99,13 +99,13 @@ WITH (...);
 
 **Result**: Kafka key = `{"trader_id":"T1","symbol":"AAPL"}` (compound JSON)
 
-### Combining KEY with GROUP BY
+### Combining PRIMARY KEY with GROUP BY
 
-You can use KEY annotation alongside GROUP BY for explicit control:
+You can use PRIMARY KEY annotation alongside GROUP BY for explicit control:
 
 ```sql
 CREATE TABLE explicit_key_agg AS
-SELECT symbol KEY, trader_id, COUNT(*) as cnt
+SELECT symbol PRIMARY KEY, trader_id, COUNT(*) as cnt
 FROM trades
 GROUP BY symbol, trader_id
 WINDOW TUMBLING(INTERVAL '1' MINUTE)
@@ -113,7 +113,7 @@ EMIT CHANGES
 WITH (...);
 ```
 
-**Result**: Uses KEY annotation, not auto-generated GROUP BY key
+**Result**: Uses PRIMARY KEY annotation, not auto-generated GROUP BY key
 
 ---
 
@@ -166,7 +166,7 @@ WITH (
 
 When multiple methods are used, this priority order applies:
 
-1. **Inline KEY annotation** → `SELECT symbol KEY, ...` (recommended)
+1. **Inline PRIMARY KEY** → `SELECT symbol PRIMARY KEY, ...` (recommended)
 2. **GROUP BY implicit** → Auto-generated from GROUP BY columns
 3. **`sink.key_field = 'symbol'`** → Single key from config (legacy)
 4. **`sink.key_fields = 'a,b'`** → Compound key from config (legacy)
@@ -177,11 +177,11 @@ When multiple methods are used, this priority order applies:
 ### Priority Example
 
 ```sql
--- KEY annotation takes precedence over GROUP BY implicit key
-SELECT symbol KEY, trader_id, COUNT(*) as cnt
+-- PRIMARY KEY annotation takes precedence over GROUP BY implicit key
+SELECT symbol PRIMARY KEY, trader_id, COUNT(*) as cnt
 FROM trades
 GROUP BY symbol, trader_id
--- Key will be "symbol" from KEY annotation, not {"symbol":"...", "trader_id":"..."}
+-- Key will be "symbol" from PRIMARY KEY annotation, not {"symbol":"...", "trader_id":"..."}
 ```
 
 ---
@@ -190,8 +190,8 @@ GROUP BY symbol, trader_id
 
 | Configuration | Key Format | Example |
 |--------------|------------|---------|
-| Single KEY annotation | Raw value | `"AAPL"` |
-| Multiple KEY annotations | JSON object | `{"region":"US","product":"Widget"}` |
+| Single PRIMARY KEY | Raw value | `"AAPL"` |
+| Multiple PRIMARY KEY | JSON object | `{"region":"US","product":"Widget"}` |
 | Single GROUP BY | JSON object | `{"symbol":"AAPL"}` |
 | Multiple GROUP BY | JSON object | `{"trader_id":"T1","symbol":"AAPL"}` |
 | `sink.key_field` (single) | Raw value | `"AAPL"` |
@@ -202,19 +202,19 @@ GROUP BY symbol, trader_id
 
 ## Best Practices
 
-### 1. Use KEY Annotation for Clarity
+### 1. Use PRIMARY KEY for Clarity
 
 ```sql
--- Explicit and self-documenting
-SELECT customer_id KEY, order_id, amount FROM orders
+-- Explicit and self-documenting (SQL standard)
+SELECT customer_id PRIMARY KEY, order_id, amount FROM orders
 ```
 
-### 2. Match KEY with GROUP BY
+### 2. Match PRIMARY KEY with GROUP BY
 
-When aggregating, use KEY on the same columns as GROUP BY:
+When aggregating, use PRIMARY KEY on the same columns as GROUP BY:
 
 ```sql
-SELECT symbol KEY, COUNT(*) as cnt
+SELECT symbol PRIMARY KEY, COUNT(*) as cnt
 FROM trades
 GROUP BY symbol
 ```
@@ -222,7 +222,7 @@ GROUP BY symbol
 ### 3. Use Compound Keys for Multi-Dimension Partitioning
 
 ```sql
-SELECT region KEY, product_type KEY, SUM(sales) as total
+SELECT region PRIMARY KEY, product_type PRIMARY KEY, SUM(sales) as total
 FROM sales
 GROUP BY region, product_type
 ```
@@ -246,7 +246,7 @@ WITH (
 
 ### Missing Key Configuration
 
-Without KEY annotation, GROUP BY, or `sink.key_field`, records will have null keys:
+Without PRIMARY KEY annotation, GROUP BY, or `sink.key_field`, records will have null keys:
 
 ```sql
 -- No key specified - null key (round-robin partitioning)
@@ -265,7 +265,7 @@ Error: Key field 'missing_field' not found in record
 
 ---
 
-## Migration from Property-Based to KEY Annotation
+## Migration from Property-Based to PRIMARY KEY
 
 ### Before (Property-Based)
 
@@ -278,15 +278,15 @@ WITH (
 );
 ```
 
-### After (KEY Annotation)
+### After (PRIMARY KEY)
 
 ```sql
 CREATE STREAM keyed_trades AS
-SELECT symbol KEY, price FROM trades
+SELECT symbol PRIMARY KEY, price FROM trades
 WITH (...);
 ```
 
-Both produce the same result, but KEY annotation is more explicit and self-documenting.
+Both produce the same result, but PRIMARY KEY is SQL standard and self-documenting.
 
 ---
 

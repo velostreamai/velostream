@@ -10,7 +10,7 @@
 -- Windowed analysis of popular hashtags
 CREATE STREAM trending_hashtags AS
 SELECT
-    SUBSTRING(content, 1, 20) as hashtag KEY,
+    SUBSTRING(content, 1, 20) as hashtag PRIMARY KEY,
     COUNT(*) as mention_count,
     COUNT(user_id) as unique_users,
     AVG(engagement_score) as avg_engagement,
@@ -66,9 +66,9 @@ WHERE content IS NOT NULL AND LENGTH(content) > 10;
 -- Windowed monitoring of high-follower user activity
 CREATE STREAM influencer_activity AS
 SELECT
-    user_id KEY,
-    username KEY,
-    follower_count KEY,
+    user_id PRIMARY KEY,
+    username PRIMARY KEY,
+    follower_count PRIMARY KEY,
     COUNT(*) as post_count_1h,
     SUM(likes_count + shares_count + comments_count) as total_engagement_1h,
     AVG(likes_count + shares_count + comments_count) as avg_engagement_per_post,
