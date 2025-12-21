@@ -703,56 +703,51 @@ impl KafkaDataWriter {
     /// Extract message key from StreamRecord
     ///
     /// Priority:
-    /// 1. record.key - set by GROUP BY queries (single value or JSON compound key)
-    /// 2. key_field config - explicit field name to use as key
+    /// 1. record.key - set by GROUP BY queries or PRIMARY KEY annotation
+    /// 2. key_field config - explicit field name(s) to use as key (comma-separated for compound)
     /// 3. None - null key (round-robin partitioning)
+    ///
+    /// Key format:
+    /// - Single key: raw value (e.g., "AAPL")
+    /// - Compound key: pipe-delimited (e.g., "US|Widget")
     fn extract_key(&self, record: &StreamRecord) -> Option<String> {
-        // Priority 1: Use record.key if set (from GROUP BY)
+        // Priority 1: Use record.key if set (from GROUP BY or PRIMARY KEY)
         if let Some(ref key_value) = record.key {
             return Some(key_value.to_key_string());
         }
 
-        // Priority 2: Use configured key_field
-        if let Some(key_field) = &self.key_field {
-            match record.fields.get(key_field) {
-                Some(FieldValue::String(s)) => Some(s.clone()),
-                Some(FieldValue::Integer(i)) => Some(i.to_string()),
-                Some(FieldValue::Float(f)) => Some(f.to_string()),
-                Some(FieldValue::ScaledInteger(val, scale)) => {
-                    // Format as decimal string
-                    let divisor = 10_i64.pow(*scale as u32);
-                    let integer_part = val / divisor;
-                    let fractional_part = (val % divisor).abs();
-                    if fractional_part == 0 {
-                        Some(integer_part.to_string())
-                    } else {
-                        let frac_str =
-                            format!("{:0width$}", fractional_part, width = *scale as usize);
-                        let frac_trimmed = frac_str.trim_end_matches('0');
-                        if frac_trimmed.is_empty() {
-                            Some(integer_part.to_string())
-                        } else {
-                            Some(format!("{}.{}", integer_part, frac_trimmed))
-                        }
-                    }
-                }
-                Some(FieldValue::Boolean(b)) => Some(b.to_string()),
-                Some(FieldValue::Null) | None => {
-                    // key_field is configured but field is null/missing
+        // Priority 2: Use configured key_field (may be comma-separated for compound keys)
+        if let Some(key_field_config) = &self.key_field {
+            let field_names: Vec<&str> = key_field_config.split(',').map(|s| s.trim()).collect();
+
+            if field_names.len() == 1 {
+                // Single key field
+                self.extract_single_key_value(record, field_names[0])
+            } else {
+                // Compound key - extract each field and join with pipe delimiter
+                let key_parts: Vec<String> = field_names
+                    .iter()
+                    .filter_map(|field_name| self.extract_single_key_value(record, field_name))
+                    .collect();
+
+                if key_parts.len() == field_names.len() {
+                    // All fields found - return pipe-delimited key
+                    Some(key_parts.join("|"))
+                } else {
+                    // Some fields missing
                     if !self
                         .warned_null_key
                         .swap(true, std::sync::atomic::Ordering::Relaxed)
                     {
                         log::warn!(
-                            "Writing record with NULL key to topic '{}' (key_field='{}' is null/missing). \
-                             Records with NULL keys use round-robin partitioning, which may break ordering guarantees.",
+                            "Writing record with NULL key to topic '{}' (some key fields missing from compound key '{}'). \
+                             Records with NULL keys use round-robin partitioning.",
                             self.topic,
-                            key_field
+                            key_field_config
                         );
                     }
                     None
                 }
-                _ => None,
             }
         } else {
             // No key_field configured at all
@@ -762,12 +757,32 @@ impl KafkaDataWriter {
             {
                 log::warn!(
                     "Writing records with NULL keys to topic '{}' (no key_field configured). \
-                     Records with NULL keys use round-robin partitioning. \
-                     Configure 'key_field' in sink properties for consistent partitioning.",
+                     Records with NULL keys use round-robin partitioning.",
                     self.topic
                 );
             }
             None
+        }
+    }
+
+    /// Extract a single field value as a key string
+    fn extract_single_key_value(&self, record: &StreamRecord, field_name: &str) -> Option<String> {
+        match record.fields.get(field_name) {
+            Some(value) => Some(value.to_key_string()),
+            None => {
+                if !self
+                    .warned_null_key
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    log::warn!(
+                        "Writing record with NULL key to topic '{}' (key_field='{}' is null/missing). \
+                         Records with NULL keys use round-robin partitioning.",
+                        self.topic,
+                        field_name
+                    );
+                }
+                None
+            }
         }
     }
 

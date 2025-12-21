@@ -125,9 +125,9 @@ Use these as templates for your queries. When in doubt, copy the pattern from he
 
 | Syntax | Description |
 |--------|-------------|
-| `column KEY` | Mark column as Kafka message key |
-| `column AS alias KEY` | Mark aliased column as key |
-| `col1 KEY, col2 KEY` | Compound key (multiple columns) |
+| `column PRIMARY KEY` | Mark column as Kafka message key |
+| `column AS alias PRIMARY KEY` | Mark aliased column as key |
+| `col1 PRIMARY KEY, col2 PRIMARY KEY` | Compound key (multiple columns) |
 
 ---
 
@@ -612,16 +612,16 @@ WITH (
 
 ---
 
-## Kafka Message Keys - KEY Annotation (FR-089)
+## Kafka Message Keys - PRIMARY KEY Annotation (FR-089)
 
-The `KEY` annotation allows you to explicitly specify which field(s) should be used as the Kafka message key.
-This is essential for proper partitioning in downstream consumers.
+The `PRIMARY KEY` annotation allows you to explicitly specify which field(s) should be used as the Kafka message key.
+This is essential for proper partitioning in downstream consumers. This follows the SQL standard syntax used by Flink, RisingWave, and Materialize.
 
 ### Single Key Field (CSAS)
 
 ```sql
 CREATE STREAM keyed_trades AS
-SELECT symbol KEY, price, quantity, event_time
+SELECT symbol PRIMARY KEY, price, quantity, event_time
 FROM trades
 WHERE price > 0
 WITH (
@@ -640,7 +640,7 @@ WITH (
 
 ```sql
 CREATE STREAM region_product_keyed AS
-SELECT region KEY, product KEY, quantity, revenue
+SELECT region PRIMARY KEY, product PRIMARY KEY, quantity, revenue
 FROM orders
 WITH (
     'orders.type' = 'kafka_source',
@@ -652,13 +652,13 @@ WITH (
 );
 ```
 
-**When to use**: Partition by multiple fields (creates JSON compound key: `{"region":"US","product":"Widget"}`)
+**When to use**: Partition by multiple fields (creates pipe-delimited compound key: `"US|Widget"`)
 
-### KEY with Alias (CSAS)
+### PRIMARY KEY with Alias (CSAS)
 
 ```sql
 CREATE STREAM symbol_keyed AS
-SELECT stock_symbol AS sym KEY, price, volume
+SELECT stock_symbol AS sym PRIMARY KEY, price, volume
 FROM market_data
 WITH (
     'market_data.type' = 'kafka_source',
@@ -672,11 +672,11 @@ WITH (
 
 **When to use**: Rename field and use alias as key
 
-### KEY with GROUP BY Aggregation (CTAS)
+### PRIMARY KEY with GROUP BY Aggregation (CTAS)
 
 ```sql
 CREATE TABLE symbol_stats AS
-SELECT symbol KEY, COUNT(*) as trade_count, AVG(price) as avg_price
+SELECT symbol PRIMARY KEY, COUNT(*) as trade_count, AVG(price) as avg_price
 FROM trades
 GROUP BY symbol
 WINDOW TUMBLING(INTERVAL '1' MINUTE)
@@ -691,16 +691,44 @@ WITH (
 );
 ```
 
-**When to use**: Explicitly set key for aggregated output (GROUP BY columns are implicitly keyed, but KEY makes it explicit)
+**When to use**: Explicitly set key for aggregated output (GROUP BY columns are implicitly keyed, but PRIMARY KEY makes it explicit)
 
-### KEY vs GROUP BY Behavior
+### Compound PRIMARY KEY with GROUP BY (CTAS)
 
-| Scenario | Key Behavior |
-|----------|--------------|
-| `GROUP BY symbol` (no KEY) | Kafka key auto-generated from GROUP BY columns |
-| `SELECT symbol KEY ... GROUP BY symbol` | Explicit KEY annotation (same result, more explicit) |
-| `SELECT symbol KEY ... ` (no GROUP BY) | KEY annotation sets the Kafka message key |
-| No KEY, no GROUP BY | Must use `sink.key_field` property or get null key |
+```sql
+CREATE TABLE regional_stats AS
+SELECT
+    region PRIMARY KEY,
+    product PRIMARY KEY,
+    COUNT(*) as order_count,
+    SUM(amount) as total_amount
+FROM orders
+GROUP BY region, product
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'regional_stats.type' = 'kafka_sink',
+    'regional_stats.topic' = 'regional_stats_output',
+    'regional_stats.format' = 'json'
+);
+```
+
+**When to use**: Aggregate by multiple dimensions with explicit compound key (key = `"US|Widget"`)
+
+### PRIMARY KEY vs GROUP BY Behavior
+
+| Scenario | Key Format | Example |
+|----------|------------|---------|
+| `GROUP BY symbol` (single, no PRIMARY KEY) | Raw value | `"AAPL"` |
+| `GROUP BY region, product` (compound, no PRIMARY KEY) | Pipe-delimited | `"US\|Widget"` |
+| `SELECT symbol PRIMARY KEY ... GROUP BY symbol` | Raw value | `"AAPL"` (explicit) |
+| `SELECT a PRIMARY KEY, b PRIMARY KEY ... GROUP BY a, b` | Pipe-delimited | `"X\|Y"` (explicit) |
+| `SELECT a PRIMARY KEY ... GROUP BY a, b` | Raw value | `"X"` (PRIMARY KEY wins) |
+| `SELECT symbol PRIMARY KEY ...` (no GROUP BY) | Raw value | `"AAPL"` |
+| No PRIMARY KEY, no GROUP BY | Null | Round-robin partitioning |
 
 ---
 

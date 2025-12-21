@@ -11,13 +11,12 @@ Kafka message keys determine how messages are partitioned. Proper key configurat
 
 ## Key Configuration Methods
 
-Velostream supports three ways to configure Kafka message keys:
+Velostream supports two ways to configure Kafka message keys:
 
 | Method | Syntax | Use Case |
 |--------|--------|----------|
 | **Inline PRIMARY KEY** | `SELECT symbol PRIMARY KEY, ...` | Explicit key declaration in SQL (recommended) |
 | **GROUP BY implicit key** | `GROUP BY symbol` | Auto-generated from GROUP BY columns |
-| **Property-based** | `sink.key_field = 'symbol'` | Configuration in WITH clause (legacy) |
 
 ---
 
@@ -52,7 +51,7 @@ FROM orders
 WITH (...);
 ```
 
-**Result**: Kafka key = `{"region":"US","product":"Widget"}` (JSON object)
+**Result**: Kafka key = `"US|Widget"` (pipe-delimited)
 
 ### PRIMARY KEY with Alias
 
@@ -83,7 +82,7 @@ EMIT CHANGES
 WITH (...);
 ```
 
-**Result**: Kafka key = `{"symbol":"AAPL"}` (JSON object from GROUP BY)
+**Result**: Kafka key = `"AAPL"` (raw value from GROUP BY)
 
 ### Multiple GROUP BY Columns
 
@@ -97,7 +96,7 @@ EMIT CHANGES
 WITH (...);
 ```
 
-**Result**: Kafka key = `{"trader_id":"T1","symbol":"AAPL"}` (compound JSON)
+**Result**: Kafka key = `"T1|AAPL"` (pipe-delimited compound key)
 
 ### Combining PRIMARY KEY with GROUP BY
 
@@ -117,62 +116,13 @@ WITH (...);
 
 ---
 
-## Method 3: Property-Based Configuration
-
-Use WITH clause properties for explicit key configuration:
-
-### Single Key Field
-
-```sql
-CREATE STREAM filtered_trades AS
-SELECT * FROM trades
-WHERE price > 100
-WITH (
-    'trades.type' = 'kafka_source',
-    'trades.topic' = 'trades_input',
-    'trades.format' = 'json',
-    'filtered_trades.type' = 'kafka_sink',
-    'filtered_trades.topic' = 'filtered_output',
-    'filtered_trades.format' = 'json',
-    'sink.key_field' = 'symbol'
-);
-```
-
-### Compound Key Fields
-
-```sql
-WITH (
-    ...
-    'sink.key_fields' = 'region,product'
-);
-```
-
-**Result**: Kafka key = `{"region":"US","product":"Widget"}`
-
-### Explicit Null Key (Round-Robin)
-
-```sql
-WITH (
-    ...
-    'sink.key_field' = 'null'
-);
-```
-
-**Result**: No Kafka key (null), messages distributed round-robin
-
----
-
 ## Key Configuration Priority
 
 When multiple methods are used, this priority order applies:
 
 1. **Inline PRIMARY KEY** → `SELECT symbol PRIMARY KEY, ...` (recommended)
 2. **GROUP BY implicit** → Auto-generated from GROUP BY columns
-3. **`sink.key_field = 'symbol'`** → Single key from config (legacy)
-4. **`sink.key_fields = 'a,b'`** → Compound key from config (legacy)
-5. **No configuration** → Null key (round-robin partitioning)
-
-> **Note**: Use `sink.key_field = 'null'` to explicitly request null keys (round-robin) when needed.
+3. **No configuration** → Null key (round-robin partitioning)
 
 ### Priority Example
 
@@ -191,12 +141,10 @@ GROUP BY symbol, trader_id
 | Configuration | Key Format | Example |
 |--------------|------------|---------|
 | Single PRIMARY KEY | Raw value | `"AAPL"` |
-| Multiple PRIMARY KEY | JSON object | `{"region":"US","product":"Widget"}` |
-| Single GROUP BY | JSON object | `{"symbol":"AAPL"}` |
-| Multiple GROUP BY | JSON object | `{"trader_id":"T1","symbol":"AAPL"}` |
-| `sink.key_field` (single) | Raw value | `"AAPL"` |
-| `sink.key_fields` (compound) | JSON object | `{"region":"US","product":"Widget"}` |
-| `sink.key_field = 'null'` | Null | `null` (no key bytes) |
+| Multiple PRIMARY KEY | Pipe-delimited | `"US\|Widget"` |
+| Single GROUP BY | Raw value | `"AAPL"` |
+| Multiple GROUP BY | Pipe-delimited | `"T1\|AAPL"` |
+| No configuration | Null | `null` (round-robin partitioning) |
 
 ---
 
@@ -227,26 +175,23 @@ FROM sales
 GROUP BY region, product_type
 ```
 
-### 4. Explicit Null for Fan-Out Scenarios
+### 4. Round-Robin Distribution for Fan-Out
 
-When you want round-robin distribution:
+When you want round-robin distribution, simply don't specify PRIMARY KEY or GROUP BY:
 
 ```sql
+-- No PRIMARY KEY = null key = round-robin partitioning
 CREATE STREAM fanout_stream AS
-SELECT * FROM events
-WITH (
-    ...
-    'sink.key_field' = 'null'
-);
+SELECT event_id, payload, timestamp
+FROM events
+WITH (...);
 ```
 
 ---
 
-## Error Handling
+## Null Key Behavior
 
-### Missing Key Configuration
-
-Without PRIMARY KEY annotation, GROUP BY, or `sink.key_field`, records will have null keys:
+Without PRIMARY KEY annotation or GROUP BY, records will have null keys (round-robin partitioning):
 
 ```sql
 -- No key specified - null key (round-robin partitioning)
@@ -255,38 +200,7 @@ SELECT price, quantity FROM trades
 WITH (...);
 ```
 
-### Key Field Not Found
-
-If `sink.key_field` references a non-existent field, an error is returned:
-
-```
-Error: Key field 'missing_field' not found in record
-```
-
----
-
-## Migration from Property-Based to PRIMARY KEY
-
-### Before (Property-Based)
-
-```sql
-CREATE STREAM keyed_trades AS
-SELECT symbol, price FROM trades
-WITH (
-    ...
-    'sink.key_field' = 'symbol'
-);
-```
-
-### After (PRIMARY KEY)
-
-```sql
-CREATE STREAM keyed_trades AS
-SELECT symbol PRIMARY KEY, price FROM trades
-WITH (...);
-```
-
-Both produce the same result, but PRIMARY KEY is SQL standard and self-documenting.
+This is useful for fan-out scenarios where you want even distribution across partitions.
 
 ---
 
@@ -303,7 +217,7 @@ FROM market_data
 WHERE _key IS NOT NULL;
 
 -- Re-key based on source key combined with other fields
-SELECT _key AS original_key, symbol KEY, price
+SELECT _key AS original_key, symbol PRIMARY KEY, price
 FROM market_data;
 
 -- Filter based on source key

@@ -872,22 +872,16 @@ impl WindowAdapter {
 
         // Set record.key from GROUP BY key for Kafka partitioning
         // Single GROUP BY column: use value directly
-        // Compound GROUP BY: serialize as JSON object
-        if let Some((group_exprs, group_key)) = group_by_info {
+        // Compound GROUP BY: serialize as pipe-delimited string
+        if let Some((_group_exprs, group_key)) = group_by_info {
             let key_values = group_key.values();
             if key_values.len() == 1 {
                 result.key = Some(key_values[0].clone());
             } else if !key_values.is_empty() {
-                // Compound key - serialize as JSON object
-                let mut key_map = serde_json::Map::new();
-                for (idx, expr) in group_exprs.iter().enumerate() {
-                    if idx < key_values.len() {
-                        let col_name = extract_group_column_name(expr, idx);
-                        key_map.insert(col_name, key_values[idx].to_json());
-                    }
-                }
-                let key_json = serde_json::Value::Object(key_map).to_string();
-                result.key = Some(FieldValue::String(key_json));
+                // Compound key - serialize as pipe-delimited string
+                let key_parts: Vec<String> = key_values.iter().map(|v| v.to_key_string()).collect();
+                let key_str = key_parts.join("|");
+                result.key = Some(FieldValue::String(key_str));
             }
         }
 

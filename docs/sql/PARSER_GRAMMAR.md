@@ -39,10 +39,10 @@ SELECT_STATEMENT = SELECT select_list
 
 SELECT_LIST = select_item (',' select_item)*
 select_item = '*'
-            | expression [AS identifier] [KEY]    # KEY annotation for Kafka message key
+            | expression [AS identifier] [PRIMARY KEY]    # PRIMARY KEY annotation for Kafka message key
             | identifier '.*'
 
-KEY_ANNOTATION = 'KEY'   # Marks field as Kafka message key (ksqlDB-style)
+PRIMARY_KEY_ANNOTATION = 'PRIMARY' 'KEY'   # Marks field as Kafka message key (SQL standard)
 
 TABLE_SOURCE = identifier
 
@@ -63,7 +63,7 @@ LIMIT_CLAUSE = 'LIMIT' number
 
 **AST Structure**: `StreamingQuery::Select { fields, key_fields, from, from_alias, joins, where_clause, group_by, having, window, order_by, limit }`
 
-**key_fields**: `Option<Vec<String>>` - Fields marked with KEY annotation for Kafka message key
+**key_fields**: `Option<Vec<String>>` - Fields marked with PRIMARY KEY annotation for Kafka message key
 
 ---
 
@@ -505,30 +505,30 @@ grep -r "GROUP BY.*WINDOW" tests/
 
 ---
 
-## Kafka Message Key - KEY Annotation (FR-089)
+## Kafka Message Key - PRIMARY KEY Annotation (FR-089)
 
-The `KEY` keyword can be placed after a field or alias to mark it as the Kafka message key.
+The `PRIMARY KEY` keywords can be placed after a field or alias to mark it as the Kafka message key. This follows the SQL standard syntax used by Flink, RisingWave, and Materialize.
 
 ### Syntax
 
 ```
-select_item = expression [AS alias] [KEY]
+select_item = expression [AS alias] [PRIMARY KEY]
 ```
 
 ### Examples
 
 ```sql
 -- Single key field
-SELECT symbol KEY, price, quantity FROM trades
+SELECT symbol PRIMARY KEY, price, quantity FROM trades
 
 -- Compound key (multiple fields)
-SELECT region KEY, product KEY, SUM(qty) FROM orders GROUP BY region, product
+SELECT region PRIMARY KEY, product PRIMARY KEY, SUM(qty) FROM orders GROUP BY region, product
 
--- KEY with alias (alias name becomes the key)
-SELECT stock_symbol AS sym KEY, price FROM market_data
+-- PRIMARY KEY with alias (alias name becomes the key)
+SELECT stock_symbol AS sym PRIMARY KEY, price FROM market_data
 
--- KEY with GROUP BY (explicit key matches GROUP BY)
-SELECT symbol KEY, COUNT(*) as cnt
+-- PRIMARY KEY with GROUP BY (explicit key matches GROUP BY)
+SELECT symbol PRIMARY KEY, COUNT(*) as cnt
 FROM trades
 GROUP BY symbol
 WINDOW TUMBLING(INTERVAL '1' MINUTE)
@@ -538,11 +538,12 @@ WINDOW TUMBLING(INTERVAL '1' MINUTE)
 
 | Scenario | Resulting Kafka Key |
 |----------|---------------------|
-| `symbol KEY` | `"AAPL"` (raw value) |
-| `a KEY, b KEY` | `{"a":"X","b":"Y"}` (JSON compound) |
-| `col AS alias KEY` | Uses alias name for key |
-| `GROUP BY symbol` (no KEY) | Auto-generates JSON key from GROUP BY |
-| No KEY, no GROUP BY | Null key (round-robin) or `sink.key_field` property |
+| `symbol PRIMARY KEY` | `"AAPL"` (raw value) |
+| `a PRIMARY KEY, b PRIMARY KEY` | `"X\|Y"` (pipe-delimited) |
+| `col AS alias PRIMARY KEY` | Uses alias name for key |
+| `GROUP BY symbol` (no PRIMARY KEY) | `"AAPL"` (raw value) |
+| `GROUP BY a, b` (compound) | `"X\|Y"` (pipe-delimited) |
+| No PRIMARY KEY, no GROUP BY | Null key (round-robin partitioning) |
 
 ---
 
@@ -559,11 +560,11 @@ WINDOW TUMBLING(INTERVAL '1' MINUTE)
 | **Late Records** | ✅ Handled | ❌ N/A | - |
 | **Use Case** | Aggregations | Moving windows, LAG/LEAD | - |
 
-### KEY Annotation Summary
+### PRIMARY KEY Annotation Summary
 
 | Feature | Description |
 |---------|-------------|
-| **Syntax** | `column KEY` or `column AS alias KEY` |
+| **Syntax** | `column PRIMARY KEY` or `column AS alias PRIMARY KEY` |
 | **Location** | After field expression/alias in SELECT |
 | **Single Key** | Raw value as Kafka key |
 | **Compound Key** | JSON object `{"field1":"value1","field2":"value2"}` |

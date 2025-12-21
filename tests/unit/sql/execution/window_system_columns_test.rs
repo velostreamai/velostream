@@ -787,9 +787,9 @@ fn test_field_value_to_key_string_all_types() {
     assert_eq!(FieldValue::Float(f64::NEG_INFINITY).to_key_string(), "-inf");
 }
 
-/// Test compound GROUP BY keys are serialized as JSON
+/// Test compound GROUP BY keys are serialized as pipe-delimited strings
 #[test]
-fn test_compound_group_by_key_json_serialization() {
+fn test_compound_group_by_key_pipe_delimited() {
     use velostream::velostream::sql::execution::processors::context::ProcessorContext;
 
     // Query with compound GROUP BY (symbol, exchange)
@@ -827,24 +827,30 @@ fn test_compound_group_by_key_json_serialization() {
     assert!(result.is_some(), "Should emit result");
     let output = result.unwrap();
 
-    // record.key should be JSON for compound keys
+    // record.key should be pipe-delimited for compound keys
     assert!(
         output.key.is_some(),
         "record.key should be set for compound GROUP BY"
     );
 
     match output.key.as_ref().unwrap() {
-        FieldValue::String(key_json) => {
-            println!("Compound key JSON: {}", key_json);
-            // Parse and verify JSON structure
-            let parsed: serde_json::Value = serde_json::from_str(key_json)
-                .expect("record.key should be valid JSON for compound keys");
-            assert!(parsed.is_object(), "Compound key should be JSON object");
-            assert_eq!(parsed.get("symbol"), Some(&serde_json::json!("AAPL")));
-            assert_eq!(parsed.get("exchange"), Some(&serde_json::json!("NYSE")));
-            println!("✅ Compound GROUP BY key correctly serialized as JSON");
+        FieldValue::String(key_str) => {
+            println!("Compound key: {}", key_str);
+            // Verify pipe-delimited format: "AAPL|NYSE"
+            let parts: Vec<&str> = key_str.split('|').collect();
+            assert_eq!(
+                parts.len(),
+                2,
+                "Compound key should have 2 pipe-separated parts"
+            );
+            assert_eq!(parts[0], "AAPL", "First key part should be symbol value");
+            assert_eq!(parts[1], "NYSE", "Second key part should be exchange value");
+            println!("✅ Compound GROUP BY key correctly serialized as pipe-delimited");
         }
-        other => panic!("Compound key should be JSON string, got {:?}", other),
+        other => panic!(
+            "Compound key should be pipe-delimited string, got {:?}",
+            other
+        ),
     }
 
     // Verify GROUP BY fields are also in output.fields

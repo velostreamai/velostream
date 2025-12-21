@@ -508,32 +508,32 @@ If you can't find your syntax in any of these, ask the user before proceeding.
 
 ---
 
-## Rule 15: KEY Annotation for Kafka Message Keys (FR-089)
+## Rule 15: PRIMARY KEY Annotation for Kafka Message Keys (FR-089)
 
-The `KEY` keyword marks a field as the Kafka message key. It goes **after** the field or alias.
+The `PRIMARY KEY` keywords mark a field as the Kafka message key. It goes **after** the field or alias.
 
 ### Syntax
 
 ```sql
-SELECT column KEY, ...                     -- Single key
-SELECT col1 KEY, col2 KEY, ...            -- Compound key
-SELECT column AS alias KEY, ...           -- KEY with alias (alias becomes key name)
+SELECT column PRIMARY KEY, ...                     -- Single key
+SELECT col1 PRIMARY KEY, col2 PRIMARY KEY, ...    -- Compound key
+SELECT column AS alias PRIMARY KEY, ...           -- PRIMARY KEY with alias (alias becomes key name)
 ```
 
 ### Correct ✅
 
 ```sql
 -- Single key
-SELECT symbol KEY, price FROM trades
+SELECT symbol PRIMARY KEY, price FROM trades
 
 -- Compound key (produces JSON: {"region":"US","product":"Widget"})
-SELECT region KEY, product KEY, SUM(qty) FROM orders GROUP BY region, product
+SELECT region PRIMARY KEY, product PRIMARY KEY, SUM(qty) FROM orders GROUP BY region, product
 
--- KEY with alias (uses alias name as key)
-SELECT stock_symbol AS sym KEY, price FROM market_data
+-- PRIMARY KEY with alias (uses alias name as key)
+SELECT stock_symbol AS sym PRIMARY KEY, price FROM market_data
 
--- KEY with GROUP BY
-SELECT symbol KEY, COUNT(*) as trade_count
+-- PRIMARY KEY with GROUP BY
+SELECT symbol PRIMARY KEY, COUNT(*) as trade_count
 FROM trades
 GROUP BY symbol
 WINDOW TUMBLING(INTERVAL '1' MINUTE)
@@ -542,20 +542,21 @@ WINDOW TUMBLING(INTERVAL '1' MINUTE)
 ### Wrong ❌
 
 ```sql
-❌ SELECT KEY symbol, price FROM trades    -- KEY must come AFTER field/alias
-❌ SELECT symbol, KEY price FROM trades    -- KEY must come AFTER field/alias
-❌ SELECT KEY, price FROM trades           -- KEY is not a column name
+❌ SELECT PRIMARY KEY symbol, price FROM trades    -- PRIMARY KEY must come AFTER field/alias
+❌ SELECT symbol, PRIMARY KEY price FROM trades    -- PRIMARY KEY must come AFTER field/alias
+❌ SELECT PRIMARY KEY, price FROM trades           -- PRIMARY KEY is not a column name
 ```
 
 ### Key Behavior
 
 | Scenario | Kafka Key |
 |----------|-----------|
-| `symbol KEY` (single field) | Raw value: `"AAPL"` |
-| `a KEY, b KEY` (compound) | JSON: `{"a":"X","b":"Y"}` |
-| `col AS alias KEY` | Uses alias name |
-| `GROUP BY symbol` (no KEY) | Auto-generates from GROUP BY columns |
-| No KEY, no GROUP BY | Null key or use `sink.key_field` property |
+| `symbol PRIMARY KEY` (single field) | Raw value: `"AAPL"` |
+| `a PRIMARY KEY, b PRIMARY KEY` (compound) | Pipe-delimited: `"X\|Y"` |
+| `col AS alias PRIMARY KEY` | Uses alias name |
+| `GROUP BY symbol` (single) | Raw value: `"AAPL"` |
+| `GROUP BY a, b` (compound) | Pipe-delimited: `"X\|Y"` |
+| No PRIMARY KEY, no GROUP BY | Null key (round-robin partitioning) |
 
 ---
 
@@ -570,7 +571,7 @@ WINDOW TUMBLING(INTERVAL '1' MINUTE)
 - [ ] ROWS WINDOW includes "ROWS" after buffer size
 - [ ] No confusion between GROUP BY and PARTITION BY
 - [ ] ROWS WINDOW uses count-based buffers, WINDOW uses time-based intervals
-- [ ] KEY annotation placed AFTER field/alias (not before)
+- [ ] PRIMARY KEY annotation placed AFTER field/alias (not before)
 
 **If any check fails, fix it before submitting.**
 
