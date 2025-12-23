@@ -2782,7 +2782,7 @@ async fn perf_bottleneck_isolation() {
         &env.bootstrap_servers,
         writer_topic.to_string(),
         velostream::velostream::kafka::serialization_format::SerializationFormat::Json,
-        Some("id".to_string()),
+        Some(vec!["id".to_string()]),
         None,
     )
     .await

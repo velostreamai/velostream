@@ -496,6 +496,7 @@ async fn test_multi_sink_creation_helpers() {
                 props.insert("topic".to_string(), "output-topic".to_string());
                 props
             },
+            primary_keys: None,
         },
         DataSinkRequirement {
             name: "file_sink".to_string(),
@@ -506,6 +507,7 @@ async fn test_multi_sink_creation_helpers() {
                 props.insert("sink.format".to_string(), "json".to_string());
                 props
             },
+            primary_keys: None,
         },
     ];
 

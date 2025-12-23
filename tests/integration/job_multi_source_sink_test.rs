@@ -78,6 +78,7 @@ fn create_test_multi_sinks() -> Vec<DataSinkRequirement> {
                 props.insert("sink.value.format".to_string(), "json".to_string());
                 props
             },
+            primary_keys: None,
         },
         DataSinkRequirement {
             name: "audit_log".to_string(),
@@ -89,6 +90,7 @@ fn create_test_multi_sinks() -> Vec<DataSinkRequirement> {
                 props.insert("sink.append".to_string(), "true".to_string());
                 props
             },
+            primary_keys: None,
         },
     ]
 }

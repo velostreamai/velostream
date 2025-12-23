@@ -20,7 +20,7 @@ fn test_transactional_sink_config_sets_required_properties() {
     props.insert("transactional.id".to_string(), "test_txn_id".to_string());
 
     // When: Creating sink with transactional mode enabled
-    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, true);
+    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, true, None);
 
     // Then: Config should have transactional requirements
     let config = sink.config();
@@ -59,7 +59,7 @@ fn test_non_transactional_sink_config_does_not_force_acks_all() {
     props.insert("acks".to_string(), "1".to_string());
 
     // When: Creating sink with transactional mode disabled
-    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, false);
+    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, false, None);
 
     // Then: Config should preserve user's acks setting
     let config = sink.config();
@@ -91,7 +91,7 @@ fn test_transactional_sink_overrides_user_acks_setting() {
     props.insert("transactional.id".to_string(), "test_txn_id".to_string());
 
     // When: Creating sink with transactional mode enabled
-    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, true);
+    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, true, None);
 
     // Then: Transactional mode should override to acks=all for exactly-once
     let config = sink.config();
@@ -178,7 +178,7 @@ fn test_transactional_id_preserved_through_sink_from_properties() {
     );
 
     // Create sink with transactional mode enabled
-    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true);
+    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true, None);
 
     // CRITICAL: The transactional.id MUST be preserved in the config
     // This is what the writer checks to decide whether to create a transactional producer
@@ -216,7 +216,7 @@ fn test_transactional_id_not_blocked_by_sink_prefix() {
     sink_props.insert("sink.acks".to_string(), "all".to_string());
     sink_props.insert("sink.linger.ms".to_string(), "5".to_string());
 
-    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true);
+    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true, None);
     let config = sink.config();
 
     // transactional.id should still be present
@@ -245,7 +245,7 @@ fn test_sink_prefixed_transactional_id_blocks_unprefixed() {
         "from_config_file".to_string(),
     );
 
-    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true);
+    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true, None);
     let config = sink.config();
 
     // The filtering logic at line 104-109 says:
@@ -306,7 +306,7 @@ datasink:
     );
 
     // Create sink - this will load the config file and merge
-    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true);
+    let sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true, None);
     let config = sink.config();
 
     println!("=== Config file test ===");
@@ -398,7 +398,7 @@ async fn test_transactional_id_survives_full_initialization_flow() {
     );
 
     // Step 2: Create sink via from_properties (same as common.rs:1118)
-    let mut sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true);
+    let mut sink = KafkaDataSink::from_properties(&sink_props, "test_job", None, None, true, None);
 
     println!("=== After from_properties ===");
     println!(
@@ -477,7 +477,8 @@ async fn test_writer_from_properties_loses_transactional_id_vs_batch_config() {
     // It calls create_with_schema_validation_and_batch_config(..., &HashMap::new(), None)
     // The &HashMap::new() means transactional.id is NEVER seen!
     let result1 =
-        KafkaDataWriter::from_properties("localhost:9092", "test_topic".to_string(), &props).await;
+        KafkaDataWriter::from_properties("localhost:9092", "test_topic".to_string(), &props, None)
+            .await;
 
     match &result1 {
         Ok(writer) => {
@@ -510,6 +511,7 @@ async fn test_writer_from_properties_loses_transactional_id_vs_batch_config() {
         "test_topic".to_string(),
         &props,
         batch_config,
+        None,
     )
     .await;
 
@@ -598,7 +600,8 @@ datasink:
     }
 
     // Step 5: Create sink (same as common.rs:1118)
-    let mut sink = KafkaDataSink::from_properties(&sink_props, "flagged_symbols", None, None, true);
+    let mut sink =
+        KafkaDataSink::from_properties(&sink_props, "flagged_symbols", None, None, true, None);
 
     println!("=== After from_properties ===");
     println!(
@@ -688,6 +691,7 @@ async fn test_datasink_properties_filtered_from_producer() {
         "test_topic".to_string(),
         &props,
         batch_config,
+        None,
     )
     .await;
 
@@ -714,7 +718,8 @@ async fn test_datasink_properties_filtered_from_producer() {
 
     // Also test from_properties (without batch config) - this was the broken path
     let result2 =
-        KafkaDataWriter::from_properties("localhost:9092", "test_topic".to_string(), &props).await;
+        KafkaDataWriter::from_properties("localhost:9092", "test_topic".to_string(), &props, None)
+            .await;
 
     match result2 {
         Ok(_) => {
@@ -779,7 +784,7 @@ fn test_datasink_producer_config_properties_passed_through() {
     props.insert("topic".to_string(), "test_output".to_string());
 
     // Create sink - this should extract the producer_config properties
-    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, false);
+    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, false, None);
     let config = sink.config();
 
     println!("=== Testing datasink.producer_config.* property extraction ===");
@@ -862,7 +867,8 @@ async fn test_type_property_from_sql_causes_rdkafka_error() {
 
     // Test 1: from_properties path (no batch config)
     let result1 =
-        KafkaDataWriter::from_properties("localhost:9092", "test_topic".to_string(), &props).await;
+        KafkaDataWriter::from_properties("localhost:9092", "test_topic".to_string(), &props, None)
+            .await;
 
     println!("\n--- from_properties result ---");
     match &result1 {
@@ -893,6 +899,7 @@ async fn test_type_property_from_sql_causes_rdkafka_error() {
         "test_topic".to_string(),
         &props,
         batch_config,
+        None,
     )
     .await;
 
@@ -981,7 +988,7 @@ fn test_sink_config_excludes_type_property() {
     println!("Input props: {:?}", props);
 
     // Create sink via from_properties
-    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, false);
+    let sink = KafkaDataSink::from_properties(&props, "test_job", None, None, false, None);
     let config = sink.config();
 
     println!("Sink config: {:?}", config);

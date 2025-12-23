@@ -25,7 +25,7 @@ fn test_all_sql_files_parse() {
         "demo/datasource-demo/simple_test.sql",
         "demo/datasource-demo/test_kafka.sql",
         // Demo trading files (2)
-        "demo/trading/sql/financial_trading.sql",
+        "demo/trading/sql/financial_trading_legacy.sql",
         "demo/trading/sql/ctas_file_trading.sql",
         // Example files (12)
         "examples/ecommerce_analytics.sql",
@@ -164,7 +164,7 @@ fn test_demo_datasource_files_parse() {
 #[test]
 fn test_demo_trading_files_parse() {
     let files = vec![
-        "demo/trading/sql/financial_trading.sql",
+        "demo/trading/sql/financial_trading_legacy.sql",
         "demo/trading/sql/ctas_file_trading.sql",
     ];
 
