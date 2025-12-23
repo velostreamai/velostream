@@ -1,16 +1,60 @@
 -- =============================================================================
--- APP: Price Analytics
+-- APPLICATION: price_analytics
 -- =============================================================================
--- @app price_analytics
--- @description Price movement detection with window functions and alerts
--- @version 1.0.0
--- @depends_on app_market_data (market_data_ts)
+-- @app: price_analytics
+-- @version: 1.0.0
+-- @description: Price movement detection with window functions and alerts
+-- @phase: production
+-- @depends_on: app_market_data
+
 --
--- Pipeline Flow:
---   market_data_ts → [price_movement_alerts]
---                  → [price_movement_debug]
---                  → [price_stats]
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:price_analytics-1}
+-- @deployment.node_name: Price Analytics Pipeline
+-- @deployment.region: ${AWS_REGION:us-east-1}
+
 --
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: adaptive
+-- @batch_size: 1000
+-- @num_partitions: 8
+-- @partitioning_strategy: hash
+
+--
+-- METRICS
+-- =============================================================================
+-- @metric: velo_price_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Total price movement alerts generated"
+-- @metric_labels: symbol, movement_severity
+--
+-- @metric: velo_price_change_pct
+-- @metric_type: gauge
+-- @metric_help: "Current price change percentage"
+-- @metric_labels: symbol
+-- @metric_field: price_change_pct
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 100ms
+-- @sla.availability: 99.9%
+-- @data_retention: 7d
+-- @compliance: []
+
+--
+-- PIPELINE FLOW
+-- =============================================================================
 -- External Dependencies:
 --   - market_data_ts: From app_market_data pipeline
 --
@@ -18,13 +62,15 @@
 --   - price_alerts: Price movement alerts with severity
 --   - price_movement_debug: Debug stream for filter visibility
 --   - price_stats: Simple 1-minute price statistics
+
+-- =============================================================================
+-- SQL QUERIES
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- Stage 1: Advanced Price Movement Alerts
+-- @name: price_movement_alerts
+-- @description: Detects price movements using LAG/LEAD/RANK window functions
 -- -----------------------------------------------------------------------------
--- Uses LAG, LEAD, RANK, and other window functions to detect price movements.
--- Classifies movements as SIGNIFICANT, MODERATE, or NORMAL.
 
 CREATE STREAM price_movement_alerts AS
 SELECT
@@ -138,10 +184,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 2: Price Movement Debug Stream
+-- @name: price_movement_debug
+-- @description: Diagnostic stream showing filter condition visibility
 -- -----------------------------------------------------------------------------
--- Diagnostic stream showing filter condition visibility.
--- Useful for debugging why events pass or fail filter conditions.
 
 CREATE STREAM price_movement_debug AS
 SELECT
@@ -190,10 +235,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 3: Simple Price Statistics
+-- @name: price_stats
+-- @description: Basic 1-minute price statistics per symbol
 -- -----------------------------------------------------------------------------
--- Basic 1-minute price statistics per symbol.
--- Good for testing GROUP BY + WINDOW + EMIT CHANGES.
 
 CREATE STREAM price_stats AS
 SELECT

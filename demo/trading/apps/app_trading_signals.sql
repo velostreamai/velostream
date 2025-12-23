@@ -1,16 +1,65 @@
 -- =============================================================================
--- APP: Trading Signals
+-- APPLICATION: trading_signals
 -- =============================================================================
--- @app trading_signals
--- @description Volume analytics, order flow, and arbitrage detection
--- @version 1.0.0
--- @depends_on app_market_data (market_data_ts)
+-- @app: trading_signals
+-- @version: 1.0.0
+-- @description: Volume analytics, order flow, and arbitrage detection
+-- @phase: production
+-- @depends_on: app_market_data
+
 --
--- Pipeline Flow:
---   market_data_ts      → [volume_spike_analysis]
---   in_order_book       → [order_flow_imbalance]
---   exchange_a + b      → [arbitrage_detection]
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:trading_signals-1}
+-- @deployment.node_name: Trading Signals Pipeline
+-- @deployment.region: ${AWS_REGION:us-east-1}
+
 --
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: adaptive
+-- @batch_size: 2000
+-- @num_partitions: 16
+-- @partitioning_strategy: hash
+
+--
+-- METRICS
+-- =============================================================================
+-- @metric: velo_volume_spikes_total
+-- @metric_type: counter
+-- @metric_help: "Total volume spikes detected"
+-- @metric_labels: symbol, spike_classification
+--
+-- @metric: velo_order_imbalance_ratio
+-- @metric_type: gauge
+-- @metric_help: "Current order imbalance ratio"
+-- @metric_labels: symbol
+-- @metric_field: buy_ratio
+--
+-- @metric: velo_arbitrage_opportunities_total
+-- @metric_type: counter
+-- @metric_help: "Total arbitrage opportunities detected"
+-- @metric_labels: exchange_a, exchange_b
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 5ms
+-- @sla.availability: 99.99%
+-- @data_retention: 7d
+-- @compliance: [MiFID-II, Reg-NMS]
+
+--
+-- PIPELINE FLOW
+-- =============================================================================
 -- Input Topics:
 --   - in_order_book: Order book events
 --   - market_data_exchange_a: Exchange A market data
@@ -23,13 +72,15 @@
 --   - volume_spikes: Volume anomaly alerts
 --   - order_imbalance: Order flow imbalance signals
 --   - arbitrage_opportunities: Cross-exchange arbitrage opportunities
+
+-- =============================================================================
+-- SQL QUERIES
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- Stage 1: Volume Spike Analysis
+-- @name: volume_spike_analysis
+-- @description: Detects volume anomalies using statistical methods
 -- -----------------------------------------------------------------------------
--- Detects volume anomalies using statistical methods.
--- Includes circuit breaker logic for extreme conditions.
 
 CREATE STREAM volume_spike_analysis AS
 SELECT
@@ -119,10 +170,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 2: Order Flow Imbalance Detection
+-- @name: order_flow_imbalance
+-- @description: Detects institutional trading patterns from order book data
 -- -----------------------------------------------------------------------------
--- Detects institutional trading patterns from order book data.
--- Triggers when buy or sell side dominates (>70% of volume).
 
 CREATE STREAM order_flow_imbalance AS
 SELECT
@@ -156,10 +206,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 3: Arbitrage Opportunity Detection
+-- @name: arbitrage_detection
+-- @description: Cross-exchange price discrepancy detection
 -- -----------------------------------------------------------------------------
--- Cross-exchange price discrepancy detection.
--- Triggers when spread > 10 bps with sufficient volume.
 
 CREATE STREAM arbitrage_detection AS
 SELECT

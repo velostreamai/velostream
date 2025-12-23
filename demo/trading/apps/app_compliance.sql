@@ -1,15 +1,59 @@
 -- =============================================================================
--- APP: Compliance & Market Hours
+-- APPLICATION: compliance
 -- =============================================================================
--- @app compliance
--- @description Regulatory compliance filtering and market hours enforcement
--- @version 1.0.0
--- @depends_on app_market_data (market_data_ts)
+-- @app: compliance
+-- @version: 1.0.0
+-- @description: Regulatory compliance filtering and market hours enforcement
+-- @phase: production
+-- @depends_on: app_market_data
+
 --
--- Pipeline Flow:
---   market_data_ts → [compliant_market_data]
---                  → [active_hours_market_data]
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:compliance-1}
+-- @deployment.node_name: Compliance Pipeline
+-- @deployment.region: ${AWS_REGION:us-east-1}
+
 --
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: transactional
+-- @batch_size: 100
+-- @num_partitions: 2
+-- @partitioning_strategy: hash
+
+--
+-- METRICS
+-- =============================================================================
+-- @metric: velo_compliance_checks_total
+-- @metric_type: counter
+-- @metric_help: "Total compliance checks performed"
+-- @metric_labels: symbol, compliance_status
+--
+-- @metric: velo_blocked_trades_total
+-- @metric_type: counter
+-- @metric_help: "Total trades blocked by compliance"
+-- @metric_labels: restriction_type
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 10ms
+-- @sla.availability: 99.999%
+-- @data_retention: 365d
+-- @compliance: [OFAC, MiFID-II, SEC-Rule-613, Reg-NMS]
+
+--
+-- PIPELINE FLOW
+-- =============================================================================
 -- External Dependencies:
 --   - market_data_ts: From app_market_data pipeline
 --
@@ -21,13 +65,15 @@
 -- Output Topics:
 --   - compliant_market_data: Trades passing compliance checks
 --   - active_hours_market_data: Trades during active market hours
+
+-- =============================================================================
+-- SQL QUERIES
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- Stage 1: Compliant Market Data (EXISTS Subquery)
+-- @name: compliant_market_data
+-- @description: Filters out trades involving restricted traders or blocked instruments
 -- -----------------------------------------------------------------------------
--- Filters out trades involving restricted traders or blocked instruments.
--- Critical for OFAC compliance, insider trading prevention, sanctions enforcement.
 
 CREATE STREAM compliant_market_data AS
 SELECT
@@ -70,10 +116,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 2: Active Hours Market Data (IN/NOT IN Subquery)
+-- @name: active_hours_market_data
+-- @description: Filters market data to only include actively trading instruments
 -- -----------------------------------------------------------------------------
--- Filters market data to only include actively trading instruments.
--- Handles pre-market, regular hours, after-hours, and halted instruments.
 
 CREATE STREAM active_hours_market_data AS
 SELECT

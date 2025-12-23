@@ -1,15 +1,60 @@
 -- =============================================================================
--- APP: Market Data Pipeline
+-- APPLICATION: market_data_pipeline
 -- =============================================================================
--- @app market_data_pipeline
--- @description Core market data processing: ingestion → OHLCV → enrichment
--- @version 1.0.0
+-- @app: market_data_pipeline
+-- @version: 1.0.0
+-- @description: Core market data processing - ingestion, OHLCV candles, and enrichment
+-- @phase: production
+
+--
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:market_data-1}
+-- @deployment.node_name: Market Data Pipeline
+-- @deployment.region: ${AWS_REGION:us-east-1}
+
+--
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+
+--
+-- JOB PROCESSING
+-- =============================================================================
 -- @job_mode: simple
+-- @batch_size: 5000
+-- @num_partitions: 16
+-- @partitioning_strategy: hash
+
 --
--- Pipeline Flow:
---   in_market_data → [market_data_ts] → [tick_buckets]
---                                     → [enriched_market_data]
+-- METRICS
+-- =============================================================================
+-- @metric: velo_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total market data records processed"
+-- @metric_labels: symbol, exchange
 --
+-- @metric: velo_market_data_latency_ms
+-- @metric_type: histogram
+-- @metric_help: "Processing latency in milliseconds"
+-- @metric_labels: symbol
+-- @metric_field: processing_latency
+-- @metric_buckets: [1, 5, 10, 25, 50, 100, 250, 500]
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 50ms
+-- @sla.availability: 99.99%
+-- @data_retention: 30d
+-- @compliance: [MiFID-II, SEC-Rule-613]
+
+--
+-- PIPELINE FLOW
+-- =============================================================================
 -- Input Topics:
 --   - in_market_data: Raw market data feed
 --
@@ -20,13 +65,15 @@
 --
 -- Reference Tables:
 --   - instrument_reference: Instrument metadata for enrichment
+
+-- =============================================================================
+-- SQL QUERIES
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- Stage 1: Market Data with Event Time
+-- @name: market_data_ts
+-- @description: Ingests raw market data with event-time watermarks
 -- -----------------------------------------------------------------------------
--- Ingests raw market data and adds event-time processing with watermarks.
--- This is the foundation stream that all other market data apps depend on.
 
 CREATE STREAM market_data_ts AS
 SELECT
@@ -64,10 +111,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 2: Tick Buckets (1-second OHLCV)
+-- @name: tick_buckets
+-- @description: Aggregates market data into 1-second OHLCV candles
 -- -----------------------------------------------------------------------------
--- Aggregates market data into 1-second OHLCV candles.
--- Useful for charting and downstream analytics.
 
 CREATE STREAM tick_buckets AS
 SELECT
@@ -98,10 +144,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 3: Enriched Market Data (Stream-Table Join)
+-- @name: enriched_market_data
+-- @description: Enriches market data with instrument metadata via stream-table join
 -- -----------------------------------------------------------------------------
--- Enriches market data with instrument metadata from reference table.
--- Demonstrates the classic lookup pattern for real-time data enrichment.
 
 CREATE STREAM enriched_market_data AS
 SELECT

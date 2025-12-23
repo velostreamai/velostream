@@ -1,15 +1,66 @@
 -- =============================================================================
--- APP: Risk Monitoring
+-- APPLICATION: risk_monitoring
 -- =============================================================================
--- @app risk_monitoring
--- @description Real-time risk management with position tracking and limits
--- @version 1.0.0
--- @depends_on app_market_data (market_data_ts)
+-- @app: risk_monitoring
+-- @version: 1.0.0
+-- @description: Real-time risk management with position tracking and limits
+-- @phase: production
+-- @depends_on: app_market_data
+
 --
--- Pipeline Flow:
---   in_trading_positions → [trading_positions_ts] → [comprehensive_risk_monitor]
---                                                 → [risk_hierarchy_validation]
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:risk_monitoring-1}
+-- @deployment.node_name: Risk Monitoring Pipeline
+-- @deployment.region: ${AWS_REGION:us-east-1}
+
 --
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true
+-- @observability.tracing.enabled: true
+-- @observability.profiling.enabled: prod
+-- @observability.error_reporting.enabled: true
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: transactional
+-- @batch_size: 500
+-- @num_partitions: 4
+-- @partitioning_strategy: hash
+
+--
+-- METRICS
+-- =============================================================================
+-- @metric: velo_risk_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Total risk alerts generated"
+-- @metric_labels: trader_id, risk_classification
+--
+-- @metric: velo_position_exposure
+-- @metric_type: gauge
+-- @metric_help: "Current position exposure value"
+-- @metric_labels: trader_id, symbol
+-- @metric_field: total_exposure
+--
+-- @metric: velo_pnl_cumulative
+-- @metric_type: gauge
+-- @metric_help: "Cumulative P&L by trader"
+-- @metric_labels: trader_id
+-- @metric_field: cumulative_pnl
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 25ms
+-- @sla.availability: 99.999%
+-- @data_retention: 90d
+-- @compliance: [SOX, Basel-III, Dodd-Frank]
+
+--
+-- PIPELINE FLOW
+-- =============================================================================
 -- Input Topics:
 --   - trading_positions: Raw position updates
 --
@@ -25,13 +76,15 @@
 --   - trading_positions_ts: Event-time processed positions
 --   - risk_alerts: Real-time risk alerts
 --   - risk_hierarchy_validation: Multi-tier limit validation
+
+-- =============================================================================
+-- SQL QUERIES
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- Stage 1: Trading Positions with Event Time
+-- @name: trading_positions_ts
+-- @description: Ingests raw position updates with event-time processing
 -- -----------------------------------------------------------------------------
--- Ingests raw position updates and adds event-time processing.
--- Foundation for all risk monitoring streams.
 
 CREATE STREAM trading_positions_ts AS
 SELECT
@@ -63,10 +116,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 2: Comprehensive Risk Monitor
+-- @name: comprehensive_risk_monitor
+-- @description: Joins positions with market data for real-time risk calculations
 -- -----------------------------------------------------------------------------
--- Joins positions with market data for real-time risk calculations.
--- Generates alerts for limit breaches and high-risk profiles.
 
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
@@ -171,10 +223,9 @@ WITH (
 );
 
 -- -----------------------------------------------------------------------------
--- Stage 3: Risk Hierarchy Validation
+-- @name: risk_hierarchy_validation
+-- @description: Multi-tier hierarchical risk limit validation (firm → desk → trader)
 -- -----------------------------------------------------------------------------
--- Multi-tier hierarchical risk limit validation (firm → desk → trader).
--- Uses reference tables for limit lookups.
 
 CREATE STREAM risk_hierarchy_validation AS
 SELECT
