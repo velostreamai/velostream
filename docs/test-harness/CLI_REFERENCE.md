@@ -8,15 +8,87 @@ Complete reference for the `velo-test` command-line interface.
 velo-test <COMMAND> [OPTIONS]
 ```
 
-## Commands
+## Global Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--verbose` | `-v` | Enable verbose output |
+| `--help` | `-h` | Print help |
+| `--version` | `-V` | Print version |
+
+## Commands Overview
+
+Commands are listed in recommended workflow order:
 
 | Command | Description |
 |---------|-------------|
-| `validate` | Validate SQL syntax without running tests |
-| `run` | Run tests against a SQL application |
+| `quickstart` | Interactive wizard - guides you through testing a SQL file |
+| `validate` | Validate SQL syntax without execution |
 | `init` | Generate test specification from SQL file |
-| `infer-schema` | Infer schema from sample data |
+| `infer-schema` | Infer schemas from sample data files |
+| `run` | Run tests against a SQL application |
+| `debug` | Interactive debugger with stepping and breakpoints |
 | `stress` | Run stress/performance tests |
+| `annotate` | Generate SQL annotations and monitoring configs |
+| `scaffold` | Generate velo-test.sh runner script |
+
+## Non-Interactive Mode
+
+All commands that prompt for input support `-y` / `--yes` to skip prompts and use sensible defaults:
+
+```bash
+velo-test run app.sql -y           # Auto-discover spec, no prompts
+velo-test init app.sql -y          # Generate with defaults
+velo-test stress app.sql -y        # 100k records, 60s duration
+velo-test annotate app.sql -y      # Infer name from filename
+velo-test scaffold . -y            # Use all auto-detected values
+```
+
+---
+
+## velo-test quickstart
+
+Interactive wizard that guides new users through the complete testing workflow.
+
+```bash
+velo-test quickstart <SQL_FILE>
+```
+
+### What It Does
+
+1. **Validates SQL syntax** - Checks for parse errors
+2. **Discovers existing artifacts** - Finds specs, schemas, data files
+3. **Generates test spec** - Creates or uses existing spec (with save option)
+4. **Guides schema setup** - Explains how to add schemas if missing
+5. **Runs tests** - Optionally executes tests immediately
+
+### Example
+
+```bash
+$ velo-test quickstart my_app.sql
+
+🚀 Velostream Test Harness - Quickstart Wizard
+════════════════════════════════════════════════
+
+📋 Step 1/5: Validating SQL syntax
+✅ All 3 statements are valid
+
+📋 Step 2/5: Checking existing test artifacts
+○ No test spec found (will generate)
+✓ Found schemas: ./schemas
+○ No data dir found (optional)
+
+📋 Step 3/5: Test specification
+📝 Generated test spec with 2 queries
+Save test spec to my_app.test.yaml? [Y/n]: y
+✅ Saved: my_app.test.yaml
+
+📋 Step 4/5: Schema generation (optional)
+✓ Using existing schemas
+
+📋 Step 5/5: Ready to test!
+🎉 Setup complete! Run tests now? [Y/n]: y
+```
 
 ---
 
@@ -28,110 +100,18 @@ Validate SQL syntax without running against infrastructure.
 velo-test validate <SQL_FILE> [OPTIONS]
 ```
 
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `SQL_FILE` | Path to SQL application file |
-
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `--verbose`, `-v` | Show detailed validation output |
-| `--strict` | Enable strict validation mode |
-
-### Examples
-
-```bash
-# Basic validation
-velo-test validate app.sql
-
-# Verbose output
-velo-test validate app.sql --verbose
-```
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Validation passed |
-| 1 | Validation failed |
-
----
-
-## velo-test run
-
-Run tests against a SQL application.
-
-```bash
-velo-test run <SQL_FILE> [OPTIONS]
-```
-
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `SQL_FILE` | Path to SQL application file |
-
 ### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--spec` | `-s` | Path to test specification YAML file |
-| `--query` | `-q` | Run only specific query by name |
-| `--schemas` | | Directory containing schema files |
-| `--data` | | Directory containing static test data |
-| `--output` | `-o` | Output format: `text`, `json`, `junit` |
-| `--timeout-ms` | | Global timeout override in milliseconds |
-| `--records` | `-r` | Override default record count |
-| `--verbose` | `-v` | Enable verbose output |
-| `--no-topic-prefix` | | Don't prefix topics with run ID |
-| `--bootstrap-servers` | | Kafka bootstrap servers (overrides spec) |
-| `--seed` | | Random seed for reproducibility |
-| `--keep-containers` | | Keep testcontainers running after test (for debugging) |
+| `--verbose` | `-v` | Show detailed validation output |
 
 ### Examples
 
 ```bash
-# Run with test spec
-velo-test run app.sql --spec test_spec.yaml
-
-# Run specific query
-velo-test run app.sql --spec test_spec.yaml --query my_query
-
-# JSON output
-velo-test run app.sql --spec test_spec.yaml --output json
-
-# JUnit XML for CI
-velo-test run app.sql --spec test_spec.yaml --output junit > results.xml
-
-# Custom timeout
-velo-test run app.sql --spec test_spec.yaml --timeout-ms 60000
-
-# Override record count
-velo-test run app.sql --spec test_spec.yaml --records 5000
-
-# Verbose debugging
-RUST_LOG=debug velo-test run app.sql --spec test_spec.yaml --verbose
-
-# Custom Kafka
-velo-test run app.sql --spec test_spec.yaml --bootstrap-servers kafka:9092
-
-# Reproducible runs
-velo-test run app.sql --spec test_spec.yaml --seed 42
-
-# Keep containers for debugging (use 'docker ps' to find, 'docker stop' to cleanup)
-velo-test run app.sql --spec test_spec.yaml --keep-containers
+velo-test validate app.sql
+velo-test validate app.sql --verbose
 ```
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | All tests passed |
-| 1 | One or more tests failed |
-| 2 | Configuration or runtime error |
 
 ---
 
@@ -143,137 +123,212 @@ Generate a test specification from a SQL file.
 velo-test init <SQL_FILE> [OPTIONS]
 ```
 
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `SQL_FILE` | Path to SQL application file |
-
 ### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--output` | `-o` | Output path for generated spec (default: stdout) |
+| `--output` | `-o` | Output path (default: prompts or `<name>.test.yaml`) |
 | `--ai` | | Use AI to generate intelligent assertions |
-| `--schemas` | | Directory containing existing schemas |
-| `--infer-schemas` | | Infer schemas from SQL and sample data |
-| `--data-dir` | | Directory with sample data for inference |
+| `--yes` | `-y` | Skip prompts, use defaults |
+
+### Auto-Discovery
+
+When `--output` is not specified:
+- **Interactive mode**: Prompts for output path with sensible default
+- **With `-y`**: Uses `<sqlname>.test.yaml` in SQL file directory
 
 ### Examples
 
 ```bash
-# Generate basic spec
+# Interactive mode
+velo-test init app.sql
+
+# Non-interactive with defaults
+velo-test init app.sql -y
+
+# Specify output
 velo-test init app.sql --output test_spec.yaml
 
-# AI-assisted generation
+# AI-assisted
 velo-test init app.sql --ai --output test_spec.yaml
-
-# With existing schemas
-velo-test init app.sql --schemas ./schemas --output test_spec.yaml
-
-# Infer schemas from data
-velo-test init app.sql --infer-schemas --data-dir ./data --output test_spec.yaml
 ```
-
-### Generated Spec Structure
-
-The generated spec includes:
-- Detected queries from SQL
-- Default input configurations
-- Basic assertions (record_count, schema_contains, no_nulls)
-- Default timeout values
 
 ---
 
 ## velo-test infer-schema
 
-Infer schema definitions from sample data.
+Infer schema definitions from sample data files.
 
 ```bash
 velo-test infer-schema <SQL_FILE> [OPTIONS]
 ```
 
-### Arguments
+### Options
 
-| Argument | Description |
-|----------|-------------|
-| `SQL_FILE` | Path to SQL application file |
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--data-dir` | `-d` | Directory containing CSV/JSON files (auto-discovered) |
+| `--output` | `-o` | Output directory for schemas (default: `schemas/`) |
+| `--yes` | `-y` | Skip prompts, use defaults |
+
+### Auto-Discovery
+
+Automatically searches for data in:
+- `./data/` (relative to SQL file)
+- `../data/` (parent directory)
+
+### Examples
+
+```bash
+# Auto-discover data directory
+velo-test infer-schema app.sql
+
+# Specify directories
+velo-test infer-schema app.sql --data-dir ./sample_data --output ./schemas
+
+# Non-interactive
+velo-test infer-schema app.sql -y
+```
+
+---
+
+## velo-test run
+
+Run tests against a SQL application.
+
+```bash
+velo-test run <SQL_FILE> [OPTIONS]
+```
 
 ### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--data-dir` | `-d` | Directory containing sample data files |
-| `--output` | `-o` | Output directory for generated schemas |
-| `--format` | | Data file format: `csv`, `json`, `json_lines` |
-| `--ai` | | Use AI for enhanced inference |
-| `--sample-size` | | Number of records to sample (default: 1000) |
+| `--spec` | `-s` | Test specification file (auto-discovered) |
+| `--schemas` | | Schema directory (auto-discovered) |
+| `--query` | `-q` | Run only specific query by name |
+| `--output` | `-o` | Output format: `text`, `json`, `junit` |
+| `--timeout-ms` | | Timeout per query (default: 30000) |
+| `--kafka` | | External Kafka bootstrap servers |
+| `--keep-containers` | | Keep testcontainers running after test |
+| `--step` | | Execute statements one at a time |
+| `--yes` | `-y` | Skip prompts, use auto-discovered values |
+
+### Auto-Discovery
+
+When `--spec` is not provided:
+1. Searches for `<sqlname>.test.yaml`, `<sqlname>.spec.yaml`, `test_spec.yaml`
+2. If not found, offers to generate from SQL (with save option)
+3. With `-y`: auto-generates without prompting
 
 ### Examples
 
 ```bash
-# Infer from CSV files
-velo-test infer-schema app.sql --data-dir ./data --output ./schemas
+# Auto-discover everything
+velo-test run app.sql
 
-# JSON Lines format
-velo-test infer-schema app.sql --data-dir ./data --output ./schemas --format json_lines
+# Non-interactive (CI/CD friendly)
+velo-test run app.sql -y
 
-# AI-enhanced inference
-velo-test infer-schema app.sql --data-dir ./data --output ./schemas --ai
+# Specify spec file
+velo-test run app.sql --spec test_spec.yaml
 
-# Custom sample size
-velo-test infer-schema app.sql --data-dir ./data --output ./schemas --sample-size 5000
+# Run single query
+velo-test run app.sql --query my_query
+
+# JUnit output for CI
+velo-test run app.sql -y --output junit > results.xml
+
+# Step-by-step execution
+velo-test run app.sql --step
+
+# External Kafka
+velo-test run app.sql --kafka kafka:9092
 ```
 
-### Inference Capabilities
+---
 
-- **Type detection**: Integer, decimal, string, boolean, timestamp
-- **Constraint inference**: Min/max ranges, enum values
-- **Distribution analysis**: Uniform, normal, log-normal patterns
-- **Pattern detection**: Email, UUID, phone number formats
+## velo-test debug
+
+Interactive SQL debugger with stepping, breakpoints, and inspection.
+
+```bash
+velo-test debug <SQL_FILE> [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--spec` | `-s` | Test specification file (auto-discovered) |
+| `--schemas` | | Schema directory (auto-discovered) |
+| `--breakpoint` | `-b` | Set breakpoint on query (can repeat) |
+| `--timeout-ms` | | Timeout per query (default: 30000) |
+| `--kafka` | | External Kafka bootstrap servers |
+| `--keep-containers` | | Keep containers running after exit |
+| `--yes` | `-y` | Skip prompts, use auto-discovered values |
+
+### Debug Commands
+
+Once in the debugger, use these commands:
+
+| Command | Description |
+|---------|-------------|
+| `step` / `s` | Execute next statement |
+| `continue` / `c` | Run until breakpoint or end |
+| `breakpoint <name>` | Set breakpoint on query |
+| `list` / `l` | Show all statements |
+| `show` | Show current statement |
+| `output` | Show last output records |
+| `filter <field> <op> <value>` | Filter output records |
+| `export <format> <path>` | Export output (csv, json) |
+| `help` | Show available commands |
+| `quit` / `q` | Exit debugger |
+
+### Examples
+
+```bash
+# Start debugger
+velo-test debug app.sql
+
+# With breakpoints
+velo-test debug app.sql -b query1 -b query2
+
+# Non-interactive setup
+velo-test debug app.sql -y
+```
 
 ---
 
 ## velo-test stress
 
-Run stress/performance tests.
+Run stress/performance tests with high volume.
 
 ```bash
 velo-test stress <SQL_FILE> [OPTIONS]
 ```
 
-### Arguments
-
-| Argument | Description |
-|----------|-------------|
-| `SQL_FILE` | Path to SQL application file |
-
 ### Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--records` | `-r` | Total records to generate (default: 100000) |
-| `--duration` | `-d` | Test duration in seconds (default: 60) |
-| `--rate` | | Target records per second |
-| `--schemas` | | Directory containing schemas |
-| `--report-interval` | | Seconds between progress reports (default: 5) |
+| `--spec` | `-s` | Test specification (auto-discovered) |
+| `--records` | | Records per source (default: 100000) |
+| `--duration` | | Max duration in seconds (default: 60) |
 | `--output` | `-o` | Output format: `text`, `json` |
-| `--memory-tracking` | | Enable memory tracking (may impact performance) |
+| `--yes` | `-y` | Skip prompts, use defaults |
 
 ### Examples
 
 ```bash
-# Basic stress test
-velo-test stress app.sql --records 100000 --duration 60
+# Default stress test (100k records, 60s)
+velo-test stress app.sql -y
 
-# Sustained rate test
-velo-test stress app.sql --rate 10000 --duration 300
-
-# With memory tracking
-velo-test stress app.sql --records 100000 --memory-tracking
+# Custom volume
+velo-test stress app.sql --records 1000000 --duration 120
 
 # JSON output for analysis
-velo-test stress app.sql --records 100000 --output json > stress_results.json
+velo-test stress app.sql --output json > stress.json
 ```
 
 ### Output Metrics
@@ -285,160 +340,168 @@ velo-test stress app.sql --records 100000 --output json > stress_results.json
 
 ---
 
+## velo-test annotate
+
+Generate SQL annotations and monitoring infrastructure.
+
+```bash
+velo-test annotate <SQL_FILE> [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Output path for annotated SQL |
+| `--name` | `-n` | Application name (default: inferred from filename) |
+| `--version` | | Application version (default: 1.0.0) |
+| `--monitoring` | `-m` | Directory for monitoring configs |
+| `--yes` | `-y` | Skip prompts, use defaults |
+
+### What It Generates
+
+**Annotated SQL** (`*.annotated.sql`):
+- `@app`, `@version`, `@description` annotations
+- `@metric` annotations for aggregations
+- `@observability` settings
+
+**Monitoring configs** (when `--monitoring` specified):
+- `prometheus.yml` - Scrape configuration
+- `grafana/dashboards/*.json` - Auto-generated dashboards
+- `grafana/provisioning/` - Datasource configs
+- `tempo/tempo.yaml` - Tracing configuration
+
+### Examples
+
+```bash
+# Interactive mode
+velo-test annotate app.sql
+
+# Non-interactive
+velo-test annotate app.sql -y
+
+# Generate monitoring stack
+velo-test annotate app.sql --monitoring ./monitoring
+
+# Custom app name
+velo-test annotate app.sql --name my_app --version 2.0.0
+```
+
+---
+
+## velo-test scaffold
+
+Generate a `velo-test.sh` runner script for a project.
+
+```bash
+velo-test scaffold [DIRECTORY] [OPTIONS]
+```
+
+### Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--output` | `-o` | Output script path (default: `<dir>/velo-test.sh`) |
+| `--name` | `-n` | Project name (default: directory name) |
+| `--style` | | Force style: `simple`, `tiered`, `minimal` |
+| `--velo-test-path` | | Path to velo-test binary |
+| `--yes` | `-y` | Skip prompts, use auto-detected values |
+
+### Auto-Detection
+
+The scaffold command analyzes your directory structure:
+
+| Pattern | Detected Style |
+|---------|----------------|
+| `tier*_*/` directories | tiered |
+| `apps/*.sql` + `tests/` | simple |
+| Single SQL file | minimal |
+
+### Examples
+
+```bash
+# Interactive mode
+velo-test scaffold demo/trading/
+
+# Non-interactive
+velo-test scaffold demo/trading/ -y
+
+# Force specific style
+velo-test scaffold . --style tiered
+
+# Custom output
+velo-test scaffold . --output run-tests.sh --name "My Project"
+```
+
+### Generated Script Features
+
+**Tiered style**:
+- `./velo-test.sh run` - Run all tiers
+- `./velo-test.sh tier1` - Run specific tier
+- `./velo-test.sh validate` - Validate all SQL
+
+**Simple style**:
+- `./velo-test.sh` - List apps
+- `./velo-test.sh <app>` - Run specific app
+- `./velo-test.sh all` - Run all apps
+
+---
+
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `RUST_LOG` | Logging level (debug, info, warn, error) |
-| `VELO_TEST_KAFKA` | Default Kafka bootstrap servers |
-| `VELO_TEST_TIMEOUT` | Default timeout in milliseconds |
-| `OPENAI_API_KEY` | API key for AI features |
+| `VELOSTREAM_KAFKA_BROKERS` | Default Kafka bootstrap servers |
+| `ANTHROPIC_API_KEY` | API key for AI features (required for `--ai` flag) |
 
 ### Logging Examples
 
 ```bash
-# Debug all modules
-RUST_LOG=debug velo-test run app.sql --spec test_spec.yaml
+# Debug all
+RUST_LOG=debug velo-test run app.sql
 
 # Debug specific module
-RUST_LOG=velostream::test_harness=debug velo-test run app.sql --spec test_spec.yaml
-
-# Info level with warnings
-RUST_LOG=info,warn velo-test run app.sql --spec test_spec.yaml
-```
-
----
-
-## Configuration File
-
-Default configuration can be set in `~/.config/velo-test/config.yaml`:
-
-```yaml
-# Default settings
-defaults:
-  timeout_ms: 30000
-  records: 1000
-  output: text
-
-# Kafka settings
-kafka:
-  bootstrap_servers: localhost:9092
-
-# AI settings (optional)
-ai:
-  model: gpt-4
-  # API key should be in OPENAI_API_KEY env var
+RUST_LOG=velostream::test_harness=debug velo-test run app.sql
 ```
 
 ---
 
 ## Common Workflows
 
+### New User Workflow
+
+```bash
+# Use the quickstart wizard
+velo-test quickstart my_app.sql
+```
+
 ### Development Workflow
 
 ```bash
-# 1. Validate SQL during development
+# 1. Validate during development
 velo-test validate app.sql
 
-# 2. Generate initial test spec
-velo-test init app.sql --output test_spec.yaml
+# 2. Generate test spec
+velo-test init app.sql
 
-# 3. Run tests locally
-velo-test run app.sql --spec test_spec.yaml --verbose
+# 3. Run tests
+velo-test run app.sql
 
-# 4. Fix failures and re-run
-velo-test run app.sql --spec test_spec.yaml --query failed_query
+# 4. Debug failures
+velo-test debug app.sql
 ```
 
 ### CI/CD Workflow
 
 ```bash
-# Run tests with JUnit output
-velo-test run app.sql --spec test_spec.yaml --output junit > test-results.xml
-
-# Exit code indicates pass/fail
-if [ $? -eq 0 ]; then
-  echo "Tests passed"
-else
-  echo "Tests failed"
-  exit 1
-fi
+# Non-interactive with JUnit output
+velo-test run app.sql -y --output junit > results.xml
 ```
 
 ### Performance Workflow
 
 ```bash
-# 1. Run baseline stress test
-velo-test stress app.sql --records 100000 --output json > baseline.json
-
-# 2. Make changes...
-
-# 3. Run comparison stress test
-velo-test stress app.sql --records 100000 --output json > after.json
-
-# 4. Compare results
-diff baseline.json after.json
-```
-
----
-
-## velo-test.sh Helper Script
-
-The `demo/test_harness_examples/velo-test.sh` script provides convenient wrappers for running tests.
-
-### Usage
-
-```bash
-# From test_harness_examples directory:
-./velo-test.sh                    # Run all tiers
-./velo-test.sh validate           # Validate all SQL
-./velo-test.sh getting_started    # Run specific tier
-./velo-test.sh menu               # Interactive SQL file selection
-./velo-test.sh cases              # Interactive SQL + test case selection
-
-# From a subdirectory (e.g., getting_started):
-../velo-test.sh .                 # Run current directory
-../velo-test.sh cases             # Interactive: SQL file → test case
-../velo-test.sh . -q <name>       # Run specific test case by name
-```
-
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `--kafka <servers>` | Use external Kafka instead of testcontainers |
-| `--timeout <ms>` | Timeout per query in milliseconds |
-| `--output <format>` | Output format: text, json, junit |
-| `-q, --query <name>` | Run only a specific test case by name |
-
-### Interactive Modes
-
-**`menu` mode** - Select SQL file only:
-```
-Select a SQL file to run:
-  1) tier1_basic/01_passthrough.sql
-  2) tier1_basic/02_projection.sql
-  ...
-```
-
-**`cases` mode** - Two-step selection:
-```
-Step 1: Select SQL file to run:
-  1) sql/market_aggregation.sql
-  ...
-
-Step 2: Select test case to run:
-  1) market_aggregates
-  2) market_aggregates_high_volume
-  a) Run ALL test cases
-```
-
-### Examples
-
-```bash
-# Run specific test case directly
-../velo-test.sh . --query market_aggregates_high_volume
-
-# Interactive selection
-../velo-test.sh cases
+# Run stress test
+velo-test stress app.sql --records 100000 --output json > results.json
 ```

@@ -2,6 +2,25 @@
 
 This tutorial walks you through creating and running your first test for a Velostream SQL application.
 
+## Quick Start (TL;DR)
+
+If you already have a SQL file and just want to get testing:
+
+```bash
+# Interactive wizard - guides you through everything
+velo-test quickstart my_app.sql
+```
+
+The quickstart wizard will:
+1. ✅ Validate your SQL syntax
+2. 📁 Find or generate a test spec
+3. 📊 Set up schemas (if available)
+4. 🧪 Run your first tests
+
+For more control, continue with the full tutorial below.
+
+---
+
 ## Prerequisites
 
 ### Option A: From Source (Current)
@@ -231,6 +250,7 @@ velo-test run sql/market_aggregation.sql --spec test_spec.yaml --output junit > 
 ## Next Steps
 
 - [User Guide](./USER_GUIDE.md) - Complete reference for all features
+- [CLI Reference](./CLI_REFERENCE.md) - All CLI commands including `scaffold`
 - [Assertions Reference](./ASSERTIONS.md) - All assertion types
 - [Schema Reference](./SCHEMAS.md) - Schema definition format
 - [Quick Reference](./QUICK_REFERENCE.md) - Cheat sheet
@@ -292,3 +312,28 @@ Complete working examples are in `demo/test_harness_examples/`:
 cd demo/test_harness_examples/getting_started
 ../../../target/release/velo-test run ./sql/market_aggregation.sql --spec ./test_spec.yaml
 ```
+
+## Generate a Runner Script
+
+Once your project is set up, generate a `velo-test.sh` runner script to simplify running tests:
+
+```bash
+# Generate runner script for your project
+velo-test scaffold my_first_test/
+
+# The generated script provides convenient commands:
+cd my_first_test
+./velo-test.sh                    # Run tests
+./velo-test.sh validate           # Validate SQL only
+./velo-test.sh --help             # Show all options
+```
+
+The scaffold command automatically detects your project structure and generates an appropriate script:
+
+| Project Structure | Generated Script Style |
+|-------------------|------------------------|
+| `apps/*.sql` + `tests/*.yaml` | App-based runner (select by app name) |
+| `tier*_*/` directories | Tiered runner (run by tier) |
+| Single SQL file | Minimal runner |
+
+See the [CLI Reference](./CLI_REFERENCE.md#velo-test-scaffold) for all scaffold options.

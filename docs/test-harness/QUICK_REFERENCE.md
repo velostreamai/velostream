@@ -1,32 +1,69 @@
 # Test Harness Quick Reference
 
-## CLI Commands
+## Getting Started
 
 ```bash
-# Run tests
-velo-test run app.sql --spec test_spec.yaml
+# Interactive quickstart wizard (recommended for new users)
+velo-test quickstart app.sql
+```
 
-# Run single query
-velo-test run app.sql --spec test_spec.yaml --query my_query
+The quickstart wizard guides you through:
+1. Validating SQL syntax
+2. Finding/generating test specs
+3. Setting up schemas
+4. Running your first tests
 
-# Validate SQL only
+## CLI Commands (Workflow Order)
+
+```bash
+# 1. Validate SQL syntax
 velo-test validate app.sql
 
-# Generate test spec
-velo-test init app.sql --output test_spec.yaml
+# 2. Generate test spec
+velo-test init app.sql                            # Interactive mode
+velo-test init app.sql -y                         # Use defaults
+velo-test init app.sql --output test_spec.yaml    # Specify output
 
-# AI-assisted init
-velo-test init app.sql --ai --output test_spec.yaml
+# 3. Infer schemas from data files
+velo-test infer-schema app.sql                    # Auto-discover data/
+velo-test infer-schema app.sql --data-dir data/   # Specify directory
 
-# Infer schemas
-velo-test infer-schema app.sql --data-dir data/ --output schemas/
+# 4. Run tests
+velo-test run app.sql                             # Auto-discover spec
+velo-test run app.sql --spec test_spec.yaml       # Specify spec
+velo-test run app.sql --query my_query            # Run single query
 
-# Stress test
-velo-test stress app.sql --records 100000 --duration 60
+# 5. Debug failures
+velo-test debug app.sql                           # Interactive debugger
 
-# Output formats
-velo-test run app.sql --spec test_spec.yaml --output json
-velo-test run app.sql --spec test_spec.yaml --output junit > results.xml
+# 6. Stress test
+velo-test stress app.sql                          # Use defaults (100k records)
+velo-test stress app.sql --records 1000000        # Custom record count
+
+# 7. Add observability
+velo-test annotate app.sql                        # Interactive mode
+velo-test annotate app.sql --monitoring ./mon     # Generate monitoring configs
+
+# 8. Generate CI/CD script
+velo-test scaffold .                              # Current directory
+```
+
+## Non-Interactive Mode (`-y` flag)
+
+All commands support `-y` to skip prompts and use sensible defaults:
+
+```bash
+velo-test run app.sql -y           # Auto-discover, no prompts
+velo-test init app.sql -y          # Generate with defaults
+velo-test stress app.sql -y        # 100k records, 60s duration
+velo-test annotate app.sql -y      # Infer app name from filename
+```
+
+## Output Formats
+
+```bash
+velo-test run app.sql --output json     # JSON output
+velo-test run app.sql --output junit    # JUnit XML for CI/CD
 ```
 
 ## Schema Field Types
@@ -196,4 +233,61 @@ my_app/
 ├── data/*.csv
 ├── configs/*.yaml
 └── test_spec.yaml
+```
+
+## SQL Annotations (Annotate Command)
+
+The `annotate` command analyzes SQL and generates:
+- Annotation templates based on query analysis
+- Prometheus/Grafana/Tempo monitoring infrastructure
+
+### Auto-Generated Metrics
+
+| Query Pattern | Metric Type | Example |
+|--------------|-------------|---------|
+| `COUNT(*)` | counter | `velo_app_query_count` |
+| `SUM(field)` | gauge | `velo_app_total_amount` |
+| `AVG(field)` | gauge | `velo_app_avg_price` |
+| Window + latency field | histogram | `velo_app_latency_seconds` |
+
+### Generated Monitoring Files
+
+```
+monitoring/
+├── prometheus.yml                        # Scrape configs
+├── grafana/
+│   ├── dashboards/
+│   │   └── app-dashboard.json           # Auto-generated panels
+│   └── provisioning/
+│       ├── dashboards/dashboard.yml     # Dashboard provisioning
+│       └── datasources/
+│           ├── prometheus.yml           # Prometheus datasource
+│           └── tempo.yml                # Tempo tracing
+└── tempo/
+    └── tempo.yaml                       # Tracing config
+```
+
+### Annotation Categories
+
+```sql
+-- @app, @version, @description, @phase
+
+-- Deployment
+-- @deployment.node_id, @deployment.node_name, @deployment.region
+
+-- Observability
+-- @observability.metrics.enabled, @observability.tracing.enabled
+-- @observability.profiling.enabled (off, dev, prod)
+
+-- Job Processing
+-- @job_mode (simple, transactional, adaptive)
+-- @batch_size, @num_partitions, @partitioning_strategy
+
+-- Metrics
+-- @metric, @metric_type (counter, gauge, histogram)
+-- @metric_help, @metric_labels, @metric_field, @metric_buckets
+
+-- SLA
+-- @sla.latency.p99, @sla.availability
+-- @data_retention, @compliance
 ```

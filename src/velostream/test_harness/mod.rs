@@ -80,6 +80,7 @@
 #![allow(unused_imports)]
 
 pub mod ai;
+pub mod annotate;
 pub mod assertions;
 pub mod capture;
 pub mod cli;
@@ -94,6 +95,7 @@ pub mod inference;
 pub mod infra;
 pub mod log_capture;
 pub mod report;
+pub mod scaffold;
 pub mod schema;
 pub mod spec;
 pub mod spec_generator;
@@ -103,6 +105,9 @@ pub mod table_state;
 pub mod utils;
 
 // Re-export main types for convenience - used by velo-test binary
+pub use annotate::{
+    AnnotateConfig, Annotator, DetectedMetric, MetricType, QueryAnalysis, QueryType, SqlAnalysis,
+};
 pub use config_override::{ConfigOverrideBuilder, ConfigOverrides};
 pub use dlq::{CapturedDlqOutput, DlqCapture, DlqConfig, DlqRecord, DlqStatistics, ErrorType};
 pub use error::TestHarnessError;
@@ -116,6 +121,7 @@ pub use log_capture::{
     init_capturing_logger, init_capturing_logger_with_level, is_capture_enabled,
     recent_entries as recent_log_entries, set_capture_enabled, stats as log_stats, warnings_since,
 };
+pub use scaffold::{DetectedStructure, ScaffoldConfig, ScaffoldStyle, Scaffolder};
 pub use schema::Schema;
 pub use spec::{
     FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec,

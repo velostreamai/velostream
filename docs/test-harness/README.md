@@ -28,18 +28,33 @@ The test harness enables you to:
 ## Quick Start
 
 ```bash
-# Validate SQL syntax
-velo-test validate my_app.sql
+# Interactive quickstart wizard (recommended for new users)
+velo-test quickstart my_app.sql
 
-# Run tests with a spec file
-velo-test run my_app.sql --spec test_spec.yaml
+# Or step-by-step:
+velo-test validate my_app.sql              # 1. Check syntax
+velo-test init my_app.sql                  # 2. Generate test spec
+velo-test run my_app.sql                   # 3. Run tests (auto-discovers spec)
 
-# Generate a test spec from SQL
-velo-test init my_app.sql --output test_spec.yaml
-
-# Run stress tests
-velo-test stress my_app.sql --records 100000 --duration 60
+# Non-interactive mode for CI/CD
+velo-test run my_app.sql -y --output junit > results.xml
 ```
+
+### All Commands
+
+| Command | Description |
+|---------|-------------|
+| `quickstart` | Interactive wizard - guides you through testing |
+| `validate` | Check SQL syntax |
+| `init` | Generate test spec |
+| `infer-schema` | Generate schemas from data files |
+| `run` | Execute tests |
+| `debug` | Interactive debugger with stepping |
+| `stress` | Performance testing |
+| `annotate` | Generate observability annotations |
+| `scaffold` | Generate runner script |
+
+All commands support `-y` for non-interactive mode with sensible defaults.
 
 ## Example Project Structure
 
@@ -113,11 +128,15 @@ For extending or contributing to the test harness, see the [Developer Documentat
 Working examples are available in `demo/test_harness_examples/`:
 
 ```bash
-# Navigate to examples
-cd demo/test_harness_examples/getting_started
+# Try the quickstart wizard on an example
+velo-test quickstart demo/test_harness_examples/tier1_basic/01_passthrough.sql
 
-# Run the market aggregation example
-../../target/release/velo-test run ./sql/market_aggregation.sql --spec ./test_spec.yaml
+# Or run directly with auto-discovery
+velo-test run demo/test_harness_examples/tier1_basic/01_passthrough.sql
+
+# Run all tiers
+cd demo/test_harness_examples
+./velo-test.sh run
 ```
 
 ## Support

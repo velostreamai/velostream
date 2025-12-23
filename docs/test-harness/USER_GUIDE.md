@@ -2,6 +2,15 @@
 
 Complete guide to using the Velostream SQL Application Test Harness.
 
+## Quick Start
+
+```bash
+# New users: Use the interactive quickstart wizard
+velo-test quickstart my_app.sql
+```
+
+The quickstart walks you through validation, spec generation, and running tests.
+
 ## Overview
 
 The test harness provides a comprehensive framework for testing streaming SQL applications:
@@ -11,6 +20,7 @@ The test harness provides a comprehensive framework for testing streaming SQL ap
 3. **Rich assertions** - Validate output records, performance, and data quality
 4. **Multiple output formats** - Text, JSON, and JUnit XML for CI/CD integration
 5. **Infrastructure automation** - Automatic Kafka setup via testcontainers
+6. **Interactive & non-interactive modes** - All commands support `-y` for CI/CD
 
 ## Project Setup
 
@@ -403,7 +413,12 @@ The generator automatically ensures referential integrity.
 
 ### AI-Assisted Features
 
+Requires `ANTHROPIC_API_KEY` environment variable.
+
 ```bash
+# Set your API key
+export ANTHROPIC_API_KEY="your-key-here"
+
 # Generate test spec with AI suggestions
 velo-test init sql/app.sql --ai --output test_spec.yaml
 
@@ -417,8 +432,8 @@ velo-test infer-schema sql/app.sql --data-dir ./data --ai --output ./schemas
 # High-volume test
 velo-test stress sql/app.sql --records 100000 --duration 60
 
-# Rate-limited test
-velo-test stress sql/app.sql --rate 10000 --duration 300
+# Rate-limited test (WIP - not yet implemented)
+# velo-test stress sql/app.sql --rate 10000 --duration 300
 ```
 
 ### Configuration Overrides

@@ -28,16 +28,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Interactive quickstart wizard - guides you through testing a SQL file
+    #[command(display_order = 1)]
+    Quickstart {
+        /// Path to the SQL file to test
+        sql_file: PathBuf,
+    },
+
     /// Run tests for a SQL application
+    #[command(display_order = 5)]
     Run {
         /// Path to the SQL file to test
         sql_file: PathBuf,
 
-        /// Path to the test specification YAML file
+        /// Path to the test specification YAML file (auto-discovered if not specified)
         #[arg(short, long)]
         spec: Option<PathBuf>,
 
-        /// Directory containing schema definitions
+        /// Directory containing schema definitions (auto-discovered if not specified)
         #[arg(long)]
         schemas: Option<PathBuf>,
 
@@ -75,18 +83,23 @@ enum Commands {
         /// Pauses after each statement and displays results
         #[arg(long)]
         step: bool,
+
+        /// Skip interactive prompts and use auto-discovered defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Debug SQL application with interactive stepping and breakpoints
+    #[command(display_order = 6)]
     Debug {
         /// Path to the SQL file to debug
         sql_file: PathBuf,
 
-        /// Path to the test specification YAML file
+        /// Path to the test specification YAML file (auto-discovered if not specified)
         #[arg(short, long)]
         spec: Option<PathBuf>,
 
-        /// Directory containing schema definitions
+        /// Directory containing schema definitions (auto-discovered if not specified)
         #[arg(long)]
         schemas: Option<PathBuf>,
 
@@ -105,9 +118,14 @@ enum Commands {
         /// Keep testcontainers running after completion
         #[arg(long)]
         keep_containers: bool,
+
+        /// Skip interactive prompts and use auto-discovered defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Validate SQL syntax without execution
+    #[command(display_order = 2)]
     Validate {
         /// Path to the SQL file to validate
         sql_file: PathBuf,
@@ -118,57 +136,135 @@ enum Commands {
     },
 
     /// Generate a test specification template from SQL file
+    #[command(display_order = 3)]
     Init {
         /// Path to the SQL file to analyze
         sql_file: PathBuf,
 
-        /// Output path for generated test_spec.yaml
+        /// Output path for generated test_spec.yaml (default: test_spec.yaml in SQL file directory)
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
 
         /// Use AI for intelligent assertion generation
         #[arg(long)]
         ai: bool,
+
+        /// Skip interactive prompts and use defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Infer schemas from SQL and data files
+    #[command(display_order = 4)]
     InferSchema {
         /// Path to the SQL file to analyze
         sql_file: PathBuf,
 
-        /// Directory containing CSV/JSON data files
+        /// Directory containing CSV/JSON data files (default: data/ in SQL file directory)
         #[arg(long)]
         data_dir: Option<PathBuf>,
 
-        /// Output directory for generated schemas
+        /// Output directory for generated schemas (default: schemas/ in SQL file directory)
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
 
         /// Use AI for intelligent constraint inference
         #[arg(long)]
         ai: bool,
+
+        /// Skip interactive prompts and use defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Run stress tests with high volume
+    #[command(display_order = 7)]
     Stress {
         /// Path to the SQL file to test
         sql_file: PathBuf,
 
-        /// Path to the test specification YAML file
+        /// Path to the test specification YAML file (auto-discovered if not specified)
         #[arg(short, long)]
         spec: Option<PathBuf>,
 
         /// Number of records to generate per source
-        #[arg(long, default_value = "100000")]
-        records: usize,
+        #[arg(long)]
+        records: Option<usize>,
 
         /// Duration to run stress test in seconds
-        #[arg(long, default_value = "60")]
-        duration: u64,
+        #[arg(long)]
+        duration: Option<u64>,
 
         /// Output format: text, json
         #[arg(short, long, default_value = "text")]
         output: String,
+
+        /// Skip interactive prompts and use defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+
+    /// Generate a velo-test.sh runner script for a project
+    #[command(display_order = 9)]
+    Scaffold {
+        /// Directory to analyze and generate script for
+        #[arg(default_value = ".")]
+        directory: PathBuf,
+
+        /// Output path for generated script (default: velo-test.sh in target directory)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Project name for script header (auto-detected from directory)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Force a specific script style: simple, tiered, minimal
+        #[arg(long)]
+        style: Option<String>,
+
+        /// Relative path to velo-test binary
+        #[arg(long, default_value = "../../target/release/velo-test")]
+        velo_test_path: String,
+
+        /// Skip interactive prompts and use defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
+
+    /// Generate SQL annotations and monitoring infrastructure
+    #[command(display_order = 8)]
+    Annotate {
+        /// Path to the SQL file to analyze
+        sql_file: PathBuf,
+
+        /// Output path for annotated SQL (default: adds .annotated.sql suffix)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Application name (auto-detected from filename)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Application version
+        #[arg(long)]
+        version: Option<String>,
+
+        /// Generate monitoring infrastructure (Prometheus, Grafana, Tempo)
+        #[arg(long)]
+        monitoring: Option<PathBuf>,
+
+        /// Prometheus metrics port
+        #[arg(long)]
+        prometheus_port: Option<u16>,
+
+        /// Telemetry port
+        #[arg(long)]
+        telemetry_port: Option<u16>,
+
+        /// Skip interactive prompts and use defaults
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -186,6 +282,169 @@ fn print_version_info() {
     );
 }
 
+/// Helper module for auto-discovery and interactive prompts
+mod discovery {
+    use std::io::{BufRead, Write};
+    use std::path::{Path, PathBuf};
+
+    /// Prompt user for a value with a default
+    pub fn prompt_with_default(prompt: &str, default: &str) -> String {
+        print!("{} [{}]: ", prompt, default);
+        std::io::stdout().flush().unwrap();
+        let mut input = String::new();
+        std::io::stdin().lock().read_line(&mut input).unwrap();
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            default.to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
+    /// Prompt user for yes/no with a default
+    pub fn prompt_yes_no(prompt: &str, default: bool) -> bool {
+        let default_str = if default { "Y/n" } else { "y/N" };
+        print!("{} [{}]: ", prompt, default_str);
+        std::io::stdout().flush().unwrap();
+        let mut input = String::new();
+        std::io::stdin().lock().read_line(&mut input).unwrap();
+        let trimmed = input.trim().to_lowercase();
+        if trimmed.is_empty() {
+            default
+        } else {
+            trimmed == "y" || trimmed == "yes"
+        }
+    }
+
+    /// Auto-discover test spec file relative to SQL file
+    pub fn discover_spec(sql_file: &Path) -> Option<PathBuf> {
+        let sql_dir = sql_file.parent()?;
+
+        // Check common spec file names in order of preference
+        let candidates = [
+            sql_dir.join("test_spec.yaml"),
+            sql_dir.join("test_spec.yml"),
+            sql_dir.join(format!(
+                "{}.test.yaml",
+                sql_file.file_stem()?.to_string_lossy()
+            )),
+            sql_dir.join(format!(
+                "{}.spec.yaml",
+                sql_file.file_stem()?.to_string_lossy()
+            )),
+            // Also check parent directory
+            sql_dir.parent()?.join("test_spec.yaml"),
+        ];
+
+        candidates.into_iter().find(|p| p.exists())
+    }
+
+    /// Auto-discover schemas directory relative to SQL file
+    pub fn discover_schemas(sql_file: &Path) -> Option<PathBuf> {
+        let sql_dir = sql_file.parent()?;
+
+        // Check common schema directory names
+        let candidates = [
+            sql_dir.join("schemas"),
+            sql_dir.join("schema"),
+            sql_dir.parent()?.join("schemas"),
+        ];
+
+        candidates.into_iter().find(|p| p.exists() && p.is_dir())
+    }
+
+    /// Auto-discover data directory relative to SQL file
+    pub fn discover_data_dir(sql_file: &Path) -> Option<PathBuf> {
+        let sql_dir = sql_file.parent()?;
+
+        // Check common data directory names
+        let candidates = [sql_dir.join("data"), sql_dir.parent()?.join("data")];
+
+        candidates.into_iter().find(|p| p.exists() && p.is_dir())
+    }
+
+    /// Get default output path for test spec
+    pub fn default_spec_output(sql_file: &Path) -> PathBuf {
+        sql_file
+            .parent()
+            .map(|p| p.join("test_spec.yaml"))
+            .unwrap_or_else(|| PathBuf::from("test_spec.yaml"))
+    }
+
+    /// Get default output path for schemas
+    pub fn default_schemas_output(sql_file: &Path) -> PathBuf {
+        sql_file
+            .parent()
+            .map(|p| p.join("schemas"))
+            .unwrap_or_else(|| PathBuf::from("schemas"))
+    }
+
+    /// Offer to save an auto-generated test spec
+    /// Returns the path if saved, None otherwise
+    pub fn offer_save_spec(
+        sql_file: &Path,
+        spec: &velostream::velostream::test_harness::spec::TestSpec,
+        yes: bool,
+    ) -> Option<PathBuf> {
+        // Determine default output path
+        let default_path = sql_file
+            .parent()
+            .map(|p| {
+                p.join(format!(
+                    "{}.test.yaml",
+                    sql_file.file_stem().unwrap_or_default().to_string_lossy()
+                ))
+            })
+            .unwrap_or_else(|| PathBuf::from("test_spec.yaml"));
+
+        // In non-interactive mode, don't save unless explicitly requested
+        if yes {
+            return None;
+        }
+
+        // Ask if user wants to save the spec
+        let save = prompt_yes_no(
+            &format!("Save generated test spec to {}?", default_path.display()),
+            false,
+        );
+
+        if !save {
+            return None;
+        }
+
+        // Allow user to customize path
+        let path_str = prompt_with_default("Output path", &default_path.to_string_lossy());
+        let output_path = PathBuf::from(path_str);
+
+        // Serialize and save
+        match serde_yaml::to_string(spec) {
+            Ok(yaml) => {
+                // Add header comment
+                let content = format!(
+                    "# Auto-generated test spec for {}\n# Generated by velo-test\n\n{}",
+                    sql_file.file_name().unwrap_or_default().to_string_lossy(),
+                    yaml
+                );
+
+                match std::fs::write(&output_path, content) {
+                    Ok(()) => {
+                        println!("✅ Saved test spec to {}", output_path.display());
+                        Some(output_path)
+                    }
+                    Err(e) => {
+                        eprintln!("⚠️  Failed to save spec: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠️  Failed to serialize spec: {}", e);
+                None
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging with capture support for debugger step execution
@@ -199,6 +458,245 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Quickstart { sql_file } => {
+            use velostream::velostream::sql::parser::StreamingSqlParser;
+            use velostream::velostream::test_harness::SpecGenerator;
+
+            println!("🚀 Velostream Test Harness - Quickstart Wizard");
+            println!("════════════════════════════════════════════════");
+            println!();
+            println!("This wizard will guide you through setting up tests for your SQL file.");
+            println!("SQL File: {}", sql_file.display());
+            println!();
+
+            // Step 1: Validate SQL
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📋 Step 1/5: Validating SQL syntax");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            let sql_content = match std::fs::read_to_string(&sql_file) {
+                Ok(content) => content,
+                Err(e) => {
+                    eprintln!("❌ Failed to read SQL file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let parser = StreamingSqlParser::new();
+            let statements: Vec<_> = sql_content
+                .split(';')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty() && !s.starts_with("--"))
+                .collect();
+
+            let mut valid_count = 0;
+            let mut errors = Vec::new();
+
+            for stmt in &statements {
+                match parser.parse(stmt) {
+                    Ok(_) => valid_count += 1,
+                    Err(e) => errors.push(format!("  • {}", e)),
+                }
+            }
+
+            if errors.is_empty() {
+                println!("✅ All {} statements are valid", valid_count);
+            } else {
+                println!("⚠️  {} valid, {} with errors:", valid_count, errors.len());
+                for err in &errors {
+                    println!("{}", err);
+                }
+                if !discovery::prompt_yes_no("Continue anyway?", false) {
+                    println!("\n💡 Fix the SQL errors and run quickstart again.");
+                    std::process::exit(1);
+                }
+            }
+            println!();
+
+            // Step 2: Check for existing files
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📋 Step 2/5: Checking existing test artifacts");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            let existing_spec = discovery::discover_spec(&sql_file);
+            let existing_schemas = discovery::discover_schemas(&sql_file);
+            let existing_data = discovery::discover_data_dir(&sql_file);
+
+            if let Some(ref spec) = existing_spec {
+                println!("✓ Found test spec: {}", spec.display());
+            } else {
+                println!("○ No test spec found (will generate)");
+            }
+
+            if let Some(ref schemas) = existing_schemas {
+                println!("✓ Found schemas: {}", schemas.display());
+            } else {
+                println!("○ No schemas found (optional)");
+            }
+
+            if let Some(ref data) = existing_data {
+                println!("✓ Found data dir: {}", data.display());
+            } else {
+                println!("○ No data dir found (optional)");
+            }
+            println!();
+
+            // Step 3: Generate or use existing spec
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📋 Step 3/5: Test specification");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            let spec_path = if let Some(existing) = existing_spec {
+                println!("Using existing spec: {}", existing.display());
+                existing
+            } else {
+                let generator = SpecGenerator::new();
+                match generator.generate_from_sql(&sql_file) {
+                    Ok(spec) => {
+                        println!("📝 Generated test spec with {} queries", spec.queries.len());
+
+                        if spec.queries.is_empty() {
+                            println!();
+                            println!("⚠️  No queries detected in SQL file.");
+                            println!("   This can happen if:");
+                            println!("   • SQL uses CREATE STREAM/TABLE without AS SELECT");
+                            println!("   • SQL only contains DDL statements");
+                            println!("   • Parser couldn't recognize the query pattern");
+                            println!();
+                            println!("💡 You can manually create a test spec using:");
+                            println!(
+                                "   velo-test init {} --output test_spec.yaml",
+                                sql_file.display()
+                            );
+                        }
+
+                        let default_path = sql_file
+                            .parent()
+                            .map(|p| {
+                                p.join(format!(
+                                    "{}.test.yaml",
+                                    sql_file.file_stem().unwrap_or_default().to_string_lossy()
+                                ))
+                            })
+                            .unwrap_or_else(|| PathBuf::from("test_spec.yaml"));
+
+                        if discovery::prompt_yes_no(
+                            &format!("Save test spec to {}?", default_path.display()),
+                            true,
+                        ) {
+                            let yaml = serde_yaml::to_string(&spec).unwrap_or_default();
+                            let content = format!(
+                                "# Auto-generated test spec for {}\n# Generated by velo-test quickstart\n\n{}",
+                                sql_file.file_name().unwrap_or_default().to_string_lossy(),
+                                yaml
+                            );
+                            if let Err(e) = std::fs::write(&default_path, content) {
+                                eprintln!("⚠️  Failed to save spec: {}", e);
+                            } else {
+                                println!("✅ Saved: {}", default_path.display());
+                            }
+                        }
+                        default_path
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to generate spec: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            };
+            println!();
+
+            // Step 4: Schema inference
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📋 Step 4/5: Schema generation (optional)");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+            if existing_schemas.is_some() {
+                println!("✓ Using existing schemas");
+            } else if existing_data.is_some() {
+                if discovery::prompt_yes_no("Infer schemas from data files?", true) {
+                    println!("💡 Run: velo-test infer-schema {}", sql_file.display());
+                    println!("   This will generate .schema.yaml files from your data/");
+                } else {
+                    println!("○ Skipping schema inference");
+                }
+            } else {
+                println!("○ No data directory found - skipping schema inference");
+                println!("💡 To enable data-driven testing:");
+                println!("   1. Create a data/ directory next to your SQL file");
+                println!("   2. Add CSV or JSON files matching your source names");
+                println!("   3. Run: velo-test infer-schema {}", sql_file.display());
+            }
+            println!();
+
+            // Step 5: Ready to run
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!("📋 Step 5/5: Ready to test!");
+            println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            println!();
+            println!("🎉 Setup complete! Here's what you can do next:");
+            println!();
+            println!("  Run tests:");
+            println!(
+                "    velo-test run {} --spec {}",
+                sql_file.display(),
+                spec_path.display()
+            );
+            println!();
+            println!("  Debug interactively:");
+            println!("    velo-test debug {}", sql_file.display());
+            println!();
+            println!("  Stress test:");
+            println!(
+                "    velo-test stress {} --records 100000",
+                sql_file.display()
+            );
+            println!();
+            println!("  Add observability:");
+            println!(
+                "    velo-test annotate {} --monitoring ./monitoring",
+                sql_file.display()
+            );
+            println!();
+
+            if discovery::prompt_yes_no("Run tests now?", true) {
+                println!();
+                println!("🧪 Starting test run...");
+                println!();
+
+                // Execute the run command
+                let status = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "run",
+                        sql_file.to_str().unwrap(),
+                        "--spec",
+                        spec_path.to_str().unwrap(),
+                        "-y",
+                    ])
+                    .status();
+
+                match status {
+                    Ok(s) if s.success() => {
+                        println!();
+                        println!("✅ Tests completed successfully!");
+                    }
+                    Ok(_) => {
+                        println!();
+                        println!("❌ Some tests failed. Use 'velo-test debug' to investigate.");
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to run tests: {}", e);
+                    }
+                }
+            } else {
+                println!();
+                println!(
+                    "👍 Run 'velo-test run {}' when you're ready!",
+                    sql_file.display()
+                );
+            }
+        }
+
         Commands::Run {
             sql_file,
             spec,
@@ -211,6 +709,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kafka,
             keep_containers,
             step,
+            yes,
         } => {
             use std::time::Duration;
             use velostream::velostream::test_harness::SpecGenerator;
@@ -227,6 +726,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("🧪 Velostream SQL Test Harness");
             println!("════════════════════════════════════════");
             println!("SQL File: {}", sql_file.display());
+
+            // Auto-discover spec file if not provided
+            let spec = spec.or_else(|| {
+                let discovered = discovery::discover_spec(&sql_file);
+                if let Some(ref p) = discovered {
+                    println!("📁 Auto-discovered spec: {}", p.display());
+                }
+                discovered
+            });
+
+            // Auto-discover schemas directory if not provided
+            let schemas = schemas.or_else(|| {
+                let discovered = discovery::discover_schemas(&sql_file);
+                if let Some(ref p) = discovered {
+                    println!("📁 Auto-discovered schemas: {}", p.display());
+                }
+                discovered
+            });
+
+            // Interactive mode: prompt for missing options if not using -y
+            let spec = if spec.is_none() && !yes {
+                let default_spec = discovery::default_spec_output(&sql_file);
+                if discovery::prompt_yes_no("No test spec found. Generate from SQL?", true) {
+                    None // Will auto-generate later
+                } else {
+                    let path = discovery::prompt_with_default(
+                        "Spec file path",
+                        &default_spec.display().to_string(),
+                    );
+                    let p = PathBuf::from(path);
+                    if p.exists() { Some(p) } else { None }
+                }
+            } else {
+                spec
+            };
+
             if let Some(ref s) = spec {
                 println!("Test Spec: {}", s.display());
             }
@@ -265,6 +800,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match generator.generate_from_sql(&sql_file) {
                     Ok(s) => {
                         println!("📝 Auto-generated test spec from SQL");
+                        // Offer to save the generated spec
+                        discovery::offer_save_spec(&sql_file, &s, yes);
                         s
                     }
                     Err(e) => {
@@ -1071,12 +1608,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sql_file,
             output,
             ai,
+            yes,
         } => {
             use velostream::velostream::test_harness::SpecGenerator;
             use velostream::velostream::test_harness::ai::AiAssistant;
 
             println!("📝 Generating test specification");
             println!("SQL File: {}", sql_file.display());
+
+            // Determine output path with auto-discovery and prompting
+            let output = output.unwrap_or_else(|| {
+                let default_output = discovery::default_spec_output(&sql_file);
+                if yes {
+                    println!("Output: {} (auto)", default_output.display());
+                    default_output
+                } else {
+                    let path = discovery::prompt_with_default(
+                        "Output path",
+                        &default_output.display().to_string(),
+                    );
+                    PathBuf::from(path)
+                }
+            });
+
             println!("Output: {}", output.display());
             if ai {
                 println!("AI Generation: enabled");
@@ -1204,12 +1758,58 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             data_dir,
             output,
             ai,
+            yes,
         } => {
             use velostream::velostream::test_harness::ai::{AiAssistant, CsvSample};
             use velostream::velostream::test_harness::inference::SchemaInferencer;
 
             println!("🔬 Inferring schemas");
             println!("SQL File: {}", sql_file.display());
+
+            // Auto-discover data directory if not provided
+            let data_dir = data_dir.or_else(|| {
+                let discovered = discovery::discover_data_dir(&sql_file);
+                if let Some(ref p) = discovered {
+                    println!("📁 Auto-discovered data dir: {}", p.display());
+                }
+                discovered
+            });
+
+            // Prompt for data directory if not found and not using -y
+            let data_dir = if data_dir.is_none() && !yes {
+                let default_dir = sql_file
+                    .parent()
+                    .map(|p| p.join("data"))
+                    .unwrap_or_else(|| PathBuf::from("data"));
+                if discovery::prompt_yes_no("No data directory found. Specify one?", false) {
+                    let path = discovery::prompt_with_default(
+                        "Data directory",
+                        &default_dir.display().to_string(),
+                    );
+                    let p = PathBuf::from(path);
+                    if p.exists() { Some(p) } else { None }
+                } else {
+                    None
+                }
+            } else {
+                data_dir
+            };
+
+            // Determine output path with auto-discovery and prompting
+            let output = output.unwrap_or_else(|| {
+                let default_output = discovery::default_schemas_output(&sql_file);
+                if yes {
+                    println!("Output: {} (auto)", default_output.display());
+                    default_output
+                } else {
+                    let path = discovery::prompt_with_default(
+                        "Output directory",
+                        &default_output.display().to_string(),
+                    );
+                    PathBuf::from(path)
+                }
+            });
+
             if let Some(ref d) = data_dir {
                 println!("Data Dir: {}", d.display());
             }
@@ -1394,15 +1994,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             records,
             duration,
             output,
+            yes,
         } => {
             use velostream::velostream::test_harness::SpecGenerator;
             use velostream::velostream::test_harness::stress::{StressConfig, StressRunner};
 
             println!("🔥 Stress Test Mode");
             println!("SQL File: {}", sql_file.display());
+
+            // Auto-discover or prompt for spec
+            let spec = if spec.is_some() {
+                spec
+            } else if let Some(discovered) = discovery::discover_spec(&sql_file) {
+                println!("📂 Auto-discovered spec: {}", discovered.display());
+                Some(discovered)
+            } else if !yes {
+                let prompt_spec = discovery::prompt_yes_no(
+                    "No spec file found. Would you like to auto-generate from SQL?",
+                    true,
+                );
+                if prompt_spec {
+                    None // Will generate from SQL
+                } else {
+                    eprintln!("❌ No spec file and user declined auto-generation");
+                    std::process::exit(1);
+                }
+            } else {
+                None // Will generate from SQL
+            };
+
             if let Some(ref s) = spec {
                 println!("Test Spec: {}", s.display());
             }
+
+            // Get records with default or prompt
+            let records = records.unwrap_or_else(|| {
+                if yes {
+                    100000 // Default for stress tests
+                } else {
+                    let input =
+                        discovery::prompt_with_default("Number of records per source", "100000");
+                    input.parse().unwrap_or(100000)
+                }
+            });
+
+            // Get duration with default or prompt
+            let duration = duration.unwrap_or_else(|| {
+                if yes {
+                    60 // Default 60 seconds
+                } else {
+                    let input = discovery::prompt_with_default("Max duration (seconds)", "60");
+                    input.parse().unwrap_or(60)
+                }
+            });
+
             println!("Records per source: {}", records);
             println!("Max Duration: {}s", duration);
             println!("Output Format: {}", output);
@@ -1422,7 +2067,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 // Generate from SQL file
                 match spec_generator.generate_from_sql(&sql_file) {
-                    Ok(s) => s,
+                    Ok(s) => {
+                        println!("📝 Auto-generated test spec from SQL");
+                        // Offer to save the generated spec
+                        discovery::offer_save_spec(&sql_file, &s, yes);
+                        s
+                    }
                     Err(e) => {
                         eprintln!("❌ Failed to analyze SQL file: {}", e);
                         std::process::exit(1);
@@ -1495,6 +2145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             timeout_ms,
             kafka,
             keep_containers,
+            yes,
         } => {
             use std::io::{BufRead, Write};
             use std::time::Duration;
@@ -1511,8 +2162,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("🐛 Velostream SQL Debugger");
             println!("════════════════════════════════════════");
             println!("SQL File: {}", sql_file.display());
+
+            // Auto-discover or prompt for spec
+            let spec = if spec.is_some() {
+                spec
+            } else if let Some(discovered) = discovery::discover_spec(&sql_file) {
+                println!("📂 Auto-discovered spec: {}", discovered.display());
+                Some(discovered)
+            } else if !yes {
+                let prompt_spec = discovery::prompt_yes_no(
+                    "No spec file found. Would you like to auto-generate from SQL?",
+                    true,
+                );
+                if prompt_spec {
+                    None // Will generate from SQL
+                } else {
+                    eprintln!("❌ No spec file and user declined auto-generation");
+                    std::process::exit(1);
+                }
+            } else {
+                None // Will generate from SQL
+            };
+
+            // Auto-discover schemas directory
+            let schemas = if schemas.is_some() {
+                schemas
+            } else if let Some(discovered) = discovery::discover_schemas(&sql_file) {
+                println!("📂 Auto-discovered schemas: {}", discovered.display());
+                Some(discovered)
+            } else {
+                None
+            };
+
             if let Some(ref s) = spec {
                 println!("Test Spec: {}", s.display());
+            }
+            if let Some(ref s) = schemas {
+                println!("Schemas: {}", s.display());
             }
             if !breakpoint.is_empty() {
                 println!("Breakpoints: {:?}", breakpoint);
@@ -1540,7 +2226,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Generate from SQL file
                 let generator = SpecGenerator::new();
                 match generator.generate_from_sql(&sql_file) {
-                    Ok(s) => s,
+                    Ok(s) => {
+                        println!("📝 Auto-generated test spec from SQL");
+                        // Offer to save the generated spec
+                        discovery::offer_save_spec(&sql_file, &s, yes);
+                        s
+                    }
                     Err(e) => {
                         eprintln!("❌ Failed to analyze SQL file: {}", e);
                         std::process::exit(1);
@@ -3191,6 +3882,434 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             if passed < results.len() {
                 std::process::exit(1);
+            }
+        }
+
+        Commands::Scaffold {
+            directory,
+            output,
+            name,
+            style,
+            velo_test_path,
+            yes,
+        } => {
+            use velostream::velostream::test_harness::scaffold::{ScaffoldStyle, Scaffolder};
+
+            println!("🏗️  Scaffold Runner Script");
+            println!("════════════════════════════════════════");
+            println!("Directory: {}", directory.display());
+
+            // Detect structure first to inform defaults
+            let temp_scaffolder = Scaffolder::new().directory(&directory);
+            let detected_structure = match temp_scaffolder.detect_structure() {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("❌ Failed to analyze directory: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            println!();
+            println!("🔍 Detected structure:");
+            println!("   Style: {}", detected_structure.style);
+            println!("   SQL files: {}", detected_structure.sql_files.len());
+            if !detected_structure.tier_dirs.is_empty() {
+                println!("   Tiers: {}", detected_structure.tier_dirs.join(", "));
+            }
+            if !detected_structure.spec_files.is_empty() {
+                println!("   Spec files: {}", detected_structure.spec_files.len());
+            }
+            println!();
+
+            // Determine output path
+            let output = output.unwrap_or_else(|| {
+                let default = directory.join("velo-test.sh");
+                if yes {
+                    default
+                } else {
+                    let input =
+                        discovery::prompt_with_default("Output path", &default.to_string_lossy());
+                    PathBuf::from(input)
+                }
+            });
+
+            // Check if output exists and confirm overwrite
+            if output.exists()
+                && !yes
+                && !discovery::prompt_yes_no(
+                    &format!("{} already exists. Overwrite?", output.display()),
+                    false,
+                )
+            {
+                println!("❌ Aborted");
+                std::process::exit(0);
+            }
+
+            // Determine project name
+            let name = name.or_else(|| {
+                let detected_name = directory
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "project".to_string());
+
+                if yes {
+                    Some(detected_name)
+                } else {
+                    let input = discovery::prompt_with_default("Project name", &detected_name);
+                    Some(input)
+                }
+            });
+
+            // Determine style
+            let style = style.or_else(|| {
+                if yes {
+                    None // Use auto-detected
+                } else {
+                    println!("Available styles: simple, tiered, minimal");
+                    println!("  simple  - Single SQL file, basic test runner");
+                    println!("  tiered  - Multiple tiers (tier1_basic, tier2_aggregations, etc.)");
+                    println!("  minimal - Bare minimum, just run tests");
+                    let detected = detected_structure.style.to_string();
+                    let input = discovery::prompt_with_default("Style", &detected);
+                    if input == detected {
+                        None // Use auto-detected
+                    } else {
+                        Some(input)
+                    }
+                }
+            });
+
+            println!();
+            println!("📋 Configuration:");
+            println!("   Output: {}", output.display());
+            if let Some(ref n) = name {
+                println!("   Project: {}", n);
+            }
+            if let Some(ref s) = style {
+                println!("   Style: {}", s);
+            } else {
+                println!("   Style: {} (auto-detected)", detected_structure.style);
+            }
+            println!();
+
+            // Build scaffolder
+            let mut scaffolder = Scaffolder::new()
+                .directory(&directory)
+                .output(&output)
+                .velo_test_path(&velo_test_path);
+
+            if let Some(n) = name {
+                scaffolder = scaffolder.name(n);
+            }
+
+            if let Some(s) = style {
+                match s.parse::<ScaffoldStyle>() {
+                    Ok(parsed_style) => {
+                        scaffolder = scaffolder.style(parsed_style);
+                    }
+                    Err(e) => {
+                        eprintln!("❌ {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            // Generate and write script
+            println!("📝 Generating runner script...");
+            match scaffolder.write() {
+                Ok(path) => {
+                    println!();
+                    println!("✅ Generated: {}", path.display());
+                    println!();
+                    println!("💡 Next steps:");
+                    println!("   1. Make executable: chmod +x {}", path.display());
+                    println!(
+                        "   2. Run tests:       ./{} run",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                    println!(
+                        "   3. See options:     ./{} --help",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    );
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to generate script: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        Commands::Annotate {
+            sql_file,
+            output,
+            name,
+            version,
+            monitoring,
+            prometheus_port,
+            telemetry_port,
+            yes,
+        } => {
+            use std::io::{BufRead, Write};
+            use velostream::velostream::test_harness::annotate::{AnnotateConfig, Annotator};
+
+            println!("📝 Generate SQL Annotations & Monitoring");
+            println!("════════════════════════════════════════");
+            println!("SQL File: {}", sql_file.display());
+            println!();
+
+            // Helper for interactive prompts
+            let prompt_with_default = |prompt: &str, default: &str| -> String {
+                print!("{} [{}]: ", prompt, default);
+                std::io::stdout().flush().unwrap();
+                let mut input = String::new();
+                std::io::stdin().lock().read_line(&mut input).unwrap();
+                let trimmed = input.trim();
+                if trimmed.is_empty() {
+                    default.to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            };
+
+            let prompt_yes_no = |prompt: &str, default: bool| -> bool {
+                let default_str = if default { "Y/n" } else { "y/N" };
+                print!("{} [{}]: ", prompt, default_str);
+                std::io::stdout().flush().unwrap();
+                let mut input = String::new();
+                std::io::stdin().lock().read_line(&mut input).unwrap();
+                let trimmed = input.trim().to_lowercase();
+                if trimmed.is_empty() {
+                    default
+                } else {
+                    trimmed == "y" || trimmed == "yes"
+                }
+            };
+
+            // Auto-detect app name from filename
+            let default_app_name = sql_file
+                .file_stem()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "my_app".to_string());
+
+            // Determine if we need interactive mode
+            let interactive = !yes && (name.is_none() || version.is_none() || monitoring.is_none());
+
+            // Get app name
+            let app_name = if let Some(n) = name {
+                n
+            } else if interactive {
+                prompt_with_default("Application name", &default_app_name)
+            } else {
+                default_app_name
+            };
+
+            // Get version
+            let version = if let Some(v) = version {
+                v
+            } else if interactive {
+                prompt_with_default("Version", "1.0.0")
+            } else {
+                "1.0.0".to_string()
+            };
+
+            // Get monitoring directory
+            let monitoring = if monitoring.is_some() {
+                monitoring
+            } else if interactive {
+                if prompt_yes_no(
+                    "Generate monitoring infrastructure (Prometheus, Grafana, Tempo)?",
+                    true,
+                ) {
+                    let default_dir = sql_file
+                        .parent()
+                        .map(|p| p.join("monitoring"))
+                        .unwrap_or_else(|| PathBuf::from("./monitoring"));
+                    let dir = prompt_with_default(
+                        "Monitoring output directory",
+                        &default_dir.display().to_string(),
+                    );
+                    Some(PathBuf::from(dir))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Get ports (only if monitoring is enabled)
+            let prometheus_port = prometheus_port.unwrap_or_else(|| {
+                if interactive && monitoring.is_some() {
+                    prompt_with_default("Prometheus metrics port", "8080")
+                        .parse()
+                        .unwrap_or(8080)
+                } else {
+                    8080
+                }
+            });
+
+            let telemetry_port = telemetry_port.unwrap_or_else(|| {
+                if interactive && monitoring.is_some() {
+                    prompt_with_default("Telemetry port", "9091")
+                        .parse()
+                        .unwrap_or(9091)
+                } else {
+                    9091
+                }
+            });
+
+            // Show configuration summary
+            println!();
+            println!("📋 Configuration:");
+            println!("   Application: {}", app_name);
+            println!("   Version: {}", version);
+            if let Some(ref m) = monitoring {
+                println!("   Monitoring: {}", m.display());
+                println!("   Prometheus port: {}", prometheus_port);
+                println!("   Telemetry port: {}", telemetry_port);
+            } else {
+                println!("   Monitoring: (not generating)");
+            }
+            println!();
+
+            // Read SQL content
+            let sql_content = match std::fs::read_to_string(&sql_file) {
+                Ok(content) => content,
+                Err(e) => {
+                    eprintln!("❌ Failed to read SQL file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Create annotator config
+            let config = AnnotateConfig {
+                app_name: app_name.clone(),
+                version,
+                generate_monitoring: monitoring.is_some(),
+                monitoring_dir: monitoring.as_ref().map(|p| p.display().to_string()),
+                prometheus_port,
+                telemetry_port,
+            };
+
+            let annotator = Annotator::new(config);
+
+            // Analyze SQL
+            println!("🔍 Analyzing SQL...");
+            let analysis = match annotator.analyze(&sql_content) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("❌ Failed to analyze SQL: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            println!("   Queries: {}", analysis.queries.len());
+            println!("   Sources: {}", analysis.sources.len());
+            println!("   Sinks: {}", analysis.sinks.len());
+            println!("   Metrics detected: {}", analysis.metrics.len());
+            if analysis.has_windows {
+                println!("   ✓ Has window operations");
+            }
+            if analysis.has_aggregations {
+                println!("   ✓ Has aggregations");
+            }
+            if analysis.has_joins {
+                println!("   ✓ Has joins");
+            }
+            println!();
+
+            // Show detected metrics summary
+            if !analysis.metrics.is_empty() {
+                println!("📊 Detected Metrics:");
+                for metric in analysis.metrics.iter().take(5) {
+                    println!(
+                        "   • {} ({}) - {}",
+                        metric.name,
+                        metric.metric_type.as_str(),
+                        metric.help
+                    );
+                }
+                if analysis.metrics.len() > 5 {
+                    println!("   ... and {} more", analysis.metrics.len() - 5);
+                }
+                println!();
+            }
+
+            // Generate annotated SQL
+            println!("📝 Generating annotated SQL...");
+            let annotated_sql = match annotator.generate_annotated_sql(&sql_content, &analysis) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("❌ Failed to generate annotated SQL: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Determine output path
+            let output_path = output.unwrap_or_else(|| {
+                let stem = sql_file
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "output".to_string());
+                sql_file.with_file_name(format!("{}.annotated.sql", stem))
+            });
+
+            // Write annotated SQL
+            match std::fs::write(&output_path, &annotated_sql) {
+                Ok(_) => {
+                    println!("✅ Generated: {}", output_path.display());
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to write annotated SQL: {}", e);
+                    std::process::exit(1);
+                }
+            }
+
+            // Generate monitoring infrastructure if requested
+            if let Some(ref monitoring_dir) = monitoring {
+                println!();
+                println!("🔧 Generating monitoring infrastructure...");
+
+                match annotator.generate_monitoring(&analysis, monitoring_dir) {
+                    Ok(_) => {
+                        println!("✅ Generated monitoring files:");
+                        println!("   • {}/prometheus.yml", monitoring_dir.display());
+                        println!(
+                            "   • {}/grafana/provisioning/datasources/prometheus.yml",
+                            monitoring_dir.display()
+                        );
+                        println!(
+                            "   • {}/grafana/provisioning/datasources/tempo.yml",
+                            monitoring_dir.display()
+                        );
+                        println!(
+                            "   • {}/grafana/provisioning/dashboards/dashboard.yml",
+                            monitoring_dir.display()
+                        );
+                        println!(
+                            "   • {}/grafana/dashboards/{}-dashboard.json",
+                            monitoring_dir.display(),
+                            app_name
+                        );
+                        println!("   • {}/tempo/tempo.yaml", monitoring_dir.display());
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Failed to generate monitoring: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+
+            println!();
+            println!("💡 Next steps:");
+            println!(
+                "   1. Review and customize annotations in {}",
+                output_path.display()
+            );
+            if monitoring.is_some() {
+                println!(
+                    "   2. Start monitoring with: docker-compose -f monitoring/docker-compose.yml up"
+                );
+                println!("   3. View dashboards at: http://localhost:3000");
             }
         }
     }
