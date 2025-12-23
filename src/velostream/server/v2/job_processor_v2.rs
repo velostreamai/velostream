@@ -34,7 +34,7 @@ use crate::velostream::server::processors::{
 use crate::velostream::server::v2::AdaptiveJobProcessor;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -223,23 +223,55 @@ impl JobProcessor for AdaptiveJobProcessor {
         // The partition receiver tasks spawned in initialize_partitions_v6_6() will
         // process all queued batches and then exit when EOF is signaled
         // Join on all task handles to ensure they complete
+        let num_partitions = task_handles.len();
+        let mut partition_failures = 0;
         for handle in task_handles {
             if let Err(e) = handle.await {
-                warn!("Partition receiver task failed to complete: {:?}", e);
+                error!(
+                    "Job '{}': Partition receiver task panicked or was cancelled: {:?}",
+                    job_name, e
+                );
+                partition_failures += 1;
             }
         }
-        debug!("All partition receiver tasks completed");
+        if partition_failures > 0 {
+            warn!(
+                "Job '{}': {} of {} partition receivers failed",
+                job_name, partition_failures, num_partitions
+            );
+            aggregated_stats.batches_failed += partition_failures as u64;
+        }
+        debug!(
+            "All partition receiver tasks completed ({} failures)",
+            partition_failures
+        );
 
         // Step 6: Finalize writer
         // Partition receivers process records internally and update per-partition state
         if let Some(writer_arc) = shared_writer {
             let mut w = writer_arc.lock().await;
-            let _ = w.flush().await;
-            let _ = w.commit().await;
+            if let Err(e) = w.flush().await {
+                error!(
+                    "Job '{}': Failed to flush writer after processing {} records: {:?}",
+                    job_name, total_routed, e
+                );
+                aggregated_stats.records_failed += total_routed;
+            }
+            if let Err(e) = w.commit().await {
+                error!(
+                    "Job '{}': Failed to commit writer: {:?}. Data may not be persisted.",
+                    job_name, e
+                );
+            }
         }
 
         // Step 7: Finalize reader
-        let _ = reader.commit().await;
+        if let Err(e) = reader.commit().await {
+            warn!(
+                "Job '{}': Failed to commit reader: {:?}. Offsets may not be saved.",
+                job_name, e
+            );
+        }
 
         aggregated_stats.total_processing_time = start_time.elapsed();
 
@@ -405,23 +437,52 @@ impl JobProcessor for AdaptiveJobProcessor {
             }
 
             // Wait for receiver tasks to complete by joining on task handles
+            let num_partitions = task_handles.len();
+            let mut partition_failures = 0;
             for handle in task_handles {
                 if let Err(e) = handle.await {
-                    warn!("Partition receiver task failed to complete: {:?}", e);
+                    error!(
+                        "Job '{}' source '{}': Partition receiver task panicked or was cancelled: {:?}",
+                        job_name, reader_name, e
+                    );
+                    partition_failures += 1;
                 }
             }
+            if partition_failures > 0 {
+                warn!(
+                    "Job '{}' source '{}': {} of {} partition receivers failed",
+                    job_name, reader_name, partition_failures, num_partitions
+                );
+                aggregated_stats.batches_failed += partition_failures as u64;
+            }
             debug!(
-                "All partition receiver tasks completed for source: {}",
-                reader_name
+                "All partition receiver tasks completed for source: {} ({} failures)",
+                reader_name, partition_failures
             );
 
             // Finalize writer and reader for this source
             if let Some(writer_arc) = shared_writer {
                 let mut w = writer_arc.lock().await;
-                let _ = w.flush().await;
-                let _ = w.commit().await;
+                if let Err(e) = w.flush().await {
+                    error!(
+                        "Job '{}' source '{}': Failed to flush writer after {} records: {:?}",
+                        job_name, reader_name, total_routed, e
+                    );
+                    aggregated_stats.records_failed += total_routed;
+                }
+                if let Err(e) = w.commit().await {
+                    error!(
+                        "Job '{}' source '{}': Failed to commit writer: {:?}. Data may not be persisted.",
+                        job_name, reader_name, e
+                    );
+                }
             }
-            let _ = reader.commit().await;
+            if let Err(e) = reader.commit().await {
+                warn!(
+                    "Job '{}' source '{}': Failed to commit reader: {:?}. Offsets may not be saved.",
+                    job_name, reader_name, e
+                );
+            }
 
             info!(
                 "Source {} completed: {} records routed",

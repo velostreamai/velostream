@@ -345,12 +345,15 @@ impl PartitionReceiver {
                             // Write output records to sink if available
                             if !output_records.is_empty() {
                                 if let Some(ref writer_arc) = self.writer {
+                                    let output_count = output_records.len();
                                     let mut writer = writer_arc.lock().await;
                                     if let Err(e) = writer.write_batch(output_records).await {
-                                        warn!(
-                                            "PartitionReceiver {}: Error writing {} output records to sink: {}",
-                                            self.partition_id, batch_size, e
+                                        error!(
+                                            "PartitionReceiver {}: Failed to write {} output records to sink: {}",
+                                            self.partition_id, output_count, e
                                         );
+                                        // Track write failures - these records are lost
+                                        self.job_metrics.record_failed(output_count);
                                     }
                                 }
                             }
@@ -540,40 +543,58 @@ impl PartitionReceiver {
 
                             let dlq_record = StreamRecord::new(record_data);
 
-                            // Add to DLQ using spawn_blocking to avoid nested runtime panic
-                            // Instead of trying to block_on within an async context, we spawn
-                            // the DLQ operation as a separate blocking task
+                            // Add to DLQ synchronously - we must wait for confirmation
+                            // to ensure the record is not lost
                             let dlq_ref = Arc::clone(dlq);
-                            let error_msg_clone = error_msg.clone();
-                            let partition_id = self.partition_id;
+                            let fut = dlq_ref.add_entry(
+                                dlq_record,
+                                error_msg.clone(),
+                                record_index,
+                                true, // recoverable
+                            );
 
-                            tokio::spawn(async move {
-                                let success = dlq_ref
-                                    .add_entry(
-                                        dlq_record,
-                                        error_msg_clone.clone(),
-                                        record_index,
-                                        true, // recoverable
-                                    )
-                                    .await;
-
-                                if success {
-                                    debug!(
-                                        "PartitionReceiver {}: DLQ Entry Added - Record {} - {}",
-                                        partition_id, record_index, error_msg_clone
-                                    );
-                                } else {
-                                    error!(
-                                        "PartitionReceiver {}: Failed to add DLQ entry for Record {}. Record logged for manual recovery.",
-                                        partition_id, record_index
-                                    );
+                            // Use block_on to wait for DLQ write (we're in sync context)
+                            if let Ok(runtime) =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    tokio::runtime::Handle::current()
+                                }))
+                            {
+                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    runtime.block_on(fut)
+                                })) {
+                                    Ok(true) => {
+                                        debug!(
+                                            "PartitionReceiver {}: DLQ entry added for record {}",
+                                            self.partition_id, record_index
+                                        );
+                                    }
+                                    Ok(false) => {
+                                        error!(
+                                            "PartitionReceiver {}: Failed to add DLQ entry for record {} - record is LOST. Error: {}",
+                                            self.partition_id, record_index, error_msg
+                                        );
+                                    }
+                                    Err(_) => {
+                                        error!(
+                                            "PartitionReceiver {}: Panic during DLQ write for record {} - record is LOST. Error: {}",
+                                            self.partition_id, record_index, error_msg
+                                        );
+                                    }
                                 }
-                            });
+                            } else {
+                                error!(
+                                    "PartitionReceiver {}: No Tokio runtime for DLQ write - record {} is LOST. Error: {}",
+                                    self.partition_id, record_index, error_msg
+                                );
+                            }
                         }
+                    } else {
+                        // DLQ disabled - track the failure directly
+                        self.job_metrics.record_failed(1);
                     }
 
-                    processed += 1;
-                    // Continue processing remaining records on error
+                    // Don't increment processed - this record failed
+                    // Continue processing remaining records
                 }
             }
         }
