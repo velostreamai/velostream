@@ -1,0 +1,46 @@
+# =============================================================================
+# Test: Market Data Pipeline
+# =============================================================================
+# Tests the full market data pipeline: ingestion → OHLCV → enrichment
+#
+# Pipeline: in_market_data → market_data_ts → tick_buckets
+#                                           → enriched_market_data
+
+application: market_data_pipeline
+description: |
+  End-to-end test of market data processing pipeline.
+  Validates event-time processing, OHLCV aggregation, and instrument enrichment.
+
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  # Stage 1: Event-time processed market data
+  - name: market_data_ts
+    description: Test market data ingestion with event-time processing
+    inputs:
+      - source: in_market_data_stream
+        records: 100
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 50
+    outputs:
+      - sink: market_data_ts
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: schema_contains
+            key_field: symbol
+            fields:
+              - exchange
+              - timestamp
+              - price
+              - volume
+              - bid_price
+              - ask_price
+
+          - type: no_nulls
+            fields: [symbol, exchange, price, volume]

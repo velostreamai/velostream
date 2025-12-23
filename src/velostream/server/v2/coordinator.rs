@@ -89,7 +89,7 @@ impl Default for PartitionedJobConfig {
             auto_select_from_query: None, // Auto-selection disabled by default
             sticky_partition_id: None,   // No sticky partition override by default
             annotation_partition_count: None, // No annotation override by default
-            empty_batch_count: 3,
+            empty_batch_count: 100, // Allow 10 seconds of empty polls for Kafka consumer group rebalance
             wait_on_empty_batch_ms: 100,
             table_registry: None, // No tables by default
         }

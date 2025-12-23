@@ -308,6 +308,8 @@ impl JobProcessor for AdaptiveJobProcessor {
             let mut consecutive_empty_batches = 0;
             let max_empty_batches = self.config().empty_batch_count as usize;
 
+            info!("Starting read loop for reader: {}", reader_name);
+
             loop {
                 // Check if processor stop signal was raised
                 if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -320,6 +322,9 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                 match reader.read().await {
                     Ok(batch) => {
+                        if !batch.is_empty() {
+                            info!("Read {} records from reader: {}", batch.len(), reader_name);
+                        }
                         if batch.is_empty() {
                             // Data source returned empty batch
                             consecutive_empty_batches += 1;

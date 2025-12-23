@@ -1,0 +1,42 @@
+# =============================================================================
+# Test: Price Analytics
+# =============================================================================
+# Tests price movement detection with window functions
+#
+# Pipeline: market_data_ts → price_movement_alerts → price_stats
+
+application: price_analytics
+description: |
+  Tests price movement detection using LAG window functions.
+  Validates price analytics streaming output.
+
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  # Test price movement alerts
+  - name: price_movement_alerts
+    description: Test price movement detection with LAG function
+    inputs:
+      - source: market_data_ts
+        records: 100
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 50
+    outputs:
+      - sink: price_movement_alerts
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: schema_contains
+            key_field: symbol
+            fields:
+              - exchange
+              - price
+              - volume
+
+          - type: no_nulls
+            fields: [symbol, price]

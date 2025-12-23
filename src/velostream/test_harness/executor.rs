@@ -159,6 +159,19 @@ impl QueryExecutor {
                         .to_string(),
                 })?;
 
+        // CRITICAL: Set VELOSTREAM_KAFKA_BROKERS environment variable so YAML configs
+        // that use ${VELOSTREAM_KAFKA_BROKERS:localhost:9092} will pick up the testcontainer's
+        // dynamic bootstrap servers instead of defaulting to localhost:9092
+        // SAFETY: This is called during test harness initialization before any concurrent
+        // threads are spawned that might read this environment variable.
+        unsafe {
+            std::env::set_var("VELOSTREAM_KAFKA_BROKERS", &bootstrap_servers);
+        }
+        log::info!(
+            "Set VELOSTREAM_KAFKA_BROKERS={} for YAML config substitution",
+            bootstrap_servers
+        );
+
         let run_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let group_id =
             crate::velostream::datasource::kafka::config_helpers::generate_test_harness_group_id(

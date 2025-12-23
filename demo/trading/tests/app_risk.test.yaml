@@ -1,0 +1,40 @@
+# =============================================================================
+# Test: Risk Monitoring
+# =============================================================================
+# Tests position tracking and risk limit validation
+
+application: risk_monitoring
+description: |
+  Tests real-time risk monitoring with position tracking.
+  Validates cumulative P&L and exposure calculations.
+
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  # Test trading positions with event-time processing
+  - name: trading_positions_ts
+    description: Test position tracking with event-time processing
+    inputs:
+      - source: trading_positions_stream
+        records: 100
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 50
+    outputs:
+      - sink: trading_positions_ts
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: schema_contains
+            key_field: position_id
+            fields:
+              - trader_id
+              - symbol
+              - position_size
+
+          - type: no_nulls
+            fields: [position_id, trader_id, symbol]
