@@ -539,6 +539,93 @@ For production use, see:
 - `k8s/` directory - Kubernetes configurations
 - `monitoring/` directory - Prometheus and Grafana setup
 
+## 🎲 Data Generation Options
+
+The trading demo supports **two data generation approaches** for different use cases:
+
+### Comparison: Test Harness vs Data Generator
+
+| Aspect | Test Harness | Trading Data Generator |
+|--------|--------------|------------------------|
+| **Primary Use** | Automated testing & CI/CD | Live demos & presentations |
+| **Price Simulation** | Random within range | Geometric Brownian Motion (realistic) |
+| **Correlations** | Independent random values | Correlated bid/ask, volume/volatility |
+| **Event Patterns** | Stateless (each record independent) | Stateful (price follows previous) |
+| **Volatility Spikes** | Random probability | Realistic event-driven |
+| **Setup Required** | Just `velo-test` binary | Rust build + Docker Compose |
+| **Best For** | SQL validation, CI pipelines | Stakeholder demos, dashboard testing |
+
+### Option 1: Test Harness (Recommended for Testing)
+
+Use the test harness when you want to:
+- Validate SQL syntax without running Kafka
+- Run automated tests in CI/CD pipelines
+- Generate quick test data for specific queries
+- Assert output schemas and record counts
+
+```bash
+# Build velo-test first (from project root)
+cargo build --release --bin velo-test
+
+# Navigate to trading demo
+cd demo/trading
+
+# List available apps
+./velo-test.sh
+
+# Validate SQL syntax (no Docker required)
+./velo-test.sh validate
+
+# Run a specific app test (requires Docker for testcontainers)
+./velo-test.sh app_market_data
+
+# Run with step-through debugging
+./velo-test.sh app_market_data --step
+
+# Run specific query within an app
+./velo-test.sh app_market_data --query market_data_ts
+
+# Keep containers running for debugging
+./velo-test.sh app_market_data --keep
+
+# Run all apps
+./velo-test.sh all
+```
+
+**Schemas are already provided** in `schemas/`:
+- `market_data.schema.yaml` / `in_market_data_stream.schema.yaml` - Market data events
+- `trading_positions.schema.yaml` - Position updates
+- `order_book.schema.yaml` - Order book events
+
+**Test specs** in `tests/`:
+- `app_market_data.test.yaml` - Assertions for market data pipeline
+- `app_price_analytics.test.yaml` - Assertions for price analytics
+- `app_risk.test.yaml` - Assertions for risk monitoring
+- `app_trading_signals.test.yaml` - Assertions for trading signals
+
+### Option 2: Trading Data Generator (Recommended for Demos)
+
+Use the data generator when you want to:
+- Show realistic price movements on dashboards
+- Demonstrate to stakeholders with believable data
+- Run extended demos (10+ minutes)
+- See correlated market behaviors
+
+```bash
+# Start full demo (includes data generator)
+./start-demo.sh
+
+# Or run data generator manually after starting Kafka
+cargo build --release --manifest-path Cargo.toml
+./target/release/trading_data_generator --duration 10
+```
+
+**The data generator provides:**
+- **Geometric Brownian Motion** for realistic price paths
+- **8 major tech stocks** with different volatility profiles
+- **20 simulated traders** with realistic positions
+- **Correlated market events** (volume spikes with price moves)
+
 ## 🧪 Testing with Test Harness
 
 The test harness validates SQL applications with automated testing. No Kafka infrastructure required for validation.
