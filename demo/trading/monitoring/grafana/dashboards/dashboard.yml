@@ -1,12 +1,12 @@
-# Grafana dashboard provisioning configuration
 apiVersion: 1
 
 providers:
-  - name: 'Velostream Dashboards'
+  - name: 'app_trading_signals'
     orgId: 1
+    folder: 'Velostream'
     type: file
     disableDeletion: false
     updateIntervalSeconds: 10
     allowUiUpdates: true
     options:
-      path: /etc/grafana/provisioning/dashboards
+      path: /var/lib/grafana/dashboards

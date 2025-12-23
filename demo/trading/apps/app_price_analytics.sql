@@ -33,16 +33,17 @@
 --
 -- METRICS
 -- =============================================================================
--- @metric: velo_price_alerts_total
+-- @metric: velo_trading_price_alerts_total
 -- @metric_type: counter
 -- @metric_help: "Total price movement alerts generated"
 -- @metric_labels: symbol, movement_severity
 --
--- @metric: velo_price_change_pct
--- @metric_type: gauge
--- @metric_help: "Current price change percentage"
+-- @metric: velo_trading_price_change_percent
+-- @metric_type: histogram
+-- @metric_help: "Price change percentage distribution"
 -- @metric_labels: symbol
 -- @metric_field: price_change_pct
+-- @metric_buckets: [-5, -2, -1, -0.5, 0, 0.5, 1, 2, 5]
 
 --
 -- SLA & GOVERNANCE

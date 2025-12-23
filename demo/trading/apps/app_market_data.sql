@@ -32,17 +32,21 @@
 --
 -- METRICS
 -- =============================================================================
--- @metric: velo_market_data_records_total
+-- @metric: velo_trading_market_data_total
 -- @metric_type: counter
 -- @metric_help: "Total market data records processed"
 -- @metric_labels: symbol, exchange
 --
--- @metric: velo_market_data_latency_ms
--- @metric_type: histogram
--- @metric_help: "Processing latency in milliseconds"
+-- @metric: velo_trading_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current price by symbol"
 -- @metric_labels: symbol
--- @metric_field: processing_latency
--- @metric_buckets: [1, 5, 10, 25, 50, 100, 250, 500]
+-- @metric_field: price
+--
+-- @metric: velo_trading_tick_buckets_total
+-- @metric_type: counter
+-- @metric_help: "Total OHLCV tick buckets generated"
+-- @metric_labels: symbol
 
 --
 -- SLA & GOVERNANCE

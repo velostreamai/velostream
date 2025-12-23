@@ -33,12 +33,12 @@
 --
 -- METRICS
 -- =============================================================================
--- @metric: velo_compliance_checks_total
+-- @metric: velo_trading_compliance_checks_total
 -- @metric_type: counter
 -- @metric_help: "Total compliance checks performed"
 -- @metric_labels: symbol, compliance_status
 --
--- @metric: velo_blocked_trades_total
+-- @metric: velo_trading_blocked_trades_total
 -- @metric_type: counter
 -- @metric_help: "Total trades blocked by compliance"
 -- @metric_labels: restriction_type

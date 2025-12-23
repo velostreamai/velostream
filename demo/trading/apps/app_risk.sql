@@ -33,18 +33,18 @@
 --
 -- METRICS
 -- =============================================================================
--- @metric: velo_risk_alerts_total
+-- @metric: velo_trading_risk_alerts_total
 -- @metric_type: counter
 -- @metric_help: "Total risk alerts generated"
 -- @metric_labels: trader_id, risk_classification
 --
--- @metric: velo_position_exposure
+-- @metric: velo_trading_position_exposure
 -- @metric_type: gauge
 -- @metric_help: "Current position exposure value"
 -- @metric_labels: trader_id, symbol
 -- @metric_field: total_exposure
 --
--- @metric: velo_pnl_cumulative
+-- @metric: velo_trading_pnl_cumulative
 -- @metric_type: gauge
 -- @metric_help: "Cumulative P&L by trader"
 -- @metric_labels: trader_id

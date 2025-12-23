@@ -33,18 +33,17 @@
 --
 -- METRICS
 -- =============================================================================
--- @metric: velo_volume_spikes_total
+-- @metric: velo_trading_volume_spikes_total
 -- @metric_type: counter
 -- @metric_help: "Total volume spikes detected"
 -- @metric_labels: symbol, spike_classification
 --
--- @metric: velo_order_imbalance_ratio
--- @metric_type: gauge
--- @metric_help: "Current order imbalance ratio"
+-- @metric: velo_trading_order_imbalance_total
+-- @metric_type: counter
+-- @metric_help: "Total order imbalance events detected"
 -- @metric_labels: symbol
--- @metric_field: buy_ratio
 --
--- @metric: velo_arbitrage_opportunities_total
+-- @metric: velo_trading_arbitrage_opportunities_total
 -- @metric_type: counter
 -- @metric_help: "Total arbitrage opportunities detected"
 -- @metric_labels: exchange_a, exchange_b
