@@ -48,7 +48,7 @@ pub struct DataSourceRequirement {
     pub properties: HashMap<String, String>,
 }
 
-/// Data sink requirement extracted from SQL  
+/// Data sink requirement extracted from SQL
 #[derive(Debug, Clone)]
 pub struct DataSinkRequirement {
     /// Sink name/identifier
@@ -57,6 +57,8 @@ pub struct DataSinkRequirement {
     pub sink_type: DataSinkType,
     /// Configuration properties including serialization
     pub properties: HashMap<String, String>,
+    /// Primary key fields from SELECT clause (for Kafka message key)
+    pub primary_keys: Option<Vec<String>>,
 }
 
 /// Types of data sources
@@ -236,6 +238,22 @@ impl QueryAnalyzer {
                 // Pass the stream name so we can match properties by direct name (e.g., output_stream.type)
                 self.detect_sinks_from_config(name, &mut analysis)?;
 
+                // Extract PRIMARY KEY fields from the nested SELECT and inject into sinks
+                let primary_keys = Self::extract_key_fields_from_query(as_select);
+                if let Some(ref keys) = primary_keys {
+                    log::debug!(
+                        "CreateStream '{}': Extracted primary_keys from SELECT: {:?}",
+                        name,
+                        keys
+                    );
+                    // Inject primary_keys into all sinks created for this stream
+                    for sink in &mut analysis.required_sinks {
+                        if sink.primary_keys.is_none() {
+                            sink.primary_keys = primary_keys.clone();
+                        }
+                    }
+                }
+
                 // VALIDATION: CSAS (CREATE STREAM AS SELECT) requires a sink configuration
                 if analysis.required_sinks.is_empty() {
                     return Err(SqlError::ConfigurationError {
@@ -266,6 +284,22 @@ impl QueryAnalyzer {
                 // ENHANCEMENT: Detect sinks defined in WITH clause (same as CreateStream)
                 // This enables config_file loading for CREATE TABLE statements
                 self.detect_sinks_from_config(name, &mut analysis)?;
+
+                // Extract PRIMARY KEY fields from the nested SELECT and inject into sinks
+                let primary_keys = Self::extract_key_fields_from_query(as_select);
+                if let Some(ref keys) = primary_keys {
+                    log::debug!(
+                        "CreateTable '{}': Extracted primary_keys from SELECT: {:?}",
+                        name,
+                        keys
+                    );
+                    // Inject primary_keys into all sinks created for this table
+                    for sink in &mut analysis.required_sinks {
+                        if sink.primary_keys.is_none() {
+                            sink.primary_keys = primary_keys.clone();
+                        }
+                    }
+                }
 
                 // VALIDATION: CTAS (CREATE TABLE AS SELECT) requires a sink configuration
                 if analysis.required_sinks.is_empty() {
@@ -748,6 +782,7 @@ impl QueryAnalyzer {
             name: table_name.to_string(),
             sink_type,
             properties,
+            primary_keys: None,
         };
 
         analysis.required_sinks.push(sink_req);
@@ -908,6 +943,7 @@ impl QueryAnalyzer {
             name: uri.to_string(),
             sink_type,
             properties,
+            primary_keys: None,
         };
 
         analysis.required_sinks.push(requirement);
@@ -1181,6 +1217,7 @@ impl QueryAnalyzer {
                     name: sink_name.to_string(),
                     sink_type,
                     properties,
+                    primary_keys: None, // Will be populated from query's key_fields after analysis
                 };
 
                 // Add to analysis if not already present
@@ -1191,5 +1228,21 @@ impl QueryAnalyzer {
         }
 
         Ok(())
+    }
+
+    /// Extract key_fields from a query's nested SELECT clause
+    /// Used to propagate PRIMARY KEY annotations to sink configuration
+    fn extract_key_fields_from_query(query: &StreamingQuery) -> Option<Vec<String>> {
+        match query {
+            StreamingQuery::CreateStream { as_select, .. } => {
+                Self::extract_key_fields_from_query(as_select)
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                Self::extract_key_fields_from_query(as_select)
+            }
+            StreamingQuery::Select { key_fields, .. } => key_fields.clone(),
+            StreamingQuery::StartJob { query, .. } => Self::extract_key_fields_from_query(query),
+            _ => None,
+        }
     }
 }

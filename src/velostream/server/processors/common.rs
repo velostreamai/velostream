@@ -1051,6 +1051,7 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
                 config.instance_id.as_deref(),
                 &config.batch_config,
                 config.use_transactions,
+                requirement.primary_keys.as_ref(), // Pass PRIMARY KEY from SQL
             )
             .await
         }
@@ -1073,6 +1074,7 @@ async fn create_kafka_writer(
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
     use_transactions: bool,
+    primary_keys: Option<&Vec<String>>,
 ) -> DataSinkCreationResult {
     // Extract brokers from properties
     // NOTE: Check flattened YAML keys (datasink.producer_config.bootstrap.servers) first
@@ -1131,12 +1133,14 @@ async fn create_kafka_writer(
 
     // Let KafkaDataSink handle its own configuration extraction
     // Pass use_transactions so the sink knows to configure transactional producer
+    // Pass primary_keys from SQL PRIMARY KEY annotation for Kafka message key
     let mut datasink = KafkaDataSink::from_properties(
         &sink_props,
         job_name,
         app_name,
         instance_id,
         use_transactions,
+        primary_keys.cloned(),
     );
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties

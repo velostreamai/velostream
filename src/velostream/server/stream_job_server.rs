@@ -1976,47 +1976,14 @@ impl StreamJobServer {
     }
 
     /// Extract properties from different query types.
-    /// Also extracts key_fields from SELECT clause and injects them as sink.key_field property.
+    /// Note: PRIMARY KEY fields are now passed directly to sink constructors via
+    /// DataSinkRequirement.primary_keys, not through properties.
     fn get_query_properties(query: &StreamingQuery) -> HashMap<String, String> {
-        let mut properties = match query {
+        match query {
             StreamingQuery::CreateStream { properties, .. } => properties.clone(),
             StreamingQuery::CreateTable { properties, .. } => properties.clone(),
             StreamingQuery::StartJob { properties, .. } => properties.clone(),
             _ => HashMap::new(),
-        };
-
-        // Extract key_fields from nested SELECT and inject as sink.key_field
-        // Only if not already configured via WITH clause
-        if !properties.contains_key("sink.key_field") && !properties.contains_key("key_field") {
-            if let Some(key_fields) = Self::extract_key_fields_from_query(query) {
-                if !key_fields.is_empty() {
-                    // Single key field: use as-is
-                    // Multiple key fields: join with comma for compound key
-                    let key_field_value = key_fields.join(",");
-                    properties.insert("sink.key_field".to_string(), key_field_value.clone());
-                    log::debug!(
-                        "Injected key_fields from SELECT clause into properties: sink.key_field='{}'",
-                        key_field_value
-                    );
-                }
-            }
-        }
-
-        properties
-    }
-
-    /// Extract key_fields from a query's nested SELECT clause
-    fn extract_key_fields_from_query(query: &StreamingQuery) -> Option<Vec<String>> {
-        match query {
-            StreamingQuery::CreateStream { as_select, .. } => {
-                Self::extract_key_fields_from_query(as_select)
-            }
-            StreamingQuery::CreateTable { as_select, .. } => {
-                Self::extract_key_fields_from_query(as_select)
-            }
-            StreamingQuery::Select { key_fields, .. } => key_fields.clone(),
-            StreamingQuery::StartJob { query, .. } => Self::extract_key_fields_from_query(query),
-            _ => None,
         }
     }
 

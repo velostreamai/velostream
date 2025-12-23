@@ -76,7 +76,9 @@ pub struct KafkaDataWriter {
     producer_kind: ProducerKind,
     topic: String,
     format: SerializationFormat,
-    key_field: Option<String>, // Field name to use as message key
+    /// Primary key fields from SQL PRIMARY KEY annotation (for Kafka message key)
+    /// Multiple fields are joined with pipe delimiter for compound keys
+    primary_keys: Option<Vec<String>>,
     avro_codec: Option<AvroCodec>,
     protobuf_codec: Option<ProtobufCodec>,
     /// Track if we've warned about null keys (warn once per writer instance)
@@ -90,14 +92,14 @@ impl KafkaDataWriter {
         brokers: &str,
         topic: String,
         format: SerializationFormat,
-        key_field: Option<String>,
+        primary_keys: Option<Vec<String>>,
         schema: Option<&str>, // Unified schema parameter
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         Self::create_with_schema_validation_and_batch_config(
             brokers,
             topic,
             format,
-            key_field,
+            primary_keys,
             schema,
             &HashMap::new(),
             None,
@@ -110,6 +112,7 @@ impl KafkaDataWriter {
         brokers: &str,
         topic: String,
         properties: &HashMap<String, String>,
+        primary_keys: Option<Vec<String>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Extract format from properties
         let format_str = properties
@@ -122,14 +125,6 @@ impl KafkaDataWriter {
 
         let format = Self::parse_serialization_format(format_str);
 
-        // Extract key field configuration
-        let key_field = properties
-            .get("key_field")
-            .or_else(|| properties.get("key.field"))
-            .or_else(|| properties.get("message.key.field"))
-            .or_else(|| properties.get("schema.key.field"))
-            .cloned();
-
         // Extract schema based on format
         let schema = Self::extract_schema_from_properties(&format, properties)?;
 
@@ -137,7 +132,7 @@ impl KafkaDataWriter {
             brokers,
             topic,
             format,
-            key_field,
+            primary_keys,
             schema.as_deref(),
             properties,
             None,
@@ -151,6 +146,7 @@ impl KafkaDataWriter {
         topic: String,
         properties: &HashMap<String, String>,
         batch_config: BatchConfig,
+        primary_keys: Option<Vec<String>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Extract format from properties
         let format_str = properties
@@ -163,14 +159,6 @@ impl KafkaDataWriter {
 
         let format = Self::parse_serialization_format(format_str);
 
-        // Extract key field configuration
-        let key_field = properties
-            .get("key_field")
-            .or_else(|| properties.get("key.field"))
-            .or_else(|| properties.get("message.key.field"))
-            .or_else(|| properties.get("schema.key.field"))
-            .cloned();
-
         // Extract schema based on format
         let schema = Self::extract_schema_from_properties(&format, properties)?;
 
@@ -178,7 +166,7 @@ impl KafkaDataWriter {
             brokers,
             topic,
             format,
-            key_field,
+            primary_keys,
             schema.as_deref(),
             properties,
             Some(batch_config),
@@ -191,7 +179,7 @@ impl KafkaDataWriter {
         brokers: &str,
         topic: String,
         format: SerializationFormat,
-        key_field: Option<String>,
+        primary_keys: Option<Vec<String>>,
         schema: Option<&str>,
         properties: &HashMap<String, String>,
         batch_config: Option<BatchConfig>,
@@ -332,17 +320,17 @@ impl KafkaDataWriter {
             producer_kind,
             topic: topic.clone(),
             format,
-            key_field, // No default - if not configured, records use round-robin partitioning
+            primary_keys, // No default - if not configured, records use round-robin partitioning
             avro_codec,
             protobuf_codec,
             warned_null_key: std::sync::atomic::AtomicBool::new(false),
         };
 
         log::info!(
-            "KafkaDataWriter: Initialized writer for topic '{}' with format={:?}, key_field={:?}, transactional={}",
+            "KafkaDataWriter: Initialized writer for topic '{}' with format={:?}, primary_keys={:?}, transactional={}",
             topic,
             writer.format,
-            writer.key_field,
+            writer.primary_keys,
             is_transactional
         );
 
@@ -704,7 +692,7 @@ impl KafkaDataWriter {
     ///
     /// Priority:
     /// 1. record.key - set by GROUP BY queries or PRIMARY KEY annotation
-    /// 2. key_field config - explicit field name(s) to use as key (comma-separated for compound)
+    /// 2. primary_keys - field names from SQL PRIMARY KEY annotation
     /// 3. None - null key (round-robin partitioning)
     ///
     /// Key format:
@@ -716,21 +704,19 @@ impl KafkaDataWriter {
             return Some(key_value.to_key_string());
         }
 
-        // Priority 2: Use configured key_field (may be comma-separated for compound keys)
-        if let Some(key_field_config) = &self.key_field {
-            let field_names: Vec<&str> = key_field_config.split(',').map(|s| s.trim()).collect();
-
-            if field_names.len() == 1 {
+        // Priority 2: Use configured primary_keys from SQL PRIMARY KEY annotation
+        if let Some(ref key_fields) = self.primary_keys {
+            if key_fields.len() == 1 {
                 // Single key field
-                self.extract_single_key_value(record, field_names[0])
+                self.extract_single_key_value(record, &key_fields[0])
             } else {
                 // Compound key - extract each field and join with pipe delimiter
-                let key_parts: Vec<String> = field_names
+                let key_parts: Vec<String> = key_fields
                     .iter()
                     .filter_map(|field_name| self.extract_single_key_value(record, field_name))
                     .collect();
 
-                if key_parts.len() == field_names.len() {
+                if key_parts.len() == key_fields.len() {
                     // All fields found - return pipe-delimited key
                     Some(key_parts.join("|"))
                 } else {
@@ -740,23 +726,23 @@ impl KafkaDataWriter {
                         .swap(true, std::sync::atomic::Ordering::Relaxed)
                     {
                         log::warn!(
-                            "Writing record with NULL key to topic '{}' (some key fields missing from compound key '{}'). \
+                            "Writing record with NULL key to topic '{}' (some key fields missing from compound key {:?}). \
                              Records with NULL keys use round-robin partitioning.",
                             self.topic,
-                            key_field_config
+                            key_fields
                         );
                     }
                     None
                 }
             }
         } else {
-            // No key_field configured at all
+            // No primary_keys configured at all
             if !self
                 .warned_null_key
                 .swap(true, std::sync::atomic::Ordering::Relaxed)
             {
                 log::warn!(
-                    "Writing records with NULL keys to topic '{}' (no key_field configured). \
+                    "Writing records with NULL keys to topic '{}' (no PRIMARY KEY configured). \
                      Records with NULL keys use round-robin partitioning.",
                     self.topic
                 );
@@ -775,7 +761,7 @@ impl KafkaDataWriter {
                     .swap(true, std::sync::atomic::Ordering::Relaxed)
                 {
                     log::warn!(
-                        "Writing record with NULL key to topic '{}' (key_field='{}' is null/missing). \
+                        "Writing record with NULL key to topic '{}' (PRIMARY KEY field '{}' is null/missing). \
                          Records with NULL keys use round-robin partitioning.",
                         self.topic,
                         field_name

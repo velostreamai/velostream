@@ -21,8 +21,8 @@ pub struct KafkaDataSink {
     brokers: String,
     topic: String,
     config: HashMap<String, String>,
-    /// Field name to use as Kafka message key (extracted from key_field property)
-    key_field: Option<String>,
+    /// Primary key fields from SQL PRIMARY KEY annotation (for Kafka message key)
+    primary_keys: Option<Vec<String>>,
 }
 
 impl KafkaDataSink {
@@ -32,7 +32,7 @@ impl KafkaDataSink {
             brokers,
             topic,
             config: HashMap::new(),
-            key_field: None,
+            primary_keys: None,
         }
     }
 
@@ -43,6 +43,7 @@ impl KafkaDataSink {
         app_name: Option<&str>,
         instance_id: Option<&str>,
         use_transactions: bool,
+        primary_keys: Option<Vec<String>>,
     ) -> Self {
         // Load and merge config file with provided properties
         // Uses common config_loader helper
@@ -157,17 +158,11 @@ impl KafkaDataSink {
             sink_config.insert("enable.idempotence".to_string(), "true".to_string());
         }
 
-        // Extract key_field for message key extraction (not a Kafka producer property)
-        let key_field = get_sink_prop("key_field")
-            .or_else(|| get_sink_prop("key.field"))
-            .or_else(|| get_sink_prop("message.key.field"))
-            .or_else(|| merged_props.get("key_field").cloned())
-            .or_else(|| merged_props.get("key.field").cloned());
-
-        if let Some(ref kf) = key_field {
+        // Log primary keys if provided from SQL PRIMARY KEY annotation
+        if let Some(ref keys) = primary_keys {
             log::info!(
-                "KafkaDataSink: Configured key_field='{}' for topic '{}'",
-                kf,
+                "KafkaDataSink: Configured primary_keys={:?} for topic '{}'",
+                keys,
                 topic
             );
         }
@@ -176,7 +171,7 @@ impl KafkaDataSink {
             brokers,
             topic,
             config: sink_config,
-            key_field,
+            primary_keys,
         }
     }
 
@@ -310,12 +305,14 @@ impl KafkaDataSink {
         // Format is now handled by KafkaDataWriter::from_properties
 
         // Create writer with properties-based configuration
-        // Include key_field in properties for the writer
-        let mut writer_props = self.config.clone();
-        if let Some(ref kf) = self.key_field {
-            writer_props.insert("key_field".to_string(), kf.clone());
-        }
-        KafkaDataWriter::from_properties(&self.brokers, self.topic.clone(), &writer_props).await
+        // Pass primary_keys for Kafka message key extraction
+        KafkaDataWriter::from_properties(
+            &self.brokers,
+            self.topic.clone(),
+            &self.config,
+            self.primary_keys.clone(),
+        )
+        .await
     }
 
     /// Create a unified writer with batch configuration optimizations
@@ -325,16 +322,13 @@ impl KafkaDataSink {
     ) -> Result<KafkaDataWriter, Box<dyn std::error::Error + Send + Sync>> {
         // Let the KafkaDataWriter handle batch configuration directly
         // This provides better integration and more accurate configuration
-        // Include key_field in properties for the writer
-        let mut writer_props = self.config.clone();
-        if let Some(ref kf) = self.key_field {
-            writer_props.insert("key_field".to_string(), kf.clone());
-        }
+        // Pass primary_keys for Kafka message key extraction
         KafkaDataWriter::from_properties_with_batch_config(
             &self.brokers,
             self.topic.clone(),
-            &writer_props,
+            &self.config,
             batch_config,
+            self.primary_keys.clone(),
         )
         .await
     }
@@ -1211,7 +1205,7 @@ impl Default for KafkaDataSink {
             brokers: "localhost:9092".to_string(),
             topic: "default_topic".to_string(),
             config: HashMap::new(),
-            key_field: None,
+            primary_keys: None,
         }
     }
 }

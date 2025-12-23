@@ -428,7 +428,8 @@ When writing SQL for this project, **DO NOT GUESS**. The parser has strict gramm
 1. [`docs/sql/COPY_PASTE_EXAMPLES.md`](docs/sql/COPY_PASTE_EXAMPLES.md) - Working examples for all query types
 2. [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Formal EBNF grammar and AST structure
 3. [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules specifically for Claude
-4. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
+4. [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations reference (@job_mode, @metric, etc.)
+5. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
 
 **Before writing ANY SQL**:
 
@@ -488,6 +489,7 @@ See full details in:
 
 - [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Complete formal grammar
 - [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules for Claude (14 specific rules)
+- [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations (@job_mode, @metric, @observability, etc.)
 
 ## Code Organization
 
