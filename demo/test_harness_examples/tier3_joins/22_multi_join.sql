@@ -26,17 +26,17 @@ EMIT CHANGES
 WITH (
     'orders.type' = 'kafka_source',
     'orders.topic.name' = 'test_orders',
-    'orders.config_file' = 'configs/orders_source.yaml',
+    'orders.config_file' = '../configs/orders_source.yaml',
 
     'customers.type' = 'file_source',
-    'customers.config_file' = 'configs/customers_table.yaml',
+    'customers.config_file' = '../configs/customers_table.yaml',
 
     'products.type' = 'file_source',
-    'products.config_file' = 'configs/products_table.yaml',
+    'products.config_file' = '../configs/products_table.yaml',
 
     'fully_enriched.type' = 'kafka_sink',
     'fully_enriched.topic.name' = 'test_fully_enriched',
-    'fully_enriched.config_file' = 'configs/orders_sink.yaml',
+    'fully_enriched.config_file' = '../configs/orders_sink.yaml',
 
     'join.timeout' = '30s',
     'cache.enabled' = 'true',

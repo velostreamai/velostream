@@ -25,11 +25,11 @@ EMIT CHANGES
 WITH (
     'raw_transactions.type' = 'kafka_source',
     'raw_transactions.topic.name' = 'test_raw_transactions',
-    'raw_transactions.config_file' = 'configs/transactions_source.yaml',
+    'raw_transactions.config_file' = '../configs/transactions_source.yaml',
 
     'cleaned_transactions.type' = 'kafka_sink',
     'cleaned_transactions.topic.name' = 'test_cleaned_transactions',
-    'cleaned_transactions.config_file' = 'configs/output_stream_sink.yaml'
+    'cleaned_transactions.config_file' = '../configs/output_stream_sink.yaml'
 );
 
 -- Stage 2: Aggregate by region (uses CREATE TABLE for GROUP BY aggregation)
@@ -48,11 +48,11 @@ EMIT CHANGES
 WITH (
     'cleaned_transactions.type' = 'kafka_source',
     'cleaned_transactions.topic.name' = 'test_cleaned_transactions',
-    'cleaned_transactions.config_file' = 'configs/transactions_source.yaml',
+    'cleaned_transactions.config_file' = '../configs/transactions_source.yaml',
 
     'regional_summary.type' = 'kafka_sink',
     'regional_summary.topic.name' = 'test_regional_summary',
-    'regional_summary.config_file' = 'configs/aggregates_sink.yaml'
+    'regional_summary.config_file' = '../configs/aggregates_sink.yaml'
 );
 
 -- Stage 3: Flag high-value regions
@@ -74,9 +74,9 @@ EMIT CHANGES
 WITH (
     'regional_summary.type' = 'kafka_source',
     'regional_summary.topic.name' = 'test_regional_summary',
-    'regional_summary.config_file' = 'configs/transactions_source.yaml',
+    'regional_summary.config_file' = '../configs/transactions_source.yaml',
 
     'flagged_regions.type' = 'kafka_sink',
     'flagged_regions.topic.name' = 'test_flagged_regions',
-    'flagged_regions.config_file' = 'configs/output_stream_sink.yaml'
+    'flagged_regions.config_file' = '../configs/output_stream_sink.yaml'
 );

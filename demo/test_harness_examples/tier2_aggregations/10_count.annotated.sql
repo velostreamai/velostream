@@ -80,9 +80,9 @@ EMIT CHANGES
 WITH (
     'input_stream.type' = 'kafka_source',
     'input_stream.topic.name' = 'test_input_stream',
-    'input_stream.config_file' = 'configs/input_stream_source.yaml',
+    'input_stream.config_file' = '../configs/input_stream_source.yaml',
 
     'count_output.type' = 'kafka_sink',
     'count_output.topic.name' = 'test_count_output',
-    'count_output.config_file' = 'configs/aggregates_sink.yaml'
+    'count_output.config_file' = '../configs/aggregates_sink.yaml'
 );

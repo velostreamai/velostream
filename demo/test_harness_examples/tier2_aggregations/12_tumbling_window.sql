@@ -23,9 +23,9 @@ EMIT CHANGES
 WITH (
     'market_data.type' = 'kafka_source',
     'market_data.topic.name' = 'test_market_data',
-    'market_data.config_file' = 'configs/market_data_source.yaml',
+    'market_data.config_file' = '../configs/market_data_source.yaml',
 
     'tumbling_output.type' = 'kafka_sink',
     'tumbling_output.topic.name' = 'test_tumbling_output',
-    'tumbling_output.config_file' = 'configs/aggregates_sink.yaml'
+    'tumbling_output.config_file' = '../configs/aggregates_sink.yaml'
 );

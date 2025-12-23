@@ -28,9 +28,9 @@ EMIT CHANGES
 WITH (
     'sensor_readings.type' = 'kafka_source',
     'sensor_readings.topic.name' = 'test_sensor_readings',
-    'sensor_readings.config_file' = 'configs/sensor_readings_source.yaml',
+    'sensor_readings.config_file' = '../configs/sensor_readings_source.yaml',
 
     'processed_readings.type' = 'kafka_sink',
     'processed_readings.topic.name' = 'test_processed_readings',
-    'processed_readings.config_file' = 'configs/output_stream_sink.yaml'
+    'processed_readings.config_file' = '../configs/output_stream_sink.yaml'
 );

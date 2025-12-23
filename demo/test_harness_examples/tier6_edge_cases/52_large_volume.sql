@@ -23,11 +23,11 @@ EMIT CHANGES
 WITH (
     'events.type' = 'kafka_source',
     'events.topic.name' = 'test_events',
-    'events.config_file' = 'configs/events_source.yaml',
+    'events.config_file' = '../configs/events_source.yaml',
 
     'enriched_events.type' = 'kafka_sink',
     'enriched_events.topic.name' = 'test_enriched_events',
-    'enriched_events.config_file' = 'configs/output_stream_sink.yaml'
+    'enriched_events.config_file' = '../configs/output_stream_sink.yaml'
 );
 
 -- Aggregation at scale (uses CREATE TABLE for GROUP BY)
@@ -47,9 +47,9 @@ EMIT CHANGES
 WITH (
     'events.type' = 'kafka_source',
     'events.topic.name' = 'test_events',
-    'events.config_file' = 'configs/events_source.yaml',
+    'events.config_file' = '../configs/events_source.yaml',
 
     'regional_stats.type' = 'kafka_sink',
     'regional_stats.topic.name' = 'test_regional_stats',
-    'regional_stats.config_file' = 'configs/aggregates_sink.yaml'
+    'regional_stats.config_file' = '../configs/aggregates_sink.yaml'
 );

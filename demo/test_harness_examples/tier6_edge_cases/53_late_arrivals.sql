@@ -24,11 +24,11 @@ EMIT CHANGES
 WITH (
     'sensor_events.type' = 'kafka_source',
     'sensor_events.topic.name' = 'test_sensor_events',
-    'sensor_events.config_file' = 'configs/sensor_readings_source.yaml',
+    'sensor_events.config_file' = '../configs/sensor_readings_source.yaml',
 
     'sensor_aggregates.type' = 'kafka_sink',
     'sensor_aggregates.topic.name' = 'test_sensor_aggregates',
-    'sensor_aggregates.config_file' = 'configs/aggregates_sink.yaml',
+    'sensor_aggregates.config_file' = '../configs/aggregates_sink.yaml',
 
     -- Watermark configuration for late data handling
     'event.time.field' = 'event_time',
@@ -55,9 +55,9 @@ EMIT CHANGES
 WITH (
     'sensor_events.type' = 'kafka_source',
     'sensor_events.topic.name' = 'test_sensor_events',
-    'sensor_events.config_file' = 'configs/sensor_readings_source.yaml',
+    'sensor_events.config_file' = '../configs/sensor_readings_source.yaml',
 
     'lateness_tracking.type' = 'kafka_sink',
     'lateness_tracking.topic.name' = 'test_lateness_tracking',
-    'lateness_tracking.config_file' = 'configs/output_stream_sink.yaml'
+    'lateness_tracking.config_file' = '../configs/output_stream_sink.yaml'
 );

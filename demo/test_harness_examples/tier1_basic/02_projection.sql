@@ -17,9 +17,9 @@ EMIT CHANGES
 WITH (
     'input_stream.type' = 'kafka_source',
     'input_stream.topic.name' = 'test_input_stream',
-    'input_stream.config_file' = 'configs/input_stream_source.yaml',
+    'input_stream.config_file' = '../configs/input_stream_source.yaml',
 
     'projected_output.type' = 'kafka_sink',
     'projected_output.topic.name' = 'test_projection_output',
-    'projected_output.config_file' = 'configs/output_stream_sink.yaml'
+    'projected_output.config_file' = '../configs/output_stream_sink.yaml'
 );

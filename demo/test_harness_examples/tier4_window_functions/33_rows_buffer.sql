@@ -42,9 +42,9 @@ EMIT CHANGES
 WITH (
     'market_data.type' = 'kafka_source',
     'market_data.topic.name' = 'test_market_data',
-    'market_data.config_file' = 'configs/market_data_source.yaml',
+    'market_data.config_file' = '../configs/market_data_source.yaml',
 
     'buffered_analysis.type' = 'kafka_sink',
     'buffered_analysis.topic.name' = 'test_buffered_analysis',
-    'buffered_analysis.config_file' = 'configs/market_data_sink.yaml'
+    'buffered_analysis.config_file' = '../configs/market_data_sink.yaml'
 );

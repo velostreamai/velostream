@@ -42,9 +42,9 @@ EMIT CHANGES
 WITH (
     'user_activity.type' = 'kafka_source',
     'user_activity.topic.name' = 'test_user_activity',
-    'user_activity.config_file' = 'configs/user_activity_source.yaml',
+    'user_activity.config_file' = '../configs/user_activity_source.yaml',
 
     'categorized_activity.type' = 'kafka_sink',
     'categorized_activity.topic.name' = 'test_categorized_activity',
-    'categorized_activity.config_file' = 'configs/output_stream_sink.yaml'
+    'categorized_activity.config_file' = '../configs/output_stream_sink.yaml'
 );

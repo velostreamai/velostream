@@ -1,0 +1,50 @@
+application: compound_keys_demo
+description: Test compound key configuration with PRIMARY KEY annotation
+default_timeout_ms: 60000
+default_records: 500
+
+queries:
+  - name: regional_category_stats
+    description: Verify compound PRIMARY KEY produces pipe-delimited keys
+    inputs:
+      - source: orders
+        schema: order_event.schema.yaml
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [region, category, order_count, total_amount, avg_amount]
+      - type: no_nulls
+        fields: [region, category, order_count]
+    timeout_ms: 60000
+
+  - name: trader_symbol_stats
+    description: Verify compound GROUP BY without PRIMARY KEY
+    inputs:
+      - source: trades
+        schema: market_data.schema.yaml
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [trader_id, symbol, trade_count, total_quantity, avg_price]
+      - type: no_nulls
+        fields: [trader_id, symbol, trade_count]
+    timeout_ms: 60000
+
+  - name: symbol_only_key
+    description: Verify single PRIMARY KEY with compound GROUP BY
+    inputs:
+      - source: trades
+        schema: market_data.schema.yaml
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [symbol, exchange, trade_count, total_value]
+      - type: no_nulls
+        fields: [symbol, trade_count]
+    timeout_ms: 60000

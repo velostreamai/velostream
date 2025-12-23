@@ -23,15 +23,15 @@ EMIT CHANGES
 WITH (
     'orders.type' = 'kafka_source',
     'orders.topic.name' = 'test_orders',
-    'orders.config_file' = 'configs/orders_source.yaml',
+    'orders.config_file' = '../configs/orders_source.yaml',
 
     'shipments.type' = 'kafka_source',
     'shipments.topic.name' = 'test_shipments',
-    'shipments.config_file' = 'configs/shipments_source.yaml',
+    'shipments.config_file' = '../configs/shipments_source.yaml',
 
     'matched_events.type' = 'kafka_sink',
     'matched_events.topic.name' = 'test_matched_events',
-    'matched_events.config_file' = 'configs/orders_sink.yaml',
+    'matched_events.config_file' = '../configs/orders_sink.yaml',
 
     'join.timeout' = '30s'
 );

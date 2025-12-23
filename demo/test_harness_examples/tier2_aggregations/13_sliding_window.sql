@@ -21,9 +21,9 @@ EMIT CHANGES
 WITH (
     'market_data.type' = 'kafka_source',
     'market_data.topic.name' = 'test_market_data',
-    'market_data.config_file' = 'configs/market_data_source.yaml',
+    'market_data.config_file' = '../configs/market_data_source.yaml',
 
     'sliding_output.type' = 'kafka_sink',
     'sliding_output.topic.name' = 'test_sliding_output',
-    'sliding_output.config_file' = 'configs/aggregates_sink.yaml'
+    'sliding_output.config_file' = '../configs/aggregates_sink.yaml'
 );

@@ -20,9 +20,9 @@ EMIT CHANGES
 WITH (
     'user_activity.type' = 'kafka_source',
     'user_activity.topic.name' = 'test_user_activity',
-    'user_activity.config_file' = 'configs/user_activity_source.yaml',
+    'user_activity.config_file' = '../configs/user_activity_source.yaml',
 
     'session_output.type' = 'kafka_sink',
     'session_output.topic.name' = 'test_session_output',
-    'session_output.config_file' = 'configs/aggregates_sink.yaml'
+    'session_output.config_file' = '../configs/aggregates_sink.yaml'
 );

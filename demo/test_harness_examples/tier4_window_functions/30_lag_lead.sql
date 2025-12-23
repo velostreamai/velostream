@@ -32,9 +32,9 @@ EMIT CHANGES
 WITH (
     'market_data.type' = 'kafka_source',
     'market_data.topic.name' = 'test_market_data',
-    'market_data.config_file' = 'configs/market_data_source.yaml',
+    'market_data.config_file' = '../configs/market_data_source.yaml',
 
     'price_changes.type' = 'kafka_sink',
     'price_changes.topic.name' = 'test_price_changes',
-    'price_changes.config_file' = 'configs/market_data_sink.yaml'
+    'price_changes.config_file' = '../configs/market_data_sink.yaml'
 );

@@ -32,8 +32,9 @@ fields:
         max: 10
 
   - name: unit_price
-    type: decimal
-    precision: 2
+    type:
+      decimal:
+        precision: 2
     nullable: false
     constraints:
       range:
@@ -41,13 +42,14 @@ fields:
         max: 999.99
 
   - name: total_amount
-    type: decimal
-    precision: 2
+    type:
+      decimal:
+        precision: 2
     nullable: false
     constraints:
-      derived:
-        expression: "quantity * unit_price"
-        depends_on: ["quantity", "unit_price"]
+      range:
+        min: 1.00
+        max: 9999.99
 
   - name: status
     type: string
@@ -62,8 +64,26 @@ fields:
     nullable: false
     constraints:
       enum_values:
-        values: ["us-east", "us-west", "eu-west", "eu-central", "apac"]
-        weights: [0.25, 0.2, 0.2, 0.15, 0.2]
+        values: ["US", "EU", "APAC", "LATAM"]
+        weights: [0.35, 0.30, 0.25, 0.10]
+
+  - name: category
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["Electronics", "Clothing", "Home", "Sports", "Toys"]
+        weights: [0.25, 0.25, 0.20, 0.15, 0.15]
+
+  - name: amount
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 10.00
+        max: 5000.00
 
   - name: event_time
     type: timestamp

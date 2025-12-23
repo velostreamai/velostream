@@ -20,9 +20,9 @@ EMIT CHANGES
 WITH (
     'input_stream.type' = 'kafka_source',
     'input_stream.topic.name' = 'test_input_stream',
-    'input_stream.config_file' = 'configs/input_stream_source.yaml',
+    'input_stream.config_file' = '../configs/input_stream_source.yaml',
 
     'sum_avg_output.type' = 'kafka_sink',
     'sum_avg_output.topic.name' = 'test_sum_avg_output',
-    'sum_avg_output.config_file' = 'configs/aggregates_sink.yaml'
+    'sum_avg_output.config_file' = '../configs/aggregates_sink.yaml'
 );

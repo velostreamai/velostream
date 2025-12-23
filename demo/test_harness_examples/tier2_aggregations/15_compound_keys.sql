@@ -24,11 +24,11 @@ EMIT CHANGES
 WITH (
     'orders.type' = 'kafka_source',
     'orders.topic.name' = 'test_orders',
-    'orders.config_file' = 'configs/orders_source.yaml',
+    'orders.config_file' = '../configs/orders_source.yaml',
 
     'regional_category_stats.type' = 'kafka_sink',
     'regional_category_stats.topic.name' = 'test_regional_category_stats',
-    'regional_category_stats.config_file' = 'configs/aggregates_sink.yaml'
+    'regional_category_stats.config_file' = '../configs/aggregates_sink.yaml'
 );
 
 -- Example 2: Compound GROUP BY without PRIMARY KEY (implicit key)
@@ -49,11 +49,11 @@ EMIT CHANGES
 WITH (
     'trades.type' = 'kafka_source',
     'trades.topic.name' = 'test_trades',
-    'trades.config_file' = 'configs/trades_source.yaml',
+    'trades.config_file' = '../configs/trades_source.yaml',
 
     'trader_symbol_stats.type' = 'kafka_sink',
     'trader_symbol_stats.topic.name' = 'test_trader_symbol_stats',
-    'trader_symbol_stats.config_file' = 'configs/aggregates_sink.yaml'
+    'trader_symbol_stats.config_file' = '../configs/aggregates_sink.yaml'
 );
 
 -- Example 3: Single PRIMARY KEY with compound GROUP BY
@@ -73,9 +73,9 @@ EMIT CHANGES
 WITH (
     'trades.type' = 'kafka_source',
     'trades.topic.name' = 'test_trades',
-    'trades.config_file' = 'configs/trades_source.yaml',
+    'trades.config_file' = '../configs/trades_source.yaml',
 
     'symbol_only_key.type' = 'kafka_sink',
     'symbol_only_key.topic.name' = 'test_symbol_only_key',
-    'symbol_only_key.config_file' = 'configs/aggregates_sink.yaml'
+    'symbol_only_key.config_file' = '../configs/aggregates_sink.yaml'
 );

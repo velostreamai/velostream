@@ -32,9 +32,9 @@ EMIT CHANGES
 WITH (
     'market_data.type' = 'kafka_source',
     'market_data.topic.name' = 'test_market_data',
-    'market_data.config_file' = 'configs/market_data_source.yaml',
+    'market_data.config_file' = '../configs/market_data_source.yaml',
 
     'ranked_trades.type' = 'kafka_sink',
     'ranked_trades.topic.name' = 'test_ranked_trades',
-    'ranked_trades.config_file' = 'configs/market_data_sink.yaml'
+    'ranked_trades.config_file' = '../configs/market_data_sink.yaml'
 );

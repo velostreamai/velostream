@@ -20,11 +20,11 @@ EMIT CHANGES
 WITH (
     'transactions.type' = 'kafka_source',
     'transactions.topic.name' = 'test_transactions',
-    'transactions.config_file' = 'configs/transactions_source.yaml',
+    'transactions.config_file' = '../configs/transactions_source.yaml',
 
     'all_transactions.type' = 'kafka_sink',
     'all_transactions.topic.name' = 'test_all_transactions',
-    'all_transactions.config_file' = 'configs/output_stream_sink.yaml'
+    'all_transactions.config_file' = '../configs/output_stream_sink.yaml'
 );
 
 -- Aggregation that might have empty groups (uses CREATE TABLE for GROUP BY)
@@ -42,9 +42,9 @@ EMIT CHANGES
 WITH (
     'transactions.type' = 'kafka_source',
     'transactions.topic.name' = 'test_transactions',
-    'transactions.config_file' = 'configs/transactions_source.yaml',
+    'transactions.config_file' = '../configs/transactions_source.yaml',
 
     'category_totals.type' = 'kafka_sink',
     'category_totals.topic.name' = 'test_category_totals',
-    'category_totals.config_file' = 'configs/aggregates_sink.yaml'
+    'category_totals.config_file' = '../configs/aggregates_sink.yaml'
 );

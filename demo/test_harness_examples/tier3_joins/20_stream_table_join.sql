@@ -24,12 +24,12 @@ EMIT CHANGES
 WITH (
     'orders.type' = 'kafka_source',
     'orders.topic.name' = 'test_orders',
-    'orders.config_file' = 'configs/orders_source.yaml',
+    'orders.config_file' = '../configs/orders_source.yaml',
 
     'products.type' = 'file_source',
-    'products.config_file' = 'configs/products_table.yaml',
+    'products.config_file' = '../configs/products_table.yaml',
 
     'enriched_orders.type' = 'kafka_sink',
     'enriched_orders.topic.name' = 'test_enriched_orders',
-    'enriched_orders.config_file' = 'configs/orders_sink.yaml'
+    'enriched_orders.config_file' = '../configs/orders_sink.yaml'
 );

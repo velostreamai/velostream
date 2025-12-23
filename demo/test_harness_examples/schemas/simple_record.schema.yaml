@@ -20,8 +20,9 @@ fields:
         max: 50
 
   - name: amount
-    type: decimal
-    precision: 2
+    type:
+      decimal:
+        precision: 2
     nullable: false
     constraints:
       range:

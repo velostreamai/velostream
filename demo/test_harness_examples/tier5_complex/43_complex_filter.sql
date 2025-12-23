@@ -42,9 +42,9 @@ EMIT CHANGES
 WITH (
     'order_stream.type' = 'kafka_source',
     'order_stream.topic.name' = 'test_order_stream',
-    'order_stream.config_file' = 'configs/orders_source.yaml',
+    'order_stream.config_file' = '../configs/orders_source.yaml',
 
     'filtered_orders.type' = 'kafka_sink',
     'filtered_orders.topic.name' = 'test_filtered_orders',
-    'filtered_orders.config_file' = 'configs/orders_sink.yaml'
+    'filtered_orders.config_file' = '../configs/orders_sink.yaml'
 );

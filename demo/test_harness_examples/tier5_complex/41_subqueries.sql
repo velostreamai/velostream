@@ -25,12 +25,12 @@ EMIT CHANGES
 WITH (
     'all_orders.type' = 'kafka_source',
     'all_orders.topic.name' = 'test_all_orders',
-    'all_orders.config_file' = 'configs/orders_source.yaml',
+    'all_orders.config_file' = '../configs/orders_source.yaml',
 
     'vip_customers.type' = 'file_source',
-    'vip_customers.config_file' = 'configs/customers_table.yaml',
+    'vip_customers.config_file' = '../configs/customers_table.yaml',
 
     'vip_orders.type' = 'kafka_sink',
     'vip_orders.topic.name' = 'test_vip_orders',
-    'vip_orders.config_file' = 'configs/orders_sink.yaml'
+    'vip_orders.config_file' = '../configs/orders_sink.yaml'
 );
