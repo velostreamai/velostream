@@ -63,10 +63,10 @@ WITH (
     'late.data.strategy' = 'dead_letter',     -- Route late trades to DLQ
 
     'in_market_data_stream.type' = 'kafka_source',
-    'in_market_data_stream.config_file' = 'configs/market_data_source.yaml',
+    'in_market_data_stream.config_file' = '../configs/market_data_source.yaml',
 
     'market_data_ts.type' = 'kafka_sink',
-    'market_data_ts.config_file' = 'configs/market_data_ts_sink.yaml'
+    'market_data_ts.config_file' = '../configs/market_data_ts_sink.yaml'
 );
 
 -- FR-073 SQL-Native Observability: Tick Data Processing Rate
@@ -109,10 +109,10 @@ GROUP BY symbol
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'tick_buckets.type' = 'kafka_sink',
-    'tick_buckets.config_file' = 'configs/tick_buckets_sink.yaml'
+    'tick_buckets.config_file' = '../configs/tick_buckets_sink.yaml'
 );
 
 -- ====================================================================================
@@ -173,13 +173,13 @@ LEFT JOIN instrument_reference r ON m.symbol = r.symbol
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'instrument_reference.type' = 'file_source',
-    'instrument_reference.config_file' = 'configs/instrument_reference_table.yaml',
+    'instrument_reference.config_file' = '../configs/instrument_reference_table.yaml',
 
     'enriched_market_data.type' = 'kafka_sink',
-    'enriched_market_data.config_file' = 'configs/enriched_market_data_sink.yaml',
+    'enriched_market_data.config_file' = '../configs/enriched_market_data_sink.yaml',
 
     -- Optimization for reference table lookups
     'join.timeout' = '30s',
@@ -305,10 +305,10 @@ FROM market_data_ts
 
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'advanced_price_movement_alerts.type' = 'kafka_sink',
-    'advanced_price_movement_alerts.config_file' = 'configs/price_alerts_sink.yaml',
+    'advanced_price_movement_alerts.config_file' = '../configs/price_alerts_sink.yaml',
 
     -- Phase 2: Circuit breaker configuration for sink
     'circuit.breaker.enabled' = 'true',
@@ -360,13 +360,13 @@ WHERE NOT EXISTS (
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'regulatory_watchlist.type' = 'file_source',
-    'regulatory_watchlist.config_file' = 'configs/regulatory_watchlist_table.yaml',
+    'regulatory_watchlist.config_file' = '../configs/regulatory_watchlist_table.yaml',
 
     'compliant_market_data.type' = 'kafka_sink',
-    'compliant_market_data.config_file' = 'configs/compliant_market_data_sink.yaml',
+    'compliant_market_data.config_file' = '../configs/compliant_market_data_sink.yaml',
 
     -- Compliance-critical settings (maximum safety)
     'delivery.guarantee' = 'exactly_once',
@@ -425,11 +425,11 @@ GROUP BY symbol
   EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'price_movement_debug.type' = 'kafka_sink',
     'price_movement_debug.topic.name' = 'price_movement_debug',
-    'price_movement_debug.config_file' = 'configs/price_alerts_sink.yaml'
+    'price_movement_debug.config_file' = '../configs/price_alerts_sink.yaml'
 );
 
 -- ====================================================================================
@@ -488,16 +488,16 @@ AND m.symbol NOT IN (
 EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'instrument_schedules.type' = 'file_source',
-    'instrument_schedules.config_file' = 'configs/instrument_schedules_table.yaml',
+    'instrument_schedules.config_file' = '../configs/instrument_schedules_table.yaml',
 
     'trading_halts.type' = 'file_source',
-    'trading_halts.config_file' = 'configs/trading_halts_table.yaml',
+    'trading_halts.config_file' = '../configs/trading_halts_table.yaml',
 
     'active_hours_market_data.type' = 'kafka_sink',
-    'active_hours_market_data.config_file' = 'configs/active_hours_market_data_sink.yaml',
+    'active_hours_market_data.config_file' = '../configs/active_hours_market_data_sink.yaml',
 
     -- Market hours critical - no delays
     'linger.ms' = '0',
@@ -580,7 +580,7 @@ GROUP BY
     EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
 
     -- Phase 2: Comprehensive resource management
@@ -605,7 +605,7 @@ WITH (
     'retry.multiplier' = '2.0',
 
     'volume_spike_analysis.type' = 'kafka_sink',
-    'volume_spike_analysis.config_file' = 'configs/volume_spikes_sink.yaml'
+    'volume_spike_analysis.config_file' = '../configs/volume_spikes_sink.yaml'
 );
 
 -- ====================================================================================
@@ -634,10 +634,10 @@ WITH (
     'late.data.strategy' = 'update_previous',  -- Update positions
 
     'in_trading_positions_stream.type' = 'kafka_source',
-    'in_trading_positions_stream.config_file' = 'configs/trading_positions_source.yaml',
+    'in_trading_positions_stream.config_file' = '../configs/trading_positions_source.yaml',
 
     'trading_positions_with_event_time.type' = 'kafka_sink',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_sink.yaml'
+    'trading_positions_with_event_time.config_file' = '../configs/trading_positions_sink.yaml'
 );
 
 -- FR-073 SQL-Native Observability: Risk Alerts Counter
@@ -718,13 +718,13 @@ WHERE ABS(p.position_size * COALESCE(m.price, 0)) > 100000
 WITH (
     -- Source configurations
     'trading_positions_with_event_time.type' = 'kafka_source',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_source.yaml',
+    'trading_positions_with_event_time.config_file' = '../configs/trading_positions_source.yaml',
 
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'comprehensive_risk_monitor.type' = 'kafka_sink',
-    'comprehensive_risk_monitor.config_file' = 'configs/risk_alerts_sink.yaml',
+    'comprehensive_risk_monitor.config_file' = '../configs/risk_alerts_sink.yaml',
 
 
     -- Phase 2: Full resource management and fault tolerance
@@ -837,19 +837,19 @@ EMIT CHANGES
 WITH (
     -- Source configurations
     'trading_positions_with_event_time.type' = 'kafka_source',
-    'trading_positions_with_event_time.config_file' = 'configs/trading_positions_source.yaml',
+    'trading_positions_with_event_time.config_file' = '../configs/trading_positions_source.yaml',
 
     'firm_limits.type' = 'file_source',
-    'firm_limits.config_file' = 'configs/firm_limits_table.yaml',
+    'firm_limits.config_file' = '../configs/firm_limits_table.yaml',
 
     'desk_limits.type' = 'file_source',
-    'desk_limits.config_file' = 'configs/desk_limits_table.yaml',
+    'desk_limits.config_file' = '../configs/desk_limits_table.yaml',
 
     'trader_limits.type' = 'file_source',
-    'trader_limits.config_file' = 'configs/trader_limits_table.yaml',
+    'trader_limits.config_file' = '../configs/trader_limits_table.yaml',
 
     'risk_hierarchy_validation.type' = 'kafka_sink',
-    'risk_hierarchy_validation.config_file' = 'configs/risk_hierarchy_validation_sink.yaml',
+    'risk_hierarchy_validation.config_file' = '../configs/risk_hierarchy_validation_sink.yaml',
 
     -- Resource configuration for multi-tier validation
     'max.memory.mb' = '1024',
@@ -963,10 +963,10 @@ GROUP BY symbol
 EMIT CHANGES
 WITH (
     'in_order_book_stream.type' = 'kafka_source',
-    'in_order_book_stream.config_file' = 'configs/order_book_source.yaml',
+    'in_order_book_stream.config_file' = '../configs/order_book_source.yaml',
 
     'order_flow_imbalance_detection.type' = 'kafka_sink',
-    'order_flow_imbalance_detection.config_file' = 'configs/order_imbalance_sink.yaml'
+    'order_flow_imbalance_detection.config_file' = '../configs/order_imbalance_sink.yaml'
 );
 
 -- ====================================================================================
@@ -1001,13 +1001,13 @@ WHERE a.bid_price > b.ask_price
 EMIT CHANGES
 WITH (
     'in_market_data_stream_a.type' = 'kafka_source',
-    'in_market_data_stream_a.config_file' = 'configs/market_data_exchange_a_source.yaml',
+    'in_market_data_stream_a.config_file' = '../configs/market_data_exchange_a_source.yaml',
 
     'in_market_data_stream_b.type' = 'kafka_source',
-    'in_market_data_stream_b.config_file' = 'configs/market_data_exchange_b_source.yaml',
+    'in_market_data_stream_b.config_file' = '../configs/market_data_exchange_b_source.yaml',
 
     'arbitrage_opportunities_detection.type' = 'kafka_sink',
-    'arbitrage_opportunities_detection.config_file' = 'configs/arbitrage_opportunities_sink.yaml'
+    'arbitrage_opportunities_detection.config_file' = '../configs/arbitrage_opportunities_sink.yaml'
 );
 
 -- ====================================================================================
@@ -1061,9 +1061,9 @@ GROUP BY symbol
   EMIT CHANGES
 WITH (
     'market_data_ts.type' = 'kafka_source',
-    'market_data_ts.config_file' = 'configs/market_data_ts_source.yaml',
+    'market_data_ts.config_file' = '../configs/market_data_ts_source.yaml',
 
     'price_movement_simple.type' = 'kafka_sink',
     'price_movement_simple.topic.name' = 'price_movement_debug_2',
-    'price_movement_simple.config_file' = 'configs/price_alerts_sink.yaml'
+    'price_movement_simple.config_file' = '../configs/price_alerts_sink.yaml'
 );
