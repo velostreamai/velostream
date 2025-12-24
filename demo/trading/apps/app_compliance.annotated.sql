@@ -1,4 +1,47 @@
 -- =============================================================================
+-- APPLICATION: app_compliance
+-- =============================================================================
+-- @app: app_compliance  # Application identifier
+-- @version: 1.0.0  # Semantic version
+-- @description: TODO - Describe your application  # Human-readable description
+-- @phase: development  # Options: development, staging, production
+
+--
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:app_compliance-1}  # Unique node identifier (supports env vars)
+-- @deployment.node_name: app_compliance Platform  # Human-readable node name
+-- @deployment.region: ${AWS_REGION:us-east-1}  # Deployment region
+
+--
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true  # Enable Prometheus metrics collection
+-- @observability.tracing.enabled: false  # Enable distributed tracing (OpenTelemetry)
+-- @observability.profiling.enabled: off  # Options: off, dev (8-10% overhead), prod (2-3% overhead)
+-- @observability.error_reporting.enabled: true  # Enable structured error reporting
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: simple  # Options: simple (low latency), transactional (exactly-once), adaptive (parallel)
+-- @batch_size: 100  # Records per batch (higher = throughput, lower = latency)
+-- @num_partitions: 8  # Parallel partitions for adaptive mode (default: CPU cores)
+-- @partitioning_strategy: sticky  # Options: sticky, hash, smart, roundrobin, fanin
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 50ms  # Expected P99 latency target
+-- @sla.availability: 99.9%  # Availability target
+-- @data_retention: 7d  # Data retention policy
+-- @compliance: []  # Compliance requirements (e.g., SOX, GDPR, PCI-DSS)
+
+-- =============================================================================
+-- SQL QUERIES
+-- =============================================================================
+
+-- =============================================================================
 -- APPLICATION: compliance
 -- =============================================================================
 -- @app: compliance
@@ -62,6 +105,28 @@
 -- @description: Filters out trades involving restricted traders or blocked instruments
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for compliant_market_data
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_compliance_compliant_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by compliant_market_data"
+--
+-- @metric: velo_app_compliance_current_m_price
+-- @metric_type: gauge
+-- @metric_help: "Current m.price value"
+-- @metric_field: m.price
+--
+-- @metric: velo_app_compliance_current_m_bid_price
+-- @metric_type: gauge
+-- @metric_help: "Current m.bid_price value"
+-- @metric_field: m.bid_price
+--
+-- @metric: velo_app_compliance_current_m_ask_price
+-- @metric_type: gauge
+-- @metric_help: "Current m.ask_price value"
+-- @metric_field: m.ask_price
+--
 CREATE STREAM compliant_market_data AS
 SELECT
     m.symbol PRIMARY KEY,
@@ -107,6 +172,28 @@ WITH (
 -- @description: Filters market data to only include actively trading instruments
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for active_hours_market_data
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_compliance_active_hours_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by active_hours_market_data"
+--
+-- @metric: velo_app_compliance_current_m_price
+-- @metric_type: gauge
+-- @metric_help: "Current m.price value"
+-- @metric_field: m.price
+--
+-- @metric: velo_app_compliance_current_m_bid_price
+-- @metric_type: gauge
+-- @metric_help: "Current m.bid_price value"
+-- @metric_field: m.bid_price
+--
+-- @metric: velo_app_compliance_current_m_ask_price
+-- @metric_type: gauge
+-- @metric_help: "Current m.ask_price value"
+-- @metric_field: m.ask_price
+--
 CREATE STREAM active_hours_market_data AS
 SELECT
     m.symbol PRIMARY KEY,

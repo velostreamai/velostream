@@ -248,6 +248,9 @@ pub struct LengthConstraint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", untagged)]
 pub enum Distribution {
+    /// Random walk / Geometric Brownian Motion for realistic price paths
+    /// Each value depends on the previous value, creating realistic time series
+    RandomWalk { random_walk: RandomWalkConfig },
     /// Normal distribution (must be first for untagged deserialization)
     Normal { normal: NormalConfig },
     /// Log-normal distribution
@@ -283,6 +286,60 @@ pub struct LogNormalConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZipfConfig {
     pub exponent: f64,
+}
+
+/// Configuration for random walk / Geometric Brownian Motion
+///
+/// Generates realistic price paths where each value depends on the previous.
+/// Uses the GBM formula: S(t+1) = S(t) * (1 + drift + volatility * Z)
+/// where Z ~ N(0,1)
+///
+/// Example usage in schema:
+/// ```yaml
+/// - name: price
+///   type:
+///     decimal:
+///       precision: 4
+///   constraints:
+///     range:
+///       min: 150.0    # Initial value
+///       max: 500.0    # Optional ceiling (prevents runaway)
+///     distribution:
+///       random_walk:
+///         drift: 0.0001       # Expected return per step (~0.01%)
+///         volatility: 0.02    # Std dev per step (2%)
+///         group_by: symbol    # Separate paths per symbol
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RandomWalkConfig {
+    /// Drift parameter (mu) - expected return per step
+    /// Typical values: 0.0001 to 0.001 for small positive drift
+    #[serde(default)]
+    pub drift: f64,
+
+    /// Volatility parameter (sigma) - standard deviation per step
+    /// Typical values: 0.01 to 0.05 (1% to 5%)
+    #[serde(default = "default_volatility")]
+    pub volatility: f64,
+
+    /// Field to group by - each unique value gets its own price path
+    /// e.g., "symbol" means AAPL, GOOGL, etc. each have independent paths
+    #[serde(default)]
+    pub group_by: Option<String>,
+
+    /// Whether to allow the value to go below range.min (default: false)
+    /// If false, values are floored at range.min
+    #[serde(default)]
+    pub allow_below_min: bool,
+
+    /// Whether to allow the value to exceed range.max (default: false)
+    /// If false, values are capped at range.max
+    #[serde(default)]
+    pub allow_above_max: bool,
+}
+
+fn default_volatility() -> f64 {
+    0.02 // 2% default volatility
 }
 
 /// Derived field expression

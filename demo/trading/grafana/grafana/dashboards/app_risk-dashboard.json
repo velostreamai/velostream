@@ -503,7 +503,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Top Symbols: Total records processed by volume_spike_analysis",
+      "description": "Top Symbols: Total records processed by trading_positions_ts",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -551,13 +551,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_trading_signals_volume_spike_analysis_records_total))",
+          "expr": "topk(5, sum by (symbol) (velo_app_risk_trading_positions_ts_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
         }
       ],
-      "title": "Top Symbols: Total records processed by volume_spike_analysis",
+      "title": "Top Symbols: Total records processed by trading_positions_ts",
       "type": "bargauge"
     },
     {
@@ -565,7 +565,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Total records processed by volume_spike_analysis",
+      "description": "Total records processed by trading_positions_ts",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -641,13 +641,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "rate(velo_app_trading_signals_volume_spike_analysis_records_total[5m])",
+          "expr": "rate(velo_app_risk_trading_positions_ts_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Total records processed by volume_spike_analysis",
+      "title": "Total records processed by trading_positions_ts",
       "type": "timeseries"
     },
     {
@@ -655,7 +655,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Count aggregation from volume_spike_analysis",
+      "description": "Total records processed by comprehensive_risk_monitor",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -703,13 +703,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "topk(5, sum by (symbol) (velo_app_trading_signals_volume_spike_analysis_count))",
+          "expr": "topk(5, sum by (symbol) (velo_app_risk_comprehensive_risk_monitor_records_total))",
           "interval": "",
           "legendFormat": "{{symbol}}",
           "refId": "A"
         }
       ],
-      "title": "Count aggregation from volume_spike_analysis",
+      "title": "Total records processed by comprehensive_risk_monitor",
       "type": "bargauge"
     },
     {
@@ -717,7 +717,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current trade_count from volume_spike_analysis",
+      "description": "Current current_price value",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -772,7 +772,7 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_trade_count",
+          "expr": "velo_app_risk_current_current_price",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -780,7 +780,7 @@
           "refId": "A"
         }
       ],
-      "title": "Current trade_count from volume_spike_analysis",
+      "title": "Current current_price value",
       "transformations": [
         {
           "id": "organize",
@@ -803,7 +803,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current avg_volume from volume_spike_analysis",
+      "description": "Total records processed by risk_hierarchy_validation",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -851,7 +851,7 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -879,13 +879,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_avg_volume",
+          "expr": "rate(velo_app_risk_risk_hierarchy_validation_records_total[5m])",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current avg_volume from volume_spike_analysis",
+      "title": "Total records processed by risk_hierarchy_validation",
       "type": "timeseries"
     },
     {
@@ -893,7 +893,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current stddev_volume from volume_spike_analysis",
+      "description": "Current p.entry_price value",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -949,13 +949,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_stddev_volume",
+          "expr": "velo_app_risk_current_p.entry_price",
           "interval": "",
-          "legendFormat": "Current stddev_volume from volume_spike_analysis",
+          "legendFormat": "Current p.entry_price value",
           "refId": "A"
         }
       ],
-      "title": "Current stddev_volume from volume_spike_analysis",
+      "title": "Current p.entry_price value",
       "type": "gauge"
     },
     {
@@ -963,7 +963,7 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       },
-      "description": "Current max_volume from volume_spike_analysis",
+      "description": "Current p.current_price value",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1039,501 +1039,13 @@
             "type": "prometheus",
             "uid": "PBFA97CFB590B2093"
           },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_max_volume",
+          "expr": "velo_app_risk_current_p.current_price",
           "interval": "",
           "legendFormat": "{{job}}",
           "refId": "A"
         }
       ],
-      "title": "Current max_volume from volume_spike_analysis",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Current min_volume from volume_spike_analysis",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "displayMode": "auto",
-            "filterable": true
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 42
-      },
-      "id": 14,
-      "options": {
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Value"
-          }
-        ]
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_min_volume",
-          "format": "table",
-          "instant": true,
-          "interval": "",
-          "legendFormat": "",
-          "refId": "A"
-        }
-      ],
-      "title": "Current min_volume from volume_spike_analysis",
-      "transformations": [
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true
-            },
-            "indexByName": {},
-            "renameByName": {
-              "Value": "Count"
-            }
-          }
-        }
-      ],
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Current rolling_avg_20 from volume_spike_analysis",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 42
-      },
-      "id": 15,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_rolling_avg_20",
-          "interval": "",
-          "legendFormat": "{{job}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Current rolling_avg_20 from volume_spike_analysis",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Current volume_percentile from volume_spike_analysis",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "max": 1000.0,
-          "min": 0,
-          "thresholds": {
-            "mode": "percentage",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 70
-              },
-              {
-                "color": "red",
-                "value": 90
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 50
-      },
-      "id": 16,
-      "options": {
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "velo_app_trading_signals_volume_spike_analysis_volume_percentile",
-          "interval": "",
-          "legendFormat": "Current volume_percentile from volume_spike_analysis",
-          "refId": "A"
-        }
-      ],
-      "title": "Current volume_percentile from volume_spike_analysis",
-      "type": "gauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Total records processed by order_flow_imbalance",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 50
-      },
-      "id": 17,
-      "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "showUnfilled": true
-      },
-      "pluginVersion": "9.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "topk(5, sum by (symbol) (velo_app_trading_signals_order_flow_imbalance_records_total))",
-          "interval": "",
-          "legendFormat": "{{symbol}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Total records processed by order_flow_imbalance",
-      "type": "bargauge"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Current buy_volume from order_flow_imbalance",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 58
-      },
-      "id": 18,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "velo_app_trading_signals_order_flow_imbalance_buy_volume",
-          "interval": "",
-          "legendFormat": "{{job}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Current buy_volume from order_flow_imbalance",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
-      },
-      "description": "Current sell_volume from order_flow_imbalance",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "vis": false
-            },
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 58
-      },
-      "id": 19,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
-          "expr": "velo_app_trading_signals_order_flow_imbalance_sell_volume",
-          "interval": "",
-          "legendFormat": "{{job}}",
-          "refId": "A"
-        }
-      ],
-      "title": "Current sell_volume from order_flow_imbalance",
+      "title": "Current p.current_price value",
       "type": "timeseries"
     }
   ],
@@ -1542,7 +1054,7 @@
   "style": "dark",
   "tags": [
     "velostream",
-    "app_trading_signals",
+    "app_risk",
     "auto-generated"
   ],
   "templating": {
@@ -1554,8 +1066,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Velostream app_trading_signals",
-  "uid": "velostream-app_trading_signals",
+  "title": "Velostream app_risk",
+  "uid": "velostream-app_risk",
   "version": 1,
   "weekStart": ""
 }

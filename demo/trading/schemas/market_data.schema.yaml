@@ -2,9 +2,13 @@
 # Generates realistic market data events with financial precision
 #
 # Based on: schemas/market_data.avsc
+#
+# NEW: Uses Geometric Brownian Motion (GBM) for realistic price paths
+# Each symbol has its own independent price trajectory that follows
+# realistic market dynamics with configurable drift and volatility.
 
 name: market_data
-description: High-frequency market data with exact financial precision
+description: High-frequency market data with GBM-based realistic price simulation
 
 fields:
   - name: symbol
@@ -35,12 +39,16 @@ fields:
     type:
       decimal:
         precision: 4
-    description: Current price with 4 decimal places
+    description: Current price using Geometric Brownian Motion for realistic paths
     constraints:
       range:
-        min: 50.0
-        max: 500.0
-      distribution: uniform
+        min: 150.0   # Initial price for new symbols (realistic tech stock range)
+        max: 500.0   # Price ceiling to prevent runaway
+      distribution:
+        random_walk:
+          drift: 0.0001       # ~0.01% expected return per tick (slight upward bias)
+          volatility: 0.015   # 1.5% standard deviation per tick
+          group_by: symbol    # Each symbol has its own independent price path
 
   - name: bid_price
     type:

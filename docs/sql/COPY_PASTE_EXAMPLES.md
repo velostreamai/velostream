@@ -553,6 +553,223 @@ WITH (
 
 ---
 
+## SQL-Native Metrics (@metric Annotations)
+
+**CRITICAL**: Metric annotations must be placed **immediately before** each `CREATE STREAM` statement.
+The parser only associates metrics with the query that directly follows the annotations.
+
+### Counter Metric (CSAS)
+
+```sql
+-- @metric: velo_trading_market_data_total
+-- @metric_type: counter
+-- @metric_help: "Total market data records processed"
+-- @metric_labels: symbol, exchange
+CREATE STREAM market_data_ts AS
+SELECT symbol,
+       exchange,
+       price,
+       volume,
+       event_time
+FROM raw_market_data
+EMIT CHANGES
+WITH (
+    'raw_market_data.type' = 'kafka_source',
+    'raw_market_data.topic' = 'market_data_input',
+    'market_data_ts.type' = 'kafka_sink',
+    'market_data_ts.topic' = 'market_data_output'
+);
+```
+
+**When to use**: Count records processed, errors, events. No `@metric_field` needed - increments by 1 per record.
+
+### Gauge Metric with Field (CSAS)
+
+```sql
+-- @metric: velo_trading_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current market price per symbol"
+-- @metric_field: price
+-- @metric_labels: symbol
+CREATE STREAM price_updates AS
+SELECT symbol,
+       price,
+       bid_price,
+       ask_price,
+       event_time
+FROM market_data_ts
+WHERE price > 0
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.topic' = 'market_data_ts',
+    'price_updates.type' = 'kafka_sink',
+    'price_updates.topic' = 'price_updates_output'
+);
+```
+
+**When to use**: Track current values (price, volume, count). **`@metric_field` is REQUIRED** - specifies which output field to measure.
+
+### Histogram Metric (CSAS)
+
+```sql
+-- @metric: velo_trading_latency_seconds
+-- @metric_type: histogram
+-- @metric_help: "Processing latency distribution"
+-- @metric_field: processing_latency_ms
+-- @metric_labels: symbol
+-- @metric_buckets: 1, 5, 10, 50, 100, 500, 1000
+CREATE STREAM latency_tracking AS
+SELECT symbol,
+       EXTRACT(EPOCH FROM (NOW() - event_time)) * 1000 as processing_latency_ms,
+       event_time
+FROM market_data_ts
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.topic' = 'market_data_ts',
+    'latency_tracking.type' = 'kafka_sink',
+    'latency_tracking.topic' = 'latency_output'
+);
+```
+
+**When to use**: Measure distributions (latency, response times). **`@metric_field` is REQUIRED**. `@metric_buckets` defines histogram boundaries.
+
+### Multiple Metrics per Query (CSAS)
+
+```sql
+-- @metric: velo_trading_tick_buckets_total
+-- @metric_type: counter
+-- @metric_help: "Total OHLCV tick buckets generated"
+-- @metric_labels: symbol
+--
+-- @metric: velo_trading_tick_volume
+-- @metric_type: gauge
+-- @metric_help: "Current tick volume"
+-- @metric_field: total_volume
+-- @metric_labels: symbol
+--
+-- @metric: velo_trading_tick_price_distribution
+-- @metric_type: histogram
+-- @metric_help: "Price distribution per tick"
+-- @metric_field: avg_price
+-- @metric_labels: symbol
+-- @metric_buckets: 10, 50, 100, 200, 500, 1000
+CREATE STREAM tick_buckets AS
+SELECT symbol,
+       AVG(price) as avg_price,
+       SUM(volume) as total_volume,
+       COUNT(*) as trade_count,
+       _window_start AS window_start,
+       _window_end AS window_end
+FROM market_data_ts
+GROUP BY symbol
+WINDOW TUMBLING(event_time, INTERVAL '1' SECOND)
+EMIT CHANGES
+WITH (
+    'market_data_ts.type' = 'kafka_source',
+    'market_data_ts.topic' = 'market_data_ts',
+    'tick_buckets.type' = 'kafka_sink',
+    'tick_buckets.topic' = 'tick_buckets_output'
+);
+```
+
+**When to use**: Multiple metrics from same query. Separate metric blocks with `--` blank comment line.
+
+### Conditional Metrics (CSAS)
+
+```sql
+-- @metric: velo_trading_volume_spikes_total
+-- @metric_type: counter
+-- @metric_help: "Volume spike detections by classification"
+-- @metric_labels: symbol, spike_classification
+-- @metric_condition: spike_classification IN ('EXTREME_SPIKE', 'HIGH_SPIKE')
+CREATE STREAM volume_spikes AS
+SELECT symbol,
+       volume,
+       CASE
+           WHEN volume > avg_volume * 5 THEN 'EXTREME_SPIKE'
+           WHEN volume > avg_volume * 3 THEN 'HIGH_SPIKE'
+           ELSE 'NORMAL'
+       END as spike_classification
+FROM volume_analysis
+WHERE volume > avg_volume * 3
+EMIT CHANGES
+WITH (
+    'volume_analysis.type' = 'kafka_source',
+    'volume_analysis.topic' = 'volume_analysis',
+    'volume_spikes.type' = 'kafka_sink',
+    'volume_spikes.topic' = 'volume_spikes_output'
+);
+```
+
+**When to use**: Only emit metrics when conditions are met. `@metric_condition` filters which records trigger metric emission.
+
+### Metric Annotation Reference
+
+| Annotation | Required | Type | Description |
+|------------|----------|------|-------------|
+| `@metric` | Yes | string | Metric name (use snake_case, prefix with `velo_`) |
+| `@metric_type` | Yes | counter/gauge/histogram | Prometheus metric type |
+| `@metric_help` | Yes | string | Help text shown in Prometheus |
+| `@metric_field` | **gauge/histogram only** | string | Output field to measure |
+| `@metric_labels` | No | string | Comma-separated field names for labels |
+| `@metric_condition` | No | SQL expr | Only emit when condition is true |
+| `@metric_buckets` | No | numbers | Histogram bucket boundaries |
+| `@metric_sample_rate` | No | 0.0-1.0 | Sampling rate (default: 1.0 = 100%) |
+
+### Common Mistakes
+
+```sql
+-- ❌ WRONG: Metrics in header, far from CREATE STREAM
+-- @metric: my_metric
+-- ... 50 lines of other comments ...
+CREATE STREAM my_stream AS ...  -- Parser won't associate metric!
+
+-- ✅ CORRECT: Metrics immediately before CREATE STREAM
+-- @metric: my_metric
+-- @metric_type: counter
+CREATE STREAM my_stream AS ...  -- Metric properly attached!
+
+-- ❌ WRONG: Gauge without @metric_field
+-- @metric: current_price
+-- @metric_type: gauge
+CREATE STREAM ...  -- Won't know which field to measure!
+
+-- ✅ CORRECT: Gauge with @metric_field
+-- @metric: current_price
+-- @metric_type: gauge
+-- @metric_field: price
+CREATE STREAM ...  -- Measures the 'price' output field
+```
+
+### Recommended Workflow: Use `velo-test annotate`
+
+Instead of manually writing metrics, use `velo-test annotate` to auto-generate them:
+
+```bash
+# 1. Write your SQL (no metrics needed)
+vim apps/my_app.sql
+
+# 2. Generate annotated SQL with metrics placed correctly
+velo-test annotate apps/my_app.sql \
+  --output apps/my_app.annotated.sql \
+  --monitoring monitoring
+
+# 3. Run the annotated version
+velo-test run apps/my_app.annotated.sql
+```
+
+**Benefits:**
+- Metrics are automatically placed immediately before each `CREATE STREAM`
+- Generates appropriate metrics based on query analysis (counters, gauges, histograms)
+- Creates Grafana dashboards and Prometheus config
+- No manual placement errors
+
+See [CLI Reference - velo-test annotate](../test-harness/CLI_REFERENCE.md#velo-test-annotate) for full documentation.
+
+---
+
 ## JOIN Queries
 
 ### Simple Stream-Table JOIN (CSAS)

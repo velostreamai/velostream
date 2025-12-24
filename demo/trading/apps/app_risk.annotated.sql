@@ -1,4 +1,47 @@
 -- =============================================================================
+-- APPLICATION: app_risk
+-- =============================================================================
+-- @app: app_risk  # Application identifier
+-- @version: 1.0.0  # Semantic version
+-- @description: TODO - Describe your application  # Human-readable description
+-- @phase: development  # Options: development, staging, production
+
+--
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:app_risk-1}  # Unique node identifier (supports env vars)
+-- @deployment.node_name: app_risk Platform  # Human-readable node name
+-- @deployment.region: ${AWS_REGION:us-east-1}  # Deployment region
+
+--
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true  # Enable Prometheus metrics collection
+-- @observability.tracing.enabled: true  # Enable distributed tracing (OpenTelemetry)
+-- @observability.profiling.enabled: off  # Options: off, dev (8-10% overhead), prod (2-3% overhead)
+-- @observability.error_reporting.enabled: true  # Enable structured error reporting
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: simple  # Options: simple (low latency), transactional (exactly-once), adaptive (parallel)
+-- @batch_size: 100  # Records per batch (higher = throughput, lower = latency)
+-- @num_partitions: 8  # Parallel partitions for adaptive mode (default: CPU cores)
+-- @partitioning_strategy: sticky  # Options: sticky, hash, smart, roundrobin, fanin
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 50ms  # Expected P99 latency target
+-- @sla.availability: 99.9%  # Availability target
+-- @data_retention: 7d  # Data retention policy
+-- @compliance: []  # Compliance requirements (e.g., SOX, GDPR, PCI-DSS)
+
+-- =============================================================================
+-- SQL QUERIES
+-- =============================================================================
+
+-- =============================================================================
 -- APPLICATION: risk_monitoring
 -- =============================================================================
 -- @app: risk_monitoring
@@ -66,6 +109,13 @@
 -- @description: Ingests raw position updates with event-time processing
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for trading_positions_ts
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_risk_trading_positions_ts_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by trading_positions_ts"
+--
 CREATE STREAM trading_positions_ts AS
 SELECT
     trader_id PRIMARY KEY,
@@ -100,6 +150,18 @@ WITH (
 -- @description: Joins positions with market data for real-time risk calculations
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for comprehensive_risk_monitor
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_risk_comprehensive_risk_monitor_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by comprehensive_risk_monitor"
+--
+-- @metric: velo_app_risk_current_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current current_price value"
+-- @metric_field: current_price
+--
 CREATE STREAM comprehensive_risk_monitor AS
 SELECT
     p.trader_id PRIMARY KEY,
@@ -207,6 +269,23 @@ WITH (
 -- @description: Multi-tier hierarchical risk limit validation (firm → desk → trader)
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for risk_hierarchy_validation
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_risk_risk_hierarchy_validation_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by risk_hierarchy_validation"
+--
+-- @metric: velo_app_risk_current_p_entry_price
+-- @metric_type: gauge
+-- @metric_help: "Current p.entry_price value"
+-- @metric_field: p.entry_price
+--
+-- @metric: velo_app_risk_current_p_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current p.current_price value"
+-- @metric_field: p.current_price
+--
 CREATE STREAM risk_hierarchy_validation AS
 SELECT
     p.trader_id PRIMARY KEY,

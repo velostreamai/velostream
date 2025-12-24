@@ -1,4 +1,47 @@
 -- =============================================================================
+-- APPLICATION: app_trading_signals
+-- =============================================================================
+-- @app: app_trading_signals  # Application identifier
+-- @version: 1.0.0  # Semantic version
+-- @description: TODO - Describe your application  # Human-readable description
+-- @phase: development  # Options: development, staging, production
+
+--
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:app_trading_signals-1}  # Unique node identifier (supports env vars)
+-- @deployment.node_name: app_trading_signals Platform  # Human-readable node name
+-- @deployment.region: ${AWS_REGION:us-east-1}  # Deployment region
+
+--
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true  # Enable Prometheus metrics collection
+-- @observability.tracing.enabled: true  # Enable distributed tracing (OpenTelemetry)
+-- @observability.profiling.enabled: prod  # Options: off, dev (8-10% overhead), prod (2-3% overhead)
+-- @observability.error_reporting.enabled: true  # Enable structured error reporting
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: adaptive  # Options: simple (low latency), transactional (exactly-once), adaptive (parallel)
+-- @batch_size: 1000  # Records per batch (higher = throughput, lower = latency)
+-- @num_partitions: 8  # Parallel partitions for adaptive mode (default: CPU cores)
+-- @partitioning_strategy: hash  # Options: sticky, hash, smart, roundrobin, fanin
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 1000ms  # Expected P99 latency target
+-- @sla.availability: 99.9%  # Availability target
+-- @data_retention: 7d  # Data retention policy
+-- @compliance: []  # Compliance requirements (e.g., SOX, GDPR, PCI-DSS)
+
+-- =============================================================================
+-- SQL QUERIES
+-- =============================================================================
+
+-- =============================================================================
 -- APPLICATION: trading_signals
 -- =============================================================================
 -- @app: trading_signals
@@ -63,6 +106,62 @@
 -- @description: Detects volume anomalies using statistical methods
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for volume_spike_analysis
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_trading_signals_volume_spike_analysis_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by volume_spike_analysis"
+-- @metric_labels: symbol
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_count
+-- @metric_type: counter
+-- @metric_help: "Count aggregation from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: count
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_trade_count
+-- @metric_type: gauge
+-- @metric_help: "Current trade_count from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: trade_count
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_avg_volume
+-- @metric_type: gauge
+-- @metric_help: "Current avg_volume from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: avg_volume
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_stddev_volume
+-- @metric_type: gauge
+-- @metric_help: "Current stddev_volume from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: stddev_volume
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_max_volume
+-- @metric_type: gauge
+-- @metric_help: "Current max_volume from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: max_volume
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_min_volume
+-- @metric_type: gauge
+-- @metric_help: "Current min_volume from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: min_volume
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_rolling_avg_20
+-- @metric_type: gauge
+-- @metric_help: "Current rolling_avg_20 from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: rolling_avg_20
+--
+-- @metric: velo_app_trading_signals_volume_spike_analysis_volume_percentile
+-- @metric_type: gauge
+-- @metric_help: "Current volume_percentile from volume_spike_analysis"
+-- @metric_labels: symbol
+-- @metric_field: volume_percentile
+--
 CREATE STREAM volume_spike_analysis AS
 SELECT
     symbol PRIMARY KEY,
@@ -155,6 +254,32 @@ WITH (
 -- @description: Detects institutional trading patterns from order book data
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for order_flow_imbalance
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_trading_signals_order_flow_imbalance_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by order_flow_imbalance"
+-- @metric_labels: symbol
+--
+-- @metric: velo_app_trading_signals_order_flow_imbalance_buy_volume
+-- @metric_type: gauge
+-- @metric_help: "Current buy_volume from order_flow_imbalance"
+-- @metric_labels: symbol
+-- @metric_field: buy_volume
+--
+-- @metric: velo_app_trading_signals_order_flow_imbalance_sell_volume
+-- @metric_type: gauge
+-- @metric_help: "Current sell_volume from order_flow_imbalance"
+-- @metric_labels: symbol
+-- @metric_field: sell_volume
+--
+-- @metric: velo_app_trading_signals_order_flow_imbalance_total_volume
+-- @metric_type: gauge
+-- @metric_help: "Current total_volume from order_flow_imbalance"
+-- @metric_labels: symbol
+-- @metric_field: total_volume
+--
 CREATE STREAM order_flow_imbalance AS
 SELECT
     symbol PRIMARY KEY,
@@ -191,6 +316,13 @@ WITH (
 -- @description: Cross-exchange price discrepancy detection
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for arbitrage_detection
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_trading_signals_arbitrage_detection_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by arbitrage_detection"
+--
 CREATE STREAM arbitrage_detection AS
 SELECT
     a.symbol PRIMARY KEY,

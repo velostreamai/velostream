@@ -17,6 +17,7 @@ use crate::velostream::sql::execution::types::FieldValue;
 use chrono::{DateTime, Duration, Utc};
 use rand::distributions::{Distribution as RandDistribution, WeightedIndex};
 use rand::prelude::*;
+use rand_distr::StandardNormal;
 use std::collections::HashMap;
 
 // =============================================================================
@@ -234,6 +235,16 @@ pub struct SchemaDataGenerator {
 
     /// Time simulation state (for sequential timestamp generation)
     time_state: Option<TimeSimulationState>,
+
+    /// Random walk state: (schema_name, field_name, group_key) -> last_value
+    /// Used for GBM-style price path generation where each value depends on previous
+    random_walk_state: HashMap<(String, String, String), f64>,
+
+    /// Current record being generated (used for group_by lookups)
+    current_record: Option<HashMap<String, FieldValue>>,
+
+    /// Current schema name being generated
+    current_schema: Option<String>,
 }
 
 impl SchemaDataGenerator {
@@ -250,7 +261,24 @@ impl SchemaDataGenerator {
             reference_cache: HashMap::new(),
             reference_data: HashMap::new(),
             time_state: None,
+            random_walk_state: HashMap::new(),
+            current_record: None,
+            current_schema: None,
         }
+    }
+
+    /// Reset random walk state (e.g., between test runs)
+    ///
+    /// This clears all tracked price paths so they start fresh from initial values.
+    pub fn reset_random_walk_state(&mut self) {
+        self.random_walk_state.clear();
+    }
+
+    /// Get the current random walk value for a field (for debugging/testing)
+    pub fn get_random_walk_value(&self, schema: &str, field: &str, group_key: &str) -> Option<f64> {
+        self.random_walk_state
+            .get(&(schema.to_string(), field.to_string(), group_key.to_string()))
+            .copied()
     }
 
     /// Set schema registry for foreign key resolution
@@ -397,13 +425,41 @@ impl SchemaDataGenerator {
     ) -> TestHarnessResult<HashMap<String, FieldValue>> {
         let mut record = HashMap::new();
 
-        // First pass: generate non-derived fields
+        // Set current schema for random walk state tracking
+        self.current_schema = Some(schema.name.clone());
+
+        // First pass: generate non-derived fields (except those with random_walk that need group_by)
+        // We need to generate group_by fields first, then random_walk fields
+        let mut random_walk_fields = Vec::new();
+
         for field in &schema.fields {
             if field.constraints.derived.is_none() {
-                let value = self.generate_field_value(field)?;
+                // Check if this field has random_walk with group_by
+                if let Some(Distribution::RandomWalk { ref random_walk }) =
+                    field.constraints.distribution
+                {
+                    if random_walk.group_by.is_some() {
+                        // Defer this field until group_by field is generated
+                        random_walk_fields.push(field.clone());
+                        continue;
+                    }
+                }
+                let value = self.generate_field_value(field, &record)?;
                 record.insert(field.name.clone(), value);
             }
         }
+
+        // Update current_record for group_by lookups
+        self.current_record = Some(record.clone());
+
+        // Now generate random_walk fields that depend on group_by
+        for field in random_walk_fields {
+            let value = self.generate_field_value(&field, &record)?;
+            record.insert(field.name.clone(), value);
+        }
+
+        // Update current_record again with all fields
+        self.current_record = Some(record.clone());
 
         // Second pass: generate derived fields
         for field in &schema.fields {
@@ -413,11 +469,19 @@ impl SchemaDataGenerator {
             }
         }
 
+        // Clear current record/schema
+        self.current_record = None;
+        self.current_schema = None;
+
         Ok(record)
     }
 
     /// Generate value for a field
-    fn generate_field_value(&mut self, field: &FieldDefinition) -> TestHarnessResult<FieldValue> {
+    fn generate_field_value(
+        &mut self,
+        field: &FieldDefinition,
+        current_record: &HashMap<String, FieldValue>,
+    ) -> TestHarnessResult<FieldValue> {
         // Handle nullable fields
         if field.nullable && self.rng.gen_bool(0.1) {
             return Ok(FieldValue::Null);
@@ -431,6 +495,11 @@ impl SchemaDataGenerator {
         // Check for reference constraint
         if let Some(ref reference) = field.constraints.references {
             return self.generate_reference_value(reference, &field.name);
+        }
+
+        // Check for random walk distribution (needs special handling)
+        if let Some(Distribution::RandomWalk { ref random_walk }) = field.constraints.distribution {
+            return self.generate_random_walk_value(field, random_walk, current_record);
         }
 
         // Generate based on type
@@ -447,6 +516,82 @@ impl SchemaDataGenerator {
                 SimpleFieldType::Date => self.generate_date_value(&field.constraints),
                 SimpleFieldType::Uuid => Ok(FieldValue::String(uuid::Uuid::new_v4().to_string())),
             },
+        }
+    }
+
+    /// Generate a random walk (GBM-style) value
+    ///
+    /// Uses the formula: S(t+1) = S(t) * (1 + drift + volatility * Z)
+    /// where Z ~ N(0,1)
+    fn generate_random_walk_value(
+        &mut self,
+        field: &FieldDefinition,
+        config: &super::schema::RandomWalkConfig,
+        current_record: &HashMap<String, FieldValue>,
+    ) -> TestHarnessResult<FieldValue> {
+        let schema_name = self
+            .current_schema
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+
+        // Get group key if group_by is specified
+        let group_key = if let Some(ref group_by_field) = config.group_by {
+            current_record
+                .get(group_by_field)
+                .map(|v| match v {
+                    FieldValue::String(s) => s.clone(),
+                    other => format!("{:?}", other),
+                })
+                .unwrap_or_else(|| "_default".to_string())
+        } else {
+            "_default".to_string()
+        };
+
+        let state_key = (schema_name.clone(), field.name.clone(), group_key.clone());
+
+        // Get previous value or initialize from range.min
+        let (min_value, max_value) = if let Some(ref range) = field.constraints.range {
+            (range.min, range.max)
+        } else {
+            (100.0, 1000.0) // Default range
+        };
+
+        let previous_value = self
+            .random_walk_state
+            .get(&state_key)
+            .copied()
+            .unwrap_or(min_value);
+
+        // Generate GBM step: S(t+1) = S(t) * (1 + drift + volatility * Z)
+        let z: f64 = rand_distr::StandardNormal.sample(&mut self.rng);
+        let mut new_value = previous_value * (1.0 + config.drift + config.volatility * z);
+
+        // Apply bounds if configured
+        if !config.allow_below_min {
+            new_value = new_value.max(min_value);
+        }
+        if !config.allow_above_max {
+            new_value = new_value.min(max_value);
+        }
+
+        // Store the new value for next iteration
+        self.random_walk_state.insert(state_key, new_value);
+
+        // Return appropriate FieldValue type
+        match &field.field_type {
+            FieldType::DecimalType { decimal } => {
+                let scale = 10_i64.pow(decimal.precision as u32);
+                let scaled = (new_value * scale as f64).round() as i64;
+                Ok(FieldValue::ScaledInteger(scaled, decimal.precision))
+            }
+            FieldType::Simple(SimpleFieldType::Float) => Ok(FieldValue::Float(new_value)),
+            FieldType::Simple(SimpleFieldType::Integer) => {
+                Ok(FieldValue::Integer(new_value.round() as i64))
+            }
+            _ => {
+                // Fallback to float for unsupported types
+                Ok(FieldValue::Float(new_value))
+            }
         }
     }
 
@@ -886,6 +1031,9 @@ impl SchemaDataGenerator {
                 let value = min + range * (1.0 - u.powf(1.0 / zipf.exponent));
                 value.clamp(min, max)
             }
+            // RandomWalk is handled separately in generate_random_walk_value
+            // This is a fallback that shouldn't normally be reached
+            Some(Distribution::RandomWalk { .. }) => self.rng.gen_range(min..=max),
             Some(Distribution::Uniform(_)) | None => self.rng.gen_range(min..=max),
         }
     }

@@ -1,4 +1,47 @@
 -- =============================================================================
+-- APPLICATION: app_price_analytics
+-- =============================================================================
+-- @app: app_price_analytics  # Application identifier
+-- @version: 1.0.0  # Semantic version
+-- @description: TODO - Describe your application  # Human-readable description
+-- @phase: development  # Options: development, staging, production
+
+--
+-- DEPLOYMENT CONTEXT
+-- =============================================================================
+-- @deployment.node_id: ${POD_NAME:app_price_analytics-1}  # Unique node identifier (supports env vars)
+-- @deployment.node_name: app_price_analytics Platform  # Human-readable node name
+-- @deployment.region: ${AWS_REGION:us-east-1}  # Deployment region
+
+--
+-- OBSERVABILITY
+-- =============================================================================
+-- @observability.metrics.enabled: true  # Enable Prometheus metrics collection
+-- @observability.tracing.enabled: true  # Enable distributed tracing (OpenTelemetry)
+-- @observability.profiling.enabled: prod  # Options: off, dev (8-10% overhead), prod (2-3% overhead)
+-- @observability.error_reporting.enabled: true  # Enable structured error reporting
+
+--
+-- JOB PROCESSING
+-- =============================================================================
+-- @job_mode: adaptive  # Options: simple (low latency), transactional (exactly-once), adaptive (parallel)
+-- @batch_size: 1000  # Records per batch (higher = throughput, lower = latency)
+-- @num_partitions: 8  # Parallel partitions for adaptive mode (default: CPU cores)
+-- @partitioning_strategy: hash  # Options: sticky, hash, smart, roundrobin, fanin
+
+--
+-- SLA & GOVERNANCE
+-- =============================================================================
+-- @sla.latency.p99: 100ms  # Expected P99 latency target
+-- @sla.availability: 99.9%  # Availability target
+-- @data_retention: 7d  # Data retention policy
+-- @compliance: []  # Compliance requirements (e.g., SOX, GDPR, PCI-DSS)
+
+-- =============================================================================
+-- SQL QUERIES
+-- =============================================================================
+
+-- =============================================================================
 -- APPLICATION: price_analytics
 -- =============================================================================
 -- @app: price_analytics
@@ -58,6 +101,48 @@
 -- @description: Detects price movements using LAG/LEAD/RANK window functions
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for price_movement_alerts
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_price_analytics_price_movement_alerts_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by price_movement_alerts"
+--
+-- @metric: velo_app_price_analytics_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current price value"
+-- @metric_field: price
+--
+-- @metric: velo_app_price_analytics_current_prev_price
+-- @metric_type: gauge
+-- @metric_help: "Current prev_price value"
+-- @metric_field: prev_price
+--
+-- @metric: velo_app_price_analytics_current_next_price
+-- @metric_type: gauge
+-- @metric_help: "Current next_price value"
+-- @metric_field: next_price
+--
+-- @metric: velo_app_price_analytics_current_price_change_pct
+-- @metric_type: gauge
+-- @metric_help: "Current price_change_pct value"
+-- @metric_field: price_change_pct
+--
+-- @metric: velo_app_price_analytics_current_price_rank
+-- @metric_type: gauge
+-- @metric_help: "Current price_rank value"
+-- @metric_field: price_rank
+--
+-- @metric: velo_app_price_analytics_current_price_percentile
+-- @metric_type: gauge
+-- @metric_help: "Current price_percentile value"
+-- @metric_field: price_percentile
+--
+-- @metric: velo_app_price_analytics_current_price_volatility_10_periods
+-- @metric_type: gauge
+-- @metric_help: "Current price_volatility_10_periods value"
+-- @metric_field: price_volatility_10_periods
+--
 CREATE STREAM price_movement_alerts AS
 SELECT
     symbol PRIMARY KEY,
@@ -174,6 +259,68 @@ WITH (
 -- @description: Diagnostic stream showing filter condition visibility
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for price_movement_debug
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_price_analytics_price_movement_debug_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by price_movement_debug"
+-- @metric_labels: symbol
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_count
+-- @metric_type: counter
+-- @metric_help: "Count aggregation from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: count
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_record_count
+-- @metric_type: gauge
+-- @metric_help: "Current record_count from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: record_count
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_avg_price
+-- @metric_type: gauge
+-- @metric_help: "Current avg_price from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: avg_price
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_stddev_price
+-- @metric_type: gauge
+-- @metric_help: "Current stddev_price from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: stddev_price
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_max_volume
+-- @metric_type: gauge
+-- @metric_help: "Current max_volume from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: max_volume
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_avg_volume
+-- @metric_type: gauge
+-- @metric_help: "Current avg_volume from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: avg_volume
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_passes_count_filter
+-- @metric_type: gauge
+-- @metric_help: "Current passes_count_filter from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: passes_count_filter
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_passes_volume_filter
+-- @metric_type: gauge
+-- @metric_help: "Current passes_volume_filter from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: passes_volume_filter
+--
+-- @metric: velo_app_price_analytics_price_movement_debug_volume_threshold
+-- @metric_type: gauge
+-- @metric_help: "Current volume_threshold from price_movement_debug"
+-- @metric_labels: symbol
+-- @metric_field: volume_threshold
+--
 CREATE STREAM price_movement_debug AS
 SELECT
     symbol PRIMARY KEY,
@@ -225,6 +372,32 @@ WITH (
 -- @description: Basic 1-minute price statistics per symbol
 -- -----------------------------------------------------------------------------
 
+-- -----------------------------------------------------------------------------
+-- METRICS for price_stats
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_price_analytics_price_stats_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by price_stats"
+-- @metric_labels: symbol
+--
+-- @metric: velo_app_price_analytics_price_stats_count
+-- @metric_type: counter
+-- @metric_help: "Count aggregation from price_stats"
+-- @metric_labels: symbol
+-- @metric_field: count
+--
+-- @metric: velo_app_price_analytics_price_stats_record_count
+-- @metric_type: gauge
+-- @metric_help: "Current record_count from price_stats"
+-- @metric_labels: symbol
+-- @metric_field: record_count
+--
+-- @metric: velo_app_price_analytics_price_stats_avg_price
+-- @metric_type: gauge
+-- @metric_help: "Current avg_price from price_stats"
+-- @metric_labels: symbol
+-- @metric_field: avg_price
+--
 CREATE STREAM price_stats AS
 SELECT
     symbol PRIMARY KEY,

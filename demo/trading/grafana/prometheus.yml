@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  - job_name: 'velo-sql'
+    static_configs:
+      - targets: ['host.docker.internal:8080']
+    metrics_path: /metrics
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  - job_name: 'velo-sql-telemetry'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+    metrics_path: /metrics
+    scrape_interval: 5s
+    scrape_timeout: 3s
+
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 10s

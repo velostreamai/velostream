@@ -358,11 +358,38 @@ velo-test annotate <SQL_FILE> [OPTIONS]
 | `--monitoring` | `-m` | Directory for monitoring configs |
 | `--yes` | `-y` | Skip prompts, use defaults |
 
+### Recommended Two-File Workflow
+
+**Keep source and generated files separate:**
+
+| File | Contains | Purpose |
+|------|----------|---------|
+| `app.sql` | SQL queries + header docs (NO metrics) | Source file - edit this |
+| `app.annotated.sql` | SQL + auto-generated metrics | Production file - use this |
+
+**Why this matters:**
+- Metrics MUST be placed **immediately before** each `CREATE STREAM` statement
+- The parser associates `@metric` annotations with the next CREATE statement it finds
+- Manually managing metrics in headers is error-prone and causes them to be "detached"
+
+**Workflow:**
+
+```bash
+# 1. Edit your source SQL (no metrics needed)
+vim app.sql
+
+# 2. Generate annotated version with metrics
+velo-test annotate app.sql --output app.annotated.sql --monitoring ./monitoring
+
+# 3. Run/deploy the annotated version
+velo-test run app.annotated.sql
+```
+
 ### What It Generates
 
 **Annotated SQL** (`*.annotated.sql`):
-- `@app`, `@version`, `@description` annotations
-- `@metric` annotations for aggregations
+- `@app`, `@version`, `@description` annotations (header)
+- `@metric` annotations placed **immediately before each CREATE STREAM**
 - `@observability` settings
 
 **Monitoring configs** (when `--monitoring` specified):
@@ -370,6 +397,31 @@ velo-test annotate <SQL_FILE> [OPTIONS]
 - `grafana/dashboards/*.json` - Auto-generated dashboards
 - `grafana/provisioning/` - Datasource configs
 - `tempo/tempo.yaml` - Tracing configuration
+
+### Metric Placement (Critical)
+
+The annotator places metrics correctly:
+
+```sql
+-- ✅ CORRECT: Metrics immediately before CREATE STREAM
+-- -----------------------------------------------------------------------------
+-- METRICS for market_data_ts
+-- -----------------------------------------------------------------------------
+-- @metric: velo_app_market_data_ts_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed"
+--
+CREATE STREAM market_data_ts AS ...
+```
+
+**Never do this manually:**
+
+```sql
+-- ❌ WRONG: Metrics in header, far from CREATE STREAM
+-- @metric: my_metric
+-- ... 50 lines later ...
+CREATE STREAM my_stream AS ...  -- Parser won't associate the metric!
+```
 
 ### Examples
 
@@ -385,6 +437,11 @@ velo-test annotate app.sql --monitoring ./monitoring
 
 # Custom app name
 velo-test annotate app.sql --name my_app --version 2.0.0
+
+# Full workflow
+velo-test annotate apps/my_app.sql \
+  --output apps/my_app.annotated.sql \
+  --monitoring monitoring
 ```
 
 ---
@@ -505,3 +562,25 @@ velo-test run app.sql -y --output junit > results.xml
 # Run stress test
 velo-test stress app.sql --records 100000 --output json > results.json
 ```
+
+### Observability Workflow (Recommended)
+
+```bash
+# 1. Write your SQL (source file, no metrics)
+vim apps/my_app.sql
+
+# 2. Generate annotated SQL + monitoring stack
+velo-test annotate apps/my_app.sql \
+  --output apps/my_app.annotated.sql \
+  --monitoring monitoring
+
+# 3. Start monitoring
+docker-compose -f monitoring/docker-compose.yml up -d
+
+# 4. Run the annotated version
+velo-test run apps/my_app.annotated.sql
+
+# 5. View dashboards at http://localhost:3000
+```
+
+**Key principle:** Keep source `.sql` files clean (no metrics). Let `velo-test annotate` generate metrics automatically and place them correctly before each `CREATE STREAM`.

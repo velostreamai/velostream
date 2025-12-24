@@ -350,11 +350,25 @@ impl Annotator {
         analysis
     }
 
+    /// Sanitize a field name for use in a Prometheus metric name
+    /// Prometheus metric names only allow [a-zA-Z_:][a-zA-Z0-9_:]*
+    fn sanitize_metric_name_part(&self, name: &str) -> String {
+        name.chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' || c == ':' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
     /// Generate metrics for a query based on analysis
     fn generate_metrics_for_query(&self, query: &QueryAnalysis) -> Vec<DetectedMetric> {
         let mut metrics = Vec::new();
         let prefix = format!("velo_{}", self.config.app_name.replace('-', "_"));
-        let query_name = query.name.replace('-', "_");
+        let query_name = self.sanitize_metric_name_part(&query.name);
 
         // Always generate a records counter for each query
         metrics.push(DetectedMetric {
@@ -383,8 +397,9 @@ impl Annotator {
         // If has SUM/AVG, suggest gauge for aggregated values
         if query.has_sum || query.has_avg {
             for field in &query.numeric_select_fields {
+                let sanitized_field = self.sanitize_metric_name_part(field);
                 metrics.push(DetectedMetric {
-                    name: format!("{}_{}_{}", prefix, query_name, field),
+                    name: format!("{}_{}_{}", prefix, query_name, sanitized_field),
                     metric_type: MetricType::Gauge,
                     help: format!("Current {} from {}", field, query.name),
                     labels: query.group_by.clone(),
@@ -399,8 +414,9 @@ impl Annotator {
         if query.has_window {
             for field in &query.numeric_select_fields {
                 if self.is_latency_field(field) {
+                    let sanitized_field = self.sanitize_metric_name_part(field);
                     metrics.push(DetectedMetric {
-                        name: format!("{}_{}_{}_seconds", prefix, query_name, field),
+                        name: format!("{}_{}_{}_seconds", prefix, query_name, sanitized_field),
                         metric_type: MetricType::Histogram,
                         help: format!("Distribution of {} from {}", field, query.name),
                         labels: query.group_by.clone(),
@@ -417,8 +433,9 @@ impl Annotator {
             if self.is_price_field(field)
                 && !metrics.iter().any(|m| m.field.as_ref() == Some(field))
             {
+                let sanitized_field = self.sanitize_metric_name_part(field);
                 metrics.push(DetectedMetric {
-                    name: format!("{}_current_{}", prefix, field),
+                    name: format!("{}_current_{}", prefix, sanitized_field),
                     metric_type: MetricType::Gauge,
                     help: format!("Current {} value", field),
                     labels: query.group_by.clone(),
@@ -456,15 +473,11 @@ impl Annotator {
         output.push_str(&self.generate_job_annotations(analysis));
         output.push('\n');
 
-        // Generate metric annotations
-        output.push_str(&self.generate_metric_annotations(analysis));
-        output.push('\n');
-
-        // Generate SLA annotations
+        // Generate SLA annotations (metrics are now placed before each query, not in header)
         output.push_str(&self.generate_sla_annotations(analysis));
         output.push('\n');
 
-        // Add separator and original SQL
+        // Add separator
         output.push_str(
             "-- =============================================================================\n",
         );
@@ -472,9 +485,123 @@ impl Annotator {
         output.push_str(
             "-- =============================================================================\n\n",
         );
-        output.push_str(original_sql);
+
+        // Insert metrics before each CREATE STREAM/TABLE statement
+        output.push_str(&self.insert_metrics_before_queries(original_sql, analysis));
 
         Ok(output)
+    }
+
+    /// Insert metric annotations immediately before each CREATE STREAM/TABLE statement
+    fn insert_metrics_before_queries(&self, original_sql: &str, analysis: &SqlAnalysis) -> String {
+        // Group metrics by query_name
+        let mut metrics_by_query: std::collections::HashMap<String, Vec<&DetectedMetric>> =
+            std::collections::HashMap::new();
+        for metric in &analysis.metrics {
+            metrics_by_query
+                .entry(metric.query_name.clone())
+                .or_default()
+                .push(metric);
+        }
+
+        let mut result = String::new();
+        let mut current_pos = 0;
+        let sql_upper = original_sql.to_uppercase();
+
+        // Find all CREATE STREAM and CREATE TABLE positions
+        let create_patterns = ["CREATE STREAM", "CREATE TABLE"];
+
+        // Collect all CREATE positions with their query names
+        let mut create_positions: Vec<(usize, String)> = Vec::new();
+
+        for pattern in &create_patterns {
+            let mut search_pos = 0;
+            while let Some(pos) = sql_upper[search_pos..].find(pattern) {
+                let absolute_pos = search_pos + pos;
+
+                // Extract the query name (word after CREATE STREAM/TABLE)
+                let after_pattern = &original_sql[absolute_pos + pattern.len()..];
+                let query_name = after_pattern
+                    .trim_start()
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+
+                if !query_name.is_empty() {
+                    create_positions.push((absolute_pos, query_name));
+                }
+
+                search_pos = absolute_pos + pattern.len();
+            }
+        }
+
+        // Sort by position
+        create_positions.sort_by_key(|(pos, _)| *pos);
+
+        // Build result with metrics inserted before each CREATE
+        for (create_pos, query_name) in create_positions {
+            // Add SQL content before this CREATE statement
+            result.push_str(&original_sql[current_pos..create_pos]);
+
+            // Add metrics for this query if any exist
+            if let Some(metrics) = metrics_by_query.get(&query_name) {
+                result.push_str(&self.format_metrics_for_query(metrics, &query_name));
+            }
+
+            current_pos = create_pos;
+        }
+
+        // Add remaining SQL after the last CREATE
+        result.push_str(&original_sql[current_pos..]);
+
+        result
+    }
+
+    /// Format metrics as SQL comments for a specific query
+    /// Note: Comments must NOT appear on the same line as annotation values
+    /// because the parser reads the full value after `: ` including any comments
+    fn format_metrics_for_query(&self, metrics: &[&DetectedMetric], query_name: &str) -> String {
+        let mut output = String::new();
+        output.push_str(
+            "-- -----------------------------------------------------------------------------\n",
+        );
+        output.push_str(&format!("-- METRICS for {}\n", query_name));
+        output.push_str(
+            "-- -----------------------------------------------------------------------------\n",
+        );
+
+        for metric in metrics {
+            output.push_str(&format!("-- @metric: {}\n", metric.name));
+            output.push_str(&format!(
+                "-- @metric_type: {}\n",
+                metric.metric_type.as_str()
+            ));
+            output.push_str(&format!("-- @metric_help: \"{}\"\n", metric.help));
+
+            if !metric.labels.is_empty() {
+                output.push_str(&format!(
+                    "-- @metric_labels: {}\n",
+                    metric.labels.join(", ")
+                ));
+            }
+
+            if let Some(ref field) = metric.field {
+                output.push_str(&format!("-- @metric_field: {}\n", field));
+            }
+
+            if let Some(ref buckets) = metric.buckets {
+                let bucket_str = buckets
+                    .iter()
+                    .map(|b| b.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                output.push_str(&format!("-- @metric_buckets: [{}]\n", bucket_str));
+            }
+            output.push_str("--\n");
+        }
+
+        output
     }
 
     /// Generate header annotations
@@ -886,29 +1013,68 @@ overrides:
         )
     }
 
-    /// Generate Grafana dashboard JSON
+    /// Generate Grafana dashboard JSON with varied widget types
     fn generate_dashboard_json(&self, analysis: &SqlAnalysis) -> JsonValue {
         let mut panels: Vec<JsonValue> = Vec::new();
         let mut panel_id = 1;
         let mut y_pos = 0;
 
-        // Add system error status panel
+        // Row 1: Status overview (3 stat panels + 1 gauge)
+        // Error status stat
         panels.push(self.create_stat_panel(
             panel_id,
-            "🚨 SYSTEM ERROR STATUS",
+            "🚨 Error Status",
             "velo_sql_query_errors_total OR on() vector(0)",
             0,
             y_pos,
-            24,
             6,
+            4,
         ));
         panel_id += 1;
-        y_pos += 6;
 
-        // Add service health panel
+        // Active jobs stat
+        panels.push(self.create_stat_panel(
+            panel_id,
+            "📊 Active Queries",
+            "velo_sql_active_queries OR on() vector(0)",
+            6,
+            y_pos,
+            6,
+            4,
+        ));
+        panel_id += 1;
+
+        // Records processed stat
+        panels.push(self.create_stat_panel(
+            panel_id,
+            "📈 Records Processed",
+            "sum(velo_streaming_records_total) OR on() vector(0)",
+            12,
+            y_pos,
+            6,
+            4,
+        ));
+        panel_id += 1;
+
+        // Throughput gauge
+        panels.push(self.create_gauge_panel(
+            panel_id,
+            "⚡ Throughput",
+            "sum(rate(velo_streaming_records_total[5m]))",
+            18,
+            y_pos,
+            6,
+            4,
+            "reqps",
+            10000.0,
+        ));
+        panel_id += 1;
+        y_pos += 4;
+
+        // Row 2: Service health timeseries + Records by symbol pie chart
         panels.push(self.create_timeseries_panel(
             panel_id,
-            "Service Health",
+            "Service Health Over Time",
             "up",
             0,
             y_pos,
@@ -918,22 +1084,95 @@ overrides:
         ));
         panel_id += 1;
 
-        // Add throughput panel
-        panels.push(self.create_timeseries_panel(
-            panel_id,
-            "Records Throughput",
-            "rate(velo_streaming_records_total[5m])",
-            12,
-            y_pos,
-            12,
-            8,
-            "reqps",
-        ));
-        panel_id += 1;
+        // Add pie chart for records by query (if we have metrics)
+        if !analysis.metrics.is_empty() {
+            panels.push(self.create_piechart_panel(
+                panel_id,
+                "Records Distribution by Query",
+                "sum by (query) (velo_query_records_total)",
+                12,
+                y_pos,
+                12,
+                8,
+            ));
+            panel_id += 1;
+        } else {
+            panels.push(self.create_timeseries_panel(
+                panel_id,
+                "Records Throughput",
+                "rate(velo_streaming_records_total[5m])",
+                12,
+                y_pos,
+                12,
+                8,
+                "reqps",
+            ));
+            panel_id += 1;
+        }
         y_pos += 8;
 
-        // Add panels for each detected metric
-        for (i, metric) in analysis.metrics.iter().take(12).enumerate() {
+        // Row 3: Bar gauge for top metrics by symbol + Latency histogram
+        if analysis.metrics.len() >= 2 {
+            // Find a counter metric for bar gauge
+            let counter_metric = analysis
+                .metrics
+                .iter()
+                .find(|m| matches!(m.metric_type, MetricType::Counter));
+
+            if let Some(metric) = counter_metric {
+                panels.push(self.create_bargauge_panel(
+                    panel_id,
+                    &format!("Top Symbols: {}", metric.help),
+                    &format!("topk(5, sum by (symbol) ({}))", metric.name),
+                    0,
+                    y_pos,
+                    12,
+                    6,
+                    "short",
+                ));
+                panel_id += 1;
+            }
+
+            // Find a histogram or gauge for latency
+            let latency_metric = analysis
+                .metrics
+                .iter()
+                .find(|m| matches!(m.metric_type, MetricType::Histogram));
+
+            if let Some(metric) = latency_metric {
+                panels.push(self.create_gauge_panel(
+                    panel_id,
+                    &format!("P95 {}", metric.help),
+                    &format!("histogram_quantile(0.95, rate({}_bucket[5m]))", metric.name),
+                    12,
+                    y_pos,
+                    6,
+                    6,
+                    "s",
+                    1.0,
+                ));
+                panel_id += 1;
+
+                panels.push(self.create_gauge_panel(
+                    panel_id,
+                    &format!("P99 {}", metric.help),
+                    &format!("histogram_quantile(0.99, rate({}_bucket[5m]))", metric.name),
+                    18,
+                    y_pos,
+                    6,
+                    6,
+                    "s",
+                    2.0,
+                ));
+                panel_id += 1;
+            }
+            y_pos += 6;
+        }
+
+        // Add panels for each detected metric with varied types
+        let metrics_to_show: Vec<_> = analysis.metrics.iter().take(12).collect();
+        for (i, metric) in metrics_to_show.iter().enumerate() {
+            let panel_type = i % 4; // Cycle through different panel types
             let x_pos = (i % 2) * 12;
             if i % 2 == 0 && i > 0 {
                 y_pos += 8;
@@ -953,16 +1192,54 @@ overrides:
                 MetricType::Histogram => "s",
             };
 
-            panels.push(self.create_timeseries_panel(
-                panel_id,
-                &metric.help,
-                &expr,
-                x_pos as i32,
-                y_pos,
-                12,
-                8,
-                unit,
-            ));
+            // Vary panel type based on position and metric type
+            let panel = match (panel_type, &metric.metric_type) {
+                // First in each row: gauge for gauges, timeseries for counters
+                (0, MetricType::Gauge) => self.create_gauge_panel(
+                    panel_id,
+                    &metric.help,
+                    &expr,
+                    x_pos as i32,
+                    y_pos,
+                    12,
+                    8,
+                    unit,
+                    1000.0,
+                ),
+                // Second: bar gauge for counters with symbol grouping
+                (1, MetricType::Counter) => self.create_bargauge_panel(
+                    panel_id,
+                    &metric.help,
+                    &format!("topk(5, sum by (symbol) ({}))", metric.name),
+                    x_pos as i32,
+                    y_pos,
+                    12,
+                    8,
+                    unit,
+                ),
+                // Third: table for showing raw metric values
+                (2, _) if i < 8 => self.create_table_panel(
+                    panel_id,
+                    &metric.help,
+                    &metric.name,
+                    x_pos as i32,
+                    y_pos,
+                    12,
+                    8,
+                ),
+                // Default: timeseries
+                _ => self.create_timeseries_panel(
+                    panel_id,
+                    &metric.help,
+                    &expr,
+                    x_pos as i32,
+                    y_pos,
+                    12,
+                    8,
+                    unit,
+                ),
+            };
+            panels.push(panel);
             panel_id += 1;
         }
 
@@ -1151,6 +1428,268 @@ overrides:
             }],
             "title": title,
             "type": "timeseries"
+        })
+    }
+
+    /// Create a gauge panel (for current values like throughput, latency)
+    fn create_gauge_panel(
+        &self,
+        id: i32,
+        title: &str,
+        expr: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        unit: &str,
+        max_value: f64,
+    ) -> JsonValue {
+        json!({
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "description": title,
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "thresholds"},
+                    "mappings": [],
+                    "max": max_value,
+                    "min": 0,
+                    "thresholds": {
+                        "mode": "percentage",
+                        "steps": [
+                            {"color": "green", "value": null},
+                            {"color": "yellow", "value": 70},
+                            {"color": "red", "value": 90}
+                        ]
+                    },
+                    "unit": unit
+                },
+                "overrides": []
+            },
+            "gridPos": {"h": h, "w": w, "x": x, "y": y},
+            "id": id,
+            "options": {
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "showThresholdLabels": false,
+                "showThresholdMarkers": true
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [{
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                },
+                "expr": expr,
+                "interval": "",
+                "legendFormat": title,
+                "refId": "A"
+            }],
+            "title": title,
+            "type": "gauge"
+        })
+    }
+
+    /// Create a bar gauge panel (for comparisons across labels)
+    fn create_bargauge_panel(
+        &self,
+        id: i32,
+        title: &str,
+        expr: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        unit: &str,
+    ) -> JsonValue {
+        json!({
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "description": title,
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {"color": "green", "value": null}
+                        ]
+                    },
+                    "unit": unit
+                },
+                "overrides": []
+            },
+            "gridPos": {"h": h, "w": w, "x": x, "y": y},
+            "id": id,
+            "options": {
+                "displayMode": "gradient",
+                "minVizHeight": 10,
+                "minVizWidth": 0,
+                "orientation": "horizontal",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "showUnfilled": true
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [{
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                },
+                "expr": expr,
+                "interval": "",
+                "legendFormat": "{{symbol}}",
+                "refId": "A"
+            }],
+            "title": title,
+            "type": "bargauge"
+        })
+    }
+
+    /// Create a pie chart panel (for distributions)
+    fn create_piechart_panel(
+        &self,
+        id: i32,
+        title: &str,
+        expr: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) -> JsonValue {
+        json!({
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "description": title,
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "palette-classic"},
+                    "custom": {
+                        "hideFrom": {"legend": false, "tooltip": false, "vis": false}
+                    },
+                    "mappings": []
+                },
+                "overrides": []
+            },
+            "gridPos": {"h": h, "w": w, "x": x, "y": y},
+            "id": id,
+            "options": {
+                "displayLabels": ["name", "percent"],
+                "legend": {
+                    "displayMode": "table",
+                    "placement": "right",
+                    "showLegend": true,
+                    "values": ["value", "percent"]
+                },
+                "pieType": "pie",
+                "reduceOptions": {
+                    "calcs": ["lastNotNull"],
+                    "fields": "",
+                    "values": false
+                },
+                "tooltip": {"mode": "single", "sort": "none"}
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [{
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                },
+                "expr": expr,
+                "instant": true,
+                "interval": "",
+                "legendFormat": "{{symbol}}",
+                "refId": "A"
+            }],
+            "title": title,
+            "type": "piechart"
+        })
+    }
+
+    /// Create a table panel (for recent events, alerts)
+    fn create_table_panel(
+        &self,
+        id: i32,
+        title: &str,
+        expr: &str,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    ) -> JsonValue {
+        json!({
+            "datasource": {
+                "type": "prometheus",
+                "uid": "PBFA97CFB590B2093"
+            },
+            "description": title,
+            "fieldConfig": {
+                "defaults": {
+                    "color": {"mode": "thresholds"},
+                    "custom": {
+                        "align": "auto",
+                        "displayMode": "auto",
+                        "filterable": true
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {"color": "green", "value": null}
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {"h": h, "w": w, "x": x, "y": y},
+            "id": id,
+            "options": {
+                "footer": {
+                    "countRows": false,
+                    "fields": "",
+                    "reducer": ["sum"],
+                    "show": false
+                },
+                "showHeader": true,
+                "sortBy": [{"desc": true, "displayName": "Value"}]
+            },
+            "pluginVersion": "9.0.0",
+            "targets": [{
+                "datasource": {
+                    "type": "prometheus",
+                    "uid": "PBFA97CFB590B2093"
+                },
+                "expr": expr,
+                "format": "table",
+                "instant": true,
+                "interval": "",
+                "legendFormat": "",
+                "refId": "A"
+            }],
+            "title": title,
+            "transformations": [{
+                "id": "organize",
+                "options": {
+                    "excludeByName": {"Time": true, "__name__": true},
+                    "indexByName": {},
+                    "renameByName": {"Value": "Count"}
+                }
+            }],
+            "type": "table"
         })
     }
 
