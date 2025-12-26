@@ -41,8 +41,8 @@ kill_processes() {
 # Stop background processes
 echo -e "${YELLOW}🧹 Stopping background processes...${NC}"
 kill_processes "velo-sql"
-kill_processes "velo-sql-multi"
-kill_processes "trading_data_generator"
+kill_processes "velo-sql"
+kill_processes "velo-test"
 
 # Stop Docker services
 echo -e "${YELLOW}🐳 Stopping Docker services...${NC}"

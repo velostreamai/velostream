@@ -77,12 +77,12 @@ services:
     networks:
       - velo-network
     command: >
-      velo-sql-multi
+      velo-sql
       --host 0.0.0.0
       --port 8080
       --kafka-brokers kafka:29092
     healthcheck:
-      test: ["CMD", "velo-sql-multi", "--help"]
+      test: ["CMD", "velo-sql", "--help"]
       interval: 30s
       timeout: 10s
       retries: 3

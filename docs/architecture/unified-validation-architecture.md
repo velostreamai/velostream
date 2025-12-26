@@ -14,7 +14,7 @@ This architecture replaces the previous fragmented validation approach with a ce
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
 │  ┌─────────────────────────┐    ┌─────────────────────────┐                   │
-│  │      velo-cli           │    │   velo-sql-multi        │                   │
+│  │      velo-cli           │    │   velo-sql        │                   │
 │  │                         │    │                         │                   │
 │  │ • validate command      │    │ • Pre-deployment        │                   │
 │  │ • Directory validation  │    │   validation gate       │                   │
@@ -122,7 +122,7 @@ let results = if path_obj.is_file() {
 - **Text**: Human-readable with emojis and formatting for terminal display
 - **JSON**: Structured output for CI/CD integration and automated processing
 
-#### velo-sql-multi (Production Deployment)
+#### velo-sql (Production Deployment)
 
 **Purpose**: Pre-deployment validation gate preventing invalid SQL from reaching production
 
@@ -166,7 +166,7 @@ Developer writes SQL → IDE validation (future) → Local validation (velo-cli)
 ### Production Deployment Flow
 
 ```
-1. velo-sql-multi deploy-app --file app.sql
+1. velo-sql deploy-app --file app.sql
    ↓
 2. Automatic Pre-deployment Validation
    ├─ SqlValidator.validate_application()
@@ -324,7 +324,7 @@ validate:
 **Automatic Pre-deployment Validation**:
 ```bash
 # Validation happens automatically
-velo-sql-multi deploy-app --file production.sql
+velo-sql deploy-app --file production.sql
 
 # Output:
 # Starting deployment from file: production.sql
@@ -362,7 +362,7 @@ velo-config-validator config.yaml
 cargo build --bin velo-cli
 velo-cli validate file.sql         # Combined SQL + config validation
 velo-cli validate --format json    # CI/CD integration
-velo-sql-multi deploy-app --file demo.sql  # Automatic pre-deployment validation
+velo-sql deploy-app --file demo.sql  # Automatic pre-deployment validation
 ```
 
 **Benefits**:
@@ -463,7 +463,7 @@ pub trait CustomValidator {
 ### Integration Tests
 - **End-to-end validation**: Complete SQL application validation workflows
 - **CLI integration**: Command-line interface testing with various input scenarios
-- **Pre-deployment testing**: velo-sql-multi integration validation
+- **Pre-deployment testing**: velo-sql integration validation
 - **Error scenarios**: Comprehensive error handling and recovery testing
 
 ### Performance Tests

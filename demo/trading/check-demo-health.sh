@@ -71,15 +71,15 @@ for topic in "${REQUIRED_TOPICS[@]}"; do
 done
 echo ""
 
-# Check 4: Data generator
-echo -e "${BLUE}4. Data Generator${NC}"
-if pgrep -f "trading_data_generator" > /dev/null; then
-    PID=$(pgrep -f "trading_data_generator")
+# Check 4: Data generator (velo-test stress)
+echo -e "${BLUE}4. Data Generator (velo-test)${NC}"
+if pgrep -f "velo-test.*stress" > /dev/null; then
+    PID=$(pgrep -f "velo-test.*stress")
     echo -e "  ${GREEN}✓${NC} Data generator running (PID: $PID)"
 
     # Check if generator log exists and has recent activity
-    if [ -f "/tmp/trading_generator.log" ]; then
-        LAST_LINE=$(tail -1 /tmp/trading_generator.log)
+    if [ -f "/tmp/velo_stress.log" ]; then
+        LAST_LINE=$(tail -1 /tmp/velo_stress.log)
         echo -e "  ${BLUE}ℹ${NC} Last log: $LAST_LINE"
     fi
 else
@@ -90,8 +90,8 @@ echo ""
 
 # Check 5: SQL deployment
 echo -e "${BLUE}5. SQL Application${NC}"
-if pgrep -f "velo-sql-multi.*deploy-app" > /dev/null; then
-    PID=$(pgrep -f "velo-sql-multi.*deploy-app")
+if pgrep -f "velo-sql.*deploy-app" > /dev/null; then
+    PID=$(pgrep -f "velo-sql.*deploy-app")
     echo -e "  ${GREEN}✓${NC} SQL application running (PID: $PID)"
 
     # Check deployment log for job count
@@ -145,6 +145,6 @@ else
     echo -e "${RED}Overall Health: UNHEALTHY ✗${NC}"
     echo -e "${YELLOW}Check logs for details:${NC}"
     echo -e "  tail -f /tmp/velo_deployment.log"
-    echo -e "  tail -f /tmp/trading_generator.log"
+    echo -e "  tail -f /tmp/velo_stress.log"
     exit 1
 fi

@@ -85,7 +85,7 @@ FROM source_topic;
 ### Step 2: Deploy the Stream
 
 ```bash
-velo-sql-multi deploy-app --file my_stream.sql
+velo-sql deploy-app --file my_stream.sql
 ```
 
 ### Step 3: Verify Metrics
@@ -124,7 +124,7 @@ SQL-Native Observability requires the following infrastructure components:
 **Verify Installation**:
 ```bash
 # Check VeloStream version
-velo-sql-multi --version
+velo-sql --version
 
 # Verify FR-073 support
 velo-cli validate --help | grep "metric annotations"
@@ -1295,7 +1295,7 @@ prometheus_tsdb_symbol_table_size_bytes / 1024 / 1024  # MB
 
 **Debug**: Enable debug logging:
 ```bash
-RUST_LOG=debug velo-sql-multi deploy-app --file query.sql
+RUST_LOG=debug velo-sql deploy-app --file query.sql
 ```
 
 ### Issue 5: Metrics Not Cleaned Up on Job Stop

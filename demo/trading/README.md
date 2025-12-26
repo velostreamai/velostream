@@ -5,29 +5,28 @@ A comprehensive demonstration of real-time financial trading analytics using Vel
 ## 📋 Overview
 
 This demo showcases:
-- **Real-time market data generation** for 8 major tech stocks (AAPL, GOOGL, MSFT, AMZN, TSLA, NVDA, META, NFLX)
-- **Live trading analytics** including price movement detection, volume spike analysis, and risk monitoring
-- **Arbitrage opportunity detection** across multiple exchanges
-- **Comprehensive SQL-based stream processing** with complex joins and window functions
-- **Self-contained demo** that references main project artifacts
+- **Real-time market data generation** using `@data.*` hints embedded in SQL files
+- **Live trading analytics** including OHLCV candles and instrument enrichment
+- **SQL-based stream processing** with window functions, joins, and watermarks
+- **Test harness integration** with `velo-test` for testing, debugging, and stress testing
 
 ## 📁 Demo Structure
 
 ```
 demo/trading/
-├── src/                         # Demo-specific source code
-│   └── trading_data_generator.rs   # Market data generator
-├── sql/                         # SQL applications
-│   └── financial_trading.sql       # Trading analytics queries
+├── apps/                        # SQL applications with @data.* hints
+│   └── app_market_data.sql         # Market data pipeline
+├── schemas/                     # Schema definitions (optional, @data.* hints preferred)
+├── configs/                     # Kafka source/sink configs
+├── tests/                       # Test specifications
 ├── monitoring/                  # Grafana + Prometheus config
-├── *.sh                        # Demo scripts
-├── Cargo.toml                  # Demo build configuration
-├── Makefile                    # Build system
-├── velo-cli -> ../../target/release/velo-cli  # Symlink to main CLI
-└── README.md                   # This file
+├── *.sh                         # Demo scripts
+├── Makefile                     # Build system
+└── README.md                    # This file
 
-# References main project artifacts:
-../../target/release/velo-sql-multi        # Multi-job SQL server (primary)
+# Uses main project binaries:
+../../target/release/velo-test          # Test harness (data generation, testing, debugging)
+../../target/release/velo-sql     # Multi-job SQL server
 ```
 
 ## 🚀 Quick Start
@@ -201,42 +200,35 @@ export SQL_SERVER_PORT=8080
 
 ### Customizing the Demo
 
-#### Modify Stock Universe
-Edit `src/trading_data_generator.rs` lines 135-144:
-
-```rust
-let stock_configs = vec![
-    ("AAPL", 175.0, 0.25),  // (symbol, price, volatility)
-    ("GOOGL", 140.0, 0.30),
-    // Add more stocks...
-];
-```
-
-#### Adjust Alert Thresholds
-Edit `sql/financial_trading.sql`:
+#### Modify Stock Universe and Data Generation
+Edit `@data.*` hints in `apps/app_market_data.sql`:
 
 ```sql
--- Price movement threshold (currently 5%)
-WHERE ABS(price_change_pct) > 5.0
+-- @data.symbol.type: string
+-- @data.symbol: enum ["AAPL", "GOOG", "MSFT", "AMZN", "META"], weights: [0.25, 0.25, 0.2, 0.15, 0.15]
 
--- Volume spike multiplier (currently 3x)
-WHERE volume > 3 * avg_volume_20
+-- @data.price.type: decimal(4)
+-- @data.price: range [150, 400], distribution: random_walk, volatility: 0.02, drift: 0.0001, group_by: symbol
 
--- Risk limits
-WHEN ABS(position_size * price) > 1000000 THEN 'POSITION_LIMIT_EXCEEDED'
+-- @data.volume.type: integer
+-- @data.volume: range [1000, 500000], distribution: log_normal
 ```
 
-#### Change Data Generation Frequency
-In `trading_data_generator.rs` main loop (lines 300-318):
+#### Adjust Record Count and Duration
+Edit global hints in the SQL file:
 
-```rust
-// Generate market data every iteration (1 second)
-self.generate_market_data().await?;
+```sql
+-- @data.record_count: 10000
+-- @data.time_simulation: sequential
+-- @data.time_start: "-1h"
+-- @data.time_end: "now"
+```
 
-// Generate positions every 5 seconds
-if iteration % 5 == 0 {
-    self.generate_trading_positions().await?;
-}
+#### Add New Stocks
+Simply add to the enum list:
+
+```sql
+-- @data.symbol: enum ["AAPL", "GOOG", "MSFT", "AMZN", "META", "TSLA", "NVDA"]
 ```
 
 ## 📈 Understanding the Data
@@ -332,12 +324,12 @@ docker-compose -f kafka-compose.yml restart
 #### ❌ "0 records processed" - Jobs not processing data
 ```bash
 # Check if data generator is running
-ps aux | grep trading_data_generator
+ps aux | grep velo-test
 
 # Verify data in topics
 docker exec simple-kafka kafka-console-consumer \
   --bootstrap-server localhost:9092 \
-  --topic market_data_stream \
+  --topic in_market_data_stream \
   --from-beginning --max-messages 5
 
 # Restart with clean state
@@ -359,7 +351,7 @@ cargo clean
 **Check logs:**
 ```bash
 tail -f /tmp/velo_deployment.log      # SQL job logs
-tail -f /tmp/trading_generator.log    # Data generator logs
+tail -f /tmp/velo_stress.log          # Data generator logs (velo-test stress)
 docker-compose -f kafka-compose.yml logs kafka  # Kafka logs
 ```
 
@@ -483,7 +475,7 @@ docker exec $(docker-compose -f kafka-compose.yml ps -q kafka) kafka-consumer-gr
 # Multi-job server is completely app-agnostic - no hardcoded jobs
 # Trading demo deploys financial trading analytics via deploy-app command
 # Check server logs for job status
-../../target/release/velo-sql-multi --help
+../../target/release/velo-sql --help
 
 # HTTP endpoints for job monitoring:
 # curl http://localhost:8080/jobs
@@ -605,26 +597,26 @@ cd demo/trading
 
 ### Option 2: Trading Data Generator (Recommended for Demos)
 
-Use the data generator when you want to:
+Use `velo-test stress` for data generation when you want to:
 - Show realistic price movements on dashboards
 - Demonstrate to stakeholders with believable data
 - Run extended demos (10+ minutes)
 - See correlated market behaviors
 
 ```bash
-# Start full demo (includes data generator)
+# Start full demo (includes data generation via velo-test)
 ./start-demo.sh
 
-# Or run data generator manually after starting Kafka
-cargo build --release --manifest-path Cargo.toml
-./target/release/trading_data_generator --duration 10
+# Or run data generation manually after starting Kafka
+../../target/release/velo-test stress apps/app_market_data.sql \
+  --records 60000 --duration 600 --kafka localhost:9092 -y
 ```
 
-**The data generator provides:**
-- **Geometric Brownian Motion** for realistic price paths
-- **8 major tech stocks** with different volatility profiles
-- **20 simulated traders** with realistic positions
-- **Correlated market events** (volume spikes with price moves)
+**Data generation features (via @data.* hints):**
+- **Random Walk Distribution** for realistic price paths
+- **5 major tech stocks** with configurable weights
+- **Log-normal volume** distribution for realistic trading activity
+- **Sequential timestamps** for time-series analysis
 
 ## 🧪 Testing with Test Harness
 
@@ -650,11 +642,12 @@ The test harness validates SQL applications with automated testing. No Kafka inf
 
 | File | Description |
 |------|-------------|
-| `test_spec.yaml` | Test specification with assertions for all 10 streaming jobs |
-| `schemas/market_data.schema.yaml` | Schema for generating realistic market data |
-| `schemas/trading_positions.schema.yaml` | Schema for generating position data |
-| `schemas/order_book.schema.yaml` | Schema for generating order book events |
+| `apps/app_market_data.sql` | SQL with embedded `@data.*` hints for data generation |
+| `test_spec.yaml` | Test specification with assertions |
+| `schemas/*.schema.yaml` | Optional schema files (overrides `@data.*` hints) |
 | `velo-test.sh` | Test runner script |
+
+**Note:** Data generation hints can be embedded directly in SQL files using `@data.*` annotations. Schema YAML files are optional and take precedence when both exist.
 
 ### Running Specific Tests
 

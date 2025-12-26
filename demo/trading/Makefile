@@ -1,19 +1,16 @@
 # Velostream Trading Demo Makefile
 # Builds main project and runs trading demo
 
-.PHONY: all build run run-short clean help
+.PHONY: all build run run-short clean help test validate
 
 # Default target
 all: build
 
-# Build main project and demo components
+# Build main project
 build:
 	@echo "🔨 Building Velostream main project..."
-	@cd ../.. && cargo build --release
-	@ln -sf ../../target/release/velo-cli velo-cli
-	@echo "🔨 Building trading demo components..."
-	@cargo build --release
-	@echo "✅ Demo ready!"
+	@cd ../.. && cargo build --release --bin velo-test --bin velo-sql
+	@echo "✅ Build complete!"
 
 # Run the trading demo
 run: build
@@ -25,11 +22,22 @@ run-short: build
 	@echo "🚀 Starting short Velostream Trading Demo (1 minute)..."
 	./start-demo.sh -q
 
-# Clean demo artifacts (leaves main project build alone)
+# Validate SQL syntax
+validate:
+	@echo "🔍 Validating SQL files..."
+	@../../target/release/velo-test validate apps/app_market_data.sql
+	@echo "✅ Validation complete"
+
+# Run tests
+test:
+	@echo "🧪 Running tests..."
+	@./velo-test.sh
+	@echo "✅ Tests complete"
+
+# Clean demo artifacts
 clean:
 	@echo "🧹 Cleaning demo artifacts..."
 	@rm -f velo-cli
-	@rm -rf target/
 	@echo "✅ Clean complete"
 
 # Show help
@@ -38,16 +46,18 @@ help:
 	@echo "======================================="
 	@echo ""
 	@echo "Available targets:"
-	@echo "  build       - Build main project (default)"
+	@echo "  build       - Build main project binaries (default)"
 	@echo "  run         - Build and run the full demo"
 	@echo "  run-short   - Build and run 1-minute demo"
-	@echo "  clean       - Remove demo symlinks"
+	@echo "  validate    - Validate SQL syntax"
+	@echo "  test        - Run test suite"
+	@echo "  clean       - Remove artifacts"
 	@echo "  help        - Show this help message"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make                    # Build main project"
 	@echo "  make run                # Build and run demo"
 	@echo "  make run-short          # Quick 1-minute demo"
+	@echo "  make validate           # Check SQL syntax"
 	@echo ""
-	@echo "Note: This demo references the main project's built artifacts"
-	@echo "      and does not duplicate binaries locally."
+	@echo "Note: This demo uses velo-test for data generation via @data.* hints"

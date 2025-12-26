@@ -868,6 +868,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
+
+            // Step 2b: Generate schemas from @data.* hints in SQL file
+            // Only generate for sources that don't already have a schema file
+            {
+                use velostream::velostream::test_harness::{
+                    DataHintParser, generate_schema_from_hints,
+                };
+
+                let sql_content = std::fs::read_to_string(&sql_file).unwrap_or_default();
+                let mut hint_parser = DataHintParser::new();
+
+                if hint_parser.parse(&sql_content).is_ok() {
+                    let field_hints = hint_parser.get_field_hints();
+                    let global_hints = hint_parser.get_global_hints();
+
+                    if !field_hints.is_empty() {
+                        // Determine source name from hints or default
+                        let source_name = global_hints
+                            .source_name
+                            .clone()
+                            .unwrap_or_else(|| "generated_source".to_string());
+
+                        // Only generate if no schema already exists for this source
+                        if schema_registry.get(&source_name).is_none() {
+                            match generate_schema_from_hints(
+                                &source_name,
+                                global_hints,
+                                &field_hints,
+                            ) {
+                                Ok(schema) => {
+                                    println!(
+                                        "   ✓ {} ({} fields) ← @data.* hints in SQL",
+                                        schema.name,
+                                        schema.fields.len()
+                                    );
+                                    schema_registry.register(schema);
+                                }
+                                Err(e) => {
+                                    eprintln!("   ⚠️  Failed to generate schema from hints: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             println!();
 
             // Step 3: Validate SQL and extract configuration
@@ -2270,6 +2315,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 path.display()
                             );
                             schema_registry.register(schema);
+                        }
+                    }
+                }
+            }
+
+            // Step 2b: Generate schemas from @data.* hints in SQL file
+            {
+                use velostream::velostream::test_harness::{
+                    DataHintParser, generate_schema_from_hints,
+                };
+
+                let sql_content = std::fs::read_to_string(&sql_file).unwrap_or_default();
+                let mut hint_parser = DataHintParser::new();
+
+                if hint_parser.parse(&sql_content).is_ok() {
+                    let field_hints = hint_parser.get_field_hints();
+                    let global_hints = hint_parser.get_global_hints();
+
+                    if !field_hints.is_empty() {
+                        let source_name = global_hints
+                            .source_name
+                            .clone()
+                            .unwrap_or_else(|| "generated_source".to_string());
+
+                        if schema_registry.get(&source_name).is_none() {
+                            if let Ok(schema) =
+                                generate_schema_from_hints(&source_name, global_hints, &field_hints)
+                            {
+                                println!(
+                                    "   ✓ {} ({} fields) ← @data.* hints",
+                                    schema.name,
+                                    schema.fields.len()
+                                );
+                                schema_registry.register(schema);
+                            }
                         }
                     }
                 }

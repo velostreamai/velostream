@@ -106,7 +106,8 @@ pub mod utils;
 
 // Re-export main types for convenience - used by velo-test binary
 pub use annotate::{
-    AnnotateConfig, Annotator, DetectedMetric, MetricType, QueryAnalysis, QueryType, SqlAnalysis,
+    AnnotateConfig, Annotator, DataHint, DataHintParser, DataHintType, DetectedMetric,
+    GlobalDataHints, MetricType, QueryAnalysis, QueryType, SqlAnalysis,
 };
 pub use config_override::{ConfigOverrideBuilder, ConfigOverrides};
 pub use dlq::{CapturedDlqOutput, DlqCapture, DlqConfig, DlqRecord, DlqStatistics, ErrorType};
@@ -122,7 +123,7 @@ pub use log_capture::{
     recent_entries as recent_log_entries, set_capture_enabled, stats as log_stats, warnings_since,
 };
 pub use scaffold::{DetectedStructure, ScaffoldConfig, ScaffoldStyle, Scaffolder};
-pub use schema::Schema;
+pub use schema::{Schema, generate_schema_from_hints, schema_to_yaml};
 pub use spec::{
     FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec,
     TimeSimulationConfig, TopicNamingConfig,

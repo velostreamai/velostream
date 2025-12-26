@@ -56,7 +56,7 @@ WITH (
 
 ### Step 3: Run your job
 ```bash
-velo-sql-multi --query-file daily_sales.sql
+velo-sql --query-file daily_sales.sql
 ```
 
 **You're now processing streaming data in real-time!**

@@ -7,7 +7,7 @@
 -- 3. Trade volume histogram
 -- 4. High-value trade counter
 --
--- Run with: velo-sql-multi deploy-app --file examples/financial_trading_with_metrics.sql
+-- Run with: velo-sql deploy-app --file examples/financial_trading_with_metrics.sql
 
 -- ===========================================================================
 -- Stream 1: Volume Spike Detection

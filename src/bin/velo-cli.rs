@@ -456,7 +456,7 @@ impl VelostreamMonitor {
 
                     // Extract job information from running processes
                     for line in &velo_sql_lines {
-                        if line.contains("velo-sql-multi") {
+                        if line.contains("velo-sql") {
                             job_details.push("StreamJobServer: Running".to_string());
                             job_count += 1;
 

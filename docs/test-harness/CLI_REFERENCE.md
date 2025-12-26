@@ -524,6 +524,87 @@ RUST_LOG=velostream::test_harness=debug velo-test run app.sql
 
 ---
 
+## Data Generation Annotations
+
+Embed test data generation hints directly in SQL source files using `@data.*` annotations. These replace separate schema YAML files for simpler workflows.
+
+### Syntax
+
+```sql
+-- Global hints
+-- @data.source: in_market_data        -- Source stream name (required for multi-source)
+-- @data.record_count: 1000
+-- @data.time_simulation: sequential
+-- @data.time_start: "-1h"
+-- @data.time_end: "now"
+-- @data.seed: 42
+
+-- Field hints (type is required)
+-- @data.<field>.type: string|integer|float|decimal(N)|timestamp|date|uuid|boolean
+
+-- Enum constraint
+-- @data.symbol.type: string
+-- @data.symbol: enum ["AAPL", "GOOGL", "MSFT"], weights: [0.4, 0.3, 0.3]
+
+-- Range with distribution
+-- @data.price.type: decimal(4)
+-- @data.price: range [100, 500], distribution: random_walk, volatility: 0.02, group_by: symbol
+
+-- Timestamp with sequential generation
+-- @data.event_time.type: timestamp
+-- @data.event_time: timestamp, sequential: true
+
+-- Derived field (calculated from other fields)
+-- @data.bid_price.type: decimal(4)
+-- @data.bid_price.derived: "price * random(0.998, 0.9999)"
+
+-- UUID for unique identifiers
+-- @data.order_id.type: uuid
+
+-- Boolean field
+-- @data.is_active.type: boolean
+```
+
+### Available Distributions
+
+| Distribution | Description | Parameters |
+|--------------|-------------|------------|
+| `uniform` | Equal probability (default) | None |
+| `normal` | Bell curve | `mean`, `std_dev` |
+| `log_normal` | Right-skewed | `mean`, `std_dev` |
+| `zipf` | Power law | `exponent` |
+| `random_walk` | GBM for realistic prices | `volatility`, `drift`, `group_by` |
+
+### Priority Rules
+
+1. Schema YAML files take precedence over SQL hints
+2. All fields require explicit types via `@data.<field>.type`
+3. Errors if hint field doesn't match any source field in SQL
+
+### Example
+
+```sql
+-- =============================================================================
+-- DATA GENERATION HINTS for in_market_data
+-- =============================================================================
+-- @data.record_count: 1000
+-- @data.symbol.type: string
+-- @data.symbol: enum ["AAPL", "GOOGL", "MSFT", "AMZN"]
+-- @data.price.type: decimal(4)
+-- @data.price: range [100, 500], distribution: random_walk, volatility: 0.02, group_by: symbol
+-- @data.volume.type: integer
+-- @data.volume: range [100, 50000], distribution: log_normal
+-- @data.timestamp.type: timestamp
+-- @data.timestamp: timestamp, sequential: true
+
+CREATE STREAM market_data AS
+SELECT symbol, price, volume, timestamp
+FROM in_market_data
+EMIT CHANGES;
+```
+
+---
+
 ## Common Workflows
 
 ### New User Workflow

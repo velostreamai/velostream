@@ -297,7 +297,7 @@ async fn handle_multi_metrics_request(request: &str, server: &StreamJobServer) -
             // Root endpoint with available endpoints
             let response_body = if server.has_performance_monitoring() {
                 r#"{
-    "service": "velo-sql-multi-server",
+    "service": "velo-sql-server",
     "status": "running",
     "endpoints": {
         "/metrics": "Prometheus metrics export",
@@ -309,7 +309,7 @@ async fn handle_multi_metrics_request(request: &str, server: &StreamJobServer) -
 }"#
             } else {
                 r#"{
-    "service": "velo-sql-multi-server", 
+    "service": "velo-sql-server", 
     "status": "running",
     "endpoints": {
         "/jobs": "List all running jobs (JSON)"

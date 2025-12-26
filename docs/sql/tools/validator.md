@@ -37,7 +37,7 @@ velo-cli validate path/to/sql/ --format json
 #### 2. **Pre-deployment Validation** (Production)
 ```bash
 # Automatic validation before deployment
-velo-sql-multi deploy-app --file production.sql
+velo-sql deploy-app --file production.sql
 
 # Validation occurs automatically and blocks deployment if invalid
 # ❌ Deployment blocked if validation fails
@@ -53,7 +53,7 @@ velo-sql-multi deploy-app --file production.sql
 cargo build --bin velo-cli
 
 # Build the SQL multi-job server with integrated validation
-cargo build --bin velo-sql-multi
+cargo build --bin velo-sql
 
 # No longer needed (deprecated):
 # ❌ cargo build --bin sql-validator
@@ -190,7 +190,7 @@ fi
 
 ```bash
 # Automatic validation during deployment
-velo-sql-multi deploy-app --file production.sql
+velo-sql deploy-app --file production.sql
 
 # Output:
 Starting deployment from file: production.sql
@@ -487,6 +487,6 @@ The Velostream SQL Validator has achieved production-ready status with comprehen
 
 **Key Commands**:
 - `velo-cli validate` - Production-ready validation with comprehensive subquery analysis
-- `velo-sql-multi deploy-app` - Automatic pre-deployment validation with security protection
+- `velo-sql deploy-app` - Automatic pre-deployment validation with security protection
 
 For more information, see the [Velostream CLI Guide](../cli-guide.md) and [SQL Deployment Guide](../deployment-guide.md).

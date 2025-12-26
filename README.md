@@ -749,7 +749,7 @@ WITH (
 
 Run it:
 ```bash
-velo-sql-multi --query-file my_pipeline.sql
+velo-sql --query-file my_pipeline.sql
 ```
 
 ### Option 2: Rust API

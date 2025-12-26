@@ -12,12 +12,12 @@ info:
     
     Start the server with monitoring enabled:
     ```bash
-    cargo run --bin velo-sql-multi server --enable-metrics --max-jobs 10
+    cargo run --bin velo-sql server --enable-metrics --max-jobs 10
     ```
     
     Deploy a SQL application:
     ```bash
-    cargo run --bin velo-sql-multi deploy-app --file trading-analytics.sql --brokers localhost:9092
+    cargo run --bin velo-sql deploy-app --file trading-analytics.sql --brokers localhost:9092
     ```
     
     ## Features
@@ -60,7 +60,7 @@ paths:
                 monitoring_enabled:
                   summary: Multi-job server with monitoring enabled
                   value:
-                    service: "velo-sql-multi-server"
+                    service: "velo-sql-server"
                     status: "running"
                     endpoints:
                       "/metrics": "Prometheus metrics export"
@@ -71,7 +71,7 @@ paths:
                 monitoring_disabled:
                   summary: Multi-job server with monitoring disabled
                   value:
-                    service: "velo-sql-multi-server"
+                    service: "velo-sql-server"
                     status: "running"
                     endpoints:
                       "/jobs": "List all running jobs (JSON)"
@@ -272,7 +272,7 @@ components:
       properties:
         service:
           type: string
-          example: "velo-sql-multi-server"
+          example: "velo-sql-server"
           description: Service identifier
         status:
           type: string

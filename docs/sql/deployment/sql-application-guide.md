@@ -68,7 +68,7 @@ SELECT * FROM topic2 WHERE condition2;
 
 ```bash
 # Deploy from a .sql application file
-velo-sql-multi deploy-app \
+velo-sql deploy-app \
   --file examples/ecommerce_analytics.sql \
   --brokers localhost:9092 \
   --default-topic orders
@@ -78,13 +78,13 @@ velo-sql-multi deploy-app \
 
 ```bash
 # Start StreamJobServer first
-velo-sql-multi server \
+velo-sql server \
   --brokers localhost:9092 \
   --max-jobs 20 \
   --port 8080
 
 # Then deploy application (in another terminal)
-velo-sql-multi deploy-app \
+velo-sql deploy-app \
   --file examples/iot_monitoring.sql \
   --brokers localhost:9092 \
   --default-topic sensor_data
@@ -103,7 +103,7 @@ velo-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete e-commerce analytics platform
-velo-sql-multi deploy-app \
+velo-sql deploy-app \
   --file examples/ecommerce_analytics.sql \
   --brokers kafka-prod:9092 \
   --default-topic orders
@@ -120,7 +120,7 @@ velo-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete IoT monitoring platform
-velo-sql-multi deploy-app \
+velo-sql deploy-app \
   --file examples/iot_monitoring.sql \
   --brokers kafka-iot:9092 \
   --default-topic sensor_data
@@ -137,7 +137,7 @@ velo-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete trading analytics platform
-velo-sql-multi deploy-app \
+velo-sql deploy-app \
   --file examples/financial_trading.sql \
   --brokers kafka-trading:9092 \
   --default-topic market_data
@@ -154,7 +154,7 @@ velo-sql-multi deploy-app \
 
 ```bash
 # Deploy the complete social media analytics platform
-velo-sql-multi deploy-app \
+velo-sql deploy-app \
   --file examples/social_media_analytics.sql \
   --brokers kafka-social:9092 \
   --default-topic social_posts
@@ -452,7 +452,7 @@ CREATE STREAM job3 AS SELECT * FROM stream3 EMIT CHANGES;
 
 ```bash
 # Deploy application with app-level observability enabled
-./velo-sql-multi deploy-app \
+./velo-sql deploy-app \
   --file examples/financial_trading.sql \
   --brokers localhost:9092 \
   --default-topic market_data
@@ -548,10 +548,10 @@ Applications continue deploying jobs even if individual jobs fail:
 
 ```bash
 # 1. Build the StreamJobServer
-cargo build --release --bin velo-sql-multi
+cargo build --release --bin velo-sql
 
 # 2. Deploy a complete application
-./target/release/velo-sql-multi deploy-app \
+./target/release/velo-sql deploy-app \
   --file examples/ecommerce_analytics.sql \
   --brokers localhost:9092 \
   --default-topic orders

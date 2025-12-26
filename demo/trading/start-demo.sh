@@ -55,7 +55,7 @@ NOTE:
 
 MONITORING:
     tail -f /tmp/velo_deployment.log     # Watch SQL job logs
-    tail -f /tmp/trading_generator.log   # Watch generator logs
+    tail -f /tmp/velo_stress.log         # Watch data generation logs
     ./check-demo-health.sh               # Check demo health
     ./stop-demo.sh                       # Stop all demo processes
 
@@ -332,42 +332,29 @@ echo ""
 echo "Building/checking main Velostream project..."
 cd ../..
 
-VELO_BINARY_PATH="$BUILD_DIR/velo-sql-multi"
+VELO_BINARY_PATH="$BUILD_DIR/velo-sql"
 print_binary_info "$VELO_BINARY_PATH"
 
-print_timestamp "Starting velo-sql-multi build..."
-if ! cargo build $BUILD_FLAG --bin velo-sql-multi; then
-    echo -e "${RED}✗ Failed to build velo-sql-multi${NC}"
-    echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql-multi${NC}"
+print_timestamp "Starting velo-sql build..."
+if ! cargo build $BUILD_FLAG --bin velo-sql; then
+    echo -e "${RED}✗ Failed to build velo-sql${NC}"
+    echo -e "${YELLOW}Try: cargo clean && cargo build --bin velo-sql${NC}"
     echo -e "${YELLOW}Or update Rust: rustup update stable${NC}"
     exit 1
 fi
-print_timestamp "Completed velo-sql-multi build"
-check_status "velo-sql-multi ready"
+print_timestamp "Completed velo-sql build"
+check_status "velo-sql ready"
 
 # Show updated binary info
 print_binary_info "$VELO_BINARY_PATH"
 
 cd demo/trading
 
-# Build trading data generator
+# velo-test binary path (uses main project build)
+VELO_TEST_BINARY_PATH="$VELO_BUILD_DIR/velo-test"
 echo ""
-echo "Building/checking trading data generator..."
-
-GENERATOR_BINARY_PATH="$BUILD_DIR/trading_data_generator"
-print_binary_info "$GENERATOR_BINARY_PATH"
-
-print_timestamp "Starting trading_data_generator build..."
-if ! cargo build $BUILD_FLAG --bin trading_data_generator; then
-    echo -e "${RED}✗ Failed to build trading_data_generator${NC}"
-    echo -e "${YELLOW}Try: cargo clean && cargo build --bin trading_data_generator${NC}"
-    exit 1
-fi
-print_timestamp "Completed trading_data_generator build"
-check_status "Trading data generator ready"
-
-# Show updated binary info
-print_binary_info "$GENERATOR_BINARY_PATH"
+echo "Checking velo-test binary..."
+print_binary_info "$VELO_TEST_BINARY_PATH"
 
 echo ""
 echo -e "${GREEN}✓ All binaries up-to-date${NC}"
@@ -382,18 +369,23 @@ for group in $(docker exec simple-kafka kafka-consumer-groups --bootstrap-server
         --delete 2>/dev/null || true
 done
 
-# Step 7: Start data generator
-print_step "Step 7: Starting trading data generator"
+# Step 7: Start data generator using velo-test stress
+print_step "Step 7: Starting data generator (velo-test stress)"
 echo "Simulation duration: ${SIMULATION_DURATION} minutes"
+
+# Convert minutes to seconds for velo-test
+DURATION_SECONDS=$((SIMULATION_DURATION * 60))
+# Calculate records based on duration (approx 100 records/sec for realistic trading data)
+RECORDS=$((DURATION_SECONDS * 100))
 
 # Show binary info before execution
 echo ""
-print_binary_info "$GENERATOR_BINARY_PATH"
+print_binary_info "$VELO_TEST_BINARY_PATH"
 echo ""
 
-print_timestamp "Launching trading_data_generator..."
-echo -e "${BLUE}Command: ./$BUILD_DIR/trading_data_generator $KAFKA_BROKER $SIMULATION_DURATION${NC}"
-./$BUILD_DIR/trading_data_generator $KAFKA_BROKER $SIMULATION_DURATION > /tmp/trading_generator.log 2>&1 &
+print_timestamp "Launching velo-test stress for data generation..."
+echo -e "${BLUE}Command: $VELO_TEST_BINARY_PATH stress apps/app_market_data.sql --records $RECORDS --duration $DURATION_SECONDS --kafka $KAFKA_BROKER -y${NC}"
+$VELO_TEST_BINARY_PATH stress apps/app_market_data.sql --records $RECORDS --duration $DURATION_SECONDS --kafka $KAFKA_BROKER -y > /tmp/velo_stress.log 2>&1 &
 GENERATOR_PID=$!
 print_timestamp "Data generator started (PID: $GENERATOR_PID)"
 echo -e "${GREEN}✓ Data generator started (PID: $GENERATOR_PID)${NC}"
@@ -437,8 +429,8 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     echo -e "${YELLOW}Running in interactive mode (foreground)...${NC}"
     echo -e "${YELLOW}Press Ctrl+C to stop${NC}"
     echo ""
-    print_timestamp "Launching velo-sql-multi (interactive mode)..."
-    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
+    print_timestamp "Launching velo-sql (interactive mode)..."
+    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
     echo ""
     # Set deployment context environment variables for per-node observability
     export NODE_ID="velostream-prod-node-1"
@@ -446,7 +438,7 @@ if [ "$INTERACTIVE_MODE" = true ]; then
     export REGION="us-east-1"
     export APP_VERSION="1.0.0"
 
-    $VELO_BUILD_DIR/velo-sql-multi deploy-app \
+    $VELO_BUILD_DIR/velo-sql deploy-app \
         --file sql/financial_trading.sql \
         --enable-tracing \
         --enable-metrics \
@@ -455,8 +447,8 @@ if [ "$INTERACTIVE_MODE" = true ]; then
 else
     # Run in background (deploy-app mode)
     echo "Deploying 8 streaming queries with observability enabled..."
-    print_timestamp "Launching velo-sql-multi (background mode)..."
-    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql-multi deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
+    print_timestamp "Launching velo-sql (background mode)..."
+    echo -e "${BLUE}Command: $VELO_BUILD_DIR/velo-sql deploy-app --file sql/financial_trading.sql --enable-tracing --enable-metrics --metrics-port 9091 --enable-profiling${NC}"
     echo ""
     # Set deployment context environment variables for per-node observability
     export NODE_ID="velostream-prod-node-1"
@@ -464,7 +456,7 @@ else
     export REGION="us-east-1"
     export APP_VERSION="1.0.0"
 
-    $VELO_BUILD_DIR/velo-sql-multi deploy-app \
+    $VELO_BUILD_DIR/velo-sql deploy-app \
         --file sql/financial_trading.sql \
         --enable-tracing \
         --enable-metrics \
@@ -494,13 +486,13 @@ else
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}Status Summary${NC}"
     echo -e "${GREEN}========================================${NC}"
-    echo -e "Data Generator:     PID $GENERATOR_PID (log: /tmp/trading_generator.log)"
+    echo -e "Data Generator:     PID $GENERATOR_PID (log: /tmp/velo_stress.log)"
     echo -e "SQL Deployment:     PID $DEPLOY_PID (log: /tmp/velo_deployment.log)"
     echo -e "Simulation Duration: ${SIMULATION_DURATION} minutes"
     echo ""
     echo -e "${BLUE}Monitoring Commands:${NC}"
     echo -e "  tail -f /tmp/velo_deployment.log    # Watch SQL job logs"
-    echo -e "  tail -f /tmp/trading_generator.log  # Watch generator logs"
+    echo -e "  tail -f /tmp/velo_stress.log        # Watch data generation logs"
     echo -e "  ./check-demo-health.sh              # Check demo health"
     echo ""
     echo -e "${BLUE}Kafka Commands:${NC}"

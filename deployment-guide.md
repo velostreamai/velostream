@@ -235,7 +235,7 @@ curl http://localhost:9080/metrics/report
 
 ### Velostream SQL Multi-Job Server  
 - **Purpose**: Manage multiple concurrent SQL jobs with advanced orchestration
-- **Container**: `velo-sql-multi`
+- **Container**: `velo-sql`
 - **Ports**: 8081 (API), 9091 (Metrics)
 - **Performance**: 10x+ JOIN performance, comprehensive monitoring
 - **Use Cases**: Complex analytics, job orchestration, enterprise workloads
@@ -662,26 +662,26 @@ docker exec velo-streams velo-sql stream \
 #### Multi-Job Application Deployment
 ```bash
 # Deploy multiple streaming jobs from SQL file
-docker exec velo-streams velo-sql-multi deploy-app \
+docker exec velo-streams velo-sql deploy-app \
   --file /app/examples/ecommerce_analytics.sql \
   --brokers kafka:29092 \
   --default-topic orders \
   --continuous  # Keep all jobs running
 
 # Stream job results to stdout in JSON format
-docker exec -it velo-streams velo-sql-multi stream-job \
+docker exec -it velo-streams velo-sql stream-job \
   --job-id ecommerce_analytics_job_1 \
   --output stdout \
   --format json-lines
 
 # Monitor all job outputs with JSON streaming
-docker exec -it velo-streams velo-sql-multi stream-all \
+docker exec -it velo-streams velo-sql stream-all \
   --output stdout \
   --format json \
   --include-metadata
 
 # Execute multi-job query with stdout streaming
-docker exec -it velo-streams velo-sql-multi execute \
+docker exec -it velo-streams velo-sql execute \
   --query "SELECT job_id, status, result FROM job_results" \
   --output stdout \
   --format json-pretty
@@ -810,7 +810,7 @@ docker exec velo-streams velo-sql stream \
   --continuous
 
 # Multi-job financial application deployment
-docker exec velo-streams velo-sql-multi deploy-app \
+docker exec velo-streams velo-sql deploy-app \
   --file /app/examples/financial_trading.sql \
   --brokers kafka:29092 \
   --default-topic trades \
@@ -823,10 +823,10 @@ docker exec velo-streams velo-sql-multi deploy-app \
 |---------|---------|---------------|
 | `velo-sql execute` | One-time query execution | Exits after processing current data |
 | `velo-sql stream` | Continuous streaming query | Keeps running until stopped |
-| `velo-sql-multi deploy-app` | Deploy multiple jobs | Manages job lifecycle |
-| `velo-sql-multi stream-job` | Stream individual job results to stdout | Keeps running until stopped |
-| `velo-sql-multi stream-all` | Stream all job outputs with metadata | Keeps running until stopped |
-| `velo-sql-multi execute` | Execute query across job results | Exits after processing |
+| `velo-sql deploy-app` | Deploy multiple jobs | Manages job lifecycle |
+| `velo-sql stream-job` | Stream individual job results to stdout | Keeps running until stopped |
+| `velo-sql stream-all` | Stream all job outputs with metadata | Keeps running until stopped |
+| `velo-sql execute` | Execute query across job results | Exits after processing |
 
 | Flag | Description | Example |
 |------|-------------|---------|
@@ -877,7 +877,7 @@ docker exec velo-streams velo-sql execute \
   --format csv > high_value_orders.csv
 
 # Multi-job server: Stream all job results in JSON format
-docker exec -it velo-streams velo-sql-multi stream-all \
+docker exec -it velo-streams velo-sql stream-all \
   --output stdout \
   --format json-lines \
   --include-metadata
@@ -923,9 +923,9 @@ docker exec -it velo-streams velo-sql stream \
 
 ### Multi-Job Server Commands
 
-#### velo-sql-multi deploy-app (Deploy multiple jobs)
+#### velo-sql deploy-app (Deploy multiple jobs)
 ```bash
-docker exec velo-streams velo-sql-multi deploy-app \
+docker exec velo-streams velo-sql deploy-app \
   --file /path/to/sql_file.sql \
   --brokers KAFKA_BROKERS \
   [--default-topic DEFAULT_TOPIC] \
@@ -937,9 +937,9 @@ docker exec velo-streams velo-sql-multi deploy-app \
   [--restart-policy always|never|on-failure]
 ```
 
-#### velo-sql-multi stream-job (Stream individual job results)
+#### velo-sql stream-job (Stream individual job results)
 ```bash
-docker exec -it velo-streams velo-sql-multi stream-job \
+docker exec -it velo-streams velo-sql stream-job \
   --job-id JOB_ID \
   --output stdout \
   --format json-lines \
@@ -948,9 +948,9 @@ docker exec -it velo-streams velo-sql-multi stream-job \
   [--tail NUMBER]
 ```
 
-#### velo-sql-multi stream-all (Stream all job outputs)
+#### velo-sql stream-all (Stream all job outputs)
 ```bash
-docker exec -it velo-streams velo-sql-multi stream-all \
+docker exec -it velo-streams velo-sql stream-all \
   --output stdout \
   --format json|json-lines \
   [--include-metadata] \
@@ -959,9 +959,9 @@ docker exec -it velo-streams velo-sql-multi stream-all \
   [--follow]
 ```
 
-#### velo-sql-multi execute (Query job results)
+#### velo-sql execute (Query job results)
 ```bash
-docker exec velo-streams velo-sql-multi execute \
+docker exec velo-streams velo-sql execute \
   --query "SELECT job_id, status, result FROM job_results WHERE condition" \
   --output stdout \
   --format json-pretty \
@@ -973,7 +973,7 @@ docker exec velo-streams velo-sql-multi execute \
 
 #### List jobs
 ```bash
-docker exec velo-streams velo-sql-multi list-jobs \
+docker exec velo-streams velo-sql list-jobs \
   [--status running|paused|stopped|all] \
   [--format json|table] \
   [--sort-by name|status|created|updated]
@@ -982,16 +982,16 @@ docker exec velo-streams velo-sql-multi list-jobs \
 #### Control individual jobs
 ```bash
 # Start/stop/pause/resume job
-docker exec velo-streams velo-sql-multi {start|stop|pause|resume}-job \
+docker exec velo-streams velo-sql {start|stop|pause|resume}-job \
   --job-id JOB_ID
 
 # Get job status
-docker exec velo-streams velo-sql-multi job-status \
+docker exec velo-streams velo-sql job-status \
   --job-id JOB_ID \
   --format json|table
 
 # Get job logs
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id JOB_ID \
   [--tail NUMBER] \
   [--follow] \
@@ -1042,7 +1042,7 @@ The multi-job server handles consumer groups differently than single SQL jobs:
 #### Examples
 ```bash
 # Deploy jobs with custom group prefix
-docker exec velo-streams velo-sql-multi deploy-app \
+docker exec velo-streams velo-sql deploy-app \
   --file /app/trading_jobs.sql \
   --brokers kafka:9092 \
   --job-prefix "trading_" \
@@ -1050,7 +1050,7 @@ docker exec velo-streams velo-sql-multi deploy-app \
 # Creates: trading_consumers_trading_1, trading_consumers_trading_2, etc.
 
 # Deploy with default prefixes
-docker exec velo-streams velo-sql-multi deploy-app \
+docker exec velo-streams velo-sql deploy-app \
   --file /app/jobs.sql \
   --brokers kafka:9092
 # Creates: velo_multi_job_1, velo_multi_job_2, etc.
@@ -1091,14 +1091,14 @@ jobs:
 curl http://localhost:9091/health/kafka
 
 # Check job status for Kafka errors
-docker exec velo-streams velo-sql-multi job-status \
+docker exec velo-streams velo-sql job-status \
   --job-id my_job --format json | jq '.error'
 
 # Manual recovery for Kafka issues
-docker exec velo-streams velo-sql-multi restart-job --job-id my_job
+docker exec velo-streams velo-sql restart-job --job-id my_job
 
 # Verify connectivity restored
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id my_job --tail 20 --grep "Connected to Kafka"
 ```
 
@@ -1108,24 +1108,24 @@ docker exec velo-streams velo-sql-multi job-logs \
 curl http://localhost:9091/metrics/memory | jq '.jobs'
 
 # Identify high memory jobs
-docker exec velo-streams velo-sql-multi list-jobs \
+docker exec velo-streams velo-sql list-jobs \
   --sort-by memory_usage --format table
 
 # Reduce memory limit and restart
 # Edit SQL file to lower MEMORY_LIMIT, then redeploy
-docker exec velo-streams velo-sql-multi stop-job --job-id heavy_job
+docker exec velo-streams velo-sql stop-job --job-id heavy_job
 # Update SQL file: -- MEMORY_LIMIT: 1024 (reduced from 2048)
-docker exec velo-streams velo-sql-multi deploy-app \
+docker exec velo-streams velo-sql deploy-app \
   --file /app/sql/updated_jobs.sql --replace
 
 # Monitor recovery
-docker exec velo-streams velo-sql-multi job-status --job-id heavy_job
+docker exec velo-streams velo-sql job-status --job-id heavy_job
 ```
 
 ##### 3. Schema Evolution Failures
 ```bash
 # Detect schema compatibility issues
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id avro_job --grep "SchemaCompatibilityException"
 
 # Recovery steps for schema issues
@@ -1133,10 +1133,10 @@ docker exec velo-streams velo-sql-multi job-logs \
 cp /app/schemas/orders_v2.avsc /app/schemas/orders.avsc
 
 # 2. Restart affected job
-docker exec velo-streams velo-sql-multi restart-job --job-id avro_job
+docker exec velo-streams velo-sql restart-job --job-id avro_job
 
 # 3. Verify schema loading
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id avro_job --tail 10 --grep "Schema loaded successfully"
 ```
 
@@ -1146,7 +1146,7 @@ docker exec velo-streams velo-sql-multi job-logs \
 curl http://localhost:9091/metrics/queries/slow | jq '.timeouts'
 
 # Check specific job timeouts
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id slow_job --grep "QueryTimeoutException"
 
 # Recovery options:
@@ -1164,41 +1164,41 @@ docker exec velo-streams velo-sql-multi job-logs \
 ##### Complete Server Recovery
 ```bash
 # 1. Backup current state
-docker exec velo-streams velo-sql-multi export-state \
+docker exec velo-streams velo-sql export-state \
   --output /backup/velo-state-$(date +%Y%m%d-%H%M%S).json
 
 # 2. Stop all jobs gracefully
-docker exec velo-streams velo-sql-multi stop-all-jobs --graceful
+docker exec velo-streams velo-sql stop-all-jobs --graceful
 
 # 3. Restart server container
 docker restart velo-streams
 
 # 4. Restore job state
-docker exec velo-streams velo-sql-multi import-state \
+docker exec velo-streams velo-sql import-state \
   --input /backup/velo-state-latest.json
 
 # 5. Restart jobs
-docker exec velo-streams velo-sql-multi start-all-jobs
+docker exec velo-streams velo-sql start-all-jobs
 ```
 
 ##### Partial Recovery (Specific Jobs)
 ```bash
 # 1. Identify failed jobs
-docker exec velo-streams velo-sql-multi list-jobs --status failed
+docker exec velo-streams velo-sql list-jobs --status failed
 
 # 2. Export job configuration
-docker exec velo-streams velo-sql-multi export-job-config \
+docker exec velo-streams velo-sql export-job-config \
   --job-id failed_job --output /backup/failed_job_config.json
 
 # 3. Remove failed job
-docker exec velo-streams velo-sql-multi remove-job --job-id failed_job
+docker exec velo-streams velo-sql remove-job --job-id failed_job
 
 # 4. Redeploy from backup
-docker exec velo-streams velo-sql-multi import-job-config \
+docker exec velo-streams velo-sql import-job-config \
   --input /backup/failed_job_config.json
 
 # 5. Start recovered job
-docker exec velo-streams velo-sql-multi start-job --job-id failed_job
+docker exec velo-streams velo-sql start-job --job-id failed_job
 ```
 
 #### Health Check Automation
@@ -1222,12 +1222,12 @@ check_health() {
 }
 
 check_jobs() {
-    local failed_jobs=$(docker exec $VELO_CONTAINER velo-sql-multi list-jobs --status failed --format json | jq -r '.[].job_id')
+    local failed_jobs=$(docker exec $VELO_CONTAINER velo-sql list-jobs --status failed --format json | jq -r '.[].job_id')
     if [ -n "$failed_jobs" ]; then
         echo "$(date): Failed jobs detected: $failed_jobs" >> $LOG_FILE
         for job in $failed_jobs; do
             echo "$(date): Attempting to restart job: $job" >> $LOG_FILE
-            docker exec $VELO_CONTAINER velo-sql-multi restart-job --job-id $job
+            docker exec $VELO_CONTAINER velo-sql restart-job --job-id $job
         done
     fi
 }
@@ -1282,22 +1282,22 @@ groups:
 
 ```bash
 # 1. OutOfMemoryError patterns
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id $JOB_ID --grep "OutOfMemoryError|GC overhead limit exceeded"
 # Solution: Increase MEMORY_LIMIT or optimize query
 
 # 2. Kafka connection issues
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id $JOB_ID --grep "BrokerNotAvailableException|TimeoutException"
 # Solution: Check Kafka connectivity, verify broker addresses
 
 # 3. Schema registry issues
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id $JOB_ID --grep "SchemaNotFoundException|IncompatibleSchemaException"
 # Solution: Update schema files, check schema evolution compatibility
 
 # 4. SQL syntax errors
-docker exec velo-streams velo-sql-multi job-logs \
+docker exec velo-streams velo-sql job-logs \
   --job-id $JOB_ID --grep "SqlParseException|QueryValidationException"
 # Solution: Validate SQL syntax, check table/column references
 ```
@@ -1310,29 +1310,29 @@ docker exec velo-streams velo-sql-multi job-logs \
 # STEP 1: Assess Situation
 echo "1. Checking overall system health..."
 curl http://localhost:9091/health | jq '.'
-docker exec velo-streams velo-sql-multi list-jobs --status all
+docker exec velo-streams velo-sql list-jobs --status all
 
 # STEP 2: Identify Failed Components
 echo "2. Identifying failed jobs..."
-FAILED_JOBS=$(docker exec velo-streams velo-sql-multi list-jobs --status failed --format json | jq -r '.[].job_id')
+FAILED_JOBS=$(docker exec velo-streams velo-sql list-jobs --status failed --format json | jq -r '.[].job_id')
 echo "Failed jobs: $FAILED_JOBS"
 
 # STEP 3: Gather Diagnostics
 echo "3. Gathering diagnostic information..."
 for job in $FAILED_JOBS; do
     echo "=== Job: $job ==="
-    docker exec velo-streams velo-sql-multi job-status --job-id $job
-    docker exec velo-streams velo-sql-multi job-logs --job-id $job --tail 50
+    docker exec velo-streams velo-sql job-status --job-id $job
+    docker exec velo-streams velo-sql job-logs --job-id $job --tail 50
 done
 
 # STEP 4: Attempt Automatic Recovery
 echo "4. Attempting automatic recovery..."
 for job in $FAILED_JOBS; do
     echo "Restarting job: $job"
-    docker exec velo-streams velo-sql-multi restart-job --job-id $job
+    docker exec velo-streams velo-sql restart-job --job-id $job
     sleep 5
     # Check if restart successful
-    STATUS=$(docker exec velo-streams velo-sql-multi job-status --job-id $job --format json | jq -r '.status')
+    STATUS=$(docker exec velo-streams velo-sql job-status --job-id $job --format json | jq -r '.status')
     echo "Job $job status after restart: $STATUS"
 done
 
@@ -1630,7 +1630,7 @@ chown velo:velo /app/schemas/*   # Proper ownership
 
 # Schema file validation
 # Validate schemas before deployment to prevent injection
-docker exec velo-streams velo-sql-multi validate-schema \
+docker exec velo-streams velo-sql validate-schema \
   --file /app/schemas/orders.avsc \
   --security-check
 ```
@@ -2351,7 +2351,7 @@ echo "============================================"
 
 # 1. Query Performance Test
 echo "1. Testing query performance..."
-docker exec $VELO_CONTAINER velo-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql benchmark \
     --test-type "query_performance" \
     --duration 60 \
     --concurrent-queries 10 \
@@ -2359,7 +2359,7 @@ docker exec $VELO_CONTAINER velo-sql-multi benchmark \
 
 # 2. Throughput Test
 echo "2. Testing throughput..."
-docker exec $VELO_CONTAINER velo-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql benchmark \
     --test-type "throughput" \
     --duration 120 \
     --target-rps 50000 \
@@ -2367,14 +2367,14 @@ docker exec $VELO_CONTAINER velo-sql-multi benchmark \
 
 # 3. Memory Stress Test
 echo "3. Testing memory usage..."
-docker exec $VELO_CONTAINER velo-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql benchmark \
     --test-type "memory_stress" \
     --memory-limit "8G" \
     --concurrent-jobs 20
 
 # 4. Latency Test
 echo "4. Testing latency..."
-docker exec $VELO_CONTAINER velo-sql-multi benchmark \
+docker exec $VELO_CONTAINER velo-sql benchmark \
     --test-type "latency" \
     --duration 60 \
     --percentiles "50,95,99"
@@ -2383,7 +2383,7 @@ docker exec $VELO_CONTAINER velo-sql-multi benchmark \
 echo "5. Testing scalability..."
 for jobs in 1 5 10 20 50; do
     echo "Testing with $jobs concurrent jobs..."
-    docker exec $VELO_CONTAINER velo-sql-multi benchmark \
+    docker exec $VELO_CONTAINER velo-sql benchmark \
         --test-type "scalability" \
         --concurrent-jobs $jobs \
         --duration 30

@@ -17,8 +17,449 @@
 use crate::velostream::sql::ast::{Expr, SelectField, StreamSource, StreamingQuery, WindowSpec};
 use crate::velostream::sql::parser::StreamingSqlParser;
 use serde_json::{Value as JsonValue, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
+
+// =============================================================================
+// DATA GENERATION HINTS
+// =============================================================================
+
+/// Global data generation hints (per source/query)
+#[derive(Debug, Clone, Default)]
+pub struct GlobalDataHints {
+    /// Number of records to generate
+    pub record_count: Option<usize>,
+    /// Time simulation mode: "sequential" or "random"
+    pub time_simulation: Option<String>,
+    /// Start time for timestamp generation (e.g., "-1h", ISO 8601)
+    pub time_start: Option<String>,
+    /// End time for timestamp generation (e.g., "now", ISO 8601)
+    pub time_end: Option<String>,
+    /// Random seed for reproducibility
+    pub seed: Option<u64>,
+    /// Source stream/topic this applies to
+    pub source_name: Option<String>,
+}
+
+/// Field-level data generation hint
+#[derive(Debug, Clone, Default)]
+pub struct DataHint {
+    /// Field name this hint applies to
+    pub field_name: String,
+    /// Field type (required): string, integer, float, decimal(N), timestamp, uuid, boolean
+    pub field_type: Option<DataHintType>,
+    /// Enum values constraint
+    pub enum_values: Option<Vec<String>>,
+    /// Enum weights (must match enum_values length)
+    pub enum_weights: Option<Vec<f64>>,
+    /// Range constraint [min, max]
+    pub range: Option<(f64, f64)>,
+    /// Distribution: uniform, normal, log_normal, zipf, random_walk
+    pub distribution: Option<String>,
+    /// Volatility for random_walk distribution
+    pub volatility: Option<f64>,
+    /// Drift for random_walk distribution
+    pub drift: Option<f64>,
+    /// Group-by field for random_walk (separate paths per group)
+    pub group_by: Option<String>,
+    /// Pattern constraint (regex-like)
+    pub pattern: Option<String>,
+    /// Sequential timestamp generation
+    pub sequential: Option<bool>,
+    /// Foreign key reference (schema.field)
+    pub references: Option<String>,
+    /// Source query/stream this hint applies to
+    pub source_name: Option<String>,
+}
+
+/// Data hint field types
+#[derive(Debug, Clone, PartialEq)]
+pub enum DataHintType {
+    String,
+    Integer,
+    Float,
+    Decimal(u8),
+    Timestamp,
+    Date,
+    Uuid,
+    Boolean,
+}
+
+impl DataHintType {
+    /// Parse a type string like "string", "decimal(4)", "timestamp"
+    pub fn parse(s: &str) -> Option<Self> {
+        let s = s.trim().to_lowercase();
+        if s.starts_with("decimal(") && s.ends_with(')') {
+            let precision_str = &s[8..s.len() - 1];
+            if let Ok(precision) = precision_str.parse::<u8>() {
+                return Some(DataHintType::Decimal(precision));
+            }
+            return None;
+        }
+        match s.as_str() {
+            "string" => Some(DataHintType::String),
+            "integer" | "int" | "i64" => Some(DataHintType::Integer),
+            "float" | "f64" | "double" => Some(DataHintType::Float),
+            "decimal" => Some(DataHintType::Decimal(4)), // default precision
+            "timestamp" | "datetime" => Some(DataHintType::Timestamp),
+            "date" => Some(DataHintType::Date),
+            "uuid" => Some(DataHintType::Uuid),
+            "boolean" | "bool" => Some(DataHintType::Boolean),
+            _ => None,
+        }
+    }
+}
+
+/// Parser for @data.* annotations in SQL comments
+#[derive(Debug, Default)]
+pub struct DataHintParser {
+    /// Accumulated global hints
+    pub global_hints: GlobalDataHints,
+    /// Accumulated field hints by field name
+    pub field_hints: HashMap<String, DataHint>,
+    /// Current source name being processed
+    current_source: Option<String>,
+}
+
+impl DataHintParser {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Parse all @data.* annotations from SQL content
+    pub fn parse(&mut self, sql_content: &str) -> Result<(), String> {
+        for line in sql_content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("--") {
+                let comment = trimmed.trim_start_matches("--").trim();
+                if comment.starts_with("@data.") {
+                    self.parse_data_annotation(comment)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse a single @data.* annotation line
+    fn parse_data_annotation(&mut self, annotation: &str) -> Result<(), String> {
+        // Format: @data.key: value  OR  @data.field.key: value
+        let rest = annotation.trim_start_matches("@data.");
+
+        // Split on first ':'
+        let (key_part, value_part) = match rest.find(':') {
+            Some(idx) => (&rest[..idx], rest[idx + 1..].trim()),
+            None => {
+                return Err(format!(
+                    "Invalid @data annotation (missing ':'): {}",
+                    annotation
+                ));
+            }
+        };
+
+        let key_part = key_part.trim();
+
+        // Check if this is a global hint or field hint
+        if !key_part.contains('.') {
+            // Global hint: @data.record_count, @data.time_simulation, etc.
+            self.parse_global_hint(key_part, value_part)?;
+        } else {
+            // Field hint: @data.price.type, @data.symbol: enum [...]
+            self.parse_field_hint(key_part, value_part)?;
+        }
+
+        Ok(())
+    }
+
+    /// Parse a global data hint
+    fn parse_global_hint(&mut self, key: &str, value: &str) -> Result<(), String> {
+        match key {
+            "record_count" => {
+                self.global_hints.record_count = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("Invalid record_count: {}", value))?,
+                );
+            }
+            "time_simulation" => {
+                self.global_hints.time_simulation = Some(value.to_string());
+            }
+            "time_start" => {
+                self.global_hints.time_start = Some(value.trim_matches('"').to_string());
+            }
+            "time_end" => {
+                self.global_hints.time_end = Some(value.trim_matches('"').to_string());
+            }
+            "seed" => {
+                self.global_hints.seed = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("Invalid seed: {}", value))?,
+                );
+            }
+            "source" => {
+                self.global_hints.source_name = Some(value.to_string());
+                self.current_source = Some(value.to_string());
+            }
+            _ => {
+                // Check if it's actually a field shorthand: @data.symbol: enum [...]
+                if value.starts_with("enum ")
+                    || value.starts_with("range ")
+                    || value.starts_with("timestamp")
+                    || value.starts_with("uuid")
+                {
+                    self.parse_field_shorthand(key, value)?;
+                } else {
+                    log::warn!("Unknown global data hint: @data.{}", key);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse a field-level data hint
+    fn parse_field_hint(&mut self, key_path: &str, value: &str) -> Result<(), String> {
+        // key_path is like "price.type" or "symbol.weights"
+        let parts: Vec<&str> = key_path.splitn(2, '.').collect();
+        if parts.len() != 2 {
+            return Err(format!("Invalid field hint path: {}", key_path));
+        }
+
+        let field_name = parts[0];
+        let property = parts[1];
+
+        // Get or create field hint
+        let hint = self
+            .field_hints
+            .entry(field_name.to_string())
+            .or_insert_with(|| DataHint {
+                field_name: field_name.to_string(),
+                source_name: self.current_source.clone(),
+                ..Default::default()
+            });
+
+        match property {
+            "type" => {
+                hint.field_type = DataHintType::parse(value);
+                if hint.field_type.is_none() {
+                    return Err(format!(
+                        "Invalid type for field '{}': {}",
+                        field_name, value
+                    ));
+                }
+            }
+            "weights" => {
+                hint.enum_weights = Some(Self::parse_number_array(value)?);
+            }
+            "distribution" => {
+                hint.distribution = Some(value.to_string());
+            }
+            "volatility" => {
+                hint.volatility = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("Invalid volatility: {}", value))?,
+                );
+            }
+            "drift" => {
+                hint.drift = Some(
+                    value
+                        .parse()
+                        .map_err(|_| format!("Invalid drift: {}", value))?,
+                );
+            }
+            "group_by" => {
+                hint.group_by = Some(value.to_string());
+            }
+            "pattern" => {
+                hint.pattern = Some(value.trim_matches('"').to_string());
+            }
+            "sequential" => {
+                hint.sequential = Some(value == "true" || value == "yes" || value == "1");
+            }
+            "references" => {
+                hint.references = Some(value.to_string());
+            }
+            _ => {
+                log::warn!(
+                    "Unknown field property: @data.{}.{} = {}",
+                    field_name,
+                    property,
+                    value
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Parse field shorthand syntax: @data.price: range [100, 500], distribution: random_walk
+    fn parse_field_shorthand(&mut self, field_name: &str, value: &str) -> Result<(), String> {
+        // Get or create field hint
+        let hint = self
+            .field_hints
+            .entry(field_name.to_string())
+            .or_insert_with(|| DataHint {
+                field_name: field_name.to_string(),
+                source_name: self.current_source.clone(),
+                ..Default::default()
+            });
+
+        // Parse comma-separated key: value pairs
+        // Example: "enum [\"AAPL\", \"GOOGL\"], weights: [0.5, 0.5]"
+        // Example: "range [100, 500], distribution: random_walk, volatility: 0.02"
+        // Example: "timestamp, sequential: true"
+        // Example: "uuid"
+
+        let parts = Self::split_properties(value);
+
+        for (i, part) in parts.iter().enumerate() {
+            let part = part.trim();
+
+            if i == 0 {
+                // First part is the main constraint type
+                if part.starts_with("enum ") {
+                    let array_str = part.trim_start_matches("enum ").trim();
+                    hint.enum_values = Some(Self::parse_string_array(array_str)?);
+                } else if part.starts_with("range ") {
+                    let array_str = part.trim_start_matches("range ").trim();
+                    let nums = Self::parse_number_array(array_str)?;
+                    if nums.len() != 2 {
+                        return Err(format!(
+                            "Range must have exactly 2 values, got {}",
+                            nums.len()
+                        ));
+                    }
+                    hint.range = Some((nums[0], nums[1]));
+                } else if part == "timestamp" {
+                    hint.field_type = Some(DataHintType::Timestamp);
+                } else if part == "uuid" {
+                    hint.field_type = Some(DataHintType::Uuid);
+                }
+            } else {
+                // Subsequent parts are key: value pairs
+                if let Some(colon_idx) = part.find(':') {
+                    let key = part[..colon_idx].trim();
+                    let val = part[colon_idx + 1..].trim();
+
+                    match key {
+                        "distribution" => hint.distribution = Some(val.to_string()),
+                        "volatility" => {
+                            hint.volatility = Some(
+                                val.parse()
+                                    .map_err(|_| format!("Invalid volatility: {}", val))?,
+                            )
+                        }
+                        "drift" => {
+                            hint.drift =
+                                Some(val.parse().map_err(|_| format!("Invalid drift: {}", val))?)
+                        }
+                        "group_by" => hint.group_by = Some(val.to_string()),
+                        "sequential" => {
+                            hint.sequential = Some(val == "true" || val == "yes" || val == "1")
+                        }
+                        "weights" => {
+                            hint.enum_weights = Some(Self::parse_number_array(val)?);
+                        }
+                        "start" => {
+                            // Part of timestamp range, store in global hints for now
+                            self.global_hints.time_start = Some(val.trim_matches('"').to_string());
+                        }
+                        "end" => {
+                            self.global_hints.time_end = Some(val.trim_matches('"').to_string());
+                        }
+                        _ => {
+                            log::warn!("Unknown shorthand property: {} = {}", key, val);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Split properties respecting brackets: "enum [a, b], weights: [0.5, 0.5]"
+    fn split_properties(value: &str) -> Vec<String> {
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut bracket_depth = 0;
+
+        for c in value.chars() {
+            match c {
+                '[' => {
+                    bracket_depth += 1;
+                    current.push(c);
+                }
+                ']' => {
+                    bracket_depth -= 1;
+                    current.push(c);
+                }
+                ',' if bracket_depth == 0 => {
+                    if !current.trim().is_empty() {
+                        parts.push(current.trim().to_string());
+                    }
+                    current = String::new();
+                }
+                _ => {
+                    current.push(c);
+                }
+            }
+        }
+        if !current.trim().is_empty() {
+            parts.push(current.trim().to_string());
+        }
+        parts
+    }
+
+    /// Parse a string array like ["AAPL", "GOOGL"] or ['AAPL', 'GOOGL']
+    fn parse_string_array(s: &str) -> Result<Vec<String>, String> {
+        let s = s.trim();
+        if !s.starts_with('[') || !s.ends_with(']') {
+            return Err(format!("Expected array format [...], got: {}", s));
+        }
+        let inner = &s[1..s.len() - 1];
+        let mut result = Vec::new();
+        for item in inner.split(',') {
+            let item = item.trim();
+            // Remove quotes
+            let item = item.trim_matches('"').trim_matches('\'').trim().to_string();
+            if !item.is_empty() {
+                result.push(item);
+            }
+        }
+        Ok(result)
+    }
+
+    /// Parse a number array like [100, 500] or [0.5, 0.5]
+    fn parse_number_array(s: &str) -> Result<Vec<f64>, String> {
+        let s = s.trim();
+        if !s.starts_with('[') || !s.ends_with(']') {
+            return Err(format!("Expected array format [...], got: {}", s));
+        }
+        let inner = &s[1..s.len() - 1];
+        let mut result = Vec::new();
+        for item in inner.split(',') {
+            let item = item.trim();
+            if !item.is_empty() {
+                result.push(
+                    item.parse()
+                        .map_err(|_| format!("Invalid number in array: {}", item))?,
+                );
+            }
+        }
+        Ok(result)
+    }
+
+    /// Get all parsed field hints
+    pub fn get_field_hints(&self) -> Vec<DataHint> {
+        self.field_hints.values().cloned().collect()
+    }
+
+    /// Get global hints
+    pub fn get_global_hints(&self) -> &GlobalDataHints {
+        &self.global_hints
+    }
+}
 
 /// Configuration for annotation generation
 #[derive(Debug, Clone)]
@@ -112,6 +553,10 @@ pub struct SqlAnalysis {
     pub group_by_fields: HashSet<String>,
     /// Detected numeric fields (good for gauges)
     pub numeric_fields: HashSet<String>,
+    /// Data generation hints parsed from @data.* annotations
+    pub data_hints: Vec<DataHint>,
+    /// Global data generation hints
+    pub global_data_hints: GlobalDataHints,
 }
 
 /// Analysis of a single query
@@ -163,6 +608,13 @@ impl Annotator {
     /// Analyze SQL content and return analysis
     pub fn analyze(&self, sql_content: &str) -> Result<SqlAnalysis, String> {
         let parser = StreamingSqlParser::new();
+
+        // Parse data hints from SQL comments
+        let mut hint_parser = DataHintParser::new();
+        if let Err(e) = hint_parser.parse(sql_content) {
+            log::warn!("Failed to parse data hints: {}", e);
+        }
+
         let mut analysis = SqlAnalysis {
             queries: Vec::new(),
             metrics: Vec::new(),
@@ -173,6 +625,8 @@ impl Annotator {
             has_joins: false,
             group_by_fields: HashSet::new(),
             numeric_fields: HashSet::new(),
+            data_hints: hint_parser.get_field_hints(),
+            global_data_hints: hint_parser.global_hints.clone(),
         };
 
         // Split by semicolons

@@ -896,7 +896,7 @@ cargo run --bin velo-sql server --enable-metrics --metrics-port 9080
 #### Multi-Job Server Monitoring
 ```bash
 # Start with job-level metrics
-cargo run --bin velo-sql-multi server --enable-metrics
+cargo run --bin velo-sql server --enable-metrics
 ```
 
 **Additional Endpoints:**

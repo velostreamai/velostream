@@ -1,7 +1,7 @@
 //! Post-cleanup validation tests to ensure functionality completeness
 //!
 //! These tests validate that all core functionality still works after removing
-//! the legacy sql_server.rs binary and consolidating to velo-sql-multi.
+//! the legacy sql_server.rs binary and consolidating to velo-sql.
 
 use std::collections::HashMap;
 use std::sync::Arc;

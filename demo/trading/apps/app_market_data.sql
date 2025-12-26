@@ -52,6 +52,51 @@
 --   - instrument_reference: Instrument metadata for enrichment
 
 -- =============================================================================
+-- DATA GENERATION HINTS for in_market_data_stream
+-- =============================================================================
+-- These hints guide test data generation when no schema YAML exists.
+-- If schemas/in_market_data_stream.schema.yaml exists, it takes precedence.
+--
+-- @data.source: in_market_data_stream
+-- @data.record_count: 1000
+-- @data.time_simulation: sequential
+-- @data.time_start: "-1h"
+-- @data.time_end: "now"
+--
+-- @data.symbol.type: string
+-- @data.symbol: enum ["AAPL", "GOOG", "MSFT", "AMZN", "META"], weights: [0.25, 0.25, 0.2, 0.15, 0.15]
+--
+-- @data.exchange.type: string
+-- @data.exchange: enum ["NASDAQ", "NYSE"], weights: [0.6, 0.4]
+--
+-- @data.timestamp.type: integer
+-- @data.timestamp: timestamp, sequential: true
+--
+-- @data.price.type: decimal(4)
+-- @data.price: range [150, 400], distribution: random_walk, volatility: 0.02, drift: 0.0001, group_by: symbol
+--
+-- @data.bid_price.type: decimal(4)
+-- @data.bid_price.derived: "price * random(0.998, 0.9999)"
+--
+-- @data.ask_price.type: decimal(4)
+-- @data.ask_price.derived: "price * random(1.0001, 1.002)"
+--
+-- @data.bid_size.type: integer
+-- @data.bid_size: range [100, 10000]
+--
+-- @data.ask_size.type: integer
+-- @data.ask_size: range [100, 10000]
+--
+-- @data.volume.type: integer
+-- @data.volume: range [1000, 500000], distribution: log_normal
+--
+-- @data.vwap.type: decimal(4)
+-- @data.vwap.derived: "price * random(0.995, 1.005)"
+--
+-- @data.market_cap.type: integer
+-- @data.market_cap: range [100000000000, 3000000000000]
+
+-- =============================================================================
 -- SQL QUERIES
 -- =============================================================================
 

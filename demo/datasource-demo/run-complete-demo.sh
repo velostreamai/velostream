@@ -124,8 +124,8 @@ cd "$DEMO_DIR/../.."
 
 echo "Building core binaries..."
 RUSTFLAGS="-A dead_code" cargo build --bin file_processing_demo --no-default-features --quiet
-# Legacy velo-sql binary was removed - using velo-sql-multi  
-RUSTFLAGS="-A dead_code" cargo build --bin velo-sql-multi --no-default-features --quiet
+# Legacy velo-sql binary was removed - using velo-sql  
+RUSTFLAGS="-A dead_code" cargo build --bin velo-sql --no-default-features --quiet
 
 if [[ "$SKIP_KAFKA" != "true" ]]; then
     echo "Building with Kafka support..."
@@ -307,7 +307,7 @@ case $choice in
         echo "• Complex joins and analytics"
         echo ""
         echo "Deploying and running SQL demo application..."
-        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin velo-sql-multi --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin velo-sql --no-default-features -- deploy-app --file ./demo/datasource-demo/enhanced_sql_demo.sql"
         ;;
         
     3)
@@ -340,7 +340,7 @@ case $choice in
         
         echo -e "\n${YELLOW}Demo 3: SQL Interface${NC}"
         echo "SQL server will start for interactive use..."
-        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin velo-sql-multi --no-default-features -- server"
+        eval "$DEBUG_FLAGS RUSTFLAGS='-A dead_code' cargo run --bin velo-sql --no-default-features -- server"
         ;;
 esac
 

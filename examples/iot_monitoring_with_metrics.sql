@@ -8,7 +8,7 @@
 -- 4. Device connectivity tracking
 -- 5. Sensor reading histograms
 --
--- Run with: velo-sql-multi deploy-app --file examples/iot_monitoring_with_metrics.sql
+-- Run with: velo-sql deploy-app --file examples/iot_monitoring_with_metrics.sql
 
 -- ===========================================================================
 -- Stream 1: Device Temperature Monitoring

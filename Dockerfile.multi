@@ -37,7 +37,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/sql_server.rs && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
 
 # Build dependencies
-RUN cargo build --release --bin velo-sql-multi
+RUN cargo build --release --bin velo-sql
 
 # Copy source code
 COPY src ./src
@@ -45,7 +45,7 @@ COPY examples ./examples
 
 # Build the actual application
 RUN touch src/main.rs src/bin/multi_job_sql_server.rs
-RUN cargo build --release --bin velo-sql-multi
+RUN cargo build --release --bin velo-sql
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -67,7 +67,7 @@ RUN useradd -r -s /bin/false -d /app velo
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/target/release/velo-sql-multi /usr/local/bin/
+COPY --from=builder /app/target/release/velo-sql /usr/local/bin/
 
 # Copy configuration files
 COPY configs/velo-default.yaml ./sql-config.yaml
@@ -84,7 +84,7 @@ EXPOSE 8080 9090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD [ "velo-sql-multi", "--help" ] || exit 1
+    CMD [ "velo-sql", "--help" ] || exit 1
 
 # Default command - run multi-job SQL server
-CMD ["velo-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--max-jobs", "20"]
+CMD ["velo-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--max-jobs", "20"]

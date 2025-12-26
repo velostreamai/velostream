@@ -1742,7 +1742,7 @@ WITHIN INTERVAL '1' MINUTE  -- instead of '1' HOUR
 curl http://localhost:8080/api/jobs/my-job/metrics
 
 # Monitor resource usage
-top -p $(pgrep velo-sql-multi)
+top -p $(pgrep velo-sql)
 
 # Check Kafka consumer lag
 kafka-consumer-groups --bootstrap-server localhost:9092 --describe --group velo-streams-my-job

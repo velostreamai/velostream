@@ -8,7 +8,7 @@
 -- 4. Cart abandonment detection
 -- 5. High-value customer tracking
 --
--- Run with: velo-sql-multi deploy-app --file examples/ecommerce_with_metrics.sql
+-- Run with: velo-sql deploy-app --file examples/ecommerce_with_metrics.sql
 
 -- ===========================================================================
 -- Stream 1: Order Processing Metrics

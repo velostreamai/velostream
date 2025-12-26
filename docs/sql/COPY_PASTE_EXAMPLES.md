@@ -1744,3 +1744,111 @@ WITH (
     '<name>.format' = 'json'
 );
 ```
+
+---
+
+## Data Generation Annotations (@data.*)
+
+Embed test data generation hints directly in SQL files. These replace separate schema YAML files.
+
+### Global Hints
+
+```sql
+-- @data.source: in_market_data        -- Source stream name (required for multi-source SQL)
+-- @data.record_count: 1000
+-- @data.time_simulation: sequential
+-- @data.time_start: "-1h"
+-- @data.time_end: "now"
+-- @data.seed: 42
+```
+
+### Field Hints (Type Required)
+
+```sql
+-- String with enum constraint
+-- @data.symbol.type: string
+-- @data.symbol: enum ["AAPL", "GOOGL", "MSFT"], weights: [0.4, 0.3, 0.3]
+
+-- Decimal with random walk (financial prices)
+-- @data.price.type: decimal(4)
+-- @data.price: range [100, 500], distribution: random_walk, volatility: 0.02, group_by: symbol
+
+-- Integer with log-normal distribution
+-- @data.volume.type: integer
+-- @data.volume: range [100, 50000], distribution: log_normal
+
+-- Sequential timestamp
+-- @data.event_time.type: timestamp
+-- @data.event_time: timestamp, sequential: true
+
+-- UUID
+-- @data.order_id.type: uuid
+
+-- Boolean
+-- @data.is_active.type: boolean
+
+-- Derived field (calculated from other fields)
+-- @data.bid_price.type: decimal(4)
+-- @data.bid_price.derived: "price * random(0.998, 0.9999)"
+```
+
+### Full Trading Demo Example
+
+```sql
+-- =============================================================================
+-- DATA GENERATION HINTS for in_market_data
+-- =============================================================================
+-- @data.record_count: 1000
+-- @data.time_simulation: sequential
+--
+-- @data.symbol.type: string
+-- @data.symbol: enum ["AAPL", "GOOGL", "MSFT", "AMZN"], weights: [0.25, 0.25, 0.25, 0.25]
+--
+-- @data.exchange.type: string
+-- @data.exchange: enum ["NASDAQ", "NYSE"], weights: [0.6, 0.4]
+--
+-- @data.price.type: decimal(4)
+-- @data.price: range [150, 400], distribution: random_walk, volatility: 0.02, group_by: symbol
+--
+-- @data.volume.type: integer
+-- @data.volume: range [1000, 500000], distribution: log_normal
+--
+-- @data.timestamp.type: timestamp
+-- @data.timestamp: timestamp, sequential: true
+
+-- =============================================================================
+-- SQL QUERIES
+-- =============================================================================
+
+CREATE STREAM market_data_ts AS
+SELECT
+    symbol PRIMARY KEY,
+    exchange,
+    price,
+    volume,
+    timestamp
+FROM in_market_data
+EMIT CHANGES
+WITH (
+    'in_market_data.type' = 'kafka_source',
+    'in_market_data.topic.name' = 'in_market_data',
+    'market_data_ts.type' = 'kafka_sink',
+    'market_data_ts.topic.name' = 'market_data_ts'
+);
+```
+
+### Available Distributions
+
+| Distribution | Description | Parameters |
+|--------------|-------------|------------|
+| `uniform` | Equal probability (default) | None |
+| `normal` | Bell curve | `mean`, `std_dev` |
+| `log_normal` | Right-skewed | `mean`, `std_dev` |
+| `zipf` | Power law | `exponent` |
+| `random_walk` | GBM for realistic prices | `volatility`, `drift`, `group_by` |
+
+### Priority Rules
+
+1. **Schema YAML wins**: If `schemas/<source>.schema.yaml` exists, it takes precedence
+2. **Type required**: All fields need `@data.<field>.type: <type>`
+3. **Strict validation**: Errors if hint field doesn't match source fields

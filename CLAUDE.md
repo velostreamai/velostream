@@ -206,7 +206,7 @@ cargo test windowing_test -- --nocapture
 cargo build
 
 # Build specific binaries
-cargo build --bin velo-sql-multi
+cargo build --bin velo-sql
 ```
 
 ### Code Formatting

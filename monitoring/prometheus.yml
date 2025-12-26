@@ -23,9 +23,9 @@ scrape_configs:
     scrape_timeout: 5s
 
   # Velostream SQL Multi-Job Server
-  - job_name: 'velo-sql-multi'
+  - job_name: 'velo-sql'
     static_configs:
-      - targets: ['velo-sql-multi:9091']
+      - targets: ['velo-sql:9091']
     metrics_path: '/metrics'
     scrape_interval: 10s
     scrape_timeout: 5s

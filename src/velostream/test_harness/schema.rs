@@ -470,6 +470,199 @@ pub struct SchemaRegistry {
     schemas: HashMap<String, Schema>,
 }
 
+// =============================================================================
+// SCHEMA GENERATION FROM DATA HINTS
+// =============================================================================
+
+use super::annotate::{DataHint, DataHintType, GlobalDataHints};
+
+/// Generate a Schema from parsed data hints
+///
+/// This allows SQL files to embed data generation hints directly:
+/// ```sql
+/// -- @data.record_count: 1000
+/// -- @data.symbol.type: string
+/// -- @data.symbol: enum ["AAPL", "GOOGL", "MSFT"]
+/// -- @data.price.type: decimal(4)
+/// -- @data.price: range [100, 500], distribution: random_walk, volatility: 0.02
+/// ```
+pub fn generate_schema_from_hints(
+    name: &str,
+    global_hints: &GlobalDataHints,
+    field_hints: &[DataHint],
+) -> TestHarnessResult<Schema> {
+    let mut fields = Vec::new();
+
+    for hint in field_hints {
+        let field_def = convert_hint_to_field(hint)?;
+        fields.push(field_def);
+    }
+
+    // Validate that all fields have explicit types
+    for field in &fields {
+        if matches!(field.field_type, FieldType::Simple(SimpleFieldType::String))
+            && field.constraints.enum_values.is_none()
+            && field.constraints.pattern.is_none()
+        {
+            // Check if this was explicitly set or just defaulted
+            // For now, we allow string as the fallback type
+        }
+    }
+
+    let schema = Schema {
+        name: name.to_string(),
+        description: Some(format!("Auto-generated from @data hints in {}", name)),
+        fields,
+        record_count: global_hints.record_count.unwrap_or(1000),
+        key_field: None,
+        source_path: None,
+    };
+
+    schema.validate()?;
+    Ok(schema)
+}
+
+/// Convert a single DataHint to a FieldDefinition
+fn convert_hint_to_field(hint: &DataHint) -> TestHarnessResult<FieldDefinition> {
+    // Determine field type
+    let field_type = match &hint.field_type {
+        Some(DataHintType::String) => FieldType::string(),
+        Some(DataHintType::Integer) => FieldType::integer(),
+        Some(DataHintType::Float) => FieldType::float(),
+        Some(DataHintType::Decimal(precision)) => FieldType::decimal(*precision),
+        Some(DataHintType::Timestamp) => FieldType::timestamp(),
+        Some(DataHintType::Date) => FieldType::date(),
+        Some(DataHintType::Uuid) => FieldType::uuid(),
+        Some(DataHintType::Boolean) => FieldType::boolean(),
+        None => {
+            // Try to infer from constraints
+            if hint.enum_values.is_some() {
+                FieldType::string()
+            } else if hint.range.is_some() {
+                // Could be integer or float/decimal
+                FieldType::float()
+            } else if hint.sequential.is_some() {
+                FieldType::timestamp()
+            } else {
+                return Err(TestHarnessError::SchemaParseError {
+                    message: format!(
+                        "Field '{}' requires explicit type via @data.{}.type: <type>",
+                        hint.field_name, hint.field_name
+                    ),
+                    file: "SQL hints".to_string(),
+                });
+            }
+        }
+    };
+
+    // Build constraints
+    let mut constraints = FieldConstraints::default();
+
+    // Enum values
+    if let Some(ref values) = hint.enum_values {
+        constraints.enum_values = Some(EnumConstraint {
+            values: values.clone(),
+            weights: hint.enum_weights.clone(),
+        });
+    }
+
+    // Range
+    if let Some((min, max)) = hint.range {
+        constraints.range = Some(RangeConstraint { min, max });
+    }
+
+    // Pattern
+    if let Some(ref pattern) = hint.pattern {
+        constraints.pattern = Some(pattern.clone());
+    }
+
+    // Distribution
+    if let Some(ref dist) = hint.distribution {
+        constraints.distribution = Some(convert_distribution(
+            dist,
+            hint.volatility,
+            hint.drift,
+            hint.group_by.clone(),
+        )?);
+    }
+
+    // Timestamp range from sequential flag
+    if hint.sequential == Some(true) {
+        constraints.timestamp_range = Some(TimestampRange::Relative {
+            start: "-1h".to_string(),
+            end: "now".to_string(),
+        });
+    }
+
+    // References
+    if let Some(ref reference) = hint.references {
+        let parts: Vec<&str> = reference.splitn(2, '.').collect();
+        if parts.len() == 2 {
+            constraints.references = Some(ReferenceConstraint {
+                schema: parts[0].to_string(),
+                field: parts[1].to_string(),
+                file: None,
+            });
+        }
+    }
+
+    Ok(FieldDefinition {
+        name: hint.field_name.clone(),
+        field_type,
+        constraints,
+        nullable: false,
+        description: None,
+    })
+}
+
+/// Convert distribution string to Distribution enum
+fn convert_distribution(
+    dist: &str,
+    volatility: Option<f64>,
+    drift: Option<f64>,
+    group_by: Option<String>,
+) -> TestHarnessResult<Distribution> {
+    match dist.to_lowercase().as_str() {
+        "uniform" => Ok(Distribution::Uniform(SimpleDistribution::Uniform)),
+        "normal" => Ok(Distribution::Normal {
+            normal: NormalConfig {
+                mean: 0.0,
+                std_dev: 1.0,
+            },
+        }),
+        "log_normal" | "lognormal" => Ok(Distribution::LogNormal {
+            log_normal: LogNormalConfig {
+                mean: 0.0,
+                std_dev: 1.0,
+            },
+        }),
+        "zipf" => Ok(Distribution::Zipf {
+            zipf: ZipfConfig { exponent: 1.0 },
+        }),
+        "random_walk" | "randomwalk" | "gbm" => Ok(Distribution::RandomWalk {
+            random_walk: RandomWalkConfig {
+                drift: drift.unwrap_or(0.0001),
+                volatility: volatility.unwrap_or(0.02),
+                group_by,
+                allow_below_min: false,
+                allow_above_max: false,
+            },
+        }),
+        _ => Err(TestHarnessError::SchemaParseError {
+            message: format!("Unknown distribution: {}", dist),
+            file: "SQL hints".to_string(),
+        }),
+    }
+}
+
+/// Serialize a Schema to YAML string
+pub fn schema_to_yaml(schema: &Schema) -> TestHarnessResult<String> {
+    serde_yaml::to_string(schema).map_err(|e| TestHarnessError::SchemaParseError {
+        message: format!("Failed to serialize schema: {}", e),
+        file: schema.name.clone(),
+    })
+}
+
 impl SchemaRegistry {
     /// Create empty registry
     pub fn new() -> Self {

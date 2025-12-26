@@ -152,8 +152,8 @@ echo ""
 echo "3. Or use the full SQL file:"
 echo "   cat demo/trading/sql/ctas_file_trading.sql | ../../target/debug/test_ctas_integration"
 echo ""
-echo "4. For production use, integrate with velo-sql-multi server:"
-echo "   ../../target/release/velo-sql-multi --config demo/trading/configs/"
+echo "4. For production use, integrate with velo-sql server:"
+echo "   ../../target/release/velo-sql --config demo/trading/configs/"
 echo ""
 
 # Display the content of the main SQL file for reference

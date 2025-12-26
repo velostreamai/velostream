@@ -620,8 +620,8 @@ velo-cli validate ./enhanced_sql_demo.sql
 velo-cli validate --config-dir ./configs/
 velo-cli validate --format json
 
-# Integration with velo-sql-multi CLI (includes pre-deployment validation)
-velo-sql-multi deploy-app --file ./demo.sql --no-monitor
+# Integration with velo-sql CLI (includes pre-deployment validation)
+velo-sql deploy-app --file ./demo.sql --no-monitor
 # Note: Pre-deployment validation is now automatic - no separate --validate-only flag needed
 ```
 
@@ -936,8 +936,8 @@ velo-cli validate ./demo.sql                                 # Combined SQL + Co
 velo-cli validate ./demo.sql --verbose                       # Detailed validation output
 velo-cli validate ./demo.sql --format json                   # JSON output for CI/CD
 
-# Pre-deployment validation through velo-sql-multi (automatic)
-velo-sql-multi deploy-app --file ./demo.sql                  # Validates before deployment
+# Pre-deployment validation through velo-sql (automatic)
+velo-sql deploy-app --file ./demo.sql                  # Validates before deployment
 ```
 
 ##### **Runtime Validation Points**
@@ -980,7 +980,7 @@ impl DataSourceFactory {
 | **IDE Integration** | Real-time as user types | Developer experience, immediate feedback | Language Server Protocol | Minimal (async validation) |
 | **SQL Validator Integration** | SQL file validation | Combined SQL syntax + config validation | Enhanced SqlValidator with schema registry | < 100ms per SQL file |
 | **CLI Validation** | On-demand via `velo-config` | Pre-deployment verification | Standalone validation tool | < 50ms per config |
-| **CLI SQL+Config** | `velo-sql-multi validate --file` | Combined SQL and config validation | StreamJobServer + SqlValidator | < 100ms per SQL file |
+| **CLI SQL+Config** | `velo-sql validate --file` | Combined SQL and config validation | StreamJobServer + SqlValidator | < 100ms per SQL file |
 | **CI/CD Pipeline** | Every commit/PR | Automated quality gates | GitHub Actions/GitLab CI | < 5s for full repo validation |
 | **REST API** | API requests to `/api/jobs/validate` | Web UI and external integration | HTTP validation endpoint | < 100ms per request |
 | **Pre-deployment** | Before job deployment | Mandatory validation gate | StreamJobServer + SqlValidator | < 100ms per deployment |

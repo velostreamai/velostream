@@ -81,9 +81,9 @@ if [ "$BUILD_IMAGES" = true ]; then
     fi
     
     # Build multi-job SQL server image
-    docker build -t velo-sql-multi:latest -f Dockerfile.multi .
+    docker build -t velo-sql:latest -f Dockerfile.multi .
     if [ $? -ne 0 ]; then
-        echo "❌ Failed to build velo-sql-multi image"
+        echo "❌ Failed to build velo-sql image"
         exit 1
     fi
     
@@ -93,7 +93,7 @@ if [ "$BUILD_IMAGES" = true ]; then
     if kubectl config current-context | grep -q "kind"; then
         echo "🔄 Loading images into kind cluster..."
         kind load docker-image velo-sql:latest
-        kind load docker-image velo-sql-multi:latest
+        kind load docker-image velo-sql:latest
         echo "✅ Images loaded into kind cluster"
     fi
 fi
@@ -116,7 +116,7 @@ kubectl apply -f sql-servers.yaml
 # Wait for SQL servers to be ready
 echo "⏳ Waiting for SQL servers to be ready..."
 kubectl wait --for=condition=available --timeout=$KUBECTL_TIMEOUT deployment/velo-sql-single -n $NAMESPACE
-kubectl wait --for=condition=available --timeout=$KUBECTL_TIMEOUT deployment/velo-sql-multi -n $NAMESPACE
+kubectl wait --for=condition=available --timeout=$KUBECTL_TIMEOUT deployment/velo-sql -n $NAMESPACE
 
 echo "🌐 Applying ingress configuration..."
 kubectl apply -f ingress.yaml
@@ -135,7 +135,7 @@ echo "📋 Services Deployed:"
 echo "  • Namespace:           $NAMESPACE"
 echo "  • Kafka:               kafka:9092"
 echo "  • SQL Single Server:   velo-sql-single:8080"
-echo "  • SQL Multi Server:    velo-sql-multi:8080"
+echo "  • SQL Multi Server:    velo-sql:8080"
 echo ""
 
 # Check for NodePort services
@@ -179,8 +179,8 @@ echo "   kubectl port-forward svc/velo-sql-single 8080:8080 -n $NAMESPACE &"
 echo "   # Then access: http://localhost:8080"
 echo ""
 echo "3. Deploy SQL application:"
-echo "   kubectl exec -it deployment/velo-sql-multi -n $NAMESPACE -- \\"
-echo "     velo-sql-multi deploy-app \\"
+echo "   kubectl exec -it deployment/velo-sql -n $NAMESPACE -- \\"
+echo "     velo-sql deploy-app \\"
 echo "     --file /app/examples/ecommerce_analytics.sql \\"
 echo "     --brokers kafka:9092 \\"
 echo "     --default-topic orders"

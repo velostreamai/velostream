@@ -79,7 +79,7 @@ fi
 
 # Build images
 echo "🔨 Building Velostream SQL images..."
-docker-compose build velo-sql-single velo-sql-multi data-producer
+docker-compose build velo-sql-single velo-sql data-producer
 
 if [ $? -ne 0 ]; then
     echo "❌ Build failed. Please check the build logs."
@@ -96,7 +96,7 @@ if [ "$MONITORING_ENABLED" = true ]; then
     docker-compose -p $PROJECT_NAME --profile monitoring up -d
 else
     echo "🎯 Starting core services..."
-    docker-compose -p $PROJECT_NAME up -d kafka kafka-ui velo-sql-single velo-sql-multi
+    docker-compose -p $PROJECT_NAME up -d kafka kafka-ui velo-sql-single velo-sql
 fi
 
 # Wait for services to be ready
@@ -105,7 +105,7 @@ sleep 30
 
 # Check service health
 echo "🏥 Checking service health..."
-SERVICES=("velo-kafka" "velo-sql-single" "velo-sql-multi")
+SERVICES=("velo-kafka" "velo-sql-single" "velo-sql")
 
 for SERVICE in "${SERVICES[@]}"; do
     if docker ps --filter "name=$SERVICE" --filter "status=running" | grep -q $SERVICE; then
@@ -157,7 +157,7 @@ echo "     --topic orders \\"
 echo "     --brokers kafka:9092"
 echo ""
 echo "2. Deploy a SQL application:"
-echo "   docker exec velo-sql-multi velo-sql-multi deploy-app \\"
+echo "   docker exec velo-sql velo-sql deploy-app \\"
 echo "     --file /app/examples/ecommerce_analytics.sql \\"
 echo "     --brokers kafka:9092 \\"
 echo "     --default-topic orders"
