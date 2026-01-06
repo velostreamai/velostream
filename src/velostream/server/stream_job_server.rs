@@ -29,7 +29,7 @@ use crate::velostream::sql::{
     config::with_clause_parser::WithClauseParser,
     execution::config::StreamingConfig,
     execution::performance::PerformanceMonitor,
-    query_analyzer::QueryAnalyzer,
+    query_analyzer::{DataSourceRequirement, DataSourceType, QueryAnalyzer},
 };
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
@@ -771,8 +771,12 @@ impl StreamJobServer {
         // Wire job_mode annotation from query to processor configuration
         // Per-query job_mode takes precedence over server-level configuration
         // Pass raw SQL string for annotation parsing (works with CREATE STREAM and other query types)
-        let processor_config_for_spawn =
+        let processor_config_from_query =
             Self::get_processor_config_from_query(&parsed_query, &query, &self.processor_config);
+
+        // Apply source-based partition limits (e.g., file sources only support 1 partition)
+        let processor_config_for_spawn =
+            Self::apply_source_partition_limit(processor_config_from_query, &analysis.required_sources).await;
 
         // FR-082 Phase 5: Output handler task no longer needed
         // The engine now owns the output_receiver for EMIT CHANGES support.
@@ -1907,6 +1911,90 @@ impl StreamJobServer {
     fn extract_partitioning_strategy_from_query(query: &StreamingQuery) -> Option<String> {
         let properties = Self::get_query_properties(query);
         properties.get("partitioning_strategy").cloned()
+    }
+
+    /// Query data sources for their partition count limits and return the minimum.
+    ///
+    /// Creates temporary DataSource objects to query their `partition_count()` method.
+    /// The minimum partition count across all sources is returned to ensure compatibility.
+    ///
+    /// # Returns
+    /// - `Some(n)` if any source has a fixed partition limit (use the minimum)
+    /// - `None` if all sources support dynamic partitioning (use system default)
+    async fn query_source_partition_limits(sources: &[DataSourceRequirement]) -> Option<usize> {
+        use crate::velostream::datasource::file::FileDataSource;
+        use crate::velostream::datasource::DataSource;
+
+        let mut min_partitions: Option<usize> = None;
+
+        for source in sources {
+            // Query partition count from DataSource trait implementation
+            // Note: We create minimal instances just to query the static partition_count property
+            let source_partitions: Option<usize> = match source.source_type {
+                DataSourceType::File => {
+                    // FileDataSource::new() requires no arguments
+                    let ds = FileDataSource::new();
+                    ds.partition_count()
+                }
+                DataSourceType::Kafka => {
+                    // Kafka supports dynamic partitioning (trait default returns None)
+                    None
+                }
+                _ => None, // Unknown source types default to dynamic partitioning
+            };
+
+            if let Some(count) = source_partitions {
+                info!(
+                    "Source '{}' ({:?}) supports {} partition(s)",
+                    source.name, source.source_type, count
+                );
+                min_partitions = Some(min_partitions.map_or(count, |min| min.min(count)));
+            }
+        }
+
+        min_partitions
+    }
+
+    /// Adjust processor config to respect source partition limits.
+    ///
+    /// If any source only supports a limited number of partitions (e.g., file sources
+    /// support only 1), the processor config is adjusted accordingly.
+    async fn apply_source_partition_limit(
+        config: JobProcessorConfig,
+        sources: &[DataSourceRequirement],
+    ) -> JobProcessorConfig {
+        let source_limit = Self::query_source_partition_limits(sources).await;
+
+        match (config, source_limit) {
+            // Source has a partition limit - override Adaptive to use that limit
+            (
+                JobProcessorConfig::Adaptive {
+                    enable_core_affinity,
+                    num_partitions,
+                },
+                Some(limit),
+            ) => {
+                // Use the minimum of: source limit, explicit partition count, or the limit itself
+                let effective_partitions = num_partitions
+                    .map(|n| n.min(limit))
+                    .unwrap_or(limit);
+
+                if num_partitions.is_none_or(|n| n > limit) {
+                    info!(
+                        "Limiting partition count to {} based on source constraints (requested: {:?})",
+                        limit,
+                        num_partitions
+                    );
+                }
+
+                JobProcessorConfig::Adaptive {
+                    num_partitions: Some(effective_partitions),
+                    enable_core_affinity,
+                }
+            }
+            // No source constraint or non-Adaptive config - keep as-is
+            (config, _) => config,
+        }
     }
 
     /// Wire job_mode annotation from StreamingQuery to JobProcessorConfig

@@ -1390,12 +1390,12 @@ impl AdaptiveJobProcessor {
 
                 // Run synchronous batch processing loop
                 debug!(
-                    "Phase 6.8: PartitionReceiver {} spawned with lock-free queue, ready for batch processing",
+                    "PartitionReceiver {} task starting with lock-free queue",
                     partition_id
                 );
                 if let Err(e) = receiver.run().await {
                     warn!(
-                        "Phase 6.8: PartitionReceiver {} encountered error: {:?}",
+                        "PartitionReceiver {} encountered error: {:?}",
                         partition_id, e
                     );
                 }

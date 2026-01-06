@@ -248,7 +248,7 @@ impl PartitionReceiver {
     /// - `Err(SqlError)` if a fatal error occurred
     pub async fn run(&mut self) -> Result<(), SqlError> {
         debug!(
-            "PartitionReceiver {}: Starting synchronous processing loop (Phase 6.8 queue mode: {})",
+            "PartitionReceiver {}: Starting synchronous processing loop (queue mode: {})",
             self.partition_id,
             self.queue.is_some()
         );
@@ -346,15 +346,41 @@ impl PartitionReceiver {
                             if !output_records.is_empty() {
                                 if let Some(ref writer_arc) = self.writer {
                                     let output_count = output_records.len();
+                                    debug!(
+                                        "PartitionReceiver {}: Writing {} output records to sink",
+                                        self.partition_id, output_count
+                                    );
                                     let mut writer = writer_arc.lock().await;
-                                    if let Err(e) = writer.write_batch(output_records).await {
-                                        error!(
-                                            "PartitionReceiver {}: Failed to write {} output records to sink: {}",
-                                            self.partition_id, output_count, e
-                                        );
-                                        // Track write failures - these records are lost
-                                        self.job_metrics.record_failed(output_count);
+                                    match writer.write_batch(output_records).await {
+                                        Ok(()) => {
+                                            // Flush the writer to ensure records are persisted
+                                            if let Err(e) = writer.flush().await {
+                                                error!(
+                                                    "PartitionReceiver {}: Failed to flush {} records to sink: {}",
+                                                    self.partition_id, output_count, e
+                                                );
+                                                self.job_metrics.record_failed(output_count);
+                                            } else {
+                                                debug!(
+                                                    "PartitionReceiver {}: Successfully wrote and flushed {} records to sink",
+                                                    self.partition_id, output_count
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(
+                                                "PartitionReceiver {}: Failed to write {} output records to sink: {}",
+                                                self.partition_id, output_count, e
+                                            );
+                                            // Track write failures - these records are lost
+                                            self.job_metrics.record_failed(output_count);
+                                        }
                                     }
+                                } else {
+                                    debug!(
+                                        "PartitionReceiver {}: No writer configured, {} output records not written",
+                                        self.partition_id, output_records.len()
+                                    );
                                 }
                             }
 

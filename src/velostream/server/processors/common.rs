@@ -1182,15 +1182,51 @@ async fn create_file_writer(
     props: &HashMap<String, String>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
-    // Let FileSink handle its own configuration extraction
+    use crate::velostream::datasource::config::FileFormat as ConfigFileFormat;
+
+    // Extract format from properties first (needed for default path extension)
+    let format_str = props
+        .get("sink.format")
+        .or_else(|| props.get("format"))
+        .map(|s| s.to_lowercase());
+
+    let format = match format_str.as_deref() {
+        Some("csv") => ConfigFileFormat::Csv {
+            header: true,
+            delimiter: ',',
+            quote: '"',
+        },
+        Some("jsonlines") | Some("json_lines") => ConfigFileFormat::JsonLines,
+        _ => ConfigFileFormat::Json,
+    };
+
+    // Extract path from properties with format-appropriate default extension
+    let default_path = match format_str.as_deref() {
+        Some("csv") => "output.csv",
+        Some("jsonlines") | Some("json_lines") => "output.jsonl",
+        _ => "output.json",
+    };
+
+    let path = props
+        .get("sink.path")
+        .or_else(|| props.get("path"))
+        .cloned()
+        .unwrap_or_else(|| default_path.to_string());
+
+    info!(
+        "Creating File datasink writer with path: '{}', format: {:?}",
+        path, format
+    );
+
+    // Create datasink from properties
     let mut datasink = FileDataSink::from_properties(props);
 
-    // Initialize with File SinkConfig
+    // Initialize with SinkConfig using extracted path and format
     let config = SinkConfig::File {
-        path: "output.json".to_string(),
-        format: crate::velostream::datasource::FileFormat::Json,
+        path,
+        format,
         compression: None,
-        properties: HashMap::new(),
+        properties: props.clone(),
     };
     datasink
         .initialize(config)

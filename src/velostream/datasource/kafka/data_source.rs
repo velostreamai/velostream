@@ -788,6 +788,16 @@ impl DataSource for KafkaDataSource {
         true // Kafka can be used for batch processing
     }
 
+    fn partition_count(&self) -> Option<usize> {
+        // Kafka sources support dynamic partitioning.
+        // Return None to indicate "use system default" (typically CPU count).
+        // The consumer group will automatically balance partitions across consumers.
+        //
+        // Future enhancement: Could fetch actual topic partition count from broker
+        // and return Some(partition_count) for optimal parallelism alignment.
+        None
+    }
+
     fn metadata(&self) -> SourceMetadata {
         SourceMetadata {
             source_type: "kafka".to_string(),

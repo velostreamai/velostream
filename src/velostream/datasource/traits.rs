@@ -43,8 +43,24 @@ pub trait DataSource: Send + Sync + 'static {
     /// Check if this source supports real-time streaming
     fn supports_streaming(&self) -> bool;
 
-    /// Check if this source supports batch reading  
+    /// Check if this source supports batch reading
     fn supports_batch(&self) -> bool;
+
+    /// Get the number of partitions this source supports for parallel reading.
+    ///
+    /// This is used by the job processor to determine how many parallel readers
+    /// to create. Sources that don't support partitioning (e.g., single files)
+    /// should return 1. Kafka sources return the topic partition count.
+    ///
+    /// # Returns
+    /// - `Some(n)` - Source supports exactly n partitions
+    /// - `None` - Source supports dynamic partitioning (use system default like CPU count)
+    fn partition_count(&self) -> Option<usize> {
+        // Default: return None to indicate "use system default"
+        // File sources should override to return Some(1)
+        // Kafka sources should return Some(topic_partition_count)
+        None
+    }
 
     /// Get source metadata (type, version, capabilities)
     fn metadata(&self) -> SourceMetadata;

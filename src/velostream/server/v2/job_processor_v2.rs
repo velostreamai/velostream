@@ -39,6 +39,53 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
+/// Find a matching writer for a reader using multiple pairing strategies.
+///
+/// Strategies (in order of preference):
+/// 1. Exact name match (reader_name == writer_name)
+/// 2. Single writer fallback (if only one writer exists, use it for the first reader)
+/// 3. Index-based pairing (source_0_xxx -> sink_0_xxx)
+///
+/// Returns the matched writer and its name, or None if no match found.
+fn find_writer_for_reader(
+    writers: &mut HashMap<String, Box<dyn DataWriter>>,
+    reader_name: &str,
+    reader_idx: usize,
+) -> Option<(String, Box<dyn DataWriter>)> {
+    // Strategy 1: Exact name match
+    if let Some(writer) = writers.remove(reader_name) {
+        debug!("Writer pairing: exact match for '{}'", reader_name);
+        return Some((reader_name.to_string(), writer));
+    }
+
+    // Strategy 2: Single writer fallback (only for first reader)
+    if writers.len() == 1 && reader_idx == 0 {
+        if let Some(key) = writers.keys().next().cloned() {
+            if let Some(writer) = writers.remove(&key) {
+                info!(
+                    "Writer pairing: single writer '{}' paired with reader '{}'",
+                    key, reader_name
+                );
+                return Some((key, writer));
+            }
+        }
+    }
+
+    // Strategy 3: Index-based pairing (source_N -> sink_N)
+    let sink_prefix = format!("sink_{}_", reader_idx);
+    if let Some(key) = writers.keys().find(|k| k.starts_with(&sink_prefix)).cloned() {
+        if let Some(writer) = writers.remove(&key) {
+            info!(
+                "Writer pairing: index-based match '{}' for reader '{}'",
+                key, reader_name
+            );
+            return Some((key, writer));
+        }
+    }
+
+    None
+}
+
 /// Implement JobProcessor trait for AdaptiveJobProcessor (V2 Architecture)
 ///
 /// This enables V2 to be used interchangeably with V1 via the JobProcessor trait.
@@ -115,7 +162,7 @@ impl JobProcessor for AdaptiveJobProcessor {
             self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
-            "Initialized {} Phase 6.8 partition receivers with lock-free queues for job: {}",
+            "Initialized {} partition receivers with lock-free queues for job: {}",
             batch_queues.len(),
             job_name
         );
@@ -312,10 +359,30 @@ impl JobProcessor for AdaptiveJobProcessor {
         let mut aggregated_stats = JobExecutionStats::new();
         let mut writers = writers;
 
+        // Convert readers to a list to enable index-based writer pairing
+        let readers_list: Vec<(String, Box<dyn DataReader>)> = readers.into_iter().collect();
+        let num_readers = readers_list.len();
+        let num_writers = writers.len();
+
+        info!(
+            "V2 process_multi_job: pairing {} readers with {} writers",
+            num_readers, num_writers
+        );
+
         // Process each reader-writer pair
-        for (reader_name, mut reader) in readers.into_iter() {
-            // Get the corresponding writer if available
-            let writer = writers.remove(&reader_name);
+        for (reader_idx, (reader_name, mut reader)) in readers_list.into_iter().enumerate() {
+            // Find a matching writer using the helper function
+            let writer_result = find_writer_for_reader(&mut writers, &reader_name, reader_idx);
+
+            if writer_result.is_none() && num_writers > 0 {
+                warn!(
+                    "No writer found for reader '{}'. Available writers: {:?}",
+                    reader_name,
+                    writers.keys().collect::<Vec<_>>()
+                );
+            }
+
+            let writer = writer_result.map(|(_, w)| w);
 
             let query_arc = Arc::new(query.clone());
 
@@ -326,7 +393,7 @@ impl JobProcessor for AdaptiveJobProcessor {
                 self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
-                "Initialized {} Phase 6.8 partition receivers with lock-free queues for source: {} (job: {})",
+                "Initialized {} partition receivers with lock-free queues for source: {} (job: {})",
                 batch_queues.len(),
                 reader_name,
                 job_name
