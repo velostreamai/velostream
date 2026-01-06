@@ -2,6 +2,65 @@
 
 This tutorial walks you through creating and running your first test for a Velostream SQL application.
 
+## Choose Your Path
+
+| Path | Time | Infrastructure | Best For |
+|------|------|----------------|----------|
+| **[Quickstart Demo](#path-1-quickstart-no-infrastructure)** | 5 min | None | First-time users, quick validation |
+| **[File I/O Testing](#path-2-file-io-no-kafka)** | 15 min | None | CI/CD, offline testing |
+| **[Full Kafka Testing](#path-3-full-kafka-testing)** | 30 min | Docker | Production-like testing |
+
+---
+
+## Path 1: Quickstart (No Infrastructure)
+
+The fastest way to see Velostream in action:
+
+```bash
+# Build velo-test (one-time)
+cargo build --release --bin velo-test
+
+# Run the hello world example
+cd demo/quickstart
+../../target/release/velo-test run hello_world.sql
+
+# See the output
+cat hello_world_output.csv
+```
+
+**Next steps:** Work through the progressive examples in `demo/quickstart/` (filter → transform → aggregate → window).
+
+See [LEARNING_PATH.md](./LEARNING_PATH.md) for the full progression.
+
+---
+
+## Path 2: File I/O (No Kafka)
+
+For testing without Kafka infrastructure:
+
+```bash
+cd demo/test_harness_examples/file_io
+../../target/release/velo-test run passthrough.sql
+```
+
+**Best for:** CI/CD pipelines, offline development, quick iteration.
+
+---
+
+## Path 3: Full Kafka Testing
+
+For production-like testing with real Kafka:
+
+```bash
+# Requires Docker running
+cd demo/test_harness_examples/getting_started
+../velo-test.sh .
+```
+
+Continue below for the full tutorial.
+
+---
+
 ## Quick Start (TL;DR)
 
 If you already have a SQL file and just want to get testing:

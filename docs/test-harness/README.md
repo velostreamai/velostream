@@ -2,6 +2,22 @@
 
 The Velostream SQL Application Test Harness (`velo-test`) is a comprehensive testing framework for validating streaming SQL applications before deployment.
 
+## 5-Minute Quickstart (No Docker Required!)
+
+```bash
+# Build velo-test (one-time)
+cargo build --release --bin velo-test
+
+# Run your first streaming SQL
+cd demo/quickstart
+../../target/release/velo-test run hello_world.sql
+
+# Check the output
+cat hello_world_output.csv
+```
+
+See [demo/quickstart/](../../demo/quickstart/) for progressive examples or [LEARNING_PATH.md](./LEARNING_PATH.md) for the full learning progression.
+
 ## Overview
 
 The test harness enables you to:
@@ -16,6 +32,7 @@ The test harness enables you to:
 
 | Document | Description |
 |----------|-------------|
+| [Learning Path](./LEARNING_PATH.md) | Structured progression from beginner to advanced |
 | [Getting Started](./GETTING_STARTED.md) | Step-by-step tutorial for your first test |
 | [Developer Guide](./DEVELOPER_GUIDE.md) | Comprehensive guide with examples |
 | [User Guide](./USER_GUIDE.md) | Complete reference for all features |
@@ -124,6 +141,15 @@ queries:
 For extending or contributing to the test harness, see the [Developer Documentation](../developer/test-harness/README.md).
 
 ## Demo Examples
+
+### Quickstart (No Docker)
+
+```bash
+cd demo/quickstart
+../../target/release/velo-test run hello_world.sql
+```
+
+### Test Harness Examples (with Kafka)
 
 Working examples are available in `demo/test_harness_examples/`:
 

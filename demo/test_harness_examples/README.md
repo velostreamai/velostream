@@ -6,17 +6,19 @@ This directory contains demo SQL applications for testing the Velostream SQL App
 
 ```
 test_harness_examples/
-├── file_io/              # File-based I/O demo (no Kafka required!)
-├── getting_started/      # Simple examples to get started
-├── tier1_basic/          # Basic SQL operations (SELECT, WHERE, CAST)
-├── tier2_aggregations/   # Aggregation functions and windows
-├── tier3_joins/          # Stream-table and stream-stream joins
+├── file_io/                # File-based I/O demo (no Kafka required!)
+├── getting_started/        # Simple examples to get started
+├── tier1_basic/            # Basic SQL: SELECT, WHERE, CAST, DISTINCT, ORDER BY, LIMIT
+├── tier2_aggregations/     # Aggregation functions and windows
+├── tier3_joins/            # Stream-table, stream-stream, LEFT/RIGHT/FULL OUTER joins
 ├── tier4_window_functions/ # LAG, LEAD, ROW_NUMBER, running aggregates
-├── tier5_complex/        # Multi-stage pipelines, subqueries, CASE
-├── tier6_edge_cases/     # Null handling, empty input, large volume
-├── schemas/              # Shared schema definitions
-├── configs/              # Shared Kafka configuration templates
-└── data/                 # Sample CSV data files for table sources
+├── tier5_complex/          # Multi-stage pipelines, subqueries, CASE, UNION
+├── tier6_edge_cases/       # Null handling, empty input, large volume
+├── tier7_serialization/    # JSON, Avro, Protobuf format examples
+├── tier8_fault_tolerance/  # DLQ, fault injection, stress testing, debug mode
+├── schemas/                # Shared schema definitions
+├── configs/                # Shared Kafka configuration templates
+└── data/                   # Sample CSV data files for table sources
 ```
 
 ## Quick Start: File I/O Demo (No Kafka Required!)
@@ -78,12 +80,14 @@ velo-test run tier1_basic/01_passthrough.sql --spec tier1_basic/01_passthrough.t
 
 | Tier | Focus | Apps | Complexity |
 |------|-------|------|------------|
-| 1 | Basic Operations | 4 | Simple SELECT, WHERE, CAST |
-| 2 | Aggregations | 5 | COUNT, SUM, AVG, Windows |
-| 3 | Joins | 3 | Stream-table, stream-stream |
-| 4 | Window Functions | 4 | LAG, LEAD, ROW_NUMBER |
-| 5 | Complex Patterns | 4 | Pipelines, CASE, subqueries |
-| 6 | Edge Cases | 4 | Nulls, empty, large volume |
+| 1 | Basic Operations | 7 | SELECT, WHERE, CAST, DISTINCT, ORDER BY, LIMIT |
+| 2 | Aggregations | 6 | COUNT, SUM, AVG, Windows, Compound keys |
+| 3 | Joins | 5 | Stream-table, stream-stream, LEFT/RIGHT/FULL OUTER |
+| 4 | Window Functions | 4 | LAG, LEAD, ROW_NUMBER, running aggregates |
+| 5 | Complex Patterns | 5 | Pipelines, CASE, subqueries, UNION |
+| 6 | Edge Cases | 4 | Nulls, empty input, large volume, late arrivals |
+| 7 | Serialization | 4 | JSON, Avro, Protobuf, format conversion |
+| 8 | Fault Tolerance | 4 | DLQ, fault injection, debug mode, stress testing |
 
 ## Common Schemas
 
