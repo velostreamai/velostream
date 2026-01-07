@@ -22,10 +22,13 @@ cargo build --release --bin velo-test
 
 # Run the hello world example
 cd demo/quickstart
-../../target/release/velo-test run hello_world.sql
+../../target/release/velo-test run hello_world.sql -y
 
 # See the output
-cat hello_world_output.csv
+cat output/hello_world_output.csv
+
+# Or run ALL examples at once
+./velo-test.sh
 ```
 
 **Next steps:** Work through the progressive examples in `demo/quickstart/` (filter → transform → aggregate → window).

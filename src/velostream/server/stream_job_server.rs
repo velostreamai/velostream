@@ -775,8 +775,11 @@ impl StreamJobServer {
             Self::get_processor_config_from_query(&parsed_query, &query, &self.processor_config);
 
         // Apply source-based partition limits (e.g., file sources only support 1 partition)
-        let processor_config_for_spawn =
-            Self::apply_source_partition_limit(processor_config_from_query, &analysis.required_sources).await;
+        let processor_config_for_spawn = Self::apply_source_partition_limit(
+            processor_config_from_query,
+            &analysis.required_sources,
+        )
+        .await;
 
         // FR-082 Phase 5: Output handler task no longer needed
         // The engine now owns the output_receiver for EMIT CHANGES support.
@@ -1922,8 +1925,8 @@ impl StreamJobServer {
     /// - `Some(n)` if any source has a fixed partition limit (use the minimum)
     /// - `None` if all sources support dynamic partitioning (use system default)
     async fn query_source_partition_limits(sources: &[DataSourceRequirement]) -> Option<usize> {
-        use crate::velostream::datasource::file::FileDataSource;
         use crate::velostream::datasource::DataSource;
+        use crate::velostream::datasource::file::FileDataSource;
 
         let mut min_partitions: Option<usize> = None;
 
@@ -1975,15 +1978,12 @@ impl StreamJobServer {
                 Some(limit),
             ) => {
                 // Use the minimum of: source limit, explicit partition count, or the limit itself
-                let effective_partitions = num_partitions
-                    .map(|n| n.min(limit))
-                    .unwrap_or(limit);
+                let effective_partitions = num_partitions.map(|n| n.min(limit)).unwrap_or(limit);
 
                 if num_partitions.is_none_or(|n| n > limit) {
                     info!(
                         "Limiting partition count to {} based on source constraints (requested: {:?})",
-                        limit,
-                        num_partitions
+                        limit, num_partitions
                     );
                 }
 

@@ -379,7 +379,8 @@ impl PartitionReceiver {
                                 } else {
                                     debug!(
                                         "PartitionReceiver {}: No writer configured, {} output records not written",
-                                        self.partition_id, output_records.len()
+                                        self.partition_id,
+                                        output_records.len()
                                     );
                                 }
                             }

@@ -73,7 +73,11 @@ fn find_writer_for_reader(
 
     // Strategy 3: Index-based pairing (source_N -> sink_N)
     let sink_prefix = format!("sink_{}_", reader_idx);
-    if let Some(key) = writers.keys().find(|k| k.starts_with(&sink_prefix)).cloned() {
+    if let Some(key) = writers
+        .keys()
+        .find(|k| k.starts_with(&sink_prefix))
+        .cloned()
+    {
         if let Some(writer) = writers.remove(&key) {
             info!(
                 "Writer pairing: index-based match '{}' for reader '{}'",

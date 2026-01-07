@@ -794,8 +794,7 @@ impl FileWriter {
                         };
                         csv_row.push(value_str);
                     }
-                    let row_line =
-                        format!("{}\n", csv_row.join(&self.config.csv_delimiter));
+                    let row_line = format!("{}\n", csv_row.join(&self.config.csv_delimiter));
                     output.extend_from_slice(row_line.as_bytes());
                 }
 
@@ -828,7 +827,8 @@ impl FileWriter {
             FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
                 // Use proper JSON serialization for complex types
                 let json_value = value.to_json();
-                let json_str = serde_json::to_string(&json_value).unwrap_or_else(|_| "null".to_string());
+                let json_str =
+                    serde_json::to_string(&json_value).unwrap_or_else(|_| "null".to_string());
                 // Escape for CSV if needed (JSON strings containing delimiters/quotes)
                 if json_str.contains(&self.config.csv_delimiter)
                     || json_str.contains('"')
@@ -848,7 +848,12 @@ impl FileWriter {
                     let divisor = 10i64.pow(*scale as u32);
                     let int_part = val / divisor;
                     let frac_part = (val % divisor).abs();
-                    format!("{}.{:0>width$}", int_part, frac_part, width = *scale as usize)
+                    format!(
+                        "{}.{:0>width$}",
+                        int_part,
+                        frac_part,
+                        width = *scale as usize
+                    )
                 }
             }
             FieldValue::Interval { value, unit } => {

@@ -11,6 +11,13 @@
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::time::Duration;
+
+// File-only execution imports
+use velostream::velostream::server::config::StreamJobServerConfig;
+use velostream::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
+use velostream::velostream::sql::app_parser::SqlApplicationParser;
+use velostream::velostream::sql::query_analyzer::{DataSinkType, DataSourceType};
 
 #[derive(Parser)]
 #[command(name = "velo-test")]
@@ -443,6 +450,141 @@ mod discovery {
             }
         }
     }
+}
+
+/// Execute file-only SQL queries without Kafka infrastructure.
+/// Returns Ok(true) if file-only execution was performed, Ok(false) if Kafka is needed.
+async fn run_file_only_execution(
+    sql_file: &PathBuf,
+    validation_result: &velostream::velostream::sql::validator::ApplicationValidationResult,
+    timeout_ms: u64,
+) -> Result<bool, Box<dyn std::error::Error>> {
+    // Check if all sources and sinks are file-based
+    let is_file_only = validation_result.query_results.iter().all(|qr| {
+        qr.sources_found
+            .iter()
+            .all(|s| s.source_type == DataSourceType::File)
+            && qr
+                .sinks_found
+                .iter()
+                .all(|s| s.sink_type == DataSinkType::File)
+    });
+
+    if !is_file_only {
+        return Ok(false);
+    }
+
+    println!("📁 File-only mode detected (no Kafka required)");
+    println!();
+
+    // Get SQL directory for resolving relative paths
+    let sql_dir = sql_file
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
+    // Load and parse SQL
+    let sql_content = std::fs::read_to_string(sql_file)?;
+    let app = SqlApplicationParser::new().parse_application(&sql_content)?;
+
+    println!("🚀 Executing file-only queries...");
+    println!();
+
+    let start_time = std::time::Instant::now();
+
+    // Create StreamJobServer (Kafka config unused for file I/O)
+    let config = StreamJobServerConfig::new(
+        "localhost:9092".to_string(), // Placeholder - not used for file sources/sinks
+        "velo-test-file".to_string(),
+    )
+    .with_max_jobs(10)
+    .with_base_dir(&sql_dir);
+
+    let server = StreamJobServer::with_config(config);
+
+    // Deploy the SQL application
+    let source_filename = sql_file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from);
+
+    let job_names = server
+        .deploy_sql_application_with_filename(app, None, source_filename)
+        .await?;
+
+    println!("   ✅ Deployed {} jobs: {:?}", job_names.len(), job_names);
+
+    // Wait for jobs to complete (file sources are finite)
+    let timeout = Duration::from_millis(timeout_ms);
+    let wait_start = std::time::Instant::now();
+
+    loop {
+        if wait_start.elapsed() > timeout {
+            println!("   ⏱️  Timeout waiting for completion");
+            break;
+        }
+
+        let jobs = server.list_jobs().await;
+        let all_done = jobs
+            .iter()
+            .all(|j| matches!(j.status, JobStatus::Stopped | JobStatus::Failed(_)));
+
+        if all_done && !jobs.is_empty() {
+            for job in &jobs {
+                let (icon, status_str) = match &job.status {
+                    JobStatus::Stopped => ("✅", "completed"),
+                    JobStatus::Failed(_) => ("❌", "failed"),
+                    JobStatus::Running => ("🔄", "running"),
+                    JobStatus::Starting => ("🚀", "starting"),
+                    JobStatus::Paused => ("⏸️", "paused"),
+                };
+                println!(
+                    "   {} {}: {} records ({})",
+                    icon, job.name, job.stats.records_processed, status_str
+                );
+            }
+            break;
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    println!();
+    println!(
+        "🎉 File-only execution completed in {:?}",
+        start_time.elapsed()
+    );
+    println!();
+
+    // Check output files
+    println!("🔍 Checking output files...");
+    for qr in &validation_result.query_results {
+        for sink in &qr.sinks_found {
+            if let Some(path) = sink
+                .properties
+                .get("path")
+                .or_else(|| sink.properties.get("sink.path"))
+            {
+                let output_path = if path.starts_with("./") || path.starts_with("../") {
+                    sql_dir.join(path)
+                } else {
+                    PathBuf::from(path)
+                };
+
+                if output_path.exists() {
+                    let size = std::fs::metadata(&output_path)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    println!("   ✅ {} ({} bytes)", output_path.display(), size);
+                } else {
+                    println!("   ⚠️  {} (not found)", output_path.display());
+                }
+            }
+        }
+    }
+
+    Ok(true)
 }
 
 #[tokio::main]
@@ -1051,6 +1193,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
+            }
+
+            // Try file-only execution (no Kafka needed)
+            if run_file_only_execution(&sql_file, &validation_result, timeout_ms).await? {
+                return Ok(());
             }
 
             // Priority for Kafka connection:

@@ -10,10 +10,13 @@ cargo build --release --bin velo-test
 
 # Run your first streaming SQL
 cd demo/quickstart
-../../target/release/velo-test run hello_world.sql
+../../target/release/velo-test run hello_world.sql -y
 
 # Check the output
-cat hello_world_output.csv
+cat output/hello_world_output.csv
+
+# Or run ALL examples at once
+./velo-test.sh
 ```
 
 See [demo/quickstart/](../../demo/quickstart/) for progressive examples or [LEARNING_PATH.md](./LEARNING_PATH.md) for the full learning progression.
@@ -146,7 +149,7 @@ For extending or contributing to the test harness, see the [Developer Documentat
 
 ```bash
 cd demo/quickstart
-../../target/release/velo-test run hello_world.sql
+./velo-test.sh
 ```
 
 ### Test Harness Examples (with Kafka)
