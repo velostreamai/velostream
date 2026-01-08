@@ -1,10 +1,17 @@
+-- SQL Application: case_demo
+-- Version: 1.0.0
+-- Description: CASE expressions for conditional transformations
+-- =============================================================================
 -- Tier 5: CASE Expressions
+-- =============================================================================
+--
 -- Tests: CASE WHEN ... THEN ... ELSE ... END
 -- Expected: Conditional logic in queries
+--
+-- =============================================================================
 
--- Application metadata
--- @name case_demo
--- @description CASE expressions for conditional transformations
+-- @app: case_demo
+-- @description: CASE expressions for conditional transformations
 
 -- Categorize user behavior using CASE
 CREATE STREAM categorized_activity AS

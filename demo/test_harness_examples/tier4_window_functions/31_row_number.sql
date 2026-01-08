@@ -1,10 +1,17 @@
+-- SQL Application: row_number_demo
+-- Version: 1.0.0
+-- Description: Ranking window functions
+-- =============================================================================
 -- Tier 4: ROW_NUMBER and RANK Functions
+-- =============================================================================
+--
 -- Tests: ROW_NUMBER(), RANK(), DENSE_RANK()
 -- Expected: Correct ranking values
+--
+-- =============================================================================
 
--- Application metadata
--- @name row_number_demo
--- @description Ranking window functions
+-- @app: row_number_demo
+-- @description: Ranking window functions
 
 CREATE STREAM ranked_trades AS
 SELECT

@@ -1,10 +1,17 @@
+-- SQL Application: sum_avg_demo
+-- Version: 1.0.0
+-- Description: SUM and AVG aggregation patterns
+-- =============================================================================
 -- Tier 2: SUM and AVG Aggregation
+-- =============================================================================
+--
 -- Tests: SUM() and AVG() functions
 -- Expected: Correct sum and average calculations
+--
+-- =============================================================================
 
--- Application metadata
--- @name sum_avg_demo
--- @description SUM and AVG aggregation patterns
+-- @app: sum_avg_demo
+-- @description: SUM and AVG aggregation patterns
 
 CREATE TABLE sum_avg_output AS
 SELECT

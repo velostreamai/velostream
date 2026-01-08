@@ -1,10 +1,17 @@
+-- SQL Application: count_demo
+-- Version: 1.0.0
+-- Description: COUNT aggregation patterns
+-- =============================================================================
 -- Tier 2: COUNT Aggregation
+-- =============================================================================
+--
 -- Tests: COUNT(*) and COUNT(column)
 -- Expected: Correct row counting
+--
+-- =============================================================================
 
--- Application metadata
--- @name count_demo
--- @description COUNT aggregation patterns
+-- @app: count_demo
+-- @description: COUNT aggregation patterns
 
 CREATE TABLE count_output AS
 SELECT

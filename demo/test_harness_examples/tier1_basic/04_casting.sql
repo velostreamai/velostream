@@ -1,10 +1,17 @@
+-- SQL Application: casting_demo
+-- Version: 1.0.0
+-- Description: Type casting and conversion
+-- =============================================================================
 -- Tier 1: Casting (CAST expressions)
+-- =============================================================================
+--
 -- Tests: Type conversion functions
 -- Expected: Correct type conversions
+--
+-- =============================================================================
 
--- Application metadata
--- @name casting_demo
--- @description Type casting and conversion
+-- @app: casting_demo
+-- @description: Type casting and conversion
 
 CREATE STREAM cast_output AS
 SELECT

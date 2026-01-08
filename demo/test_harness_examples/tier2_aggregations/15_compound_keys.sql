@@ -1,10 +1,17 @@
+-- SQL Application: compound_keys_demo
+-- Version: 1.0.0
+-- Description: Demonstrates compound key configuration with PRIMARY KEY annotation
+-- =============================================================================
 -- Tier 2: Compound Keys Demo
+-- =============================================================================
+--
 -- Tests: Multiple PRIMARY KEY fields, compound GROUP BY, key format
 -- Expected: Pipe-delimited keys like "US|Widget"
+--
+-- =============================================================================
 
--- Application metadata
--- @name compound_keys_demo
--- @description Demonstrates compound key configuration with PRIMARY KEY annotation
+-- @app: compound_keys_demo
+-- @description: Demonstrates compound key configuration with PRIMARY KEY annotation
 
 -- Example 1: Compound PRIMARY KEY (explicit key declaration)
 -- Kafka key will be: "US|Electronics" (pipe-delimited)

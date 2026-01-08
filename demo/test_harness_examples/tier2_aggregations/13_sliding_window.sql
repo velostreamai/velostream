@@ -1,10 +1,17 @@
+-- SQL Application: sliding_window_demo
+-- Version: 1.0.0
+-- Description: Sliding window aggregation
+-- =============================================================================
 -- Tier 2: Sliding Window Aggregation
+-- =============================================================================
+--
 -- Tests: WINDOW SLIDING with size and advance
 -- Expected: Overlapping window aggregation
+--
+-- =============================================================================
 
--- Application metadata
--- @name sliding_window_demo
--- @description Sliding window aggregation
+-- @app: sliding_window_demo
+-- @description: Sliding window aggregation
 
 CREATE TABLE sliding_output AS
 SELECT

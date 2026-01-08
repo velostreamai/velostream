@@ -1,10 +1,17 @@
+-- SQL Application: subqueries_demo
+-- Version: 1.0.0
+-- Description: Subquery patterns for filtering
+-- =============================================================================
 -- Tier 5: Subqueries
+-- =============================================================================
+--
 -- Tests: IN (SELECT ...), EXISTS patterns
 -- Expected: Correct subquery evaluation
+--
+-- =============================================================================
 
--- Application metadata
--- @name subqueries_demo
--- @description Subquery patterns for filtering
+-- @app: subqueries_demo
+-- @description: Subquery patterns for filtering
 
 -- Filter orders from VIP customers using subquery pattern
 CREATE STREAM vip_orders AS

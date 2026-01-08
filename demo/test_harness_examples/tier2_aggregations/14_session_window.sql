@@ -1,10 +1,17 @@
+-- SQL Application: session_window_demo
+-- Version: 1.0.0
+-- Description: Session window aggregation
+-- =============================================================================
 -- Tier 2: Session Window Aggregation
+-- =============================================================================
+--
 -- Tests: WINDOW SESSION with gap timeout
 -- Expected: Activity-based session grouping
+--
+-- =============================================================================
 
--- Application metadata
--- @name session_window_demo
--- @description Session window aggregation
+-- @app: session_window_demo
+-- @description: Session window aggregation
 
 CREATE TABLE session_output AS
 SELECT

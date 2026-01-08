@@ -1,10 +1,17 @@
+-- SQL Application: projection_demo
+-- Version: 1.0.0
+-- Description: Column projection and aliasing
+-- =============================================================================
 -- Tier 1: Projection (SELECT specific columns)
+-- =============================================================================
+--
 -- Tests: Column selection and aliasing
 -- Expected: Only selected columns in output with correct aliases
+--
+-- =============================================================================
 
--- Application metadata
--- @name projection_demo
--- @description Column projection and aliasing
+-- @app: projection_demo
+-- @description: Column projection and aliasing
 
 CREATE STREAM projected_output AS
 SELECT

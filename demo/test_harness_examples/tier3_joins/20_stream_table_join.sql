@@ -1,10 +1,17 @@
+-- SQL Application: stream_table_join_demo
+-- Version: 1.0.0
+-- Description: Stream enrichment via table lookup
+-- =============================================================================
 -- Tier 3: Stream-Table Join
+-- =============================================================================
+--
 -- Tests: JOIN stream with reference table
 -- Expected: Enriched stream with lookup data
+--
+-- =============================================================================
 
--- Application metadata
--- @name stream_table_join_demo
--- @description Stream enrichment via table lookup
+-- @app: stream_table_join_demo
+-- @description: Stream enrichment via table lookup
 
 CREATE STREAM enriched_orders AS
 SELECT

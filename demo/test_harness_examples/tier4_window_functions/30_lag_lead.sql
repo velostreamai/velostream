@@ -1,10 +1,17 @@
+-- SQL Application: lag_lead_demo
+-- Version: 1.0.0
+-- Description: LAG and LEAD window functions
+-- =============================================================================
 -- Tier 4: LAG and LEAD Window Functions
+-- =============================================================================
+--
 -- Tests: LAG(column, offset) and LEAD(column, offset)
 -- Expected: Previous and next row values
+--
+-- =============================================================================
 
--- Application metadata
--- @name lag_lead_demo
--- @description LAG and LEAD window functions
+-- @app: lag_lead_demo
+-- @description: LAG and LEAD window functions
 
 CREATE STREAM price_changes AS
 SELECT

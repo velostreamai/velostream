@@ -1,10 +1,17 @@
+-- SQL Application: tumbling_window_demo
+-- Version: 1.0.0
+-- Description: Tumbling window aggregation
+-- =============================================================================
 -- Tier 2: Tumbling Window Aggregation
+-- =============================================================================
+--
 -- Tests: WINDOW TUMBLING with time intervals
 -- Expected: Correct time-bucketed aggregation
+--
+-- =============================================================================
 
--- Application metadata
--- @name tumbling_window_demo
--- @description Tumbling window aggregation
+-- @app: tumbling_window_demo
+-- @description: Tumbling window aggregation
 
 CREATE TABLE tumbling_output AS
 SELECT

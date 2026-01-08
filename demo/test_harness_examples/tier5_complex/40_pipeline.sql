@@ -1,10 +1,17 @@
+-- SQL Application: pipeline_demo
+-- Version: 1.0.0
+-- Description: Multi-stage transformation pipeline
+-- =============================================================================
 -- Tier 5: Multi-Stage Pipeline
+-- =============================================================================
+--
 -- Tests: Multiple dependent streams
 -- Expected: Correct data flow through stages
+--
+-- =============================================================================
 
--- Application metadata
--- @name pipeline_demo
--- @description Multi-stage transformation pipeline
+-- @app: pipeline_demo
+-- @description: Multi-stage transformation pipeline
 
 -- Stage 1: Clean and enrich transactions
 CREATE STREAM cleaned_transactions AS

@@ -1,10 +1,17 @@
+-- SQL Application: stream_stream_join_demo
+-- Version: 1.0.0
+-- Description: Stream-to-stream temporal join
+-- =============================================================================
 -- Tier 3: Stream-Stream Join
+-- =============================================================================
+--
 -- Tests: JOIN two streams with time window
 -- Expected: Matched records from both streams
+--
+-- =============================================================================
 
--- Application metadata
--- @name stream_stream_join_demo
--- @description Stream-to-stream temporal join
+-- @app: stream_stream_join_demo
+-- @description: Stream-to-stream temporal join
 
 CREATE STREAM matched_events AS
 SELECT

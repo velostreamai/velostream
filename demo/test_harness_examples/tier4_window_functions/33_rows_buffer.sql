@@ -1,10 +1,17 @@
+-- SQL Application: rows_buffer_demo
+-- Version: 1.0.0
+-- Description: ROWS WINDOW BUFFER patterns
+-- =============================================================================
 -- Tier 4: ROWS WINDOW BUFFER
+-- =============================================================================
+--
 -- Tests: ROWS WINDOW BUFFER N ROWS
 -- Expected: Correct row-count windowing
+--
+-- =============================================================================
 
--- Application metadata
--- @name rows_buffer_demo
--- @description ROWS WINDOW BUFFER patterns
+-- @app: rows_buffer_demo
+-- @description: ROWS WINDOW BUFFER patterns
 
 CREATE STREAM buffered_analysis AS
 SELECT

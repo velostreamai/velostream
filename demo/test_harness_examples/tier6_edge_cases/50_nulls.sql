@@ -1,10 +1,17 @@
+-- SQL Application: nulls_demo
+-- Version: 1.0.0
+-- Description: Null value handling patterns
+-- =============================================================================
 -- Tier 6: Null Handling
+-- =============================================================================
+--
 -- Tests: NULL values, COALESCE, IS NULL, IS NOT NULL
 -- Expected: Correct null propagation and handling
+--
+-- =============================================================================
 
--- Application metadata
--- @name nulls_demo
--- @description Null value handling patterns
+-- @app: nulls_demo
+-- @description: Null value handling patterns
 
 -- Handle nulls with COALESCE and defaults
 CREATE STREAM processed_readings AS

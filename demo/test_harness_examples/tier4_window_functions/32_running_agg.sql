@@ -1,10 +1,17 @@
+-- SQL Application: running_agg_demo
+-- Version: 1.0.0
+-- Description: Running aggregate window functions
+-- =============================================================================
 -- Tier 4: Running Aggregates
+-- =============================================================================
+--
 -- Tests: Running SUM, AVG, COUNT with OVER
 -- Expected: Cumulative calculations
+--
+-- =============================================================================
 
--- Application metadata
--- @name running_agg_demo
--- @description Running aggregate window functions
+-- @app: running_agg_demo
+-- @description: Running aggregate window functions
 
 CREATE STREAM running_stats AS
 SELECT

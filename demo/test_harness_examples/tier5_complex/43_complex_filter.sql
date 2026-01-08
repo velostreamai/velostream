@@ -1,10 +1,17 @@
+-- SQL Application: complex_filter_demo
+-- Version: 1.0.0
+-- Description: Complex filter combinations and patterns
+-- =============================================================================
 -- Tier 5: Complex Filtering
+-- =============================================================================
+--
 -- Tests: Multiple predicates, nested conditions, BETWEEN
 -- Expected: Correct compound filter evaluation
+--
+-- =============================================================================
 
--- Application metadata
--- @name complex_filter_demo
--- @description Complex filter combinations and patterns
+-- @app: complex_filter_demo
+-- @description: Complex filter combinations and patterns
 
 -- Complex filter with multiple conditions
 CREATE STREAM filtered_orders AS

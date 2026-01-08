@@ -1,10 +1,17 @@
+-- SQL Application: empty_demo
+-- Version: 1.0.0
+-- Description: Empty dataset and zero record handling
+-- =============================================================================
 -- Tier 6: Empty/Zero Records Handling
+-- =============================================================================
+--
 -- Tests: Zero input records, empty aggregation groups
 -- Expected: Graceful handling of empty datasets
+--
+-- =============================================================================
 
--- Application metadata
--- @name empty_demo
--- @description Empty dataset and zero record handling
+-- @app: empty_demo
+-- @description: Empty dataset and zero record handling
 
 -- Simple passthrough - should handle zero records gracefully
 CREATE STREAM all_transactions AS

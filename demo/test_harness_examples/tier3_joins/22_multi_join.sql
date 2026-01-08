@@ -1,10 +1,17 @@
+-- SQL Application: multi_join_demo
+-- Version: 1.0.0
+-- Description: Multi-table join pattern
+-- =============================================================================
 -- Tier 3: Multi-Table Join
+-- =============================================================================
+--
 -- Tests: JOIN multiple tables
 -- Expected: Fully enriched records
+--
+-- =============================================================================
 
--- Application metadata
--- @name multi_join_demo
--- @description Multi-table join pattern
+-- @app: multi_join_demo
+-- @description: Multi-table join pattern
 
 CREATE STREAM fully_enriched AS
 SELECT

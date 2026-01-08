@@ -1,10 +1,17 @@
+-- SQL Application: late_arrivals_demo
+-- Version: 1.0.0
+-- Description: Late and out-of-order event handling
+-- =============================================================================
 -- Tier 6: Late Arrival Handling
+-- =============================================================================
+--
 -- Tests: Out-of-order events, watermark behavior
 -- Expected: Correct handling of late data
+--
+-- =============================================================================
 
--- Application metadata
--- @name late_arrivals_demo
--- @description Late and out-of-order event handling
+-- @app: late_arrivals_demo
+-- @description: Late and out-of-order event handling
 
 -- Windowed aggregation with late event tolerance (uses CREATE TABLE for GROUP BY)
 CREATE TABLE sensor_aggregates AS

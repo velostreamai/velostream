@@ -1,10 +1,17 @@
+-- SQL Application: large_volume_demo
+-- Version: 1.0.0
+-- Description: High volume data processing test
+-- =============================================================================
 -- Tier 6: Large Volume Processing
+-- =============================================================================
+--
 -- Tests: 100k+ records, performance under load
 -- Expected: Correct processing at scale
+--
+-- =============================================================================
 
--- Application metadata
--- @name large_volume_demo
--- @description High volume data processing test
+-- @app: large_volume_demo
+-- @description: High volume data processing test
 
 -- Simple transformation at scale
 CREATE STREAM enriched_events AS

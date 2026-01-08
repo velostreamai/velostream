@@ -1,10 +1,17 @@
+-- SQL Application: passthrough_demo
+-- Version: 1.0.0
+-- Description: Simple passthrough stream - all records flow unchanged
+-- =============================================================================
 -- Tier 1: Passthrough (SELECT *)
+-- =============================================================================
+--
 -- Tests: Basic data flow without transformation
 -- Expected: All input records pass through unchanged
+--
+-- =============================================================================
 
--- Application metadata
--- @name passthrough_demo
--- @description Simple passthrough stream - all records flow unchanged
+-- @app: passthrough_demo
+-- @description: Simple passthrough stream - all records flow unchanged
 
 CREATE STREAM output_stream AS
 SELECT
