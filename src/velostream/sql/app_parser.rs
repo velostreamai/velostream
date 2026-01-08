@@ -348,6 +348,15 @@ impl SqlApplicationParser {
                 }
             } else if line.starts_with("-- @application:") {
                 application = Some(line.replace("-- @application:", "").trim().to_string());
+            } else if line.starts_with("-- @app:") {
+                // Shorthand for @application
+                application = Some(line.replace("-- @app:", "").trim().to_string());
+            } else if line.starts_with("-- @version:") {
+                // Annotation-style version (overrides header if present)
+                version = line.replace("-- @version:", "").trim().to_string();
+            } else if line.starts_with("-- @description:") {
+                // Annotation-style description (overrides header if present)
+                description = Some(line.replace("-- @description:", "").trim().to_string());
             } else if line.starts_with("-- @phase:") {
                 phase = Some(line.replace("-- @phase:", "").trim().to_string());
             } else if line.starts_with("-- @sla.latency.p99:") {

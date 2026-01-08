@@ -1,0 +1,24 @@
+application: limit_demo
+description: Test LIMIT clause restricts output count
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: top_10_output
+    description: Verify only 10 records returned
+    inputs:
+      - source: simple_input
+        schema: simple_record.schema.yaml
+        records: 100          # Send 100 records
+    assertions:
+      - type: record_count
+        equals: 10            # Should only get 10 back
+      - type: schema_contains
+        fields: [id, value, amount, event_time]
+      - type: sorted
+        field: amount
+        direction: descending
+      - type: field_condition
+        field: amount
+        condition: "> 0"
+    timeout_ms: 30000

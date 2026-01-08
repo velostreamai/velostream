@@ -1,9 +1,24 @@
--- File-based trade analysis demo
--- Reads trade data from CSV, enriches it, and outputs to CSV
+-- SQL Application: file_io_demo
+-- Version: 1.0.0
+-- Description: Demonstrates file-based SQL processing without Kafka
+-- =============================================================================
+-- FILE I/O: Complete Trade Processing Example
+-- =============================================================================
+--
+-- This example demonstrates a complete file-based SQL processing pipeline.
+-- Reads trade data from CSV, enriches it, and outputs to CSV.
 -- No Kafka required - pure file I/O!
 --
--- @name file_io_demo
--- @description Demonstrates file-based SQL processing without Kafka
+-- WHAT YOU'LL LEARN:
+--   1. File-based source and sink configuration
+--   2. Calculated fields (price * volume)
+--   3. CASE expressions for categorization
+--   4. WHERE clause filtering
+--
+-- RUN IT:
+--   velo-test run passthrough.sql -y
+--
+-- =============================================================================
 
 CREATE STREAM enriched_trades AS
 SELECT

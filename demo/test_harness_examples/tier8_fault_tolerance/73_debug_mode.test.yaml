@@ -1,0 +1,75 @@
+application: debug_mode_demo
+description: Test debug mode with step-through execution
+default_timeout_ms: 120000
+default_records: 10
+
+# Debug mode configuration
+debug:
+  enabled: true
+  pause_on_start: true
+  breakpoints:
+    - query: validated_orders
+      after_record: true
+    - query: enriched_orders
+      after_record: true
+    - query: final_orders
+      after_record: true
+  show_intermediate_values: true
+  log_level: debug
+
+queries:
+  # Stage 1: Validation
+  - name: validated_orders
+    description: Verify input validation and calculations
+    inputs:
+      - source: raw_orders
+        schema: order_record.schema.yaml
+        records: 10
+    assertions:
+      - type: record_count
+        equals: 10
+      - type: field_condition
+        field: quantity
+        condition: "> 0"
+      - type: field_condition
+        field: line_total
+        condition: "> 0"
+      - type: schema_contains
+        fields: [order_id, line_total]
+    debug_checks:
+      - step: after_filter
+        expect_count: 10
+      - step: after_projection
+        expect_fields: [order_id, line_total]
+
+  # Stage 2: Enrichment
+  - name: enriched_orders
+    description: Verify categorization logic
+    assertions:
+      - type: record_count
+        equals: 10
+      - type: field_values
+        field: order_tier
+        contains: ["PREMIUM", "STANDARD", "BASIC"]
+      - type: field_values
+        field: order_type
+        contains: ["BULK_ORDER", "MULTI_UNIT", "SINGLE_UNIT"]
+    debug_checks:
+      - step: after_case_order_tier
+        verify_logic: "line_total > 1000 -> PREMIUM"
+      - step: after_case_order_type
+        verify_logic: "quantity >= 100 -> BULK_ORDER"
+
+  # Stage 3: Final output
+  - name: final_orders
+    description: Verify final enriched output
+    assertions:
+      - type: record_count
+        equals: 10
+      - type: schema_contains
+        fields: [order_id, order_tier, order_type, routing_key]
+      - type: field_pattern
+        field: routing_key
+        matches: "^(PREMIUM|STANDARD|BASIC)_(BULK_ORDER|MULTI_UNIT|SINGLE_UNIT)$"
+
+    timeout_ms: 120000

@@ -1,0 +1,42 @@
+application: dlq_basic_demo
+description: Test DLQ captures failed records
+default_timeout_ms: 60000
+default_records: 100
+
+# Fault injection to create some failures
+fault_injection:
+  enable_dlq: true
+  dlq_max_size: 100
+
+  malformed_records:
+    enabled: true
+    rate: 0.05        # 5% of records will be malformed
+    types:
+      - missing_field
+      - wrong_type
+
+queries:
+  - name: processed_events
+    description: Verify most records processed, failures go to DLQ
+    inputs:
+      - source: raw_events
+        schema: event_record.schema.yaml
+        records: 100
+    assertions:
+      # Most records should succeed
+      - type: record_count
+        greater_than: 90
+
+      # Some records should be in DLQ (from fault injection)
+      - type: dlq_count
+        greater_than: 0
+        less_than: 15   # Not too many failures
+
+      # DLQ entries should have error info
+      - type: dlq_has_error_messages
+
+      # Processing should not crash
+      - type: job_status
+        equals: completed
+
+    timeout_ms: 60000

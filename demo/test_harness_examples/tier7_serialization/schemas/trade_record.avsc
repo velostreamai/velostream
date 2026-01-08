@@ -1,0 +1,48 @@
+{
+  "type": "record",
+  "name": "TradeRecord",
+  "namespace": "com.velostream.demo",
+  "doc": "Simple trade record for serialization demo",
+  "fields": [
+    {
+      "name": "trade_id",
+      "type": "string",
+      "doc": "Unique trade identifier"
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "Trading symbol"
+    },
+    {
+      "name": "quantity",
+      "type": "long",
+      "doc": "Trade quantity"
+    },
+    {
+      "name": "price",
+      "type": {
+        "type": "bytes",
+        "logicalType": "decimal",
+        "precision": 19,
+        "scale": 4
+      },
+      "doc": "Trade price with 4 decimal precision"
+    },
+    {
+      "name": "side",
+      "type": {
+        "type": "enum",
+        "name": "TradeSide",
+        "symbols": ["BUY", "SELL"]
+      },
+      "doc": "Trade side (BUY or SELL)"
+    },
+    {
+      "name": "timestamp",
+      "type": "long",
+      "logicalType": "timestamp-millis",
+      "doc": "Trade execution timestamp"
+    }
+  ]
+}

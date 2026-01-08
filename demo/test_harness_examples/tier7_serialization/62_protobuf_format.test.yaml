@@ -1,0 +1,26 @@
+application: protobuf_format_demo
+description: Test Protobuf serialization with schema validation
+default_timeout_ms: 30000
+default_records: 50
+
+queries:
+  - name: trades_protobuf
+    description: Verify Protobuf serialized output matches schema
+    inputs:
+      - source: raw_trades
+        schema: trade_record.schema.yaml
+        records: 50
+        format: json      # Input as JSON
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [trade_id, symbol, quantity, price, side, notional_value, event_time]
+      - type: format
+        equals: protobuf
+      - type: schema_valid
+        schema_file: ./schemas/trade_record.proto
+      - type: field_condition
+        field: quantity
+        condition: "> 0"
+    timeout_ms: 30000

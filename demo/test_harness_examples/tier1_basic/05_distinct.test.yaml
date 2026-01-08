@@ -1,0 +1,21 @@
+application: distinct_demo
+description: Test DISTINCT keyword removes duplicate rows
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: distinct_output
+    description: Verify duplicates are removed
+    inputs:
+      - source: simple_input
+        schema: simple_record.schema.yaml
+        records: 100
+        # Input may contain duplicate value+active combinations
+    assertions:
+      - type: record_count
+        less_than: 100        # Should have fewer records due to deduplication
+      - type: no_duplicates
+        fields: [value, active]
+      - type: schema_contains
+        fields: [value, active]
+    timeout_ms: 30000

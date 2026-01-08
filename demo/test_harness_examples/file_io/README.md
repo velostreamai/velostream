@@ -1,11 +1,38 @@
 # File I/O Demo
 
-This example demonstrates file-based SQL processing with the FR-084 Test Harness.
-**No Kafka required!**
+File-based SQL processing examples. **No Kafka required!**
 
-## What It Does
+## Examples
 
-The SQL query reads trade data from CSV, enriches it with:
+| File | Concept | Description |
+|------|---------|-------------|
+| `passthrough.sql` | Complete pipeline | Filter, calculate, categorize trades |
+| `02_filter.sql` | WHERE clause | Filter trades by volume threshold |
+| `03_transform.sql` | Transformations | Calculate values, CASE expressions |
+
+## Running the Examples
+
+```bash
+cd demo/test_harness_examples/file_io
+
+# Run any example
+../../velo-test.sh passthrough.sql
+../../velo-test.sh 02_filter.sql
+../../velo-test.sh 03_transform.sql
+
+# Or use velo-test directly
+velo-test run passthrough.sql -y
+```
+
+## Files
+
+- `input_trades.csv` - Sample trade data (6 records)
+- `expected_output.csv` - Expected output for passthrough.sql
+- `test_spec.yaml` - Test specification with file assertions
+
+## What passthrough.sql Does
+
+Reads trade data from CSV and enriches it with:
 - **trade_value**: Calculated as `price * volume`
 - **trade_size**: Categorized as LARGE (>$100k), MEDIUM (>$50k), or SMALL
 
@@ -21,25 +48,6 @@ SELECT
     timestamp
 FROM trades
 WHERE volume >= 50
-```
-
-## Files
-
-- `input_trades.csv` - Sample trade data (6 records)
-- `expected_output.csv` - Expected enriched output
-- `passthrough.sql` - SQL query with file source/sink config
-- `test_spec.yaml` - Test specification with file assertions
-
-## Running the Demo
-
-```bash
-cd demo/test_harness_examples/file_io
-
-# Run the test
-velo-test run passthrough.sql --spec test_spec.yaml
-
-# Or validate SQL syntax only
-velo-test validate passthrough.sql
 ```
 
 ## Sample Input

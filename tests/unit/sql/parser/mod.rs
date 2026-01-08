@@ -15,3 +15,4 @@ pub mod metric_annotations_test; // FR-073 Phase 1
 pub mod partition_annotations_test; // Partition annotation parsing tests
 pub mod session_window_test;
 pub mod tumbling_window_test;
+pub mod app_metadata_annotations_test; // @app, @version, @description annotations

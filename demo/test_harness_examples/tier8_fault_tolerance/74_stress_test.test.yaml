@@ -1,0 +1,66 @@
+application: stress_test_demo
+description: High-volume stress test with fault injection
+default_timeout_ms: 300000    # 5 minutes for stress test
+default_records: 10000        # 10K records for stress
+
+# Stress test mode
+stress_test:
+  enabled: true
+  records: 10000
+  rate_per_second: 1000       # Target rate
+  duration_seconds: 30        # Or run for duration
+
+# Fault injection during stress
+fault_injection:
+  seed: 54321
+  enable_dlq: true
+  dlq_max_size: 1000
+
+  # Lower fault rates for stress (focus on volume)
+  malformed_records:
+    enabled: true
+    rate: 0.01        # 1% malformed
+    types:
+      - missing_field
+      - wrong_type
+
+  duplicates:
+    enabled: true
+    rate: 0.005       # 0.5% duplicates
+
+queries:
+  - name: high_volume_output
+    description: Verify high-volume processing with faults
+    inputs:
+      - source: trades
+        schema: trade_record.schema.yaml
+        records: 10000
+        rate_per_second: 1000
+    assertions:
+      # High success rate despite faults
+      - type: record_count
+        greater_than: 9500    # At least 95% success
+
+      # DLQ captures failures but doesn't overflow
+      - type: dlq_count
+        less_than: 500        # DLQ limit not hit
+
+      - type: dlq_at_capacity
+        equals: false         # Not at capacity
+
+      # Job completes successfully
+      - type: job_status
+        equals: completed
+
+      # Performance metrics
+      - type: throughput
+        greater_than: 500     # At least 500 records/sec
+
+      - type: latency_p99
+        less_than: 100        # P99 latency < 100ms
+
+      # Memory stability (no leaks)
+      - type: memory_stable
+        variance_percent: 10  # Max 10% variance
+
+    timeout_ms: 300000

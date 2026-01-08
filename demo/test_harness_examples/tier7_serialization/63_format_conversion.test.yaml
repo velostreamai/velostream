@@ -1,0 +1,26 @@
+application: format_conversion_demo
+description: Test JSON to Avro format conversion
+default_timeout_ms: 30000
+default_records: 50
+
+queries:
+  - name: trades_converted
+    description: Verify format conversion from JSON to Avro
+    inputs:
+      - source: json_trades
+        schema: trade_record.schema.yaml
+        records: 50
+        format: json      # Input as JSON
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [trade_id, symbol, quantity, price, side, notional_value, event_time]
+      - type: format
+        equals: avro      # Output should be Avro
+      - type: schema_valid
+        schema_file: ./schemas/trade_record.avsc
+      - type: field_condition
+        field: quantity
+        condition: "> 0"
+    timeout_ms: 30000

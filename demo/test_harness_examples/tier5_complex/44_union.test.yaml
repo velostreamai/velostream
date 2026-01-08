@@ -1,0 +1,45 @@
+application: union_demo
+description: Test UNION ALL combines multiple streams
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: all_transactions
+    description: Verify records from all regions combined
+    inputs:
+      - source: us_transactions
+        schema: transaction_record.schema.yaml
+        records: 50
+        overrides:
+          region: "US"
+      - source: eu_transactions
+        schema: transaction_record.schema.yaml
+        records: 30
+        overrides:
+          region: "EU"
+      - source: apac_transactions
+        schema: transaction_record.schema.yaml
+        records: 20
+        overrides:
+          region: "APAC"
+    assertions:
+      - type: record_count
+        equals: 100           # 50 + 30 + 20 from all sources
+      - type: schema_contains
+        fields: [order_id, customer_id, region, amount, currency, event_time]
+      - type: field_values
+        field: region
+        contains: ["US", "EU", "APAC"]
+      - type: field_count
+        field: region
+        value: "US"
+        equals: 50
+      - type: field_count
+        field: region
+        value: "EU"
+        equals: 30
+      - type: field_count
+        field: region
+        value: "APAC"
+        equals: 20
+    timeout_ms: 60000
