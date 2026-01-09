@@ -52,132 +52,6 @@ and compatibility, particularly for financial analytics use cases.
 - **Schema Support**: Avro schema registry integration
 - **Performance Presets**: Optimized configurations for different use cases
 
-## Recent Major Enhancements
-
-### Advanced SQL Parser Features (Latest)
-
-**Problem Solved**
-
-- Limited SQL standard compliance for complex window functions
-- Missing support for table aliases in PARTITION BY clauses
-- No support for INTERVAL syntax in window frames
-- EXTRACT function only supported non-standard syntax
-
-**Solution Implemented**
-
-- **Table Alias Support**: Full support for `table.column` syntax in PARTITION BY and ORDER BY clauses
-- **INTERVAL Window Frames**: Native support for `RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW`
-- **Dual EXTRACT Syntax**: Both function call style `EXTRACT('YEAR', date)` and SQL standard `EXTRACT(YEAR FROM date)`
-- **Enhanced Financial SQL**: 100% compatibility with complex financial trading queries
-
-**Key Benefits**
-
-```sql
--- Table aliases in complex window functions (NEW)
-SELECT p.trader_id,
-       LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price
-FROM market_data m
-         JOIN positions p ON m.symbol = p.symbol;
-
--- INTERVAL-based window frames (NEW)
-SELECT symbol,
-       price,
-       AVG(price) OVER (
-        PARTITION BY symbol
-        ORDER BY event_time
-        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
-    ) as hourly_moving_avg
-FROM trades;
-
--- SQL standard EXTRACT syntax (NEW)
-SELECT EXTRACT(EPOCH FROM (end_time - start_time)) as duration_seconds,
-       EXTRACT(YEAR FROM order_date)               as order_year
-FROM orders;
-```
-
-**Financial Trading Compatibility**: Achieved 100% parser compatibility with complex financial SQL (improved from 30% to
-100%).
-
-See updated [SQL function documentation](docs/sql/functions/) for complete syntax reference.
-
-### Compression Independence in Batch Configuration
-
-**Problem Solved**
-
-- Batch strategies were overriding explicit compression settings
-- Users couldn't configure compression independently from batch optimizations
-- Need for fine-grained control over compression vs automatic optimization
-
-**Solution Implemented**
-
-- **Suggestion vs Override Pattern**: Batch strategies suggest compression only when none is explicitly set
-- **Full Independence**: Explicit compression settings are never overridden by batch configurations
-- **Intelligent Defaults**: When no compression is specified, batch strategies provide optimal suggestions
-- **Comprehensive Logging**: Detailed logging shows final applied compression settings
-
-**Key Benefits**
-
-```rust
-// Explicit compression is always preserved
-props.insert("compression.type".to_string(), "zstd".to_string());
-let batch_config = BatchConfig {
-strategy: BatchStrategy::MemoryBased(1024 * 1024), // Would suggest gzip
-// ... 
-};
-// Result: compression.type remains "zstd" (user choice preserved)
-```
-
-See [docs/compression-independence.md](docs/developer/compression-independence.md) for complete documentation.
-
-### SerializationError Enhancement: Comprehensive Error Chaining
-
-**Problem Solved**
-
-- Limited error diagnostics for serialization failures
-- Loss of original error context in error chains
-- Difficult debugging of cross-format serialization issues
-
-**Solution Implemented**
-
-- **Enhanced Error Variants**: 6 new structured error types with full source chain preservation
-- **JSON/Avro/Protobuf Support**: All serialization formats now use enhanced error variants
-- **Error Chain Traversal**: Full error source chain information for debugging
-- **100% Backward Compatibility**: Existing error handling patterns continue to work
-
-**Enhanced Error Types**
-
-```rust
-SerializationError::JsonError { message, source }          // JSON serialization with source
-SerializationError::AvroError { message, source }          // Avro serialization with source  
-SerializationError::ProtobufError { message, source }      // Protobuf serialization with source
-SerializationError::TypeConversionError { message, from_type, to_type, source }
-SerializationError::SchemaValidationError { message, source }
-SerializationError::EncodingError { message, source }
-```
-
-### Financial Precision Enhancement
-
-### Problem Solved
-
-- f64 floating-point precision errors in financial calculations
-- Need for exact arithmetic in financial analytics
-- Performance bottlenecks in financial computations
-
-### Solution Implemented
-
-- **FieldValue::ScaledInteger(i64, u8)**: Stores scaled integer with decimal precision
-- **42x Performance Improvement**: ScaledInteger operations are 42x faster than f64
-- **Perfect Precision**: No floating-point rounding errors
-- **Cross-System Compatibility**: Serializes as decimal strings for JSON/Avro
-
-## Performance Benchmarks
-
-Financial calculation patterns (price × quantity):
-
-- **f64**: 83.458µs (with precision errors)
-- **ScaledInteger**: 1.958µs (exact precision) → **42x FASTER**
-- **Decimal**: 53.583µs (exact precision) → 1.5x faster than f64
-
 ## Development Commands
 
 ### Testing
@@ -185,7 +59,7 @@ Financial calculation patterns (price × quantity):
 ```bash
 # Run all tests
 cargo test
-2
+
 # Unit test
 cargo test --tests --verbose -- --skip integration:: --skip performance:: --skip comprehensive
 
@@ -252,24 +126,24 @@ git push origin branch-name
 
 ### Performance Testing
 
-#### FR-082 Comprehensive Baseline Comparison
+#### Baseline Comparison Benchmarks
 
 ```bash
 # All scenarios, release build (recommended for final benchmarks)
-./run_baseline.sh
+./benchmarks/run_baseline.sh
 
 # Choose mode and scenarios flexibly
-./run_baseline_flexible.sh release 1    # Release, scenario 1 only
-./run_baseline_flexible.sh debug        # Debug, all scenarios
-./run_baseline_flexible.sh profile 2    # Profile, scenario 2 only
+./benchmarks/run_baseline_flexible.sh release 1    # Release, scenario 1 only
+./benchmarks/run_baseline_flexible.sh debug        # Debug, all scenarios
+./benchmarks/run_baseline_flexible.sh profile 2    # Profile, scenario 2 only
 
 # Quick iteration with minimal recompilation
-./run_baseline_quick.sh
+./benchmarks/run_baseline_quick.sh
 
 # Multiple compilation modes
-./run_baseline_options.sh debug         # Fast compile
-./run_baseline_options.sh release       # Optimized runtime
-./run_baseline_options.sh profile       # With debug symbols
+./benchmarks/run_baseline_options.sh debug         # Fast compile
+./benchmarks/run_baseline_options.sh release       # Optimized runtime
+./benchmarks/run_baseline_options.sh profile       # With debug symbols
 ```
 
 **Documentation:** See [`docs/benchmarks/`](docs/benchmarks/) for:
@@ -277,16 +151,6 @@ git push origin branch-name
 - [`SCRIPTS_README.md`](docs/benchmarks/SCRIPTS_README.md) - Complete reference guide
 - [`BASELINE_TESTING.md`](docs/benchmarks/BASELINE_TESTING.md) - Detailed methodology
 - [`BASELINE_QUICK_REFERENCE.md`](docs/benchmarks/BASELINE_QUICK_REFERENCE.md) - Quick cheat sheet
-
-#### Financial Precision & Compatibility Tests
-
-```bash
-# Run financial precision tests
-cargo run --bin test_financial_precision
-
-# Test serialization compatibility
-cargo run --bin test_serialization_compatibility
-```
 
 ## Schema Configuration
 
@@ -428,7 +292,8 @@ When writing SQL for this project, **DO NOT GUESS**. The parser has strict gramm
 1. [`docs/sql/COPY_PASTE_EXAMPLES.md`](docs/sql/COPY_PASTE_EXAMPLES.md) - Working examples for all query types
 2. [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Formal EBNF grammar and AST structure
 3. [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules specifically for Claude
-4. [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations reference (@job_mode, @metric, etc.)
+4. [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations reference (@job_mode,
+   @metric, etc.)
 5. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
 
 **Before writing ANY SQL**:
@@ -452,18 +317,12 @@ Velostream has **TWO different window mechanisms in different parts of the AST**
 
 ### Most Common SQL Mistakes
 
-```sql
-❌
-ROWS BUFFER 100 ROWS
-→ ✅ ROWS WINDOW BUFFER 100 ROWS
-❌ ROWS WINDOW BUFFER 100
-→ ✅ ROWS WINDOW BUFFER 100 ROWS
-❌ SELECT * WHERE x > 100
-→ ✅ SELECT * FROM table WHERE x > 100
-❌ AVG(price) OVER ROWS WINDOW
-→ ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
-❌ GROUP BY ... PARTITION BY ...
-→ ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
+```
+❌ ROWS BUFFER 100 ROWS          → ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ ROWS WINDOW BUFFER 100        → ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ SELECT * WHERE x > 100        → ✅ SELECT * FROM table WHERE x > 100
+❌ AVG(price) OVER ROWS WINDOW   → ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
+❌ GROUP BY...PARTITION BY...    → ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
 ```
 
 ### Clause Order (Must be Exact)
@@ -489,7 +348,8 @@ See full details in:
 
 - [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Complete formal grammar
 - [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules for Claude (14 specific rules)
-- [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations (@job_mode, @metric, @observability, etc.)
+- [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations (@job_mode, @metric,
+  @observability, etc.)
 
 ## Code Organization
 
@@ -916,125 +776,22 @@ These checks mirror the GitHub Actions pipeline:
 
 Running these locally ensures CI/CD success and maintains code quality standards.
 
-### Useful Debug Commands
-
-```bash
-# Debug specific test with full output
-
 ## Architecture Principles
 
 ### Performance First
+
 - **Zero-Copy Where Possible**: Minimize allocations in hot paths
 - **Integer Arithmetic**: ScaledInteger for financial calculations
 - **Efficient Serialization**: Direct binary formats over text when possible
 
 ### Precision Over Speed (for Financial Data)
+
 - **Exact Arithmetic**: Never compromise precision for performance
 - **Deterministic Results**: Same inputs always produce identical outputs
 - **Regulatory Compliance**: Meet financial industry precision requirements
 
 ### Compatibility
+
 - **Standard Formats**: Use industry-standard serialization patterns
 - **Cross-Language**: Ensure other systems can consume data
 - **Schema Evolution**: Support backward-compatible changes
-
-## Current Status
-
-✅ **Completed**: Enhanced SerializationError system with comprehensive error chaining
-✅ **Completed**: Financial precision implementation with 42x performance improvement
-✅ **Completed**: Cross-compatible JSON/Avro/Protobuf serialization with enhanced errors
-✅ **Completed**: Comprehensive test coverage (255+ tests passing)
-✅ **Completed**: All demos, examples, and doctests verified compliant
-✅ **Completed**: High-performance Protobuf implementation with Decimal message
-✅ **Completed**: Performance test compilation issues resolved (Phase 3 benchmarks)
-✅ **Completed**: Complete pre-commit validation pipeline passing
-✅ **Completed**: Type system conflicts resolved (WatermarkStrategy, CircuitBreakerConfig)
-✅ **Completed**: Circuit breaker pattern fixes with proper closure handling
-✅ **Completed**: Production-ready CI/CD compliance validation
-
-### Latest Achievement: Performance Test Infrastructure Completion
-
-**Problem Solved**: Critical compilation failures in performance testing infrastructure
-- Fixed complex type conflicts between `config::WatermarkStrategy` and `watermarks::WatermarkStrategy`
-- Resolved CircuitBreakerConfig field mismatches and missing properties
-- Fixed Rust closure borrowing issues in circuit breaker patterns
-- Updated SystemTime to DateTime<Utc> conversions for proper StreamRecord compatibility
-
-**Technical Implementation**:
-- **Type System Fixes**: Proper module imports with aliases for conflicting types
-- **Circuit Breaker Enhancement**: Added missing fields (failure_rate_window, min_calls_in_window, failure_rate_threshold)
-- **Closure Pattern Fixes**: Used `move` keyword and variable extraction to resolve borrowing conflicts
-- **Stream Processing**: Fixed enum variant usage and struct field access patterns
-
-**Key Benefits**:
-```rust
-// Fixed type conflicts with proper module imports
-use config::{WatermarkStrategy as ConfigWatermarkStrategy};
-use watermarks::{WatermarkStrategy, WatermarkManager};
-
-// Enhanced circuit breaker configuration
-CircuitBreakerConfig {
-    failure_threshold: 5,
-    recovery_timeout: Duration::from_secs(60),
-    failure_rate_window: Duration::from_secs(60),    // Added
-    min_calls_in_window: 10,                         // Added
-    failure_rate_threshold: 50.0,                    // Added
-}
-
-// Fixed closure borrowing patterns
-let has_field = record.fields.get("id").is_some();
-let result = circuit_breaker.execute(move || {
-    let _processing = has_field;  // No borrowing conflict
-    Ok(())
-}).await;
-```
-
-### Latest Achievement: Reserved Keyword Fixes for Common Field Names
-
-**Problem Solved**: Reserved keywords conflicting with common field names in data streams
-
-- Fixed `STATUS`, `METRICS`, and `PROPERTIES` being globally reserved, preventing their use as field names
-- Enhanced `OptimizedTableImpl` to support SUM aggregation functions alongside existing COUNT support
-- Updated test expectations to reflect current parser capabilities (BETWEEN now supported)
-
-**Technical Implementation**:
-
-- **Contextual Keywords**: Converted global reserved keywords to contextual-only parsing
-- **Enhanced Aggregation**: Added SUM support to `sql_scalar` method with proper type handling
-- **Parser Compatibility**: Updated SQL parser to allow common field names while preserving command functionality
-
-**Key Benefits**:
-
-```sql
--- Now works perfectly! ✅ (Previously failed due to reserved keywords)
-SELECT order_id,
-       status,                                                                            -- No longer globally reserved
-       metrics,                                                                           -- No longer globally reserved
-       properties,                                                                        -- No longer globally reserved
-       COUNT(*) OVER (PARTITION BY status) as status_count, SUM(metrics) as total_metrics -- SUM now fully supported
-FROM data_stream
-WHERE status = 'active'
-  AND metrics > 100
-  AND properties IS NOT NULL;
-
--- Command functionality preserved ✅
-SHOW
-STATUS;           -- Still works via contextual parsing
-SHOW
-METRICS;          -- Still works via contextual parsing
-SHOW
-PROPERTIES;       -- Still works via contextual parsing
-```
-
-**Reserved Keywords Fixed**:
-
-- **`STATUS`**: Most common status field (order status, job status, system status)
-- **`METRICS`**: Performance metrics, business metrics, system metrics
-- **`PROPERTIES`**: Configuration properties, object properties, metadata
-
-**Parser Improvements**: BETWEEN operator now fully supported, enhancing SQL standard compliance.
-
-The codebase is now **production-ready** for financial analytics use cases requiring exact precision and high
-performance. All performance testing infrastructure is operational and validated for continuous integration.
-
-- Always run clippy checks#
