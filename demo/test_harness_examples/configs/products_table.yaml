@@ -7,7 +7,7 @@ table:
   name: products
 
 file:
-  path: "data/products.csv"
+  path: "../data/products.csv"
   format: csv
   has_header: true
 

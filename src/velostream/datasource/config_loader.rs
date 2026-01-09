@@ -62,6 +62,10 @@ pub fn load_config_file_to_properties_with_base(
     // This ensures consistent access via "topic" key across all components
     normalize_topic_property(&mut flattened);
 
+    // Apply path normalization: YAML configs may use "file.path" or "data_source.path"
+    // This ensures consistent access via "path" key for file sources
+    normalize_path_property(&mut flattened);
+
     Ok(flattened)
 }
 
@@ -90,6 +94,55 @@ pub fn normalize_topic_property(properties: &mut HashMap<String, String>) {
                 topic_name
             );
             properties.insert("topic".to_string(), topic_name);
+        }
+    }
+}
+
+/// Normalize path property: converts nested path keys to "path"
+///
+/// When YAML configs use nested structures like:
+/// ```yaml
+/// file:
+///   path: "./data.csv"
+/// ```
+/// or:
+/// ```yaml
+/// data_source:
+///   path: "./data.csv"
+/// ```
+/// The flattening produces "file.path" or "data_source.path", but FileDataSource expects "path".
+/// This function normalizes common patterns for consistent access.
+///
+/// Supported patterns (in priority order):
+/// - `file.path` → `path`
+/// - `data_source.path` → `path`
+/// - `source.path` → `path`
+///
+/// # Example
+/// ```ignore
+/// let mut props = HashMap::new();
+/// props.insert("file.path".to_string(), "./data.csv".to_string());
+/// normalize_path_property(&mut props);
+/// assert_eq!(props.get("path"), Some(&"./data.csv".to_string()));
+/// ```
+pub fn normalize_path_property(properties: &mut HashMap<String, String>) {
+    // Don't override if "path" already exists
+    if properties.contains_key("path") {
+        return;
+    }
+
+    // Check common nested patterns in priority order
+    let patterns = ["file.path", "data_source.path", "source.path"];
+
+    for pattern in patterns {
+        if let Some(path_value) = properties.get(pattern).cloned() {
+            log::debug!(
+                "Normalizing {}='{}' to path (config_loader)",
+                pattern,
+                path_value
+            );
+            properties.insert("path".to_string(), path_value);
+            return;
         }
     }
 }
@@ -372,5 +425,59 @@ datasource:
 
         // Should panic with detailed error message
         merge_config_file_properties(&props, "test");
+    }
+
+    #[test]
+    fn test_normalize_path_property() {
+        // Test file.path pattern
+        let mut props = HashMap::new();
+        props.insert("file.path".to_string(), "./data.csv".to_string());
+        normalize_path_property(&mut props);
+        assert_eq!(props.get("path"), Some(&"./data.csv".to_string()));
+
+        // Test data_source.path pattern
+        let mut props = HashMap::new();
+        props.insert("data_source.path".to_string(), "./other.csv".to_string());
+        normalize_path_property(&mut props);
+        assert_eq!(props.get("path"), Some(&"./other.csv".to_string()));
+
+        // Test source.path pattern
+        let mut props = HashMap::new();
+        props.insert("source.path".to_string(), "./source.csv".to_string());
+        normalize_path_property(&mut props);
+        assert_eq!(props.get("path"), Some(&"./source.csv".to_string()));
+
+        // Test that existing "path" is not overridden
+        let mut props = HashMap::new();
+        props.insert("path".to_string(), "./explicit.csv".to_string());
+        props.insert("file.path".to_string(), "./should_not_use.csv".to_string());
+        normalize_path_property(&mut props);
+        assert_eq!(props.get("path"), Some(&"./explicit.csv".to_string()));
+    }
+
+    #[test]
+    fn test_load_config_with_nested_file_path() {
+        // Create temporary config file with nested file.path structure
+        let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let config_content = r#"
+file:
+  path: "./nested_data.csv"
+  format: csv
+"#;
+        temp_file
+            .write_all(config_content.as_bytes())
+            .expect("Failed to write");
+        let path = temp_file.path().to_str().unwrap();
+
+        // Load and verify normalization applied
+        let props = load_config_file_to_properties(path).expect("Should load successfully");
+
+        // Both the nested key and normalized key should exist
+        assert_eq!(
+            props.get("file.path"),
+            Some(&"./nested_data.csv".to_string())
+        );
+        assert_eq!(props.get("path"), Some(&"./nested_data.csv".to_string()));
+        assert_eq!(props.get("file.format"), Some(&"csv".to_string()));
     }
 }

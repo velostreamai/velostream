@@ -1,4 +1,4 @@
-customer_id,name,tier,region,signup_date
+customer_id,customer_name,tier,region,signup_date
 1001,Alice Johnson,gold,us-east,2023-01-15
 1002,Bob Smith,silver,us-west,2023-03-22
 1003,Carol White,bronze,eu-west,2023-05-10
