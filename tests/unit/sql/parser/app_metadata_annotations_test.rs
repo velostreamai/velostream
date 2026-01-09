@@ -12,7 +12,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     assert_eq!(app.metadata.application, Some("my_app_id".to_string()));
 }
@@ -27,7 +29,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     assert_eq!(app.metadata.version, "2.5.0");
 }
@@ -42,7 +46,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     assert_eq!(
         app.metadata.description,
@@ -61,7 +67,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     // Annotation should override header
     assert_eq!(app.metadata.version, "3.0.0");
@@ -78,7 +86,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     // Annotation should override header
     assert_eq!(
@@ -126,7 +136,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     assert_eq!(
         app.metadata.application,
@@ -151,7 +163,9 @@ CREATE STREAM output AS SELECT * FROM input EMIT CHANGES;
 "#;
 
     let parser = SqlApplicationParser::new();
-    let app = parser.parse_application(sql).expect("Should parse successfully");
+    let app = parser
+        .parse_application(sql)
+        .expect("Should parse successfully");
 
     // Values should be trimmed
     assert_eq!(app.metadata.application, Some("spaced_app".to_string()));

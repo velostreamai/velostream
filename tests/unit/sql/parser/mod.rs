@@ -2,6 +2,7 @@
 // Tests for SQL parsing functionality
 
 pub mod advanced_window_test;
+pub mod app_metadata_annotations_test;
 pub mod basic_parsing_test;
 pub mod between_operator_test;
 pub mod case_when_test;
@@ -14,5 +15,4 @@ pub mod lifecycle_test;
 pub mod metric_annotations_test; // FR-073 Phase 1
 pub mod partition_annotations_test; // Partition annotation parsing tests
 pub mod session_window_test;
-pub mod tumbling_window_test;
-pub mod app_metadata_annotations_test; // @app, @version, @description annotations
+pub mod tumbling_window_test; // @app, @version, @description annotations

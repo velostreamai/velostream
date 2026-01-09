@@ -4179,7 +4179,11 @@ mod tests {
         };
 
         let result = runner.assert_field_values(&output, &config);
-        assert!(result.passed, "Boolean comparison should pass: {}", result.message);
+        assert!(
+            result.passed,
+            "Boolean comparison should pass: {}",
+            result.message
+        );
     }
 
     #[test]
@@ -4197,7 +4201,11 @@ mod tests {
         };
 
         let result = runner.assert_field_values(&output, &config);
-        assert!(result.passed, "Boolean false comparison should pass: {}", result.message);
+        assert!(
+            result.passed,
+            "Boolean false comparison should pass: {}",
+            result.message
+        );
     }
 
     #[test]
@@ -4215,7 +4223,10 @@ mod tests {
         };
 
         let result = runner.assert_field_values(&output, &config);
-        assert!(!result.passed, "Boolean comparison with mismatch should fail");
+        assert!(
+            !result.passed,
+            "Boolean comparison with mismatch should fail"
+        );
     }
 
     #[test]

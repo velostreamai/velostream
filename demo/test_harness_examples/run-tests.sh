@@ -35,6 +35,7 @@ TOTAL=0
 
 # Check if test is blocked (returns reason or empty)
 # NOTE: Schema issues (Issue #7, #8) resolved - schemas now created
+# NOTE: Config path issue (Issue #6) resolved - path normalization added
 is_blocked() {
     local test_key="$1"
     case "$test_key" in
@@ -47,15 +48,15 @@ is_blocked() {
         "tier2_aggregations/13_sliding_window") echo "Issue #4 - Needs watermarks" ;;
         "tier2_aggregations/14_session_window") echo "Issue #4 - Needs watermarks" ;;
         "tier2_aggregations/15_compound_keys") echo "Issue #4 - Needs watermarks" ;;
-        # Tier 3: Joins
-        "tier3_joins/20_stream_table_join") echo "Issue #6 - Config mismatch" ;;
+        # Tier 3: Joins (Issue #6 config path resolved, but other issues remain)
+        "tier3_joins/20_stream_table_join") echo "Issue #5 - Join field aliasing issues" ;;
         "tier3_joins/21_stream_stream_join") echo "Issue #5 - Runtime panic" ;;
-        "tier3_joins/22_multi_join") echo "Issue #6 - File source config" ;;
+        "tier3_joins/22_multi_join") echo "Issue #5 - Runtime panic" ;;
         "tier3_joins/23_right_join") echo "Issue #5 - Runtime panic on join" ;;
         "tier3_joins/24_full_outer_join") echo "Issue #5 - Runtime panic on join" ;;
         # Tier 5: Complex
         "tier5_complex/40_pipeline") echo "Issues #4, #5 - Multi-stage + panic" ;;
-        "tier5_complex/41_subqueries") echo "Issues #5, #6 - Reference table + panic" ;;
+        "tier5_complex/41_subqueries") echo "Issue #5 - Runtime panic" ;;
         "tier5_complex/43_complex_filter") echo "Issue #5 - Runtime panic" ;;
         "tier5_complex/44_union") echo "Issue #5 - Runtime panic on UNION" ;;
         # Tier 6: Edge cases
