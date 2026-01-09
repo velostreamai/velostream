@@ -8,7 +8,7 @@ queries:
     description: Verify COALESCE replaces nulls with defaults
     inputs:
       - source: sensor_readings
-        schema: simple_record
+        schema: sensor_readings
         records: 200
         # Generator should include some null values
         null_probability: 0.2
@@ -21,11 +21,11 @@ queries:
         fields: [sensor_id, temperature, humidity, pressure, status]
       - type: field_in_set
         field: temp_missing
-        values: [0, 1]
+        values: ["0", "1"]
       - type: field_in_set
         field: humidity_missing
-        values: [0, 1]
+        values: ["0", "1"]
       - type: field_in_set
         field: pressure_missing
-        values: [0, 1]
+        values: ["0", "1"]
     timeout_ms: 60000

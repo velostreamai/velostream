@@ -8,7 +8,7 @@ queries:
     description: Verify windowed aggregation handles late events
     inputs:
       - source: sensor_events
-        schema: simple_record
+        schema: sensor_readings
         records: 500
         # Generate some late events (out of order timestamps)
         late_event_probability: 0.15
@@ -30,7 +30,7 @@ queries:
     description: Verify lateness detection works correctly
     inputs:
       - source: sensor_events
-        schema: simple_record
+        schema: sensor_readings
         records: 500
         late_event_probability: 0.15
     assertions:

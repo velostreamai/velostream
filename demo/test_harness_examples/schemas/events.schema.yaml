@@ -1,0 +1,58 @@
+name: events
+description: Event stream for large volume tests
+record_count: 100000
+
+fields:
+  - name: event_id
+    type: uuid
+    nullable: false
+
+  - name: user_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1000
+        max: 999999
+
+  - name: event_type
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["click", "view", "purchase", "search", "login", "logout"]
+        weights: [0.3, 0.35, 0.1, 0.15, 0.05, 0.05]
+
+  - name: category
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["electronics", "clothing", "home", "sports", "books", "other"]
+        weights: [0.2, 0.2, 0.15, 0.15, 0.15, 0.15]
+
+  - name: value
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 0.00
+        max: 1000.00
+
+  - name: region
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["US-EAST", "US-WEST", "EU", "APAC"]
+        weights: [0.3, 0.25, 0.25, 0.2]
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

@@ -22,7 +22,7 @@ queries:
         fields: [product_id, product_name, category, order_status]
       - type: no_nulls
         fields: [product_id, product_name, category]   # Right table fields always present
-      - type: field_values
+      - type: field_in_set
         field: order_status
-        contains: ["NO_ORDERS", "NORMAL"]   # Some products have no orders
+        values: ["NO_ORDERS", "NORMAL"]   # Some products have no orders
     timeout_ms: 30000

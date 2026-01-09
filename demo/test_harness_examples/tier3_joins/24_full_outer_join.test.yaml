@@ -22,7 +22,7 @@ queries:
         fields: [order_id, reconciliation_status]
       - type: no_nulls
         fields: [order_id, reconciliation_status]   # COALESCE ensures order_id always set
-      - type: field_values
+      - type: field_in_set
         field: reconciliation_status
-        contains: ["MATCHED", "UNSHIPPED_ORDER", "ORPHAN_SHIPMENT"]
+        values: ["MATCHED", "UNSHIPPED_ORDER", "ORPHAN_SHIPMENT"]
     timeout_ms: 60000

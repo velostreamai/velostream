@@ -1,0 +1,50 @@
+name: product_record
+description: Product record for join tests
+record_count: 50
+
+fields:
+  - name: product_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 999
+
+  - name: product_name
+    type: string
+    nullable: false
+    constraints:
+      length:
+        min: 5
+        max: 50
+
+  - name: category
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["Electronics", "Clothing", "Home", "Sports", "Books", "Toys"]
+        weights: [0.2, 0.2, 0.15, 0.15, 0.15, 0.15]
+
+  - name: price
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 5.00
+        max: 500.00
+
+  - name: in_stock
+    type: boolean
+    nullable: false
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

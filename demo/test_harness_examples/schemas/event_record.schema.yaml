@@ -1,0 +1,48 @@
+name: event_record
+description: Event record for fault tolerance tests
+record_count: 100
+
+fields:
+  - name: event_id
+    type: uuid
+    nullable: false
+
+  - name: event_type
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["click", "view", "purchase", "search", "error"]
+        weights: [0.3, 0.35, 0.15, 0.15, 0.05]
+
+  - name: user_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1000
+        max: 99999
+
+  - name: payload
+    type: string
+    nullable: true
+    constraints:
+      length:
+        min: 10
+        max: 200
+
+  - name: priority
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 10
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

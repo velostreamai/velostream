@@ -34,37 +34,33 @@ SKIPPED=0
 TOTAL=0
 
 # Check if test is blocked (returns reason or empty)
+# NOTE: Schema issues (Issue #7, #8) resolved - schemas now created
 is_blocked() {
     local test_key="$1"
     case "$test_key" in
+        # Tier 1: Basic SQL
         "tier1_basic/05_distinct") echo "Issue #1 - SELECT DISTINCT not implemented" ;;
         "tier1_basic/06_order_by") echo "Issue #2 - ORDER BY not applied" ;;
         "tier1_basic/07_limit") echo "Issue #3 - LIMIT context persistence" ;;
+        # Tier 2: Aggregations
         "tier2_aggregations/12_tumbling_window") echo "Issue #4 - Needs watermarks" ;;
         "tier2_aggregations/13_sliding_window") echo "Issue #4 - Needs watermarks" ;;
         "tier2_aggregations/14_session_window") echo "Issue #4 - Needs watermarks" ;;
         "tier2_aggregations/15_compound_keys") echo "Issue #4 - Needs watermarks" ;;
+        # Tier 3: Joins
         "tier3_joins/20_stream_table_join") echo "Issue #6 - Config mismatch" ;;
         "tier3_joins/21_stream_stream_join") echo "Issue #5 - Runtime panic" ;;
         "tier3_joins/22_multi_join") echo "Issue #6 - File source config" ;;
-        "tier3_joins/23_right_join") echo "Issue #8 - Missing schema" ;;
-        "tier3_joins/24_full_outer_join") echo "Issue #8 - Missing schema" ;;
+        "tier3_joins/23_right_join") echo "Issue #5 - Runtime panic on join" ;;
+        "tier3_joins/24_full_outer_join") echo "Issue #5 - Runtime panic on join" ;;
+        # Tier 5: Complex
         "tier5_complex/40_pipeline") echo "Issues #4, #5 - Multi-stage + panic" ;;
         "tier5_complex/41_subqueries") echo "Issues #5, #6 - Reference table + panic" ;;
-        "tier5_complex/43_complex_filter") echo "Issue #7 - Schema mismatch" ;;
-        "tier5_complex/44_union") echo "Issue #8 - Missing schema" ;;
-        "tier6_edge_cases/50_nulls") echo "Issue #7 - Schema mismatch" ;;
-        "tier6_edge_cases/51_empty") echo "Issue #7 - Schema mismatch" ;;
-        "tier6_edge_cases/52_large_volume") echo "Issue #7 - Schema mismatch" ;;
-        "tier6_edge_cases/53_late_arrivals") echo "Issue #7 - Schema mismatch" ;;
-        "tier7_serialization/60_json_format") echo "Issue #8 - Missing schema" ;;
-        "tier7_serialization/61_avro_format") echo "Issue #8 - Missing schema" ;;
-        "tier7_serialization/62_protobuf_format") echo "Issue #8 - Missing schema" ;;
-        "tier7_serialization/63_format_conversion") echo "Issue #8 - Missing schema" ;;
-        "tier8_fault_tolerance/70_dlq_basic") echo "Issue #8 - Missing schema" ;;
-        "tier8_fault_tolerance/72_fault_injection") echo "Issue #8 - Missing schema" ;;
-        "tier8_fault_tolerance/73_debug_mode") echo "Issue #8 - Missing schema" ;;
-        "tier8_fault_tolerance/74_stress_test") echo "Issue #8 - Missing schema" ;;
+        "tier5_complex/43_complex_filter") echo "Issue #5 - Runtime panic" ;;
+        "tier5_complex/44_union") echo "Issue #5 - Runtime panic on UNION" ;;
+        # Tier 6: Edge cases
+        "tier6_edge_cases/52_large_volume") echo "Issue #4 - Uses WINDOW TUMBLING" ;;
+        "tier6_edge_cases/53_late_arrivals") echo "Issue #4 - Uses WINDOW TUMBLING" ;;
         *) echo "" ;;
     esac
 }

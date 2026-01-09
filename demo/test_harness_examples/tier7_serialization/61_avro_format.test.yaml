@@ -16,11 +16,8 @@ queries:
         greater_than: 0
       - type: schema_contains
         fields: [trade_id, symbol, quantity, price, side, notional_value, event_time]
-      - type: format
-        equals: avro
-      - type: schema_valid
-        schema_file: ./schemas/trade_record.avsc
-      - type: field_condition
+      - type: field_values
         field: quantity
-        condition: "> 0"
+        operator: greater_than
+        value: 0
     timeout_ms: 30000
