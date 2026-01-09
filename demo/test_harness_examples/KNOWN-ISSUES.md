@@ -127,60 +127,54 @@ SELECT COUNT_DISTINCT(customer_id) FROM orders;
 
 ---
 
-### 2. ORDER BY Not Applied in Streaming Mode
+### 2. ORDER BY in Streaming Mode
 
-**Status:** Partially Implemented (Parsed but Not Executed)
-**Affected Tests:** `tier1_basic/06_order_by.sql`, `tier1_basic/07_limit.sql`
-**Severity:** Streaming Limitation
+**Status:** ✅ PARTIALLY RESOLVED (2025-01-09) - Works in windowed queries
+**Affected Tests:** `tier1_basic/06_order_by.sql` (still blocked - unbounded stream)
+**Severity:** Design Limitation (not a bug)
 
 **Description:**
-ORDER BY is parsed and validated but **not executed** for top-level streaming queries. The `OrderProcessor` exists but is only used within window function processing (`OVER (ORDER BY ...)`), never for top-level ORDER BY clauses.
+ORDER BY is now supported for **windowed queries** (Flink-style bounded sorting). When a window
+emits, results are sorted according to the ORDER BY clause. This is safe because window records
+are bounded (finite).
 
-**Error Symptom:**
-Records are returned in arrival order, not sorted order:
-```
-Expected: Descending order by amount
-Actual:   75.15 followed by 6994.92 (not sorted)
-```
-
-**What Works:**
+**What NOW Works:**
 ```sql
--- ORDER BY inside window functions (SUPPORTED)
+-- ORDER BY in windowed queries (FR-084 - NEW!)
+SELECT symbol, AVG(price) as avg_price
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+ORDER BY avg_price DESC
+
+-- ORDER BY inside window functions (already worked)
 SELECT ticker, price,
        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY price DESC) as rank
 FROM trades
 ```
 
-**What Doesn't Work:**
+**What Doesn't Work (By Design):**
 ```sql
--- Top-level ORDER BY in streaming (NOT APPLIED)
+-- Top-level ORDER BY on unbounded stream (fundamentally impossible)
 SELECT * FROM trades ORDER BY amount DESC
 ```
 
-**Technical Details:**
+**Why Unbounded ORDER BY Can't Work:**
+Streaming SQL fundamentally cannot sort unbounded data - you'd need infinite memory to buffer
+all records before emitting any output. This is the same behavior as Apache Flink.
 
-| Component | File | Line | Status |
-|-----------|------|------|--------|
-| OrderProcessor | `src/velostream/sql/execution/processors/order.rs:17-46` | Fully implemented |
-| OrderProcessor usage | - | - | **Never called from streaming pipeline** |
-| SelectProcessor ORDER BY handling | `src/velostream/sql/execution/processors/select.rs:716-754` | Validates but doesn't sort |
-| Window function ordering | `src/velostream/sql/execution/expression/window_functions.rs:137-138` | Uses `sort_buffer_by_order()` (custom impl) |
-| Performance warning | `src/velostream/sql/validation/query_validator.rs:324-327` | Warns about memory issues |
+**Implementation (FR-084):**
+- `WindowAdapter::compute_aggregations_over_window()` now accepts ORDER BY
+- Calls `OrderProcessor::process()` on window results before emission
+- Zero performance impact on non-windowed queries
 
 **Source Code References:**
-- OrderProcessor definition: `src/velostream/sql/execution/processors/order.rs:17`
-- OrderProcessor::process: `src/velostream/sql/execution/processors/order.rs:31-46`
-- SelectProcessor validation only: `src/velostream/sql/execution/processors/select.rs:716-754`
-- Window function custom sort: `src/velostream/sql/execution/expression/window_functions.rs:177-213`
-- Export (unused): `src/velostream/sql/execution/processors/mod.rs:206`
+- Window ORDER BY: `src/velostream/sql/execution/window_v2/adapter.rs:704-710`
+- OrderProcessor: `src/velostream/sql/execution/processors/order.rs:31-46`
 
-**Design Notes:**
-The query validator warns: *"ORDER BY without LIMIT can cause memory issues in streaming"* (line 327). This is why ORDER BY isn't applied - true streaming can't buffer all records for sorting.
-
-**Workaround:**
-1. Use window functions with ORDER BY for ranking
-2. Apply sorting in the consuming application
-3. Use with LIMIT for bounded result sets (LIMIT works correctly)
+**Remaining Limitation:**
+The test `06_order_by.sql` uses unbounded streaming without windows - this is a design limitation,
+not a bug. Consider updating the test to use windowed aggregation with ORDER BY.
 
 ---
 

@@ -30,8 +30,10 @@ use super::traits::{EmissionStrategy, WindowStats, WindowStrategy};
 use super::types::SharedRecord;
 use crate::velostream::sql::SqlError;
 use crate::velostream::sql::ast::{
-    EmitMode, Expr, LiteralValue, RowsEmitMode, SelectField, StreamingQuery, WindowSpec,
+    EmitMode, Expr, LiteralValue, OrderByExpr, RowsEmitMode, SelectField, StreamingQuery,
+    WindowSpec,
 };
+use crate::velostream::sql::execution::processors::OrderProcessor;
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
@@ -348,18 +350,22 @@ impl WindowAdapter {
                     fields,
                     group_by,
                     having,
+                    order_by,
                     ..
                 } = query
                 {
                     // FR-081 Phase 6: Pass HAVING clause to compute_aggregations_over_window
                     // HAVING is evaluated using group accumulators, NOT result field names
                     // Also pass window_stats to populate _WINDOW_START and _WINDOW_END
+                    // FR-084: Pass ORDER BY for sorting window results (Flink-style bounded sort)
                     let computed_results = Self::compute_aggregations_over_window(
                         window_records,
                         fields,
                         group_by,
                         having,
                         &window_stats,
+                        order_by,
+                        context,
                     )?;
 
                     if !computed_results.is_empty() {
@@ -579,16 +585,21 @@ impl WindowAdapter {
     /// * `group_by` - Optional GROUP BY expressions
     /// * `having` - Optional HAVING clause (evaluated per group using accumulators)
     /// * `window_stats` - Window statistics containing window_start_time and window_end_time
+    /// * `order_by` - Optional ORDER BY expressions for sorting results (FR-084)
+    /// * `context` - Processor context for ORDER BY evaluation
     ///
     /// # Returns
     ///
     /// Vector of computed result records (one per GROUP BY partition that passes HAVING, or single result if no GROUP BY)
+    /// Results are sorted by ORDER BY if specified (Flink-style bounded window sorting)
     fn compute_aggregations_over_window(
         window_records: Vec<SharedRecord>,
         fields: &[SelectField],
         group_by: &Option<Vec<Expr>>,
         having: &Option<Expr>,
         window_stats: &WindowStats,
+        order_by: &Option<Vec<OrderByExpr>>,
+        context: &mut ProcessorContext,
     ) -> Result<Vec<StreamRecord>, SqlError> {
         // Extract aggregate expressions from SELECT fields
         let aggregate_expressions = Self::extract_aggregate_expressions(fields)?;
@@ -688,6 +699,14 @@ impl WindowAdapter {
                 Some((group_exprs, group_key)),
             )?;
             results.push(result_record);
+        }
+
+        // FR-084: Apply ORDER BY sorting to window results (Flink-style bounded sort)
+        // This is safe because window records are bounded (finite), unlike unbounded streams
+        if let Some(order_exprs) = order_by {
+            if !order_exprs.is_empty() {
+                results = OrderProcessor::process(results, order_exprs, context)?;
+            }
         }
 
         Ok(results)
