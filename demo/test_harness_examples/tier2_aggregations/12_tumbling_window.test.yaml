@@ -10,6 +10,10 @@ queries:
       - source: market_data
         schema: market_data
         records: 100
+        time_simulation:
+          start_time: "-3m"    # 3 minutes ago - spans multiple 1-minute windows
+          end_time: "now"
+          sequential: true     # Ordered timestamps ensure window progression
     assertions:
       - type: record_count
         greater_than: 0

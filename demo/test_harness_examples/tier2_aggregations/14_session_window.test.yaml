@@ -10,6 +10,11 @@ queries:
       - source: user_clicks
         schema: user_activity
         records: 500
+        time_simulation:
+          start_time: "-5m"    # 5 minutes of activity
+          end_time: "now"
+          sequential: true
+          jitter_ms: 5000      # 5s jitter creates natural gaps for session closure
     assertions:
       - type: record_count
         greater_than: 0

@@ -10,6 +10,10 @@ queries:
       - source: events
         schema: events
         records: 100000
+        time_simulation:
+          start_time: "-5m"    # 5 minutes of events
+          end_time: "now"
+          sequential: true
     assertions:
       - type: record_count
         greater_than: 50000  # At least half should pass filter (value > 0)
@@ -29,6 +33,10 @@ queries:
       - source: events
         schema: events
         records: 100000
+        time_simulation:
+          start_time: "-5m"    # 5 minutes spans multiple 1-min tumbling windows
+          end_time: "now"
+          sequential: true
     assertions:
       - type: record_count
         greater_than: 0

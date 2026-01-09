@@ -10,6 +10,10 @@ queries:
       - source: orders
         schema: order_event
         records: 500
+        time_simulation:
+          start_time: "-3m"    # 3 minutes spans multiple 1-min windows
+          end_time: "now"
+          sequential: true
     assertions:
       - type: record_count
         greater_than: 0
@@ -25,6 +29,10 @@ queries:
       - source: trades
         schema: market_data
         records: 500
+        time_simulation:
+          start_time: "-10m"   # 10 minutes spans multiple 5-min windows
+          end_time: "now"
+          sequential: true
     assertions:
       - type: record_count
         greater_than: 0
@@ -40,6 +48,10 @@ queries:
       - source: trades
         schema: market_data
         records: 500
+        time_simulation:
+          start_time: "-3m"    # 3 minutes spans multiple 1-min windows
+          end_time: "now"
+          sequential: true
     assertions:
       - type: record_count
         greater_than: 0

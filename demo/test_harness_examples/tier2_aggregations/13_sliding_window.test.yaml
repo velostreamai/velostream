@@ -10,6 +10,10 @@ queries:
       - source: price_feed
         schema: market_data
         records: 1000
+        time_simulation:
+          start_time: "-10m"   # 10 minutes - spans multiple 5-min windows with 1-min advance
+          end_time: "now"
+          sequential: true
     assertions:
       - type: record_count
         greater_than: 0
