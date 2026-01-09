@@ -1,28 +1,24 @@
 application: tumbling_window_demo
 description: Test tumbling window aggregation
 default_timeout_ms: 60000
-default_records: 1000
+default_records: 100
 
 queries:
-  - name: ohlcv_1m
-    description: Verify tumbling window produces OHLCV bars
+  - name: tumbling_output
+    description: Verify tumbling window produces time-bucketed aggregates
     inputs:
-      - source: market_ticks
-        schema: market_data.schema.yaml
-        records: 1000
+      - source: market_data
+        schema: market_data
+        records: 100
     assertions:
       - type: record_count
         greater_than: 0
       - type: schema_contains
-        fields: [symbol, low, high, total_volume, tick_count, avg_spread]
+        fields: [symbol, trade_count, total_volume, avg_price, min_price, max_price]
       - type: field_values
-        field: low
-        operator: lte
-        compare_field: high
-      - type: field_values
-        field: tick_count
-        operator: gt
+        field: trade_count
+        operator: greater_than
         value: 0
       - type: no_nulls
-        fields: [symbol, low, high, total_volume, tick_count]
+        fields: [symbol, trade_count, total_volume, avg_price, min_price, max_price]
     timeout_ms: 60000

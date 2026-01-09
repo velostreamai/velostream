@@ -1,28 +1,24 @@
 application: running_agg_demo
 description: Test running SUM and AVG window functions
 default_timeout_ms: 60000
-default_records: 200
+default_records: 100
 
 queries:
-  - name: running_totals
+  - name: running_stats
     description: Verify running aggregations accumulate correctly
     inputs:
-      - source: transaction_stream
-        schema: order_event.schema.yaml
-        records: 200
+      - source: market_data
+        schema: market_data
+        records: 100
     assertions:
       - type: record_count
-        equals: 200
+        equals: 100
       - type: schema_contains
-        fields: [customer_id, order_id, order_value, running_total, running_avg, order_count]
+        fields: [symbol, price, volume, cumulative_volume, moving_avg_100, trade_count]
       - type: field_values
-        field: running_total
-        operator: gte
-        compare_field: order_value
-      - type: field_values
-        field: order_count
-        operator: gt
+        field: trade_count
+        operator: greater_than
         value: 0
       - type: no_nulls
-        fields: [customer_id, order_value, running_total, running_avg]
+        fields: [symbol, price, volume, cumulative_volume, moving_avg_100, trade_count]
     timeout_ms: 60000

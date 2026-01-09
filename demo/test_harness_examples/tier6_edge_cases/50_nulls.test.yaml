@@ -8,7 +8,7 @@ queries:
     description: Verify COALESCE replaces nulls with defaults
     inputs:
       - source: sensor_readings
-        schema: simple_record.schema.yaml
+        schema: simple_record
         records: 200
         # Generator should include some null values
         null_probability: 0.2

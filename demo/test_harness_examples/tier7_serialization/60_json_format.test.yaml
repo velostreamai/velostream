@@ -8,7 +8,7 @@ queries:
     description: Verify JSON serialized output
     inputs:
       - source: raw_trades
-        schema: trade_record.schema.yaml
+        schema: trade_record
         records: 50
         format: json
     assertions:

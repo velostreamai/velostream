@@ -6,20 +6,20 @@
 -- =============================================================================
 --
 -- Tests: COUNT(*) and COUNT(column)
--- Expected: Correct row counting
+-- Expected: Correct row counting with GROUP BY
 --
 -- =============================================================================
 
 -- @app: count_demo
 -- @description: COUNT aggregation patterns
 
-CREATE TABLE count_output AS
+CREATE STREAM count_output AS
 SELECT
-    category PRIMARY KEY,
+    active PRIMARY KEY,
     COUNT(*) AS total_count,
     COUNT(value) AS value_count
 FROM input_stream
-GROUP BY category
+GROUP BY active
 EMIT CHANGES
 WITH (
     'input_stream.type' = 'kafka_source',
@@ -28,5 +28,5 @@ WITH (
 
     'count_output.type' = 'kafka_sink',
     'count_output.topic.name' = 'test_count_output',
-    'count_output.config_file' = '../configs/aggregates_sink.yaml'
+    'count_output.config_file' = '../configs/output_stream_sink.yaml'
 );

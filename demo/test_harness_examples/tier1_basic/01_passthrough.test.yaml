@@ -7,8 +7,8 @@ queries:
   - name: passthrough_output
     description: Verify all records pass through unchanged
     inputs:
-      - source: simple_input
-        schema: simple_record.schema.yaml
+      - source: input_stream
+        schema: simple_record
         records: 100
     assertions:
       - type: record_count

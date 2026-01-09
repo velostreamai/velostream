@@ -43,7 +43,7 @@ queries:
     description: Verify system survives fault injection
     inputs:
       - source: orders
-        schema: order_record.schema.yaml
+        schema: order_record
         records: 200
     assertions:
       # System should process most records despite faults

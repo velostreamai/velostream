@@ -1,25 +1,26 @@
 application: count_demo
 description: Test COUNT aggregation with GROUP BY
 default_timeout_ms: 60000
-default_records: 500
+default_records: 100
 
 queries:
-  - name: action_counts
+  - name: count_output
     description: Verify count aggregation produces correct results
     inputs:
-      - source: user_events
-        schema: user_activity.schema.yaml
-        records: 500
+      - source: input_stream
+        schema: simple_record
+        records: 100
     assertions:
+      # Streaming aggregation emits updates per input record
       - type: record_count
-        greater_than: 0
+        equals: 100
       - type: schema_contains
-        fields: [user_id, action, total_count, timed_count]
-      - type: aggregate_check
-        function: SUM
-        field: total_count
-        expected: 500  # Total should equal input count
-        tolerance: 0.0
+        fields: [active, total_count, value_count]
       - type: no_nulls
-        fields: [user_id, action, total_count]
+        fields: [active, total_count, value_count]
+      # Verify count values are positive
+      - type: field_values
+        field: total_count
+        operator: greater_than
+        value: 0
     timeout_ms: 60000

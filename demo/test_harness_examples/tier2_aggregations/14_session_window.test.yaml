@@ -8,7 +8,7 @@ queries:
     description: Verify session window groups user activity correctly
     inputs:
       - source: user_clicks
-        schema: user_activity.schema.yaml
+        schema: user_activity
         records: 500
     assertions:
       - type: record_count

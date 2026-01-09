@@ -15,13 +15,13 @@ queries:
         source_type:
           type: file
           path: ./input_trades.csv
-          format: csv
+          format: Csv
           watch: false
     output:
       sink_type:
         type: file
         path: ./output_trades.csv
-        format: csv
+        format: Csv
     assertions:
       # Check the output file exists
       - type: file_exists
@@ -31,13 +31,13 @@ queries:
       # Check row count (all 6 trades have volume >= 50)
       - type: file_row_count
         path: ./output_trades.csv
-        format: csv
+        format: Csv
         equals: 6
 
       # Verify all symbols are present
       - type: file_contains
         path: ./output_trades.csv
-        format: csv
+        format: Csv
         field: symbol
         expected_values:
           - AAPL
@@ -48,7 +48,7 @@ queries:
       # Verify trade_size categories exist
       - type: file_contains
         path: ./output_trades.csv
-        format: csv
+        format: Csv
         field: trade_size
         expected_values:
           - SMALL
@@ -60,6 +60,6 @@ queries:
       - type: file_matches
         actual_path: ./output_trades.csv
         expected_path: ./expected_output.csv
-        format: csv
+        format: Csv
         ignore_order: true
         numeric_tolerance: 0.01

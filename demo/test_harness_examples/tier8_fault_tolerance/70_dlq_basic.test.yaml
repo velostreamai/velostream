@@ -20,7 +20,7 @@ queries:
     description: Verify most records processed, failures go to DLQ
     inputs:
       - source: raw_events
-        schema: event_record.schema.yaml
+        schema: event_record
         records: 100
     assertions:
       # Most records should succeed

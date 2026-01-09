@@ -8,7 +8,7 @@ queries:
     description: Stage 1 - Verify data cleaning and enrichment
     inputs:
       - source: raw_transactions
-        schema: order_event.schema.yaml
+        schema: order_event
         records: 500
     assertions:
       - type: record_count
@@ -17,7 +17,7 @@ queries:
         fields: [order_id, customer_id, total_amount, status, region]
       - type: field_values
         field: quantity
-        operator: gt
+        operator: greater_than
         value: 0
       - type: no_nulls
         fields: [order_id, total_amount]

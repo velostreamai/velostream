@@ -8,7 +8,7 @@ queries:
     description: Verify passthrough handles zero input records
     inputs:
       - source: transactions
-        schema: simple_record.schema.yaml
+        schema: simple_record
         records: 0  # Zero records test
     assertions:
       - type: record_count
@@ -19,7 +19,7 @@ queries:
     description: Verify aggregation handles zero input records
     inputs:
       - source: transactions
-        schema: simple_record.schema.yaml
+        schema: simple_record
         records: 0
     assertions:
       - type: record_count

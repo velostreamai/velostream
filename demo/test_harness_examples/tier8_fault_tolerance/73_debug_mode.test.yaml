@@ -23,7 +23,7 @@ queries:
     description: Verify input validation and calculations
     inputs:
       - source: raw_orders
-        schema: order_record.schema.yaml
+        schema: order_record
         records: 10
     assertions:
       - type: record_count

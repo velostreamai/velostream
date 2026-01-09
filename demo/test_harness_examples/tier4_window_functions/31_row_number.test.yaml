@@ -1,24 +1,24 @@
 application: row_number_demo
 description: Test ROW_NUMBER and RANK window functions
 default_timeout_ms: 60000
-default_records: 200
+default_records: 100
 
 queries:
-  - name: ranked_orders
+  - name: ranked_trades
     description: Verify ROW_NUMBER produces sequential ordering
     inputs:
-      - source: sales_events
-        schema: order_event.schema.yaml
-        records: 200
+      - source: market_data
+        schema: market_data
+        records: 100
     assertions:
       - type: record_count
-        equals: 200
+        equals: 100
       - type: schema_contains
-        fields: [order_id, region, order_value, value_rank, dense_rank]
+        fields: [symbol, price, volume, row_num, price_rank, volume_rank]
       - type: field_values
-        field: value_rank
-        operator: gt
+        field: row_num
+        operator: greater_than
         value: 0
       - type: no_nulls
-        fields: [order_id, region, order_value, value_rank]
+        fields: [symbol, price, volume, row_num, price_rank, volume_rank]
     timeout_ms: 60000

@@ -1,26 +1,27 @@
 application: filter_demo
 description: Test WHERE clause filtering
 default_timeout_ms: 30000
-default_records: 1000
+default_records: 100
 
 queries:
-  - name: high_volume_trades
-    description: Verify filter conditions work correctly
+  - name: filtered_output
+    description: Verify filter conditions work correctly (amount > 100 AND active = true)
     inputs:
-      - source: market_input
-        schema: market_data.schema.yaml
-        records: 1000
+      - source: input_stream
+        schema: simple_record
+        records: 100
     assertions:
       - type: record_count
         greater_than: 0
-        less_than: 1000  # Should filter out some records
+        less_than: 100  # Should filter out some records
       - type: field_values
-        field: volume
-        operator: gt
-        value: 10000
-      - type: field_in_set
-        field: exchange
-        values: ["NYSE", "NASDAQ"]
+        field: amount
+        operator: greater_than
+        value: 100
+      - type: field_values
+        field: active
+        operator: equals
+        value: true
       - type: no_nulls
-        fields: [symbol, price, volume, exchange]
+        fields: [id, value, amount, active]
     timeout_ms: 30000

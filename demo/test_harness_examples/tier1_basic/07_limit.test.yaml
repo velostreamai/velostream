@@ -7,18 +7,19 @@ queries:
   - name: top_10_output
     description: Verify only 10 records returned
     inputs:
-      - source: simple_input
-        schema: simple_record.schema.yaml
-        records: 100          # Send 100 records
+      - source: input_stream
+        schema: simple_record
+        records: 100
     assertions:
       - type: record_count
-        equals: 10            # Should only get 10 back
+        equals: 10
       - type: schema_contains
         fields: [id, value, amount, event_time]
-      - type: sorted
+      - type: ordering
         field: amount
         direction: descending
-      - type: field_condition
+      - type: field_values
         field: amount
-        condition: "> 0"
+        operator: greater_than
+        value: 0
     timeout_ms: 30000

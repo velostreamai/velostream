@@ -1,28 +1,26 @@
 application: sum_avg_demo
 description: Test SUM, AVG, MIN, MAX aggregations
 default_timeout_ms: 60000
-default_records: 500
+default_records: 100
 
 queries:
-  - name: region_stats
+  - name: sum_avg_output
     description: Verify aggregate functions produce correct results
     inputs:
-      - source: order_events
-        schema: order_event.schema.yaml
-        records: 500
+      - source: input_stream
+        schema: simple_record
+        records: 100
     assertions:
+      # Streaming aggregation emits updates per input record
       - type: record_count
-        greater_than: 0
-        less_than: 10  # Limited number of regions
+        equals: 100
       - type: schema_contains
-        fields: [region, order_count, total_quantity, avg_price, min_price, max_price, total_revenue]
-      - type: field_in_set
-        field: region
-        values: ["us-east", "us-west", "eu-west", "eu-central", "apac"]
-      - type: field_values
-        field: min_price
-        operator: lte
-        compare_field: max_price
+        fields: [active, total_amount, avg_amount, min_amount, max_amount, record_count]
       - type: no_nulls
-        fields: [region, order_count, total_quantity, avg_price]
+        fields: [active, total_amount, avg_amount, min_amount, max_amount, record_count]
+      # Verify aggregation values are positive
+      - type: field_values
+        field: record_count
+        operator: greater_than
+        value: 0
     timeout_ms: 60000

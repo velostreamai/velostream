@@ -8,7 +8,7 @@ queries:
     description: Verify Protobuf serialized output matches schema
     inputs:
       - source: raw_trades
-        schema: trade_record.schema.yaml
+        schema: trade_record
         records: 50
         format: json      # Input as JSON
     assertions:

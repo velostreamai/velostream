@@ -8,7 +8,7 @@ queries:
     description: Verify complex filter conditions are correctly applied
     inputs:
       - source: order_stream
-        schema: order_event.schema.yaml
+        schema: order_event
         records: 500
     assertions:
       - type: record_count
@@ -18,15 +18,15 @@ queries:
         fields: [order_id, customer_id, product_id, quantity, unit_price, subtotal, net_total, status, region, priority]
       - type: field_values
         field: quantity
-        operator: gte
+        operator: greater_than_or_equals
         value: 1
       - type: field_values
         field: quantity
-        operator: lte
+        operator: less_than_or_equals
         value: 100
       - type: field_values
         field: unit_price
-        operator: gt
+        operator: greater_than
         value: 10.00
       - type: field_in_set
         field: status
@@ -39,7 +39,7 @@ queries:
         values: ["high", "medium"]
       - type: field_values
         field: customer_id
-        operator: gt
+        operator: greater_than
         value: 0
       - type: no_nulls
         fields: [order_id, customer_id, quantity, unit_price, status, region, category]

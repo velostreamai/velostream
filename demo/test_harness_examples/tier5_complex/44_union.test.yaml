@@ -8,17 +8,17 @@ queries:
     description: Verify records from all regions combined
     inputs:
       - source: us_transactions
-        schema: transaction_record.schema.yaml
+        schema: transaction_record
         records: 50
         overrides:
           region: "US"
       - source: eu_transactions
-        schema: transaction_record.schema.yaml
+        schema: transaction_record
         records: 30
         overrides:
           region: "EU"
       - source: apac_transactions
-        schema: transaction_record.schema.yaml
+        schema: transaction_record
         records: 20
         overrides:
           region: "APAC"

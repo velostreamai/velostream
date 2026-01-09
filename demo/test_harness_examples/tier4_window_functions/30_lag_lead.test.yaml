@@ -1,22 +1,22 @@
 application: lag_lead_demo
 description: Test LAG and LEAD window functions
 default_timeout_ms: 60000
-default_records: 500
+default_records: 100
 
 queries:
   - name: price_changes
     description: Verify LAG/LEAD access previous and next values
     inputs:
-      - source: price_stream
-        schema: market_data.schema.yaml
-        records: 500
+      - source: market_data
+        schema: market_data
+        records: 100
     assertions:
       - type: record_count
-        equals: 500
+        equals: 100
       - type: schema_contains
-        fields: [symbol, current_price, prev_price, next_price, price_change, volume]
+        fields: [symbol, price, volume, prev_price, next_price, price_change]
       # First record per symbol should have null prev_price
       # Last record per symbol should have null next_price
       - type: no_nulls
-        fields: [symbol, current_price, volume]
+        fields: [symbol, price, volume]
     timeout_ms: 60000

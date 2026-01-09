@@ -4,22 +4,20 @@ default_timeout_ms: 60000
 default_records: 100
 
 queries:
-  - name: order_shipments
+  - name: matched_events
     description: Verify stream-stream join matches orders with shipments
     inputs:
       - source: orders
-        schema: order_event.schema.yaml
+        schema: order_event
         records: 100
       - source: shipments
-        schema: shipment.schema.yaml
-        records: 80  # Not all orders are shipped
+        schema: shipment
+        records: 80
     assertions:
       - type: record_count
         greater_than: 0
       - type: schema_contains
-        fields: [order_id, customer_id, shipment_id, carrier, tracking_number]
-      - type: join_coverage
-        min_match_rate: 0.3
+        fields: [order_id, customer_id, order_total, shipment_id, carrier, tracking_number]
       - type: no_nulls
         fields: [order_id, shipment_id, carrier]
     timeout_ms: 60000

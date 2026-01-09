@@ -13,16 +13,16 @@
 -- @app: sum_avg_demo
 -- @description: SUM and AVG aggregation patterns
 
-CREATE TABLE sum_avg_output AS
+CREATE STREAM sum_avg_output AS
 SELECT
-    category PRIMARY KEY,
+    active PRIMARY KEY,
     SUM(amount) AS total_amount,
     AVG(amount) AS avg_amount,
     MIN(amount) AS min_amount,
     MAX(amount) AS max_amount,
     COUNT(*) AS record_count
 FROM input_stream
-GROUP BY category
+GROUP BY active
 EMIT CHANGES
 WITH (
     'input_stream.type' = 'kafka_source',
@@ -31,5 +31,5 @@ WITH (
 
     'sum_avg_output.type' = 'kafka_sink',
     'sum_avg_output.topic.name' = 'test_sum_avg_output',
-    'sum_avg_output.config_file' = '../configs/aggregates_sink.yaml'
+    'sum_avg_output.config_file' = '../configs/output_stream_sink.yaml'
 );

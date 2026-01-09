@@ -8,11 +8,11 @@ queries:
     description: Verify all products appear, with or without orders
     inputs:
       - source: orders
-        schema: order_record.schema.yaml
+        schema: order_record
         records: 30
         # Only orders for some products
       - source: products
-        schema: product_record.schema.yaml
+        schema: product_record
         records: 50
         type: table
     assertions:

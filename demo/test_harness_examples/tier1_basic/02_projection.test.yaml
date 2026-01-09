@@ -4,18 +4,17 @@ default_timeout_ms: 30000
 default_records: 100
 
 queries:
-  - name: order_summary
+  - name: projected_output
     description: Verify field projection and aliases work correctly
     inputs:
-      - source: order_input
-        schema: order_event.schema.yaml
+      - source: input_stream
+        schema: simple_record
         records: 100
     assertions:
       - type: record_count
         equals: 100
       - type: schema_contains
-        fields: [id, customer, quantity, price, total, status, event_time]
+        fields: [record_id, record_value, adjusted_amount, event_time]
       - type: no_nulls
-        fields: [id, customer, quantity, price, total]
-      # Verify total = quantity * price (would need custom assertion)
+        fields: [record_id, record_value, adjusted_amount]
     timeout_ms: 30000

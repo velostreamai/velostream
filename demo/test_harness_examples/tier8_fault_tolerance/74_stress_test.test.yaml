@@ -33,7 +33,7 @@ queries:
     description: Verify high-volume processing with faults
     inputs:
       - source: trades
-        schema: trade_record.schema.yaml
+        schema: trade_record
         records: 10000
         rate_per_second: 1000
     assertions:

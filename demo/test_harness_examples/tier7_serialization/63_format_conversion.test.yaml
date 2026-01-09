@@ -8,7 +8,7 @@ queries:
     description: Verify format conversion from JSON to Avro
     inputs:
       - source: json_trades
-        schema: trade_record.schema.yaml
+        schema: trade_record
         records: 50
         format: json      # Input as JSON
     assertions:

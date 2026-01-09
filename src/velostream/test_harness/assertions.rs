@@ -3625,7 +3625,13 @@ fn compare_field_value(
 
     match operator {
         ComparisonOperator::Equals => {
-            if let Some(exp) = expected.as_str() {
+            if let Some(exp) = expected.as_bool() {
+                // Boolean comparison - check FieldValue::Boolean or string representation
+                match value {
+                    FieldValue::Boolean(b) => *b == exp,
+                    _ => value_str == exp.to_string(),
+                }
+            } else if let Some(exp) = expected.as_str() {
                 value_str == exp
             } else if let Some(exp) = expected.as_i64() {
                 field_value_to_f64(value).is_some_and(|v| (v - exp as f64).abs() < 0.0001)
@@ -4156,6 +4162,60 @@ mod tests {
 
         let result = runner.assert_field_values(&output, &config);
         assert!(result.passed);
+    }
+
+    #[test]
+    fn test_field_values_equals_boolean_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("active".to_string(), FieldValue::Boolean(true))]),
+            HashMap::from([("active".to_string(), FieldValue::Boolean(true))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "active".to_string(),
+            operator: ComparisonOperator::Equals,
+            value: serde_yaml::Value::Bool(true),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed, "Boolean comparison should pass: {}", result.message);
+    }
+
+    #[test]
+    fn test_field_values_equals_boolean_false_pass() {
+        let output = create_test_output(vec![
+            HashMap::from([("active".to_string(), FieldValue::Boolean(false))]),
+            HashMap::from([("active".to_string(), FieldValue::Boolean(false))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "active".to_string(),
+            operator: ComparisonOperator::Equals,
+            value: serde_yaml::Value::Bool(false),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(result.passed, "Boolean false comparison should pass: {}", result.message);
+    }
+
+    #[test]
+    fn test_field_values_equals_boolean_mismatch_fail() {
+        let output = create_test_output(vec![
+            HashMap::from([("active".to_string(), FieldValue::Boolean(true))]),
+            HashMap::from([("active".to_string(), FieldValue::Boolean(false))]),
+        ]);
+
+        let runner = AssertionRunner::new();
+        let config = FieldValuesAssertion {
+            field: "active".to_string(),
+            operator: ComparisonOperator::Equals,
+            value: serde_yaml::Value::Bool(true),
+        };
+
+        let result = runner.assert_field_values(&output, &config);
+        assert!(!result.passed, "Boolean comparison with mismatch should fail");
     }
 
     #[test]

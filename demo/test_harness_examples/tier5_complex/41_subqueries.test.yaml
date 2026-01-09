@@ -8,7 +8,7 @@ queries:
     description: Verify subquery filters VIP customer orders
     inputs:
       - source: all_orders
-        schema: order_event.schema.yaml
+        schema: order_event
         records: 200
     assertions:
       - type: record_count

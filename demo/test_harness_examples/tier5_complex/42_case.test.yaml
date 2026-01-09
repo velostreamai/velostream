@@ -8,7 +8,7 @@ queries:
     description: Verify CASE expressions produce correct categories
     inputs:
       - source: user_activity
-        schema: user_activity.schema.yaml
+        schema: user_activity
         records: 300
     assertions:
       - type: record_count

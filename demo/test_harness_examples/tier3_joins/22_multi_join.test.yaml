@@ -8,7 +8,7 @@ queries:
     description: Verify multi-table join enriches from both sources
     inputs:
       - source: order_events
-        schema: order_event.schema.yaml
+        schema: order_event
         records: 100
     assertions:
       - type: record_count

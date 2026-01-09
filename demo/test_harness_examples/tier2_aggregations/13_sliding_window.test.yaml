@@ -8,7 +8,7 @@ queries:
     description: Verify sliding window produces moving averages
     inputs:
       - source: price_feed
-        schema: market_data.schema.yaml
+        schema: market_data
         records: 1000
     assertions:
       - type: record_count
