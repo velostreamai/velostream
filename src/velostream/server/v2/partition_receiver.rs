@@ -77,6 +77,23 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
+/// Pending DLQ entry to be written asynchronously after sync batch processing
+///
+/// This struct captures the information needed to write a DLQ entry without
+/// blocking the sync processing loop. The actual async write happens in the
+/// run() method after process_batch() returns.
+#[derive(Debug)]
+struct PendingDlqEntry {
+    /// The record that failed processing
+    record: StreamRecord,
+    /// Error message describing the failure
+    error_message: String,
+    /// Index of the record in the original batch
+    record_index: usize,
+    /// Whether this failure is recoverable
+    recoverable: bool,
+}
+
 /// Synchronous partition receiver with direct ownership model
 ///
 /// ## Key Design Principles
@@ -324,9 +341,14 @@ impl PartitionReceiver {
                 while retry_count <= self.config.max_retries {
                     // Process batch synchronously (Phase 6.7: no async overhead)
                     match self.process_batch(&batch) {
-                        Ok((processed, output_records)) => {
+                        Ok((processed, output_records, pending_dlq_entries)) => {
                             total_records += processed as u64;
                             batch_count += 1;
+
+                            // Write any pending DLQ entries asynchronously (fix for block_on panic)
+                            if !pending_dlq_entries.is_empty() {
+                                self.write_pending_dlq_entries(pending_dlq_entries).await;
+                            }
 
                             // Record processed records to metrics
                             self.job_metrics.record_processed(processed);
@@ -526,12 +548,16 @@ impl PartitionReceiver {
     /// - Enables deterministic output availability per record
     /// - Allows main loop to immediately decide commit/fail/rollback
     /// - Expected: 15% throughput improvement (693K → 800K+ rec/sec)
+    ///
+    /// Returns (processed_count, output_records, pending_dlq_entries)
+    /// DLQ entries are collected but NOT written - caller must write them asynchronously
     fn process_batch(
         &mut self,
         batch: &[StreamRecord],
-    ) -> Result<(usize, Vec<Arc<StreamRecord>>), SqlError> {
+    ) -> Result<(usize, Vec<Arc<StreamRecord>>, Vec<PendingDlqEntry>), SqlError> {
         let mut processed = 0;
         let mut output_records = Vec::new();
+        let mut pending_dlq_entries = Vec::new();
 
         for (record_index, record) in batch.iter().enumerate() {
             match self
@@ -552,70 +578,31 @@ impl PartitionReceiver {
                         self.partition_id, record_index, e
                     );
 
-                    // Send to DLQ if enabled
-                    if self.config.enable_dlq {
-                        if let Some(dlq) = self.observability_wrapper.dlq() {
-                            let error_msg = format!(
-                                "PartitionReceiver {}: SQL execution error at index {}: {}",
-                                self.partition_id, record_index, e
-                            );
-                            // Create a DLQ record with error context
-                            let mut record_data = std::collections::HashMap::new();
-                            record_data
-                                .insert("error".to_string(), FieldValue::String(error_msg.clone()));
-                            record_data.insert(
-                                "partition_id".to_string(),
-                                FieldValue::Integer(self.partition_id as i64),
-                            );
+                    // Collect DLQ entry if enabled (will be written asynchronously by caller)
+                    if self.config.enable_dlq && self.observability_wrapper.dlq().is_some() {
+                        let error_msg = format!(
+                            "PartitionReceiver {}: SQL execution error at index {}: {}",
+                            self.partition_id, record_index, e
+                        );
+                        // Create a DLQ record with error context
+                        let mut record_data = std::collections::HashMap::new();
+                        record_data
+                            .insert("error".to_string(), FieldValue::String(error_msg.clone()));
+                        record_data.insert(
+                            "partition_id".to_string(),
+                            FieldValue::Integer(self.partition_id as i64),
+                        );
 
-                            let dlq_record = StreamRecord::new(record_data);
+                        let dlq_record = StreamRecord::new(record_data);
 
-                            // Add to DLQ synchronously - we must wait for confirmation
-                            // to ensure the record is not lost
-                            let dlq_ref = Arc::clone(dlq);
-                            let fut = dlq_ref.add_entry(
-                                dlq_record,
-                                error_msg.clone(),
-                                record_index,
-                                true, // recoverable
-                            );
-
-                            // Use block_on to wait for DLQ write (we're in sync context)
-                            if let Ok(runtime) =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    tokio::runtime::Handle::current()
-                                }))
-                            {
-                                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                    runtime.block_on(fut)
-                                })) {
-                                    Ok(true) => {
-                                        debug!(
-                                            "PartitionReceiver {}: DLQ entry added for record {}",
-                                            self.partition_id, record_index
-                                        );
-                                    }
-                                    Ok(false) => {
-                                        error!(
-                                            "PartitionReceiver {}: Failed to add DLQ entry for record {} - record is LOST. Error: {}",
-                                            self.partition_id, record_index, error_msg
-                                        );
-                                    }
-                                    Err(_) => {
-                                        error!(
-                                            "PartitionReceiver {}: Panic during DLQ write for record {} - record is LOST. Error: {}",
-                                            self.partition_id, record_index, error_msg
-                                        );
-                                    }
-                                }
-                            } else {
-                                error!(
-                                    "PartitionReceiver {}: No Tokio runtime for DLQ write - record {} is LOST. Error: {}",
-                                    self.partition_id, record_index, error_msg
-                                );
-                            }
-                        }
-                    } else {
+                        // Collect for async write (no block_on panic!)
+                        pending_dlq_entries.push(PendingDlqEntry {
+                            record: dlq_record,
+                            error_message: error_msg,
+                            record_index,
+                            recoverable: true,
+                        });
+                    } else if !self.config.enable_dlq {
                         // DLQ disabled - track the failure directly
                         self.job_metrics.record_failed(1);
                     }
@@ -626,7 +613,45 @@ impl PartitionReceiver {
             }
         }
 
-        Ok((processed, output_records))
+        Ok((processed, output_records, pending_dlq_entries))
+    }
+
+    /// Write pending DLQ entries asynchronously
+    ///
+    /// This method is called from the async run() context after process_batch()
+    /// returns, avoiding the block_on panic that occurred when trying to call
+    /// async DLQ writes from within sync code.
+    async fn write_pending_dlq_entries(&self, entries: Vec<PendingDlqEntry>) {
+        if entries.is_empty() {
+            return;
+        }
+
+        if let Some(dlq) = self.observability_wrapper.dlq() {
+            for entry in entries {
+                let success = dlq
+                    .add_entry(
+                        entry.record,
+                        entry.error_message.clone(),
+                        entry.record_index,
+                        entry.recoverable,
+                    )
+                    .await;
+
+                if success {
+                    debug!(
+                        "PartitionReceiver {}: DLQ entry added for record {}",
+                        self.partition_id, entry.record_index
+                    );
+                } else {
+                    error!(
+                        "PartitionReceiver {}: Failed to add DLQ entry for record {} - record is LOST. Error: {}",
+                        self.partition_id, entry.record_index, entry.error_message
+                    );
+                    // Track the failure
+                    self.job_metrics.record_failed(1);
+                }
+            }
+        }
     }
 
     /// Check if partition is experiencing backpressure
