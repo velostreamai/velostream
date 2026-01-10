@@ -113,6 +113,38 @@ else
 fi
 echo ""
 
+# Stage 3: Test Harness Validation
+echo -e "${YELLOW}🧪 Stage 3: Test Harness Validation${NC}"
+echo ""
+
+echo -e "${BLUE}🔟 Building velo-test (release)...${NC}"
+if cargo build --release --bin velo-test --quiet; then
+    echo -e "${GREEN}✅ velo-test built successfully${NC}"
+else
+    echo -e "${RED}❌ velo-test build failed.${NC}"
+    exit 1
+fi
+echo ""
+
+echo -e "${BLUE}1️⃣1️⃣ Running test harness examples...${NC}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEST_HARNESS_DIR="${SCRIPT_DIR}/demo/test_harness_examples"
+
+if [[ -x "${TEST_HARNESS_DIR}/run-tests.sh" ]]; then
+    cd "$TEST_HARNESS_DIR"
+    if ./run-tests.sh --skip-blocked; then
+        echo -e "${GREEN}✅ Test harness examples passed${NC}"
+    else
+        echo -e "${RED}❌ Test harness examples failed.${NC}"
+        cd "$SCRIPT_DIR"
+        exit 1
+    fi
+    cd "$SCRIPT_DIR"
+else
+    echo -e "${YELLOW}⚠️ Test harness script not found, skipping${NC}"
+fi
+echo ""
+
 # All checks passed
 echo ""
 echo -e "${GREEN}🎉 ALL PRE-COMMIT CHECKS PASSED!${NC}"
@@ -128,6 +160,7 @@ echo "   • Examples: ✅"
 echo "   • Binaries: ✅"
 echo "   • Comprehensive tests: ✅"
 echo "   • Documentation tests: ✅"
+echo "   • Test harness examples: ✅"
 echo ""
 
 # Git commit section
@@ -161,7 +194,7 @@ git add .
 
 # Create commit with Claude Code signature
 echo -e "${BLUE}Creating commit...${NC}"
-git commit -m "$commit_message
+git commit -m "$commit_message"
 
 echo ""
 echo -e "${GREEN}✅ Successfully committed!${NC}"
