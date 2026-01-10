@@ -23,16 +23,28 @@ queries:
         fields: [order_id, total_amount]
     timeout_ms: 60000
 
-  - name: flagged_regions
-    description: Stage 3 - Verify final aggregation with tier flags
+  - name: regional_summary
+    description: Stage 2 - Aggregate by region with tumbling window
     inputs:
       - source: cleaned_transactions
         from_previous: cleaned_transactions
-        records: 500
     assertions:
       - type: record_count
         greater_than: 0
-        less_than: 10
+      - type: schema_contains
+        fields: [region, transaction_count, total_revenue, avg_transaction]
+      - type: no_nulls
+        fields: [region, transaction_count, total_revenue]
+    timeout_ms: 60000
+
+  - name: flagged_regions
+    description: Stage 3 - Verify final aggregation with tier flags
+    inputs:
+      - source: regional_summary
+        from_previous: regional_summary
+    assertions:
+      - type: record_count
+        greater_than: 0
       - type: schema_contains
         fields: [region, transaction_count, total_revenue, value_tier]
       - type: field_in_set

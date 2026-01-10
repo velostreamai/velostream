@@ -34,34 +34,19 @@ SKIPPED=0
 TOTAL=0
 
 # Check if test is blocked (returns reason or empty)
-# NOTE: Schema issues (Issue #7, #8) resolved - schemas now created
-# NOTE: Config path issue (Issue #6) resolved - path normalization added
+# Current blocked issues (2026-01-10):
+#   Issue #2: ORDER BY on unbounded streams (design limitation)
+#   Issue #11: IN (SELECT) subquery execution
+#   Issue #12: UNION multi-source configuration
 is_blocked() {
     local test_key="$1"
     case "$test_key" in
         # Tier 1: Basic SQL
-        "tier1_basic/05_distinct") echo "Issue #1 - SELECT DISTINCT not implemented" ;;
-        "tier1_basic/06_order_by") echo "Issue #2 - ORDER BY not applied" ;;
-        "tier1_basic/07_limit") echo "Issue #3 - LIMIT context persistence" ;;
-        # Tier 2: Aggregations
-        "tier2_aggregations/12_tumbling_window") echo "Issue #4 - Needs watermarks" ;;
-        "tier2_aggregations/13_sliding_window") echo "Issue #4 - Needs watermarks" ;;
-        "tier2_aggregations/14_session_window") echo "Issue #4 - Needs watermarks" ;;
-        "tier2_aggregations/15_compound_keys") echo "Issue #4 - Needs watermarks" ;;
-        # Tier 3: Joins (Issue #6 config path resolved, but other issues remain)
-        "tier3_joins/20_stream_table_join") echo "Issue #5 - Join field aliasing issues" ;;
-        "tier3_joins/21_stream_stream_join") echo "Issue #5 - Runtime panic" ;;
-        "tier3_joins/22_multi_join") echo "Issue #5 - Runtime panic" ;;
-        "tier3_joins/23_right_join") echo "Issue #5 - Runtime panic on join" ;;
-        "tier3_joins/24_full_outer_join") echo "Issue #5 - Runtime panic on join" ;;
+        "tier1_basic/06_order_by") echo "Issue #2 - ORDER BY on unbounded stream (design limitation)" ;;
+        "tier1_basic/07_limit") echo "Issue #2 - Uses ORDER BY (LIMIT itself works)" ;;
         # Tier 5: Complex
-        "tier5_complex/40_pipeline") echo "Issues #4, #5 - Multi-stage + panic" ;;
-        "tier5_complex/41_subqueries") echo "Issue #5 - Runtime panic" ;;
-        "tier5_complex/43_complex_filter") echo "Issue #5 - Runtime panic" ;;
-        "tier5_complex/44_union") echo "Issue #5 - Runtime panic on UNION" ;;
-        # Tier 6: Edge cases
-        "tier6_edge_cases/52_large_volume") echo "Issue #4 - Uses WINDOW TUMBLING" ;;
-        "tier6_edge_cases/53_late_arrivals") echo "Issue #4 - Uses WINDOW TUMBLING" ;;
+        "tier5_complex/41_subqueries") echo "Issue #11 - IN (SELECT) subquery produces 0 records" ;;
+        "tier5_complex/44_union") echo "Issue #12 - UNION multi-source configuration" ;;
         *) echo "" ;;
     esac
 }

@@ -4,7 +4,7 @@ This document tracks known limitations and issues discovered during test harness
 
 ## Current Status (2026-01-10)
 
-> **TEST HARNESS: 37 Runnable / 4 Blocked (90%)**
+> **TEST HARNESS: 38 Runnable / 3 Blocked (93%)**
 
 | Tier | Runnable | Blocked | Status |
 |------|----------|---------|--------|
@@ -12,11 +12,11 @@ This document tracks known limitations and issues discovered during test harness
 | tier2_aggregations | 7 | 0 | **100%** |
 | tier3_joins | 5 | 0 | **100%** |
 | tier4_window_funcs | 4 | 0 | **100%** |
-| tier5_complex | 2 | 3 | 40% |
+| tier5_complex | 3 | 2 | 60% |
 | tier6_edge_cases | 4 | 0 | **100%** |
 | tier7_serialization | 4 | 0 | **100%** |
 | tier8_fault_tol | 4 | 0 | **100%** |
-| **TOTAL** | **37** | **4** | **90%** |
+| **TOTAL** | **38** | **3** | **93%** |
 
 **Run tests:** `./run-tests.sh --skip-blocked`
 
@@ -25,7 +25,6 @@ This document tracks known limitations and issues discovered during test harness
 | Issue | Description | Tests Affected |
 |-------|-------------|----------------|
 | #2 | ORDER BY on unbounded streams (design limitation) | 2 |
-| #10 | Multi-stage pipeline topic routing | 1 |
 | #11 | IN (SELECT) subquery execution | 1 |
 | #12 | UNION multi-source configuration | 1 |
 
@@ -51,6 +50,39 @@ SELECT DISTINCT * FROM input_stream
 - Added `distinct: bool` field to `StreamingQuery::Select` AST
 - Implemented deduplication using record hashing in SelectProcessor
 - State tracking via `distinct_seen` HashMap in ProcessorContext
+
+---
+
+### ~~10. Multi-Stage Pipeline Topic Routing~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-10)
+**Affected Tests:** `tier5_complex/40_pipeline.sql` - Now unblocked
+
+**What Was Fixed:**
+Multi-stage pipelines now correctly route data between stages. Each stage reads from
+the correct upstream topic and writes to its own output topic.
+
+**Root Cause:**
+The `normalize_topic_property` function in `config_loader.rs` was ignoring explicit
+`topic.name` from SQL WITH clauses when a `topic` key already existed from YAML configs.
+This caused all sources to read from the same YAML default topic.
+
+**Fix Applied:**
+Changed `normalize_topic_property` to make `topic.name` override `topic`, ensuring
+SQL WITH clause values take precedence over YAML config defaults.
+
+**What Now Works:**
+```sql
+-- Multi-stage pipeline with explicit topic routing
+CREATE STREAM cleaned_transactions AS SELECT ... FROM raw_transactions
+WITH ('raw_transactions.topic.name' = 'test_raw_transactions', ...);
+
+CREATE TABLE regional_summary AS SELECT ... FROM cleaned_transactions
+WITH ('cleaned_transactions.topic.name' = 'test_cleaned_transactions', ...);
+
+CREATE STREAM flagged_regions AS SELECT ... FROM regional_summary
+WITH ('regional_summary.topic.name' = 'test_regional_summary', ...);
+```
 
 ---
 
@@ -90,32 +122,6 @@ SELECT * FROM trades ORDER BY amount DESC
 **Why Unbounded ORDER BY Can't Work:**
 Streaming SQL fundamentally cannot sort unbounded data - you'd need infinite memory to buffer
 all records before emitting any output. This is the same behavior as Apache Flink.
-
----
-
-### 10. Multi-Stage Pipeline Topic Routing
-
-**Status:** Test Harness Limitation
-**Affected Tests:** `tier5_complex/40_pipeline.sql`
-**Severity:** Medium
-
-**Description:**
-Multi-stage pipelines with cascading CREATE STREAM/TABLE statements don't properly route
-data between stages. Stage 3 (`flagged_regions`) reads from the raw input topic instead
-of the aggregated output from Stage 2 (`regional_summary`).
-
-**Error Symptom:**
-```
-Multiple fields not found during SELECT clause: window_start, window_end, total_revenue,
-avg_transaction, transaction_count
-```
-
-**Root Cause:**
-The test harness executes each query independently but doesn't properly chain topic outputs
-to downstream query inputs. The `from_previous` test spec feature needs enhancement.
-
-**Workaround:**
-Split multi-stage pipelines into separate test files or use explicit topic names.
 
 ---
 
@@ -172,7 +178,7 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 
 ## Test Progress by Tier
 
-**Overall Progress: 36 runnable, 5 blocked (41 total tests) - 88%**
+**Overall Progress: 38 runnable, 3 blocked (41 total tests) - 93%**
 
 ### tier1_basic (8 tests) - Basic SQL Operations
 | Test | Status | Notes |
@@ -217,7 +223,7 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 ### tier5_complex (5 tests) - Complex Queries
 | Test | Status | Notes |
 |------|--------|-------|
-| 40_pipeline | ⚠️ BLOCKED | Issue #10 - Multi-stage pipeline topic routing |
+| 40_pipeline | ✅ PASSED | Multi-stage pipeline (3 stages) |
 | 41_subqueries | ⚠️ BLOCKED | Issue #11 - IN (SELECT) subquery produces 0 records |
 | 42_case | ✅ PASSED | CASE WHEN expressions |
 | 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters |
@@ -253,12 +259,12 @@ tier1_basic:        6/8 runnable  (75%)  - 2 blocked by ORDER BY limitation
 tier2_aggregations: 7/7 runnable  (100%) ★
 tier3_joins:        5/5 runnable  (100%) ★
 tier4_window_funcs: 4/4 runnable  (100%) ★
-tier5_complex:      2/5 runnable  (40%)  - 3 blocked by advanced features
+tier5_complex:      3/5 runnable  (60%)  - 2 blocked by advanced features
 tier6_edge_cases:   4/4 runnable  (100%) ★
 tier7_serialization:4/4 runnable  (100%) ★
 tier8_fault_tol:    4/4 runnable  (100%) ★
 ─────────────────────────────────────────
-TOTAL:              37/41 runnable (90%)
+TOTAL:              38/41 runnable (93%)
 ```
 
 ---

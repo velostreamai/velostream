@@ -88,13 +88,23 @@ pub fn load_config_file_to_properties_with_base(
 /// ```
 pub fn normalize_topic_property(properties: &mut HashMap<String, String>) {
     if let Some(topic_name) = properties.get("topic.name").cloned() {
-        if !properties.contains_key("topic") {
+        // topic.name takes precedence over topic (explicit SQL override > YAML default)
+        // This ensures SQL WITH clause topic.name overrides YAML config topic
+        if let Some(existing) = properties.get("topic") {
+            if existing != &topic_name {
+                log::debug!(
+                    "Overriding topic='{}' with topic.name='{}' (SQL override)",
+                    existing,
+                    topic_name
+                );
+            }
+        } else {
             log::debug!(
                 "Normalizing topic.name='{}' to topic (config_loader)",
                 topic_name
             );
-            properties.insert("topic".to_string(), topic_name);
         }
+        properties.insert("topic".to_string(), topic_name);
     }
 }
 
@@ -479,5 +489,49 @@ file:
         );
         assert_eq!(props.get("path"), Some(&"./nested_data.csv".to_string()));
         assert_eq!(props.get("file.format"), Some(&"csv".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_topic_property_sql_override() {
+        // Test that topic.name overrides existing topic (SQL override > YAML default)
+        // This is the multi-stage pipeline bug fix scenario:
+        // - YAML config sets topic: "yaml_default"
+        // - SQL WITH clause sets topic.name: "sql_override"
+        // - topic.name MUST win (explicit SQL override takes precedence)
+        let mut props = HashMap::new();
+        props.insert("topic".to_string(), "yaml_default".to_string());
+        props.insert("topic.name".to_string(), "sql_override".to_string());
+
+        normalize_topic_property(&mut props);
+
+        // topic.name should override topic
+        assert_eq!(
+            props.get("topic"),
+            Some(&"sql_override".to_string()),
+            "topic.name should override existing topic value"
+        );
+    }
+
+    #[test]
+    fn test_normalize_topic_property_no_override_needed() {
+        // Test when only topic.name exists (no conflict)
+        let mut props = HashMap::new();
+        props.insert("topic.name".to_string(), "my_topic".to_string());
+
+        normalize_topic_property(&mut props);
+
+        assert_eq!(props.get("topic"), Some(&"my_topic".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_topic_property_no_topic_name() {
+        // Test when only topic exists (no normalization needed)
+        let mut props = HashMap::new();
+        props.insert("topic".to_string(), "existing_topic".to_string());
+
+        normalize_topic_property(&mut props);
+
+        // topic should remain unchanged
+        assert_eq!(props.get("topic"), Some(&"existing_topic".to_string()));
     }
 }
