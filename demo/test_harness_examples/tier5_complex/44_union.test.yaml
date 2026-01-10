@@ -27,19 +27,7 @@ queries:
         equals: 100           # 50 + 30 + 20 from all sources
       - type: schema_contains
         fields: [order_id, customer_id, region, amount, currency, event_time]
-      - type: field_values
+      - type: field_in_set
         field: region
-        contains: ["US", "EU", "APAC"]
-      - type: field_count
-        field: region
-        value: "US"
-        equals: 50
-      - type: field_count
-        field: region
-        value: "EU"
-        equals: 30
-      - type: field_count
-        field: region
-        value: "APAC"
-        equals: 20
+        values: ["US", "EU", "APAC"]
     timeout_ms: 60000

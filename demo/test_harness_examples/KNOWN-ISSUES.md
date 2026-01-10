@@ -2,21 +2,21 @@
 
 This document tracks known limitations and issues discovered during test harness validation.
 
-## Current Status (2025-01-09)
+## Current Status (2026-01-09)
 
-> **TEST HARNESS: 33 Runnable / 7 Blocked (83%)**
+> **TEST HARNESS: 36 Runnable / 5 Blocked (88%)**
 
 | Tier | Runnable | Blocked | Status |
 |------|----------|---------|--------|
-| tier1_basic | 4 | 3 | 57% |
+| tier1_basic | 5 | 3 | 63% |
 | tier2_aggregations | 7 | 0 | **100%** |
 | tier3_joins | 5 | 0 | **100%** |
 | tier4_window_funcs | 4 | 0 | **100%** |
-| tier5_complex | 1 | 4 | 20% |
+| tier5_complex | 2 | 3 | 40% |
 | tier6_edge_cases | 4 | 0 | **100%** |
 | tier7_serialization | 4 | 0 | **100%** |
 | tier8_fault_tol | 4 | 0 | **100%** |
-| **TOTAL** | **33** | **7** | **83%** |
+| **TOTAL** | **36** | **5** | **88%** |
 
 **Schema issues (#7, #8): RESOLVED**
 **Config path issue (#6): RESOLVED**
@@ -32,7 +32,10 @@ This document tracks known limitations and issues discovered during test harness
 | Issue | Description | Tests Affected |
 |-------|-------------|----------------|
 | #1 | SELECT DISTINCT not implemented | 1 |
-| #2 | ORDER BY not applied in streaming | 2 |
+| #2 | ORDER BY on unbounded streams (design limitation) | 2 |
+| #10 | Multi-stage pipeline topic routing | 1 |
+| #11 | IN (SELECT) subquery execution | 1 |
+| #12 | UNION multi-source configuration | 1 |
 
 ---
 
@@ -451,6 +454,83 @@ async fn run(...) {
 
 ---
 
+### 10. Multi-Stage Pipeline Topic Routing
+
+**Status:** Test Harness Limitation
+**Affected Tests:** `tier5_complex/40_pipeline.sql`
+**Severity:** Medium
+
+**Description:**
+Multi-stage pipelines with cascading CREATE STREAM/TABLE statements don't properly route
+data between stages. Stage 3 (`flagged_regions`) reads from the raw input topic instead
+of the aggregated output from Stage 2 (`regional_summary`).
+
+**Error Symptom:**
+```
+Multiple fields not found during SELECT clause: window_start, window_end, total_revenue,
+avg_transaction, transaction_count
+```
+
+**Root Cause:**
+The test harness executes each query independently but doesn't properly chain topic outputs
+to downstream query inputs. The `from_previous` test spec feature needs enhancement.
+
+**Workaround:**
+Split multi-stage pipelines into separate test files or use explicit topic names.
+
+---
+
+### 11. IN (SELECT) Subquery Execution
+
+**Status:** Runtime Issue
+**Affected Tests:** `tier5_complex/41_subqueries.sql`
+**Severity:** Medium
+
+**Description:**
+Subqueries using `IN (SELECT ...)` pattern against file sources produce 0 records.
+
+**SQL Pattern:**
+```sql
+WHERE o.customer_id IN (
+    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+)
+```
+
+**Root Cause:**
+The subquery against `vip_customers` file source isn't being properly loaded or executed
+during the main query processing. The file source table may not be registered in the
+processor context when the IN subquery executes.
+
+**Workaround:**
+Consider using JOINs instead of IN subqueries for file source lookups.
+
+---
+
+### 12. UNION Multi-Source Configuration
+
+**Status:** Configuration Issue
+**Affected Tests:** `tier5_complex/44_union.sql`
+**Severity:** Medium
+
+**Description:**
+UNION ALL queries combining multiple Kafka sources fail when the test harness runs in
+"file-only mode" or when sources aren't properly configured.
+
+**Error Symptom:**
+```
+Source type must be explicitly specified for 'us_transactions'
+```
+
+**Root Cause:**
+The test harness detects "file-only mode" when no external Kafka is available, but UNION
+queries require multiple Kafka sources. The configuration resolution doesn't properly
+handle multi-source UNION patterns.
+
+**Workaround:**
+Ensure testcontainers Kafka is available, or redesign tests to use file sources.
+
+---
+
 ## Test Harness Issues (Fixed)
 
 ### Boolean Field Value Assertion (FIXED)
@@ -492,9 +572,9 @@ Several test specs used incorrect assertion type names:
 
 ## Test Progress by Tier
 
-**Overall Progress: 28 runnable, 12 blocked (40 total tests)**
+**Overall Progress: 36 runnable, 5 blocked (41 total tests) - 88%**
 
-### tier1_basic (7 tests) - Basic SQL Operations
+### tier1_basic (8 tests) - Basic SQL Operations
 | Test | Status | Notes |
 |------|--------|-------|
 | 01_passthrough | ✅ PASSED | Basic SELECT * passthrough |
@@ -504,6 +584,7 @@ Several test specs used incorrect assertion type names:
 | 05_distinct | ⚠️ BLOCKED | Issue #1 - SELECT DISTINCT not implemented |
 | 06_order_by | ⚠️ BLOCKED | Issue #2 - ORDER BY not applied |
 | 07_limit | ⚠️ BLOCKED | Issue #2 - Uses ORDER BY (LIMIT itself works) |
+| 08_headers | ✅ PASSED | HEADER, SET_HEADER, HAS_HEADER, HEADER_KEYS |
 
 ### tier2_aggregations (7 tests) - Aggregation Functions ★ 100%
 | Test | Status | Notes |
@@ -536,11 +617,11 @@ Several test specs used incorrect assertion type names:
 ### tier5_complex (5 tests) - Complex Queries
 | Test | Status | Notes |
 |------|--------|-------|
-| 40_pipeline | ⚠️ BLOCKED | Issues #4, #5 - Multi-stage with windows + panic |
-| 41_subqueries | ⚠️ BLOCKED | Issues #5, #6 - Reference table + panic |
+| 40_pipeline | ⚠️ BLOCKED | Issue #10 - Multi-stage pipeline topic routing |
+| 41_subqueries | ⚠️ BLOCKED | Issue #11 - IN (SELECT) subquery produces 0 records |
 | 42_case | ✅ PASSED | CASE WHEN expressions work correctly |
-| 43_complex_filter | ⚠️ BLOCKED | Issue #5 - Runtime panic |
-| 44_union | ⚠️ BLOCKED | Issue #5 - Runtime panic on UNION |
+| 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters all working |
+| 44_union | ⚠️ BLOCKED | Issue #12 - UNION multi-source configuration |
 
 ### tier6_edge_cases (4 tests) - Edge Cases ★ 100%
 | Test | Status | Notes |
@@ -568,27 +649,28 @@ Several test specs used incorrect assertion type names:
 
 ### Progress Summary
 ```
-tier1_basic:        4/7 runnable  (57%)  - 3 blocked by SQL features
+tier1_basic:        5/8 runnable  (63%)  - 3 blocked by SQL features
 tier2_aggregations: 7/7 runnable  (100%) - ALL PASSED ✅ (time_simulation fix)
 tier3_joins:        5/5 runnable  (100%) - ALL PASSED ✅ (CSV schema fix)
 tier4_window_funcs: 4/4 runnable  (100%) - ALL PASSED ✅
-tier5_complex:      1/5 runnable  (20%)  - 4 blocked by SQL features
+tier5_complex:      2/5 runnable  (40%)  - 3 blocked by advanced features
 tier6_edge_cases:   4/4 runnable  (100%) - ALL PASSED ✅ (time_simulation fix)
 tier7_serialization:4/4 runnable  (100%) - ALL PASSED ✅
-tier8_fault_tol:    4/4 runnable  (100%) - ALL PASSED ✅ (block_on issue disproven)
+tier8_fault_tol:    4/4 runnable  (100%) - ALL PASSED ✅ (DLQ block_on fixed)
 ─────────────────────────────────────────
-TOTAL:              33/40 runnable (83%)
+TOTAL:              36/41 runnable (88%)
 ```
 
 ### Key Findings
 
 1. **Seven tiers at 100%** - tier2, tier3, tier4, tier6, tier7, tier8 all fully passing
 2. **time_simulation fixed window tests** - Issue #4 resolved; windows now close properly
-3. **LIMIT works correctly** - Issue #3 resolved; 07_limit blocked by ORDER BY (Issue #2)
-4. **Join CSV schemas fixed** - Issue #5 resolved; CSV column names now match YAML configs
-5. **89 join unit tests pass** - Join implementation is correct; demo tests failed due to data mismatch
-6. **Window functions work well** - ROWS WINDOW BUFFER, LAG/LEAD, TUMBLING, SLIDING, SESSION all working
-7. **DLQ `block_on` BUG FIXED** - Issue #9 resolved; DLQ entries now collected sync, written async
+3. **DLQ block_on panic fixed** - Issue #9 resolved; async DLQ writes working
+4. **tier5_complex progress** - 42_case and 43_complex_filter now passing (CASE, BETWEEN, IN)
+5. **LIMIT works correctly** - Issue #3 resolved; 07_limit blocked by ORDER BY (Issue #2)
+6. **Join CSV schemas fixed** - Issue #5 resolved; CSV column names now match YAML configs
+7. **89 join unit tests pass** - Join implementation is correct; demo tests failed due to data mismatch
+8. **Window functions work well** - ROWS WINDOW BUFFER, LAG/LEAD, TUMBLING, SLIDING, SESSION all working
 
 ---
 
