@@ -18,13 +18,6 @@ This document tracks known limitations and issues discovered during test harness
 | tier8_fault_tol | 4 | 0 | **100%** |
 | **TOTAL** | **36** | **5** | **88%** |
 
-**Schema issues (#7, #8): RESOLVED**
-**Config path issue (#6): RESOLVED**
-**LIMIT issue (#3): RESOLVED** - Works correctly; test blocked by ORDER BY (#2)
-**Windows issue (#4): RESOLVED** - Added time_simulation to test specs
-**Join CSV issue (#5): RESOLVED** - Fixed CSV column names to match expected schemas
-**DLQ block_on issue (#9): RESOLVED** - Fixed by collecting DLQ entries in sync code, writing async
-
 **Run tests:** `./run-tests.sh --skip-blocked`
 
 ### Blocking Issues
@@ -39,7 +32,7 @@ This document tracks known limitations and issues discovered during test harness
 
 ---
 
-## SQL Parser/Execution Limitations
+## Active Issues
 
 ### 1. SELECT DISTINCT Not Supported
 
@@ -48,12 +41,7 @@ This document tracks known limitations and issues discovered during test harness
 **Severity:** Feature Gap
 
 **Description:**
-The SQL parser does not recognize the `DISTINCT` keyword after `SELECT`. When parsing `SELECT DISTINCT ...`, the parser fails silently, treating `DISTINCT` as a column name, which causes downstream validation errors.
-
-**Error Symptom:**
-```
-Analysis error: Configuration error: Source type must be explicitly specified for ''
-```
+The SQL parser does not recognize the `DISTINCT` keyword after `SELECT`. When parsing `SELECT DISTINCT ...`, the parser fails silently, treating `DISTINCT` as a column name.
 
 **What Works:**
 ```sql
@@ -75,82 +63,28 @@ Use `GROUP BY` to achieve deduplication:
 SELECT value, active FROM input_stream GROUP BY value, active
 ```
 
-**Technical Details:**
-
-| Component | File | Status |
-|-----------|------|--------|
-| Lexer TokenType enum | `src/velostream/sql/parser.rs:157-290` | No `Distinct` token defined |
-| Keyword mapping | `src/velostream/sql/parser.rs:325-410` | No `"DISTINCT"` keyword registered |
-| AST Select struct | `src/velostream/sql/ast.rs:210-267` | No `distinct: bool` field |
-| Parser parse_select | `src/velostream/sql/parser.rs:1102-1471` | Goes directly from SELECT to fields |
-
-**Source Code References:**
-- Parser entry: `src/velostream/sql/parser.rs:1102` - `fn parse_select()`
-- TokenType enum: `src/velostream/sql/parser.rs:157` - `pub enum TokenType`
-- AST definition: `src/velostream/sql/ast.rs:210` - `StreamingQuery::Select`
-
-**Implementation Notes:**
-`COUNT_DISTINCT` and `APPROX_COUNT_DISTINCT` are implemented as aggregation functions in:
-- `src/velostream/sql/execution/aggregation/functions.rs:40-46`
-- `src/velostream/sql/validation/function_registry.rs:141-143`
-
-**Important: SELECT DISTINCT vs COUNT_DISTINCT - They Are NOT The Same**
-
-These are fundamentally different operations and cannot be aliases for each other:
-
-| Feature | SELECT DISTINCT | COUNT_DISTINCT |
-|---------|-----------------|----------------|
-| **Purpose** | Remove duplicate rows from results | Count unique values |
-| **Returns** | Multiple rows (the unique values) | Single scalar number |
-| **Type** | Query modifier | Aggregation function |
-
-**Example showing the difference:**
-```sql
--- Sample data: orders table with customer_id values [1, 2, 1, 3, 2, 1]
-
--- SELECT DISTINCT - returns the unique values as rows
-SELECT DISTINCT customer_id FROM orders;
--- Result: 3 rows → [1, 2, 3]
-
--- COUNT_DISTINCT - returns how many unique values exist
-SELECT COUNT_DISTINCT(customer_id) FROM orders;
--- Result: 1 row → 3
-```
-
-**When to use each:**
-
-| Use Case | Solution |
-|----------|----------|
-| "Show me all unique categories" | `SELECT DISTINCT category FROM products` |
-| "How many unique categories?" | `SELECT COUNT_DISTINCT(category) FROM products` |
-| "List unique customer/product pairs" | `SELECT DISTINCT customer_id, product_id FROM orders` |
-| "Count unique customers per region" | `SELECT region, COUNT_DISTINCT(customer_id) GROUP BY region` |
-
-**Recommendation:** Both should be supported as they serve different purposes. The GROUP BY workaround provides SELECT DISTINCT functionality until proper support is added.
-
 ---
 
 ### 2. ORDER BY in Streaming Mode
 
-**Status:** ✅ PARTIALLY RESOLVED (2025-01-09) - Works in windowed queries
+**Status:** Partially Resolved - Works in windowed queries
 **Affected Tests:** `tier1_basic/06_order_by.sql` (still blocked - unbounded stream)
-**Severity:** Design Limitation (not a bug)
+**Severity:** Design Limitation
 
 **Description:**
 ORDER BY is now supported for **windowed queries** (Flink-style bounded sorting). When a window
-emits, results are sorted according to the ORDER BY clause. This is safe because window records
-are bounded (finite).
+emits, results are sorted according to the ORDER BY clause.
 
-**What NOW Works:**
+**What Works:**
 ```sql
--- ORDER BY in windowed queries (FR-084 - NEW!)
+-- ORDER BY in windowed queries (FR-084)
 SELECT symbol, AVG(price) as avg_price
 FROM trades
 GROUP BY symbol
 WINDOW TUMBLING(INTERVAL '1' MINUTE)
 ORDER BY avg_price DESC
 
--- ORDER BY inside window functions (already worked)
+-- ORDER BY inside window functions
 SELECT ticker, price,
        ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY price DESC) as rank
 FROM trades
@@ -165,292 +99,6 @@ SELECT * FROM trades ORDER BY amount DESC
 **Why Unbounded ORDER BY Can't Work:**
 Streaming SQL fundamentally cannot sort unbounded data - you'd need infinite memory to buffer
 all records before emitting any output. This is the same behavior as Apache Flink.
-
-**Implementation (FR-084):**
-- `WindowAdapter::compute_aggregations_over_window()` now accepts ORDER BY
-- Calls `OrderProcessor::process()` on window results before emission
-- Zero performance impact on non-windowed queries
-
-**Source Code References:**
-- Window ORDER BY: `src/velostream/sql/execution/window_v2/adapter.rs:704-710`
-- OrderProcessor: `src/velostream/sql/execution/processors/order.rs:31-46`
-
-**Remaining Limitation:**
-The test `06_order_by.sql` uses unbounded streaming without windows - this is a design limitation,
-not a bug. Consider updating the test to use windowed aggregation with ORDER BY.
-
----
-
-### 3. LIMIT Behavior in Streaming
-
-**Status:** ✅ RESOLVED (2025-01-09)
-**Affected Tests:** None (was `tier1_basic/07_limit.sql`, now blocked by Issue #2)
-**Severity:** Not an Issue
-
-**Resolution:**
-Analysis confirmed LIMIT is **fully implemented and works correctly**:
-
-1. `StreamExecutionEngine` owns `record_count: u64` which persists for job lifetime
-2. `PartitionReceiver` directly owns the engine (no Arc/Mutex reset between batches)
-3. `LimitProcessor::check_limit()` correctly compares and terminates at limit
-4. State flows: Engine → ProcessorContext → LimitProcessor → back to Engine
-
-**Why `07_limit.sql` Still Fails:**
-The test uses `ORDER BY amount DESC LIMIT 10`. LIMIT works, but ORDER BY doesn't (Issue #2).
-The test expects ordered results, which fails due to Issue #2, not LIMIT.
-
-**Verification Complete:**
-- ✅ LIMIT stops stream after N total records (global, not per-batch)
-- ✅ Context persists across batches (engine owns count)
-- ✅ State is job-lifetime, reset only on job restart
-
-**A simple test without ORDER BY would pass:**
-```sql
-SELECT id, value, amount FROM input_stream WHERE amount > 0 LIMIT 10
-```
-
----
-
-### 4. Windowed Queries Need Watermarks in Test Harness
-
-**Status:** ✅ RESOLVED (2025-01-09)
-**Affected Tests:** None (was 6 tests in tier2_aggregations and tier6_edge_cases)
-**Severity:** Not an Issue
-
-**Resolution:**
-Added `time_simulation` configuration to all windowed test specs. This generates data with
-timestamps spanning multiple window boundaries, causing windows to close naturally when
-records from the next window arrive.
-
-**Fix Applied:**
-```yaml
-inputs:
-  - source: market_data
-    schema: market_data
-    records: 100
-    time_simulation:
-      start_time: "-3m"    # 3 minutes spans multiple 1-min windows
-      end_time: "now"
-      sequential: true     # Ordered timestamps ensure window progression
-```
-
-**Tests Fixed:**
-- `tier2_aggregations/12_tumbling_window.test.yaml` - 3 min range for 1-min windows
-- `tier2_aggregations/13_sliding_window.test.yaml` - 10 min range for 5-min windows
-- `tier2_aggregations/14_session_window.test.yaml` - 5 min with jitter for session gaps
-- `tier2_aggregations/15_compound_keys.test.yaml` - Multiple queries with appropriate ranges
-- `tier6_edge_cases/52_large_volume.test.yaml` - 5 min range
-- `tier6_edge_cases/53_late_arrivals.test.yaml` - 3 min range with jitter
-
-**Why It Works:**
-```
-Without time_simulation:
-  Records: ●●●●●●●●●● (all at ~same moment)
-  Windows: [Window 1] ← never closes
-
-With time_simulation (start: -3m, end: now):
-  Records: ●●●|●●●|●●● (spread across 3 minutes)
-  Windows: [W1] → CLOSES → [W2] → CLOSES → [W3]
-```
-
-**Note:** `53_late_arrivals.sql` also has explicit watermark configuration for testing
-the watermark path specifically.
-
----
-
-### 5. Join Tests Failed Due to CSV Schema Mismatch
-
-**Status:** ✅ RESOLVED
-**Affected Tests:** All 5 tier3_joins tests
-**Severity:** Was Critical (now fixed)
-
-**Description:**
-Join tests were failing because the CSV reference data files had different column names than what the YAML configs and SQL queries expected.
-
-**Root Cause:** CSV/Schema column name mismatches:
-
-| File | CSV Had | Config Expected | SQL Used |
-|------|---------|-----------------|----------|
-| products.csv | `name` | `product_name` | `p.product_name` |
-| products.csv | `base_price` | `unit_price` | `p.unit_price` |
-| products.csv | ❌ missing | `supplier_id` | `p.supplier_id` |
-| customers.csv | `name` | `customer_name` | `c.customer_name` |
-
-**Resolution:**
-Updated CSV files to match expected schemas:
-- `products.csv`: Renamed `name` → `product_name`, `base_price` → `unit_price`, added `supplier_id`
-- `customers.csv`: Renamed `name` → `customer_name`
-
-**Verification:**
-- 89 join-related unit tests pass (join implementation is correct)
-- Demo tests failed due to data mismatch, not code bugs
-
-**Note on Previous Analysis:**
-Initial analysis incorrectly hypothesized two code bugs (Timestamp+Interval arithmetic and block_on panic). These were based on theoretical analysis without running the actual tests. The real issue was simply mismatched column names in CSV files.
-
----
-
-### 6. Stream-Table Joins Need Reference Data Files
-
-**Status:** ✅ RESOLVED
-**Affected Tests:** `tier3_joins/20_stream_table_join.sql`
-**Severity:** Medium (was)
-
-**Description:**
-Stream-table joins reference file sources for lookup tables, but the file path configuration property names didn't match what the code expected.
-
-**Error Symptom (was):**
-```
-File not found: File './demo_data/sample.csv' does not exist
-```
-
-**Resolution (2025-01-09):**
-
-Two fixes were applied:
-
-1. **Added `normalize_path_property()` to config_loader.rs** - This normalizes flattened YAML keys (`file.path`, `data_source.path`, `source.path`) to the expected `path` key, consistent with the existing `normalize_topic_property()` pattern.
-
-2. **Fixed relative paths in config files** - Changed `data/products.csv` to `../data/products.csv` since tests run from tier subdirectories.
-
-**Files Modified:**
-- `src/velostream/datasource/config_loader.rs` - Added path normalization
-- `configs/products_table.yaml` - Fixed relative path
-- `configs/customers_table.yaml` - Fixed relative path
-
-**Note:** Config path loading now works correctly. The tier3 join tests are now fully functional after fixing CSV schema mismatches (Issue #5).
-
----
-
-### 7. SQL/Schema Mismatch - Fields Not in Schema
-
-**Status:** ✅ RESOLVED
-**Affected Tests:** `tier5_complex/43_complex_filter.sql`, `tier6_edge_cases/50_nulls.sql`, others
-**Severity:** Medium (was)
-
-**Description:**
-Some SQL files reference fields that don't exist in the test schemas. The SQL expects certain fields but the .schema.yaml used for data generation doesn't have those fields.
-
-**Example - 43_complex_filter.sql:**
-```sql
--- SQL references these fields:
-WHERE priority IN ('high', 'medium')
-AND quantity * unit_price * (1 - discount_pct / 100) AS net_total
-
--- But order_event.schema.yaml doesn't have:
--- - priority
--- - discount_pct
-```
-
-**Example - 50_nulls.sql:**
-```sql
--- SQL expects sensor fields:
-SELECT sensor_id, temperature, humidity, pressure, ...
-FROM sensor_readings
-
--- But test spec uses simple_record schema which has:
--- id, value, amount, count, active, event_time
-```
-
-**Resolution (2025-01-09):**
-- Created `sensor_readings.schema.yaml` for tier6 null/edge case tests
-- Created `events.schema.yaml` for tier6 large volume tests
-- Added `priority` and `discount_pct` fields to `order_event.schema.yaml`
-- Updated test specs to reference correct schemas
-
----
-
-### 8. Missing Schema Files for Tier7/Tier8
-
-**Status:** ✅ RESOLVED
-**Affected Tests:** All of `tier7_serialization/`, `tier5_complex/44_union.sql`
-**Severity:** Medium (was)
-
-**Description:**
-Several tests reference schema files that don't exist:
-
-| Test | References | Actually Exists |
-|------|------------|-----------------|
-| tier5/44_union | `transaction_record.schema.yaml` | ❌ No |
-| tier7/60_json_format | `trade_record.schema.yaml` | ❌ No (only .avsc/.proto) |
-| tier7/61_avro_format | `trade_record.schema.yaml` | ❌ No |
-| tier7/62_protobuf_format | `trade_record.schema.yaml` | ❌ No |
-| tier7/63_format_conversion | `trade_record.schema.yaml` | ❌ No |
-
-**Note:** The tier7/schemas/ directory contains:
-- `trade_record.avsc` (Avro schema)
-- `trade_record.proto` (Protobuf schema)
-- But NOT `trade_record.schema.yaml` (data generator schema)
-
-**Resolution (2025-01-09):**
-Created missing `.schema.yaml` files in `schemas/` directory:
-- `trade_record.schema.yaml` - For tier7 serialization tests
-- `transaction_record.schema.yaml` - For tier5/44_union
-- `order_record.schema.yaml` - For tier3 join tests
-- `product_record.schema.yaml` - For tier3 join tests
-- `shipment_record.schema.yaml` - For tier3 join tests
-- `event_record.schema.yaml` - For tier8 fault tolerance tests
-
-Also fixed test spec syntax (removed unsupported `format` and `schema_valid` assertions).
-
----
-
-### 9. DLQ with AdaptiveJobProcessor (block_on issue)
-
-**Status:** ✅ RESOLVED (2025-01-09)
-**Affected Tests:** None (fixed)
-**Severity:** Was HIGH - Now fixed
-
-**Problem:**
-The `block_on()` call at line 590 of `partition_receiver.rs` caused a panic when
-called from within the async `run()` context:
-```
-panicked at partition_receiver.rs:590:45:
-Cannot start a runtime from within a runtime.
-```
-
-**Solution Implemented:**
-Changed DLQ write strategy from blocking-in-sync to collect-and-write-async:
-
-1. **`process_batch()` now returns pending DLQ entries** instead of trying to write them synchronously
-2. **New `PendingDlqEntry` struct** captures DLQ record, error message, index, and recoverable flag
-3. **`write_pending_dlq_entries()` async method** writes entries after batch processing
-4. **`run()` calls the async writer** after `process_batch()` returns
-
-**Key Code Changes:**
-```rust
-// Before (panic-prone):
-fn process_batch(...) -> Result<(usize, Vec<Arc<StreamRecord>>), SqlError> {
-    // ... on error:
-    runtime.block_on(dlq.add_entry(...));  // PANIC!
-}
-
-// After (fixed):
-fn process_batch(...) -> Result<(usize, Vec<Arc<StreamRecord>>, Vec<PendingDlqEntry>), SqlError> {
-    // ... on error:
-    pending_dlq_entries.push(PendingDlqEntry { ... });  // Collect for later
-}
-
-async fn run(...) {
-    match self.process_batch(&batch) {
-        Ok((processed, output_records, pending_dlq_entries)) => {
-            self.write_pending_dlq_entries(pending_dlq_entries).await;  // Write async
-        }
-    }
-}
-```
-
-**Performance Impact:** None
-- Hot path (successful record processing) unchanged
-- DLQ writes only happen on errors
-- Removed `catch_unwind` overhead from error path
-- Cleaner async flow with natural tokio integration
-
-**Unit Tests:**
-- `tests/unit/server/v2/partition_receiver_dlq_error_path_test.rs` - 3 tests, all passing
-- All 19 partition_receiver tests pass
-
-**Files Modified:**
-- `src/velostream/server/v2/partition_receiver.rs` - Main fix
 
 ---
 
@@ -531,45 +179,6 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 
 ---
 
-## Test Harness Issues (Fixed)
-
-### Boolean Field Value Assertion (FIXED)
-
-**Status:** Fixed
-**Fix Location:** `src/velostream/test_harness/assertions.rs:3627`
-
-**Description:**
-The `field_values` assertion with boolean comparisons was failing even when values matched. The comparison logic didn't handle `serde_yaml::Value::Bool`.
-
-**Fix:**
-Added `expected.as_bool()` check before string/number checks in `compare_field_value()`.
-
----
-
-## Test Specification Issues (Fixed)
-
-### Assertion Type Names
-
-Several test specs used incorrect assertion type names:
-
-| Incorrect | Correct |
-|-----------|---------|
-| `sorted` | `ordering` |
-| `field_condition` | `field_values` |
-| `fields` (in no_duplicates) | `key_fields` |
-
-### Operator Names in field_values
-
-| Incorrect | Correct |
-|-----------|---------|
-| `gt` | `greater_than` |
-| `eq` | `equals` |
-| `lt` | `less_than` |
-| `lte` | `less_than_or_equals` |
-| `gte` | `greater_than_or_equals` |
-
----
-
 ## Test Progress by Tier
 
 **Overall Progress: 36 runnable, 5 blocked (41 total tests) - 88%**
@@ -592,18 +201,18 @@ Several test specs used incorrect assertion type names:
 | 10_count.annotated | ⏭️ SKIP | No test spec (demo only) |
 | 10_count | ✅ PASSED | COUNT(*), COUNT(col) |
 | 11_sum_avg | ✅ PASSED | SUM, AVG, MIN, MAX |
-| 12_tumbling_window | ✅ PASSED | Added time_simulation for window closure |
-| 13_sliding_window | ✅ PASSED | Added time_simulation for window closure |
-| 14_session_window | ✅ PASSED | Added time_simulation with jitter |
-| 15_compound_keys | ✅ PASSED | Added time_simulation for window closure |
+| 12_tumbling_window | ✅ PASSED | TUMBLING windows |
+| 13_sliding_window | ✅ PASSED | SLIDING windows |
+| 14_session_window | ✅ PASSED | SESSION windows |
+| 15_compound_keys | ✅ PASSED | Compound GROUP BY keys |
 
 ### tier3_joins (5 tests) - Join Operations ★ 100%
 | Test | Status | Notes |
 |------|--------|-------|
-| 20_stream_table_join | ✅ PASSED | CSV schema fix - products.csv |
+| 20_stream_table_join | ✅ PASSED | Stream-table join |
 | 21_stream_stream_join | ✅ PASSED | Stream-stream temporal join |
-| 22_multi_join | ✅ PASSED | CSV schema fix - customers.csv |
-| 23_right_join | ✅ PASSED | RIGHT JOIN with file source |
+| 22_multi_join | ✅ PASSED | Multi-table joins |
+| 23_right_join | ✅ PASSED | RIGHT JOIN |
 | 24_full_outer_join | ✅ PASSED | FULL OUTER JOIN |
 
 ### tier4_window_functions (4 tests) - Window Functions ★ 100%
@@ -619,8 +228,8 @@ Several test specs used incorrect assertion type names:
 |------|--------|-------|
 | 40_pipeline | ⚠️ BLOCKED | Issue #10 - Multi-stage pipeline topic routing |
 | 41_subqueries | ⚠️ BLOCKED | Issue #11 - IN (SELECT) subquery produces 0 records |
-| 42_case | ✅ PASSED | CASE WHEN expressions work correctly |
-| 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters all working |
+| 42_case | ✅ PASSED | CASE WHEN expressions |
+| 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters |
 | 44_union | ⚠️ BLOCKED | Issue #12 - UNION multi-source configuration |
 
 ### tier6_edge_cases (4 tests) - Edge Cases ★ 100%
@@ -628,8 +237,8 @@ Several test specs used incorrect assertion type names:
 |------|--------|-------|
 | 50_nulls | ✅ PASSED | COALESCE null handling |
 | 51_empty | ✅ PASSED | Empty stream handling |
-| 52_large_volume | ✅ PASSED | Added time_simulation for window closure |
-| 53_late_arrivals | ✅ PASSED | Added time_simulation + has watermark config |
+| 52_large_volume | ✅ PASSED | High volume processing |
+| 53_late_arrivals | ✅ PASSED | Watermark handling |
 
 ### tier7_serialization (4 tests) - Serialization Formats ★ 100%
 | Test | Status | Notes |
@@ -642,7 +251,7 @@ Several test specs used incorrect assertion type names:
 ### tier8_fault_tolerance (4 tests) - Fault Tolerance ★ 100%
 | Test | Status | Notes |
 |------|--------|-------|
-| 70_dlq_basic | ✅ PASSED | DLQ with SimpleJobProcessor |
+| 70_dlq_basic | ✅ PASSED | DLQ handling |
 | 72_fault_injection | ✅ PASSED | Fault injection testing |
 | 73_debug_mode | ✅ PASSED | Debug mode features |
 | 74_stress_test | ✅ PASSED | Stress testing |
@@ -650,27 +259,16 @@ Several test specs used incorrect assertion type names:
 ### Progress Summary
 ```
 tier1_basic:        5/8 runnable  (63%)  - 3 blocked by SQL features
-tier2_aggregations: 7/7 runnable  (100%) - ALL PASSED ✅ (time_simulation fix)
-tier3_joins:        5/5 runnable  (100%) - ALL PASSED ✅ (CSV schema fix)
-tier4_window_funcs: 4/4 runnable  (100%) - ALL PASSED ✅
+tier2_aggregations: 7/7 runnable  (100%) ★
+tier3_joins:        5/5 runnable  (100%) ★
+tier4_window_funcs: 4/4 runnable  (100%) ★
 tier5_complex:      2/5 runnable  (40%)  - 3 blocked by advanced features
-tier6_edge_cases:   4/4 runnable  (100%) - ALL PASSED ✅ (time_simulation fix)
-tier7_serialization:4/4 runnable  (100%) - ALL PASSED ✅
-tier8_fault_tol:    4/4 runnable  (100%) - ALL PASSED ✅ (DLQ block_on fixed)
+tier6_edge_cases:   4/4 runnable  (100%) ★
+tier7_serialization:4/4 runnable  (100%) ★
+tier8_fault_tol:    4/4 runnable  (100%) ★
 ─────────────────────────────────────────
 TOTAL:              36/41 runnable (88%)
 ```
-
-### Key Findings
-
-1. **Seven tiers at 100%** - tier2, tier3, tier4, tier6, tier7, tier8 all fully passing
-2. **time_simulation fixed window tests** - Issue #4 resolved; windows now close properly
-3. **DLQ block_on panic fixed** - Issue #9 resolved; async DLQ writes working
-4. **tier5_complex progress** - 42_case and 43_complex_filter now passing (CASE, BETWEEN, IN)
-5. **LIMIT works correctly** - Issue #3 resolved; 07_limit blocked by ORDER BY (Issue #2)
-6. **Join CSV schemas fixed** - Issue #5 resolved; CSV column names now match YAML configs
-7. **89 join unit tests pass** - Join implementation is correct; demo tests failed due to data mismatch
-8. **Window functions work well** - ROWS WINDOW BUFFER, LAG/LEAD, TUMBLING, SLIDING, SESSION all working
 
 ---
 
@@ -678,8 +276,7 @@ TOTAL:              36/41 runnable (88%)
 
 1. **Skip unsupported tests** until features are implemented
 2. **Use workarounds** where possible (GROUP BY for DISTINCT)
-3. **Track feature requests** for SELECT DISTINCT and streaming ORDER BY
-4. **DLQ now works correctly** - Issue #9 fixed; both AdaptiveJobProcessor and SimpleJobProcessor support DLQ
+3. **Track feature requests** for SELECT DISTINCT
 
 ---
 
@@ -689,18 +286,3 @@ TOTAL:              36/41 runnable (88%)
 - SQL Functions: `docs/sql/functions/`
 - Copy-Paste Examples: `docs/sql/COPY_PASTE_EXAMPLES.md`
 - Claude SQL Rules: `docs/claude/SQL_GRAMMAR_RULES.md`
-
-## Related Source Files
-
-| Purpose | File |
-|---------|------|
-| Parser | `src/velostream/sql/parser.rs` |
-| AST | `src/velostream/sql/ast.rs` |
-| Order Processor | `src/velostream/sql/execution/processors/order.rs` |
-| Limit Processor | `src/velostream/sql/execution/processors/limit.rs` |
-| Select Processor | `src/velostream/sql/execution/processors/select.rs` |
-| Window Processor | `src/velostream/sql/execution/processors/window.rs` |
-| Watermarks | `src/velostream/sql/execution/watermarks.rs` |
-| Server Watermarks | `src/velostream/server/v2/watermark.rs` |
-| Partition Receiver | `src/velostream/server/v2/partition_receiver.rs` |
-| File DataSource | `src/velostream/datasource/file/data_source.rs` |
