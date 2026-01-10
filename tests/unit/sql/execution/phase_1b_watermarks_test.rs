@@ -290,6 +290,7 @@ async fn test_window_processor_watermark_aware_processing() {
     };
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![], // Simplified for test
         key_fields: None,
         from_alias: None,

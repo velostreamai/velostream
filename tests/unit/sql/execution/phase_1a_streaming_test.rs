@@ -300,7 +300,8 @@ async fn test_phase_1a_integration() {
 
 fn create_test_query() -> StreamingQuery {
     StreamingQuery::Select {
-        fields: vec![SelectField::Wildcard],
+        distinct: false,
+            fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Table("test_table".to_string()),
         from_alias: None,

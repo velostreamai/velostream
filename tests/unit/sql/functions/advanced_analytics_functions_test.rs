@@ -59,6 +59,7 @@ async fn test_percentile_cont_function() {
 
     for (percentile, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "PERCENTILE_CONT".to_string(),
@@ -123,6 +124,7 @@ async fn test_percentile_disc_function() {
 
     for (percentile, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "PERCENTILE_DISC".to_string(),
@@ -188,6 +190,7 @@ async fn test_percentile_functions_validation() {
 
     for (function_name, percentile, expected_error) in invalid_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -245,6 +248,7 @@ async fn test_corr_function() {
 
     for (col1, col2, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "CORR".to_string(),
@@ -307,6 +311,7 @@ async fn test_covar_pop_function() {
 
     for (col1, col2, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "COVAR_POP".to_string(),
@@ -368,6 +373,7 @@ async fn test_covar_samp_function() {
 
     // COVAR_SAMP should return NULL for single record (sample requires n > 1)
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "COVAR_SAMP".to_string(),
@@ -419,6 +425,7 @@ async fn test_regression_functions() {
 
     for function_name in regression_functions {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -538,6 +545,7 @@ async fn test_analytics_functions_null_handling() {
 
     for (function_name, args, expected_result) in functions_and_args {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -624,6 +632,7 @@ async fn test_analytics_functions_error_cases() {
 
     for (function_name, args, expected_error) in error_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -673,6 +682,7 @@ async fn test_multiple_analytics_functions_in_single_query() {
 
     // Test using multiple analytics functions in one query
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Function {
@@ -824,6 +834,7 @@ async fn test_analytics_functions_with_literal_values() {
 
     for (function_name, args, expected_type, expected_value) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),

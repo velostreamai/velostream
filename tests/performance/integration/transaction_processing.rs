@@ -261,6 +261,7 @@ fn create_test_batches(record_count: usize, batch_size: usize) -> Vec<Vec<Stream
 
 fn create_benchmark_query() -> StreamingQuery {
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("symbol".to_string()),
             SelectField::Column("price".to_string()),

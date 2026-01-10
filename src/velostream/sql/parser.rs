@@ -157,6 +157,7 @@ pub struct StreamingSqlParser {
 pub enum TokenType {
     // SQL Keywords
     Select,     // SELECT
+    Distinct,   // DISTINCT
     From,       // FROM
     Where,      // WHERE
     GroupBy,    // GROUP (parsed as GROUP BY)
@@ -323,6 +324,7 @@ impl StreamingSqlParser {
     pub fn new() -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("SELECT".to_string(), TokenType::Select);
+        keywords.insert("DISTINCT".to_string(), TokenType::Distinct);
         keywords.insert("FROM".to_string(), TokenType::From);
         keywords.insert("WHERE".to_string(), TokenType::Where);
         keywords.insert("GROUP".to_string(), TokenType::GroupBy);
@@ -1099,8 +1101,21 @@ impl<'a> TokenParser<'a> {
         }
     }
 
+    /// Check for and consume the DISTINCT keyword, returning true if found.
+    /// This is a shared helper to avoid duplicating the DISTINCT parsing logic.
+    fn parse_distinct(&mut self) -> bool {
+        if self.current_token().token_type == TokenType::Distinct {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
     fn parse_select(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
+
+        let distinct = self.parse_distinct();
 
         let (fields, key_fields) = self.parse_select_fields()?;
 
@@ -1366,6 +1381,7 @@ impl<'a> TokenParser<'a> {
             // Create the nested SELECT query
             let select_query = StreamingQuery::Select {
                 fields,
+                distinct,
                 key_fields: key_fields.clone(),
                 from: from_source,
                 from_alias,
@@ -1427,6 +1443,7 @@ impl<'a> TokenParser<'a> {
 
         let select_query = StreamingQuery::Select {
             fields,
+            distinct,
             key_fields: key_fields.clone(),
             from: from_source,
             from_alias,
@@ -1474,6 +1491,8 @@ impl<'a> TokenParser<'a> {
         // Similar to parse_select_no_with but without consuming semicolon
         // to allow CREATE TABLE parser to continue with WITH clause
         self.expect(TokenType::Select)?;
+
+        let distinct = self.parse_distinct();
 
         let (fields, key_fields) = self.parse_select_fields()?;
 
@@ -1666,6 +1685,7 @@ impl<'a> TokenParser<'a> {
 
         Ok(StreamingQuery::Select {
             fields,
+            distinct,
             key_fields,
             from: from_source,
             from_alias,
@@ -1687,6 +1707,8 @@ impl<'a> TokenParser<'a> {
 
     fn parse_select_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
+
+        let distinct = self.parse_distinct();
 
         let (fields, key_fields) = self.parse_select_fields()?;
 
@@ -1904,6 +1926,7 @@ impl<'a> TokenParser<'a> {
 
         let select_query = StreamingQuery::Select {
             fields,
+            distinct,
             key_fields,
             from: from_source,
             from_alias,

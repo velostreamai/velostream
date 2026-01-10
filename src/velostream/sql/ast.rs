@@ -174,6 +174,7 @@ pub enum EmitMode {
 /// fn main() {
 ///     // SELECT query
 ///     let select_query = StreamingQuery::Select {
+///         distinct: false,
 ///         fields: vec![SelectField::Wildcard],
 ///         key_fields: None,
 ///         from_alias: None,
@@ -210,6 +211,8 @@ pub enum StreamingQuery {
     Select {
         /// Fields to select (columns, expressions, aggregates)
         fields: Vec<SelectField>,
+        /// Whether SELECT DISTINCT is specified (removes duplicate rows)
+        distinct: bool,
         /// Fields marked with PRIMARY KEY annotation for Kafka message key (SQL standard)
         /// Example: SELECT symbol PRIMARY KEY, price FROM trades
         key_fields: Option<Vec<String>>,
@@ -1214,6 +1217,7 @@ impl TimeUnit {
 /// ```
 pub struct SelectBuilder {
     fields: Vec<SelectField>,
+    distinct: bool,
     key_fields: Option<Vec<String>>,
     from: StreamSource,
     from_alias: Option<String>,
@@ -1237,6 +1241,7 @@ impl SelectBuilder {
     pub fn new(fields: Vec<SelectField>, from: StreamSource) -> Self {
         SelectBuilder {
             fields,
+            distinct: false,
             key_fields: None,
             from,
             from_alias: None,
@@ -1254,6 +1259,12 @@ impl SelectBuilder {
             num_partitions: None,
             partitioning_strategy: None,
         }
+    }
+
+    /// Set whether the SELECT should be DISTINCT (remove duplicates).
+    pub fn with_distinct(mut self, distinct: bool) -> Self {
+        self.distinct = distinct;
+        self
     }
 
     pub fn with_key_fields(mut self, key_fields: Vec<String>) -> Self {
@@ -1335,6 +1346,7 @@ impl SelectBuilder {
     pub fn build(self) -> StreamingQuery {
         StreamingQuery::Select {
             fields: self.fields,
+            distinct: self.distinct,
             key_fields: self.key_fields,
             from: self.from,
             from_alias: self.from_alias,
@@ -1843,6 +1855,7 @@ impl fmt::Display for StreamingQuery {
         match self {
             StreamingQuery::Select {
                 fields,
+                distinct,
                 key_fields,
                 from,
                 from_alias,
@@ -1860,8 +1873,12 @@ impl fmt::Display for StreamingQuery {
                 num_partitions: _,
                 partitioning_strategy: _,
             } => {
-                // SELECT clause
-                write!(f, "SELECT ")?;
+                // SELECT clause with optional DISTINCT
+                if *distinct {
+                    write!(f, "SELECT DISTINCT ")?;
+                } else {
+                    write!(f, "SELECT ")?;
+                }
 
                 // Format fields with PRIMARY KEY annotation if present
                 let field_strs: Vec<String> = fields

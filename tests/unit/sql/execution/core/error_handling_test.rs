@@ -48,6 +48,7 @@ async fn test_arithmetic_error_handling() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::Column("status".to_string())), // String field

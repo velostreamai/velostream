@@ -9,6 +9,7 @@ pub mod limit;
 pub mod order_by_validation_test;
 pub mod processor_context_table_test;
 pub mod select_alias_reuse_test;
+pub mod select_distinct_test;
 pub mod select_safety_test;
 pub mod select_validation_test;
 pub mod show;

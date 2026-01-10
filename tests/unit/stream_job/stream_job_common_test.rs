@@ -32,6 +32,7 @@ fn create_simple_query() -> velostream::velostream::sql::ast::StreamingQuery {
     use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
 
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),

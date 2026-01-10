@@ -380,6 +380,7 @@ mod tests {
     #[test]
     fn test_extract_table_name_from_stream() {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
             key_fields: None,
             from: StreamSource::Stream("users".to_string()),
@@ -406,6 +407,7 @@ mod tests {
     #[test]
     fn test_extract_table_name_from_table() {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
             key_fields: None,
             from: StreamSource::Table("products".to_string()),
@@ -438,6 +440,7 @@ mod tests {
         };
 
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
             key_fields: None,
             from: StreamSource::Table("users".to_string()),
@@ -464,6 +467,7 @@ mod tests {
     #[test]
     fn test_extract_where_clause_none() {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
             key_fields: None,
             from: StreamSource::Table("users".to_string()),
@@ -495,6 +499,7 @@ mod tests {
         };
 
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![select_field],
             key_fields: None,
             from: StreamSource::Table("users".to_string()),

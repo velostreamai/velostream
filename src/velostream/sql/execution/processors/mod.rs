@@ -14,7 +14,7 @@ pub mod context;
 pub mod processor_types;
 pub mod stream_table_join;
 
-pub use context::{ProcessorContext, TableReference, WindowContext};
+pub use context::{DistinctState, ProcessorContext, TableReference, WindowContext};
 pub use processor_types::{HeaderMutation, HeaderOperation, ProcessorResult};
 pub use select::SqlParameter;
 

@@ -7,6 +7,7 @@ pub mod basic_parsing_test;
 pub mod between_operator_test;
 pub mod case_when_test;
 pub mod concat_operator_test;
+pub mod distinct_test; // SELECT DISTINCT parsing tests
 pub mod emit_mode_test;
 pub mod fr079_window_group_by_clause_order_test; // FR-079: Test WINDOW/GROUP BY clause ordering
 pub mod implicit_aggregation_test;

@@ -52,6 +52,7 @@ async fn test_stddev_functions() {
 
     for function_name in functions {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -103,6 +104,7 @@ async fn test_stddev_pop_function() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "STDDEV_POP".to_string(),
@@ -155,6 +157,7 @@ async fn test_variance_functions() {
 
     for function_name in functions {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -206,6 +209,7 @@ async fn test_var_pop_function() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "VAR_POP".to_string(),
@@ -265,6 +269,7 @@ async fn test_median_function() {
 
     for (column_name, expected_type, expected_value) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "MEDIAN".to_string(),
@@ -342,6 +347,7 @@ async fn test_statistical_function_null_handling() {
 
     for function_name in functions {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -398,6 +404,7 @@ async fn test_statistical_function_error_cases() {
 
     for (function_name, args, expected_error) in error_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -474,6 +481,7 @@ async fn test_statistical_functions_with_non_numeric_types() {
 
     for function_name in functions {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -530,6 +538,7 @@ async fn test_statistical_functions_with_literal_values() {
 
     for (function_name, literal_value, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -598,6 +607,7 @@ async fn test_multiple_statistical_functions_in_single_query() {
 
     // Test using multiple statistical functions in one query
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Function {

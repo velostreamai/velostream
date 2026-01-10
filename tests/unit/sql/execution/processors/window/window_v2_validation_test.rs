@@ -62,6 +62,7 @@ fn create_context_with_window_v2_enabled() -> ProcessorContext {
         rows_window_states: HashMap::new(),
         window_v2_states: HashMap::new(),
         streaming_config: Some(StreamingConfig::new()),
+        distinct_seen: HashMap::new(),
     };
 
     context
@@ -109,6 +110,7 @@ async fn test_window_v2_feature_flag_disabled_by_default() {
         rows_window_states: HashMap::new(),
         window_v2_states: HashMap::new(),
         streaming_config: None, // Default config (window_v2 is still always enabled)
+        distinct_seen: HashMap::new(),
     };
 
     // Window_v2 is the only architecture available (Phase 2E+)
@@ -123,6 +125,7 @@ async fn test_window_v2_feature_flag_disabled_by_default() {
 #[tokio::test]
 async fn test_tumbling_window_with_v2() {
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
@@ -171,6 +174,7 @@ async fn test_tumbling_window_with_v2() {
 #[tokio::test]
 async fn test_rows_window_with_v2() {
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
@@ -228,6 +232,7 @@ async fn test_rows_window_with_v2() {
 #[tokio::test]
 async fn test_session_window_with_v2() {
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
@@ -278,6 +283,7 @@ async fn test_session_window_with_v2() {
 #[tokio::test]
 async fn test_sliding_window_with_v2() {
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
@@ -328,6 +334,7 @@ async fn test_sliding_window_with_v2() {
 #[tokio::test]
 async fn test_emit_changes_with_v2() {
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
@@ -371,6 +378,7 @@ async fn test_emit_changes_with_v2() {
 #[tokio::test]
 async fn test_group_by_with_v2() {
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),

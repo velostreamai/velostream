@@ -157,6 +157,7 @@ async fn test_insert_select() {
 
     // Create a mock SELECT query that selects the fields we need
     let select_query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             velostream::velostream::sql::ast::SelectField::Expression {
                 expr: velostream::velostream::sql::ast::Expr::Literal(

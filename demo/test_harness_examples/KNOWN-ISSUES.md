@@ -2,13 +2,13 @@
 
 This document tracks known limitations and issues discovered during test harness validation.
 
-## Current Status (2026-01-09)
+## Current Status (2026-01-10)
 
-> **TEST HARNESS: 36 Runnable / 5 Blocked (88%)**
+> **TEST HARNESS: 37 Runnable / 4 Blocked (90%)**
 
 | Tier | Runnable | Blocked | Status |
 |------|----------|---------|--------|
-| tier1_basic | 5 | 3 | 63% |
+| tier1_basic | 6 | 2 | 75% |
 | tier2_aggregations | 7 | 0 | **100%** |
 | tier3_joins | 5 | 0 | **100%** |
 | tier4_window_funcs | 4 | 0 | **100%** |
@@ -16,7 +16,7 @@ This document tracks known limitations and issues discovered during test harness
 | tier6_edge_cases | 4 | 0 | **100%** |
 | tier7_serialization | 4 | 0 | **100%** |
 | tier8_fault_tol | 4 | 0 | **100%** |
-| **TOTAL** | **36** | **5** | **88%** |
+| **TOTAL** | **37** | **4** | **90%** |
 
 **Run tests:** `./run-tests.sh --skip-blocked`
 
@@ -24,7 +24,6 @@ This document tracks known limitations and issues discovered during test harness
 
 | Issue | Description | Tests Affected |
 |-------|-------------|----------------|
-| #1 | SELECT DISTINCT not implemented | 1 |
 | #2 | ORDER BY on unbounded streams (design limitation) | 2 |
 | #10 | Multi-stage pipeline topic routing | 1 |
 | #11 | IN (SELECT) subquery execution | 1 |
@@ -32,38 +31,30 @@ This document tracks known limitations and issues discovered during test harness
 
 ---
 
-## Active Issues
+## Resolved Issues
 
-### 1. SELECT DISTINCT Not Supported
+### ~~1. SELECT DISTINCT Not Supported~~ ✅ RESOLVED
 
-**Status:** Not Implemented
-**Affected Tests:** `tier1_basic/05_distinct.sql`
-**Severity:** Feature Gap
+**Status:** Implemented (2026-01-10)
+**Affected Tests:** `tier1_basic/05_distinct.sql` - Now unblocked
 
-**Description:**
-The SQL parser does not recognize the `DISTINCT` keyword after `SELECT`. When parsing `SELECT DISTINCT ...`, the parser fails silently, treating `DISTINCT` as a column name.
-
-**What Works:**
+**What Now Works:**
 ```sql
--- Aggregation functions with DISTINCT (SUPPORTED)
-SELECT COUNT(DISTINCT customer_id) FROM orders
-SELECT SUM(DISTINCT amount) FROM transactions
-```
-
-**What Doesn't Work:**
-```sql
--- SELECT DISTINCT clause (NOT SUPPORTED)
+-- SELECT DISTINCT clause (NOW SUPPORTED)
 SELECT DISTINCT value, active FROM input_stream
+SELECT DISTINCT category, status FROM orders WHERE amount > 100
+SELECT DISTINCT * FROM input_stream
 ```
 
-**Workaround:**
-Use `GROUP BY` to achieve deduplication:
-```sql
--- Instead of: SELECT DISTINCT value, active FROM input_stream
-SELECT value, active FROM input_stream GROUP BY value, active
-```
+**Implementation Details:**
+- Added `Distinct` token to parser tokenizer
+- Added `distinct: bool` field to `StreamingQuery::Select` AST
+- Implemented deduplication using record hashing in SelectProcessor
+- State tracking via `distinct_seen` HashMap in ProcessorContext
 
 ---
+
+## Active Issues
 
 ### 2. ORDER BY in Streaming Mode
 
@@ -190,7 +181,7 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 | 02_projection | ✅ PASSED | Column selection |
 | 03_filter | ✅ PASSED | WHERE clause filtering |
 | 04_casting | ✅ PASSED | Type casting operations |
-| 05_distinct | ⚠️ BLOCKED | Issue #1 - SELECT DISTINCT not implemented |
+| 05_distinct | ✅ PASSED | SELECT DISTINCT deduplication |
 | 06_order_by | ⚠️ BLOCKED | Issue #2 - ORDER BY not applied |
 | 07_limit | ⚠️ BLOCKED | Issue #2 - Uses ORDER BY (LIMIT itself works) |
 | 08_headers | ✅ PASSED | HEADER, SET_HEADER, HAS_HEADER, HEADER_KEYS |
@@ -258,7 +249,7 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 
 ### Progress Summary
 ```
-tier1_basic:        5/8 runnable  (63%)  - 3 blocked by SQL features
+tier1_basic:        6/8 runnable  (75%)  - 2 blocked by ORDER BY limitation
 tier2_aggregations: 7/7 runnable  (100%) ★
 tier3_joins:        5/5 runnable  (100%) ★
 tier4_window_funcs: 4/4 runnable  (100%) ★
@@ -267,7 +258,7 @@ tier6_edge_cases:   4/4 runnable  (100%) ★
 tier7_serialization:4/4 runnable  (100%) ★
 tier8_fault_tol:    4/4 runnable  (100%) ★
 ─────────────────────────────────────────
-TOTAL:              36/41 runnable (88%)
+TOTAL:              37/41 runnable (90%)
 ```
 
 ---
@@ -275,8 +266,7 @@ TOTAL:              36/41 runnable (88%)
 ## Recommendations
 
 1. **Skip unsupported tests** until features are implemented
-2. **Use workarounds** where possible (GROUP BY for DISTINCT)
-3. **Track feature requests** for SELECT DISTINCT
+2. **Use workarounds** where possible (e.g., windowed ORDER BY instead of unbounded)
 
 ---
 

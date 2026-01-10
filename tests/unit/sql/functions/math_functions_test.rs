@@ -53,6 +53,7 @@ async fn test_abs_function() {
 
     for (column_name, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "ABS".to_string(),
@@ -106,6 +107,7 @@ async fn test_abs_function() {
 
     // Test NULL case
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "ABS".to_string(),
@@ -150,6 +152,7 @@ async fn test_round_function() {
 
     // Test ROUND without precision
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "ROUND".to_string(),
@@ -193,6 +196,7 @@ async fn test_round_function() {
 
     // Test ROUND with precision
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "ROUND".to_string(),
@@ -253,6 +257,7 @@ async fn test_ceil_floor_functions() {
 
     for (function, input, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function.to_string(),
@@ -311,6 +316,7 @@ async fn test_mod_function() {
 
     for (dividend, divisor, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "MOD".to_string(),
@@ -363,6 +369,7 @@ async fn test_mod_function() {
 
     // Test division by zero
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "MOD".to_string(),
@@ -416,6 +423,7 @@ async fn test_power_function() {
         // Test both POWER and POW aliases
         for function_name in ["POWER", "POW"] {
             let query = StreamingQuery::Select {
+                distinct: false,
                 fields: vec![SelectField::Expression {
                     expr: Expr::Function {
                         name: function_name.to_string(),
@@ -499,6 +507,7 @@ async fn test_sqrt_function() {
 
     for (input, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: "SQRT".to_string(),
@@ -545,6 +554,7 @@ async fn test_sqrt_function() {
 
     // Test negative number (should fail)
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "SQRT".to_string(),
@@ -596,6 +606,7 @@ async fn test_math_function_error_cases() {
 
     for (function_name, args, expected_error) in error_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -647,6 +658,7 @@ async fn test_math_function_null_handling() {
 
     for function_name in functions {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -690,6 +702,7 @@ async fn test_math_function_null_handling() {
     for function_name in two_arg_functions {
         // First argument NULL
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),
@@ -735,6 +748,7 @@ async fn test_math_function_null_handling() {
 
         // Second argument NULL
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Function {
                     name: function_name.to_string(),

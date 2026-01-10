@@ -33,11 +33,11 @@ use crate::velostream::sql::ast::{
     EmitMode, Expr, LiteralValue, OrderByExpr, RowsEmitMode, SelectField, StreamingQuery,
     WindowSpec,
 };
-use crate::velostream::sql::execution::processors::OrderProcessor;
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
 use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState, GroupKey};
+use crate::velostream::sql::execution::processors::OrderProcessor;
 use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
@@ -1332,6 +1332,7 @@ mod tests {
     fn test_emit_changes_detection() {
         // Test EMIT CHANGES detection
         let query_emit_changes = StreamingQuery::Select {
+            distinct: false,
             fields: vec![],
             key_fields: None,
             from: crate::velostream::sql::ast::StreamSource::Stream("test".to_string()),
@@ -1358,6 +1359,7 @@ mod tests {
 
         // Test EMIT FINAL (default)
         let query_emit_final = StreamingQuery::Select {
+            distinct: false,
             fields: vec![],
             key_fields: None,
             from: crate::velostream::sql::ast::StreamSource::Stream("test".to_string()),

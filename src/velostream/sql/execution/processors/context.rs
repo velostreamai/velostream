@@ -118,6 +118,88 @@ pub struct ProcessorContext {
     /// Optional streaming engine configuration
     /// When None, uses default configuration (all enhancements disabled)
     pub streaming_config: Option<crate::velostream::sql::execution::config::StreamingConfig>,
+
+    // === SELECT DISTINCT STATE ===
+    /// DISTINCT deduplication state with bounded memory
+    /// Maps query_id to DistinctState for tracking seen record hashes
+    /// Uses FIFO eviction when max_entries is exceeded to prevent unbounded memory growth
+    pub distinct_seen: HashMap<String, DistinctState>,
+}
+
+/// Bounded state for SELECT DISTINCT deduplication.
+///
+/// Tracks seen record hashes with configurable maximum entries.
+/// When max_entries is exceeded, oldest entries are evicted (FIFO).
+/// This prevents unbounded memory growth in long-running streams.
+#[derive(Debug, Clone)]
+pub struct DistinctState {
+    /// Set of seen record hashes for O(1) lookup
+    seen: std::collections::HashSet<u64>,
+    /// Order of insertion for FIFO eviction
+    order: std::collections::VecDeque<u64>,
+    /// Maximum entries before eviction starts
+    max_entries: usize,
+    /// Count of duplicates filtered (for observability)
+    pub duplicates_filtered: u64,
+    /// Count of evictions performed (for observability)
+    pub evictions: u64,
+}
+
+impl DistinctState {
+    /// Create a new DistinctState with specified max entries
+    pub fn new(max_entries: usize) -> Self {
+        Self {
+            seen: std::collections::HashSet::with_capacity(max_entries.min(10_000)),
+            order: std::collections::VecDeque::with_capacity(max_entries.min(10_000)),
+            max_entries,
+            duplicates_filtered: 0,
+            evictions: 0,
+        }
+    }
+
+    /// Check if a hash has been seen before.
+    /// Returns true if duplicate (already seen), false if new.
+    pub fn check_duplicate(&self, hash: u64) -> bool {
+        self.seen.contains(&hash)
+    }
+
+    /// Insert a new hash, evicting oldest if at capacity.
+    /// Returns the number of entries evicted (0 or 1).
+    pub fn insert(&mut self, hash: u64) -> usize {
+        let mut evicted = 0;
+
+        // Evict oldest if at capacity
+        if self.seen.len() >= self.max_entries {
+            if let Some(oldest) = self.order.pop_front() {
+                self.seen.remove(&oldest);
+                self.evictions += 1;
+                evicted = 1;
+            }
+        }
+
+        // Insert new hash
+        if self.seen.insert(hash) {
+            self.order.push_back(hash);
+        }
+
+        evicted
+    }
+
+    /// Record a filtered duplicate
+    pub fn record_duplicate(&mut self) {
+        self.duplicates_filtered += 1;
+    }
+
+    /// Get the current number of tracked entries
+    pub fn len(&self) -> usize {
+        self.seen.len()
+    }
+
+    /// Check if empty (used in tests)
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.seen.is_empty()
+    }
 }
 
 /// Table reference with optional alias for SQL parsing and correlation
@@ -183,6 +265,7 @@ impl ProcessorContext {
             rows_window_states: HashMap::new(), // Phase 8.2: Initialize ROWS window state map
             window_v2_states: HashMap::new(),   // FR-081 Phase 2A: Initialize window v2 state map
             streaming_config: None,             // Use default config unless explicitly set
+            distinct_seen: HashMap::new(),      // SELECT DISTINCT deduplication state
         }
     }
 

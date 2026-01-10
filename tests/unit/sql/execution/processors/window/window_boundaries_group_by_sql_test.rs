@@ -51,6 +51,7 @@ fn create_record(record_id: i64, group_key: &str, value: f64, timestamp_ms: i64)
 /// Build a TUMBLING window + GROUP BY query
 fn build_tumbling_query(window_size_ms: u64, emit_mode: Option<EmitMode>) -> StreamingQuery {
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Column("group_key".to_string()),
@@ -98,6 +99,7 @@ fn build_rows_query(buffer_size: u32, emit_mode: Option<EmitMode>) -> StreamingQ
     use velostream::velostream::sql::ast::{OrderByExpr, RowExpirationMode, RowsEmitMode};
 
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Column("group_key".to_string()),
@@ -513,6 +515,7 @@ async fn test_sliding_window_group_by_multiple_boundaries() {
 
     // Build SLIDING window query
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Column("group_key".to_string()),
@@ -665,6 +668,7 @@ async fn test_session_window_group_by_multiple_sessions() {
 
     // Build SESSION window query
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Column("group_key".to_string()),

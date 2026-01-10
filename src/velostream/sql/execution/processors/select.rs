@@ -1,11 +1,11 @@
 //! SELECT Query Processor
 //!
 //! Handles SELECT statement processing including field selection, WHERE clause evaluation,
-//! HAVING clause processing, and header mutations.
+//! HAVING clause processing, header mutations, and SELECT DISTINCT deduplication.
 
 use super::{
-    HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor, ProcessorContext,
-    ProcessorResult, TableReference, query_parsing,
+    DistinctState, HeaderMutation, HeaderOperation, JoinProcessor, LimitProcessor,
+    ProcessorContext, ProcessorResult, TableReference, query_parsing,
 };
 use crate::velostream::sql::ast::{Expr, LiteralValue, SelectField, StreamSource};
 use crate::velostream::sql::execution::{
@@ -17,8 +17,31 @@ use crate::velostream::sql::execution::{
     validation::{AliasContext, FieldValidator, ValidationContext},
 };
 use crate::velostream::sql::{SqlError, StreamingQuery};
+use log::debug;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+// === DISTINCT HASH TYPE DISCRIMINANTS ===
+// Used to differentiate types when hashing FieldValue for deduplication
+const HASH_TYPE_NULL: u8 = 0;
+const HASH_TYPE_BOOLEAN: u8 = 1;
+const HASH_TYPE_INTEGER: u8 = 2;
+const HASH_TYPE_FLOAT: u8 = 3;
+const HASH_TYPE_STRING: u8 = 4;
+const HASH_TYPE_TIMESTAMP: u8 = 5;
+const HASH_TYPE_SCALED_INTEGER: u8 = 6;
+const HASH_TYPE_DATE: u8 = 7;
+const HASH_TYPE_DECIMAL: u8 = 8;
+const HASH_TYPE_ARRAY: u8 = 9;
+const HASH_TYPE_MAP_OR_STRUCT: u8 = 10;
+const HASH_TYPE_INTERVAL: u8 = 11;
+
+/// Maximum number of distinct records to track per query before eviction.
+/// This prevents unbounded memory growth in long-running streams.
+/// When exceeded, oldest entries are evicted (FIFO).
+pub const DEFAULT_DISTINCT_MAX_ENTRIES: usize = 100_000;
 
 /// Parameter binding for SQL queries to prevent injection
 #[derive(Debug, Clone)]
@@ -320,6 +343,7 @@ impl SelectProcessor {
     ) -> Result<ProcessorResult, SqlError> {
         if let StreamingQuery::Select {
             fields,
+            distinct,
             from,
             from_alias,
             where_clause,
@@ -804,6 +828,49 @@ impl SelectProcessor {
                 key: None,
             };
 
+            // Handle SELECT DISTINCT deduplication
+            if *distinct {
+                // Generate unique query ID for distinct state management
+                let distinct_query_id = Self::generate_distinct_query_id(from);
+
+                // Compute hash of the result fields for deduplication
+                let record_hash = Self::compute_record_hash(&final_record.fields);
+
+                // Get or create the bounded state for this query
+                let distinct_state = context
+                    .distinct_seen
+                    .entry(distinct_query_id.clone())
+                    .or_insert_with(|| DistinctState::new(DEFAULT_DISTINCT_MAX_ENTRIES));
+
+                // Check if we've seen this record before
+                if distinct_state.check_duplicate(record_hash) {
+                    distinct_state.record_duplicate();
+
+                    debug!(
+                        "SELECT DISTINCT: Filtered duplicate record (query={}, hash={:#x}, total_filtered={})",
+                        distinct_query_id, record_hash, distinct_state.duplicates_filtered
+                    );
+
+                    return Ok(ProcessorResult {
+                        record: None,
+                        header_mutations: Vec::new(),
+                        should_count: false,
+                    });
+                }
+
+                // New record - mark as seen (with potential eviction)
+                let evicted = distinct_state.insert(record_hash);
+                if evicted > 0 {
+                    debug!(
+                        "SELECT DISTINCT: Evicted {} old entries due to capacity limit (query={}, current_size={}, max={})",
+                        evicted,
+                        distinct_query_id,
+                        distinct_state.len(),
+                        DEFAULT_DISTINCT_MAX_ENTRIES
+                    );
+                }
+            }
+
             Ok(ProcessorResult {
                 record: Some(final_record),
                 header_mutations,
@@ -815,6 +882,117 @@ impl SelectProcessor {
                 query: None,
             })
         }
+    }
+
+    /// Generate a unique query ID for distinct state management.
+    ///
+    /// This creates a stable identifier based on the source, used to track
+    /// seen records per query in the ProcessorContext.
+    fn generate_distinct_query_id(from: &StreamSource) -> String {
+        match from {
+            StreamSource::Stream(name) | StreamSource::Table(name) => {
+                format!("distinct_{}", name)
+            }
+            StreamSource::Uri(uri) => {
+                format!("distinct_{}", uri.replace("://", "_").replace('/', "_"))
+            }
+            StreamSource::Subquery(_) => "distinct_subquery".to_string(),
+        }
+    }
+
+    /// Compute a hash of record fields for DISTINCT deduplication.
+    ///
+    /// Creates a deterministic hash based on field names and values,
+    /// used to identify duplicate records in SELECT DISTINCT queries.
+    ///
+    /// # Implementation Notes
+    /// - Fields are sorted by name for deterministic ordering
+    /// - Type discriminants prevent cross-type collisions (e.g., integer 1 vs boolean true)
+    /// - Floats use to_bits() for consistent NaN/infinity handling
+    /// - Arrays/Maps only hash first 10 elements to bound complexity
+    fn compute_record_hash(fields: &HashMap<String, FieldValue>) -> u64 {
+        let mut hasher = DefaultHasher::new();
+
+        // Sort fields by name for deterministic ordering
+        let mut field_pairs: Vec<_> = fields.iter().collect();
+        field_pairs.sort_by(|a, b| a.0.cmp(b.0));
+
+        for (name, value) in field_pairs {
+            // Hash the field name
+            name.hash(&mut hasher);
+
+            // Hash the field value based on its type (using type discriminants)
+            match value {
+                FieldValue::Null => {
+                    HASH_TYPE_NULL.hash(&mut hasher);
+                }
+                FieldValue::Boolean(b) => {
+                    HASH_TYPE_BOOLEAN.hash(&mut hasher);
+                    b.hash(&mut hasher);
+                }
+                FieldValue::Integer(i) => {
+                    HASH_TYPE_INTEGER.hash(&mut hasher);
+                    i.hash(&mut hasher);
+                }
+                FieldValue::Float(f) => {
+                    HASH_TYPE_FLOAT.hash(&mut hasher);
+                    // Use to_bits for deterministic float hashing (handles NaN, infinity)
+                    f.to_bits().hash(&mut hasher);
+                }
+                FieldValue::String(s) => {
+                    HASH_TYPE_STRING.hash(&mut hasher);
+                    s.hash(&mut hasher);
+                }
+                FieldValue::Timestamp(ts) => {
+                    HASH_TYPE_TIMESTAMP.hash(&mut hasher);
+                    ts.and_utc().timestamp_millis().hash(&mut hasher);
+                }
+                FieldValue::ScaledInteger(val, scale) => {
+                    HASH_TYPE_SCALED_INTEGER.hash(&mut hasher);
+                    val.hash(&mut hasher);
+                    scale.hash(&mut hasher);
+                }
+                FieldValue::Date(d) => {
+                    HASH_TYPE_DATE.hash(&mut hasher);
+                    d.and_hms_opt(0, 0, 0)
+                        .map(|dt| dt.and_utc().timestamp())
+                        .unwrap_or(0)
+                        .hash(&mut hasher);
+                }
+                FieldValue::Decimal(d) => {
+                    HASH_TYPE_DECIMAL.hash(&mut hasher);
+                    // Hash mantissa and scale for Decimal
+                    d.mantissa().hash(&mut hasher);
+                    d.scale().hash(&mut hasher);
+                }
+                FieldValue::Array(arr) => {
+                    HASH_TYPE_ARRAY.hash(&mut hasher);
+                    arr.len().hash(&mut hasher);
+                    // Hash first 10 elements to bound complexity (O(1) vs O(n))
+                    // Note: Arrays differing only after element 10 will collide
+                    for (i, item) in arr.iter().take(10).enumerate() {
+                        i.hash(&mut hasher);
+                        format!("{:?}", item).hash(&mut hasher);
+                    }
+                }
+                FieldValue::Map(map) | FieldValue::Struct(map) => {
+                    HASH_TYPE_MAP_OR_STRUCT.hash(&mut hasher);
+                    map.len().hash(&mut hasher);
+                    // Hash first 10 entries to bound complexity
+                    for (k, v) in map.iter().take(10) {
+                        k.hash(&mut hasher);
+                        format!("{:?}", v).hash(&mut hasher);
+                    }
+                }
+                FieldValue::Interval { value, unit } => {
+                    HASH_TYPE_INTERVAL.hash(&mut hasher);
+                    value.hash(&mut hasher);
+                    format!("{:?}", unit).hash(&mut hasher);
+                }
+            }
+        }
+
+        hasher.finish()
     }
 
     /// FR-079 Phase 7: Evaluate GROUP BY expressions with accumulator support

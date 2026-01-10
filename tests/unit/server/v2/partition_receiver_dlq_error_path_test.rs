@@ -17,12 +17,12 @@
 
 use crossbeam_queue::SegQueue;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use velostream::velostream::server::processors::JobProcessingConfig;
-use velostream::velostream::server::v2::metrics::PartitionMetrics;
 use velostream::velostream::server::v2::PartitionReceiver;
+use velostream::velostream::server::v2::metrics::PartitionMetrics;
 use velostream::velostream::sql::execution::engine::StreamExecutionEngine;
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use velostream::velostream::sql::parser::StreamingSqlParser;
@@ -104,14 +104,14 @@ async fn test_dlq_error_path_no_panic_in_async_context() {
     // If we get here without panic, the DLQ error path handled correctly
     // The result may be Ok or Err depending on error handling strategy,
     // but the key is that it didn't panic
-    println!("DLQ error path test completed. Result: {:?}", result.is_ok());
+    println!(
+        "DLQ error path test completed. Result: {:?}",
+        result.is_ok()
+    );
 
     // Verify metrics show the record was attempted
     let snapshot = metrics.snapshot();
-    println!(
-        "Metrics: records_processed={}",
-        snapshot.records_processed
-    );
+    println!("Metrics: records_processed={}", snapshot.records_processed);
 }
 
 /// Test that DLQ is actually invoked when errors occur
@@ -221,8 +221,5 @@ async fn test_dlq_disabled_no_block_on_called() {
     // This should definitely not panic since DLQ is disabled
     let result = receiver.run().await;
 
-    println!(
-        "DLQ disabled test completed. Result: {:?}",
-        result.is_ok()
-    );
+    println!("DLQ disabled test completed. Result: {:?}", result.is_ok());
 }

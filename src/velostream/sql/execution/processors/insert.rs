@@ -349,7 +349,11 @@ impl InsertProcessor {
                     InsertSource::Select { query } => {
                         // Get columns from SELECT query
                         match query.as_ref() {
-                            StreamingQuery::Select { fields: _, .. } => {
+                            StreamingQuery::Select {
+                                distinct: false,
+                                fields: _,
+                                ..
+                            } => {
                                 // TODO: Extract actual column names from SELECT fields
                                 Ok(vec!["inferred_col".to_string()])
                             }

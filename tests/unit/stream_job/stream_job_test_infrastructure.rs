@@ -363,6 +363,7 @@ pub fn create_test_record(id: i64) -> StreamRecord {
 
 pub fn create_test_query() -> StreamingQuery {
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
         key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
