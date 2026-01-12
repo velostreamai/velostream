@@ -125,17 +125,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - **Type Safe**: Runtime type checking with detailed error messages
 */
 
-use super::aggregation::AggregateFunctions;
 use super::config::{MessagePassingMode, StreamingConfig};
-use super::expression::ExpressionEvaluator;
-use super::internal::{
-    ExecutionMessage, ExecutionState, GroupByState, QueryExecution, WindowState,
-};
+use super::internal::{ExecutionMessage, ExecutionState, QueryExecution, WindowState};
 // Processor imports for Phase 5B integration
 use super::processors::{
-    HeaderMutation, HeaderMutation as ProcessorHeaderMutation, HeaderOperation,
-    HeaderOperation as ProcessorHeaderOperation, JoinContext, ProcessorContext, QueryProcessor,
-    SelectProcessor, WindowContext, WindowProcessor,
+    HeaderMutation, HeaderOperation, JoinContext, ProcessorContext, QueryProcessor, WindowContext,
+    WindowProcessor,
 };
 use super::types::{FieldValue, StreamRecord};
 // FieldValueConverter no longer needed since we use StreamRecord directly
@@ -162,7 +157,20 @@ pub struct StreamExecutionEngine {
         Option<Arc<crate::velostream::sql::execution::performance::PerformanceMonitor>>,
     // Configuration for enhanced features
     config: StreamingConfig,
-    // Optional context customizer for tests
+    /// Optional context customizer for ProcessorContext initialization.
+    ///
+    /// **TEST USE ONLY**: This closure-based pattern is for test code that needs
+    /// to inject tables into the ProcessorContext. Production code should NOT use this.
+    ///
+    /// For production code, use `init_query_execution_with_context()`:
+    /// ```ignore
+    /// let mut context = ProcessorContext::new(&query_id);
+    /// context.load_reference_table("my_table", table);
+    /// engine.init_query_execution_with_context(query, Arc::new(Mutex::new(context)));
+    /// ```
+    ///
+    /// Production processors (Simple, Transactional, Adaptive) receive tables via
+    /// `JobProcessorFactory::create_with_config_and_tables()` and inject them directly.
     #[doc(hidden)]
     pub context_customizer: Option<ContextCustomizer>,
 }
@@ -279,6 +287,56 @@ impl StreamExecutionEngine {
             let execution = self.create_query_execution(&query_id, query, None);
             self.active_queries.insert(query_id, execution);
         }
+    }
+
+    /// FR-082 Option 3: Initialize query execution with an externally-created ProcessorContext.
+    ///
+    /// This is the preferred method for processors that want to own and manage the ProcessorContext
+    /// directly. The processor creates the context, injects tables, and passes it to the engine.
+    /// This eliminates the need for `context_customizer` closures.
+    ///
+    /// # Arguments
+    /// * `query` - The streaming query to execute
+    /// * `context` - Pre-configured ProcessorContext with tables already injected
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Processor creates and configures context
+    /// let mut context = ProcessorContext::new(&job_name);
+    /// for (name, table) in &tables {
+    ///     context.load_reference_table(name, table.clone());
+    /// }
+    ///
+    /// // Pass to engine
+    /// engine.init_query_execution_with_context(query, Arc::new(Mutex::new(context)));
+    /// ```
+    pub fn init_query_execution_with_context(
+        &mut self,
+        query: StreamingQuery,
+        context: Arc<std::sync::Mutex<ProcessorContext>>,
+    ) {
+        let query_id = self.generate_query_id(&query);
+
+        // Only create if it doesn't already exist
+        self.active_queries.entry(query_id).or_insert_with(|| {
+            let window_state = match &query {
+                StreamingQuery::Select { window, .. } => {
+                    window.as_ref().map(|window_spec| WindowState {
+                        window_spec: window_spec.clone(),
+                        buffer: Vec::new(),
+                        last_emit: 0,
+                    })
+                }
+                _ => None,
+            };
+
+            QueryExecution {
+                query,
+                state: ExecutionState::Running,
+                window_state,
+                processor_context: context,
+            }
+        });
     }
 
     /// FR-082 Phase 6.6: Lazy initialize or get existing QueryExecution

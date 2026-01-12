@@ -12,11 +12,9 @@ use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
 use crate::velostream::server::processors::job_processor_trait::{
     JobProcessor, ProcessorMetrics, SharedJobStats,
 };
-use crate::velostream::server::processors::metrics_collector::MetricsCollector;
-use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
-use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
+use crate::velostream::server::processors::profiling_helper::ProfilingHelper;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
@@ -30,8 +28,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-/// Type alias for table registry to reduce complexity
-type TableRegistry = Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>;
+/// Type alias for table registry - simplified from Arc<Mutex<Option<HashMap>>>
+/// Tables are set once at creation and read during processing
+type TableRegistry = Arc<Mutex<HashMap<String, Arc<dyn UnifiedTable>>>>;
 
 /// Transactional job processor with at-least-once delivery semantics
 ///
@@ -75,7 +74,7 @@ impl TransactionalJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -98,14 +97,14 @@ impl TransactionalJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Set table registry for SQL queries that reference tables
     pub fn set_table_registry(&mut self, tables: HashMap<String, Arc<dyn UnifiedTable>>) {
         if let Ok(mut registry) = self.table_registry.lock() {
-            *registry = Some(tables);
+            *registry = tables;
         }
     }
 
@@ -197,28 +196,30 @@ impl TransactionalJobProcessor {
             );
         }
 
-        // FR-082 Phase 6.5: Initialize QueryExecution in the engine
-        // This creates the persistent ProcessorContext that will hold state across all batches
+        // FR-082 Option 3: Processor owns ProcessorContext and injects tables directly
+        // This eliminates the context_customizer closure pattern - cleaner ownership model
         {
             let mut engine_lock = engine.write().await;
 
-            // Inject table registry if provided AND no customizer already set
-            // IMPORTANT: Don't overwrite context_customizer set by stream_job_server
-            // which may have already configured table injection from required_tables
-            if engine_lock.context_customizer.is_none() {
-                if let Ok(registry_lock) = self.table_registry.lock() {
-                    if let Some(ref tables) = *registry_lock {
-                        let tables_clone = tables.clone();
-                        engine_lock.context_customizer = Some(Arc::new(move |context| {
-                            for (table_name, table) in &tables_clone {
-                                context.load_reference_table(table_name, table.clone());
-                            }
-                        }));
-                    }
+            // Generate query_id using Engine's method for consistency
+            let query_id = engine_lock.generate_query_id(&query);
+
+            // Create ProcessorContext and inject tables directly
+            let mut sql_context =
+                crate::velostream::sql::execution::processors::ProcessorContext::new(&query_id);
+
+            // Inject tables from processor's table_registry (set by JobProcessorFactory)
+            if let Ok(registry_lock) = self.table_registry.lock() {
+                for (table_name, table) in registry_lock.iter() {
+                    sql_context.load_reference_table(table_name, table.clone());
                 }
             }
 
-            engine_lock.init_query_execution(query.clone());
+            // Pass pre-configured context to engine
+            engine_lock.init_query_execution_with_context(
+                query.clone(),
+                Arc::new(std::sync::Mutex::new(sql_context)),
+            );
         }
 
         // Create enhanced context with multiple sources and sinks

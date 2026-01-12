@@ -100,7 +100,7 @@ pub struct StreamJobServer {
 ```
 
 **Purpose**: Table lifecycle management, background job coordination
-**Features**: Health monitoring, TTL cleanup, dependency tracking
+**Features**: Health monitoring, dependency tracking
 **Integration**: Seamless CTAS execution, SQL engine coordination
 
 ## Data Input Sources

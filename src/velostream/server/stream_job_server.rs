@@ -6,7 +6,7 @@
 
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{
-    ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
+    SharedObservabilityManager, error_tracker::DeploymentContext,
 };
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::instance_id::get_instance_id;
@@ -14,14 +14,14 @@ use crate::velostream::server::observability_config_extractor::ObservabilityConf
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
-    SharedJobStats, SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
-    create_multi_source_readers,
+    SharedJobStats, SimpleJobProcessor, create_multi_sink_writers, create_multi_source_readers,
 };
 use crate::velostream::server::shutdown::{ShutdownConfig, ShutdownResult, ShutdownSignal};
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
-use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode};
+// Note: AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode are now accessed
+// through JobProcessorFactory::create_adaptive_full() - no direct imports needed
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
     annotation_parser::SqlAnnotationParser,
@@ -95,8 +95,6 @@ impl StreamJobServer {
     pub fn with_config(config: StreamJobServerConfig) -> Self {
         let table_registry_config = TableRegistryConfig {
             max_tables: config.table_cache_size,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: config.kafka_brokers.clone(),
             base_group_id: config.base_group_id.clone(),
         };
@@ -170,8 +168,6 @@ impl StreamJobServer {
 
         let table_registry_config = TableRegistryConfig {
             max_tables: config.table_cache_size,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: config.kafka_brokers.clone(),
             base_group_id: config.base_group_id.clone(),
         };
@@ -250,8 +246,6 @@ impl StreamJobServer {
 
         let table_registry_config = TableRegistryConfig {
             max_tables: config.table_cache_size,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: config.kafka_brokers.clone(),
             base_group_id: config.base_group_id.clone(),
         };
@@ -790,21 +784,29 @@ impl StreamJobServer {
 
         // Extract tables ONCE for both execution_engine and Adaptive processor
         // This avoids duplicate extraction and blocking async calls
+        // NOTE: required_tables includes ALL source references (kafka_source, file_source, etc.)
+        // Only tables actually in the registry will be extracted - external sources (kafka_source)
+        // are not expected to be in the registry and are handled by their respective data sources.
         let tables_for_processor: Option<HashMap<String, Arc<dyn UnifiedTable>>> =
             if !required_tables.is_empty() {
                 let mut tables = HashMap::new();
+
                 for table_name in &required_tables {
+                    // Silently skip tables not in registry - these may be external sources
+                    // (kafka_source, etc.) that don't need registry lookup
                     if let Ok(table) = self.table_registry.get_table(table_name).await {
                         tables.insert(table_name.clone(), table);
                     }
                 }
+
                 if tables.is_empty() {
                     None
                 } else {
                     info!(
-                        "Job '{}': Extracted {} tables for processor",
+                        "Job '{}': Extracted {} tables for processor: {:?}",
                         name,
-                        tables.len()
+                        tables.len(),
+                        tables.keys().collect::<Vec<_>>()
                     );
                     Some(tables)
                 }
@@ -812,17 +814,15 @@ impl StreamJobServer {
                 None
             };
 
-        // Inject shared tables into execution context using pre-fetched tables
-        if let Some(ref tables) = tables_for_processor {
-            execution_engine.context_customizer =
-                Some(Self::create_table_injector(tables.clone(), &name));
-        }
+        // Note: Tables are now passed directly to processors via JobProcessorFactory
+        // in create_processor(), eliminating the need for context_customizer closure pattern.
+        // Processors inject tables directly into their ProcessorContext.
 
         let execution_engine = Arc::new(RwLock::new(execution_engine));
 
         // Clone data for the job task
         let job_name = name.clone();
-        let topic_clone = topic.clone();
+        let _topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
         let tables_for_spawn = tables_for_processor;
@@ -1141,7 +1141,9 @@ impl StreamJobServer {
         self.table_registry.get_all_table_stats().await
     }
 
-    /// Clean up inactive tables based on TTL
+    /// Clean up inactive tables (placeholder for future cleanup strategies)
+    ///
+    /// Currently returns an empty list. Tables should be explicitly dropped.
     pub async fn cleanup_inactive_tables(&self) -> Result<Vec<String>, SqlError> {
         self.table_registry.cleanup_inactive_tables().await
     }
@@ -1911,14 +1913,24 @@ impl StreamJobServer {
                     "Job '{}' using Simple processor (single-threaded, best-effort delivery)",
                     job_name
                 );
-                JobProcessorFactory::create_simple()
+                // Pass table_registry to processor via factory for direct table injection
+                JobProcessorFactory::create_with_config_and_tables(
+                    JobProcessorConfig::Simple,
+                    None,
+                    table_registry,
+                )
             }
             JobProcessorConfig::Transactional => {
                 info!(
                     "Job '{}' using Transactional processor (single-threaded, at-least-once delivery)",
                     job_name
                 );
-                JobProcessorFactory::create_transactional()
+                // Pass table_registry to processor via factory for direct table injection
+                JobProcessorFactory::create_with_config_and_tables(
+                    JobProcessorConfig::Transactional,
+                    None,
+                    table_registry,
+                )
             }
             JobProcessorConfig::Adaptive {
                 num_partitions,
@@ -1936,28 +1948,22 @@ impl StreamJobServer {
 
                 // Enable auto-selection from query if no explicit strategy provided
                 // CRITICAL: User explicit strategy takes priority and is NEVER overridden
-                let auto_select = partitioning_strategy.is_none();
-
-                let adaptive_config = PartitionedJobConfig {
-                    num_partitions: *num_partitions,
-                    processing_mode: ProcessingMode::Batch { size: 1000 },
-                    partition_buffer_size: 1000,
-                    enable_core_affinity: *enable_core_affinity,
-                    backpressure_config: Default::default(),
-                    partitioning_strategy,
-                    auto_select_from_query: if auto_select {
-                        Some(Arc::new(parsed_query.clone()))
-                    } else {
-                        None
-                    },
-                    sticky_partition_id: None,
-                    annotation_partition_count: None,
-                    empty_batch_count: 1000,
-                    wait_on_empty_batch_ms: 1000,
-                    table_registry, // Pass tables to partition engines for subquery execution
+                let auto_select_from_query = if partitioning_strategy.is_none() {
+                    Some(Arc::new(parsed_query.clone()))
+                } else {
+                    None
                 };
 
-                Arc::new(AdaptiveJobProcessor::new(adaptive_config))
+                // Use factory for consistent processor creation
+                JobProcessorFactory::create_adaptive_full(
+                    *num_partitions,
+                    *enable_core_affinity,
+                    partitioning_strategy,
+                    auto_select_from_query,
+                    table_registry,
+                    1000, // empty_batch_count - production default
+                    1000, // wait_on_empty_batch_ms - production default
+                )
             }
         }
     }
@@ -2141,32 +2147,6 @@ impl StreamJobServer {
         }
     }
 
-    /// Create a table injector closure for ProcessorContext.
-    /// This is a shared helper used by both the main execution engine and
-    /// the Adaptive processor's per-partition engines.
-    ///
-    /// The closure injects pre-fetched tables into the ProcessorContext,
-    /// enabling subquery lookups against file-based reference data.
-    pub fn create_table_injector(
-        tables: HashMap<String, Arc<dyn UnifiedTable>>,
-        job_name: &str,
-    ) -> Arc<
-        dyn Fn(&mut crate::velostream::sql::execution::processors::context::ProcessorContext)
-            + Send
-            + Sync,
-    > {
-        let job_name = job_name.to_string();
-        Arc::new(move |context| {
-            for (table_name, table) in &tables {
-                context.load_reference_table(table_name, table.clone());
-                debug!(
-                    "Job '{}': Injected table '{}' into execution context",
-                    job_name, table_name
-                );
-            }
-        })
-    }
-
     /// Extract batch configuration from SQL WITH clauses
     fn extract_batch_config_from_query(
         query: &StreamingQuery,
@@ -2220,8 +2200,6 @@ impl StreamJobServer {
     fn extract_streaming_config_from_query(
         query: &StreamingQuery,
     ) -> Result<StreamingConfig, SqlError> {
-        use std::time::Duration;
-
         let properties = Self::get_query_properties(query);
         let mut config = StreamingConfig::default();
 
@@ -2419,7 +2397,7 @@ impl StreamJobServer {
     /// 3. Hostname fallback
     ///
     /// This context is attached to all error messages for production observability.
-    fn build_deployment_context(job_name: &str, version: &str) -> DeploymentContext {
+    fn build_deployment_context(_job_name: &str, version: &str) -> DeploymentContext {
         let node_id = std::env::var("NODE_ID")
             .ok()
             .or_else(|| std::env::var("HOSTNAME").ok())

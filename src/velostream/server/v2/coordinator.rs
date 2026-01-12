@@ -7,7 +7,7 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::processors::MetricsCollector;
 use crate::velostream::server::processors::common::{JobExecutionStats, JobProcessingConfig};
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
-use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
+use crate::velostream::server::processors::profiling_helper::ProfilingHelper;
 use crate::velostream::server::v2::{
     AlwaysHashStrategy, BackpressureState, PartitionMetrics, PartitionReceiver,
     PartitionStateManager, PartitionerSelector, PartitioningStrategy, QueryMetadata,
@@ -24,8 +24,8 @@ use crossbeam_queue::SegQueue;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// Configuration for partitioned job execution
@@ -1249,7 +1249,7 @@ impl AdaptiveJobProcessor {
     }
 
     /// Extract GROUP BY columns from query
-    fn extract_group_by_columns(query: &StreamingQuery) -> Vec<String> {
+    fn extract_group_by_columns(_query: &StreamingQuery) -> Vec<String> {
         // Note: StreamingQuery structure doesn't expose group_by field directly
         // This is a placeholder - actual implementation would need to be added to StreamingQuery
         // For now, return empty to allow compilation
@@ -1351,24 +1351,28 @@ impl AdaptiveJobProcessor {
                 let (output_tx, _output_rx) = mpsc::unbounded_channel();
                 let mut local_engine = StreamExecutionEngine::new(output_tx);
 
-                // Inject tables into execution context if provided
-                // Note: Tables are pre-fetched by StreamJobServer and passed via PartitionedJobConfig.
-                // This mirrors StreamJobServer::create_table_injector but inline for performance.
+                // FR-082 Option 3: Create ProcessorContext and inject tables directly
+                // Generate query_id for consistent context naming
+                let query_id = local_engine.generate_query_id(&query);
+
+                // Create ProcessorContext and inject tables directly (no closure needed)
+                let mut sql_context = ProcessorContext::new(&query_id);
+
+                // Inject tables from PartitionedJobConfig.table_registry if provided
                 if let Some(ref tables) = table_registry {
-                    let tables_clone = tables.clone();
-                    local_engine.context_customizer = Some(Arc::new(move |context| {
-                        for (table_name, table) in &tables_clone {
-                            context.load_reference_table(table_name, table.clone());
-                        }
-                    }));
+                    for (table_name, table) in tables {
+                        sql_context.load_reference_table(table_name, table.clone());
+                    }
                 }
 
-                // OPTIMIZATION: Pass query by reference via Arc to avoid clone
-                local_engine.init_query_execution((*query).clone());
+                // Pass pre-configured context to engine
+                local_engine.init_query_execution_with_context(
+                    (*query).clone(),
+                    Arc::new(std::sync::Mutex::new(sql_context)),
+                );
 
-                // Get the QueryExecution from the local engine using the proper query_id generation
-                let query_id = local_engine.generate_query_id(&query);
-                let query_execution = local_engine
+                // Get the QueryExecution from the local engine (query_id already computed above)
+                let _query_execution = local_engine
                     .get_query_execution(&query_id)
                     .expect("QueryExecution must be initialized");
 

@@ -470,15 +470,16 @@ fn test_stream_source_stream_now_included_as_dependency() {
 }
 
 #[test]
-fn test_create_table_injector() {
+fn test_direct_table_injection() {
     use std::collections::HashMap;
     use std::sync::Arc;
-    use velostream::velostream::server::stream_job_server::StreamJobServer;
     use velostream::velostream::sql::execution::processors::context::ProcessorContext;
     use velostream::velostream::table::OptimizedTableImpl;
 
     // Create a table with some data
-    let table = Arc::new(OptimizedTableImpl::new());
+    let table: Arc<dyn velostream::velostream::table::unified_table::UnifiedTable> =
+        Arc::new(OptimizedTableImpl::new());
+    let optimized_table = table.as_any().downcast_ref::<OptimizedTableImpl>().unwrap();
     let mut row = HashMap::new();
     row.insert(
         "customer_id".to_string(),
@@ -488,21 +489,12 @@ fn test_create_table_injector() {
         "tier".to_string(),
         velostream::velostream::sql::execution::types::FieldValue::String("gold".to_string()),
     );
-    table.insert("C001".to_string(), row).unwrap();
+    optimized_table.insert("C001".to_string(), row).unwrap();
 
-    // Create tables map
-    let mut tables: HashMap<
-        String,
-        Arc<dyn velostream::velostream::table::unified_table::UnifiedTable>,
-    > = HashMap::new();
-    tables.insert("vip_customers".to_string(), table);
-
-    // Create the injector
-    let injector = StreamJobServer::create_table_injector(tables, "test_job");
-
-    // Create a ProcessorContext and inject tables
+    // Create a ProcessorContext and inject tables directly
+    // This is the new pattern that replaces the create_table_injector closure
     let mut context = ProcessorContext::new("test_query");
-    injector(&mut context);
+    context.load_reference_table("vip_customers", table.clone());
 
     // Verify the table was injected - get_table returns Result
     let retrieved_table = context.get_table("vip_customers");
@@ -535,5 +527,7 @@ fn test_create_table_injector() {
         _ => panic!("Expected String field value for tier"),
     }
 
-    println!("Table injector test passed - tables correctly injected into ProcessorContext");
+    println!(
+        "Direct table injection test passed - tables correctly injected into ProcessorContext"
+    );
 }

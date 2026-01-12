@@ -63,8 +63,6 @@ pub struct TableHealth {
 #[derive(Debug, Clone)]
 pub struct TableRegistryConfig {
     pub max_tables: usize,
-    pub enable_ttl: bool,
-    pub ttl_duration_secs: Option<u64>,
     pub kafka_brokers: String,
     pub base_group_id: String,
 }
@@ -73,8 +71,6 @@ impl Default for TableRegistryConfig {
     fn default() -> Self {
         Self {
             max_tables: 100,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: "localhost:9092".to_string(),
             base_group_id: "velostream".to_string(),
         }
@@ -703,48 +699,13 @@ impl TableRegistry {
         }
     }
 
-    /// Clean up tables based on TTL or other criteria
+    /// Clean up inactive tables (placeholder for future cleanup strategies)
+    ///
+    /// Currently returns an empty list. Tables should be explicitly dropped
+    /// using `drop_table()` when no longer needed.
     pub async fn cleanup_inactive_tables(&self) -> Result<Vec<String>, SqlError> {
-        if !self.config.enable_ttl {
-            debug!("TTL-based cleanup is disabled");
-            return Ok(Vec::new());
-        }
-
-        let ttl_duration = match self.config.ttl_duration_secs {
-            Some(secs) => std::time::Duration::from_secs(secs),
-            None => {
-                warn!("TTL enabled but no duration specified");
-                return Ok(Vec::new());
-            }
-        };
-
-        let now = std::time::SystemTime::now();
-        let mut tables_to_drop = Vec::new();
-
-        // Identify tables that exceed TTL
-        let metadata = self.metadata.read().await;
-        for (table_name, meta) in metadata.iter() {
-            if let Ok(age) = now.duration_since(meta.last_updated) {
-                if age > ttl_duration {
-                    tables_to_drop.push(table_name.clone());
-                }
-            }
-        }
-        drop(metadata);
-
-        // Drop identified tables
-        for table_name in &tables_to_drop {
-            if let Err(e) = self.drop_table(table_name).await {
-                warn!(
-                    "Failed to drop table '{}' during cleanup: {:?}",
-                    table_name, e
-                );
-            } else {
-                info!("Dropped inactive table '{}' (exceeded TTL)", table_name);
-            }
-        }
-
-        Ok(tables_to_drop)
+        // No automatic cleanup - tables must be explicitly dropped
+        Ok(Vec::new())
     }
 
     /// Get the number of registered tables
@@ -832,7 +793,7 @@ impl TableRegistry {
             let jobs = self.background_jobs.read().await;
             let metadata = self.metadata.read().await;
 
-            let status = if let Some(job) = jobs.get(table_name) {
+            let _status = if let Some(job) = jobs.get(table_name) {
                 if job.is_finished() {
                     // Job completed - table is ready
                     info!(

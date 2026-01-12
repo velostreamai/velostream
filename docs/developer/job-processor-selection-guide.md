@@ -138,7 +138,7 @@ AdaptiveJobProcessor uses pluggable routing strategies selected automatically ba
 use velostream::velostream::server::processors::JobProcessorFactory;
 
 // Create adaptive processor with 8 partitions
-let processor = JobProcessorFactory::create_adaptive_processor_with_partitions(8);
+let processor = JobProcessorFactory::create_adaptive_with_partitions(8);
 
 // Process with automatic strategy selection and parallelism
 let stats = processor.process_job(
