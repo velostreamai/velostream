@@ -12,8 +12,8 @@ fields:
     nullable: false
     constraints:
       range:
-        min: 1000
-        max: 99999
+        min: 1001
+        max: 1010  # Match customers.csv IDs for join/subquery tests
 
   - name: product_id
     type: string

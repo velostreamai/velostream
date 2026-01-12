@@ -14,6 +14,7 @@
 -- @description: Subquery patterns for filtering
 
 -- Filter orders from VIP customers using subquery pattern
+-- vip_customers is loaded as file_source reference table
 CREATE STREAM vip_orders AS
 SELECT
     o.order_id,
