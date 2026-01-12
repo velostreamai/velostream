@@ -1352,6 +1352,8 @@ impl AdaptiveJobProcessor {
                 let mut local_engine = StreamExecutionEngine::new(output_tx);
 
                 // Inject tables into execution context if provided
+                // Note: Tables are pre-fetched by StreamJobServer and passed via PartitionedJobConfig.
+                // This mirrors StreamJobServer::create_table_injector but inline for performance.
                 if let Some(ref tables) = table_registry {
                     let tables_clone = tables.clone();
                     local_engine.context_customizer = Some(Arc::new(move |context| {

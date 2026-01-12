@@ -266,14 +266,19 @@ impl StreamExecutionEngine {
     /// FR-082 Phase 6.5: Initialize a QueryExecution for batch processing
     /// Called by job processors before processing batches to register the query and create the persistent ProcessorContext
     /// Must be called once before any batch processing starts
+    ///
+    /// IMPORTANT: This method applies `context_customizer` to inject tables into the ProcessorContext,
+    /// enabling subquery execution against reference tables (e.g., IN (SELECT ... FROM table)).
     pub fn init_query_execution(&mut self, query: StreamingQuery) {
         // Use the same query_id generation as process_batch_with_output() for consistency
         let query_id = self.generate_query_id(&query);
 
         // Only create if it doesn't already exist
-        self.active_queries
-            .entry(query_id)
-            .or_insert_with(|| QueryExecution::new(query));
+        // Use create_query_execution() to ensure context_customizer is applied (table injection)
+        if !self.active_queries.contains_key(&query_id) {
+            let execution = self.create_query_execution(&query_id, query, None);
+            self.active_queries.insert(query_id, execution);
+        }
     }
 
     /// FR-082 Phase 6.6: Lazy initialize or get existing QueryExecution

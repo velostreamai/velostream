@@ -460,17 +460,30 @@ async fn run_file_only_execution(
     timeout_ms: u64,
 ) -> Result<bool, Box<dyn std::error::Error>> {
     // Check if all sources and sinks are file-based
+    // Note: .all() returns true for empty iterators, so we must check for non-empty sources/sinks
     let is_file_only = validation_result.query_results.iter().all(|qr| {
-        qr.sources_found
+        // Must have at least one source or sink to be considered file-only
+        let has_sources_or_sinks = !qr.sources_found.is_empty() || !qr.sinks_found.is_empty();
+
+        // All sources must be file-based (or no sources)
+        let all_sources_file = qr
+            .sources_found
             .iter()
-            .all(|s| s.source_type == DataSourceType::File)
-            && qr
-                .sinks_found
-                .iter()
-                .all(|s| s.sink_type == DataSinkType::File)
+            .all(|s| s.source_type == DataSourceType::File);
+
+        // All sinks must be file-based (or no sinks)
+        let all_sinks_file = qr
+            .sinks_found
+            .iter()
+            .all(|s| s.sink_type == DataSinkType::File);
+
+        has_sources_or_sinks && all_sources_file && all_sinks_file
     });
 
-    if !is_file_only {
+    // Also check that we have at least one query result with sources/sinks
+    let has_any_query = !validation_result.query_results.is_empty();
+
+    if !is_file_only || !has_any_query {
         return Ok(false);
     }
 
@@ -867,6 +880,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("🧪 Velostream SQL Test Harness");
             println!("════════════════════════════════════════");
+
+            // Auto-resolve .sql extension if file doesn't exist
+            let sql_file = if !sql_file.exists() && !sql_file.extension().is_some() {
+                let with_ext = sql_file.with_extension("sql");
+                if with_ext.exists() {
+                    with_ext
+                } else {
+                    sql_file
+                }
+            } else {
+                sql_file
+            };
+
             println!("SQL File: {}", sql_file.display());
 
             // Auto-discover spec file if not provided

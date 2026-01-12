@@ -202,15 +202,19 @@ impl TransactionalJobProcessor {
         {
             let mut engine_lock = engine.write().await;
 
-            // Inject table registry if provided
-            if let Ok(registry_lock) = self.table_registry.lock() {
-                if let Some(ref tables) = *registry_lock {
-                    let tables_clone = tables.clone();
-                    engine_lock.context_customizer = Some(Arc::new(move |context| {
-                        for (table_name, table) in &tables_clone {
-                            context.load_reference_table(table_name, table.clone());
-                        }
-                    }));
+            // Inject table registry if provided AND no customizer already set
+            // IMPORTANT: Don't overwrite context_customizer set by stream_job_server
+            // which may have already configured table injection from required_tables
+            if engine_lock.context_customizer.is_none() {
+                if let Ok(registry_lock) = self.table_registry.lock() {
+                    if let Some(ref tables) = *registry_lock {
+                        let tables_clone = tables.clone();
+                        engine_lock.context_customizer = Some(Arc::new(move |context| {
+                            for (table_name, table) in &tables_clone {
+                                context.load_reference_table(table_name, table.clone());
+                            }
+                        }));
+                    }
                 }
             }
 

@@ -31,6 +31,7 @@ use crate::velostream::sql::{
     execution::performance::PerformanceMonitor,
     query_analyzer::{DataSourceRequirement, DataSourceType, QueryAnalyzer},
 };
+use crate::velostream::table::unified_table::UnifiedTable;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -548,66 +549,131 @@ impl StreamJobServer {
         let parsed_query = parser.parse(&query)?;
 
         // Extract table dependencies and ensure they exist AND ARE READY
+        // All tables are passed to processors - they handle which ones they need
         let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
+        let properties = Self::get_query_properties(&parsed_query);
+
         if !required_tables.is_empty() {
-            info!("Job '{}' requires tables: {:?}", name, required_tables);
+            info!(
+                "Job '{}' has table dependencies: {:?}",
+                name, required_tables
+            );
 
-            // Check that all required tables exist in the registry
+            // Identify file_source tables that need to be loaded into the registry
+            // Other source types (kafka_source, etc.) are external and don't need registry loading
+            let file_source_tables: Vec<String> = required_tables
+                .iter()
+                .filter(|name| {
+                    let type_key = format!("{}.type", name);
+                    properties
+                        .get(&type_key)
+                        .map(|t| t == "file_source")
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+
+            // Check which file_source tables are missing from the registry
             let mut missing_tables = Vec::new();
-
-            for table_name in &required_tables {
+            for table_name in &file_source_tables {
                 if !self.table_registry.exists(table_name).await {
                     missing_tables.push(table_name.clone());
                 }
             }
 
+            // Auto-load missing file_source tables from their config files
             if !missing_tables.is_empty() {
-                return Err(SqlError::ExecutionError {
-                    message: format!(
-                        "Job '{}' cannot be deployed: missing required tables: {:?}\n\
-                        Create them first using: CREATE TABLE <name> AS SELECT ...",
-                        name, missing_tables
-                    ),
-                    query: Some(query),
-                });
-            }
+                info!(
+                    "Job '{}': Auto-loading {} missing file_source tables...",
+                    name,
+                    missing_tables.len()
+                );
 
-            info!(
-                "Job '{}': All required tables exist, waiting for them to be ready...",
-                name
-            );
-
-            // CRITICAL: Wait for ALL tables to be fully loaded before starting the stream
-            // This prevents missing enrichment data and ensures data consistency
-            let table_ready_timeout = Duration::from_secs(60); // Conservative 60s default
-
-            match self
-                .table_registry
-                .wait_for_tables_ready(&required_tables, table_ready_timeout)
-                .await
-            {
-                Ok(table_statuses) => {
-                    info!(
-                        "Job '{}': All {} tables are ready!",
-                        name,
-                        table_statuses.len()
-                    );
-                    for (table_name, status) in table_statuses {
-                        info!("  Table '{}': {:?}", table_name, status);
+                for table_name in &missing_tables {
+                    let config_key = format!("{}.config_file", table_name);
+                    if let Some(config_path) = properties.get(&config_key) {
+                        match self
+                            .table_registry
+                            .load_file_source_table(
+                                table_name,
+                                config_path,
+                                self.base_dir.as_deref(),
+                            )
+                            .await
+                        {
+                            Ok(row_count) => {
+                                info!(
+                                    "  ✓ Loaded table '{}' from '{}' ({} rows)",
+                                    table_name, config_path, row_count
+                                );
+                            }
+                            Err(e) => {
+                                error!(
+                                    "  ✗ Failed to load table '{}' from '{}': {}",
+                                    table_name, config_path, e
+                                );
+                                return Err(SqlError::ExecutionError {
+                                    message: format!(
+                                        "Job '{}' cannot be deployed: failed to load table '{}' from '{}': {}",
+                                        name, table_name, config_path, e
+                                    ),
+                                    query: Some(query),
+                                });
+                            }
+                        }
+                    } else {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Job '{}' cannot be deployed: missing required table '{}' and no config_file specified.\n\
+                                Add '{}.config_file' to the WITH clause or create the table using: CREATE TABLE {} AS SELECT ...",
+                                name, table_name, table_name, table_name
+                            ),
+                            query: Some(query),
+                        });
                     }
                 }
-                Err(e) => {
-                    error!(
-                        "Job '{}': Failed waiting for tables to be ready: {}",
-                        name, e
-                    );
-                    return Err(SqlError::ExecutionError {
-                        message: format!(
-                            "Job '{}' cannot be deployed: tables not ready after {:?} timeout: {}",
-                            name, table_ready_timeout, e
-                        ),
-                        query: Some(query),
-                    });
+            }
+
+            // Wait for file_source tables to be ready (if any)
+            if !file_source_tables.is_empty() {
+                info!(
+                    "Job '{}': Waiting for {} file_source tables to be ready...",
+                    name,
+                    file_source_tables.len()
+                );
+
+                // CRITICAL: Wait for file_source tables to be fully loaded before starting the stream
+                // This prevents missing enrichment data and ensures data consistency
+                let table_ready_timeout = Duration::from_secs(60); // Conservative 60s default
+
+                match self
+                    .table_registry
+                    .wait_for_tables_ready(&file_source_tables, table_ready_timeout)
+                    .await
+                {
+                    Ok(table_statuses) => {
+                        info!(
+                            "Job '{}': All {} file_source tables are ready!",
+                            name,
+                            table_statuses.len()
+                        );
+                        for (table_name, status) in table_statuses {
+                            info!("  Table '{}': {:?}", table_name, status);
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Job '{}': Failed waiting for tables to be ready: {}",
+                            name, e
+                        );
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Job '{}' cannot be deployed: tables not ready after {:?} timeout: {}",
+                                name, table_ready_timeout, e
+                            ),
+                            query: Some(query),
+                        });
+                    }
                 }
             }
         } else {
@@ -722,37 +788,34 @@ impl StreamJobServer {
             execution_engine.set_performance_monitor(Some(Arc::clone(monitor)));
         }
 
-        // Inject shared tables into execution context if any required
-        if !required_tables.is_empty() {
-            let table_registry = self.table_registry.clone();
-            let required_tables_clone = required_tables.clone();
-
-            execution_engine.context_customizer = Some(Arc::new(move |context| {
-                // Use blocking task to get tables
-                let tables_to_inject = tokio::task::block_in_place(|| {
-                    let runtime = tokio::runtime::Handle::current();
-                    runtime.block_on(async {
-                        let mut tables = HashMap::new();
-                        for table_name in &required_tables_clone {
-                            if let Ok(table) = table_registry.get_table(table_name).await {
-                                tables.insert(table_name.clone(), table);
-                                info!("Injected table '{}' into job execution context", table_name);
-                            }
-                        }
-                        tables
-                    })
-                });
-
-                for (table_name, table) in tables_to_inject {
-                    context.load_reference_table(&table_name, table);
+        // Extract tables ONCE for both execution_engine and Adaptive processor
+        // This avoids duplicate extraction and blocking async calls
+        let tables_for_processor: Option<HashMap<String, Arc<dyn UnifiedTable>>> =
+            if !required_tables.is_empty() {
+                let mut tables = HashMap::new();
+                for table_name in &required_tables {
+                    if let Ok(table) = self.table_registry.get_table(table_name).await {
+                        tables.insert(table_name.clone(), table);
+                    }
                 }
-            }));
+                if tables.is_empty() {
+                    None
+                } else {
+                    info!(
+                        "Job '{}': Extracted {} tables for processor",
+                        name,
+                        tables.len()
+                    );
+                    Some(tables)
+                }
+            } else {
+                None
+            };
 
-            info!(
-                "Job '{}': Configured table injection for {} tables",
-                name,
-                required_tables.len()
-            );
+        // Inject shared tables into execution context using pre-fetched tables
+        if let Some(ref tables) = tables_for_processor {
+            execution_engine.context_customizer =
+                Some(Self::create_table_injector(tables.clone(), &name));
         }
 
         let execution_engine = Arc::new(RwLock::new(execution_engine));
@@ -762,6 +825,7 @@ impl StreamJobServer {
         let topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
+        let tables_for_spawn = tables_for_processor;
 
         // Create shared stats for real-time monitoring from test harness
         let shared_stats: SharedJobStats =
@@ -923,6 +987,7 @@ impl StreamJobServer {
                                 &processor_config_for_spawn,
                                 &parsed_query,
                                 &job_name,
+                                tables_for_spawn.clone(),
                             );
 
                             // Execute the selected processor (unified API for all three)
@@ -1838,6 +1903,7 @@ impl StreamJobServer {
         processor_config: &JobProcessorConfig,
         parsed_query: &StreamingQuery,
         job_name: &str,
+        table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
     ) -> Arc<dyn JobProcessor> {
         match processor_config {
             JobProcessorConfig::Simple => {
@@ -1888,7 +1954,7 @@ impl StreamJobServer {
                     annotation_partition_count: None,
                     empty_batch_count: 1000,
                     wait_on_empty_batch_ms: 1000,
-                    table_registry: None, // Tables are managed by StreamJobServer's table_registry
+                    table_registry, // Pass tables to partition engines for subquery execution
                 };
 
                 Arc::new(AdaptiveJobProcessor::new(adaptive_config))
@@ -2073,6 +2139,32 @@ impl StreamJobServer {
             StreamingQuery::StartJob { properties, .. } => properties.clone(),
             _ => HashMap::new(),
         }
+    }
+
+    /// Create a table injector closure for ProcessorContext.
+    /// This is a shared helper used by both the main execution engine and
+    /// the Adaptive processor's per-partition engines.
+    ///
+    /// The closure injects pre-fetched tables into the ProcessorContext,
+    /// enabling subquery lookups against file-based reference data.
+    pub fn create_table_injector(
+        tables: HashMap<String, Arc<dyn UnifiedTable>>,
+        job_name: &str,
+    ) -> Arc<
+        dyn Fn(&mut crate::velostream::sql::execution::processors::context::ProcessorContext)
+            + Send
+            + Sync,
+    > {
+        let job_name = job_name.to_string();
+        Arc::new(move |context| {
+            for (table_name, table) in &tables {
+                context.load_reference_table(table_name, table.clone());
+                debug!(
+                    "Job '{}': Injected table '{}' into execution context",
+                    job_name, table_name
+                );
+            }
+        })
     }
 
     /// Extract batch configuration from SQL WITH clauses

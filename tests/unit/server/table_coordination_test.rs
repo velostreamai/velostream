@@ -166,40 +166,49 @@ fn test_extract_table_dependencies_fixed() {
     use velostream::velostream::sql::StreamingSqlParser;
 
     // Test: Extract table names from various queries
-    // NOTE: Current parser always creates StreamSource::Stream for all identifiers,
-    // never StreamSource::Table. The extract_table_dependencies method correctly
-    // excludes streams, so all queries currently return 0 table dependencies.
+    // NOTE: After Issue #11 fix, StreamSource::Stream references are now included
+    // as potential table dependencies. The caller (stream_job_server) filters them
+    // against the actual table registry to determine which are real tables.
     let parser = StreamingSqlParser::new();
 
-    // Query with joins - all identifiers parsed as streams, not tables
+    // Query with joins - all identifiers parsed as streams, now included as potential dependencies
     let query1 = r#"SELECT * FROM trades_stream JOIN user_profiles ON trades_stream.user_id = user_profiles.user_id"#;
     let parsed1 = parser.parse(query1).unwrap();
     let tables1 = TableRegistry::extract_table_dependencies(&parsed1);
-    assert_eq!(
-        tables1.len(),
-        0,
-        "Parser creates StreamSource::Stream for all identifiers, not StreamSource::Table"
+    // After fix: StreamSource::Stream references are included as potential dependencies
+    assert!(
+        tables1.contains(&"trades_stream".to_string()),
+        "StreamSource::Stream should now be included. Got: {:?}",
+        tables1
+    );
+    assert!(
+        tables1.contains(&"user_profiles".to_string()),
+        "JOIN source should be included. Got: {:?}",
+        tables1
     );
 
-    // Query with multiple joins - all parsed as streams
+    // Query with multiple joins - all parsed as streams, now included
     let query2 = r#"SELECT * FROM orders JOIN customers ON orders.customer_id = customers.customer_id JOIN products ON orders.product_id = products.product_id"#;
     let parsed2 = parser.parse(query2).unwrap();
     let tables2 = TableRegistry::extract_table_dependencies(&parsed2);
     assert_eq!(
         tables2.len(),
-        0,
-        "Parser creates StreamSource::Stream for all identifiers"
+        3,
+        "Should have 3 potential dependencies (orders, customers, products). Got: {:?}",
+        tables2
     );
 
-    // Query with stream-only joins
+    // Query with stream-only joins - still returns all references as potential dependencies
+    // The caller determines which are actual tables in the registry
     let query3 = r#"SELECT * FROM stream1 JOIN stream2 ON stream1.id = stream2.id"#;
     let parsed3 = parser.parse(query3).unwrap();
     let tables3 = TableRegistry::extract_table_dependencies(&parsed3);
-    assert_eq!(tables3.len(), 0, "Should have no table dependencies");
-
-    // Test verifies that the bug fix correctly excludes StreamSource::Stream from table dependencies
-    // When parser logic is updated to create StreamSource::Table for actual tables,
-    // these tests should be updated to expect table dependencies in queries 1 and 2
+    assert_eq!(
+        tables3.len(),
+        2,
+        "Should have 2 potential dependencies. Got: {:?}",
+        tables3
+    );
 }
 
 #[tokio::test]
@@ -241,3 +250,290 @@ async fn test_coordination_prevents_missing_data() {
 // - Progress monitoring
 // - Dependency graph resolution
 // - Circuit breaker patterns
+
+#[test]
+fn test_extract_table_dependencies_from_in_subquery() {
+    use velostream::velostream::server::table_registry::TableRegistry;
+    use velostream::velostream::sql::StreamingSqlParser;
+
+    let parser = StreamingSqlParser::new();
+
+    // Test: IN (SELECT ...) subquery should extract table dependencies from inner query
+    // This is the pattern used in 41_subqueries.sql
+    let query = r#"
+        SELECT o.order_id, o.customer_id
+        FROM all_orders o
+        WHERE o.customer_id IN (
+            SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+        )
+    "#;
+
+    let parsed = parser.parse(query).expect("Query should parse");
+
+    // Debug: Print the AST to understand the structure
+    println!("Parsed query: {:#?}", parsed);
+
+    let tables = TableRegistry::extract_table_dependencies(&parsed);
+    println!("Extracted table dependencies: {:?}", tables);
+
+    // The subquery references 'vip_customers' - this should be extracted as a dependency
+    // After the fix, StreamSource::Stream references are included as potential dependencies
+    assert!(
+        tables.contains(&"vip_customers".to_string()),
+        "Should extract 'vip_customers' from IN subquery. Got: {:?}",
+        tables
+    );
+}
+
+#[test]
+fn test_extract_table_dependencies_from_exists_subquery() {
+    use velostream::velostream::server::table_registry::TableRegistry;
+    use velostream::velostream::sql::StreamingSqlParser;
+
+    let parser = StreamingSqlParser::new();
+
+    // Test: EXISTS (SELECT ...) subquery
+    let query = r#"
+        SELECT o.order_id
+        FROM orders o
+        WHERE EXISTS (SELECT 1 FROM inventory i WHERE i.product_id = o.product_id)
+    "#;
+
+    let parsed = parser.parse(query).expect("Query should parse");
+    let tables = TableRegistry::extract_table_dependencies(&parsed);
+
+    println!("EXISTS subquery dependencies: {:?}", tables);
+
+    // Should extract 'inventory' from the EXISTS subquery
+    assert!(
+        tables.contains(&"inventory".to_string()),
+        "Should extract 'inventory' from EXISTS subquery. Got: {:?}",
+        tables
+    );
+}
+
+#[test]
+fn test_extract_table_dependencies_with_properties_skips_main_from() {
+    use velostream::velostream::server::table_registry::TableRegistry;
+    use velostream::velostream::sql::ast::{
+        BinaryOperator, Expr, SelectField, StreamSource, StreamingQuery, SubqueryType,
+    };
+
+    // Test: When properties are present (FROM...WITH), main FROM should NOT be extracted
+    // but subquery tables in WHERE clause SHOULD be extracted
+
+    // Build AST manually to precisely test the extraction logic
+    let subquery = StreamingQuery::Select {
+        fields: vec![SelectField::Column("customer_id".to_string())],
+        distinct: false,
+        key_fields: None,
+        from: StreamSource::Stream("vip_customers".to_string()),
+        from_alias: None,
+        joins: None,
+        where_clause: None,
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+        properties: None,
+        emit_mode: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
+    };
+
+    let where_expr = Expr::BinaryOp {
+        left: Box::new(Expr::Column("customer_id".to_string())),
+        op: BinaryOperator::In,
+        right: Box::new(Expr::Subquery {
+            query: Box::new(subquery),
+            subquery_type: SubqueryType::In,
+        }),
+    };
+
+    let query = StreamingQuery::Select {
+        fields: vec![SelectField::Wildcard],
+        distinct: false,
+        key_fields: None,
+        from: StreamSource::Stream("all_orders".to_string()),
+        from_alias: None,
+        joins: None,
+        where_clause: Some(where_expr),
+        group_by: None,
+        having: None,
+        window: None,
+        order_by: None,
+        limit: None,
+        properties: Some(std::collections::HashMap::new()), // WITH clause present - main FROM should be skipped
+        emit_mode: None,
+        job_mode: None,
+        batch_size: None,
+        num_partitions: None,
+        partitioning_strategy: None,
+    };
+
+    let tables = TableRegistry::extract_table_dependencies(&query);
+    println!("Dependencies with properties: {:?}", tables);
+
+    // Main FROM (all_orders) should NOT be extracted (has WITH clause)
+    assert!(
+        !tables.contains(&"all_orders".to_string()),
+        "Main FROM with WITH clause should NOT be extracted. Got: {:?}",
+        tables
+    );
+
+    // Subquery table (vip_customers) SHOULD be extracted
+    assert!(
+        tables.contains(&"vip_customers".to_string()),
+        "Subquery table 'vip_customers' SHOULD be extracted. Got: {:?}",
+        tables
+    );
+}
+
+#[test]
+fn test_extract_table_dependencies_from_real_subquery_sql() {
+    use velostream::velostream::server::table_registry::TableRegistry;
+    use velostream::velostream::sql::StreamingSqlParser;
+
+    let parser = StreamingSqlParser::new();
+
+    // Test: The exact query from 41_subqueries.sql (with WITH clause)
+    // This mimics what the test harness actually executes
+    let query = r#"
+        CREATE STREAM vip_orders AS
+        SELECT
+            o.order_id,
+            o.customer_id,
+            o.product_id,
+            o.quantity,
+            o.unit_price,
+            o.quantity * o.unit_price AS order_total,
+            o.status,
+            o.event_time
+        FROM all_orders o
+        WHERE o.customer_id IN (
+            SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+        )
+        EMIT CHANGES
+        WITH (
+            'all_orders.type' = 'kafka_source',
+            'all_orders.topic.name' = 'test_all_orders',
+            'all_orders.config_file' = '../configs/orders_source.yaml',
+
+            'vip_customers.type' = 'file_source',
+            'vip_customers.config_file' = '../configs/customers_table.yaml',
+
+            'vip_orders.type' = 'kafka_sink',
+            'vip_orders.topic.name' = 'test_vip_orders',
+            'vip_orders.config_file' = '../configs/orders_sink.yaml'
+        )
+    "#;
+
+    let parsed = parser.parse(query).expect("Query should parse");
+    println!("Parsed CREATE STREAM query: {:#?}", parsed);
+
+    let tables = TableRegistry::extract_table_dependencies(&parsed);
+    println!("Extracted dependencies from CREATE STREAM: {:?}", tables);
+
+    // Even with WITH clause, the subquery's vip_customers SHOULD be extracted
+    assert!(
+        tables.contains(&"vip_customers".to_string()),
+        "Subquery table 'vip_customers' SHOULD be extracted even with WITH clause. Got: {:?}",
+        tables
+    );
+}
+
+#[test]
+fn test_stream_source_stream_now_included_as_dependency() {
+    use velostream::velostream::server::table_registry::TableRegistry;
+    use velostream::velostream::sql::StreamingSqlParser;
+
+    let parser = StreamingSqlParser::new();
+
+    // After the fix, StreamSource::Stream references should be included as potential dependencies
+    // The caller (stream_job_server) filters them against the actual table registry
+    let query = r#"SELECT * FROM my_table"#;
+    let parsed = parser.parse(query).unwrap();
+    let tables = TableRegistry::extract_table_dependencies(&parsed);
+
+    println!("Simple query dependencies: {:?}", tables);
+
+    // After fix: StreamSource::Stream should be included
+    // The parser creates StreamSource::Stream for "my_table"
+    assert!(
+        tables.contains(&"my_table".to_string()),
+        "StreamSource::Stream should now be included as potential dependency. Got: {:?}",
+        tables
+    );
+}
+
+#[test]
+fn test_create_table_injector() {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use velostream::velostream::server::stream_job_server::StreamJobServer;
+    use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+    use velostream::velostream::table::OptimizedTableImpl;
+
+    // Create a table with some data
+    let table = Arc::new(OptimizedTableImpl::new());
+    let mut row = HashMap::new();
+    row.insert(
+        "customer_id".to_string(),
+        velostream::velostream::sql::execution::types::FieldValue::String("C001".to_string()),
+    );
+    row.insert(
+        "tier".to_string(),
+        velostream::velostream::sql::execution::types::FieldValue::String("gold".to_string()),
+    );
+    table.insert("C001".to_string(), row).unwrap();
+
+    // Create tables map
+    let mut tables: HashMap<
+        String,
+        Arc<dyn velostream::velostream::table::unified_table::UnifiedTable>,
+    > = HashMap::new();
+    tables.insert("vip_customers".to_string(), table);
+
+    // Create the injector
+    let injector = StreamJobServer::create_table_injector(tables, "test_job");
+
+    // Create a ProcessorContext and inject tables
+    let mut context = ProcessorContext::new("test_query");
+    injector(&mut context);
+
+    // Verify the table was injected - get_table returns Result
+    let retrieved_table = context.get_table("vip_customers");
+    assert!(
+        retrieved_table.is_ok(),
+        "Table 'vip_customers' should be available in context after injection"
+    );
+
+    // Verify we can lookup data from the injected table using get_record (UnifiedTable trait method)
+    let table_ref = retrieved_table.unwrap();
+    let lookup_result = table_ref.get_record("C001");
+    assert!(
+        lookup_result.is_ok(),
+        "Should be able to lookup data from injected table"
+    );
+    let row_data = lookup_result.unwrap();
+    assert!(
+        row_data.is_some(),
+        "Record 'C001' should exist in the injected table"
+    );
+
+    // Verify the data is correct
+    let row = row_data.unwrap();
+    let tier = row.get("tier");
+    assert!(tier.is_some(), "Row should have 'tier' field");
+    match tier.unwrap() {
+        velostream::velostream::sql::execution::types::FieldValue::String(s) => {
+            assert_eq!(s, "gold", "Tier should be 'gold'");
+        }
+        _ => panic!("Expected String field value for tier"),
+    }
+
+    println!("Table injector test passed - tables correctly injected into ProcessorContext");
+}
