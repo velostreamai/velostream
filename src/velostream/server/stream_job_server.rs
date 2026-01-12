@@ -547,6 +547,14 @@ impl StreamJobServer {
         let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
         let properties = Self::get_query_properties(&parsed_query);
 
+        // Create QueryAnalyzer for determining required resources
+        // Use base_dir for resolving relative config file paths
+        let mut analyzer = if let Some(ref base_dir) = self.base_dir {
+            QueryAnalyzer::with_base_dir(self.base_group_id.clone(), base_dir)
+        } else {
+            QueryAnalyzer::new(self.base_group_id.clone())
+        };
+
         if !required_tables.is_empty() {
             info!(
                 "Job '{}' has table dependencies: {:?}",
@@ -670,20 +678,13 @@ impl StreamJobServer {
                     }
                 }
             }
+            // Register file_source tables as known (they're in the registry)
+            // This allows QueryAnalyzer to skip validation for these tables
+            // while still analyzing external sources (kafka_source, etc.)
+            analyzer.add_known_tables(file_source_tables);
         } else {
             info!("Job '{}' has no table dependencies", name);
         }
-
-        // Analyze query to determine required resources
-        // Use base_dir for resolving relative config file paths (e.g., ../../configs/common_kafka_source.yaml)
-        let mut analyzer = if let Some(ref base_dir) = self.base_dir {
-            QueryAnalyzer::with_base_dir(self.base_group_id.clone(), base_dir)
-        } else {
-            QueryAnalyzer::new(self.base_group_id.clone())
-        };
-
-        // Register known tables to skip external source validation
-        analyzer.add_known_tables(required_tables.clone());
 
         let analysis = analyzer.analyze(&parsed_query)?;
 
