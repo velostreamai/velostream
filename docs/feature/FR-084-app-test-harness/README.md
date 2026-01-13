@@ -391,6 +391,96 @@ queries:
         on_failure: "Enrichment fields should be populated"
 ```
 
+### 3.1. Explicit Dependencies
+
+When a query requires reference tables (CREATE TABLE) to be deployed before execution, use the `dependencies` field:
+
+```yaml
+queries:
+  - name: vip_orders
+    description: Filter orders by VIP customers from reference table
+    dependencies:
+      - vip_customers  # CREATE TABLE statement that must run first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 200  # Should filter out non-VIP orders
+```
+
+**Dependency Behavior:**
+
+| Feature | Description |
+|---------|-------------|
+| **Ordering** | Dependencies deploy in the order listed |
+| **Deduplication** | Each dependency deploys only once per test run |
+| **Error Handling** | Missing dependency returns `ConfigError` |
+| **Server Required** | Dependencies require `StreamJobServer` to be configured |
+
+**Note**: The `velo-test init` command generates empty `dependencies: []`. You must manually add dependencies when using file-based reference tables for JOINs or subqueries.
+
+### 3.2. File-Based Reference Tables
+
+Load reference data from CSV/JSON files for use in SQL JOINs and IN subqueries.
+
+**Config File** (`configs/customers_table.yaml`):
+```yaml
+source_type: file
+file:
+  path: ../data/vip_customers.csv
+  format: csv
+```
+
+**SQL Definition**:
+```sql
+-- Create reference table from file
+CREATE TABLE vip_customers AS
+SELECT customer_id, name, tier, credit_limit
+FROM vip_source
+WITH ('vip_source.config_file' = '../configs/customers_table.yaml');
+
+-- Use in main query with IN subquery
+CREATE STREAM vip_orders AS
+SELECT o.order_id, o.customer_id, o.product_id,
+       o.quantity * o.unit_price AS order_total
+FROM all_orders o
+WHERE o.customer_id IN (
+    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+)
+WITH (
+    'all_orders.type' = 'kafka_source',
+    'all_orders.topic' = 'orders',
+    'vip_orders.type' = 'kafka_sink',
+    'vip_orders.topic' = 'vip_orders'
+);
+```
+
+**Test Spec**:
+```yaml
+queries:
+  - name: vip_orders
+    dependencies:
+      - vip_customers  # File-based table must load first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+```
+
+**Supported File Formats:**
+
+| Format | Config | Use Case |
+|--------|--------|----------|
+| CSV | `format: csv` | Tabular reference data with headers |
+| JSON Lines | `format: json_lines` | One JSON object per line |
+| JSON | `format: json` | JSON array of objects |
+
 ### 4. Assertion Types
 
 | Assertion Type | Parameters | Description |

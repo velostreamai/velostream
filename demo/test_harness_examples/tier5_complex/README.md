@@ -55,18 +55,48 @@ SELECT
 FROM user_activity;
 ```
 
-### Subqueries
+### Subqueries with File-Based Reference Tables
 
-Filter using subquery results:
+Filter using subquery results from a reference table loaded from CSV:
 
+**Step 1: Define the reference table** (loaded from `configs/customers_table.yaml`):
 ```sql
-SELECT o.*
+CREATE TABLE vip_customers AS
+SELECT customer_id, name, tier, credit_limit
+FROM vip_source
+WITH ('vip_source.config_file' = '../configs/customers_table.yaml');
+```
+
+**Step 2: Use IN (SELECT ...) to filter**:
+```sql
+CREATE STREAM vip_orders AS
+SELECT o.order_id, o.customer_id, o.product_id,
+       o.quantity * o.unit_price AS order_total,
+       o.status
 FROM all_orders o
 WHERE o.customer_id IN (
     SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
 )
-EMIT CHANGES;
+WITH (...);
 ```
+
+**Step 3: Declare dependency in test spec** (`41_subqueries.test.yaml`):
+```yaml
+queries:
+  - name: vip_orders
+    dependencies:
+      - vip_customers  # Reference table must be loaded first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 200  # Should filter out non-VIP orders
+```
+
+**Result**: 200 input orders → ~94 filtered VIP orders (only gold/platinum tier)
 
 ### Complex Filtering
 

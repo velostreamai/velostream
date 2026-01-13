@@ -175,6 +175,111 @@ queries:
         greater_than: 0
 ```
 
+### Explicit Dependencies
+
+When a query requires reference tables or other SQL statements to be deployed first, use the `dependencies` field:
+
+```yaml
+queries:
+  - name: vip_orders
+    description: Filter orders by VIP customers
+    dependencies:
+      - vip_customers  # This CREATE TABLE must be deployed first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 200  # Should filter out non-VIP orders
+```
+
+**How dependencies work:**
+
+1. Dependencies are deployed via `StreamJobServer` before the main query
+2. Dependencies are listed by name (matching the SQL statement name)
+3. Each dependency is only deployed once (duplicates are skipped)
+4. Dependencies execute in the order declared
+
+**When to use dependencies:**
+
+| Use Case | Example |
+|----------|---------|
+| Reference tables for JOINs | `dependencies: [products, customers]` |
+| Subquery reference tables | `dependencies: [vip_customers]` |
+| Prerequisite streams | `dependencies: [enriched_stream]` |
+
+### File-Based Reference Tables
+
+Load reference tables from CSV/JSON files for use in SQL JOINs and subqueries.
+
+**Step 1: Create a config file for the file source**
+
+```yaml
+# configs/customers_table.yaml
+source_type: file
+file:
+  path: ../data/vip_customers.csv
+  format: csv
+```
+
+**Step 2: Define the CREATE TABLE in SQL**
+
+```sql
+-- Load VIP customers from CSV into a reference table
+CREATE TABLE vip_customers AS
+SELECT customer_id, name, tier, credit_limit
+FROM vip_source
+WITH (
+    'vip_source.config_file' = '../configs/customers_table.yaml'
+);
+```
+
+**Step 3: Use the table in your main query**
+
+```sql
+-- Filter orders using IN subquery against reference table
+CREATE STREAM vip_orders AS
+SELECT o.order_id, o.customer_id, o.product_id,
+       o.quantity * o.unit_price AS order_total,
+       o.status
+FROM all_orders o
+WHERE o.customer_id IN (
+    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+)
+WITH (
+    'all_orders.type' = 'kafka_source',
+    'all_orders.topic' = 'orders',
+    'vip_orders.type' = 'kafka_sink',
+    'vip_orders.topic' = 'vip_orders'
+);
+```
+
+**Step 4: Declare the dependency in test spec**
+
+```yaml
+queries:
+  - name: vip_orders
+    dependencies:
+      - vip_customers  # Reference table must be loaded first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+```
+
+**Supported file formats:**
+
+| Format | Config Value | Description |
+|--------|--------------|-------------|
+| CSV | `format: csv` | Comma-separated with header row |
+| JSON Lines | `format: json_lines` | One JSON object per line |
+| JSON | `format: json` | JSON array of objects |
+
 ### Using Static Data
 
 Use pre-existing data files instead of generated data:
