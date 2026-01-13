@@ -274,6 +274,11 @@ pub struct QueryTest {
     #[serde(default)]
     pub skip: bool,
 
+    /// Dependencies that must be executed before this query (in order)
+    /// These are names of other statements in the SQL file (e.g., reference tables)
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+
     /// Input configuration
     pub inputs: Vec<InputConfig>,
 
@@ -1641,6 +1646,7 @@ mod tests {
             name: name.to_string(),
             description: None,
             skip: false,
+            dependencies: Vec::new(),
             inputs: Vec::new(),
             output: None,
             outputs: Vec::new(),
@@ -1654,6 +1660,7 @@ mod tests {
             name: name.to_string(),
             description: None,
             skip: false,
+            dependencies: deps.iter().map(|s| s.to_string()).collect(),
             inputs: deps
                 .into_iter()
                 .map(|d| InputConfig {
@@ -1906,5 +1913,82 @@ mod tests {
             graph.get("query_c").unwrap(),
             &vec!["query_a".to_string(), "query_b".to_string()]
         );
+    }
+
+    // ==========================================================================
+    // Dependencies Field Tests
+    // ==========================================================================
+
+    #[test]
+    fn test_query_test_dependencies_default_empty() {
+        let query = create_simple_query("test_query");
+        assert!(query.dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_query_test_with_single_dependency() {
+        let query = create_query_with_deps("main_query", vec!["ref_table"]);
+        assert_eq!(query.dependencies, vec!["ref_table".to_string()]);
+    }
+
+    #[test]
+    fn test_query_test_with_multiple_dependencies() {
+        let query = create_query_with_deps("main_query", vec!["table_a", "table_b", "table_c"]);
+        assert_eq!(query.dependencies.len(), 3);
+        assert_eq!(query.dependencies[0], "table_a");
+        assert_eq!(query.dependencies[1], "table_b");
+        assert_eq!(query.dependencies[2], "table_c");
+    }
+
+    #[test]
+    fn test_dependencies_yaml_deserialization() {
+        let yaml = r#"
+name: vip_orders
+description: Test query
+dependencies:
+  - vip_customers
+  - products_table
+inputs: []
+assertions: []
+"#;
+        let query: QueryTest = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(query.name, "vip_orders");
+        assert_eq!(query.dependencies.len(), 2);
+        assert_eq!(query.dependencies[0], "vip_customers");
+        assert_eq!(query.dependencies[1], "products_table");
+    }
+
+    #[test]
+    fn test_dependencies_yaml_default_when_missing() {
+        let yaml = r#"
+name: simple_query
+inputs: []
+assertions: []
+"#;
+        let query: QueryTest = serde_yaml::from_str(yaml).unwrap();
+        assert!(query.dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_dependencies_yaml_empty_list() {
+        let yaml = r#"
+name: query_no_deps
+dependencies: []
+inputs: []
+assertions: []
+"#;
+        let query: QueryTest = serde_yaml::from_str(yaml).unwrap();
+        assert!(query.dependencies.is_empty());
+    }
+
+    #[test]
+    fn test_dependencies_preserved_order() {
+        // Dependencies should be executed in the order declared
+        let deps = vec!["first", "second", "third"];
+        let query = create_query_with_deps("main", deps);
+
+        assert_eq!(query.dependencies[0], "first");
+        assert_eq!(query.dependencies[1], "second");
+        assert_eq!(query.dependencies[2], "third");
     }
 }

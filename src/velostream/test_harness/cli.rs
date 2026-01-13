@@ -183,6 +183,7 @@ fn generate_minimal_spec(sql_file: &Path) -> TestHarnessResult<TestSpec> {
                 name,
                 description: None,
                 skip: false,
+                dependencies: Vec::new(),
                 inputs: Vec::new(),
                 output: None,
                 outputs: Vec::new(),

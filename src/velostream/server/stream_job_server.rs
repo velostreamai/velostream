@@ -688,6 +688,34 @@ impl StreamJobServer {
 
         let analysis = analyzer.analyze(&parsed_query)?;
 
+        // Check if this is a reference table CTAS (CREATE TABLE with file_source input, no sink)
+        // If so, materialize the table directly instead of starting a streaming job
+        let is_ctas = matches!(&parsed_query, StreamingQuery::CreateTable { .. });
+        let has_file_source = analysis.required_sources.iter().any(|s| {
+            matches!(
+                s.source_type,
+                crate::velostream::sql::query_analyzer::DataSourceType::File
+            )
+        });
+        let has_no_sink = analysis.required_sinks.is_empty();
+
+        if is_ctas && has_file_source && has_no_sink {
+            info!(
+                "Job '{}': Reference table CTAS detected (file_source input, no sink) - materializing table directly",
+                name
+            );
+            // Use create_table() to execute CTAS and register the output table in the registry
+            let table_name = self.table_registry.create_table(query.clone()).await?;
+            info!(
+                "Job '{}': Table '{}' created and registered in table registry",
+                name, table_name
+            );
+
+            // Return early - no streaming job needed for reference tables
+            // The table is now available for other jobs to use via subqueries/joins
+            return Ok(());
+        }
+
         // Extract batch configuration from WITH clauses
         let batch_config = Self::extract_batch_config_from_query(&parsed_query)?;
 

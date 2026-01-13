@@ -16,6 +16,10 @@ pub struct ConfigOverrides {
     /// Temp directory for file sinks
     pub temp_dir: Option<PathBuf>,
 
+    /// Base directory for resolving relative config_file paths
+    /// (typically the SQL file's directory)
+    pub base_dir: Option<PathBuf>,
+
     /// Additional property overrides
     pub properties: HashMap<String, String>,
 }
@@ -27,6 +31,7 @@ impl ConfigOverrides {
         Self {
             bootstrap_servers: None,
             temp_dir: None,
+            base_dir: None,
             properties: HashMap::new(),
         }
     }
@@ -40,6 +45,12 @@ impl ConfigOverrides {
     /// Set temp directory for file sinks
     pub fn with_temp_dir(mut self, dir: PathBuf) -> Self {
         self.temp_dir = Some(dir);
+        self
+    }
+
+    /// Set base directory for resolving relative config_file paths
+    pub fn with_base_dir(mut self, dir: PathBuf) -> Self {
+        self.base_dir = Some(dir);
         self
     }
 
@@ -126,6 +137,38 @@ impl ConfigOverrides {
             }
         }
 
+        // Resolve relative config_file paths to absolute paths
+        // Pattern: 'X.config_file' = '../configs/file.yaml'
+        if let Some(ref base_dir) = self.base_dir {
+            if let Ok(re) = regex::Regex::new(r#"'([^']+)\.config_file'\s*=\s*'([^']+)'"#) {
+                result = re
+                    .replace_all(&result, |caps: &regex::Captures| {
+                        let source_name = &caps[1];
+                        let config_path = &caps[2];
+
+                        // Check if path is relative
+                        let path = std::path::Path::new(config_path);
+                        if path.is_relative() {
+                            // Resolve relative to base_dir
+                            let resolved = base_dir.join(config_path);
+                            // Canonicalize to get clean absolute path (resolve ..)
+                            let absolute =
+                                resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+                            log::debug!(
+                                "Resolved config_file path: '{}' -> '{}'",
+                                config_path,
+                                absolute.display()
+                            );
+                            format!("'{}.config_file' = '{}'", source_name, absolute.display())
+                        } else {
+                            // Already absolute, keep as-is
+                            caps[0].to_string()
+                        }
+                    })
+                    .to_string();
+            }
+        }
+
         result
     }
 }
@@ -152,6 +195,12 @@ impl ConfigOverrideBuilder {
     /// Set temp directory from test infrastructure
     pub fn temp_dir(mut self, dir: PathBuf) -> Self {
         self.overrides.temp_dir = Some(dir);
+        self
+    }
+
+    /// Set base directory for resolving relative config_file paths
+    pub fn base_dir(mut self, dir: PathBuf) -> Self {
+        self.overrides.base_dir = Some(dir);
         self
     }
 

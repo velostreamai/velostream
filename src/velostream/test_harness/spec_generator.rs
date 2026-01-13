@@ -128,12 +128,13 @@ impl SpecGenerator {
                 Ok(Some(QueryTest {
                     name: name.clone(),
                     description: Some(format!("Test for stream '{}'", name)),
+                    skip: false,
+                    dependencies: Vec::new(),
                     inputs,
                     output: None,
                     outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
-                    skip: false,
                 }))
             }
 
@@ -157,12 +158,13 @@ impl SpecGenerator {
                 Ok(Some(QueryTest {
                     name: name.clone(),
                     description: Some(format!("Test for table '{}'", name)),
+                    skip: false,
+                    dependencies: Vec::new(),
                     inputs,
                     output: None,
                     outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
-                    skip: false,
                 }))
             }
 
@@ -173,12 +175,13 @@ impl SpecGenerator {
                 Ok(Some(QueryTest {
                     name: "select_query".to_string(),
                     description: Some("Test for SELECT query".to_string()),
+                    skip: false,
+                    dependencies: Vec::new(),
                     inputs: Vec::new(),
                     output: None,
                     outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
-                    skip: false,
                 }))
             }
 

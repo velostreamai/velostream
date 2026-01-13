@@ -1340,9 +1340,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or_default()
                         .as_millis() as u32
                 );
-                // Configure test infrastructure overrides (bootstrap servers, etc.)
+                // Get SQL file's parent directory for resolving relative config file paths
+                let sql_dir = sql_file
+                    .parent()
+                    .unwrap_or(std::path::Path::new("."))
+                    .canonicalize()
+                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
+                // Configure test infrastructure overrides (bootstrap servers, config paths, etc.)
                 let overrides = ConfigOverrideBuilder::new(&run_id)
                     .bootstrap_servers(infra.bootstrap_servers().unwrap())
+                    .base_dir(sql_dir.clone())
                     .build();
 
                 // Step 5: Create executor with StreamJobServer for SQL execution
@@ -1353,11 +1361,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // Initialize StreamJobServer for actual SQL execution
                 // Pass SQL file's parent directory so the server can resolve relative config file paths
-                let sql_dir = sql_file
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."))
-                    .canonicalize()
-                    .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
                 let mut executor = match executor.with_server(Some(sql_dir)).await {
                     Ok(e) => {
                         println!("   SQL execution: enabled (in-process StreamJobServer)");
@@ -2576,8 +2579,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or_default()
                     .as_millis() as u32
             );
+            // Get SQL file's parent directory for resolving relative config file paths
+            let sql_dir = sql_file
+                .parent()
+                .unwrap_or(std::path::Path::new("."))
+                .canonicalize()
+                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+
             let overrides = ConfigOverrideBuilder::new(&run_id)
                 .bootstrap_servers(infra.bootstrap_servers().unwrap_or("localhost:9092"))
+                .base_dir(sql_dir.clone())
                 .build();
 
             use velostream::velostream::test_harness::executor::QueryExecutor;
@@ -2587,12 +2598,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_schema_registry(schema_registry);
 
             // Initialize with server
-            let sql_dir = sql_file
-                .parent()
-                .unwrap_or(std::path::Path::new("."))
-                .canonicalize()
-                .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
-
             let executor = match executor.with_server(Some(sql_dir)).await {
                 Ok(e) => e,
                 Err(e) => {

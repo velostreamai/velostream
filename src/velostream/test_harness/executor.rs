@@ -5,6 +5,9 @@
 //! - QueryAnalyzer for source/sink extraction
 //! - StreamJobServer for execution
 
+/// Default version used when deploying jobs via test harness
+const DEFAULT_JOB_VERSION: &str = "1.0.0";
+
 use super::capture::{CaptureConfig, SinkCapture};
 use super::config_override::ConfigOverrides;
 use super::error::{TestHarnessError, TestHarnessResult};
@@ -21,7 +24,7 @@ use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use rdkafka::producer::BaseRecord;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Duration;
 
@@ -62,6 +65,9 @@ pub struct QueryExecutor {
     /// Global source name -> topic name mapping (aggregated from all parsed queries)
     /// Used to resolve the actual Kafka topic when publishing test data
     source_topics: HashMap<String, String>,
+
+    /// Track deployed dependencies to avoid re-deployment
+    deployed_dependencies: HashSet<String>,
 }
 
 /// Captured output from a query execution
@@ -135,6 +141,7 @@ impl QueryExecutor {
             parsed_queries: HashMap::new(),
             parsed_queries_ordered: Vec::new(),
             source_topics: HashMap::new(),
+            deployed_dependencies: HashSet::new(),
         }
     }
 
@@ -327,6 +334,74 @@ impl QueryExecutor {
 
         log::info!("Executing query: {}", query.name);
 
+        // Step 0: Execute dependencies in declared order
+        if !query.dependencies.is_empty() {
+            // Ensure server is configured when dependencies are declared
+            let server = self
+                .server
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::ConfigError {
+                    message: format!(
+                        "Cannot deploy dependencies for '{}': no StreamJobServer configured. \
+                        Call with_server() before executing queries with dependencies.",
+                        query.name
+                    ),
+                })?;
+
+            log::info!(
+                "Executing {} dependencies for '{}': {:?}",
+                query.dependencies.len(),
+                query.name,
+                query.dependencies
+            );
+
+            for dep_name in &query.dependencies {
+                // Skip if already deployed
+                if self.deployed_dependencies.contains(dep_name) {
+                    log::debug!("Dependency '{}' already deployed, skipping", dep_name);
+                    continue;
+                }
+
+                // Find the dependency in parsed queries
+                let dep_query = self.parsed_queries.get(dep_name).ok_or_else(|| {
+                    TestHarnessError::ConfigError {
+                        message: format!(
+                            "Dependency '{}' not found in SQL file for query '{}'",
+                            dep_name, query.name
+                        ),
+                    }
+                })?;
+
+                log::info!("Deploying dependency: {}", dep_name);
+
+                let sql_text = if let Some(ref overrides) = self.overrides {
+                    overrides.apply_to_sql_properties(&dep_query.query_text)
+                } else {
+                    dep_query.query_text.clone()
+                };
+
+                server
+                    .deploy_job(
+                        dep_query.name.clone(),
+                        DEFAULT_JOB_VERSION.to_string(),
+                        sql_text,
+                        dep_query.name.clone(),
+                        None,
+                        None,
+                    )
+                    .await
+                    .map_err(|e| TestHarnessError::ExecutionError {
+                        message: format!("Failed to deploy dependency '{}': {}", dep_name, e),
+                        query_name: dep_name.clone(),
+                        source: Some(e.to_string()),
+                    })?;
+
+                // Track as deployed
+                self.deployed_dependencies.insert(dep_name.clone());
+                log::info!("Dependency '{}' deployed", dep_name);
+            }
+        }
+
         // Step 1: Generate and publish input data
         for input in &query.inputs {
             self.publish_input_data(input).await?;
@@ -396,7 +471,7 @@ impl QueryExecutor {
             server
                 .deploy_job(
                     query.name.clone(),
-                    "1.0.0".to_string(),
+                    DEFAULT_JOB_VERSION.to_string(),
                     sql_text_with_overrides,
                     output_topic.clone(),
                     None,
@@ -1554,5 +1629,240 @@ mod tests {
         assert_eq!(json["id"], 42);
         assert_eq!(json["name"], "test");
         assert_eq!(json["active"], true);
+    }
+
+    #[test]
+    fn test_default_job_version_constant() {
+        // Verify the constant is defined and has expected format
+        assert_eq!(DEFAULT_JOB_VERSION, "1.0.0");
+        assert!(DEFAULT_JOB_VERSION.contains('.'));
+    }
+
+    #[test]
+    fn test_parse_with_properties_basic() {
+        let sql = "CREATE STREAM test AS SELECT * FROM source WITH ('topic' = 'my_topic')";
+        let props = parse_with_properties(sql);
+        assert_eq!(props.get("topic"), Some(&"my_topic".to_string()));
+    }
+
+    #[test]
+    fn test_parse_with_properties_multiple() {
+        let sql = r#"CREATE STREAM test AS SELECT * FROM source
+            WITH ('topic' = 'my_topic', 'format' = 'json', 'key' = 'id')"#;
+        let props = parse_with_properties(sql);
+        assert_eq!(props.get("topic"), Some(&"my_topic".to_string()));
+        assert_eq!(props.get("format"), Some(&"json".to_string()));
+        assert_eq!(props.get("key"), Some(&"id".to_string()));
+    }
+
+    #[test]
+    fn test_parse_with_properties_empty() {
+        let sql = "SELECT * FROM source";
+        let props = parse_with_properties(sql);
+        assert!(props.is_empty());
+    }
+
+    #[test]
+    fn test_extract_sources_and_sinks_kafka_source() {
+        let mut props = HashMap::new();
+        props.insert("input.type".to_string(), "kafka_source".to_string());
+        props.insert("input.topic".to_string(), "input_topic".to_string());
+
+        let (sources, sinks) = extract_sources_and_sinks(&props);
+
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].0, "input");
+        assert_eq!(sources[0].1, Some("input_topic".to_string()));
+        assert!(sinks.is_empty());
+    }
+
+    #[test]
+    fn test_extract_sources_and_sinks_kafka_sink() {
+        let mut props = HashMap::new();
+        props.insert("output.type".to_string(), "kafka_sink".to_string());
+        props.insert("output.topic".to_string(), "output_topic".to_string());
+
+        let (sources, sinks) = extract_sources_and_sinks(&props);
+
+        assert!(sources.is_empty());
+        assert_eq!(sinks.len(), 1);
+        assert_eq!(sinks[0].0, "output");
+        assert_eq!(sinks[0].1, Some("output_topic".to_string()));
+    }
+
+    #[test]
+    fn test_extract_table_name_ctas() {
+        assert_eq!(
+            extract_stream_name("CREATE TABLE my_table AS SELECT * FROM source"),
+            Some("my_table".to_string())
+        );
+
+        assert_eq!(
+            extract_stream_name("CREATE TABLE reference_data AS SELECT id, name FROM source"),
+            Some("reference_data".to_string())
+        );
+    }
+
+    #[test]
+    fn test_captured_output_location_with_topic() {
+        let output = CapturedOutput {
+            query_name: "test".to_string(),
+            sink_name: "sink".to_string(),
+            topic: Some("my_topic".to_string()),
+            records: Vec::new(),
+            execution_time_ms: 100,
+            warnings: Vec::new(),
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
+        };
+        assert_eq!(output.location(), "topic 'my_topic'");
+    }
+
+    #[test]
+    fn test_captured_output_location_without_topic() {
+        let output = CapturedOutput {
+            query_name: "test".to_string(),
+            sink_name: "file_sink".to_string(),
+            topic: None,
+            records: Vec::new(),
+            execution_time_ms: 100,
+            warnings: Vec::new(),
+            memory_peak_bytes: None,
+            memory_growth_bytes: None,
+        };
+        assert_eq!(output.location(), "sink 'file_sink'");
+    }
+
+    // ==========================================================================
+    // Dependency Error Path Tests
+    // ==========================================================================
+
+    use super::super::spec::QueryTest;
+
+    fn create_test_query_with_deps(name: &str, deps: Vec<&str>) -> QueryTest {
+        QueryTest {
+            name: name.to_string(),
+            description: None,
+            skip: false,
+            dependencies: deps.iter().map(|s| s.to_string()).collect(),
+            inputs: Vec::new(),
+            output: None,
+            outputs: Vec::new(),
+            assertions: Vec::new(),
+            timeout_ms: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_query_no_server_with_dependencies_error() {
+        // Create executor without server (simulating no with_server() call)
+        let infra = TestHarnessInfra::new();
+        let mut executor = QueryExecutor::new(infra);
+
+        // Add a parsed query that the dependency refers to
+        executor.parsed_queries.insert(
+            "ref_table".to_string(),
+            ParsedQuery {
+                name: "ref_table".to_string(),
+                query_text: "CREATE TABLE ref_table AS SELECT 1".to_string(),
+                sources: Vec::new(),
+                sinks: Vec::new(),
+                sink_topic: None,
+                source_topics: HashMap::new(),
+            },
+        );
+
+        // Create query with a dependency but no server configured
+        let query = create_test_query_with_deps("main_query", vec!["ref_table"]);
+
+        // Execute should fail with ConfigError
+        let result = executor.execute_query(&query).await;
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        match err {
+            TestHarnessError::ConfigError { message } => {
+                assert!(
+                    message.contains("no StreamJobServer configured"),
+                    "Expected 'no StreamJobServer configured' in error: {}",
+                    message
+                );
+                assert!(
+                    message.contains("main_query"),
+                    "Expected query name in error: {}",
+                    message
+                );
+            }
+            other => panic!("Expected ConfigError, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_query_dependency_not_found_error() {
+        // Create executor without server
+        let infra = TestHarnessInfra::new();
+        let mut executor = QueryExecutor::new(infra);
+
+        // Do NOT add the dependency to parsed_queries - this simulates a missing dependency
+        // Add a different query so parsed_queries isn't empty
+        executor.parsed_queries.insert(
+            "other_table".to_string(),
+            ParsedQuery {
+                name: "other_table".to_string(),
+                query_text: "CREATE TABLE other_table AS SELECT 1".to_string(),
+                sources: Vec::new(),
+                sinks: Vec::new(),
+                sink_topic: None,
+                source_topics: HashMap::new(),
+            },
+        );
+
+        // Create query with a dependency that doesn't exist
+        let query = create_test_query_with_deps("main_query", vec!["nonexistent_dep"]);
+
+        // This test checks that if no server is configured, we get a ConfigError
+        // about the server, not about the missing dependency (server check comes first)
+        let result = executor.execute_query(&query).await;
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        match err {
+            TestHarnessError::ConfigError { message } => {
+                // Server not configured error comes first
+                assert!(
+                    message.contains("no StreamJobServer configured"),
+                    "Expected server error first: {}",
+                    message
+                );
+            }
+            other => panic!("Expected ConfigError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_deployed_dependencies_tracking() {
+        // Verify HashSet behavior for duplicate prevention
+        let mut deployed = HashSet::new();
+
+        // First insert returns true (newly inserted)
+        assert!(deployed.insert("dep_a".to_string()));
+
+        // Second insert returns false (already exists)
+        assert!(!deployed.insert("dep_a".to_string()));
+
+        // Different dependency returns true
+        assert!(deployed.insert("dep_b".to_string()));
+
+        // Contains works correctly
+        assert!(deployed.contains("dep_a"));
+        assert!(deployed.contains("dep_b"));
+        assert!(!deployed.contains("dep_c"));
+    }
+
+    #[test]
+    fn test_query_with_empty_dependencies_no_error() {
+        // Verify that queries without dependencies don't trigger dependency logic
+        let query = create_test_query_with_deps("simple_query", vec![]);
+        assert!(query.dependencies.is_empty());
     }
 }

@@ -462,7 +462,10 @@ fn test_field_in_string_list_empty_list() {
     };
 
     let mut record = HashMap::new();
-    record.insert("status".to_string(), FieldValue::String("active".to_string()));
+    record.insert(
+        "status".to_string(),
+        FieldValue::String("active".to_string()),
+    );
     assert!(!predicate.evaluate("key1", &record));
 }
 

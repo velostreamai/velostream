@@ -249,7 +249,12 @@ impl CtasExecutor {
         select_query: &StreamingQuery,
     ) -> Result<SourceInfo, SqlError> {
         match select_query {
-            StreamingQuery::Select { from, .. } => {
+            StreamingQuery::Select {
+                from, properties, ..
+            } => {
+                // Get properties if available (for checking config_file)
+                let props = properties.clone().unwrap_or_default();
+
                 match from {
                     crate::velostream::sql::ast::StreamSource::Table(name) => {
                         Ok(SourceInfo::Table(name.clone()))
@@ -264,7 +269,22 @@ impl CtasExecutor {
                         }
                     }
                     crate::velostream::sql::ast::StreamSource::Stream(name) => {
-                        Ok(SourceInfo::Stream(name.clone()))
+                        // Check if this stream has a config_file property (e.g., file_source)
+                        // Pattern: '{source_name}.config_file' = '../configs/file.yaml'
+                        let config_file_key = format!("{}.config_file", name);
+                        if let Some(config_file) = props.get(&config_file_key) {
+                            log::info!(
+                                "Stream '{}' has config_file property: {} - loading config",
+                                name,
+                                config_file
+                            );
+                            // Load the config file to get the actual source type
+                            let config_source = self.load_data_source_config(config_file)?;
+                            Ok(SourceInfo::Config(config_source))
+                        } else {
+                            // No config file - treat as Kafka stream (default behavior)
+                            Ok(SourceInfo::Stream(name.clone()))
+                        }
                     }
                     crate::velostream::sql::ast::StreamSource::Subquery(_) => {
                         Err(SqlError::ExecutionError {
@@ -670,12 +690,30 @@ impl CtasExecutor {
                 query: None,
             })?;
 
-        // Extract source type and properties
+        // Extract source type - support both formats:
+        // 1. Standard format: source_type: "file" or source_type: "kafka"
+        // 2. Test harness format: file: {path: ..., format: ...} (implicitly file type)
         let source_type_str = config
             .get("source_type")
             .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                // Check for test harness format: file.path indicates file source
+                if config.get("file").and_then(|f| f.get("path")).is_some() {
+                    log::debug!(
+                        "Config file '{}' uses test harness format (file.path)",
+                        config_file
+                    );
+                    Some("file".to_string())
+                } else {
+                    None
+                }
+            })
             .ok_or_else(|| SqlError::ExecutionError {
-                message: format!("Config file '{}' missing 'source_type' field", config_file),
+                message: format!(
+                    "Config file '{}' missing 'source_type' field and no 'file.path' found",
+                    config_file
+                ),
                 query: None,
             })?;
 
@@ -692,7 +730,7 @@ impl CtasExecutor {
         }
 
         // Create appropriate DataSourceType based on configuration
-        let source_type = match source_type_str {
+        let source_type = match source_type_str.as_str() {
             "kafka" => {
                 let brokers = config
                     .get("brokers")
@@ -714,18 +752,52 @@ impl CtasExecutor {
                 DataSourceType::Kafka { brokers, topic }
             }
             "file" => {
-                let path = config
+                // Support both formats:
+                // 1. Standard: path: "...", format: "csv"
+                // 2. Test harness: file: {path: "...", format: "csv"}
+                let raw_path = config
                     .get("path")
                     .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        config
+                            .get("file")
+                            .and_then(|f| f.get("path"))
+                            .and_then(|v| v.as_str())
+                    })
                     .ok_or_else(|| SqlError::ExecutionError {
-                        message: format!("File config '{}' missing 'path' field", config_file),
+                        message: format!(
+                            "File config '{}' missing 'path' or 'file.path' field",
+                            config_file
+                        ),
                         query: None,
-                    })?
-                    .to_string();
+                    })?;
+
+                // Resolve relative paths relative to the config file's directory
+                let path = if std::path::Path::new(raw_path).is_relative() {
+                    let config_dir = std::path::Path::new(config_file)
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."));
+                    let resolved = config_dir.join(raw_path);
+                    let absolute = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+                    log::debug!(
+                        "Resolved file path: '{}' -> '{}'",
+                        raw_path,
+                        absolute.display()
+                    );
+                    absolute.display().to_string()
+                } else {
+                    raw_path.to_string()
+                };
 
                 let format_str = config
                     .get("format")
                     .and_then(|v| v.as_str())
+                    .or_else(|| {
+                        config
+                            .get("file")
+                            .and_then(|f| f.get("format"))
+                            .and_then(|v| v.as_str())
+                    })
                     .unwrap_or("json");
 
                 let format = match format_str.to_lowercase().as_str() {

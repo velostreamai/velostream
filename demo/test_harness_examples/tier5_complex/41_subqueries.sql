@@ -13,8 +13,21 @@
 -- @app: subqueries_demo
 -- @description: Subquery patterns for filtering
 
--- Filter orders from VIP customers using subquery pattern
--- vip_customers is loaded as file_source reference table
+-- Step 1: Create VIP customers reference table from file
+CREATE TABLE vip_customers AS
+SELECT
+    customer_id,
+    customer_name,
+    tier,
+    region,
+    signup_date
+FROM customers_file
+WITH (
+    'customers_file.type' = 'file_source',
+    'customers_file.config_file' = '../configs/customers_table.yaml'
+);
+
+-- Step 2: Filter orders from VIP customers using subquery pattern
 CREATE STREAM vip_orders AS
 SELECT
     o.order_id,
@@ -34,9 +47,6 @@ WITH (
     'all_orders.type' = 'kafka_source',
     'all_orders.topic.name' = 'test_all_orders',
     'all_orders.config_file' = '../configs/orders_source.yaml',
-
-    'vip_customers.type' = 'file_source',
-    'vip_customers.config_file' = '../configs/customers_table.yaml',
 
     'vip_orders.type' = 'kafka_sink',
     'vip_orders.topic.name' = 'test_vip_orders',

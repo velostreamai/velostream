@@ -4,7 +4,7 @@ This document tracks known limitations and issues discovered during test harness
 
 ## Current Status (2026-01-12)
 
-> **TEST HARNESS: 40 Runnable / 2 Blocked (95%)**
+> **TEST HARNESS: 41 Runnable / 1 Blocked (98%)**
 
 | Tier | Runnable | Blocked | Status |
 |------|----------|---------|--------|
@@ -12,11 +12,11 @@ This document tracks known limitations and issues discovered during test harness
 | tier2_aggregations | 7 | 0 | **100%** |
 | tier3_joins | 5 | 0 | **100%** |
 | tier4_window_funcs | 4 | 0 | **100%** |
-| tier5_complex | 3 | 2 | 60% |
+| tier5_complex | 4 | 1 | 80% |
 | tier6_edge_cases | 4 | 0 | **100%** |
 | tier7_serialization | 4 | 0 | **100%** |
 | tier8_fault_tol | 4 | 0 | **100%** |
-| **TOTAL** | **40** | **2** | **95%** |
+| **TOTAL** | **41** | **1** | **98%** |
 
 **Run tests:** `./run-tests.sh --skip-blocked`
 
@@ -24,12 +24,48 @@ This document tracks known limitations and issues discovered during test harness
 
 | Issue | Description | Tests Affected |
 |-------|-------------|----------------|
-| #11 | IN (SELECT) subquery execution | 1 |
 | #12 | UNION multi-source configuration | 1 |
 
 ---
 
 ## Resolved Issues
+
+### ~~11. IN (SELECT) Subquery Filter Not Applied~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-12)
+**Affected Tests:** `tier5_complex/41_subqueries.sql` - Now unblocked
+
+**What Was Fixed:**
+The `IN (SELECT ...)` subquery filter now correctly filters records based on the subquery results.
+
+**Root Cause:**
+Two issues in `OptimizedTableImpl`:
+1. `parse_where_clause()` wasn't populating the `predicate` field in `CachedQuery`
+2. `full_scan_column_values()` completely ignored the `_cached_query` parameter and returned ALL column values without filtering
+
+Additionally, `parse_where_clause_cached()` didn't support IN operator syntax.
+
+**Fix Applied:**
+1. Added `FieldInStringList` variant to `CachedPredicate` enum for IN operator support
+2. Added `parse_in_operator()` function to parse `field IN ('value1', 'value2')` patterns
+3. Updated `parse_where_clause()` to call `parse_where_clause_cached()` and populate the predicate
+4. Fixed `full_scan_column_values()` to actually use the predicate to filter records
+
+**What Now Works:**
+```sql
+-- IN subquery against reference table (NOW SUPPORTED)
+WHERE o.customer_id IN (
+    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+)
+```
+
+**Verification:**
+```
+BEFORE: 200 input records → 200 output records (no filtering)
+AFTER:  200 input records → 94 output records (correctly filtered by VIP tier)
+```
+
+---
 
 ### ~~1. SELECT DISTINCT Not Supported~~ ✅ RESOLVED
 
@@ -121,36 +157,6 @@ WITH ('regional_summary.topic.name' = 'test_regional_summary', ...);
 
 ## Active Issues
 
-### 11. IN (SELECT) Subquery Filter Not Applied
-
-**Status:** Implementation Bug
-**Affected Tests:** `tier5_complex/41_subqueries.sql`
-**Severity:** Medium
-
-**Description:**
-The `IN (SELECT ...)` subquery filter is not being evaluated - all records pass through unfiltered.
-
-**SQL Pattern:**
-```sql
-WHERE o.customer_id IN (
-    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
-)
-```
-
-**Observed Behavior:**
-- ✅ File source table loads correctly (10 rows into `vip_customers`)
-- ✅ Records flow through pipeline (200 input → 200 output)
-- ❌ Subquery WHERE clause not applied (expected ~100 filtered records)
-
-**Root Cause:**
-The IN subquery evaluation logic doesn't execute the subquery against the loaded table.
-The filter is being ignored, allowing all records to pass through.
-
-**Workaround:**
-Use JOINs instead of IN subqueries for filtering against reference tables.
-
----
-
 ### 12. UNION Multi-Source Configuration
 
 **Status:** Configuration Issue
@@ -178,7 +184,7 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 
 ## Test Progress by Tier
 
-**Overall Progress: 40 runnable, 2 blocked (42 total tests) - 95%**
+**Overall Progress: 41 runnable, 1 blocked (42 total tests) - 98%**
 
 ### tier1_basic (8 tests) - Basic SQL Operations ★ 100%
 | Test | Status | Notes |
@@ -224,7 +230,7 @@ Ensure testcontainers Kafka is available, or redesign tests to use file sources.
 | Test | Status | Notes |
 |------|--------|-------|
 | 40_pipeline | ✅ PASSED | Multi-stage pipeline (3 stages) |
-| 41_subqueries | ⚠️ BLOCKED | Issue #11 - IN (SELECT) subquery produces 0 records |
+| 41_subqueries | ✅ PASSED | IN (SELECT) subquery filtering |
 | 42_case | ✅ PASSED | CASE WHEN expressions |
 | 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters |
 | 44_union | ⚠️ BLOCKED | Issue #12 - UNION multi-source configuration |
@@ -259,12 +265,12 @@ tier1_basic:        8/8 runnable  (100%) ★
 tier2_aggregations: 7/7 runnable  (100%) ★
 tier3_joins:        5/5 runnable  (100%) ★
 tier4_window_funcs: 4/4 runnable  (100%) ★
-tier5_complex:      3/5 runnable  (60%)  - 2 blocked by advanced features
+tier5_complex:      4/5 runnable  (80%)  - 1 blocked (UNION)
 tier6_edge_cases:   4/4 runnable  (100%) ★
 tier7_serialization:4/4 runnable  (100%) ★
 tier8_fault_tol:    4/4 runnable  (100%) ★
 ─────────────────────────────────────────
-TOTAL:              40/42 runnable (95%)
+TOTAL:              41/42 runnable (98%)
 ```
 
 ---

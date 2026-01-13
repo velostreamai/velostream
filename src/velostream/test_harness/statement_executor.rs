@@ -510,12 +510,13 @@ impl StatementExecutor {
             let minimal_query = QueryTest {
                 name: statement.name.clone(),
                 description: None,
+                skip: false,
+                dependencies: vec![],
                 inputs: vec![],
                 output: None,
                 outputs: vec![],
                 assertions: vec![],
                 timeout_ms: None,
-                skip: false,
             };
             match self.executor.execute_query(&minimal_query).await {
                 Ok(result) => (

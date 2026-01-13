@@ -302,7 +302,13 @@ impl QueryAnalyzer {
                 }
 
                 // VALIDATION: CTAS (CREATE TABLE AS SELECT) requires a sink configuration
-                if analysis.required_sinks.is_empty() {
+                // EXCEPTION: Reference tables from file_source don't need a sink - they stay in memory
+                let has_file_source = analysis
+                    .required_sources
+                    .iter()
+                    .any(|s| matches!(s.source_type, DataSourceType::File));
+
+                if analysis.required_sinks.is_empty() && !has_file_source {
                     return Err(SqlError::ConfigurationError {
                         message: format!(
                             "CREATE TABLE '{}' requires a sink configuration. \

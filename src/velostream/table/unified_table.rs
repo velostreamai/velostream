@@ -191,9 +191,10 @@ impl CachedPredicate {
                 match record.get(field) {
                     Some(FieldValue::Integer(i)) => values.contains(i),
                     // Support string fields that contain numeric values
-                    Some(FieldValue::String(s)) => {
-                        s.parse::<i64>().map(|i| values.contains(&i)).unwrap_or(false)
-                    }
+                    Some(FieldValue::String(s)) => s
+                        .parse::<i64>()
+                        .map(|i| values.contains(&i))
+                        .unwrap_or(false),
                     // Support float fields by truncating to integer
                     Some(FieldValue::Float(f)) => values.contains(&(*f as i64)),
                     _ => false,
@@ -676,7 +677,12 @@ fn parse_in_operator(clause: &str) -> Option<InOperatorResult> {
                 current.push(c);
             }
             ',' if !in_quotes => {
-                process_in_value(&current, &mut string_values, &mut integer_values, &mut all_integers);
+                process_in_value(
+                    &current,
+                    &mut string_values,
+                    &mut integer_values,
+                    &mut all_integers,
+                );
                 current.clear();
             }
             _ => current.push(ch),
@@ -684,7 +690,12 @@ fn parse_in_operator(clause: &str) -> Option<InOperatorResult> {
     }
     // Process the last value
     if !current.is_empty() {
-        process_in_value(&current, &mut string_values, &mut integer_values, &mut all_integers);
+        process_in_value(
+            &current,
+            &mut string_values,
+            &mut integer_values,
+            &mut all_integers,
+        );
     }
 
     if string_values.is_empty() && integer_values.is_empty() {
