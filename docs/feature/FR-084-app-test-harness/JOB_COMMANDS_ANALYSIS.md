@@ -1,37 +1,53 @@
 # SQL Job Command Analysis for velo-test
 
-> **Status**: Analysis Complete
-> **Date**: 2025-01-10
+> **Status**: Partially Implemented
+> **Date**: 2025-01-10 (Updated: 2026-01-13)
 > **Related**: FR-084 Test Harness
 
 ## Executive Summary
 
 This document analyzes the gap between SQL JOB commands (`START JOB`, `STOP JOB`, `DEPLOY JOB`, etc.) and their implementation in `velo-test`. The parser correctly supports these commands, but the test harness bypasses them entirely, using Rust API calls instead.
 
+**Current State**: The test harness uses `QueryExecutor` which calls `StreamJobServer.deploy_job()` directly for all CREATE STREAM/TABLE statements. JOB commands are not specially handled - they fall through to `Other(String)`.
+
 **Recommendation**: Consolidate on a single `StatementType` enum and route JOB commands through `StreamJobServer` methods.
+
+---
+
+## Implementation Status (2026-01-13)
+
+| Recommendation | Status | Notes |
+|----------------|--------|-------|
+| Contextual keyword parsing for STATUS/METRICS/PROPERTIES | ✅ Done | Correctly uses contextual parsing to avoid field name conflicts |
+| Add StopJob/PauseJob/ResumeJob/RollbackJob to app_parser | ❌ Not Done | Only StartJob, DeployJob exist |
+| Remove duplicate StatementType enum | ❌ Not Done | Two enums still exist |
+| Route JOB commands in StatementExecutor | ❌ Not Done | Falls to `Other(String)` |
+| Explicit dependency support | ✅ Done | New `dependencies` field in QueryTest |
 
 ---
 
 ## 1. Parser TokenType Analysis
 
-### TokenTypes NOT Registered as Keywords
+### Contextual Keywords (Correct Design)
 
-The following `TokenType` variants are defined in the enum but **not registered** in the keyword HashMap. Instead, they rely on string comparison:
+The following keywords are parsed **contextually** rather than globally reserved. This is **intentional** because they are common field names in data streams:
 
-| TokenType | Line in Enum | How Currently Handled |
-|-----------|--------------|----------------------|
-| `Status` | 200 | `TokenType::Identifier if value == "STATUS"` (parser.rs:3925) |
-| `Metrics` | 202 | `TokenType::Identifier if value == "METRICS"` (parser.rs:3941) |
-| `Properties` | 183 | `TokenType::Identifier if value == "PROPERTIES"` (parser.rs:3957) |
+| Keyword | Context | Why Contextual |
+|---------|---------|----------------|
+| `STATUS` | `SHOW STATUS` | Common field: `order_status`, `job_status` |
+| `METRICS` | `SHOW METRICS` | Common field: `performance_metrics` |
+| `PROPERTIES` | `SHOW PROPERTIES` | Common field: `config_properties` |
 
-**Issue**: These have dedicated `TokenType` variants but fall back to identifier matching. This is inconsistent with other keywords.
-
-**Fix**: Add these to the keyword HashMap in `StreamingSqlParser::new()`:
-
+**Implementation** (parser.rs:3918, 3934, 3950):
 ```rust
-keywords.insert("STATUS".to_string(), TokenType::Status);
-keywords.insert("METRICS".to_string(), TokenType::Metrics);
-keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
+TokenType::Identifier if self.current_token().value.to_uppercase() == "STATUS" => {
+    // Only treated as keyword in SHOW context
+}
+```
+
+**Why NOT to register globally**: Registering these as global keywords would break queries like:
+```sql
+SELECT status, metrics FROM orders WHERE status = 'active'
 ```
 
 ### TokenTypes Correctly Not Registered (Lexer-Produced)
@@ -67,7 +83,7 @@ The parser **correctly supports** all job lifecycle commands:
 
 There are **two different `StatementType` enums** in the codebase with different capabilities:
 
-### app_parser::StatementType (Complete)
+### app_parser::StatementType (Partial)
 
 ```rust
 // src/velostream/sql/app_parser.rs:254-262
@@ -79,6 +95,7 @@ pub enum StatementType {
     Select,
     Show,
     Other(String),
+    // ❌ Missing: StopJob, PauseJob, ResumeJob, RollbackJob
 }
 ```
 
@@ -95,30 +112,39 @@ pub enum StatementType {
 }
 ```
 
-**Impact**: When `velo-test` executes SQL with `START JOB` or `DEPLOY JOB`, these are classified as `Other("START")` or `Other("DEPLOY")` and may not be handled correctly.
+**Impact**: When `velo-test` executes SQL with `START JOB` or `DEPLOY JOB`, these are classified as `Other("START")` or `Other("DEPLOY")` and are not handled specially.
 
 ---
 
 ## 4. Current Architecture Flow
 
-### How velo-test Currently Deploys Jobs
+### How velo-test Currently Deploys Jobs (Normal Mode)
 
 ```
-SQL File → SqlApplicationParser → SqlApplication
-                                      │
-                                      ▼
-                        StreamJobServer.deploy_sql_application_with_filename()
-                                      │
-                                      ▼
-                        (Iterates statements, calls deploy_job() for each)
+SQL File → QueryExecutor.load_sql_file()
+                    │
+                    ▼
+           parsed_queries HashMap
+                    │
+                    ▼
+           execute_query() for each QueryTest
+                    │
+                    ▼
+           StreamJobServer.deploy_job(name, "1.0.0", sql, topic, ...)
 ```
 
-**Key observation**: `deploy_sql_application_with_filename()` at stream_job_server.rs:1418 already handles `StartJob` and `DeployJob` statement types correctly (lines 1542-1544).
+**Key observation**: `QueryExecutor` uses `deploy_job()` directly with a hardcoded version `DEFAULT_JOB_VERSION = "1.0.0"`. It does not parse or route JOB commands from SQL.
 
-### How StatementExecutor Works
+### How StatementExecutor Works (Step Mode)
 
 ```
 SQL Statements → StatementExecutor.execute_current()
+                          │
+                          ▼
+                 StatementType::from_sql(sql)
+                          │
+                          ▼
+                 (Falls to Other("START") for job commands)
                           │
                           ▼
                  executor.execute_query(&query)
@@ -128,6 +154,19 @@ SQL Statements → StatementExecutor.execute_current()
 ```
 
 **Gap**: The `StatementExecutor` doesn't recognize job commands specially - they fall through to `Other(String)`.
+
+### New: Explicit Dependencies (Implemented 2026-01-13)
+
+```yaml
+# In test spec YAML
+queries:
+  - name: vip_orders
+    dependencies:
+      - vip_customers  # Deployed before vip_orders
+    inputs: [...]
+```
+
+Dependencies are deployed via `StreamJobServer.deploy_job()` before the main query executes.
 
 ---
 
@@ -216,6 +255,7 @@ pub fn process_start_job(...) -> Result<Option<StreamRecord>, SqlError> {
 ❌ Add a third execution path in `StatementExecutor`
 ❌ Make `JobProcessor` call `StreamJobServer` (wrong abstraction level)
 ❌ Keep two `StatementType` enums with different capabilities
+❌ Register STATUS/METRICS/PROPERTIES as global keywords (breaks common field names)
 
 ---
 
@@ -274,16 +314,13 @@ async fn execute_current(&mut self) -> TestHarnessResult<StatementResult> {
 }
 ```
 
-### Phase 3: Fix Inconsistent TokenType Registration
+### ~~Phase 3: Fix Inconsistent TokenType Registration~~ (NO LONGER NEEDED)
 
-```rust
-// src/velostream/sql/parser.rs - in StreamingSqlParser::new()
+**Update 2026-01-13**: This phase has been **removed**. The contextual keyword parsing for STATUS, METRICS, and PROPERTIES is the **correct design** because:
 
-// Add missing keyword registrations:
-keywords.insert("STATUS".to_string(), TokenType::Status);
-keywords.insert("METRICS".to_string(), TokenType::Metrics);
-keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
-```
+1. These are common field names in data streams
+2. Registering them globally breaks queries like `SELECT status FROM orders`
+3. The parser correctly handles them contextually in SHOW commands
 
 ---
 
@@ -292,7 +329,6 @@ keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
 | File | Changes |
 |------|---------|
 | `src/velostream/sql/app_parser.rs` | Add `StopJob`, `PauseJob`, `ResumeJob`, `RollbackJob` to enum |
-| `src/velostream/sql/parser.rs` | Register `STATUS`, `METRICS`, `PROPERTIES` keywords |
 | `src/velostream/test_harness/statement_executor.rs` | Remove local `StatementType`, import from `app_parser`, update routing |
 | `tests/unit/test_harness/statement_executor_test.rs` | Add tests for job command handling |
 
@@ -300,10 +336,11 @@ keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
 
 ## 9. Verification Checklist
 
-- [ ] All job commands parse correctly: `START JOB`, `STOP JOB`, `DEPLOY JOB`, `PAUSE JOB`, `RESUME JOB`, `ROLLBACK JOB`
-- [ ] `StatementType` correctly identifies all job commands
+- [x] All job commands parse correctly: `START JOB`, `STOP JOB`, `DEPLOY JOB`, `PAUSE JOB`, `RESUME JOB`, `ROLLBACK JOB`
+- [x] `STATUS`, `METRICS`, `PROPERTIES` work as contextual keywords (not globally reserved)
+- [x] Explicit dependencies can be declared in test specs
+- [ ] `StatementType` correctly identifies all job commands (both enums consolidated)
 - [ ] `StatementExecutor` routes job commands to `StreamJobServer`
-- [ ] `STATUS`, `METRICS`, `PROPERTIES` keywords are registered
 - [ ] Unit tests cover job command execution
 - [ ] Existing tests continue to pass
 
@@ -315,3 +352,4 @@ keywords.insert("PROPERTIES".to_string(), TokenType::Properties);
 - [AST Structure](../../../src/velostream/sql/ast.rs) - StreamingQuery variants
 - [StreamJobServer](../../../src/velostream/server/stream_job_server.rs) - Job management API
 - [StatementExecutor](../../../src/velostream/test_harness/statement_executor.rs) - Interactive execution
+- [QueryExecutor](../../../src/velostream/test_harness/executor.rs) - Test harness execution
