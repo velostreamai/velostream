@@ -15,16 +15,16 @@
 
 CREATE STREAM enriched_orders AS
 SELECT
-    o.order_id,
-    o.customer_id,
-    o.product_id,
-    o.quantity,
-    o.unit_price,
+    o.order_id AS order_id,
+    o.customer_id AS customer_id,
+    o.product_id AS product_id,
+    o.quantity AS quantity,
+    o.unit_price AS unit_price,
     o.quantity * o.unit_price AS order_total,
-    p.product_name,
-    p.category,
-    p.supplier_id,
-    o.event_time
+    p.product_name AS product_name,
+    p.category AS category,
+    p.supplier_id AS supplier_id,
+    o.event_time AS event_time
 FROM orders o
 LEFT JOIN products p ON o.product_id = p.product_id
 EMIT CHANGES

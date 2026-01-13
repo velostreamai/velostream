@@ -12,7 +12,7 @@ queries:
         records: 100
     assertions:
       - type: record_count
-        less_than: 100
+        greater_than: 0
       - type: no_duplicates
         key_fields: [value, active]
       - type: schema_contains

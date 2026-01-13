@@ -21,11 +21,11 @@ queries:
         fields: [symbol, avg_price, avg_volume, sample_count, min_price, max_price]
       - type: field_values
         field: avg_price
-        operator: gte
+        operator: greater_than_or_equals
         compare_field: min_price
       - type: field_values
         field: avg_price
-        operator: lte
+        operator: less_than_or_equals
         compare_field: max_price
       - type: no_nulls
         fields: [symbol, avg_price, sample_count]

@@ -32,21 +32,21 @@
 
 CREATE STREAM product_order_status AS
 SELECT
-    p.product_id,
-    p.product_name,
-    p.category,
+    p.product_id AS product_id,
+    p.product_name AS product_name,
+    p.category AS category,
     p.unit_price AS list_price,
-    p.in_stock,
-    o.order_id,                        -- NULL if no orders
-    o.customer_id,                     -- NULL if no orders
-    o.quantity,                        -- NULL if no orders
-    o.order_total,                     -- NULL if no orders
+    p.in_stock AS in_stock,
+    o.order_id AS order_id,            -- NULL if no orders
+    o.customer_id AS customer_id,      -- NULL if no orders
+    o.quantity AS quantity,            -- NULL if no orders
+    o.order_total AS order_total,      -- NULL if no orders
     CASE
         WHEN o.order_id IS NULL THEN 'NO_ORDERS'
         WHEN o.quantity > 100 THEN 'HIGH_VOLUME'
         ELSE 'NORMAL'
     END AS order_status,
-    o.event_time
+    o.event_time AS event_time
 FROM orders o
 RIGHT JOIN products p ON o.product_id = p.product_id
 EMIT CHANGES

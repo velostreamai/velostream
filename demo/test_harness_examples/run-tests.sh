@@ -34,18 +34,12 @@ SKIPPED=0
 TOTAL=0
 
 # Check if test is blocked (returns reason or empty)
-# Current blocked issues (2026-01-10):
-#   Issue #2: ORDER BY on unbounded streams (design limitation)
-#   Issue #11: IN (SELECT) subquery execution
+# Current blocked issues (2026-01-13):
 #   Issue #12: UNION multi-source configuration
 is_blocked() {
     local test_key="$1"
     case "$test_key" in
-        # Tier 1: Basic SQL
-        "tier1_basic/06_order_by") echo "Issue #2 - ORDER BY on unbounded stream (design limitation)" ;;
-        "tier1_basic/07_limit") echo "Issue #2 - Uses ORDER BY (LIMIT itself works)" ;;
         # Tier 5: Complex
-        "tier5_complex/41_subqueries") echo "Issue #11 - IN (SELECT) subquery produces 0 records" ;;
         "tier5_complex/44_union") echo "Issue #12 - UNION multi-source configuration" ;;
         *) echo "" ;;
     esac

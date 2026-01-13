@@ -15,13 +15,13 @@
 
 CREATE STREAM matched_events AS
 SELECT
-    o.order_id,
-    o.customer_id,
-    o.order_total,
+    o.order_id AS order_id,
+    o.customer_id AS customer_id,
+    o.order_total AS order_total,
     o.event_time AS order_time,
-    s.shipment_id,
-    s.carrier,
-    s.tracking_number,
+    s.shipment_id AS shipment_id,
+    s.carrier AS carrier,
+    s.tracking_number AS tracking_number,
     s.event_time AS shipment_time
 FROM orders o
 JOIN shipments s ON o.order_id = s.order_id

@@ -22,11 +22,11 @@ queries:
         fields: [user_id, action_count, pages_visited, total_duration_ms, session_start, session_end]
       - type: field_values
         field: action_count
-        operator: gt
+        operator: greater_than
         value: 0
       - type: field_values
         field: pages_visited
-        operator: gt
+        operator: greater_than
         value: 0
       - type: no_nulls
         fields: [user_id, action_count, pages_visited]

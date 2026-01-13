@@ -15,17 +15,17 @@
 
 CREATE STREAM fully_enriched AS
 SELECT
-    o.order_id,
-    o.customer_id,
-    o.product_id,
-    o.quantity,
-    o.unit_price,
-    c.customer_name,
+    o.order_id AS order_id,
+    o.customer_id AS customer_id,
+    o.product_id AS product_id,
+    o.quantity AS quantity,
+    o.unit_price AS unit_price,
+    c.customer_name AS customer_name,
     c.tier AS customer_tier,
     c.region AS customer_region,
-    p.product_name,
+    p.product_name AS product_name,
     p.category AS product_category,
-    o.event_time
+    o.event_time AS event_time
 FROM orders o
 LEFT JOIN customers c ON o.customer_id = c.customer_id
 LEFT JOIN products p ON o.product_id = p.product_id

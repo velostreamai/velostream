@@ -22,7 +22,7 @@ queries:
         fields: [sensor_id, reading_count, avg_value, min_value, max_value, low_quality_count]
       - type: field_values
         field: reading_count
-        operator: gt
+        operator: greater_than
         value: 0
       - type: no_nulls
         fields: [sensor_id, reading_count, avg_value]

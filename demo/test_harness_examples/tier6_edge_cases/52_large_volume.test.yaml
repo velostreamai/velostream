@@ -21,7 +21,7 @@ queries:
         fields: [event_id, user_id, event_type, value, adjusted_value, region]
       - type: field_values
         field: value
-        operator: gt
+        operator: greater_than
         value: 0
       - type: no_nulls
         fields: [event_id, user_id, value]
@@ -44,7 +44,7 @@ queries:
         fields: [region, event_type, event_count, total_value, avg_value]
       - type: field_values
         field: event_count
-        operator: gt
+        operator: greater_than
         value: 0
       - type: no_nulls
         fields: [region, event_type, event_count]
