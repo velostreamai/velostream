@@ -73,29 +73,71 @@ lazy_static! {
 // CACHED PREDICATE SYSTEM
 // ============================================================================
 
-/// Cached predicate for WHERE clause evaluation
+/// Cached predicate for optimized WHERE clause evaluation.
+///
+/// This enum represents pre-parsed WHERE clause conditions that can be evaluated
+/// efficiently without re-parsing for each record. It's used by `OptimizedTableImpl`
+/// to filter records during table scans.
+///
+/// # Supported Patterns
+///
+/// | Pattern | Variant | Example |
+/// |---------|---------|---------|
+/// | Equality (string) | `FieldEqualsString` | `status = 'active'` |
+/// | Equality (integer) | `FieldEqualsInteger` | `id = 123` |
+/// | Equality (float) | `FieldEqualsFloat` | `price = 19.99` |
+/// | Equality (boolean) | `FieldEqualsBoolean` | `active = true` |
+/// | Comparison | `FieldGreaterThan`, etc. | `amount > 100` |
+/// | IN (strings) | `FieldInStringList` | `tier IN ('gold', 'platinum')` |
+/// | IN (integers) | `FieldInIntegerList` | `status IN (1, 2, 3)` |
+/// | Always true | `AlwaysTrue` | `true`, `1=1` |
+/// | Always false | `AlwaysFalse` | `false`, `1=0` |
+///
+/// # Unsupported Patterns (Fall back to AlwaysTrue)
+///
+/// Complex expressions not supported here are handled by the full SQL evaluator:
+/// - `NOT IN` - Use SQL evaluator
+/// - `AND`/`OR` compound expressions - Use SQL evaluator
+/// - `BETWEEN`, `LIKE`, `IS NULL` - Use SQL evaluator
+/// - Subqueries `IN (SELECT ...)` - Use SQL evaluator
+///
+/// # Type Coercion
+///
+/// The `FieldInStringList` and `FieldInIntegerList` variants support type coercion:
+/// - `FieldInStringList` matches Integer/Float fields by converting to string
+/// - `FieldInIntegerList` matches String fields by parsing, Float by truncation
 #[derive(Debug, Clone)]
 pub enum CachedPredicate {
-    /// Always true
+    /// Always true - matches all records. Used for `true`, `1=1`, or unrecognized patterns.
     AlwaysTrue,
-    /// Always false
+    /// Always false - matches no records. Used for `false`, `1=0`.
     AlwaysFalse,
-    /// Field equals string value
+    /// Field equals string value: `field = 'value'`
     FieldEqualsString { field: String, value: String },
-    /// Field equals integer value
+    /// Field equals integer value: `field = 123`
     FieldEqualsInteger { field: String, value: i64 },
-    /// Field equals float value
+    /// Field equals float value: `field = 19.99`
     FieldEqualsFloat { field: String, value: f64 },
-    /// Field equals boolean value
+    /// Field equals boolean value: `field = true`
     FieldEqualsBoolean { field: String, value: bool },
-    /// Field greater than numeric value
+    /// Field greater than numeric value: `field > 100`
     FieldGreaterThan { field: String, value: f64 },
-    /// Field less than numeric value
+    /// Field less than numeric value: `field < 100`
     FieldLessThan { field: String, value: f64 },
-    /// Field greater than or equal to numeric value
+    /// Field greater than or equal to numeric value: `field >= 100`
     FieldGreaterThanOrEqual { field: String, value: f64 },
-    /// Field less than or equal to numeric value
+    /// Field less than or equal to numeric value: `field <= 100`
     FieldLessThanOrEqual { field: String, value: f64 },
+    /// Field value is in a list of string values: `field IN ('a', 'b', 'c')`
+    ///
+    /// Supports type coercion: Integer and Float field values are converted to
+    /// strings for comparison (e.g., `1` matches `"1"`).
+    FieldInStringList { field: String, values: Vec<String> },
+    /// Field value is in a list of integer values: `field IN (1, 2, 3)`
+    ///
+    /// Supports type coercion: String field values are parsed as integers,
+    /// Float values are truncated to integers for comparison.
+    FieldInIntegerList { field: String, values: Vec<i64> },
 }
 
 impl CachedPredicate {
@@ -128,6 +170,34 @@ impl CachedPredicate {
             }
             CachedPredicate::FieldLessThanOrEqual { field, value } => {
                 Self::compare_numeric_field(record, field, |field_val| field_val <= *value)
+            }
+            CachedPredicate::FieldInStringList { field, values } => {
+                match record.get(field) {
+                    Some(FieldValue::String(s)) => values.contains(s),
+                    // Support integer fields by converting to string for comparison
+                    Some(FieldValue::Integer(i)) => {
+                        let i_str = i.to_string();
+                        values.iter().any(|v| v == &i_str)
+                    }
+                    // Support float fields (exact string match)
+                    Some(FieldValue::Float(f)) => {
+                        let f_str = f.to_string();
+                        values.iter().any(|v| v == &f_str)
+                    }
+                    _ => false,
+                }
+            }
+            CachedPredicate::FieldInIntegerList { field, values } => {
+                match record.get(field) {
+                    Some(FieldValue::Integer(i)) => values.contains(i),
+                    // Support string fields that contain numeric values
+                    Some(FieldValue::String(s)) => {
+                        s.parse::<i64>().map(|i| values.contains(&i)).unwrap_or(false)
+                    }
+                    // Support float fields by truncating to integer
+                    Some(FieldValue::Float(f)) => values.contains(&(*f as i64)),
+                    _ => false,
+                }
             }
         }
     }
@@ -524,14 +594,196 @@ fn parse_comparison_operator(clause: &str) -> Option<(String, String, String)> {
     None
 }
 
-/// Parse WHERE clause into a cached predicate (performance optimized)
+/// Result of parsing an IN operator - can be string or integer list
+#[derive(Debug)]
+enum InOperatorResult {
+    StringList(String, Vec<String>),
+    IntegerList(String, Vec<i64>),
+}
+
+/// Parse IN operator expressions like "field IN ('value1', 'value2')" or "field IN (1, 2, 3)"
 ///
-/// **Performance Benefits**:
-/// - Pre-compiles predicates to avoid runtime parsing
-/// - Uses enum dispatch instead of closure boxing
-/// - Inlined evaluation for maximum performance
+/// Returns field name and values, detecting whether values are all integers or strings.
+/// Uses proper quote-aware parsing to handle commas within quoted values.
+///
+/// # Limitations
+/// - Does NOT support `NOT IN` - these are handled by the full SQL evaluator
+/// - Does NOT support subqueries `IN (SELECT ...)` - only literal value lists
+///
+/// # Examples
+/// ```ignore
+/// // Supported:
+/// parse_in_operator("tier IN ('gold', 'platinum')") // -> Some(StringList)
+/// parse_in_operator("status IN (1, 2, 3)")          // -> Some(IntegerList)
+/// parse_in_operator("t.field IN ('a', 'b')")        // -> Some(StringList), field="field"
+///
+/// // Not supported (returns None):
+/// parse_in_operator("status NOT IN (1, 2)")         // -> None (NOT IN)
+/// parse_in_operator("id IN (SELECT ...)")           // -> None (subquery)
+/// ```
+fn parse_in_operator(clause: &str) -> Option<InOperatorResult> {
+    let clause = clause.trim();
+
+    // Case-insensitive detection
+    let upper_clause = clause.to_uppercase();
+
+    // Skip NOT IN - not supported by CachedPredicate, handled by SQL evaluator
+    if upper_clause.contains(" NOT IN ") {
+        return None;
+    }
+
+    let in_pos = upper_clause.find(" IN ")?;
+
+    let field_part = clause[..in_pos].trim();
+    let values_part = clause[in_pos + 4..].trim(); // Skip " IN "
+
+    if field_part.is_empty() || !values_part.starts_with('(') || !values_part.ends_with(')') {
+        return None;
+    }
+
+    // Validate field name doesn't contain spaces (would indicate malformed expression)
+    if field_part.contains(' ') {
+        return None;
+    }
+
+    // Handle table.column prefixes in field names
+    let field = if let Some(dot_pos) = field_part.rfind('.') {
+        field_part[dot_pos + 1..].to_string()
+    } else {
+        field_part.to_string()
+    };
+
+    // Parse the list of values inside parentheses using quote-aware splitting
+    let inner = &values_part[1..values_part.len() - 1]; // Remove ( and )
+    let mut string_values = Vec::new();
+    let mut integer_values = Vec::new();
+    let mut all_integers = true;
+
+    // Quote-aware comma splitting
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut quote_char = ' ';
+
+    for ch in inner.chars() {
+        match ch {
+            '\'' | '"' if !in_quotes => {
+                in_quotes = true;
+                quote_char = ch;
+                current.push(ch);
+            }
+            c if c == quote_char && in_quotes => {
+                in_quotes = false;
+                current.push(c);
+            }
+            ',' if !in_quotes => {
+                process_in_value(&current, &mut string_values, &mut integer_values, &mut all_integers);
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+    // Process the last value
+    if !current.is_empty() {
+        process_in_value(&current, &mut string_values, &mut integer_values, &mut all_integers);
+    }
+
+    if string_values.is_empty() && integer_values.is_empty() {
+        return None;
+    }
+
+    // Return appropriate variant based on detected types
+    if all_integers && !integer_values.is_empty() {
+        Some(InOperatorResult::IntegerList(field, integer_values))
+    } else {
+        Some(InOperatorResult::StringList(field, string_values))
+    }
+}
+
+/// Helper to process a single IN value, detecting type
+fn process_in_value(
+    raw: &str,
+    string_values: &mut Vec<String>,
+    integer_values: &mut Vec<i64>,
+    all_integers: &mut bool,
+) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+
+    // Extract value from quotes (single or double)
+    let value = if (trimmed.starts_with('\'') && trimmed.ends_with('\''))
+        || (trimmed.starts_with('"') && trimmed.ends_with('"'))
+    {
+        // Quoted value - definitely a string
+        *all_integers = false;
+        &trimmed[1..trimmed.len() - 1]
+    } else {
+        // Unquoted - might be integer
+        trimmed
+    };
+
+    string_values.push(value.to_string());
+
+    // Try to parse as integer
+    if *all_integers {
+        if let Ok(i) = value.parse::<i64>() {
+            integer_values.push(i);
+        } else {
+            *all_integers = false;
+            integer_values.clear(); // Discard partial integer list
+        }
+    }
+}
+
+/// Parse WHERE clause into a cached predicate for optimized evaluation.
+///
+/// This function converts a WHERE clause string into a [`CachedPredicate`] enum
+/// that can be evaluated efficiently against records without re-parsing.
+///
+/// # Performance Benefits
+///
+/// - **Pre-compilation**: Predicates are parsed once and reused for all records
+/// - **Enum dispatch**: Uses match instead of closure boxing (no heap allocation)
+/// - **Inlined evaluation**: Hot path evaluation is `#[inline]` for maximum performance
+///
+/// # Supported Patterns
+///
+/// ```text
+/// status = 'active'              -> FieldEqualsString
+/// id = 123                       -> FieldEqualsInteger
+/// amount > 100                   -> FieldGreaterThan
+/// tier IN ('gold', 'platinum')   -> FieldInStringList
+/// status IN (1, 2, 3)            -> FieldInIntegerList
+/// true / 1=1                     -> AlwaysTrue
+/// false / 1=0                    -> AlwaysFalse
+/// ```
+///
+/// # Fallback Behavior
+///
+/// Unrecognized patterns return `AlwaysTrue` with a warning log. This is safer
+/// than `AlwaysFalse` as it avoids silently filtering all records. Complex
+/// expressions (AND/OR, NOT IN, BETWEEN, etc.) are handled by the full SQL evaluator.
+///
+/// # Examples
+///
+/// ```ignore
+/// let predicate = parse_where_clause_cached("tier IN ('gold', 'platinum')")?;
+/// assert!(predicate.evaluate("key", &record)); // if record.tier == "gold"
+/// ```
 pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredicate> {
     let clause = where_clause.trim();
+
+    // Handle 'true' literal and common "always true" patterns FIRST
+    // (before parse_simple_equality which would match "1=1" as field=value)
+    if clause == "true" || clause == "1=1" || clause == "1 = 1" {
+        return Ok(CachedPredicate::AlwaysTrue);
+    }
+
+    // Handle 'false' literal and common "always false" patterns
+    if clause == "false" || clause == "1=0" || clause == "1 = 0" {
+        return Ok(CachedPredicate::AlwaysFalse);
+    }
 
     // Handle simple equality comparisons: "field = 'value'"
     if let Some((field, value)) = parse_simple_equality(clause) {
@@ -556,16 +808,6 @@ pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredic
         }
         // Default to string comparison
         return Ok(CachedPredicate::FieldEqualsString { field, value });
-    }
-
-    // Handle 'true' literal
-    if clause == "true" {
-        return Ok(CachedPredicate::AlwaysTrue);
-    }
-
-    // Handle 'false' literal
-    if clause == "false" {
-        return Ok(CachedPredicate::AlwaysFalse);
     }
 
     // Handle comparison operators: "field > value", "field < value", etc.
@@ -593,8 +835,27 @@ pub fn parse_where_clause_cached(where_clause: &str) -> TableResult<CachedPredic
         }
     }
 
-    // For unimplemented patterns, return false (safer default)
-    Ok(CachedPredicate::AlwaysFalse)
+    // Handle IN operator: "field IN ('value1', 'value2')" or "field IN (1, 2, 3)"
+    if let Some(in_result) = parse_in_operator(clause) {
+        return Ok(match in_result {
+            InOperatorResult::StringList(field, values) => {
+                CachedPredicate::FieldInStringList { field, values }
+            }
+            InOperatorResult::IntegerList(field, values) => {
+                CachedPredicate::FieldInIntegerList { field, values }
+            }
+        });
+    }
+
+    // For unrecognized patterns, return AlwaysTrue to avoid silently filtering all records.
+    // This is safer than AlwaysFalse which would cause data loss without warning.
+    // Complex WHERE clauses (AND/OR) are handled by the full SQL evaluator, not this cache.
+    log::warn!(
+        "Unrecognized WHERE clause pattern for predicate caching: '{}'. \
+         Defaulting to AlwaysTrue (no filtering). Complex expressions are evaluated by SQL engine.",
+        clause
+    );
+    Ok(CachedPredicate::AlwaysTrue)
 }
 
 /// Legacy parse WHERE clause into a predicate function (backwards compatibility)
@@ -831,11 +1092,24 @@ impl OptimizedTableImpl {
     fn parse_where_clause(&self, where_clause: &str) -> CachedQuery {
         let clause = where_clause.trim();
 
+        // Parse the predicate for WHERE clause filtering
+        let predicate = match parse_where_clause_cached(clause) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                log::debug!(
+                    "Failed to parse predicate for WHERE clause '{}': {:?}. Using no predicate filter.",
+                    clause,
+                    e
+                );
+                None
+            }
+        };
+
         // Detect key lookups
         if let Some(key_value) = parse_key_lookup(clause) {
             return CachedQuery {
                 query_type: QueryType::KeyLookup(key_value),
-                predicate: None,
+                predicate,
                 filter_fn: None,
                 target_column: None,
                 last_used: std::time::Instant::now(),
@@ -846,17 +1120,17 @@ impl OptimizedTableImpl {
         if let Some((column, value)) = self.parse_column_filter(clause) {
             return CachedQuery {
                 query_type: QueryType::ColumnFilter { column, value },
-                predicate: None,
+                predicate,
                 filter_fn: None,
                 target_column: None,
                 last_used: std::time::Instant::now(),
             };
         }
 
-        // Fallback to full scan
+        // Fallback to full scan with predicate for filtering
         CachedQuery {
             query_type: QueryType::FullScan,
-            predicate: None,
+            predicate,
             filter_fn: None,
             target_column: None,
             last_used: std::time::Instant::now(),
@@ -885,13 +1159,22 @@ impl OptimizedTableImpl {
     fn full_scan_column_values(
         &self,
         column: &str,
-        _cached_query: &CachedQuery,
+        cached_query: &CachedQuery,
         values: &mut Vec<FieldValue>,
     ) {
         let data = self.data.read().unwrap();
-        for (_key, record) in data.iter() {
-            if let Some(value) = record.get(column) {
-                values.push(value.clone());
+        for (key, record) in data.iter() {
+            // Apply predicate filtering if available
+            let passes_filter = if let Some(ref predicate) = cached_query.predicate {
+                predicate.evaluate(key, record)
+            } else {
+                true // No predicate means all records pass
+            };
+
+            if passes_filter {
+                if let Some(value) = record.get(column) {
+                    values.push(value.clone());
+                }
             }
         }
     }
