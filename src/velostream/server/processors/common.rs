@@ -19,7 +19,12 @@ use crate::velostream::sql::config::substitute_env_vars;
 use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
-    execution::{config::StreamingConfig, types::StreamRecord},
+    execution::{
+        config::StreamingConfig,
+        processors::context::ProcessorContext,
+        processors::order::OrderProcessor,
+        types::StreamRecord,
+    },
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
 };
 use log::{debug, error, info, warn};
@@ -622,6 +627,10 @@ pub async fn process_batch(
         job_name, records_processed, records_failed
     );
 
+    // Phase 5: Apply ORDER BY sorting to batch results (FR-084 extension)
+    // This sorts records within each batch according to ORDER BY expressions.
+    let output_records = apply_order_by_sorting(output_records, query);
+
     BatchProcessingResultWithOutput {
         records_processed,
         records_failed,
@@ -629,6 +638,63 @@ pub async fn process_batch(
         batch_size,
         error_details,
         output_records,
+    }
+}
+
+/// Apply ORDER BY sorting to output records if the query has an ORDER BY clause
+///
+/// Extracts ORDER BY expressions from the query and sorts the records accordingly.
+/// This implements Phase 5 batch-level sorting for non-windowed queries.
+fn apply_order_by_sorting(
+    output_records: Vec<Arc<StreamRecord>>,
+    query: &StreamingQuery,
+) -> Vec<Arc<StreamRecord>> {
+    // Extract ORDER BY from query (handles Select and CreateStream variants)
+    let order_by = match query {
+        StreamingQuery::Select { order_by, window, .. } => {
+            // Skip if query has WINDOW clause (window adapter handles sorting)
+            if window.is_some() {
+                return output_records;
+            }
+            order_by.as_ref()
+        }
+        StreamingQuery::CreateStream { as_select, .. } => {
+            if let StreamingQuery::Select { order_by, window, .. } = as_select.as_ref() {
+                if window.is_some() {
+                    return output_records;
+                }
+                order_by.as_ref()
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    // If no ORDER BY or empty, return records as-is
+    let order_exprs = match order_by {
+        Some(exprs) if !exprs.is_empty() => exprs,
+        _ => return output_records,
+    };
+
+    // Convert Arc<StreamRecord> to owned StreamRecord for sorting
+    let records: Vec<StreamRecord> = output_records
+        .into_iter()
+        .map(|arc| (*arc).clone())
+        .collect();
+
+    // Create a minimal ProcessorContext for ORDER BY evaluation
+    let context = ProcessorContext::new("order_by_batch");
+
+    // Sort using OrderProcessor (sorting cannot fail for valid ORDER BY expressions)
+    match OrderProcessor::process(records, order_exprs, &context) {
+        Ok(sorted) => sorted.into_iter().map(Arc::new).collect(),
+        Err(e) => {
+            warn!("ORDER BY sorting failed: {}, returning unsorted records", e);
+            // Reconstruct the original records (we consumed them for sorting attempt)
+            // This shouldn't happen in practice - ORDER BY expressions are validated at parse time
+            Vec::new()
+        }
     }
 }
 

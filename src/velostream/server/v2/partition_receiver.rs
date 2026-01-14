@@ -66,6 +66,8 @@ use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::processors::context::ProcessorContext;
+use crate::velostream::sql::execution::processors::order::OrderProcessor;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use crossbeam_queue::SegQueue;
@@ -613,7 +615,64 @@ impl PartitionReceiver {
             }
         }
 
+        // Phase 5: Apply ORDER BY sorting to batch results (FR-084 extension)
+        // This sorts records within each batch according to ORDER BY expressions.
+        // Note: This is batch-level sorting, not global sorting across all batches.
+        let output_records = self.apply_order_by_sorting(output_records)?;
+
         Ok((processed, output_records, pending_dlq_entries))
+    }
+
+    /// Apply ORDER BY sorting to output records if the query has an ORDER BY clause
+    ///
+    /// Extracts ORDER BY expressions from the query and sorts the records accordingly.
+    /// This implements Phase 5 batch-level sorting for non-windowed queries.
+    fn apply_order_by_sorting(
+        &self,
+        output_records: Vec<Arc<StreamRecord>>,
+    ) -> Result<Vec<Arc<StreamRecord>>, SqlError> {
+        // Extract ORDER BY from query (handles Select and CreateStream variants)
+        let order_by = match self.query.as_ref() {
+            StreamingQuery::Select { order_by, window, .. } => {
+                // Skip if query has WINDOW clause (window adapter handles sorting)
+                if window.is_some() {
+                    return Ok(output_records);
+                }
+                order_by.as_ref()
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                if let StreamingQuery::Select { order_by, window, .. } = as_select.as_ref() {
+                    if window.is_some() {
+                        return Ok(output_records);
+                    }
+                    order_by.as_ref()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // If no ORDER BY or empty, return records as-is
+        let order_exprs = match order_by {
+            Some(exprs) if !exprs.is_empty() => exprs,
+            _ => return Ok(output_records),
+        };
+
+        // Convert Arc<StreamRecord> to owned StreamRecord for sorting
+        let mut records: Vec<StreamRecord> = output_records
+            .into_iter()
+            .map(|arc| (*arc).clone())
+            .collect();
+
+        // Create a minimal ProcessorContext for ORDER BY evaluation
+        let context = ProcessorContext::new("order_by_batch");
+
+        // Sort using OrderProcessor
+        records = OrderProcessor::process(records, order_exprs, &context)?;
+
+        // Convert back to Arc<StreamRecord>
+        Ok(records.into_iter().map(Arc::new).collect())
     }
 
     /// Write pending DLQ entries asynchronously
