@@ -517,6 +517,8 @@ impl StatementExecutor {
                 outputs: vec![],
                 assertions: vec![],
                 timeout_ms: None,
+                capture_format: Default::default(),
+                capture_schema: None,
             };
             match self.executor.execute_query(&minimal_query).await {
                 Ok(result) => (

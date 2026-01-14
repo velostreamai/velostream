@@ -135,6 +135,8 @@ impl SpecGenerator {
                     outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
+                    capture_format: Default::default(),
+                    capture_schema: None,
                 }))
             }
 
@@ -165,6 +167,8 @@ impl SpecGenerator {
                     outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
+                    capture_format: Default::default(),
+                    capture_schema: None,
                 }))
             }
 
@@ -182,6 +186,8 @@ impl SpecGenerator {
                     outputs: Vec::new(),
                     assertions,
                     timeout_ms: Some(self.default_timeout_ms),
+                    capture_format: Default::default(),
+                    capture_schema: None,
                 }))
             }
 

@@ -4,19 +4,19 @@ This document tracks known limitations and issues discovered during test harness
 
 ## Current Status (2026-01-14)
 
-> **TEST HARNESS: 25 Passed, 15 Failed, 1 Skipped (41 total)**
+§2> **TEST HARNESS: 27 Passed, 13 Failed, 1 Skipped (41 total)**
 
-| Tier | Passed | Failed | Status |
-|------|--------|--------|--------|
-| tier1_basic | 8 | 0 | **100%** ★ |
-| tier2_aggregations | 6 | 0 | **100%** ★ |
-| tier3_joins | 1 | 4 | 20% |
-| tier4_window_funcs | 4 | 0 | **100%** ★ |
-| tier5_complex | 4 | 1 | 80% |
-| tier6_edge_cases | 1 | 3 | 25% |
-| tier7_serialization | 1 | 3 | 25% |
-| tier8_fault_tol | 0 | 4 | 0% |
-| **TOTAL** | **25** | **15** | **61%** |
+| Tier                | Passed | Failed | Status     |
+|---------------------|--------|--------|------------|
+| tier1_basic         | 8      | 0      | **100%** ★ |
+| tier2_aggregations  | 6      | 0      | **100%** ★ |
+| tier3_joins         | 1      | 4      | 20%        |
+| tier4_window_funcs  | 4      | 0      | **100%** ★ |
+| tier5_complex       | 4      | 1      | 80%        |
+| tier6_edge_cases    | 1      | 3      | 25%        |
+| tier7_serialization | 3      | 1      | 75%        |
+| tier8_fault_tol     | 0      | 4      | 0%         |
+| **TOTAL**           | **27** | **13** | **68%**    |
 
 **Run tests:** `./run-tests.sh`
 
@@ -26,26 +26,28 @@ This document tracks known limitations and issues discovered during test harness
 
 ### Successfully Fixed
 
-| Test | Root Cause | Fix | Result |
-|------|------------|-----|--------|
-| tier1_basic/05_distinct | Test spec expected `< 100` records but generated data was unique | Changed assertion to `greater_than: 0` | ✅ PASSES |
-| tier1_basic/06_order_by | ORDER BY not executed in streaming batch processing | Implemented Phase 5 batch-level sorting in `partition_receiver.rs` and `common.rs` | ✅ PASSES |
-| tier1_basic/07_limit | ORDER BY required for LIMIT to work correctly | Fixed with ORDER BY implementation | ✅ PASSES |
-| tier2/15_compound_keys | Previously timing out | Now passes with improved processing | ✅ PASSES |
-| tier3_joins/20_stream_table_join | SQL used `o.field` without AS alias → output had `o.field` name | Added explicit `AS field` aliases | ✅ PASSES |
-| tier2/13_sliding_window | Test spec source/query name mismatch | Fixed source→market_data, query→sliding_output | ✅ PASSES |
-| tier2/14_session_window | Test spec source/query name mismatch | Fixed source→user_activity, query→session_output | ✅ PASSES |
-| tier6/52_large_volume | Invalid operator `gt` in test spec | Changed to `greater_than` | Timeout |
-| tier6/53_late_arrivals | Invalid operator `gt` in test spec | Changed to `greater_than` | Timeout |
+| Test                             | Root Cause                                                       | Fix                                                                                | Result   |
+|----------------------------------|------------------------------------------------------------------|------------------------------------------------------------------------------------|----------|
+| tier1_basic/05_distinct          | Test spec expected `< 100` records but generated data was unique | Changed assertion to `greater_than: 0`                                             | ✅ PASSES |
+| tier1_basic/06_order_by          | ORDER BY not executed in streaming batch processing              | Implemented Phase 5 batch-level sorting in `partition_receiver.rs` and `common.rs` | ✅ PASSES |
+| tier1_basic/07_limit             | ORDER BY required for LIMIT to work correctly                    | Fixed with ORDER BY implementation                                                 | ✅ PASSES |
+| tier2/15_compound_keys           | Previously timing out                                            | Now passes with improved processing                                                | ✅ PASSES |
+| tier3_joins/20_stream_table_join | SQL used `o.field` without AS alias → output had `o.field` name  | Added explicit `AS field` aliases                                                  | ✅ PASSES |
+| tier2/13_sliding_window          | Test spec source/query name mismatch                             | Fixed source→market_data, query→sliding_output                                     | ✅ PASSES |
+| tier2/14_session_window          | Test spec source/query name mismatch                             | Fixed source→user_activity, query→session_output                                   | ✅ PASSES |
+| tier6/52_large_volume            | Invalid operator `gt` in test spec                               | Changed to `greater_than`                                                          | Timeout  |
+| tier6/53_late_arrivals           | Invalid operator `gt` in test spec                               | Changed to `greater_than`                                                          | Timeout  |
+| tier7/61_avro_format             | Schema path wrong + no capture format                            | Fixed path + added capture_format: avro + CaptureFormat module                     | ✅ PASSES |
+| tier7/63_format_conversion       | Missing capture format for Avro output                           | Added capture_format: avro + capture_schema inline                                 | ✅ PASSES |
 
 ### Still Failing - Needs Investigation
 
-| Test | Error Type | Notes |
-|------|------------|-------|
-| tier3/21-24 | FAILED | Stream-stream joins, multi-joins |
-| tier6/51-53 | TIMEOUT | Edge cases timing out |
-| tier7/61-63 | FAILED | Avro/Protobuf schema issues |
-| tier8/* | FAILED | Fault tolerance tests |
+| Test        | Error Type | Notes                                     |
+|-------------|------------|-------------------------------------------|
+| tier3/21-24 | ⚠️ ARCH    | Stream-stream joins (Issue #19)           |
+| tier6/51-53 | TIMEOUT    | Edge cases timing out                     |
+| tier7/62    | ⚠️ ARCH    | Protobuf schema loading issue (Issue #26) |
+| tier8/*     | FAILED     | Fault tolerance tests                     |
 
 ---
 
@@ -59,11 +61,13 @@ This document tracks known limitations and issues discovered during test harness
 
 **Description:**
 UNION ALL queries fail because UNION is parsed but not executed:
+
 ```
 SQL text for query 'all_transactions' not found. Call execute_file() first.
 ```
 
 **Root Cause:**
+
 - Parser creates `StreamingQuery::Union` AST node ✅
 - Query analyzer merges analysis from both sides ✅
 - Execution engine has NO processing logic for UNION ❌
@@ -73,6 +77,7 @@ matches either side), but no actual record processing or result combination logi
 
 **Required Fix:**
 Implement UNION/UNION ALL execution in `StreamExecutionEngine` that:
+
 1. Processes records from all source SELECTs
 2. Combines results (UNION ALL keeps all, UNION deduplicates)
 3. Outputs to the single sink
@@ -87,31 +92,36 @@ Implement UNION/UNION ALL execution in `StreamExecutionEngine` that:
 
 **Description:**
 Fixed issues:
+
 1. ✅ **Timestamp + Interval arithmetic** - BETWEEN conditions now work correctly
 2. ✅ **String timestamp parsing** - ISO 8601 strings now parse for interval arithmetic
 3. ✅ **Shorthand SQL pattern** - Single-query inline source definitions work
 
 **Root Cause:**
 The V2 AdaptiveJobProcessor processes multiple sources **sequentially**, not concurrently:
+
 ```rust
 for (reader_idx, (reader_name, mut reader)) in readers_list.into_iter().enumerate() {
-    // Each source is processed one at a time
+// Each source is processed one at a time
 }
 ```
 
 For stream-stream joins, this means:
+
 1. Orders are read first, processed (no shipments available to join)
 2. Shipments are read second, processed (no orders in buffer to join with)
 3. Result: All join fields from the second source are NULL
 
 **Evidence:**
 Test output shows records produced, but all shipment fields are NULL:
+
 ```
 Found null values: shipment_id[0-9], carrier[0-9], tracking_number[0-9]
 ```
 
 **Required Fix:**
 Stream-stream joins need:
+
 1. **Temporal coordination of data sources** - Both sources must be read concurrently and
    coordinated by event time so that records from both streams arrive within the same
    time window for correlation
@@ -132,14 +142,48 @@ mechanism to hold records from one stream while waiting for correlated records f
 
 ### 20. Tier 6-8 Timeouts and Failures
 
-**Status:** Needs Investigation
-**Affected Tests:** tier6/51-53, tier7/61-63, tier8/*
+**Status:** Partially Resolved
+**Affected Tests:** tier6/51-53, tier8/*
 **Severity:** Medium
 
 **Description:**
+
 - tier6 edge cases are timing out (empty, large_volume, late_arrivals)
-- tier7 Avro/Protobuf tests failing (schema configuration)
 - tier8 fault tolerance tests all failing
+
+**Resolved:** tier7/61 (Avro) and tier7/63 (format conversion) now pass after fixing schema paths and adding capture
+format support.
+
+---
+
+### 26. Protobuf Serialization Schema Loading
+
+**Status:** Architectural Issue
+**Affected Tests:** `tier7_serialization/62_protobuf_format.sql`
+**Severity:** Medium
+
+**Description:**
+Protobuf serialization fails because the .proto schema file is not being loaded properly.
+The writer initializes with `format=Protobuf { message_type: "" }` (empty message type),
+causing it to fall back to JSON serialization internally.
+
+**Evidence:**
+
+```
+KafkaDataWriter: Initialized writer for topic 'test_trades_protobuf' with format=Protobuf { message_type: "" }
+```
+
+**Root Cause:**
+The protobuf schema extraction in `KafkaDataWriter` looks for properties like
+`protobuf.schema.file` but the property key in the config may not match the expected
+pattern after SQL property normalization.
+
+**Workaround:**
+Use Avro serialization instead, which properly loads .avsc schema files.
+
+**Required Fix:**
+Debug the property key mapping for `protobuf.schema.file` in `extract_schema_from_format_config`
+to ensure the schema file is loaded from the WITH clause properties
 
 ---
 
@@ -186,12 +230,15 @@ produced output fields with the prefix (`o.order_id` instead of `order_id`).
 
 **Fix Applied:**
 Added explicit `AS` aliases to all join SQL files:
+
 ```sql
 -- Before (broken)
-SELECT o.order_id, o.customer_id FROM orders o
+SELECT o.order_id, o.customer_id
+FROM orders o
 
 -- After (fixed)
-SELECT o.order_id AS order_id, o.customer_id AS customer_id FROM orders o
+SELECT o.order_id AS order_id, o.customer_id AS customer_id
+FROM orders o
 ```
 
 ---
@@ -199,10 +246,12 @@ SELECT o.order_id AS order_id, o.customer_id AS customer_id FROM orders o
 ### ~~21. Sliding/Session Window Test Spec Mismatches~~ ✅ RESOLVED
 
 **Status:** Fixed (2026-01-14)
-**Affected Tests:** `tier2_aggregations/13_sliding_window.sql`, `tier2_aggregations/14_session_window.sql` - Both now pass
+**Affected Tests:** `tier2_aggregations/13_sliding_window.sql`, `tier2_aggregations/14_session_window.sql` - Both now
+pass
 
 **What Was Fixed:**
 Test specs had incorrect source and query names that didn't match the SQL definitions:
+
 - `13_sliding_window`: source `price_feed` → `market_data`, query `moving_avg_5m` → `sliding_output`
 - `14_session_window`: source `user_clicks` → `user_activity`, query `user_sessions` → `session_output`
 
@@ -238,6 +287,7 @@ When test specs configured `records: 0`, no topic was created because publishing
 doesn't trigger Kafka's auto-create. The job then failed with "Unknown topic or partition".
 
 **Fix Applied:**
+
 - Added `create_topic_raw()` to `infra.rs` for creating topics without run_id prefix
 - Updated executor to explicitly create topics for empty inputs
 
@@ -253,88 +303,130 @@ When timestamps are loaded from CSV/JSON as strings (e.g., "2026-01-14T10:00:00Z
 interval arithmetic failed because `add()` and `subtract()` didn't handle String types.
 
 **Fix Applied:**
+
 - Added `parse_timestamp_string()` helper to parse ISO 8601 timestamp strings
 - Added `String + Interval` and `String - Interval` arithmetic in `types.rs`
 - Supports RFC 3339, ISO 8601, and date-only formats
 
 ---
 
+### ~~25. Avro Capture Deserialization Not Supported~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-14)
+**Affected Tests:** `tier7_serialization/61_avro_format.sql`, `tier7_serialization/63_format_conversion.sql`
+
+**What Was Fixed:**
+Test harness capture module only supported JSON deserialization. When sinks output Avro
+binary format, captured messages couldn't be deserialized for assertion validation.
+
+**Fix Applied:**
+
+- Added `CaptureFormat` enum (Json, Avro, Protobuf) to `capture.rs`
+- Added `capture_format` and `capture_schema` fields to `QueryTest` in test specs
+- Implemented format-aware deserialization with proper error handling:
+  - JSON: Default, no schema required
+  - Avro: Requires `capture_schema` with Avro schema JSON
+  - Protobuf: Returns explicit "not implemented" error with workaround
+- Added `json_to_field_values()` and `json_type_name()` public helpers
+- Comprehensive error context: topic name, line numbers, payload size, type info
+- 33 unit tests covering enum, config, deserialization, and error paths
+
+**Test Spec Example:**
+```yaml
+queries:
+  - name: trades_avro
+    capture_format: avro
+    capture_schema: |
+      {"type":"record","name":"TradeRecord","fields":[...]}
+```
+
+---
+
 ## Test Progress by Tier
 
 ### tier1_basic (8 tests) - Basic SQL Operations ★ 100%
-| Test | Status | Notes |
-|------|--------|-------|
-| 01_passthrough | ✅ PASSED | Basic SELECT * passthrough |
-| 02_projection | ✅ PASSED | Column selection |
-| 03_filter | ✅ PASSED | WHERE clause filtering |
-| 04_casting | ✅ PASSED | Type casting operations |
-| 05_distinct | ✅ PASSED | SELECT DISTINCT (FIXED) |
-| 06_order_by | ✅ PASSED | **FIXED** - Phase 5 batch sorting |
-| 07_limit | ✅ PASSED | **FIXED** - Works with ORDER BY |
-| 08_headers | ✅ PASSED | HEADER functions |
+
+| Test           | Status   | Notes                             |
+|----------------|----------|-----------------------------------|
+| 01_passthrough | ✅ PASSED | Basic SELECT * passthrough        |
+| 02_projection  | ✅ PASSED | Column selection                  |
+| 03_filter      | ✅ PASSED | WHERE clause filtering            |
+| 04_casting     | ✅ PASSED | Type casting operations           |
+| 05_distinct    | ✅ PASSED | SELECT DISTINCT (FIXED)           |
+| 06_order_by    | ✅ PASSED | **FIXED** - Phase 5 batch sorting |
+| 07_limit       | ✅ PASSED | **FIXED** - Works with ORDER BY   |
+| 08_headers     | ✅ PASSED | HEADER functions                  |
 
 ### tier2_aggregations (7 tests) - Aggregation Functions ★ 100%
-| Test | Status | Notes |
-|------|--------|-------|
-| 10_count.annotated | ⏭️ SKIP | No test spec (demo only) |
-| 10_count | ✅ PASSED | COUNT(*), COUNT(col) |
-| 11_sum_avg | ✅ PASSED | SUM, AVG, MIN, MAX |
-| 12_tumbling_window | ✅ PASSED | TUMBLING windows |
-| 13_sliding_window | ✅ PASSED | **FIXED** - Test spec source/query alignment |
-| 14_session_window | ✅ PASSED | **FIXED** - Test spec source/query alignment |
-| 15_compound_keys | ✅ PASSED | **FIXED** - Multi-key aggregation |
+
+| Test               | Status   | Notes                                        |
+|--------------------|----------|----------------------------------------------|
+| 10_count.annotated | ⏭️ SKIP  | No test spec (demo only)                     |
+| 10_count           | ✅ PASSED | COUNT(*), COUNT(col)                         |
+| 11_sum_avg         | ✅ PASSED | SUM, AVG, MIN, MAX                           |
+| 12_tumbling_window | ✅ PASSED | TUMBLING windows                             |
+| 13_sliding_window  | ✅ PASSED | **FIXED** - Test spec source/query alignment |
+| 14_session_window  | ✅ PASSED | **FIXED** - Test spec source/query alignment |
+| 15_compound_keys   | ✅ PASSED | **FIXED** - Multi-key aggregation            |
 
 ### tier3_joins (5 tests) - Join Operations
-| Test | Status | Notes |
-|------|--------|-------|
-| 20_stream_table_join | ✅ PASSED | **FIXED** - AS aliases added |
-| 21_stream_stream_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
-| 22_multi_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
-| 23_right_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
-| 24_full_outer_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
+
+| Test                  | Status   | Notes                                        |
+|-----------------------|----------|----------------------------------------------|
+| 20_stream_table_join  | ✅ PASSED | **FIXED** - AS aliases added                 |
+| 21_stream_stream_join | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
+| 22_multi_join         | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
+| 23_right_join         | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
+| 24_full_outer_join    | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
 
 ### tier4_window_functions (4 tests) - Window Functions ★ 100%
-| Test | Status | Notes |
-|------|--------|-------|
-| 30_lag_lead | ✅ PASSED | LAG/LEAD functions |
-| 31_row_number | ✅ PASSED | ROW_NUMBER(), RANK() |
-| 32_running_agg | ✅ PASSED | Running SUM, AVG, COUNT |
+
+| Test           | Status   | Notes                         |
+|----------------|----------|-------------------------------|
+| 30_lag_lead    | ✅ PASSED | LAG/LEAD functions            |
+| 31_row_number  | ✅ PASSED | ROW_NUMBER(), RANK()          |
+| 32_running_agg | ✅ PASSED | Running SUM, AVG, COUNT       |
 | 33_rows_buffer | ✅ PASSED | ROWS WINDOW BUFFER aggregates |
 
 ### tier5_complex (5 tests) - Complex Queries
-| Test | Status | Notes |
-|------|--------|-------|
-| 40_pipeline | ✅ PASSED | Multi-stage pipeline |
-| 41_subqueries | ✅ PASSED | IN (SELECT) subquery |
-| 42_case | ✅ PASSED | CASE WHEN expressions |
-| 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters |
-| 44_union | ⚠️ NOT IMPL | Issue #12 - UNION not executed |
+
+| Test              | Status      | Notes                          |
+|-------------------|-------------|--------------------------------|
+| 40_pipeline       | ✅ PASSED    | Multi-stage pipeline           |
+| 41_subqueries     | ✅ PASSED    | IN (SELECT) subquery           |
+| 42_case           | ✅ PASSED    | CASE WHEN expressions          |
+| 43_complex_filter | ✅ PASSED    | BETWEEN, IN, complex filters   |
+| 44_union          | ⚠️ NOT IMPL | Issue #12 - UNION not executed |
 
 ### tier6_edge_cases (4 tests) - Edge Cases
-| Test | Status | Notes |
-|------|--------|-------|
-| 50_nulls | ✅ PASSED | COALESCE null handling |
-| 51_empty | ❌ TIMEOUT | Empty stream handling |
-| 52_large_volume | ❌ TIMEOUT | High volume processing |
-| 53_late_arrivals | ❌ TIMEOUT | Watermark handling |
+
+| Test             | Status    | Notes                  |
+|------------------|-----------|------------------------|
+| 50_nulls         | ✅ PASSED  | COALESCE null handling |
+| 51_empty         | ❌ TIMEOUT | Empty stream handling  |
+| 52_large_volume  | ❌ TIMEOUT | High volume processing |
+| 53_late_arrivals | ❌ TIMEOUT | Watermark handling     |
 
 ### tier7_serialization (4 tests) - Serialization Formats
-| Test | Status | Notes |
-|------|--------|-------|
-| 60_json_format | ✅ PASSED | JSON serialization |
-| 61_avro_format | ⚠️ CONFIG | Schema path/field alignment issues |
-| 62_protobuf_format | ⚠️ CONFIG | Schema path/field alignment issues |
-| 63_format_conversion | ❌ FAILED | Format conversion |
+
+| Test                 | Status   | Notes                                           |
+|----------------------|----------|-------------------------------------------------|
+| 60_json_format       | ✅ PASSED | JSON serialization                              |
+| 61_avro_format       | ✅ PASSED | **FIXED** - Schema path + capture format        |
+| 62_protobuf_format   | ⚠️ ARCH  | Protobuf schema loading not working (Issue #26) |
+| 63_format_conversion | ✅ PASSED | **FIXED** - Capture format for Avro output      |
 
 ### tier8_fault_tolerance (4 tests) - Fault Tolerance
-| Test | Status | Notes |
-|------|--------|-------|
-| 70_dlq_basic | ❌ FAILED | DLQ handling |
+
+| Test               | Status   | Notes           |
+|--------------------|----------|-----------------|
+| 70_dlq_basic       | ❌ FAILED | DLQ handling    |
 | 72_fault_injection | ❌ FAILED | Fault injection |
-| 73_debug_mode | ❌ FAILED | Debug mode |
-| 74_stress_test | ❌ FAILED | Stress testing |
+| 73_debug_mode      | ❌ FAILED | Debug mode      |
+| 74_stress_test     | ❌ FAILED | Stress testing  |
 
 ### Progress Summary
+
 ```
 tier1_basic:        8/8  passed (100%) ★ ORDER BY/LIMIT FIXED
 tier2_aggregations: 6/6  passed (100%) ★ SLIDING/SESSION WINDOWS FIXED
@@ -342,10 +434,10 @@ tier3_joins:        1/5  passed (20%)
 tier4_window_funcs: 4/4  passed (100%) ★
 tier5_complex:      4/5  passed (80%)
 tier6_edge_cases:   1/4  passed (25%)
-tier7_serialization:1/4  passed (25%)
+tier7_serialization:3/4  passed (75%) ★ AVRO + FORMAT CONVERSION FIXED
 tier8_fault_tol:    0/4  passed (0%)
 ─────────────────────────────────────────
-TOTAL:              25/41 passed (61%)
+TOTAL:              27/41 passed (68%)
 ```
 
 ---

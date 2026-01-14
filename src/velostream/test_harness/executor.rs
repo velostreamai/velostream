@@ -8,7 +8,7 @@
 /// Default version used when deploying jobs via test harness
 const DEFAULT_JOB_VERSION: &str = "1.0.0";
 
-use super::capture::{CaptureConfig, SinkCapture};
+use super::capture::{CaptureConfig, CaptureFormat, SinkCapture};
 use super::config_override::ConfigOverrides;
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::file_io::{FileSinkFactory, FileSourceFactory};
@@ -540,11 +540,14 @@ impl QueryExecutor {
             }
         } else if let Some(bootstrap_servers) = self.infra.bootstrap_servers() {
             // Capture from Kafka topic (default)
+            // Use capture format and schema from query test spec for Avro/Protobuf deserialization
             let capture = SinkCapture::new(bootstrap_servers).with_config(CaptureConfig {
                 timeout: self.timeout,
                 min_records: 0,
                 max_records: 100_000,
                 idle_timeout: Duration::from_secs(3),
+                format: query.capture_format.clone(),
+                schema_json: query.capture_schema.clone(),
             });
 
             match capture.capture_topic(&output_topic, &query.name).await {
@@ -1764,6 +1767,8 @@ mod tests {
             outputs: Vec::new(),
             assertions: Vec::new(),
             timeout_ms: None,
+            capture_format: Default::default(),
+            capture_schema: None,
         }
     }
 

@@ -6,7 +6,7 @@ package velostream.demo;
 option java_package = "com.velostream.demo.proto";
 option java_outer_classname = "TradeProto";
 
-// Simple trade record
+// Simple trade record matching SQL output fields
 message TradeRecord {
     // Unique trade identifier
     string trade_id = 1;
@@ -17,28 +17,15 @@ message TradeRecord {
     // Trade quantity
     int64 quantity = 3;
 
-    // Trade price (using Decimal for exact precision)
-    Decimal price = 4;
+    // Trade price (simple double for compatibility)
+    double price = 4;
 
-    // Trade side
-    TradeSide side = 5;
+    // Trade side (BUY/SELL as string)
+    string side = 5;
 
-    // Trade execution timestamp (milliseconds since epoch)
-    int64 timestamp = 6;
-}
+    // Calculated notional value
+    double notional_value = 6;
 
-// Decimal representation for exact financial precision
-message Decimal {
-    // Unscaled value (e.g., 1234567 for 123.4567 with scale 4)
-    int64 units = 1;
-
-    // Number of decimal places (e.g., 4)
-    int32 scale = 2;
-}
-
-// Trade side enumeration
-enum TradeSide {
-    TRADE_SIDE_UNSPECIFIED = 0;
-    BUY = 1;
-    SELL = 2;
+    // Event timestamp as string (ISO 8601)
+    string event_time = 7;
 }

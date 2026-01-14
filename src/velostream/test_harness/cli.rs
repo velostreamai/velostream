@@ -197,6 +197,8 @@ fn generate_minimal_spec(sql_file: &Path) -> TestHarnessResult<TestSpec> {
                     },
                 )],
                 timeout_ms: None,
+                capture_format: Default::default(),
+                capture_schema: None,
             })
         })
         .collect();

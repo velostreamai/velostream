@@ -62,5 +62,5 @@ WITH (
 
     -- Protobuf serialization configuration
     'trades_protobuf.value.serializer' = 'protobuf',
-    'trades_protobuf.protobuf.schema.file' = './schemas/trade_record.proto'
+    'trades_protobuf.protobuf.schema.file' = 'tier7_serialization/schemas/trade_record.proto'
 );

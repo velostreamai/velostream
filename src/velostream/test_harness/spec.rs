@@ -6,6 +6,7 @@
 //! - File-based sources and sinks (CSV, JSON)
 //! - Assertion configuration
 
+use super::capture::CaptureFormat;
 use super::error::{TestHarnessError, TestHarnessResult};
 pub use crate::velostream::datasource::file::config::FileFormat;
 use serde::{Deserialize, Serialize};
@@ -299,6 +300,16 @@ pub struct QueryTest {
     /// Override timeout for this query
     #[serde(default)]
     pub timeout_ms: Option<u64>,
+
+    /// Serialization format for capturing output (json, avro, protobuf)
+    /// Required for non-JSON serializers to properly deserialize captured messages
+    #[serde(default)]
+    pub capture_format: CaptureFormat,
+
+    /// Schema JSON/definition for Avro/Protobuf capture deserialization
+    /// Can be inline JSON or a path to schema file (relative to test spec)
+    #[serde(default)]
+    pub capture_schema: Option<String>,
 }
 
 /// Output configuration with per-sink assertions
@@ -1652,6 +1663,8 @@ mod tests {
             outputs: Vec::new(),
             assertions: Vec::new(),
             timeout_ms: None,
+            capture_format: Default::default(),
+            capture_schema: None,
         }
     }
 
@@ -1678,6 +1691,8 @@ mod tests {
             outputs: Vec::new(),
             assertions: Vec::new(),
             timeout_ms: None,
+            capture_format: Default::default(),
+            capture_schema: None,
         }
     }
 

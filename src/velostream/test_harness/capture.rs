@@ -1,20 +1,54 @@
-//! Sink output capture
+//! Sink output capture for test harness
 //!
-//! Captures output from query execution:
-//! - Kafka topic consumption
-//! - File sink reading
-//! - Record deserialization
+//! Captures and deserializes output from query execution for assertion validation.
+//!
+//! # Supported Capture Sources
+//! - **Kafka topics**: Consumes messages from output topics with configurable timeouts
+//! - **File sinks**: Reads JSONL files from file-based sinks
+//!
+//! # Serialization Formats
+//! The capture module supports multiple deserialization formats via [`CaptureFormat`]:
+//!
+//! - **JSON** (default): UTF-8 encoded JSON objects, no schema required
+//! - **Avro**: Binary Avro format, requires `capture_schema` with Avro schema JSON
+//! - **Protobuf**: Not yet implemented, returns explicit error with workaround suggestion
+//!
+//! # Test Spec Configuration
+//! Configure capture format in your `.test.yaml`:
+//!
+//! ```yaml
+//! queries:
+//!   - name: my_query
+//!     capture_format: avro  # or json (default)
+//!     capture_schema: |
+//!       {"type":"record","name":"MyRecord","fields":[...]}
+//! ```
 
 use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::CapturedOutput;
 use super::infra::create_kafka_config;
+use crate::velostream::serialization::avro_codec::deserialize_from_avro;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use futures::StreamExt;
 use rdkafka::consumer::{Consumer, DefaultConsumerContext, StreamConsumer};
 use rdkafka::message::{Headers, Message};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
+
+/// Serialization format for capture deserialization
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureFormat {
+    /// JSON format (default)
+    #[default]
+    Json,
+    /// Avro binary format (requires schema)
+    Avro,
+    /// Protobuf binary format (requires schema)
+    Protobuf,
+}
 
 /// Sink capture configuration
 #[derive(Debug, Clone)]
@@ -30,6 +64,12 @@ pub struct CaptureConfig {
 
     /// Wait time after last message before considering capture complete
     pub idle_timeout: Duration,
+
+    /// Serialization format of captured messages
+    pub format: CaptureFormat,
+
+    /// Schema JSON for Avro/Protobuf deserialization (required for non-JSON formats)
+    pub schema_json: Option<String>,
 }
 
 impl Default for CaptureConfig {
@@ -39,6 +79,8 @@ impl Default for CaptureConfig {
             min_records: 1,
             max_records: 100_000,
             idle_timeout: Duration::from_secs(5),
+            format: CaptureFormat::Json,
+            schema_json: None,
         }
     }
 }
@@ -184,7 +226,7 @@ impl SinkCapture {
 
                         // Get message payload and build StreamRecord with full metadata
                         if let Some(payload) = borrowed_message.payload() {
-                            match self.deserialize_message(payload) {
+                            match self.deserialize_message(payload, topic) {
                                 Ok(fields) => {
                                     // Extract message key as FieldValue
                                     let key = borrowed_message.key().map(|k| {
@@ -281,56 +323,187 @@ impl SinkCapture {
         })
     }
 
-    /// Deserialize a message payload to FieldValue map
+    /// Deserialize a message payload to FieldValue map based on configured format
+    ///
+    /// # Arguments
+    /// * `payload` - Raw message bytes to deserialize
+    /// * `topic` - Topic name for error context
     fn deserialize_message(
         &self,
         payload: &[u8],
+        topic: &str,
     ) -> TestHarnessResult<HashMap<String, FieldValue>> {
-        // Try JSON deserialization first
+        match &self.config.format {
+            CaptureFormat::Json => self.deserialize_json(payload, topic),
+            CaptureFormat::Avro => self.deserialize_avro(payload, topic),
+            CaptureFormat::Protobuf => self.deserialize_protobuf(topic),
+        }
+    }
+
+    /// Deserialize JSON message
+    ///
+    /// # Arguments
+    /// * `payload` - Raw JSON bytes (UTF-8 encoded)
+    /// * `topic` - Topic name for error context
+    fn deserialize_json(
+        &self,
+        payload: &[u8],
+        topic: &str,
+    ) -> TestHarnessResult<HashMap<String, FieldValue>> {
         let content = std::str::from_utf8(payload).map_err(|e| TestHarnessError::CaptureError {
-            message: format!("Invalid UTF-8 in message: {}", e),
-            sink_name: "kafka".to_string(),
+            message: format!(
+                "Invalid UTF-8 in message from topic '{}': {} (payload size: {} bytes)",
+                topic,
+                e,
+                payload.len()
+            ),
+            sink_name: topic.to_string(),
             source: Some(e.to_string()),
         })?;
 
         let json: serde_json::Value =
             serde_json::from_str(content).map_err(|e| TestHarnessError::CaptureError {
-                message: format!("Failed to parse JSON: {}", e),
-                sink_name: "kafka".to_string(),
+                message: format!(
+                    "Failed to parse JSON from topic '{}': {} (content preview: {}...)",
+                    topic,
+                    e,
+                    &content[..content.len().min(100)]
+                ),
+                sink_name: topic.to_string(),
                 source: Some(e.to_string()),
             })?;
 
-        json_to_field_values(&json)
+        json_to_field_values(&json, topic)
+    }
+
+    /// Deserialize Avro message using configured schema
+    ///
+    /// # Arguments
+    /// * `payload` - Raw Avro binary bytes
+    /// * `topic` - Topic name for error context
+    ///
+    /// # Errors
+    /// Returns error if `capture_schema` was not configured in the test spec
+    fn deserialize_avro(
+        &self,
+        payload: &[u8],
+        topic: &str,
+    ) -> TestHarnessResult<HashMap<String, FieldValue>> {
+        let schema_json = self.config.schema_json.as_ref().ok_or_else(|| {
+            TestHarnessError::CaptureError {
+                message: format!(
+                    "Avro deserialization for topic '{}' requires a schema. \
+                     Add 'capture_schema' with the Avro schema JSON to your test spec, \
+                     or use 'capture_format: json' if the sink outputs JSON.",
+                    topic
+                ),
+                sink_name: topic.to_string(),
+                source: None,
+            }
+        })?;
+
+        deserialize_from_avro(payload, schema_json).map_err(|e| TestHarnessError::CaptureError {
+            message: format!(
+                "Failed to deserialize Avro from topic '{}': {} (payload size: {} bytes)",
+                topic,
+                e,
+                payload.len()
+            ),
+            sink_name: topic.to_string(),
+            source: Some(e.to_string()),
+        })
+    }
+
+    /// Deserialize Protobuf message
+    ///
+    /// # Note
+    /// Protobuf capture deserialization is not yet implemented.
+    /// Returns an explicit error directing users to use JSON or Avro instead.
+    fn deserialize_protobuf(&self, topic: &str) -> TestHarnessResult<HashMap<String, FieldValue>> {
+        Err(TestHarnessError::CaptureError {
+            message: format!(
+                "Protobuf capture deserialization is not yet implemented for topic '{}'. \
+                 Workaround: Use 'capture_format: json' if your sink can output JSON, \
+                 or 'capture_format: avro' with an equivalent Avro schema.",
+                topic
+            ),
+            sink_name: topic.to_string(),
+            source: None,
+        })
     }
 
     /// Capture output from file sink
+    ///
+    /// Supports JSON Lines (JSONL) format. Each line must be a valid JSON object.
+    /// The configured `CaptureFormat` is validated but currently only JSON is supported
+    /// for file capture.
     pub async fn capture_file(
         &self,
         path: impl AsRef<Path>,
         query_name: &str,
     ) -> TestHarnessResult<CapturedOutput> {
         let path = path.as_ref();
+        let path_str = path.display().to_string();
         let start = std::time::Instant::now();
 
-        log::info!("Capturing from file: {}", path.display());
+        log::info!(
+            "Capturing from file: {} (format: {:?})",
+            path_str,
+            self.config.format
+        );
+
+        // Validate format - file capture currently only supports JSON
+        match &self.config.format {
+            CaptureFormat::Json => {}
+            CaptureFormat::Avro => {
+                return Err(TestHarnessError::CaptureError {
+                    message: format!(
+                        "Avro format is not supported for file capture from '{}'. \
+                         File sinks typically output JSON Lines format. \
+                         Use 'capture_format: json' in your test spec.",
+                        path_str
+                    ),
+                    sink_name: path_str,
+                    source: None,
+                });
+            }
+            CaptureFormat::Protobuf => {
+                return Err(TestHarnessError::CaptureError {
+                    message: format!(
+                        "Protobuf format is not supported for file capture from '{}'. \
+                         File sinks typically output JSON Lines format. \
+                         Use 'capture_format: json' in your test spec.",
+                        path_str
+                    ),
+                    sink_name: path_str,
+                    source: None,
+                });
+            }
+        }
 
         // Read file content
-        let content =
-            std::fs::read_to_string(path).map_err(|e| TestHarnessError::CaptureError {
-                message: e.to_string(),
-                sink_name: path.display().to_string(),
-                source: None,
-            })?;
+        let content = std::fs::read_to_string(path).map_err(|e| TestHarnessError::CaptureError {
+            message: format!("Failed to read file '{}': {}", path_str, e),
+            sink_name: path_str.clone(),
+            source: Some(e.to_string()),
+        })?;
 
         // Parse JSONL format and convert to StreamRecords
-        let field_maps = self.parse_jsonl(&content)?;
+        let field_maps = self.parse_jsonl(&content, &path_str)?;
         let records: Vec<StreamRecord> = field_maps.into_iter().map(StreamRecord::new).collect();
         let execution_time_ms = start.elapsed().as_millis() as u64;
 
+        log::info!(
+            "Captured {} records from file '{}' in {}ms",
+            records.len(),
+            path_str,
+            execution_time_ms
+        );
+
         Ok(CapturedOutput {
             query_name: query_name.to_string(),
-            sink_name: path.display().to_string(),
-            topic: None, // File capture, not Kafka
+            sink_name: path_str, // Moved, not cloned - last use
+            topic: None,         // File capture, not Kafka
             records,
             execution_time_ms,
             warnings: Vec::new(),
@@ -340,7 +513,15 @@ impl SinkCapture {
     }
 
     /// Parse JSONL (JSON Lines) format
-    fn parse_jsonl(&self, content: &str) -> TestHarnessResult<Vec<HashMap<String, FieldValue>>> {
+    ///
+    /// # Arguments
+    /// * `content` - File content to parse
+    /// * `file_path` - File path for error context
+    fn parse_jsonl(
+        &self,
+        content: &str,
+        file_path: &str,
+    ) -> TestHarnessResult<Vec<HashMap<String, FieldValue>>> {
         let mut records = Vec::new();
 
         for (line_num, line) in content.lines().enumerate() {
@@ -351,12 +532,18 @@ impl SinkCapture {
 
             let json: serde_json::Value =
                 serde_json::from_str(line).map_err(|e| TestHarnessError::CaptureError {
-                    message: format!("Line {}: {}", line_num + 1, e),
-                    sink_name: "file".to_string(),
+                    message: format!(
+                        "Invalid JSON at line {} in '{}': {}",
+                        line_num + 1,
+                        file_path,
+                        e
+                    ),
+                    sink_name: file_path.to_string(),
                     source: Some(e.to_string()),
                 })?;
 
-            let record = json_to_field_values(&json)?;
+            let context = format!("{}:line {}", file_path, line_num + 1);
+            let record = json_to_field_values(&json, &context)?;
             records.push(record);
         }
 
@@ -365,29 +552,70 @@ impl SinkCapture {
 }
 
 /// Convert JSON value to FieldValue map
-fn json_to_field_values(
+///
+/// Useful for test assertions that need to convert captured JSON to FieldValue maps.
+///
+/// # Arguments
+/// * `json` - The JSON value to convert (must be an object)
+/// * `source_context` - Source identifier for error messages (topic name or file path)
+///
+/// # Example
+/// ```ignore
+/// let json = serde_json::json!({"id": 42, "name": "test"});
+/// let fields = json_to_field_values(&json, "my_topic")?;
+/// assert_eq!(fields.get("id"), Some(&FieldValue::Integer(42)));
+/// ```
+pub fn json_to_field_values(
     json: &serde_json::Value,
+    source_context: &str,
 ) -> TestHarnessResult<HashMap<String, FieldValue>> {
     let obj = json
         .as_object()
         .ok_or_else(|| TestHarnessError::CaptureError {
-            message: "Expected JSON object".to_string(),
-            sink_name: "file".to_string(),
+            message: format!(
+                "Expected JSON object from '{}', got {}",
+                source_context,
+                json_type_name(json)
+            ),
+            sink_name: source_context.to_string(),
             source: None,
         })?;
 
     let mut record = HashMap::new();
 
     for (key, value) in obj {
-        let field_value = json_value_to_field_value(value)?;
+        let field_value = json_value_to_field_value(value, key, source_context)?;
         record.insert(key.clone(), field_value);
     }
 
     Ok(record)
 }
 
+/// Get a human-readable name for a JSON value type
+///
+/// Useful for error messages and debugging.
+pub fn json_type_name(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
+}
+
 /// Convert single JSON value to FieldValue
-fn json_value_to_field_value(value: &serde_json::Value) -> TestHarnessResult<FieldValue> {
+///
+/// # Arguments
+/// * `value` - The JSON value to convert
+/// * `field_name` - Field name for error context
+/// * `source_context` - Source identifier for error messages
+fn json_value_to_field_value(
+    value: &serde_json::Value,
+    field_name: &str,
+    source_context: &str,
+) -> TestHarnessResult<FieldValue> {
     match value {
         serde_json::Value::Null => Ok(FieldValue::Null),
         serde_json::Value::Bool(b) => Ok(FieldValue::Boolean(*b)),
@@ -397,6 +625,13 @@ fn json_value_to_field_value(value: &serde_json::Value) -> TestHarnessResult<Fie
             } else if let Some(f) = n.as_f64() {
                 Ok(FieldValue::Float(f))
             } else {
+                // Large numbers that don't fit in i64/f64 - convert to string
+                log::debug!(
+                    "Number '{}' in field '{}' from '{}' doesn't fit in i64/f64, storing as string",
+                    n,
+                    field_name,
+                    source_context
+                );
                 Ok(FieldValue::String(n.to_string()))
             }
         }

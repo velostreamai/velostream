@@ -53,5 +53,5 @@ WITH (
     'trades_converted.topic.name' = 'test_trades_converted',
     'trades_converted.config_file' = '../configs/output_stream_sink.yaml',
     'trades_converted.value.serializer' = 'avro',
-    'trades_converted.avro.schema.file' = './schemas/trade_record.avsc'
+    'trades_converted.avro.schema.file' = 'tier7_serialization/schemas/trade_record.avsc'
 );
