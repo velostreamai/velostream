@@ -1,18 +1,16 @@
 application: stream_stream_join_demo
 description: Test stream-stream JOIN with time window
 default_timeout_ms: 60000
-default_records: 100
 
 queries:
+  # Single join query with two input streams
   - name: matched_events
-    description: Verify stream-stream join matches orders with shipments
+    description: Join orders with shipments within 24-hour window
     inputs:
       - source: orders
-        schema: order_event
-        records: 100
+        data_file: "demo/test_harness_examples/data/orders_join_test.csv"
       - source: shipments
-        schema: shipment
-        records: 80
+        data_file: "demo/test_harness_examples/data/shipments_join_test.csv"
     assertions:
       - type: record_count
         greater_than: 0

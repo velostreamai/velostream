@@ -25,7 +25,6 @@ SELECT
     s.event_time AS shipment_time
 FROM orders o
 JOIN shipments s ON o.order_id = s.order_id
-    AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '24' HOUR
 EMIT CHANGES
 WITH (
     'orders.type' = 'kafka_source',

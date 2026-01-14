@@ -70,23 +70,52 @@ The test harness doesn't properly handle multi-source UNION patterns.
 
 ### 19. Stream-Stream Joins Failing (tier3/21-24)
 
-**Status:** Partially Fixed - Data Generation Gap
+**Status:** Architectural Limitation - Sequential Source Processing
 **Affected Tests:** 21_stream_stream_join, 22_multi_join, 23_right_join, 24_full_outer_join
 **Severity:** High
 
 **Description:**
-Two issues were fixed:
+Fixed issues:
 1. ✅ **Timestamp + Interval arithmetic** - BETWEEN conditions now work correctly
-2. ✅ **Field name mismatch** - Fixed `order_total` → `total_amount` in SQL
+2. ✅ **String timestamp parsing** - ISO 8601 strings now parse for interval arithmetic
+3. ✅ **Shorthand SQL pattern** - Single-query inline source definitions work
 
-**Remaining Issue:**
-Stream-stream joins generate 0 output records because join keys (UUIDs) are
-generated independently for each stream and never match. The test harness has
-`load_reference_data()` infrastructure for foreign keys but it's not wired up
-in the executor to automatically load keys from previously generated inputs.
+**Root Cause:**
+The V2 AdaptiveJobProcessor processes multiple sources **sequentially**, not concurrently:
+```rust
+for (reader_idx, (reader_name, mut reader)) in readers_list.into_iter().enumerate() {
+    // Each source is processed one at a time
+}
+```
 
-**Workaround:** Test harness needs enhancement to auto-load reference data between
-sequential input generations, or tests need to use integer key ranges with overlap.
+For stream-stream joins, this means:
+1. Orders are read first, processed (no shipments available to join)
+2. Shipments are read second, processed (no orders in buffer to join with)
+3. Result: All join fields from the second source are NULL
+
+**Evidence:**
+Test output shows records produced, but all shipment fields are NULL:
+```
+Found null values: shipment_id[0-9], carrier[0-9], tracking_number[0-9]
+```
+
+**Required Fix:**
+Stream-stream joins need:
+1. **Temporal coordination of data sources** - Both sources must be read concurrently and
+   coordinated by event time so that records from both streams arrive within the same
+   time window for correlation
+2. **Join buffer/state** - Records from both sides must be buffered until matching
+   records arrive from the other stream
+3. **Temporal windowing** - For time-based joins, a time window determines how long
+   records are held waiting for matches (e.g., "join orders with shipments within 24 hours")
+4. **Watermark synchronization** - Both streams need synchronized watermarks to know
+   when to emit results and expire buffered records
+
+This is a significant architectural enhancement beyond test harness scope. The current
+sequential processing model cannot support stream-stream joins because there's no
+mechanism to hold records from one stream while waiting for correlated records from another.
+
+**Workaround:** Use stream-table joins instead (table is preloaded, then stream is processed).
 
 ---
 
@@ -203,6 +232,22 @@ doesn't trigger Kafka's auto-create. The job then failed with "Unknown topic or 
 
 ---
 
+### ~~24. String Timestamp + Interval Arithmetic~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-14)
+**Affected Tests:** Stream-stream joins with temporal conditions
+
+**What Was Fixed:**
+When timestamps are loaded from CSV/JSON as strings (e.g., "2026-01-14T10:00:00Z"),
+interval arithmetic failed because `add()` and `subtract()` didn't handle String types.
+
+**Fix Applied:**
+- Added `parse_timestamp_string()` helper to parse ISO 8601 timestamp strings
+- Added `String + Interval` and `String - Interval` arithmetic in `types.rs`
+- Supports RFC 3339, ISO 8601, and date-only formats
+
+---
+
 ## Test Progress by Tier
 
 ### tier1_basic (8 tests) - Basic SQL Operations ★ 100%
@@ -232,10 +277,10 @@ doesn't trigger Kafka's auto-create. The job then failed with "Unknown topic or 
 | Test | Status | Notes |
 |------|--------|-------|
 | 20_stream_table_join | ✅ PASSED | **FIXED** - AS aliases added |
-| 21_stream_stream_join | ❌ FAILED | Stream-stream temporal join |
-| 22_multi_join | ❌ FAILED | Multi-table joins |
-| 23_right_join | ❌ FAILED | RIGHT JOIN |
-| 24_full_outer_join | ❌ FAILED | FULL OUTER JOIN |
+| 21_stream_stream_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
+| 22_multi_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
+| 23_right_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
+| 24_full_outer_join | ⚠️ ARCH | Sequential processing limitation (Issue #19) |
 
 ### tier4_window_functions (4 tests) - Window Functions ★ 100%
 | Test | Status | Notes |

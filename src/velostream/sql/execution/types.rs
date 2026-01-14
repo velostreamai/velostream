@@ -1016,6 +1016,36 @@ impl FieldValue {
                 Ok(FieldValue::Timestamp(*ts + duration))
             }
 
+            // String (timestamp) + Interval arithmetic - parse string as timestamp
+            (FieldValue::String(s), FieldValue::Interval { value, unit }) => {
+                if let Some(ts) = Self::parse_timestamp_string(s) {
+                    let interval_millis = Self::interval_to_millis(*value, unit);
+                    let duration = chrono::Duration::milliseconds(interval_millis);
+                    Ok(FieldValue::Timestamp(ts + duration))
+                } else {
+                    Err(SqlError::TypeError {
+                        expected: "timestamp string".to_string(),
+                        actual: format!("unparseable string: {}", s),
+                        value: Some(s.clone()),
+                    })
+                }
+            }
+
+            // Interval + String (timestamp) arithmetic
+            (FieldValue::Interval { value, unit }, FieldValue::String(s)) => {
+                if let Some(ts) = Self::parse_timestamp_string(s) {
+                    let interval_millis = Self::interval_to_millis(*value, unit);
+                    let duration = chrono::Duration::milliseconds(interval_millis);
+                    Ok(FieldValue::Timestamp(ts + duration))
+                } else {
+                    Err(SqlError::TypeError {
+                        expected: "timestamp string".to_string(),
+                        actual: format!("unparseable string: {}", s),
+                        value: Some(s.clone()),
+                    })
+                }
+            }
+
             // Interval + Interval arithmetic
             (
                 FieldValue::Interval {
@@ -1100,6 +1130,21 @@ impl FieldValue {
                 let interval_millis = Self::interval_to_millis(*value, unit);
                 let duration = chrono::Duration::milliseconds(interval_millis);
                 Ok(FieldValue::Timestamp(*ts - duration))
+            }
+
+            // String (timestamp) - Interval arithmetic - parse string as timestamp
+            (FieldValue::String(s), FieldValue::Interval { value, unit }) => {
+                if let Some(ts) = Self::parse_timestamp_string(s) {
+                    let interval_millis = Self::interval_to_millis(*value, unit);
+                    let duration = chrono::Duration::milliseconds(interval_millis);
+                    Ok(FieldValue::Timestamp(ts - duration))
+                } else {
+                    Err(SqlError::TypeError {
+                        expected: "timestamp string".to_string(),
+                        actual: format!("unparseable string: {}", s),
+                        value: Some(s.clone()),
+                    })
+                }
             }
 
             // Interval arithmetic: interval - interval
@@ -1312,6 +1357,34 @@ impl FieldValue {
             TimeUnit::Month => value * 30 * 24 * 60 * 60 * 1000, // Approximate: 30 days
             TimeUnit::Year => value * 365 * 24 * 60 * 60 * 1000, // Approximate: 365 days
         }
+    }
+
+    /// Parse a timestamp string in various ISO 8601 formats
+    fn parse_timestamp_string(s: &str) -> Option<chrono::NaiveDateTime> {
+        use chrono::{DateTime, NaiveDateTime};
+
+        // Try RFC 3339 / ISO 8601 with timezone (e.g., "2026-01-14T10:00:00Z")
+        if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+            return Some(dt.naive_utc());
+        }
+
+        // Try without timezone (e.g., "2026-01-14T10:00:00")
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+            return Some(dt);
+        }
+
+        // Try with fractional seconds (e.g., "2026-01-14T10:00:00.123")
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+            return Some(dt);
+        }
+
+        // Try date only (e.g., "2026-01-14")
+        if let Ok(dt) = NaiveDateTime::parse_from_str(&format!("{}T00:00:00", s), "%Y-%m-%dT%H:%M:%S")
+        {
+            return Some(dt);
+        }
+
+        None
     }
 
     /// Create a ScaledInteger from an f64 with specified decimal places
