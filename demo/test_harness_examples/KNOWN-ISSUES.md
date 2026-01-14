@@ -70,18 +70,23 @@ The test harness doesn't properly handle multi-source UNION patterns.
 
 ### 19. Stream-Stream Joins Failing (tier3/21-24)
 
-**Status:** Needs Investigation
+**Status:** Partially Fixed - Data Generation Gap
 **Affected Tests:** 21_stream_stream_join, 22_multi_join, 23_right_join, 24_full_outer_join
 **Severity:** High
 
 **Description:**
-While stream-table join (20) was fixed with AS aliases, the other join types still fail.
-These involve:
-- Stream-stream temporal joins with BETWEEN conditions
-- Multi-table joins with multiple file sources
-- RIGHT JOIN and FULL OUTER JOIN patterns
+Two issues were fixed:
+1. ✅ **Timestamp + Interval arithmetic** - BETWEEN conditions now work correctly
+2. ✅ **Field name mismatch** - Fixed `order_total` → `total_amount` in SQL
 
-**Note:** The AS alias fix was applied to all files but may not be the root cause for these.
+**Remaining Issue:**
+Stream-stream joins generate 0 output records because join keys (UUIDs) are
+generated independently for each stream and never match. The test harness has
+`load_reference_data()` infrastructure for foreign keys but it's not wired up
+in the executor to automatically load keys from previously generated inputs.
+
+**Workaround:** Test harness needs enhancement to auto-load reference data between
+sequential input generations, or tests need to use integer key ranges with overlap.
 
 ---
 
@@ -164,6 +169,37 @@ Test specs had incorrect source and query names that didn't match the SQL defini
 **Root Cause:**
 Data was being published to wrong topics and output was being read from wrong query names.
 The window implementations were working correctly; the test harness config was misaligned.
+
+---
+
+### ~~22. Timestamp + Interval Arithmetic~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-14)
+**Affected Tests:** Stream-stream joins with temporal conditions
+
+**What Was Fixed:**
+The `add()` and `subtract()` methods in `types.rs` only supported `Integer + Interval`
+but not `Timestamp + Interval`. When test data generated proper `NaiveDateTime` timestamps,
+BETWEEN conditions failed with "Type error: expected numeric or interval/timestamp".
+
+**Fix Applied:**
+Added support for `Timestamp + Interval`, `Interval + Timestamp`, and `Timestamp - Interval`
+operations that return proper `Timestamp` values.
+
+---
+
+### ~~23. Empty Topic Creation for Edge Case Tests~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-14)
+**Affected Tests:** `tier6_edge_cases/51_empty.sql`
+
+**What Was Fixed:**
+When test specs configured `records: 0`, no topic was created because publishing 0 records
+doesn't trigger Kafka's auto-create. The job then failed with "Unknown topic or partition".
+
+**Fix Applied:**
+- Added `create_topic_raw()` to `infra.rs` for creating topics without run_id prefix
+- Updated executor to explicitly create topics for empty inputs
 
 ---
 
