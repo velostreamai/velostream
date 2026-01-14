@@ -61,5 +61,5 @@ WITH (
 
     -- Avro serialization configuration
     'trades_avro.value.serializer' = 'avro',
-    'trades_avro.avro.schema.file' = './schemas/trade_record.avsc'
+    'trades_avro.avro.schema.file' = 'demo/test_harness_examples/tier7_serialization/schemas/trade_record.avsc'
 );

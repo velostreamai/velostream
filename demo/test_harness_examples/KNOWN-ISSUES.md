@@ -51,20 +51,31 @@ This document tracks known limitations and issues discovered during test harness
 
 ## Active Issues
 
-### 12. UNION Multi-Source Configuration
+### 12. UNION ALL Not Implemented
 
-**Status:** Configuration Issue
+**Status:** Not Implemented (Parser Only)
 **Affected Tests:** `tier5_complex/44_union.sql`
 **Severity:** Medium
 
 **Description:**
-UNION ALL queries combining multiple Kafka sources fail with:
+UNION ALL queries fail because UNION is parsed but not executed:
 ```
 SQL text for query 'all_transactions' not found. Call execute_file() first.
 ```
 
 **Root Cause:**
-The test harness doesn't properly handle multi-source UNION patterns.
+- Parser creates `StreamingQuery::Union` AST node ✅
+- Query analyzer merges analysis from both sides ✅
+- Execution engine has NO processing logic for UNION ❌
+
+The execution engine only has `query_matches_stream()` for UNION (checking if a stream
+matches either side), but no actual record processing or result combination logic.
+
+**Required Fix:**
+Implement UNION/UNION ALL execution in `StreamExecutionEngine` that:
+1. Processes records from all source SELECTs
+2. Combines results (UNION ALL keeps all, UNION deduplicates)
+3. Outputs to the single sink
 
 ---
 
@@ -297,7 +308,7 @@ interval arithmetic failed because `add()` and `subtract()` didn't handle String
 | 41_subqueries | ✅ PASSED | IN (SELECT) subquery |
 | 42_case | ✅ PASSED | CASE WHEN expressions |
 | 43_complex_filter | ✅ PASSED | BETWEEN, IN, complex filters |
-| 44_union | ❌ FAILED | Issue #12 - UNION config |
+| 44_union | ⚠️ NOT IMPL | Issue #12 - UNION not executed |
 
 ### tier6_edge_cases (4 tests) - Edge Cases
 | Test | Status | Notes |
@@ -311,8 +322,8 @@ interval arithmetic failed because `add()` and `subtract()` didn't handle String
 | Test | Status | Notes |
 |------|--------|-------|
 | 60_json_format | ✅ PASSED | JSON serialization |
-| 61_avro_format | ❌ FAILED | Avro schema issues |
-| 62_protobuf_format | ❌ FAILED | Protobuf schema issues |
+| 61_avro_format | ⚠️ CONFIG | Schema path/field alignment issues |
+| 62_protobuf_format | ⚠️ CONFIG | Schema path/field alignment issues |
 | 63_format_conversion | ❌ FAILED | Format conversion |
 
 ### tier8_fault_tolerance (4 tests) - Fault Tolerance
