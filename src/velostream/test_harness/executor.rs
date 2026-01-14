@@ -771,6 +771,20 @@ impl QueryExecutor {
             self.source_topics.contains_key(&input.source)
         );
 
+        // Ensure topic exists even if we're publishing 0 records
+        // This is important for edge case tests that test empty stream handling
+        // Use create_topic_raw to avoid adding the run_id prefix - the topic name
+        // needs to match what the SQL job will consume from
+        if records.is_empty() {
+            log::info!(
+                "Creating topic '{}' for empty input (0 records requested)",
+                topic
+            );
+            self.infra.create_topic_raw(&topic, 1).await?;
+            log::info!("Published 0 records to topic '{}'", topic);
+            return Ok(());
+        }
+
         // Use rate-controlled publishing if events_per_second is configured
         if let Some(ref time_sim) = input.time_simulation {
             if time_sim.events_per_second.is_some() {

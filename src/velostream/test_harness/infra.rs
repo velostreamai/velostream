@@ -544,6 +544,44 @@ impl TestHarnessInfra {
         Ok(topic_name)
     }
 
+    /// Create a topic with the exact name provided (no prefix transformation)
+    ///
+    /// Use this when you need to create a topic that matches what Kafka jobs will consume from
+    /// (e.g., for empty input tests where no records are published but the topic must exist).
+    pub async fn create_topic_raw(&mut self, topic_name: &str, partitions: i32) -> TestHarnessResult<String> {
+        let admin_client =
+            self.admin_client
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::InfraError {
+                    message: "Admin client not initialized. Call start() first.".to_string(),
+                    source: None,
+                })?;
+
+        log::debug!(
+            "Creating topic (raw): {} (partitions: {})",
+            topic_name,
+            partitions
+        );
+
+        let new_topic = NewTopic::new(topic_name, partitions, TopicReplication::Fixed(1));
+        let options = AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)));
+
+        admin_client
+            .create_topics(&[new_topic], &options)
+            .await
+            .map_err(|e| TestHarnessError::InfraError {
+                message: format!("Failed to create topic '{}': {}", topic_name, e),
+                source: Some(e.to_string()),
+            })?;
+
+        // Wait for topic to be ready
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        self.created_topics.push(topic_name.to_string());
+        log::info!("Created topic (raw): {}", topic_name);
+        Ok(topic_name.to_string())
+    }
+
     /// Delete a topic
     pub async fn delete_topic(&mut self, name: &str) -> TestHarnessResult<()> {
         let topic_name = self.topic_name(name);

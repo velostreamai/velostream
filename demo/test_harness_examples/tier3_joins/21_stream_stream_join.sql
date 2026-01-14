@@ -17,7 +17,7 @@ CREATE STREAM matched_events AS
 SELECT
     o.order_id AS order_id,
     o.customer_id AS customer_id,
-    o.order_total AS order_total,
+    o.total_amount AS order_total,
     o.event_time AS order_time,
     s.shipment_id AS shipment_id,
     s.carrier AS carrier,

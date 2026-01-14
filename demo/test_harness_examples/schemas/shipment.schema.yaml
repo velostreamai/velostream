@@ -10,6 +10,10 @@ fields:
   - name: order_id
     type: uuid
     nullable: false
+    constraints:
+      references:
+        schema: order_event
+        field: order_id
 
   - name: carrier
     type: string

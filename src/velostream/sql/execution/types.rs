@@ -996,10 +996,24 @@ impl FieldValue {
                 Ok(FieldValue::Integer(timestamp + interval_millis))
             }
 
-            // Interval + Timestamp arithmetic: interval + timestamp
+            // Interval + Timestamp arithmetic: interval + timestamp (integer millis)
             (FieldValue::Interval { value, unit }, FieldValue::Integer(timestamp)) => {
                 let interval_millis = Self::interval_to_millis(*value, unit);
                 Ok(FieldValue::Integer(interval_millis + timestamp))
+            }
+
+            // Timestamp (NaiveDateTime) + Interval arithmetic
+            (FieldValue::Timestamp(ts), FieldValue::Interval { value, unit }) => {
+                let interval_millis = Self::interval_to_millis(*value, unit);
+                let duration = chrono::Duration::milliseconds(interval_millis);
+                Ok(FieldValue::Timestamp(*ts + duration))
+            }
+
+            // Interval + Timestamp (NaiveDateTime) arithmetic
+            (FieldValue::Interval { value, unit }, FieldValue::Timestamp(ts)) => {
+                let interval_millis = Self::interval_to_millis(*value, unit);
+                let duration = chrono::Duration::milliseconds(interval_millis);
+                Ok(FieldValue::Timestamp(*ts + duration))
             }
 
             // Interval + Interval arithmetic
@@ -1075,10 +1089,17 @@ impl FieldValue {
                 Ok(FieldValue::ScaledInteger(scaled_a - b, *scale))
             }
 
-            // Interval arithmetic: timestamp - interval
+            // Interval arithmetic: timestamp (integer millis) - interval
             (FieldValue::Integer(timestamp), FieldValue::Interval { value, unit }) => {
                 let interval_millis = Self::interval_to_millis(*value, unit);
                 Ok(FieldValue::Integer(timestamp - interval_millis))
+            }
+
+            // Timestamp (NaiveDateTime) - Interval arithmetic
+            (FieldValue::Timestamp(ts), FieldValue::Interval { value, unit }) => {
+                let interval_millis = Self::interval_to_millis(*value, unit);
+                let duration = chrono::Duration::milliseconds(interval_millis);
+                Ok(FieldValue::Timestamp(*ts - duration))
             }
 
             // Interval arithmetic: interval - interval
