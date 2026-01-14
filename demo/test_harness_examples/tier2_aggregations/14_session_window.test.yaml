@@ -4,10 +4,10 @@ default_timeout_ms: 120000
 default_records: 500
 
 queries:
-  - name: user_sessions
+  - name: session_output
     description: Verify session window groups user activity correctly
     inputs:
-      - source: user_clicks
+      - source: user_activity
         schema: user_activity
         records: 500
         time_simulation:
@@ -19,15 +19,15 @@ queries:
       - type: record_count
         greater_than: 0
       - type: schema_contains
-        fields: [user_id, action_count, pages_visited, total_duration_ms, session_start, session_end]
+        fields: [user_id, actions_in_session, total_duration, session_start, session_end]
       - type: field_values
-        field: action_count
+        field: actions_in_session
         operator: greater_than
         value: 0
       - type: field_values
-        field: pages_visited
-        operator: greater_than
+        field: total_duration
+        operator: greater_than_or_equals
         value: 0
       - type: no_nulls
-        fields: [user_id, action_count, pages_visited]
+        fields: [user_id, actions_in_session, total_duration]
     timeout_ms: 120000

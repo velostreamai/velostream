@@ -4,19 +4,19 @@ This document tracks known limitations and issues discovered during test harness
 
 ## Current Status (2026-01-14)
 
-> **TEST HARNESS: 23 Passed, 17 Failed, 1 Skipped (41 total)**
+> **TEST HARNESS: 25 Passed, 15 Failed, 1 Skipped (41 total)**
 
 | Tier | Passed | Failed | Status |
 |------|--------|--------|--------|
 | tier1_basic | 8 | 0 | **100%** ★ |
-| tier2_aggregations | 4 | 2 | 67% |
+| tier2_aggregations | 6 | 0 | **100%** ★ |
 | tier3_joins | 1 | 4 | 20% |
 | tier4_window_funcs | 4 | 0 | **100%** ★ |
 | tier5_complex | 4 | 1 | 80% |
 | tier6_edge_cases | 1 | 3 | 25% |
 | tier7_serialization | 1 | 3 | 25% |
 | tier8_fault_tol | 0 | 4 | 0% |
-| **TOTAL** | **23** | **17** | **56%** |
+| **TOTAL** | **25** | **15** | **61%** |
 
 **Run tests:** `./run-tests.sh`
 
@@ -33,8 +33,8 @@ This document tracks known limitations and issues discovered during test harness
 | tier1_basic/07_limit | ORDER BY required for LIMIT to work correctly | Fixed with ORDER BY implementation | ✅ PASSES |
 | tier2/15_compound_keys | Previously timing out | Now passes with improved processing | ✅ PASSES |
 | tier3_joins/20_stream_table_join | SQL used `o.field` without AS alias → output had `o.field` name | Added explicit `AS field` aliases | ✅ PASSES |
-| tier2/13_sliding_window | Invalid operator `gte` in test spec | Changed to `greater_than_or_equals` | Still failing (window issue) |
-| tier2/14_session_window | Invalid operator `gt` in test spec | Changed to `greater_than` | Timeout |
+| tier2/13_sliding_window | Test spec source/query name mismatch | Fixed source→market_data, query→sliding_output | ✅ PASSES |
+| tier2/14_session_window | Test spec source/query name mismatch | Fixed source→user_activity, query→session_output | ✅ PASSES |
 | tier6/52_large_volume | Invalid operator `gt` in test spec | Changed to `greater_than` | Timeout |
 | tier6/53_late_arrivals | Invalid operator `gt` in test spec | Changed to `greater_than` | Timeout |
 
@@ -42,8 +42,6 @@ This document tracks known limitations and issues discovered during test harness
 
 | Test | Error Type | Notes |
 |------|------------|-------|
-| tier2/13_sliding_window | FAILED | Window implementation issue |
-| tier2/14_session_window | TIMEOUT | Session window timeout |
 | tier3/21-24 | FAILED | Stream-stream joins, multi-joins |
 | tier6/51-53 | TIMEOUT | Edge cases timing out |
 | tier7/61-63 | FAILED | Avro/Protobuf schema issues |
@@ -153,6 +151,22 @@ SELECT o.order_id AS order_id, o.customer_id AS customer_id FROM orders o
 
 ---
 
+### ~~21. Sliding/Session Window Test Spec Mismatches~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-14)
+**Affected Tests:** `tier2_aggregations/13_sliding_window.sql`, `tier2_aggregations/14_session_window.sql` - Both now pass
+
+**What Was Fixed:**
+Test specs had incorrect source and query names that didn't match the SQL definitions:
+- `13_sliding_window`: source `price_feed` → `market_data`, query `moving_avg_5m` → `sliding_output`
+- `14_session_window`: source `user_clicks` → `user_activity`, query `user_sessions` → `session_output`
+
+**Root Cause:**
+Data was being published to wrong topics and output was being read from wrong query names.
+The window implementations were working correctly; the test harness config was misaligned.
+
+---
+
 ## Test Progress by Tier
 
 ### tier1_basic (8 tests) - Basic SQL Operations ★ 100%
@@ -167,15 +181,15 @@ SELECT o.order_id AS order_id, o.customer_id AS customer_id FROM orders o
 | 07_limit | ✅ PASSED | **FIXED** - Works with ORDER BY |
 | 08_headers | ✅ PASSED | HEADER functions |
 
-### tier2_aggregations (7 tests) - Aggregation Functions
+### tier2_aggregations (7 tests) - Aggregation Functions ★ 100%
 | Test | Status | Notes |
 |------|--------|-------|
 | 10_count.annotated | ⏭️ SKIP | No test spec (demo only) |
 | 10_count | ✅ PASSED | COUNT(*), COUNT(col) |
 | 11_sum_avg | ✅ PASSED | SUM, AVG, MIN, MAX |
 | 12_tumbling_window | ✅ PASSED | TUMBLING windows |
-| 13_sliding_window | ❌ FAILED | Window implementation issue |
-| 14_session_window | ❌ TIMEOUT | Session window timeout |
+| 13_sliding_window | ✅ PASSED | **FIXED** - Test spec source/query alignment |
+| 14_session_window | ✅ PASSED | **FIXED** - Test spec source/query alignment |
 | 15_compound_keys | ✅ PASSED | **FIXED** - Multi-key aggregation |
 
 ### tier3_joins (5 tests) - Join Operations
@@ -231,7 +245,7 @@ SELECT o.order_id AS order_id, o.customer_id AS customer_id FROM orders o
 ### Progress Summary
 ```
 tier1_basic:        8/8  passed (100%) ★ ORDER BY/LIMIT FIXED
-tier2_aggregations: 4/6  passed (67%)
+tier2_aggregations: 6/6  passed (100%) ★ SLIDING/SESSION WINDOWS FIXED
 tier3_joins:        1/5  passed (20%)
 tier4_window_funcs: 4/4  passed (100%) ★
 tier5_complex:      4/5  passed (80%)
@@ -239,7 +253,7 @@ tier6_edge_cases:   1/4  passed (25%)
 tier7_serialization:1/4  passed (25%)
 tier8_fault_tol:    0/4  passed (0%)
 ─────────────────────────────────────────
-TOTAL:              23/41 passed (56%)
+TOTAL:              25/41 passed (61%)
 ```
 
 ---
@@ -249,7 +263,7 @@ TOTAL:              23/41 passed (56%)
 1. ~~**Investigate tier1 ORDER BY/LIMIT failures**~~ ✅ RESOLVED - Phase 5 batch sorting implemented
 2. **Debug tier3 join failures** - Stream-stream joins need temporal join support
 3. ~~**Increase timeout for 15_compound_keys**~~ ✅ RESOLVED - Now passes
-4. **Investigate sliding/session window issues** - tier2/13-14 failures
+4. ~~**Investigate sliding/session window issues**~~ ✅ RESOLVED - Test spec source/query name alignment
 5. **Check tier6-8 configuration** - May be test spec or schema issues
 
 ---

@@ -4,10 +4,10 @@ default_timeout_ms: 60000
 default_records: 1000
 
 queries:
-  - name: moving_avg_5m
+  - name: sliding_output
     description: Verify sliding window produces moving averages
     inputs:
-      - source: price_feed
+      - source: market_data
         schema: market_data
         records: 1000
         time_simulation:
@@ -18,16 +18,15 @@ queries:
       - type: record_count
         greater_than: 0
       - type: schema_contains
-        fields: [symbol, avg_price, avg_volume, sample_count, min_price, max_price]
-      # Note: compare_field not supported - using basic sanity checks
+        fields: [symbol, trade_count, moving_avg, window_start, window_end]
       - type: field_values
-        field: avg_price
+        field: trade_count
         operator: greater_than
         value: 0
       - type: field_values
-        field: sample_count
+        field: moving_avg
         operator: greater_than
         value: 0
       - type: no_nulls
-        fields: [symbol, avg_price, sample_count]
+        fields: [symbol, trade_count, moving_avg]
     timeout_ms: 60000
