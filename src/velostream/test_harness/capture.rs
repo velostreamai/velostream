@@ -11,7 +11,7 @@
 //!
 //! - **JSON** (default): UTF-8 encoded JSON objects, no schema required
 //! - **Avro**: Binary Avro format, requires `capture_schema` with Avro schema JSON
-//! - **Protobuf**: Not yet implemented, returns explicit error with workaround suggestion
+//! - **Protobuf**: Binary Protobuf format, requires `capture_schema` with .proto schema definition
 //!
 //! # Test Spec Configuration
 //! Configure capture format in your `.test.yaml`:
@@ -28,6 +28,8 @@ use super::error::{TestHarnessError, TestHarnessResult};
 use super::executor::CapturedOutput;
 use super::infra::create_kafka_config;
 use crate::velostream::serialization::avro_codec::deserialize_from_avro;
+use crate::velostream::serialization::helpers::extract_message_type_from_schema;
+use crate::velostream::serialization::protobuf_codec::ProtobufCodec;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use futures::StreamExt;
 use rdkafka::consumer::{Consumer, DefaultConsumerContext, StreamConsumer};
@@ -336,7 +338,7 @@ impl SinkCapture {
         match &self.config.format {
             CaptureFormat::Json => self.deserialize_json(payload, topic),
             CaptureFormat::Avro => self.deserialize_avro(payload, topic),
-            CaptureFormat::Protobuf => self.deserialize_protobuf(topic),
+            CaptureFormat::Protobuf => self.deserialize_protobuf(payload, topic),
         }
     }
 
@@ -389,18 +391,20 @@ impl SinkCapture {
         payload: &[u8],
         topic: &str,
     ) -> TestHarnessResult<HashMap<String, FieldValue>> {
-        let schema_json = self.config.schema_json.as_ref().ok_or_else(|| {
-            TestHarnessError::CaptureError {
-                message: format!(
-                    "Avro deserialization for topic '{}' requires a schema. \
+        let schema_json =
+            self.config
+                .schema_json
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::CaptureError {
+                    message: format!(
+                        "Avro deserialization for topic '{}' requires a schema. \
                      Add 'capture_schema' with the Avro schema JSON to your test spec, \
                      or use 'capture_format: json' if the sink outputs JSON.",
-                    topic
-                ),
-                sink_name: topic.to_string(),
-                source: None,
-            }
-        })?;
+                        topic
+                    ),
+                    sink_name: topic.to_string(),
+                    source: None,
+                })?;
 
         deserialize_from_avro(payload, schema_json).map_err(|e| TestHarnessError::CaptureError {
             message: format!(
@@ -416,20 +420,64 @@ impl SinkCapture {
 
     /// Deserialize Protobuf message
     ///
-    /// # Note
-    /// Protobuf capture deserialization is not yet implemented.
-    /// Returns an explicit error directing users to use JSON or Avro instead.
-    fn deserialize_protobuf(&self, topic: &str) -> TestHarnessResult<HashMap<String, FieldValue>> {
-        Err(TestHarnessError::CaptureError {
-            message: format!(
-                "Protobuf capture deserialization is not yet implemented for topic '{}'. \
-                 Workaround: Use 'capture_format: json' if your sink can output JSON, \
-                 or 'capture_format: avro' with an equivalent Avro schema.",
-                topic
-            ),
-            sink_name: topic.to_string(),
-            source: None,
-        })
+    /// Requires `capture_schema` to be set with the .proto schema definition.
+    /// The message type is automatically extracted from the schema.
+    fn deserialize_protobuf(
+        &self,
+        payload: &[u8],
+        topic: &str,
+    ) -> TestHarnessResult<HashMap<String, FieldValue>> {
+        let schema =
+            self.config
+                .schema_json
+                .as_ref()
+                .ok_or_else(|| TestHarnessError::CaptureError {
+                    message: format!(
+                        "Protobuf deserialization for topic '{}' requires a schema. \
+                     Add 'capture_schema' with the .proto schema definition to your test spec.",
+                        topic
+                    ),
+                    sink_name: topic.to_string(),
+                    source: None,
+                })?;
+
+        // Extract message type from schema
+        let message_type = extract_message_type_from_schema(schema).ok_or_else(|| {
+            TestHarnessError::CaptureError {
+                message: format!(
+                    "Could not extract message type from Protobuf schema for topic '{}'. \
+                     Ensure your schema contains a 'message MessageName {{' definition.",
+                    topic
+                ),
+                sink_name: topic.to_string(),
+                source: None,
+            }
+        })?;
+
+        // Create codec and deserialize
+        let codec = ProtobufCodec::new(schema, &message_type).map_err(|e| {
+            TestHarnessError::CaptureError {
+                message: format!(
+                    "Failed to create Protobuf codec for topic '{}': {}",
+                    topic, e
+                ),
+                sink_name: topic.to_string(),
+                source: Some(e.to_string()),
+            }
+        })?;
+
+        codec
+            .deserialize(payload)
+            .map_err(|e| TestHarnessError::CaptureError {
+                message: format!(
+                    "Failed to deserialize Protobuf from topic '{}': {} (payload size: {} bytes)",
+                    topic,
+                    e,
+                    payload.len()
+                ),
+                sink_name: topic.to_string(),
+                source: Some(e.to_string()),
+            })
     }
 
     /// Capture output from file sink
@@ -482,11 +530,12 @@ impl SinkCapture {
         }
 
         // Read file content
-        let content = std::fs::read_to_string(path).map_err(|e| TestHarnessError::CaptureError {
-            message: format!("Failed to read file '{}': {}", path_str, e),
-            sink_name: path_str.clone(),
-            source: Some(e.to_string()),
-        })?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| TestHarnessError::CaptureError {
+                message: format!("Failed to read file '{}': {}", path_str, e),
+                sink_name: path_str.clone(),
+                source: Some(e.to_string()),
+            })?;
 
         // Parse JSONL format and convert to StreamRecords
         let field_maps = self.parse_jsonl(&content, &path_str)?;

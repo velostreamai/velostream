@@ -52,6 +52,114 @@ and compatibility, particularly for financial analytics use cases.
 - **Schema Support**: Avro schema registry integration
 - **Performance Presets**: Optimized configurations for different use cases
 
+### Test Harness (`src/velostream/test_harness/`)
+
+A comprehensive testing framework for validating streaming SQL queries with real Kafka infrastructure.
+
+#### Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│    Executor     │────▶│    Capture      │────▶│   Assertions    │
+│ (runs queries)  │     │ (reads output)  │     │  (validates)    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+- **Executor** (`executor.rs`): Runs SQL queries from `.test.yaml` specs, manages job lifecycle
+- **Capture** (`capture.rs`): Reads output from Kafka topics in JSON/Avro/Protobuf formats
+- **Assertions** (`assertions.rs`): Validates captured output against expected values
+
+#### Supported Assertion Types
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `record_count` | Verify number of output records | `equals: 100`, `greater_than: 90` |
+| `schema_contains` | Check required fields exist | `fields: [id, name, total]` |
+| `field_values` | Validate field values with operators | `field: amount, operator: greater_than, value: 0` |
+| `dlq_count` | Count records in Dead Letter Queue | `greater_than: 0, less_than: 50` |
+| `error_rate` | Maximum error percentage | `max_percent: 5.0` |
+| `throughput` | Records per second threshold | `greater_than: 1000` |
+| `latency` | Processing time thresholds | `max_ms: 100` |
+| `percentile` | Statistical percentile checks | `p50: 10, p95: 50, p99: 100` |
+
+#### Capture Formats
+
+```yaml
+# JSON (default) - no schema required
+capture_format: json
+
+# Avro - requires schema
+capture_format: avro
+capture_schema: |
+  {"type":"record","name":"Record","fields":[{"name":"id","type":"long"}]}
+
+# Protobuf - requires schema
+capture_format: protobuf
+capture_schema: |
+  syntax = "proto3";
+  message Record {
+    string id = 1;
+    int64 value = 2;
+  }
+```
+
+#### DLQ (Dead Letter Queue) (`dlq.rs`)
+
+Captures failed records with error context:
+- `DlqCapture`: Manages DLQ record storage
+- `DlqRecord`: Contains original record, error type, timestamp
+- `DlqStatistics`: Aggregated error metrics
+
+#### Fault Injection (`fault_injection.rs`)
+
+Injects faults for resilience testing:
+- **Malformed records**: Missing fields, wrong types, invalid JSON
+- **Duplicates**: Repeated messages at configurable rates
+- **Out-of-order**: Delayed delivery to test ordering
+- **Field corruption**: Random field value corruption
+
+#### Running Test Harness Examples
+
+```bash
+# Build the test runner
+cargo build --release --bin velo-test
+
+# Run all tier tests
+./target/release/velo-test run demo/test_harness_examples/tier1_basic/
+
+# Run specific test
+./target/release/velo-test run demo/test_harness_examples/tier1_basic/01_passthrough.test.yaml
+```
+
+#### Test Spec Structure
+
+```yaml
+application: my_test_app
+description: Test description
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: my_query
+    description: What this query tests
+    inputs:
+      - source: input_topic
+        schema: record_schema
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [id, name, total]
+      - type: field_values
+        field: total
+        operator: greater_than
+        value: 0
+    timeout_ms: 30000
+```
+
+See `demo/test_harness_examples/` for comprehensive examples across 8 tiers of complexity.
+
 ## Development Commands
 
 ### Testing

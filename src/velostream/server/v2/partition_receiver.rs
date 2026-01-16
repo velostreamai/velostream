@@ -633,7 +633,9 @@ impl PartitionReceiver {
     ) -> Result<Vec<Arc<StreamRecord>>, SqlError> {
         // Extract ORDER BY from query (handles Select and CreateStream variants)
         let order_by = match self.query.as_ref() {
-            StreamingQuery::Select { order_by, window, .. } => {
+            StreamingQuery::Select {
+                order_by, window, ..
+            } => {
                 // Skip if query has WINDOW clause (window adapter handles sorting)
                 if window.is_some() {
                     return Ok(output_records);
@@ -641,7 +643,10 @@ impl PartitionReceiver {
                 order_by.as_ref()
             }
             StreamingQuery::CreateStream { as_select, .. } => {
-                if let StreamingQuery::Select { order_by, window, .. } = as_select.as_ref() {
+                if let StreamingQuery::Select {
+                    order_by, window, ..
+                } = as_select.as_ref()
+                {
                     if window.is_some() {
                         return Ok(output_records);
                     }

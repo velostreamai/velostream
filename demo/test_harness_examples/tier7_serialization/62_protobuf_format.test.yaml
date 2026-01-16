@@ -6,6 +6,8 @@ default_records: 50
 queries:
   - name: trades_protobuf
     description: Verify Protobuf serialized output matches schema
+    capture_format: protobuf
+    capture_schema: tier7_serialization/schemas/trade_record.proto
     inputs:
       - source: raw_trades
         schema: trade_record

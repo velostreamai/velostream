@@ -109,6 +109,9 @@ pub use annotate::{
     AnnotateConfig, Annotator, DataHint, DataHintParser, DataHintType, DetectedMetric,
     GlobalDataHints, MetricType, QueryAnalysis, QueryType, SqlAnalysis,
 };
+pub use capture::{
+    CaptureConfig, CaptureFormat, SinkCapture, json_to_field_values, json_type_name,
+};
 pub use config_override::{ConfigOverrideBuilder, ConfigOverrides};
 pub use dlq::{CapturedDlqOutput, DlqCapture, DlqConfig, DlqRecord, DlqStatistics, ErrorType};
 pub use error::TestHarnessError;
@@ -124,9 +127,6 @@ pub use log_capture::{
 };
 pub use scaffold::{DetectedStructure, ScaffoldConfig, ScaffoldStyle, Scaffolder};
 pub use schema::{Schema, generate_schema_from_hints, schema_to_yaml};
-pub use capture::{
-    CaptureConfig, CaptureFormat, SinkCapture, json_to_field_values, json_type_name,
-};
 pub use spec::{
     FileFormat, OutputConfig, SinkOutputConfig, SinkType, SourceType, TestSpec,
     TimeSimulationConfig, TopicNamingConfig,

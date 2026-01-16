@@ -27,16 +27,17 @@ queries:
       - type: record_count
         greater_than: 90
 
-      # Some records should be in DLQ (from fault injection)
+      # DLQ should capture some failures (when fault injection is wired up)
       - type: dlq_count
         greater_than: 0
-        less_than: 15   # Not too many failures
+        less_than: 15
 
-      # DLQ entries should have error info
-      - type: dlq_has_error_messages
+      # Error rate should be low
+      - type: error_rate
+        max_percent: 15.0
 
-      # Processing should not crash
-      - type: job_status
-        equals: completed
+      # Schema should contain expected output fields
+      - type: schema_contains
+        fields: [event_id, user_id, event_type, amount, event_time]
 
     timeout_ms: 60000

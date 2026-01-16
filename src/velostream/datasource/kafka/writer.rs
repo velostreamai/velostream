@@ -448,9 +448,16 @@ impl KafkaDataWriter {
         schema: Option<&str>,
     ) -> Result<ProtobufCodec, Box<dyn Error + Send + Sync>> {
         if let Some(proto_schema) = schema {
+            log::debug!(
+                "KafkaDataWriter: Creating Protobuf codec with provided schema ({} bytes)",
+                proto_schema.len()
+            );
             create_protobuf_codec(Some(proto_schema))
         } else {
             // Use default schema for backward compatibility (writer-specific behavior)
+            log::warn!(
+                "KafkaDataWriter: No Protobuf schema provided, using default generic schema"
+            );
             Ok(ProtobufCodec::new_with_default_schema())
         }
     }
@@ -487,6 +494,11 @@ impl KafkaDataWriter {
             }
             SerializationFormat::Protobuf { .. } => {
                 // Look for Protobuf schema in various config keys (dot notation preferred, underscore fallback)
+                log::debug!(
+                    "KafkaDataWriter: Extracting Protobuf schema, {} properties available",
+                    properties.len()
+                );
+
                 let schema = properties
                     .get("protobuf.schema")
                     .or_else(|| properties.get("value.protobuf.schema"))
@@ -495,21 +507,33 @@ impl KafkaDataWriter {
                     .or_else(|| properties.get("proto.schema"))
                     .cloned();
 
-                if schema.is_none() {
-                    // Check for schema file path (dot notation preferred, underscore fallback)
-                    if let Some(schema_file) = properties
-                        .get("protobuf.schema.file")
-                        .or_else(|| properties.get("proto.schema.file"))
-                        .or_else(|| properties.get("schema.value.schema.file"))
-                        .or_else(|| properties.get("value.schema.file"))
-                        .or_else(|| properties.get("schema.file"))
-                        .or_else(|| properties.get("protobuf_schema_file"))
-                        .or_else(|| properties.get("schema_file"))
-                    {
-                        return Self::load_schema_from_file(schema_file);
-                    }
+                if schema.is_some() {
+                    log::debug!("KafkaDataWriter: Found inline protobuf schema");
+                    return Ok(schema);
                 }
-                Ok(schema)
+
+                // Check for schema file path (dot notation preferred, underscore fallback)
+                log::debug!("KafkaDataWriter: No inline schema, checking for schema file...");
+                if let Some(schema_file) = properties
+                    .get("protobuf.schema.file")
+                    .or_else(|| properties.get("proto.schema.file"))
+                    .or_else(|| properties.get("schema.value.schema.file"))
+                    .or_else(|| properties.get("value.schema.file"))
+                    .or_else(|| properties.get("schema.file"))
+                    .or_else(|| properties.get("protobuf_schema_file"))
+                    .or_else(|| properties.get("schema_file"))
+                {
+                    log::info!(
+                        "KafkaDataWriter: Loading protobuf schema from file: {}",
+                        schema_file
+                    );
+                    return Self::load_schema_from_file(schema_file);
+                }
+
+                log::warn!(
+                    "KafkaDataWriter: No protobuf schema or schema file found in properties"
+                );
+                Ok(None)
             }
             SerializationFormat::Json
             | SerializationFormat::Bytes
@@ -529,9 +553,27 @@ impl KafkaDataWriter {
         file_path: &str,
     ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         use std::fs;
+        log::debug!(
+            "KafkaDataWriter: Attempting to load schema from file: {}",
+            file_path
+        );
         match fs::read_to_string(file_path) {
-            Ok(content) => Ok(Some(content)),
-            Err(e) => Err(format!("Failed to load schema from file '{}': {}", file_path, e).into()),
+            Ok(content) => {
+                log::info!(
+                    "KafkaDataWriter: Successfully loaded schema from file '{}' ({} bytes)",
+                    file_path,
+                    content.len()
+                );
+                Ok(Some(content))
+            }
+            Err(e) => {
+                log::error!(
+                    "KafkaDataWriter: Failed to load schema from file '{}': {}",
+                    file_path,
+                    e
+                );
+                Err(format!("Failed to load schema from file '{}': {}", file_path, e).into())
+            }
         }
     }
 

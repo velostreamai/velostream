@@ -541,13 +541,50 @@ impl QueryExecutor {
         } else if let Some(bootstrap_servers) = self.infra.bootstrap_servers() {
             // Capture from Kafka topic (default)
             // Use capture format and schema from query test spec for Avro/Protobuf deserialization
+            // Resolve capture_schema if it's a file path
+            let resolved_schema = if let Some(schema_ref) = &query.capture_schema {
+                // Check if it's a file path (ends with .proto, .avsc, .json, or contains path separator)
+                if schema_ref.ends_with(".proto")
+                    || schema_ref.ends_with(".avsc")
+                    || schema_ref.ends_with(".json")
+                    || schema_ref.contains('/')
+                    || schema_ref.contains('\\')
+                {
+                    // Load schema from file
+                    match std::fs::read_to_string(schema_ref) {
+                        Ok(content) => {
+                            log::info!(
+                                "QueryExecutor: Loaded capture schema from file '{}' ({} bytes)",
+                                schema_ref,
+                                content.len()
+                            );
+                            Some(content)
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "QueryExecutor: Failed to load capture schema from '{}': {}",
+                                schema_ref,
+                                e
+                            );
+                            // Fall back to treating it as inline schema
+                            Some(schema_ref.clone())
+                        }
+                    }
+                } else {
+                    // Treat as inline schema
+                    Some(schema_ref.clone())
+                }
+            } else {
+                None
+            };
+
             let capture = SinkCapture::new(bootstrap_servers).with_config(CaptureConfig {
                 timeout: self.timeout,
                 min_records: 0,
                 max_records: 100_000,
                 idle_timeout: Duration::from_secs(3),
                 format: query.capture_format.clone(),
-                schema_json: query.capture_schema.clone(),
+                schema_json: resolved_schema,
             });
 
             match capture.capture_topic(&output_topic, &query.name).await {

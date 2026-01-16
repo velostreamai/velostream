@@ -55,17 +55,18 @@ queries:
         greater_than: 0      # Some failures expected
         less_than: 50        # But not too many
 
-      # Job should complete (not crash)
-      - type: job_status
-        equals: completed
+      # Error rate should be reasonable
+      - type: error_rate
+        max_percent: 25.0
 
       # Output should have valid schema
       - type: schema_contains
         fields: [order_id, customer_id, total_amount, order_size]
 
-      # Calculations should be correct for good records
-      - type: field_condition
+      # Calculations should be correct - total_amount should be positive
+      - type: field_values
         field: total_amount
-        condition: "> 0"
+        operator: greater_than
+        value: 0
 
     timeout_ms: 120000

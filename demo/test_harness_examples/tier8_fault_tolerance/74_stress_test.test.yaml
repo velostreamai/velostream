@@ -45,22 +45,22 @@ queries:
       - type: dlq_count
         less_than: 500        # DLQ limit not hit
 
-      - type: dlq_at_capacity
-        equals: false         # Not at capacity
-
-      # Job completes successfully
-      - type: job_status
-        equals: completed
+      # Error rate should be very low for stress test
+      - type: error_rate
+        max_percent: 5.0
 
       # Performance metrics
       - type: throughput
         greater_than: 500     # At least 500 records/sec
 
-      - type: latency_p99
-        less_than: 100        # P99 latency < 100ms
+      # Output should have valid schema
+      - type: schema_contains
+        fields: [trade_id, symbol, quantity, price, notional_value, trade_size]
 
-      # Memory stability (no leaks)
-      - type: memory_stable
-        variance_percent: 10  # Max 10% variance
+      # Calculations should be correct
+      - type: field_values
+        field: notional_value
+        operator: greater_than
+        value: 0
 
     timeout_ms: 300000

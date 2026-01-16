@@ -548,7 +548,11 @@ impl TestHarnessInfra {
     ///
     /// Use this when you need to create a topic that matches what Kafka jobs will consume from
     /// (e.g., for empty input tests where no records are published but the topic must exist).
-    pub async fn create_topic_raw(&mut self, topic_name: &str, partitions: i32) -> TestHarnessResult<String> {
+    pub async fn create_topic_raw(
+        &mut self,
+        topic_name: &str,
+        partitions: i32,
+    ) -> TestHarnessResult<String> {
         let admin_client =
             self.admin_client
                 .as_ref()

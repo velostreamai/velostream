@@ -20,10 +20,8 @@ use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
     execution::{
-        config::StreamingConfig,
-        processors::context::ProcessorContext,
-        processors::order::OrderProcessor,
-        types::StreamRecord,
+        config::StreamingConfig, processors::context::ProcessorContext,
+        processors::order::OrderProcessor, types::StreamRecord,
     },
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
 };
@@ -651,7 +649,9 @@ fn apply_order_by_sorting(
 ) -> Vec<Arc<StreamRecord>> {
     // Extract ORDER BY from query (handles Select and CreateStream variants)
     let order_by = match query {
-        StreamingQuery::Select { order_by, window, .. } => {
+        StreamingQuery::Select {
+            order_by, window, ..
+        } => {
             // Skip if query has WINDOW clause (window adapter handles sorting)
             if window.is_some() {
                 return output_records;
@@ -659,7 +659,10 @@ fn apply_order_by_sorting(
             order_by.as_ref()
         }
         StreamingQuery::CreateStream { as_select, .. } => {
-            if let StreamingQuery::Select { order_by, window, .. } = as_select.as_ref() {
+            if let StreamingQuery::Select {
+                order_by, window, ..
+            } = as_select.as_ref()
+            {
                 if window.is_some() {
                     return output_records;
                 }

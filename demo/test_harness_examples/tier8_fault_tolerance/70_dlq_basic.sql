@@ -40,8 +40,8 @@ SELECT
     user_id,
     event_type,
     -- This calculation may fail on bad data
-    CAST(amount AS DECIMAL(10,2)) AS amount,
-    CAST(timestamp AS TIMESTAMP) AS event_time
+    CAST(amount AS DOUBLE) AS amount,
+    event_time
 FROM raw_events
 WHERE event_type IS NOT NULL
 EMIT CHANGES

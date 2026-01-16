@@ -1379,7 +1379,8 @@ impl FieldValue {
         }
 
         // Try date only (e.g., "2026-01-14")
-        if let Ok(dt) = NaiveDateTime::parse_from_str(&format!("{}T00:00:00", s), "%Y-%m-%dT%H:%M:%S")
+        if let Ok(dt) =
+            NaiveDateTime::parse_from_str(&format!("{}T00:00:00", s), "%Y-%m-%dT%H:%M:%S")
         {
             return Some(dt);
         }

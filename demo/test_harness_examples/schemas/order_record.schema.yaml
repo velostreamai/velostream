@@ -23,6 +23,22 @@ fields:
         min: 100
         max: 999
 
+  - name: quantity
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 200
+
+  - name: unit_price
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 5.0
+        max: 500.0
+
   - name: order_total
     type:
       decimal:

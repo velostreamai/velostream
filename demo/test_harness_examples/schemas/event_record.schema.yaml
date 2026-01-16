@@ -39,6 +39,14 @@ fields:
         min: 1
         max: 10
 
+  - name: amount
+    type: float
+    nullable: true
+    constraints:
+      range:
+        min: 1.0
+        max: 1000.0
+
   - name: event_time
     type: timestamp
     nullable: false

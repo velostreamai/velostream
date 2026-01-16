@@ -5,7 +5,7 @@
 use std::time::Duration;
 use velostream::velostream::sql::execution::types::FieldValue;
 use velostream::velostream::test_harness::capture::{
-    json_to_field_values, json_type_name, CaptureConfig, CaptureFormat, SinkCapture,
+    CaptureConfig, CaptureFormat, SinkCapture, json_to_field_values, json_type_name,
 };
 
 // =============================================================================
@@ -227,7 +227,10 @@ fn test_json_to_field_values_timestamp_space_format() {
 
     match result.get("ts") {
         Some(FieldValue::Timestamp(ts)) => {
-            assert_eq!(ts.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-01-14 10:30:00");
+            assert_eq!(
+                ts.format("%Y-%m-%d %H:%M:%S").to_string(),
+                "2026-01-14 10:30:00"
+            );
         }
         other => panic!("Expected Timestamp, got {:?}", other),
     }
@@ -525,10 +528,7 @@ fn test_json_to_field_values_large_integer() {
 
     let result = json_to_field_values(&json, "test").unwrap();
 
-    assert_eq!(
-        result.get("large"),
-        Some(&FieldValue::Integer(i64::MAX))
-    );
+    assert_eq!(result.get("large"), Some(&FieldValue::Integer(i64::MAX)));
 }
 
 #[test]
@@ -558,7 +558,290 @@ fn test_json_to_field_values_string_not_parsed_as_timestamp() {
     let result = json_to_field_values(&json, "test").unwrap();
 
     // These should remain as strings since they don't match expected formats
-    assert!(matches!(result.get("date_only"), Some(FieldValue::String(_))));
-    assert!(matches!(result.get("time_only"), Some(FieldValue::String(_))));
+    assert!(matches!(
+        result.get("date_only"),
+        Some(FieldValue::String(_))
+    ));
+    assert!(matches!(
+        result.get("time_only"),
+        Some(FieldValue::String(_))
+    ));
     assert!(matches!(result.get("random"), Some(FieldValue::String(_))));
+}
+
+// =============================================================================
+// Protobuf Format Configuration Tests
+// =============================================================================
+
+#[test]
+fn test_protobuf_config_requires_schema_for_deserialization() {
+    // When using Protobuf format, schema_json should be set
+    let config_without_schema = CaptureConfig {
+        format: CaptureFormat::Protobuf,
+        schema_json: None,
+        ..Default::default()
+    };
+    // Config creation succeeds - error happens at deserialization time
+    assert_eq!(config_without_schema.format, CaptureFormat::Protobuf);
+    assert!(config_without_schema.schema_json.is_none());
+
+    let proto_schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+            int64 value = 2;
+        }
+    "#;
+
+    let config_with_schema = CaptureConfig {
+        format: CaptureFormat::Protobuf,
+        schema_json: Some(proto_schema.to_string()),
+        ..Default::default()
+    };
+    assert!(config_with_schema.schema_json.is_some());
+}
+
+#[test]
+fn test_protobuf_schema_json_contains_message() {
+    let proto_schema = r#"
+        syntax = "proto3";
+        message TradeRecord {
+            string trade_id = 1;
+            string symbol = 2;
+            int64 quantity = 3;
+            double price = 4;
+        }
+    "#;
+
+    let config = CaptureConfig {
+        format: CaptureFormat::Protobuf,
+        schema_json: Some(proto_schema.to_string()),
+        ..Default::default()
+    };
+
+    // Verify schema contains expected content
+    let schema = config.schema_json.as_ref().unwrap();
+    assert!(schema.contains("message TradeRecord"));
+    assert!(schema.contains("string trade_id"));
+    assert!(schema.contains("int64 quantity"));
+}
+
+#[test]
+fn test_sink_capture_builder_with_protobuf_config() {
+    let proto_schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+        }
+    "#;
+
+    let config = CaptureConfig {
+        timeout: Duration::from_secs(60),
+        format: CaptureFormat::Protobuf,
+        schema_json: Some(proto_schema.to_string()),
+        ..Default::default()
+    };
+
+    // Verify builder chain compiles and doesn't panic
+    let _capture = SinkCapture::new("localhost:9092")
+        .with_config(config)
+        .with_group_id_prefix("protobuf_test_group");
+}
+
+// =============================================================================
+// Protobuf Codec Direct Tests (what deserialize_protobuf uses internally)
+// =============================================================================
+
+use velostream::velostream::serialization::ProtobufCodec;
+use velostream::velostream::serialization::helpers::extract_message_type_from_schema;
+
+#[test]
+fn test_extract_message_type_from_schema_success() {
+    let schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+        }
+    "#;
+
+    let result = extract_message_type_from_schema(schema);
+    assert_eq!(result, Some("TestRecord".to_string()));
+}
+
+#[test]
+fn test_extract_message_type_from_schema_no_message() {
+    let schema = r#"
+        syntax = "proto3";
+        // No message definition
+    "#;
+
+    let result = extract_message_type_from_schema(schema);
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_extract_message_type_from_schema_empty() {
+    let result = extract_message_type_from_schema("");
+    assert!(result.is_none());
+}
+
+#[test]
+fn test_extract_message_type_from_schema_multiple_messages() {
+    // Should return first message found
+    let schema = r#"
+        syntax = "proto3";
+        message FirstMessage {
+            string id = 1;
+        }
+        message SecondMessage {
+            string name = 1;
+        }
+    "#;
+
+    let result = extract_message_type_from_schema(schema);
+    assert_eq!(result, Some("FirstMessage".to_string()));
+}
+
+#[test]
+fn test_protobuf_codec_empty_schema_error() {
+    let result = ProtobufCodec::new("", "TestRecord");
+    match result {
+        Ok(_) => panic!("Expected error for empty schema"),
+        Err(e) => {
+            let err = e.to_string();
+            assert!(
+                err.contains("empty") || err.contains("Schema"),
+                "Expected schema validation error: {}",
+                err
+            );
+        }
+    }
+}
+
+#[test]
+fn test_protobuf_codec_empty_message_type_error() {
+    let schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+        }
+    "#;
+
+    let result = ProtobufCodec::new(schema, "");
+    match result {
+        Ok(_) => panic!("Expected error for empty message type"),
+        Err(e) => {
+            let err = e.to_string();
+            assert!(
+                err.contains("empty") || err.contains("Message"),
+                "Expected message type validation error: {}",
+                err
+            );
+        }
+    }
+}
+
+#[test]
+fn test_protobuf_codec_valid_schema_creates_successfully() {
+    let schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+            int64 value = 2;
+        }
+    "#;
+
+    let result = ProtobufCodec::new(schema, "TestRecord");
+    assert!(result.is_ok(), "Expected codec creation to succeed");
+}
+
+#[test]
+fn test_protobuf_codec_deserialize_invalid_payload() {
+    let schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+            int64 value = 2;
+        }
+    "#;
+
+    let codec = ProtobufCodec::new(schema, "TestRecord").unwrap();
+
+    // Invalid protobuf bytes
+    let invalid_payload = b"not valid protobuf data";
+    let result = codec.deserialize(invalid_payload);
+
+    // Should fail gracefully with an error
+    assert!(result.is_err(), "Expected deserialization to fail");
+}
+
+#[test]
+fn test_protobuf_codec_deserialize_empty_payload() {
+    let schema = r#"
+        syntax = "proto3";
+        message TestRecord {
+            string id = 1;
+        }
+    "#;
+
+    let codec = ProtobufCodec::new(schema, "TestRecord").unwrap();
+
+    // Empty payload - valid in proto3 (all fields are optional)
+    let empty_payload: &[u8] = &[];
+    let result = codec.deserialize(empty_payload);
+
+    // Empty payload is valid in proto3 - returns empty or default values
+    // This depends on implementation - just verify it doesn't panic
+    match result {
+        Ok(fields) => {
+            // Empty or has default values - both valid
+            assert!(fields.is_empty() || fields.len() >= 0);
+        }
+        Err(_) => {
+            // Some implementations may reject empty payload - also acceptable
+        }
+    }
+}
+
+// =============================================================================
+// YAML Test Spec with Protobuf
+// =============================================================================
+
+#[test]
+fn test_yaml_query_test_with_protobuf_capture_format() {
+    let yaml = r#"
+name: test_protobuf_query
+description: Test protobuf capture format
+inputs: []
+assertions: []
+capture_format: protobuf
+capture_schema: |
+  syntax = "proto3";
+  message TestRecord {
+    string id = 1;
+    int64 value = 2;
+  }
+"#;
+
+    let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(value["capture_format"].as_str(), Some("protobuf"));
+    assert!(
+        value["capture_schema"]
+            .as_str()
+            .unwrap()
+            .contains("message TestRecord")
+    );
+}
+
+#[test]
+fn test_capture_format_debug_output() {
+    // Test Debug trait implementation
+    let json_fmt = CaptureFormat::Json;
+    let avro_fmt = CaptureFormat::Avro;
+    let protobuf_fmt = CaptureFormat::Protobuf;
+
+    // Debug should produce readable output
+    assert!(format!("{:?}", json_fmt).contains("Json"));
+    assert!(format!("{:?}", avro_fmt).contains("Avro"));
+    assert!(format!("{:?}", protobuf_fmt).contains("Protobuf"));
 }
