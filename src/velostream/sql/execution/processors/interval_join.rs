@@ -238,7 +238,15 @@ impl IntervalJoinProcessor {
     }
 
     /// Set the projection to apply after join
+    ///
+    /// **Note**: Projection is currently not implemented. The processor will
+    /// log a warning and pass through all fields. Use SELECT clause at the
+    /// query level for field projection.
     pub fn with_projection(mut self, projection: Vec<SelectField>) -> Self {
+        log::warn!(
+            "IntervalJoinProcessor: Projection is not yet implemented; {} fields will be ignored. Use SELECT clause for projection.",
+            projection.len()
+        );
         self.projection = Some(projection);
         self
     }

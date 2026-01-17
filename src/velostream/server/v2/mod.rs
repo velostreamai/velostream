@@ -52,6 +52,7 @@
 pub mod coordinator;
 pub mod fan_in_strategy;
 pub mod job_processor_v2;
+pub mod join_job_processor;
 pub mod metrics;
 pub mod partition_manager;
 pub mod partition_receiver;
@@ -73,6 +74,7 @@ pub use coordinator::{
     ProcessingMode, ThrottleConfig,
 };
 pub use fan_in_strategy::FanInStrategy;
+pub use join_job_processor::{JoinJobConfig, JoinJobProcessor, JoinJobStats};
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
 pub use partition_receiver::PartitionReceiver;
@@ -84,8 +86,8 @@ pub use prometheus_exporter::PartitionPrometheusExporter;
 pub use round_robin_strategy::RoundRobinStrategy;
 pub use smart_repartition_strategy::SmartRepartitionStrategy;
 pub use source_coordinator::{
-    SourceCoordinator, SourceCoordinatorConfig, SourceCoordinatorStats,
-    SourceCoordinatorStatsSnapshot, SourceRecord,
+    BackpressureMode, SourceCoordinator, SourceCoordinatorConfig, SourceCoordinatorError,
+    SourceCoordinatorStats, SourceCoordinatorStatsSnapshot, SourceRecord,
 };
 pub use sticky_partition_strategy::StickyPartitionStrategy;
 pub use strategy_config::{StrategyConfig, StrategyConfigBuilder};
