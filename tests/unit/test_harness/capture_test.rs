@@ -275,7 +275,7 @@ fn test_json_to_field_values_nested_object_to_string() {
 fn test_json_to_field_values_negative_numbers() {
     let json: serde_json::Value = serde_json::json!({
         "negative_int": -42,
-        "negative_float": -3.14
+        "negative_float": -3.15
     });
 
     let result = json_to_field_values(&json, "test_topic").unwrap();
@@ -283,7 +283,7 @@ fn test_json_to_field_values_negative_numbers() {
     assert_eq!(result.get("negative_int"), Some(&FieldValue::Integer(-42)));
     assert_eq!(
         result.get("negative_float"),
-        Some(&FieldValue::Float(-3.14))
+        Some(&FieldValue::Float(-3.15))
     );
 }
 
@@ -795,7 +795,8 @@ fn test_protobuf_codec_deserialize_empty_payload() {
     match result {
         Ok(fields) => {
             // Empty or has default values - both valid
-            assert!(fields.is_empty() || fields.len() >= 0);
+            // For empty proto3 payload, we expect either empty map or default values
+            assert!(fields.len() <= 10, "Unexpected number of fields from empty payload");
         }
         Err(_) => {
             // Some implementations may reject empty payload - also acceptable
