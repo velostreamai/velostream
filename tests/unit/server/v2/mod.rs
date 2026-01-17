@@ -32,3 +32,6 @@ pub mod strategy_integration_test;
 pub mod strategy_sql_annotation_test;
 pub mod tokio_task_dispatcher_overhead_test;
 pub mod yield_instrumentation_test;
+
+// Stream-stream join source coordinator tests
+pub mod source_coordinator_test;

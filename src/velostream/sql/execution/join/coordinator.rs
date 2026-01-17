@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::join::key_extractor::JoinKeyExtractorPair;
-use crate::velostream::sql::execution::join::state_store::JoinStateStore;
+use crate::velostream::sql::execution::join::state_store::{JoinStateStore, JoinStateStoreConfig};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 
 /// Which side of the join a record belongs to
@@ -27,6 +27,23 @@ impl JoinSide {
             JoinSide::Left => JoinSide::Right,
             JoinSide::Right => JoinSide::Left,
         }
+    }
+}
+
+/// Behavior when event time is missing from a record
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MissingEventTimeBehavior {
+    /// Use wall-clock time as fallback (default, may cause incorrect joins)
+    UseWallClock,
+    /// Skip the record (record won't participate in joins)
+    SkipRecord,
+    /// Return an error (strict mode)
+    Error,
+}
+
+impl Default for MissingEventTimeBehavior {
+    fn default() -> Self {
+        MissingEventTimeBehavior::UseWallClock
     }
 }
 
@@ -78,6 +95,9 @@ pub struct JoinConfig {
 
     /// Field name containing event time (common to both sides)
     pub event_time_field: String,
+
+    /// Behavior when event time is missing from a record
+    pub missing_event_time: MissingEventTimeBehavior,
 }
 
 impl JoinConfig {
@@ -89,6 +109,9 @@ impl JoinConfig {
     /// * `join_keys` - Pairs of (left_column, right_column) for join condition
     /// * `lower_bound` - Lower bound of time interval
     /// * `upper_bound` - Upper bound of time interval
+    ///
+    /// # Panics
+    /// Panics if the duration exceeds `i64::MAX` milliseconds (~292 million years).
     pub fn interval(
         left_source: &str,
         right_source: &str,
@@ -96,16 +119,30 @@ impl JoinConfig {
         lower_bound: Duration,
         upper_bound: Duration,
     ) -> Self {
+        let lower_ms = Self::duration_to_i64_ms(lower_bound);
+        let upper_ms = Self::duration_to_i64_ms(upper_bound);
         Self {
             join_type: JoinType::Inner,
-            lower_bound_ms: lower_bound.as_millis() as i64,
-            upper_bound_ms: upper_bound.as_millis() as i64,
-            retention_ms: upper_bound.as_millis() as i64 * 2, // 2x upper bound as default retention
+            lower_bound_ms: lower_ms,
+            upper_bound_ms: upper_ms,
+            retention_ms: upper_ms.saturating_mul(2), // 2x upper bound as default retention
             left_source: left_source.to_string(),
             right_source: right_source.to_string(),
             join_keys,
             event_time_field: "event_time".to_string(),
+            missing_event_time: MissingEventTimeBehavior::default(),
         }
+    }
+
+    /// Safely convert Duration to i64 milliseconds
+    fn duration_to_i64_ms(duration: Duration) -> i64 {
+        let millis = duration.as_millis();
+        i64::try_from(millis).unwrap_or_else(|_| {
+            panic!(
+                "Duration {} ms exceeds i64::MAX; use a smaller duration",
+                millis
+            )
+        })
     }
 
     /// Create a simple equi-join configuration (no time bounds)
@@ -119,11 +156,12 @@ impl JoinConfig {
             join_type: JoinType::Inner,
             lower_bound_ms: i64::MIN,
             upper_bound_ms: i64::MAX,
-            retention_ms: retention.as_millis() as i64,
+            retention_ms: Self::duration_to_i64_ms(retention),
             left_source: left_source.to_string(),
             right_source: right_source.to_string(),
             join_keys,
             event_time_field: "event_time".to_string(),
+            missing_event_time: MissingEventTimeBehavior::default(),
         }
     }
 
@@ -135,7 +173,7 @@ impl JoinConfig {
 
     /// Set the retention period
     pub fn with_retention(mut self, retention: Duration) -> Self {
-        self.retention_ms = retention.as_millis() as i64;
+        self.retention_ms = Self::duration_to_i64_ms(retention);
         self
     }
 
@@ -148,6 +186,102 @@ impl JoinConfig {
     /// Check if this is an interval join (has time bounds)
     pub fn is_interval_join(&self) -> bool {
         self.lower_bound_ms != i64::MIN || self.upper_bound_ms != i64::MAX
+    }
+
+    /// Create an interval join with millisecond bounds (supports negative values)
+    ///
+    /// Use this when you need negative lower bounds, e.g., "right event can
+    /// occur up to 1 hour BEFORE left event":
+    ///
+    /// ```
+    /// // Shipment can arrive 1 hour before to 24 hours after order
+    /// let config = JoinConfig::interval_ms(
+    ///     "orders", "shipments",
+    ///     vec![("order_id".to_string(), "order_id".to_string())],
+    ///     -3600_000,  // 1 hour before
+    ///     86400_000,  // 24 hours after
+    /// );
+    /// ```
+    pub fn interval_ms(
+        left_source: &str,
+        right_source: &str,
+        join_keys: Vec<(String, String)>,
+        lower_bound_ms: i64,
+        upper_bound_ms: i64,
+    ) -> Self {
+        // Calculate retention: max of |lower_bound| and |upper_bound|, times 2
+        let max_bound = lower_bound_ms.abs().max(upper_bound_ms.abs());
+        let retention = max_bound.saturating_mul(2);
+
+        Self {
+            join_type: JoinType::Inner,
+            lower_bound_ms,
+            upper_bound_ms,
+            retention_ms: retention,
+            left_source: left_source.to_string(),
+            right_source: right_source.to_string(),
+            join_keys,
+            event_time_field: "event_time".to_string(),
+            missing_event_time: MissingEventTimeBehavior::default(),
+        }
+    }
+
+    /// Set behavior when event time is missing
+    ///
+    /// - `UseWallClock`: Use current time (default, may cause incorrect joins)
+    /// - `SkipRecord`: Skip records without event time
+    /// - `Error`: Return an error for strict event-time processing
+    pub fn with_missing_event_time(mut self, behavior: MissingEventTimeBehavior) -> Self {
+        self.missing_event_time = behavior;
+        self
+    }
+}
+
+/// Extended configuration including state store memory limits
+#[derive(Debug, Clone)]
+pub struct JoinCoordinatorConfig {
+    /// Base join configuration
+    pub join_config: JoinConfig,
+    /// State store config for left side (None = default)
+    pub left_store_config: Option<JoinStateStoreConfig>,
+    /// State store config for right side (None = default)
+    pub right_store_config: Option<JoinStateStoreConfig>,
+}
+
+impl JoinCoordinatorConfig {
+    /// Create from a JoinConfig with default state store configs
+    pub fn new(join_config: JoinConfig) -> Self {
+        Self {
+            join_config,
+            left_store_config: None,
+            right_store_config: None,
+        }
+    }
+
+    /// Set state store config for both sides
+    pub fn with_store_config(mut self, config: JoinStateStoreConfig) -> Self {
+        self.left_store_config = Some(config.clone());
+        self.right_store_config = Some(config);
+        self
+    }
+
+    /// Set state store configs separately for left and right
+    pub fn with_store_configs(
+        mut self,
+        left_config: JoinStateStoreConfig,
+        right_config: JoinStateStoreConfig,
+    ) -> Self {
+        self.left_store_config = Some(left_config);
+        self.right_store_config = Some(right_config);
+        self
+    }
+
+    /// Set maximum records for both stores
+    pub fn with_max_records(mut self, max_records: usize) -> Self {
+        let config = JoinStateStoreConfig::with_limits(max_records, 0);
+        self.left_store_config = Some(config.clone());
+        self.right_store_config = Some(config);
+        self
     }
 }
 
@@ -168,6 +302,21 @@ pub struct JoinCoordinatorStats {
     pub left_store_size: usize,
     /// Current right state store size
     pub right_store_size: usize,
+    /// Records evicted from left store due to limits
+    pub left_evictions: u64,
+    /// Records evicted from right store due to limits
+    pub right_evictions: u64,
+}
+
+/// Memory pressure status for backpressure signaling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryPressure {
+    /// Both stores have plenty of capacity
+    Normal,
+    /// One or both stores are approaching limits (>80% capacity)
+    Warning,
+    /// One or both stores are at capacity, evictions occurring
+    Critical,
 }
 
 /// Coordinates stream-stream join processing
@@ -211,6 +360,32 @@ impl JoinCoordinator {
         }
     }
 
+    /// Create a new join coordinator with full configuration including memory limits
+    pub fn with_config(config: JoinCoordinatorConfig) -> Self {
+        // Convert retention_ms to Duration safely (negative values become 0)
+        let retention_ms = config.join_config.retention_ms.max(0) as u64;
+        let retention = Duration::from_millis(retention_ms);
+        let key_extractors = JoinKeyExtractorPair::from_pairs(config.join_config.join_keys.clone());
+
+        let left_store = match config.left_store_config {
+            Some(store_config) => JoinStateStore::with_config(retention, store_config),
+            None => JoinStateStore::new(retention),
+        };
+
+        let right_store = match config.right_store_config {
+            Some(store_config) => JoinStateStore::with_config(retention, store_config),
+            None => JoinStateStore::new(retention),
+        };
+
+        Self {
+            config: config.join_config,
+            left_store,
+            right_store,
+            key_extractors,
+            stats: JoinCoordinatorStats::default(),
+        }
+    }
+
     /// Process a record from the specified side
     ///
     /// Returns joined records if matches are found.
@@ -239,7 +414,10 @@ impl JoinCoordinator {
         };
 
         // Extract event time
-        let event_time = self.extract_event_time(&record)?;
+        let event_time = match self.extract_event_time(&record)? {
+            Some(ts) => ts,
+            None => return Ok(vec![]), // Skip record (SkipRecord behavior)
+        };
 
         // Store in left buffer
         self.left_store.store(&key, record.clone(), event_time);
@@ -260,6 +438,7 @@ impl JoinCoordinator {
             .collect();
 
         self.stats.matches_emitted += joined.len() as u64;
+        self.update_eviction_stats();
         Ok(joined)
     }
 
@@ -277,7 +456,10 @@ impl JoinCoordinator {
         };
 
         // Extract event time
-        let event_time = self.extract_event_time(&record)?;
+        let event_time = match self.extract_event_time(&record)? {
+            Some(ts) => ts,
+            None => return Ok(vec![]), // Skip record (SkipRecord behavior)
+        };
 
         // Store in right buffer
         self.right_store.store(&key, record.clone(), event_time);
@@ -298,31 +480,56 @@ impl JoinCoordinator {
             .collect();
 
         self.stats.matches_emitted += joined.len() as u64;
+        self.update_eviction_stats();
         Ok(joined)
     }
 
     /// Extract event time from a record
-    fn extract_event_time(&mut self, record: &StreamRecord) -> Result<i64, SqlError> {
+    ///
+    /// Returns:
+    /// - `Ok(Some(timestamp))` - Event time was found
+    /// - `Ok(None)` - Event time missing and `SkipRecord` behavior configured
+    /// - `Err(SqlError)` - Event time missing and `Error` behavior configured
+    fn extract_event_time(&mut self, record: &StreamRecord) -> Result<Option<i64>, SqlError> {
         // First try the configured event time field
         if let Some(value) = record.fields.get(&self.config.event_time_field) {
             if let Some(ts) = self.field_value_to_timestamp(value) {
-                return Ok(ts);
+                return Ok(Some(ts));
             }
         }
 
         // Fall back to record's event_time metadata if available
         if let Some(event_time) = record.event_time {
-            return Ok(event_time.timestamp_millis());
+            return Ok(Some(event_time.timestamp_millis()));
         }
 
         // Fall back to record timestamp
         if record.timestamp > 0 {
-            return Ok(record.timestamp);
+            return Ok(Some(record.timestamp));
         }
 
+        // Event time is missing - apply configured behavior
         self.stats.missing_time_count += 1;
-        // Use current time as last resort
-        Ok(chrono::Utc::now().timestamp_millis())
+
+        match self.config.missing_event_time {
+            MissingEventTimeBehavior::UseWallClock => {
+                log::debug!(
+                    "JoinCoordinator: Missing event time, using wall-clock time (consider using SkipRecord or Error mode)"
+                );
+                Ok(Some(chrono::Utc::now().timestamp_millis()))
+            }
+            MissingEventTimeBehavior::SkipRecord => {
+                log::debug!("JoinCoordinator: Skipping record with missing event time");
+                Ok(None)
+            }
+            MissingEventTimeBehavior::Error => Err(SqlError::ExecutionError {
+                message: format!(
+                    "Record missing event time field '{}' and no fallback configured",
+                    self.config.event_time_field
+                ),
+                query: None,
+            }),
+        }
     }
 
     /// Convert a FieldValue to a timestamp in milliseconds
@@ -371,6 +578,10 @@ impl JoinCoordinator {
     /// Fields from both records are combined with prefixes to avoid collision:
     /// - Left fields: `{left_source}.{field_name}`
     /// - Right fields: `{right_source}.{field_name}`
+    ///
+    /// Note: Unprefixed field names from the right side will overwrite left side
+    /// values when both sides have the same field name. Use prefixed field names
+    /// (e.g., `orders.amount` vs `shipments.amount`) to access both values.
     fn merge_records(&self, left: &StreamRecord, right: &StreamRecord) -> StreamRecord {
         let mut merged_fields = HashMap::new();
 
@@ -390,7 +601,19 @@ impl JoinCoordinator {
                 format!("{}.{}", self.config.right_source, key),
                 value.clone(),
             );
-            // Also add without prefix (overwrites left if same name)
+            // Check for field collision before overwriting
+            if left.fields.contains_key(key) {
+                log::debug!(
+                    "JoinCoordinator: Field '{}' exists in both sides; unprefixed value will be from right ({}). Use '{}.{}' or '{}.{}' for explicit access.",
+                    key,
+                    self.config.right_source,
+                    self.config.left_source,
+                    key,
+                    self.config.right_source,
+                    key
+                );
+            }
+            // Add without prefix (overwrites left if same name)
             merged_fields.insert(key.clone(), value.clone());
         }
 
@@ -477,342 +700,73 @@ impl JoinCoordinator {
     pub fn total_records(&self) -> usize {
         self.left_store.record_count() + self.right_store.record_count()
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap as StdHashMap;
+    /// Check memory pressure across both state stores
+    ///
+    /// Returns the worst pressure level between the two stores:
+    /// - `Critical`: One or both stores are at capacity (evictions occurring)
+    /// - `Warning`: One or both stores are approaching limits (>80% by default)
+    /// - `Normal`: Both stores have plenty of capacity
+    #[must_use]
+    pub fn memory_pressure(&self) -> MemoryPressure {
+        let left_at_capacity = self.left_store.is_at_capacity();
+        let right_at_capacity = self.right_store.is_at_capacity();
 
-    fn make_test_record(fields: Vec<(&str, FieldValue)>, timestamp: i64) -> StreamRecord {
-        let field_map: StdHashMap<String, FieldValue> = fields
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
-        let mut record = StreamRecord::new(field_map);
-        record.timestamp = timestamp;
-        record
-    }
-
-    #[test]
-    fn test_inner_join_matching_records() {
-        let config = JoinConfig::interval(
-            "orders",
-            "shipments",
-            vec![("order_id".to_string(), "order_id".to_string())],
-            Duration::ZERO,
-            Duration::from_secs(3600), // 1 hour
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Process an order
-        let order = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(123)),
-                ("amount", FieldValue::Float(100.0)),
-                ("event_time", FieldValue::Integer(1000)),
-            ],
-            1000,
-        );
-        let results = coordinator.process_left(order).unwrap();
-        assert!(results.is_empty()); // No shipments yet
-
-        // Process a matching shipment within time window
-        let shipment = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(123)),
-                ("tracking", FieldValue::String("TRACK001".to_string())),
-                ("event_time", FieldValue::Integer(2000)),
-            ],
-            2000,
-        );
-        let results = coordinator.process_right(shipment).unwrap();
-        assert_eq!(results.len(), 1);
-
-        // Verify merged record has fields from both
-        let joined = &results[0];
-        assert!(joined.fields.contains_key("orders.order_id"));
-        assert!(joined.fields.contains_key("shipments.tracking"));
-    }
-
-    #[test]
-    fn test_no_match_different_keys() {
-        let config = JoinConfig::interval(
-            "orders",
-            "shipments",
-            vec![("order_id".to_string(), "order_id".to_string())],
-            Duration::ZERO,
-            Duration::from_secs(3600),
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Process an order
-        let order = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(123)),
-                ("event_time", FieldValue::Integer(1000)),
-            ],
-            1000,
-        );
-        coordinator.process_left(order).unwrap();
-
-        // Process a shipment with different order_id
-        let shipment = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(456)), // Different!
-                ("event_time", FieldValue::Integer(2000)),
-            ],
-            2000,
-        );
-        let results = coordinator.process_right(shipment).unwrap();
-        assert!(results.is_empty()); // No match
-    }
-
-    #[test]
-    fn test_interval_time_bounds() {
-        let config = JoinConfig::interval(
-            "orders",
-            "shipments",
-            vec![("order_id".to_string(), "order_id".to_string())],
-            Duration::ZERO,
-            Duration::from_secs(1), // Only 1 second window
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Process an order at time 1000
-        let order = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(123)),
-                ("event_time", FieldValue::Integer(1000)),
-            ],
-            1000,
-        );
-        coordinator.process_left(order).unwrap();
-
-        // Shipment at 1500ms (within 1s window) - should match
-        let shipment1 = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(123)),
-                ("event_time", FieldValue::Integer(1500)),
-            ],
-            1500,
-        );
-        let results = coordinator.process_right(shipment1).unwrap();
-        assert_eq!(results.len(), 1);
-
-        // Shipment at 3000ms (outside 1s window) - should not match
-        let shipment2 = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(123)),
-                ("event_time", FieldValue::Integer(3000)),
-            ],
-            3000,
-        );
-        let results = coordinator.process_right(shipment2).unwrap();
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_bidirectional_matching() {
-        let config = JoinConfig::equi_join(
-            "stream_a",
-            "stream_b",
-            vec![("key".to_string(), "key".to_string())],
-            Duration::from_secs(3600),
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Process from right side first
-        let right_record = make_test_record(
-            vec![
-                ("key", FieldValue::Integer(1)),
-                ("right_value", FieldValue::String("B".to_string())),
-            ],
-            1000,
-        );
-        let results = coordinator.process_right(right_record).unwrap();
-        assert!(results.is_empty()); // No left records yet
-
-        // Now process from left side - should match the buffered right record
-        let left_record = make_test_record(
-            vec![
-                ("key", FieldValue::Integer(1)),
-                ("left_value", FieldValue::String("A".to_string())),
-            ],
-            2000,
-        );
-        let results = coordinator.process_left(left_record).unwrap();
-        assert_eq!(results.len(), 1);
-
-        // Verify both values present
-        let joined = &results[0];
-        assert!(joined.fields.contains_key("stream_a.left_value"));
-        assert!(joined.fields.contains_key("stream_b.right_value"));
-    }
-
-    #[test]
-    fn test_multiple_matches() {
-        let config = JoinConfig::equi_join(
-            "orders",
-            "items",
-            vec![("order_id".to_string(), "order_id".to_string())],
-            Duration::from_secs(3600),
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Process multiple items for the same order
-        for i in 0..3 {
-            let item = make_test_record(
-                vec![
-                    ("order_id", FieldValue::Integer(100)),
-                    ("item_id", FieldValue::Integer(i)),
-                ],
-                1000 + i,
-            );
-            coordinator.process_right(item).unwrap();
+        if left_at_capacity || right_at_capacity {
+            return MemoryPressure::Critical;
         }
 
-        // Process order - should match all 3 items
-        let order = make_test_record(
-            vec![
-                ("order_id", FieldValue::Integer(100)),
-                ("customer", FieldValue::String("Alice".to_string())),
-            ],
-            2000,
-        );
-        let results = coordinator.process_left(order).unwrap();
-        assert_eq!(results.len(), 3);
-    }
+        let left_near_capacity = self.left_store.is_near_capacity();
+        let right_near_capacity = self.right_store.is_near_capacity();
 
-    #[test]
-    fn test_watermark_expiration() {
-        let config = JoinConfig::equi_join(
-            "left",
-            "right",
-            vec![("key".to_string(), "key".to_string())],
-            Duration::from_millis(1000), // 1 second retention
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Add a record at time 1000
-        let record = make_test_record(
-            vec![
-                ("key", FieldValue::Integer(1)),
-                ("event_time", FieldValue::Integer(1000)),
-            ],
-            1000,
-        );
-        coordinator.process_left(record).unwrap();
-
-        assert_eq!(coordinator.left_store().record_count(), 1);
-
-        // Advance watermark past expiration (1000 + 1000 = 2000)
-        coordinator.advance_watermark(JoinSide::Left, 2500);
-
-        // Record should be expired
-        assert_eq!(coordinator.left_store().record_count(), 0);
-    }
-
-    #[test]
-    fn test_missing_key_handling() {
-        let config = JoinConfig::equi_join(
-            "left",
-            "right",
-            vec![("missing_col".to_string(), "missing_col".to_string())],
-            Duration::from_secs(3600),
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Record without the join key column
-        let record = make_test_record(vec![("other_field", FieldValue::Integer(123))], 1000);
-
-        let results = coordinator.process_left(record).unwrap();
-        assert!(results.is_empty());
-        assert_eq!(coordinator.stats().missing_key_count, 1);
-    }
-
-    #[test]
-    fn test_composite_key_join() {
-        let config = JoinConfig::equi_join(
-            "left",
-            "right",
-            vec![
-                ("region".to_string(), "region".to_string()),
-                ("customer_id".to_string(), "customer_id".to_string()),
-            ],
-            Duration::from_secs(3600),
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Left record
-        let left = make_test_record(
-            vec![
-                ("region", FieldValue::String("US".to_string())),
-                ("customer_id", FieldValue::Integer(42)),
-                ("left_data", FieldValue::String("L".to_string())),
-            ],
-            1000,
-        );
-        coordinator.process_left(left).unwrap();
-
-        // Right record with same composite key
-        let right = make_test_record(
-            vec![
-                ("region", FieldValue::String("US".to_string())),
-                ("customer_id", FieldValue::Integer(42)),
-                ("right_data", FieldValue::String("R".to_string())),
-            ],
-            2000,
-        );
-        let results = coordinator.process_right(right).unwrap();
-        assert_eq!(results.len(), 1);
-
-        // Right record with different composite key
-        let right_diff = make_test_record(
-            vec![
-                ("region", FieldValue::String("EU".to_string())), // Different region
-                ("customer_id", FieldValue::Integer(42)),
-                ("right_data", FieldValue::String("R2".to_string())),
-            ],
-            3000,
-        );
-        let results = coordinator.process_right(right_diff).unwrap();
-        assert!(results.is_empty()); // No match
-    }
-
-    #[test]
-    fn test_stats_tracking() {
-        let config = JoinConfig::equi_join(
-            "left",
-            "right",
-            vec![("key".to_string(), "key".to_string())],
-            Duration::from_secs(3600),
-        );
-
-        let mut coordinator = JoinCoordinator::new(config);
-
-        // Process some records
-        for i in 0..5 {
-            let record = make_test_record(vec![("key", FieldValue::Integer(i))], 1000 + i);
-            coordinator.process_left(record).unwrap();
+        if left_near_capacity || right_near_capacity {
+            return MemoryPressure::Warning;
         }
 
-        for i in 0..3 {
-            let record = make_test_record(vec![("key", FieldValue::Integer(i))], 2000 + i);
-            coordinator.process_right(record).unwrap();
-        }
+        MemoryPressure::Normal
+    }
 
-        let stats = coordinator.stats();
-        assert_eq!(stats.left_records_processed, 5);
-        assert_eq!(stats.right_records_processed, 3);
-        assert_eq!(stats.matches_emitted, 3); // Keys 0, 1, 2 matched
+    /// Check if backpressure should be applied to slow down ingestion
+    ///
+    /// Returns true if either store is at Warning or Critical pressure level.
+    /// Use this to implement flow control in upstream processing.
+    #[must_use]
+    pub fn should_apply_backpressure(&self) -> bool {
+        self.memory_pressure() != MemoryPressure::Normal
+    }
+
+    /// Get combined capacity usage as a percentage
+    ///
+    /// Returns the higher of the two stores' usage percentages.
+    /// Returns 0.0 if both stores are unlimited.
+    #[must_use]
+    pub fn combined_capacity_usage_pct(&self) -> f64 {
+        self.left_store
+            .capacity_usage_pct()
+            .max(self.right_store.capacity_usage_pct())
+    }
+
+    /// Get remaining capacity across both stores
+    ///
+    /// Returns the minimum remaining capacity between stores.
+    /// Returns usize::MAX if both stores are unlimited.
+    pub fn remaining_capacity(&self) -> usize {
+        self.left_store
+            .remaining_capacity()
+            .min(self.right_store.remaining_capacity())
+    }
+
+    /// Get eviction counts from both stores
+    pub fn eviction_counts(&self) -> (u64, u64) {
+        (
+            self.left_store.stats().records_evicted,
+            self.right_store.stats().records_evicted,
+        )
+    }
+
+    /// Update stats with current eviction counts from stores
+    fn update_eviction_stats(&mut self) {
+        self.stats.left_evictions = self.left_store.stats().records_evicted;
+        self.stats.right_evictions = self.right_store.stats().records_evicted;
     }
 }

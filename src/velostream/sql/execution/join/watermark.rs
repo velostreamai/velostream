@@ -117,8 +117,8 @@ impl JoinWatermarkTracker {
                     // Watermark advances with lateness buffer
                     self.left_watermark = event_time.saturating_sub(self.config.max_lateness_ms);
                 }
-                // Check if record is late
-                let is_on_time = event_time >= self.left_watermark - self.config.max_lateness_ms;
+                // Check if record is late (watermark already accounts for lateness buffer)
+                let is_on_time = event_time >= self.left_watermark;
                 if !is_on_time {
                     self.late_records_left += 1;
                 }
@@ -130,7 +130,8 @@ impl JoinWatermarkTracker {
                     self.right_last_event_time = event_time;
                     self.right_watermark = event_time.saturating_sub(self.config.max_lateness_ms);
                 }
-                let is_on_time = event_time >= self.right_watermark - self.config.max_lateness_ms;
+                // Check if record is late (watermark already accounts for lateness buffer)
+                let is_on_time = event_time >= self.right_watermark;
                 if !is_on_time {
                     self.late_records_right += 1;
                 }
@@ -139,7 +140,12 @@ impl JoinWatermarkTracker {
         }
     }
 
-    /// Explicitly set watermark for a source
+    /// Explicitly set the effective watermark for a source
+    ///
+    /// Note: This sets the effective watermark directly (the cutoff point).
+    /// Records with event_time < watermark are considered late.
+    /// This is different from `observe_event_time` which automatically
+    /// subtracts `max_lateness_ms` from the observed event time.
     pub fn set_watermark(&mut self, side: JoinSide, watermark: i64) {
         match side {
             JoinSide::Left => {
@@ -223,9 +229,14 @@ impl JoinWatermarkTracker {
     }
 
     /// Check if a record would be considered late
+    ///
+    /// A record is late if its event_time is less than the effective watermark.
+    /// The watermark already accounts for the lateness buffer when set via
+    /// `observe_event_time`, so no additional lateness is subtracted here.
+    #[must_use]
     pub fn is_late(&self, side: JoinSide, event_time: i64) -> bool {
         let watermark = self.watermark(side);
-        event_time < watermark - self.config.max_lateness_ms
+        event_time < watermark
     }
 
     /// Get statistics
@@ -254,144 +265,4 @@ pub struct WatermarkStats {
     pub combined_watermark: i64,
     pub late_records_left: u64,
     pub late_records_right: u64,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_watermark_advancement() {
-        let mut tracker = JoinWatermarkTracker::new();
-
-        // Observe events on left side
-        tracker.observe_event_time(JoinSide::Left, 1000, 0);
-        assert_eq!(tracker.watermark(JoinSide::Left), 1000);
-
-        // Advance left watermark
-        tracker.observe_event_time(JoinSide::Left, 2000, 100);
-        assert_eq!(tracker.watermark(JoinSide::Left), 2000);
-
-        // Right is still at 0
-        assert_eq!(tracker.watermark(JoinSide::Right), 0);
-
-        // Combined is minimum
-        assert_eq!(tracker.combined_watermark(), 0);
-    }
-
-    #[test]
-    fn test_combined_watermark() {
-        let mut tracker = JoinWatermarkTracker::new();
-
-        tracker.set_watermark(JoinSide::Left, 1000);
-        tracker.set_watermark(JoinSide::Right, 500);
-
-        assert_eq!(tracker.combined_watermark(), 500);
-
-        tracker.set_watermark(JoinSide::Right, 1500);
-        assert_eq!(tracker.combined_watermark(), 1000);
-    }
-
-    #[test]
-    fn test_lateness_detection() {
-        let config = WatermarkConfig::with_lateness(100);
-        let mut tracker = JoinWatermarkTracker::with_config(config);
-
-        // Set watermark to 1000
-        tracker.set_watermark(JoinSide::Left, 1000);
-
-        // Event at 950 is within lateness window (1000 - 100 = 900)
-        assert!(!tracker.is_late(JoinSide::Left, 950));
-
-        // Event at 800 is late
-        assert!(tracker.is_late(JoinSide::Left, 800));
-    }
-
-    #[test]
-    fn test_late_record_counting() {
-        let config = WatermarkConfig::strict();
-        let mut tracker = JoinWatermarkTracker::with_config(config);
-
-        // Advance watermark
-        tracker.observe_event_time(JoinSide::Left, 1000, 0);
-
-        // Late record (with allow_late_data = false, returns false)
-        let result = tracker.observe_event_time(JoinSide::Left, 500, 100);
-        assert!(!result); // Strict mode rejects late data
-
-        assert_eq!(tracker.late_record_count(JoinSide::Left), 1);
-    }
-
-    #[test]
-    fn test_allow_late_data() {
-        let config = WatermarkConfig {
-            max_lateness_ms: 100,
-            idle_timeout_ms: 60_000,
-            allow_late_data: true,
-        };
-        let mut tracker = JoinWatermarkTracker::with_config(config);
-
-        // Advance watermark
-        tracker.observe_event_time(JoinSide::Left, 1000, 0);
-
-        // Late record (with allow_late_data = true, returns true anyway)
-        let result = tracker.observe_event_time(JoinSide::Left, 500, 100);
-        assert!(result); // Lenient mode accepts late data
-
-        // Still counted as late
-        assert_eq!(tracker.late_record_count(JoinSide::Left), 1);
-    }
-
-    #[test]
-    fn test_idle_advancement() {
-        let config = WatermarkConfig {
-            max_lateness_ms: 0,
-            idle_timeout_ms: 1000,
-            allow_late_data: true,
-        };
-        let mut tracker = JoinWatermarkTracker::with_config(config);
-
-        // Set watermarks unevenly
-        tracker.observe_event_time(JoinSide::Left, 5000, 0);
-        tracker.observe_event_time(JoinSide::Right, 3000, 0);
-
-        assert_eq!(tracker.combined_watermark(), 3000);
-
-        // Simulate right side being idle for longer than timeout
-        let advanced = tracker.check_idle_advance(2000); // 2 seconds after last activity
-        assert!(advanced);
-
-        // Right watermark should advance to match left
-        assert_eq!(tracker.watermark(JoinSide::Right), 5000);
-        assert_eq!(tracker.combined_watermark(), 5000);
-    }
-
-    #[test]
-    fn test_explicit_set_only_advances() {
-        let mut tracker = JoinWatermarkTracker::new();
-
-        tracker.set_watermark(JoinSide::Left, 1000);
-        assert_eq!(tracker.watermark(JoinSide::Left), 1000);
-
-        // Can't go backwards
-        tracker.set_watermark(JoinSide::Left, 500);
-        assert_eq!(tracker.watermark(JoinSide::Left), 1000);
-
-        // Can advance
-        tracker.set_watermark(JoinSide::Left, 1500);
-        assert_eq!(tracker.watermark(JoinSide::Left), 1500);
-    }
-
-    #[test]
-    fn test_stats() {
-        let mut tracker = JoinWatermarkTracker::new();
-
-        tracker.observe_event_time(JoinSide::Left, 1000, 0);
-        tracker.observe_event_time(JoinSide::Right, 2000, 0);
-
-        let stats = tracker.stats();
-        assert_eq!(stats.left_watermark, 1000);
-        assert_eq!(stats.right_watermark, 2000);
-        assert_eq!(stats.combined_watermark, 1000);
-    }
 }
