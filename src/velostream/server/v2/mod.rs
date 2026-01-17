@@ -60,6 +60,7 @@ pub mod partitioning_strategy;
 pub mod prometheus_exporter;
 pub mod round_robin_strategy;
 pub mod smart_repartition_strategy;
+pub mod source_coordinator;
 pub mod sticky_partition_strategy;
 pub mod strategy_config;
 pub mod strategy_factory;
@@ -82,6 +83,10 @@ pub use partitioning_strategy::{
 pub use prometheus_exporter::PartitionPrometheusExporter;
 pub use round_robin_strategy::RoundRobinStrategy;
 pub use smart_repartition_strategy::SmartRepartitionStrategy;
+pub use source_coordinator::{
+    SourceCoordinator, SourceCoordinatorConfig, SourceCoordinatorStats,
+    SourceCoordinatorStatsSnapshot, SourceRecord,
+};
 pub use sticky_partition_strategy::StickyPartitionStrategy;
 pub use strategy_config::{StrategyConfig, StrategyConfigBuilder};
 pub use strategy_factory::StrategyFactory;
