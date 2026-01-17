@@ -1,0 +1,107 @@
+# Market Data Aggregation Test Specification
+# Tests the market_aggregation.sql query
+#
+# See: docs/feature/FR-084-app-test-harness/GETTING_STARTED.md
+
+application: market_aggregation
+description: Validates the market data aggregation query
+
+# Default settings
+default_timeout_ms: 30000
+default_records: 1000
+
+queries:
+  # Test 1: Basic functionality with default record count
+  - name: market_aggregates
+    description: Test aggregation produces expected results
+    inputs:
+      - source: market_data
+        records: 1000
+        # Time simulation for realistic streaming behavior
+        time_simulation:
+          start_time: "-1h"          # Start 1 hour ago
+          end_time: "now"            # End at current time
+          sequential: true           # Sequential timestamps for windowing
+          events_per_second: 100     # Controlled publish rate
+    # New format: explicit output sink with per-sink assertions
+    # Note: sink name must match the actual output topic from SQL config
+    outputs:
+      - sink: market_aggregates_output
+        assertions:
+          # Should produce output records (one per symbol)
+          - type: record_count
+            greater_than: 0
+
+          # Should have all required fields
+          # Note: 'symbol' is the Kafka message key (GROUP BY field), not in value payload
+          - type: schema_contains
+            key_field: symbol
+            fields:
+              - trade_count
+              - total_volume
+              - avg_price
+              - min_price
+              - max_price
+              - window_start
+              - window_end
+
+          # No nulls in value fields (symbol is key, not in value)
+          - type: no_nulls
+            fields: [ trade_count, avg_price ]
+
+          # Performance constraint
+          - type: execution_time
+            max_ms: 10000
+
+          # Throughput: expect reasonable processing rate
+          - type: throughput
+            min_records_per_second: 100
+
+  # Test 2: Higher volume test
+  - name: market_aggregates_high_volume
+    description: Test with higher volume to verify scalability
+    inputs:
+      - source: market_data
+        records: 10000
+        # Time simulation: 4 hours of data at 10x acceleration
+        time_simulation:
+          start_time: "-4h"
+          end_time: "now"
+          sequential: true
+          time_scale: 10.0            # 10x acceleration for faster tests
+          events_per_second: 5000      # Higher throughput for volume test
+    outputs:
+      - sink: market_aggregates_output
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          # Memory shouldn't explode with more data
+          - type: memory_usage
+            max_mb: 200
+
+          # High volume should maintain good throughput
+          - type: throughput
+            min_records_per_second: 200
+
+  # Test 3: Minimal input test
+  - name: market_aggregates_minimal
+    description: Verify behavior with minimal input
+    inputs:
+      - source: market_data
+        records: 10
+        # Time simulation for even minimal tests
+        time_simulation:
+          start_time: "-5m"           # Short 5 minute window
+          end_time: "now"
+          sequential: true
+    outputs:
+      - sink: market_aggregates_output
+        assertions:
+          # With EMIT CHANGES mode, we may get more output records than input
+          # due to intermediate window results. Just verify we got some output.
+          - type: record_count
+            greater_than: 0
+
+          - type: no_nulls
+            fields: [ trade_count ]

@@ -1,3 +1,4 @@
+use crate::velostream::sql::config::PropertyResolver;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,6 +12,7 @@ use std::time::Instant;
 use tokio::time::sleep;
 
 // Performance-optimized constants - all configurable via environment variables
+// Uses PropertyResolver for consistent ENV → config → default resolution
 pub struct RetryDefaults;
 impl RetryDefaults {
     pub const DEFAULT_INTERVAL_SECS: u64 = 5; // Standard default interval
@@ -18,30 +20,33 @@ impl RetryDefaults {
     pub const DEFAULT_MAX_DELAY_SECS: u64 = 120; // Reduced from 300s
     pub const MAX_EXPONENTIAL_SHIFT: u32 = 6; // Prevents overflow in bit shifting
 
-    // Environment variable overrides
+    // Environment variable overrides via PropertyResolver
     pub fn interval() -> Duration {
-        Duration::from_secs(
-            std::env::var("VELOSTREAM_RETRY_INTERVAL_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(Self::DEFAULT_INTERVAL_SECS),
-        )
+        let resolver = PropertyResolver::default();
+        let empty: HashMap<String, String> = HashMap::new();
+        Duration::from_secs(resolver.resolve(
+            "RETRY_INTERVAL_SECS",
+            &[],
+            &empty,
+            Self::DEFAULT_INTERVAL_SECS,
+        ))
     }
 
     pub fn multiplier() -> f64 {
-        std::env::var("VELOSTREAM_RETRY_MULTIPLIER")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(Self::DEFAULT_MULTIPLIER)
+        let resolver = PropertyResolver::default();
+        let empty: HashMap<String, String> = HashMap::new();
+        resolver.resolve("RETRY_MULTIPLIER", &[], &empty, Self::DEFAULT_MULTIPLIER)
     }
 
     pub fn max_delay() -> Duration {
-        Duration::from_secs(
-            std::env::var("VELOSTREAM_RETRY_MAX_DELAY_SECS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(Self::DEFAULT_MAX_DELAY_SECS),
-        )
+        let resolver = PropertyResolver::default();
+        let empty: HashMap<String, String> = HashMap::new();
+        Duration::from_secs(resolver.resolve(
+            "RETRY_MAX_DELAY_SECS",
+            &[],
+            &empty,
+            Self::DEFAULT_MAX_DELAY_SECS,
+        ))
     }
 }
 
@@ -515,11 +520,12 @@ pub fn calculate_retry_delay(strategy: &RetryStrategy, attempt_number: u32) -> D
 pub fn parse_retry_strategy(
     properties: &std::collections::HashMap<String, String>,
 ) -> RetryStrategy {
+    let resolver = PropertyResolver::default();
     let strategy_type = properties
         .get("topic.retry.strategy")
         .map(|s| s.to_lowercase())
         .unwrap_or_else(|| {
-            std::env::var("VELOSTREAM_RETRY_STRATEGY").unwrap_or_else(|_| "fixed".to_string())
+            resolver.resolve("RETRY_STRATEGY", &[], properties, "fixed".to_string())
         });
 
     let initial_delay = properties
@@ -574,20 +580,19 @@ pub fn parse_retry_strategy(
 }
 
 // High-performance error message templates (configurable via environment variables)
+// Uses PropertyResolver for consistent ENV → config → default resolution
 pub struct ErrorMessageConfig;
 impl ErrorMessageConfig {
     fn default_partitions() -> u32 {
-        std::env::var("VELOSTREAM_DEFAULT_PARTITIONS")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(6) // Increased from hardcoded 3
+        let resolver = PropertyResolver::default();
+        let empty: HashMap<String, String> = HashMap::new();
+        resolver.resolve("DEFAULT_PARTITIONS", &[], &empty, 6_u32)
     }
 
     fn default_replication_factor() -> u32 {
-        std::env::var("VELOSTREAM_DEFAULT_REPLICATION_FACTOR")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(3) // Increased from hardcoded 1 for production
+        let resolver = PropertyResolver::default();
+        let empty: HashMap<String, String> = HashMap::new();
+        resolver.resolve("DEFAULT_REPLICATION_FACTOR", &[], &empty, 3_u32)
     }
 
     fn suggested_timeout() -> &'static str {

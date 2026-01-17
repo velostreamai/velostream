@@ -48,9 +48,10 @@ impl StreamJobProcessor for TransactionalJobProcessorWrapper {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        _shared_stats: Option<std::sync::Arc<std::sync::RwLock<JobExecutionStats>>>,
     ) -> Result<Self::StatsType, Box<dyn std::error::Error + Send + Sync>> {
         self.processor
-            .process_job(reader, writer, engine, query, job_name, shutdown_rx)
+            .process_job(reader, writer, engine, query, job_name, shutdown_rx, None)
             .await
     }
 
@@ -230,6 +231,7 @@ async fn test_transactional_processor_rollback_behavior() {
             query,
             "test_transactional_rollback".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -304,6 +306,7 @@ async fn test_transactional_processor_vs_simple_processor_behavior() {
             query1,
             "test_transactional_comparison".to_string(),
             shutdown_rx1,
+            None,
         ),
     )
     .await;
@@ -366,6 +369,7 @@ async fn test_transactional_processor_with_non_transactional_datasources() {
             query,
             "test_non_transactional_datasources".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -439,6 +443,7 @@ async fn test_transactional_processor_commit_ordering() {
             query,
             "test_commit_ordering".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -502,6 +507,7 @@ async fn test_transactional_processor_sink_commit_failure() {
             query,
             "test_sink_commit_failure".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -518,4 +524,114 @@ async fn test_transactional_processor_sink_commit_failure() {
 
     println!("Sink commit failure test result: {:?}", result);
     // Sink commit failure should trigger source rollback in transactional mode
+}
+
+// =====================================================
+// SHARED STATS TESTS
+// =====================================================
+
+/// Test that TransactionalJobProcessor updates SharedJobStats during execution
+#[tokio::test]
+async fn test_transactional_processor_shared_stats_are_updated() {
+    use std::sync::RwLock;
+
+    let _ = env_logger::builder().is_test(true).try_init();
+    println!("\n=== Test: TransactionalJobProcessor SharedStats Updates ===");
+
+    // Create test batches with 10 records total (5 records per batch)
+    let test_batches = vec![
+        vec![
+            create_test_record(1),
+            create_test_record(2),
+            create_test_record(3),
+            create_test_record(4),
+            create_test_record(5),
+        ],
+        vec![
+            create_test_record(6),
+            create_test_record(7),
+            create_test_record(8),
+            create_test_record(9),
+            create_test_record(10),
+        ],
+    ];
+
+    let reader = Box::new(AdvancedMockDataReader::new(test_batches)) as Box<dyn DataReader>;
+
+    let config = JobProcessingConfig {
+        use_transactions: true,
+        failure_strategy: FailureStrategy::LogAndContinue,
+        max_batch_size: 10,
+        batch_timeout: Duration::from_millis(100),
+        max_retries: 1,
+        retry_backoff: Duration::from_millis(50),
+        progress_interval: 1,
+        log_progress: true,
+        empty_batch_count: 0, // Exit immediately when sources exhausted
+        wait_on_empty_batch_ms: 100,
+        enable_dlq: false,
+        dlq_max_size: Some(100),
+    };
+
+    let processor = TransactionalJobProcessor::new(config);
+    let engine = create_test_engine();
+    let query = create_test_query();
+    let (_, shutdown_rx) = mpsc::channel::<()>(1);
+
+    // Create shared stats for real-time monitoring
+    let shared_stats: Arc<RwLock<JobExecutionStats>> =
+        Arc::new(RwLock::new(JobExecutionStats::new()));
+
+    let result = processor
+        .process_job(
+            reader,
+            None, // No writer
+            engine,
+            query,
+            "test_transactional_shared_stats".to_string(),
+            shutdown_rx,
+            Some(shared_stats.clone()), // Pass shared stats
+        )
+        .await;
+
+    match result {
+        Ok(final_stats) => {
+            println!("✅ Test completed with final stats: {:?}", final_stats);
+
+            // Verify final stats
+            assert_eq!(
+                final_stats.records_processed, 10,
+                "Final stats should show 10 records processed"
+            );
+
+            // Verify shared stats were updated
+            let shared_stats_read = shared_stats
+                .read()
+                .expect("Should be able to read shared stats");
+            assert_eq!(
+                shared_stats_read.records_processed, 10,
+                "SharedStats should also show 10 records processed"
+            );
+            assert!(
+                shared_stats_read.batches_processed > 0,
+                "SharedStats should show at least 1 batch processed"
+            );
+
+            println!("✅ SharedStats verification passed:");
+            println!(
+                "   - Records processed: {}",
+                shared_stats_read.records_processed
+            );
+            println!(
+                "   - Batches processed: {}",
+                shared_stats_read.batches_processed
+            );
+        }
+        Err(e) => {
+            panic!(
+                "TransactionalJobProcessor SharedStats test should not fail: {:?}",
+                e
+            );
+        }
+    }
 }

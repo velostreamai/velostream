@@ -1,0 +1,13 @@
+# Sensor Readings Source Configuration
+# For Tier 6 null handling and late arrival demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_sensor_readings"
+
+consumer.group: "test_harness_sensors_group"
+performance_profile: balanced
+
+datasource:
+  schema:

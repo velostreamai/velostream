@@ -28,7 +28,7 @@ configMapGenerator:
 images:
   - name: velo-sql
     newTag: latest
-  - name: velo-sql-multi
+  - name: velo-sql
     newTag: latest
 
 # Resource patches for different environments
@@ -40,5 +40,5 @@ patchesStrategicMerge:
 replicas:
   - name: velo-sql-single
     count: 2
-  - name: velo-sql-multi
+  - name: velo-sql
     count: 1

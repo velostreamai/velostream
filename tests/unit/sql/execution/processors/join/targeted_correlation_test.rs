@@ -37,6 +37,8 @@ fn create_minimal_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     timestamp: 1640995200000,
                     offset: 1,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 }
             },
             // Order for user_id = 888 (should match when users.id = 888)
@@ -52,6 +54,8 @@ fn create_minimal_correlation_context() -> Arc<dyn Fn(&mut ProcessorContext) + S
                     timestamp: 1640995200001,
                     offset: 2,
                     partition: 0,
+                    topic: None,
+                    key: None,
                 }
             },
         ];
@@ -110,6 +114,8 @@ fn create_user_record_with_id(id: i64) -> StreamRecord {
         timestamp: 1640995200000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

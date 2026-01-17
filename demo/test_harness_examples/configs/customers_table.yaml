@@ -1,0 +1,30 @@
+# Customers Reference Table Configuration
+# Used for stream-table joins to enrich orders with customer data
+
+extends: common_table_source.yaml
+
+table:
+  name: customers
+
+file:
+  path: "../data/customers.csv"
+  format: csv
+  has_header: true
+
+schema:
+  fields:
+    - name: customer_id
+      type: integer
+      key: true
+    - name: customer_name
+      type: string
+    - name: tier
+      type: string
+    - name: region
+      type: string
+    - name: signup_date
+      type: date
+
+metadata:
+  description: "Customer reference data for order enrichment"
+  data.classification: "reference_data"

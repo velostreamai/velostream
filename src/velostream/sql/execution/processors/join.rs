@@ -414,6 +414,8 @@ impl JoinProcessor {
             partition: left_record.partition,
             headers: Self::merge_headers(&left_record.headers, &right_record.headers),
             event_time: None,
+            topic: None,
+            key: None,
         })
     }
 
@@ -444,6 +446,8 @@ impl JoinProcessor {
             partition: base_record.partition,
             headers: base_record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         })
     }
 
@@ -550,6 +554,8 @@ impl JoinProcessor {
             partition: base_record.partition,
             headers: base_record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         })
     }
 

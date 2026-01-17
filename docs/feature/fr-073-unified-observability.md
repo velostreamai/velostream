@@ -2743,7 +2743,7 @@ SELECT * FROM orders WHERE status = 'FAILED';
 
 ```bash
 # Deploy SQL with metrics annotations
-velo-sql-multi deploy-app --file ecommerce.sql
+velo-sql deploy-app --file ecommerce.sql
 
 # Check Prometheus metrics
 curl http://localhost:9091/metrics | grep ecommerce

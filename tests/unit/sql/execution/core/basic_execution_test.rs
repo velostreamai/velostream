@@ -39,6 +39,8 @@ fn create_test_record(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -57,7 +59,9 @@ async fn test_execute_simple_select() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -91,6 +95,7 @@ async fn test_execute_specific_columns() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Column("id".to_string()),
@@ -101,6 +106,7 @@ async fn test_execute_specific_columns() {
                 alias: Some("total".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -136,6 +142,7 @@ async fn test_execute_with_literals() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Literal(LiteralValue::Integer(42)),
@@ -146,6 +153,7 @@ async fn test_execute_with_literals() {
                 alias: Some("message".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -185,10 +193,12 @@ async fn test_missing_column_returns_error() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Column("nonexistent_column".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -221,7 +231,9 @@ async fn test_multiple_records_processing() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -263,10 +275,12 @@ async fn test_null_value_handling() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Column("status".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,

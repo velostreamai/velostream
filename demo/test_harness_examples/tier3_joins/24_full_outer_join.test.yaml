@@ -1,0 +1,28 @@
+application: full_outer_join_demo
+description: Test FULL OUTER JOIN returns all records from both sides
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: order_shipment_reconciliation
+    description: Verify reconciliation finds matched, orphan orders, and orphan shipments
+    inputs:
+      - source: orders
+        schema: order_record
+        records: 60
+        # Some orders have matching shipments, some don't
+      - source: shipments
+        schema: shipment_record
+        records: 50
+        # Some shipments have matching orders, some don't
+    assertions:
+      - type: record_count
+        greater_than: 60      # More than either source alone
+      - type: schema_contains
+        fields: [order_id, reconciliation_status]
+      - type: no_nulls
+        fields: [order_id, reconciliation_status]   # COALESCE ensures order_id always set
+      - type: field_in_set
+        field: reconciliation_status
+        values: ["MATCHED", "UNSHIPPED_ORDER", "ORPHAN_SHIPMENT"]
+    timeout_ms: 60000

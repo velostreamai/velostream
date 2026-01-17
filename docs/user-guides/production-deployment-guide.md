@@ -256,6 +256,10 @@ spec:
             secretKeyRef:
               name: velostream-secrets
               key: kafka-username
+        # Broker address family: v4 (IPv4 only), v6 (IPv6 only), any (both)
+        # Default is v4 to avoid IPv6 issues with containers/testcontainers
+        - name: VELOSTREAM_BROKER_ADDRESS_FAMILY
+          value: "any"  # Use 'any' for production with proper DNS
         livenessProbe:
           httpGet:
             path: /health

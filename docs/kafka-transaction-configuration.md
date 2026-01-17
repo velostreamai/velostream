@@ -341,7 +341,7 @@ consumer_metrics:
 docker-compose -f docker-compose.yml up -d
 
 # Use development profile
-cargo run --bin velo-sql-multi -- \
+cargo run --bin velo-sql -- \
   --consumer-config configs/transaction-consumer.yaml \
   --producer-config configs/transaction-producer.yaml \
   --profile development
@@ -351,7 +351,7 @@ cargo run --bin velo-sql-multi -- \
 
 ```bash
 # Production deployment with monitoring
-cargo run --bin velo-sql-multi -- \
+cargo run --bin velo-sql -- \
   --consumer-config configs/transaction-consumer.yaml \
   --producer-config configs/transaction-producer.yaml \
   --profile financial_critical \

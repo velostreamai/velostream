@@ -1,0 +1,107 @@
+# Market Data Stream Schema for Trading Demo
+#
+# Uses Geometric Brownian Motion (GBM) for realistic price paths.
+# Each symbol has its own independent price trajectory.
+
+name: in_market_data_stream
+description: Raw market data feed with GBM-based realistic price simulation
+record_count: 100
+
+fields:
+  - name: symbol
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["AAPL", "GOOG", "MSFT", "AMZN", "META"]
+        weights: [0.25, 0.25, 0.2, 0.15, 0.15]
+
+  - name: exchange
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["NASDAQ", "NYSE"]
+        weights: [0.6, 0.4]
+
+  - name: timestamp
+    type: integer
+    nullable: false
+    constraints:
+      timestamp_epoch_ms:
+        start: "-1h"
+        end: "now"
+
+  - name: price
+    type: float
+    nullable: false
+    description: Price using Geometric Brownian Motion for realistic paths
+    constraints:
+      range:
+        min: 150.0   # Initial price for new symbols
+        max: 400.0   # Price ceiling
+      distribution:
+        random_walk:
+          drift: 0.0001       # Slight upward bias
+          volatility: 0.02    # 2% volatility per tick
+          group_by: symbol    # Independent price path per symbol
+
+  - name: bid_price
+    type: float
+    nullable: false
+    constraints:
+      derived:
+        expression: "price * random(0.998, 0.9999)"
+        depends_on: [price]
+
+  - name: ask_price
+    type: float
+    nullable: false
+    constraints:
+      derived:
+        expression: "price * random(1.0001, 1.002)"
+        depends_on: [price]
+
+  - name: bid_size
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 10000
+
+  - name: ask_size
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 10000
+
+  - name: volume
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1000
+        max: 500000
+      distribution:
+        log_normal:
+          mean: 10.0
+          std_dev: 1.5
+
+  - name: vwap
+    type: float
+    nullable: false
+    constraints:
+      derived:
+        expression: "price * random(0.995, 1.005)"
+        depends_on: [price]
+
+  - name: market_cap
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100000000000
+        max: 3000000000000

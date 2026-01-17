@@ -202,8 +202,8 @@ WITH (
 -- Advanced customer behavior analysis using session-based windows and complex joins
 
 CREATE STREAM customer_behavior_analytics AS
-SELECT 
-    customer_id,
+SELECT
+    customer_id PRIMARY KEY,
     COUNT(DISTINCT order_id) as orders_in_session,
     COUNT(DISTINCT payment_method) as payment_methods_used,
     SUM(amount) as total_session_value,

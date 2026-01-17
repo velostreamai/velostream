@@ -72,6 +72,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -110,6 +112,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -149,6 +153,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -188,6 +194,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -260,6 +268,8 @@ impl JobProcessor {
             partition: record.partition,
             headers: record.headers.clone(),
             event_time: None,
+            topic: None,
+            key: None,
         }))
     }
 
@@ -323,10 +333,14 @@ mod tests {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![],
+            key_fields: None,
             from: crate::velostream::sql::ast::StreamSource::Stream("test_stream".to_string()),
             from_alias: None,
             joins: None,
@@ -373,6 +387,8 @@ mod tests {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         let result = processor.process_stop_job("test_job", &false, &mut context, &record);

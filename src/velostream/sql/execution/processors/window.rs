@@ -7,7 +7,7 @@ use super::{ProcessorContext, WindowContext};
 use crate::velostream::sql::ast::WindowSpec;
 use crate::velostream::sql::execution::types::StreamRecord;
 use crate::velostream::sql::{SqlError, StreamingQuery};
-use log::{debug, error};
+use log::{error, trace};
 
 /// Window processing router - delegates all work to window_v2
 pub struct WindowProcessor;
@@ -49,7 +49,7 @@ impl WindowProcessor {
     ) -> Result<Option<StreamRecord>, SqlError> {
         // FR-081 Phase 2E+: window_v2 is the only window architecture available
         // The legacy window implementation was removed in Phase 2E
-        debug!("Processing query {} with window_v2 architecture", query_id);
+        trace!("Processing query {} with window_v2 architecture", query_id);
 
         crate::velostream::sql::execution::window_v2::adapter::WindowAdapter::process_with_v2(
             query_id, query, record, context,

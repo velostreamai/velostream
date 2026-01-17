@@ -50,6 +50,7 @@ The AST is designed to be:
 */
 
 use std::collections::HashMap;
+use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -173,7 +174,9 @@ pub enum EmitMode {
 /// fn main() {
 ///     // SELECT query
 ///     let select_query = StreamingQuery::Select {
+///         distinct: false,
 ///         fields: vec![SelectField::Wildcard],
+///         key_fields: None,
 ///         from_alias: None,
 ///         from: StreamSource::Stream("orders".to_string()),
 ///         joins: None,
@@ -208,6 +211,11 @@ pub enum StreamingQuery {
     Select {
         /// Fields to select (columns, expressions, aggregates)
         fields: Vec<SelectField>,
+        /// Whether SELECT DISTINCT is specified (removes duplicate rows)
+        distinct: bool,
+        /// Fields marked with PRIMARY KEY annotation for Kafka message key (SQL standard)
+        /// Example: SELECT symbol PRIMARY KEY, price FROM trades
+        key_fields: Option<Vec<String>>,
         /// Source stream or table
         from: StreamSource,
         /// Optional alias for the FROM source (e.g., "c" in "FROM customers c")
@@ -1209,6 +1217,8 @@ impl TimeUnit {
 /// ```
 pub struct SelectBuilder {
     fields: Vec<SelectField>,
+    distinct: bool,
+    key_fields: Option<Vec<String>>,
     from: StreamSource,
     from_alias: Option<String>,
     joins: Option<Vec<JoinClause>>,
@@ -1231,6 +1241,8 @@ impl SelectBuilder {
     pub fn new(fields: Vec<SelectField>, from: StreamSource) -> Self {
         SelectBuilder {
             fields,
+            distinct: false,
+            key_fields: None,
             from,
             from_alias: None,
             joins: None,
@@ -1247,6 +1259,17 @@ impl SelectBuilder {
             num_partitions: None,
             partitioning_strategy: None,
         }
+    }
+
+    /// Set whether the SELECT should be DISTINCT (remove duplicates).
+    pub fn with_distinct(mut self, distinct: bool) -> Self {
+        self.distinct = distinct;
+        self
+    }
+
+    pub fn with_key_fields(mut self, key_fields: Vec<String>) -> Self {
+        self.key_fields = Some(key_fields);
+        self
     }
 
     pub fn with_from_alias(mut self, alias: String) -> Self {
@@ -1323,6 +1346,8 @@ impl SelectBuilder {
     pub fn build(self) -> StreamingQuery {
         StreamingQuery::Select {
             fields: self.fields,
+            distinct: self.distinct,
+            key_fields: self.key_fields,
             from: self.from,
             from_alias: self.from_alias,
             joins: self.joins,
@@ -1338,6 +1363,749 @@ impl SelectBuilder {
             batch_size: self.batch_size,
             num_partitions: self.num_partitions,
             partitioning_strategy: self.partitioning_strategy,
+        }
+    }
+}
+
+// =============================================================================
+// Display implementations for SQL reconstruction
+// =============================================================================
+
+impl fmt::Display for EmitMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EmitMode::Changes => write!(f, "EMIT CHANGES"),
+            EmitMode::Final => write!(f, "EMIT FINAL"),
+        }
+    }
+}
+
+impl fmt::Display for TimeUnit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TimeUnit::Nanosecond => write!(f, "NANOSECOND"),
+            TimeUnit::Microsecond => write!(f, "MICROSECOND"),
+            TimeUnit::Millisecond => write!(f, "MILLISECOND"),
+            TimeUnit::Second => write!(f, "SECOND"),
+            TimeUnit::Minute => write!(f, "MINUTE"),
+            TimeUnit::Hour => write!(f, "HOUR"),
+            TimeUnit::Day => write!(f, "DAY"),
+            TimeUnit::Week => write!(f, "WEEK"),
+            TimeUnit::Month => write!(f, "MONTH"),
+            TimeUnit::Year => write!(f, "YEAR"),
+        }
+    }
+}
+
+impl fmt::Display for OrderDirection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OrderDirection::Asc => write!(f, "ASC"),
+            OrderDirection::Desc => write!(f, "DESC"),
+        }
+    }
+}
+
+impl fmt::Display for JoinType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            JoinType::Inner => write!(f, "INNER JOIN"),
+            JoinType::Left => write!(f, "LEFT JOIN"),
+            JoinType::Right => write!(f, "RIGHT JOIN"),
+            JoinType::FullOuter => write!(f, "FULL OUTER JOIN"),
+        }
+    }
+}
+
+impl fmt::Display for FrameType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FrameType::Rows => write!(f, "ROWS"),
+            FrameType::Range => write!(f, "RANGE"),
+        }
+    }
+}
+
+impl fmt::Display for BinaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BinaryOperator::Add => write!(f, "+"),
+            BinaryOperator::Subtract => write!(f, "-"),
+            BinaryOperator::Multiply => write!(f, "*"),
+            BinaryOperator::Divide => write!(f, "/"),
+            BinaryOperator::Modulo => write!(f, "%"),
+            BinaryOperator::Equal => write!(f, "="),
+            BinaryOperator::NotEqual => write!(f, "!="),
+            BinaryOperator::LessThan => write!(f, "<"),
+            BinaryOperator::LessThanOrEqual => write!(f, "<="),
+            BinaryOperator::GreaterThan => write!(f, ">"),
+            BinaryOperator::GreaterThanOrEqual => write!(f, ">="),
+            BinaryOperator::And => write!(f, "AND"),
+            BinaryOperator::Or => write!(f, "OR"),
+            BinaryOperator::Like => write!(f, "LIKE"),
+            BinaryOperator::NotLike => write!(f, "NOT LIKE"),
+            BinaryOperator::Concat => write!(f, "||"),
+            BinaryOperator::In => write!(f, "IN"),
+            BinaryOperator::NotIn => write!(f, "NOT IN"),
+        }
+    }
+}
+
+impl fmt::Display for UnaryOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnaryOperator::Not => write!(f, "NOT"),
+            UnaryOperator::Minus => write!(f, "-"),
+            UnaryOperator::Plus => write!(f, "+"),
+            UnaryOperator::IsNull => write!(f, "IS NULL"),
+            UnaryOperator::IsNotNull => write!(f, "IS NOT NULL"),
+        }
+    }
+}
+
+impl fmt::Display for LiteralValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LiteralValue::String(s) => write!(f, "'{}'", s.replace('\'', "''")),
+            LiteralValue::Integer(i) => write!(f, "{}", i),
+            LiteralValue::Float(fl) => write!(f, "{}", fl),
+            LiteralValue::Boolean(b) => write!(f, "{}", if *b { "TRUE" } else { "FALSE" }),
+            LiteralValue::Null => write!(f, "NULL"),
+            LiteralValue::Decimal(d) => write!(f, "{}", d),
+            LiteralValue::Interval { value, unit } => {
+                write!(f, "INTERVAL '{}' {}", value, unit)
+            }
+        }
+    }
+}
+
+impl fmt::Display for FrameBound {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FrameBound::UnboundedPreceding => write!(f, "UNBOUNDED PRECEDING"),
+            FrameBound::Preceding(n) => write!(f, "{} PRECEDING", n),
+            FrameBound::CurrentRow => write!(f, "CURRENT ROW"),
+            FrameBound::Following(n) => write!(f, "{} FOLLOWING", n),
+            FrameBound::UnboundedFollowing => write!(f, "UNBOUNDED FOLLOWING"),
+            FrameBound::IntervalPreceding { value, unit } => {
+                write!(f, "INTERVAL '{}' {} PRECEDING", value, unit)
+            }
+            FrameBound::IntervalFollowing { value, unit } => {
+                write!(f, "INTERVAL '{}' {} FOLLOWING", value, unit)
+            }
+        }
+    }
+}
+
+impl fmt::Display for WindowFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} BETWEEN {}", self.frame_type, self.start_bound)?;
+        if let Some(end) = &self.end_bound {
+            write!(f, " AND {}", end)?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for OrderByExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.expr, self.direction)
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Column(name) => write!(f, "{}", name),
+            Expr::Literal(lit) => write!(f, "{}", lit),
+            Expr::BinaryOp { left, op, right } => {
+                // Add parentheses for clarity in nested expressions
+                write!(f, "({} {} {})", left, op, right)
+            }
+            Expr::UnaryOp { op, expr } => match op {
+                UnaryOperator::IsNull | UnaryOperator::IsNotNull => {
+                    write!(f, "{} {}", expr, op)
+                }
+                _ => write!(f, "{} {}", op, expr),
+            },
+            Expr::Function { name, args } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            Expr::WindowFunction {
+                function_name,
+                args,
+                over_clause,
+            } => {
+                write!(f, "{}(", function_name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ") OVER ({})", over_clause)
+            }
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                write!(f, "CASE")?;
+                for (cond, result) in when_clauses {
+                    write!(f, " WHEN {} THEN {}", cond, result)?;
+                }
+                if let Some(else_expr) = else_clause {
+                    write!(f, " ELSE {}", else_expr)?;
+                }
+                write!(f, " END")
+            }
+            Expr::List(items) => {
+                write!(f, "(")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", item)?;
+                }
+                write!(f, ")")
+            }
+            Expr::Subquery {
+                query,
+                subquery_type,
+            } => match subquery_type {
+                SubqueryType::Exists => write!(f, "EXISTS ({})", query),
+                SubqueryType::NotExists => write!(f, "NOT EXISTS ({})", query),
+                SubqueryType::In => write!(f, "IN ({})", query),
+                SubqueryType::NotIn => write!(f, "NOT IN ({})", query),
+                SubqueryType::Any => write!(f, "ANY ({})", query),
+                SubqueryType::All => write!(f, "ALL ({})", query),
+                SubqueryType::Scalar => write!(f, "({})", query),
+            },
+            Expr::Between {
+                expr,
+                low,
+                high,
+                negated,
+            } => {
+                if *negated {
+                    write!(f, "{} NOT BETWEEN {} AND {}", expr, low, high)
+                } else {
+                    write!(f, "{} BETWEEN {} AND {}", expr, low, high)
+                }
+            }
+        }
+    }
+}
+
+impl fmt::Display for OverClause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // If we have a ROWS WINDOW specification, use it
+        if let Some(window_spec) = &self.window_spec {
+            return write!(f, "{}", window_spec);
+        }
+
+        let mut parts = Vec::new();
+
+        if !self.partition_by.is_empty() {
+            parts.push(format!("PARTITION BY {}", self.partition_by.join(", ")));
+        }
+
+        if !self.order_by.is_empty() {
+            let order_strs: Vec<String> = self.order_by.iter().map(|o| o.to_string()).collect();
+            parts.push(format!("ORDER BY {}", order_strs.join(", ")));
+        }
+
+        if let Some(frame) = &self.window_frame {
+            parts.push(frame.to_string());
+        }
+
+        write!(f, "{}", parts.join(" "))
+    }
+}
+
+/// Helper to format a Duration as an interval string
+fn format_duration(d: &Duration) -> String {
+    let secs = d.as_secs();
+    if secs.is_multiple_of(86400) && secs >= 86400 {
+        format!("{}d", secs / 86400)
+    } else if secs.is_multiple_of(3600) && secs >= 3600 {
+        format!("{}h", secs / 3600)
+    } else if secs.is_multiple_of(60) && secs >= 60 {
+        format!("{}m", secs / 60)
+    } else if secs > 0 {
+        format!("{}s", secs)
+    } else {
+        format!("{}ms", d.as_millis())
+    }
+}
+
+impl fmt::Display for WindowSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            WindowSpec::Tumbling { size, time_column } => {
+                write!(f, "WINDOW TUMBLING({})", format_duration(size))?;
+                if let Some(col) = time_column {
+                    write!(f, " TIME COLUMN {}", col)?;
+                }
+                Ok(())
+            }
+            WindowSpec::Sliding {
+                size,
+                advance,
+                time_column,
+            } => {
+                write!(
+                    f,
+                    "WINDOW SLIDING({}, {})",
+                    format_duration(size),
+                    format_duration(advance)
+                )?;
+                if let Some(col) = time_column {
+                    write!(f, " TIME COLUMN {}", col)?;
+                }
+                Ok(())
+            }
+            WindowSpec::Session {
+                gap,
+                time_column,
+                partition_by,
+            } => {
+                write!(f, "WINDOW SESSION({})", format_duration(gap))?;
+                if let Some(col) = time_column {
+                    write!(f, " TIME COLUMN {}", col)?;
+                }
+                if !partition_by.is_empty() {
+                    write!(f, " PARTITION BY {}", partition_by.join(", "))?;
+                }
+                Ok(())
+            }
+            WindowSpec::Rows {
+                buffer_size,
+                partition_by,
+                order_by,
+                time_gap,
+                window_frame,
+                emit_mode,
+                expire_after: _,
+            } => {
+                write!(f, "ROWS WINDOW BUFFER {} ROWS", buffer_size)?;
+
+                if !partition_by.is_empty() {
+                    let parts: Vec<String> = partition_by.iter().map(|e| e.to_string()).collect();
+                    write!(f, " PARTITION BY {}", parts.join(", "))?;
+                }
+
+                if !order_by.is_empty() {
+                    let order_strs: Vec<String> = order_by.iter().map(|o| o.to_string()).collect();
+                    write!(f, " ORDER BY {}", order_strs.join(", "))?;
+                }
+
+                if let Some(gap) = time_gap {
+                    write!(f, " TIME GAP {}", format_duration(gap))?;
+                }
+
+                if let Some(frame) = window_frame {
+                    write!(f, " {}", frame)?;
+                }
+
+                match emit_mode {
+                    RowsEmitMode::EveryRecord => {} // default, no output
+                    RowsEmitMode::BufferFull => write!(f, " EMIT BUFFER FULL")?,
+                }
+
+                Ok(())
+            }
+        }
+    }
+}
+
+impl fmt::Display for SelectField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SelectField::Column(name) => write!(f, "{}", name),
+            SelectField::AliasedColumn { column, alias } => {
+                write!(f, "{} AS {}", column, alias)
+            }
+            SelectField::Expression { expr, alias } => {
+                if let Some(a) = alias {
+                    write!(f, "{} AS {}", expr, a)
+                } else {
+                    write!(f, "{}", expr)
+                }
+            }
+            SelectField::Wildcard => write!(f, "*"),
+        }
+    }
+}
+
+impl fmt::Display for StreamSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StreamSource::Stream(name) => write!(f, "{}", name),
+            StreamSource::Table(name) => write!(f, "{}", name),
+            StreamSource::Uri(uri) => write!(f, "'{}'", uri),
+            StreamSource::Subquery(query) => write!(f, "({})", query),
+        }
+    }
+}
+
+impl fmt::Display for JoinClause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}", self.join_type, self.right_source)?;
+        if let Some(alias) = &self.right_alias {
+            write!(f, " {}", alias)?;
+        }
+        write!(f, " ON {}", self.condition)?;
+        if let Some(window) = &self.window {
+            write!(f, " WITHIN {}", format_duration(&window.time_window))?;
+            if let Some(grace) = &window.grace_period {
+                write!(f, " GRACE PERIOD {}", format_duration(grace))?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for ShowResourceType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShowResourceType::Streams => write!(f, "STREAMS"),
+            ShowResourceType::Tables => write!(f, "TABLES"),
+            ShowResourceType::Topics => write!(f, "TOPICS"),
+            ShowResourceType::Functions => write!(f, "FUNCTIONS"),
+            ShowResourceType::Schema { name } => write!(f, "SCHEMA FOR {}", name),
+            ShowResourceType::Properties {
+                resource_type,
+                name,
+            } => {
+                write!(f, "PROPERTIES FOR {} {}", resource_type, name)
+            }
+            ShowResourceType::Jobs => write!(f, "JOBS"),
+            ShowResourceType::JobStatus { name } => {
+                if let Some(n) = name {
+                    write!(f, "JOB STATUS {}", n)
+                } else {
+                    write!(f, "JOB STATUS")
+                }
+            }
+            ShowResourceType::JobVersions { name } => {
+                write!(f, "JOB VERSIONS {}", name)
+            }
+            ShowResourceType::JobMetrics { name } => {
+                if let Some(n) = name {
+                    write!(f, "JOB METRICS {}", n)
+                } else {
+                    write!(f, "JOB METRICS")
+                }
+            }
+            ShowResourceType::Partitions { name } => {
+                write!(f, "PARTITIONS FOR {}", name)
+            }
+            ShowResourceType::Describe { name } => write!(f, "DESCRIBE {}", name),
+        }
+    }
+}
+
+impl fmt::Display for DeploymentStrategy {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeploymentStrategy::BlueGreen => write!(f, "BLUE_GREEN"),
+            DeploymentStrategy::Canary { percentage } => {
+                write!(f, "CANARY({}%)", percentage)
+            }
+            DeploymentStrategy::Rolling => write!(f, "ROLLING"),
+            DeploymentStrategy::Replace => write!(f, "REPLACE"),
+        }
+    }
+}
+
+impl fmt::Display for InsertSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InsertSource::Values { rows } => {
+                write!(f, "VALUES ")?;
+                for (i, row) in rows.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "(")?;
+                    for (j, expr) in row.iter().enumerate() {
+                        if j > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", expr)?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
+            InsertSource::Select { query } => write!(f, "{}", query),
+        }
+    }
+}
+
+impl fmt::Display for StreamingQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StreamingQuery::Select {
+                fields,
+                distinct,
+                key_fields,
+                from,
+                from_alias,
+                joins,
+                where_clause,
+                group_by,
+                having,
+                window,
+                order_by,
+                limit,
+                emit_mode,
+                properties: _,
+                job_mode: _,
+                batch_size: _,
+                num_partitions: _,
+                partitioning_strategy: _,
+            } => {
+                // SELECT clause with optional DISTINCT
+                if *distinct {
+                    write!(f, "SELECT DISTINCT ")?;
+                } else {
+                    write!(f, "SELECT ")?;
+                }
+
+                // Format fields with PRIMARY KEY annotation if present
+                let field_strs: Vec<String> = fields
+                    .iter()
+                    .map(|field| {
+                        let field_str = field.to_string();
+                        // Check if this field is marked as PRIMARY KEY
+                        let field_name = match field {
+                            SelectField::Column(name) => Some(name.clone()),
+                            SelectField::AliasedColumn { alias, .. } => Some(alias.clone()),
+                            SelectField::Expression { alias, expr } => {
+                                alias.clone().or_else(|| {
+                                    if let Expr::Column(name) = expr {
+                                        Some(name.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                            }
+                            SelectField::Wildcard => None,
+                        };
+                        if let Some(keys) = key_fields {
+                            if let Some(ref name) = field_name {
+                                if keys.contains(name) {
+                                    return format!("{} PRIMARY KEY", field_str);
+                                }
+                            }
+                        }
+                        field_str
+                    })
+                    .collect();
+                write!(f, "{}", field_strs.join(", "))?;
+
+                // FROM clause
+                write!(f, " FROM {}", from)?;
+                if let Some(alias) = from_alias {
+                    write!(f, " {}", alias)?;
+                }
+
+                // JOIN clauses
+                if let Some(join_clauses) = joins {
+                    for join in join_clauses {
+                        write!(f, " {}", join)?;
+                    }
+                }
+
+                // WHERE clause
+                if let Some(where_expr) = where_clause {
+                    write!(f, " WHERE {}", where_expr)?;
+                }
+
+                // GROUP BY clause
+                if let Some(group_exprs) = group_by {
+                    let group_strs: Vec<String> =
+                        group_exprs.iter().map(|e| e.to_string()).collect();
+                    write!(f, " GROUP BY {}", group_strs.join(", "))?;
+                }
+
+                // HAVING clause
+                if let Some(having_expr) = having {
+                    write!(f, " HAVING {}", having_expr)?;
+                }
+
+                // WINDOW clause
+                if let Some(win) = window {
+                    write!(f, " {}", win)?;
+                }
+
+                // ORDER BY clause
+                if let Some(order_exprs) = order_by {
+                    let order_strs: Vec<String> =
+                        order_exprs.iter().map(|o| o.to_string()).collect();
+                    write!(f, " ORDER BY {}", order_strs.join(", "))?;
+                }
+
+                // LIMIT clause
+                if let Some(lim) = limit {
+                    write!(f, " LIMIT {}", lim)?;
+                }
+
+                // EMIT clause
+                if let Some(mode) = emit_mode {
+                    write!(f, " {}", mode)?;
+                }
+
+                Ok(())
+            }
+
+            StreamingQuery::CreateStream {
+                name,
+                columns: _,
+                as_select,
+                properties: _,
+                emit_mode,
+                metric_annotations: _,
+                job_name: _,
+            } => {
+                write!(f, "CREATE STREAM {} AS {}", name, as_select)?;
+                if let Some(mode) = emit_mode {
+                    write!(f, " {}", mode)?;
+                }
+                Ok(())
+            }
+
+            StreamingQuery::CreateTable {
+                name,
+                columns: _,
+                as_select,
+                properties: _,
+                emit_mode,
+            } => {
+                write!(f, "CREATE TABLE {} AS {}", name, as_select)?;
+                if let Some(mode) = emit_mode {
+                    write!(f, " {}", mode)?;
+                }
+                Ok(())
+            }
+
+            StreamingQuery::Show {
+                resource_type,
+                pattern,
+            } => {
+                write!(f, "SHOW {}", resource_type)?;
+                if let Some(pat) = pattern {
+                    write!(f, " LIKE '{}'", pat)?;
+                }
+                Ok(())
+            }
+
+            StreamingQuery::StartJob {
+                name,
+                query,
+                properties: _,
+            } => {
+                write!(f, "START JOB {} AS {}", name, query)
+            }
+
+            StreamingQuery::StopJob { name, force } => {
+                if *force {
+                    write!(f, "STOP JOB {} FORCE", name)
+                } else {
+                    write!(f, "STOP JOB {}", name)
+                }
+            }
+
+            StreamingQuery::PauseJob { name } => {
+                write!(f, "PAUSE JOB {}", name)
+            }
+
+            StreamingQuery::ResumeJob { name } => {
+                write!(f, "RESUME JOB {}", name)
+            }
+
+            StreamingQuery::DeployJob {
+                name,
+                version,
+                query,
+                properties: _,
+                strategy,
+            } => {
+                write!(
+                    f,
+                    "DEPLOY JOB {} VERSION '{}' STRATEGY {} AS {}",
+                    name, version, strategy, query
+                )
+            }
+
+            StreamingQuery::RollbackJob {
+                name,
+                target_version,
+            } => {
+                write!(f, "ROLLBACK JOB {}", name)?;
+                if let Some(ver) = target_version {
+                    write!(f, " TO VERSION '{}'", ver)?;
+                }
+                Ok(())
+            }
+
+            StreamingQuery::InsertInto {
+                table_name,
+                columns,
+                source,
+            } => {
+                write!(f, "INSERT INTO {}", table_name)?;
+                if let Some(cols) = columns {
+                    write!(f, " ({})", cols.join(", "))?;
+                }
+                write!(f, " {}", source)
+            }
+
+            StreamingQuery::Update {
+                table_name,
+                assignments,
+                where_clause,
+            } => {
+                write!(f, "UPDATE {} SET ", table_name)?;
+                let assign_strs: Vec<String> = assignments
+                    .iter()
+                    .map(|(col, expr)| format!("{} = {}", col, expr))
+                    .collect();
+                write!(f, "{}", assign_strs.join(", "))?;
+                if let Some(where_expr) = where_clause {
+                    write!(f, " WHERE {}", where_expr)?;
+                }
+                Ok(())
+            }
+
+            StreamingQuery::Delete {
+                table_name,
+                where_clause,
+            } => {
+                write!(f, "DELETE FROM {}", table_name)?;
+                if let Some(where_expr) = where_clause {
+                    write!(f, " WHERE {}", where_expr)?;
+                }
+                Ok(())
+            }
+
+            StreamingQuery::Union { left, right, all } => {
+                write!(f, "{}", left)?;
+                if *all {
+                    write!(f, " UNION ALL ")?;
+                } else {
+                    write!(f, " UNION ")?;
+                }
+                write!(f, "{}", right)
+            }
         }
     }
 }

@@ -216,6 +216,7 @@ async fn passthrough_baseline_pure_overhead() {
                 query,
                 "passthrough_baseline".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -307,6 +308,7 @@ async fn passthrough_vs_sql_engine_comparison() {
                 query,
                 "passthrough_comparison".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -402,6 +404,7 @@ async fn passthrough_overhead_breakdown() {
                 query,
                 "passthrough_breakdown".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

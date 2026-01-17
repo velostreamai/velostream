@@ -1,0 +1,52 @@
+application: late_arrivals_demo
+description: Test late and out-of-order event handling
+default_timeout_ms: 120000
+default_records: 500
+
+queries:
+  - name: sensor_aggregates
+    description: Verify windowed aggregation handles late events
+    inputs:
+      - source: sensor_events
+        schema: sensor_readings
+        records: 500
+        time_simulation:
+          start_time: "-3m"    # 3 minutes spans multiple 1-min tumbling windows
+          end_time: "now"
+          sequential: true
+          jitter_ms: 2000      # 2s jitter simulates out-of-order arrivals
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [sensor_id, reading_count, avg_value, min_value, max_value, low_quality_count]
+      - type: field_values
+        field: reading_count
+        operator: greater_than
+        value: 0
+      - type: no_nulls
+        fields: [sensor_id, reading_count, avg_value]
+    timeout_ms: 90000
+
+  - name: lateness_tracking
+    description: Verify lateness detection works correctly
+    inputs:
+      - source: sensor_events
+        schema: sensor_readings
+        records: 500
+        time_simulation:
+          start_time: "-3m"
+          end_time: "now"
+          sequential: true
+          jitter_ms: 2000      # Simulates late/out-of-order events
+    assertions:
+      - type: record_count
+        equals: 500
+      - type: schema_contains
+        fields: [sensor_id, measurement_id, value, event_time, processing_time, arrival_status]
+      - type: field_in_set
+        field: arrival_status
+        values: ["late", "on_time"]
+      - type: no_nulls
+        fields: [sensor_id, value, arrival_status]
+    timeout_ms: 60000

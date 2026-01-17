@@ -1,0 +1,13 @@
+# User Activity Source Configuration
+# For session window and user behavior demos
+
+extends: common_kafka_source.yaml
+
+topic:
+  name: "test_user_activity"
+
+consumer.group: "test_harness_activity_group"
+performance_profile: balanced
+
+datasource:
+  schema:

@@ -292,7 +292,7 @@ Both SQL servers now include comprehensive performance monitoring:
 - **Port 9080**: Performance metrics endpoint
 - **Real-time performance tracking** for all queries
 
-#### Multi-Job SQL Server (velo-sql-multi)  
+#### Multi-Job SQL Server (velo-sql)  
 - **Port 8080**: Job management and SQL processing
 - **Port 9080**: Aggregated performance metrics
 - **Per-job performance isolation** and tracking

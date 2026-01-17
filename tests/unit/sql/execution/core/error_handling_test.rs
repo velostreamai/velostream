@@ -37,6 +37,8 @@ fn create_test_record(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -46,6 +48,7 @@ async fn test_arithmetic_error_handling() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::Column("status".to_string())), // String field
@@ -54,6 +57,7 @@ async fn test_arithmetic_error_handling() {
             },
             alias: Some("invalid_operation".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,

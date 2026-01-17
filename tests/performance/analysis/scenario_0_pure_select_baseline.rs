@@ -253,6 +253,7 @@ async fn scenario_0_pure_select_baseline() {
             (*query).clone(),
             "v1_scenario0".to_string(),
             shutdown_rx_v1,
+            None,
         )
         .await;
     let v1_duration = v1_start.elapsed();
@@ -289,6 +290,7 @@ async fn scenario_0_pure_select_baseline() {
             (*query).clone(),
             "v2_scenario0".to_string(),
             shutdown_rx_v2,
+            None,
         )
         .await;
     let v2_duration = v2_start.elapsed();

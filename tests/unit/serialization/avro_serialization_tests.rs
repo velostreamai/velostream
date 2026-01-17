@@ -128,6 +128,8 @@ mod avro_tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Serialize the StreamRecord

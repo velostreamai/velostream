@@ -24,15 +24,15 @@ cargo run --bin velo-sql server --brokers localhost:9092 --port 8080 --enable-me
 | `GET /health` | Health check with performance status | `application/json` |
 | `GET /report` | Detailed performance report | `text/plain` |
 
-## StreamJobServer (`velo-sql-multi`)
+## StreamJobServer (`velo-sql`)
 
 ### Usage
 ```bash
 # Start StreamJobServer with monitoring
-cargo run --bin velo-sql-multi server --brokers localhost:9092 --port 8080 --enable-metrics
+cargo run --bin velo-sql server --brokers localhost:9092 --port 8080 --enable-metrics
 
 # Deploy app with monitoring enabled
-cargo run --bin velo-sql-multi deploy-app --file app.sql --brokers localhost:9092 --default-topic orders
+cargo run --bin velo-sql deploy-app --file app.sql --brokers localhost:9092 --default-topic orders
 ```
 
 ### Endpoints

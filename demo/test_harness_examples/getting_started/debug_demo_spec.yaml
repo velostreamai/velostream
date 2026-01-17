@@ -1,0 +1,25 @@
+# Debug Demo - Data Generation Spec
+# Defines input data for interactive debugging (no assertions)
+#
+# Usage:
+#   velo-test debug sql/debug_demo.sql --spec debug_demo_spec.yaml --schemas schemas/
+
+application: debug_demo
+description: Data generation for interactive debugging
+
+default_timeout_ms: 60000
+
+queries:
+  # Generate input data for Stage 1 (high_value_trades reads from market_data)
+  - name: high_value_trades
+    description: Stage 1 - Filter high-value trades
+    inputs:
+      - source: market_data
+        key_field: symbol
+        records: 50
+        time_simulation:
+          start_time: "-2m"
+          end_time: "now"
+          sequential: true
+    # No assertions - just generate data for debugging
+    outputs: [ ]

@@ -25,6 +25,8 @@ fn create_test_record() -> StreamRecord {
         timestamp: 1234567890000,
         offset: 0,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 
@@ -102,6 +104,8 @@ fn create_test_context_with_schemas() -> ProcessorContext {
         window_v2_states: HashMap::new(),
         // === STREAMING ENGINE CONFIGURATION ===
         streaming_config: None,
+        // === SELECT DISTINCT STATE ===
+        distinct_seen: HashMap::new(),
     }
 }
 
@@ -458,6 +462,8 @@ async fn test_show_streams_empty_context() {
         window_v2_states: HashMap::new(),
         // === STREAMING ENGINE CONFIGURATION ===
         streaming_config: None,
+        // === SELECT DISTINCT STATE ===
+        distinct_seen: HashMap::new(),
     };
 
     let result = QueryProcessor::process_query(&query, &record, &mut context);

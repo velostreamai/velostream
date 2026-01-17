@@ -1,13 +1,13 @@
 /*!
 # SQL Files Validation Test - Phase 1
 
-Comprehensive validation of all 18 demo and example SQL files for parser compatibility.
+Comprehensive validation of all demo and example SQL files for parser compatibility.
 This test suite verifies that the Velostream SQL parser can successfully parse all
 production SQL files in the demo and examples directories.
 
-Tests 18 SQL files across:
-- demo/datasource-demo/ (4 files)
+Tests SQL files across:
 - demo/trading/sql/ (2 files)
+- demo/trading/apps/ (5 files)
 - examples/ (12 files)
 */
 
@@ -15,18 +15,19 @@ use std::fs;
 use std::path::Path;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
-/// Test that all 18 SQL files can be parsed successfully
+/// Test that all SQL files can be parsed successfully
 #[test]
 fn test_all_sql_files_parse() {
     let all_files = vec![
-        // Demo datasource files (4)
-        "demo/datasource-demo/enhanced_sql_demo.sql",
-        "demo/datasource-demo/file_processing_sql_demo.sql",
-        "demo/datasource-demo/simple_test.sql",
-        "demo/datasource-demo/test_kafka.sql",
-        // Demo trading files (2)
-        "demo/trading/sql/financial_trading.sql",
+        // Demo trading sql files (2)
+        "demo/trading/sql/financial_trading_legacy.sql",
         "demo/trading/sql/ctas_file_trading.sql",
+        // Demo trading apps files (5)
+        "demo/trading/apps/app_compliance.sql",
+        "demo/trading/apps/app_market_data.sql",
+        "demo/trading/apps/app_price_analytics.sql",
+        "demo/trading/apps/app_risk.sql",
+        "demo/trading/apps/app_trading_signals.sql",
         // Example files (12)
         "examples/ecommerce_analytics.sql",
         "examples/ecommerce_analytics_phase4.sql",
@@ -120,19 +121,20 @@ fn test_all_sql_files_parse() {
     println!("✅ SQL validation completed successfully!");
 }
 
-/// Test demo datasource files specifically
+/// Test demo trading apps files specifically
 #[test]
-fn test_demo_datasource_files_parse() {
+fn test_demo_trading_apps_files_parse() {
     let files = vec![
-        "demo/datasource-demo/enhanced_sql_demo.sql",
-        "demo/datasource-demo/file_processing_sql_demo.sql",
-        "demo/datasource-demo/simple_test.sql",
-        "demo/datasource-demo/test_kafka.sql",
+        "demo/trading/apps/app_compliance.sql",
+        "demo/trading/apps/app_market_data.sql",
+        "demo/trading/apps/app_price_analytics.sql",
+        "demo/trading/apps/app_risk.sql",
+        "demo/trading/apps/app_trading_signals.sql",
     ];
 
     let parser = StreamingSqlParser::new();
 
-    println!("\nTesting Demo Datasource Files:");
+    println!("\nTesting Demo Trading Apps Files:");
     println!("--------------------------------------------------------------------------------");
 
     for file in files {
@@ -164,7 +166,7 @@ fn test_demo_datasource_files_parse() {
 #[test]
 fn test_demo_trading_files_parse() {
     let files = vec![
-        "demo/trading/sql/financial_trading.sql",
+        "demo/trading/sql/financial_trading_legacy.sql",
         "demo/trading/sql/ctas_file_trading.sql",
     ];
 

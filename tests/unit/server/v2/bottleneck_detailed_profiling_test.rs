@@ -205,6 +205,7 @@ async fn detailed_profiling_breakdown() {
                 query,
                 "profiling_test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

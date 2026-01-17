@@ -574,3 +574,113 @@ topic: "sink-topic"
         Some(&"sink-kafka:9092".to_string())
     );
 }
+
+#[test]
+fn test_nested_topic_name_is_normalized() {
+    // Tests that YAML files using `topic.name` nested structure are properly
+    // normalized to a flat `topic` key for consistent access.
+    // This is the structure used in demo/trading configs like market_data_ts_sink.yaml:
+    //   topic:
+    //     name: "market_data_ts"
+
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("nested_topic.yaml");
+
+    // Use nested topic.name structure (as in production configs)
+    fs::write(
+        &config_path,
+        r#"
+bootstrap.servers: "kafka:9092"
+topic:
+  name: "my_custom_topic"
+"#,
+    )
+    .unwrap();
+
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
+    let mut config = HashMap::new();
+    config.insert("test_sink.type".to_string(), "kafka_sink".to_string());
+    config.insert(
+        "test_sink.config_file".to_string(),
+        config_path.to_string_lossy().to_string(),
+    );
+
+    let mut analysis = QueryAnalysis {
+        required_sources: vec![],
+        required_sinks: vec![],
+        configuration: config.clone(),
+    };
+
+    let result = analyzer.analyze_sink(
+        "test_sink",
+        &config,
+        &SerializationConfig::default(),
+        &mut analysis,
+    );
+
+    assert!(result.is_ok());
+    let sink = &analysis.required_sinks[0];
+
+    // The nested "topic.name" should be normalized to "topic"
+    assert_eq!(
+        sink.properties.get("topic"),
+        Some(&"my_custom_topic".to_string()),
+        "Expected topic.name to be normalized to topic key"
+    );
+
+    // The original "topic.name" key should also be present from YAML flattening
+    assert_eq!(
+        sink.properties.get("topic.name"),
+        Some(&"my_custom_topic".to_string()),
+        "Original topic.name key should still be available"
+    );
+}
+
+#[test]
+fn test_nested_topic_name_for_source() {
+    // Same test for source (e.g., market_data_ts_source.yaml)
+    let temp_dir = TempDir::new().unwrap();
+    let config_path = temp_dir.path().join("nested_source_topic.yaml");
+
+    fs::write(
+        &config_path,
+        r#"
+bootstrap.servers: "kafka:9092"
+topic:
+  name: "source_topic_name"
+group.id: "test-consumers"
+"#,
+    )
+    .unwrap();
+
+    let analyzer = QueryAnalyzer::new("test_group".to_string());
+    let mut config = HashMap::new();
+    config.insert("test_source.type".to_string(), "kafka_source".to_string());
+    config.insert(
+        "test_source.config_file".to_string(),
+        config_path.to_string_lossy().to_string(),
+    );
+
+    let mut analysis = QueryAnalysis {
+        required_sources: vec![],
+        required_sinks: vec![],
+        configuration: config.clone(),
+    };
+
+    let result = analyzer.analyze_source(
+        "test_source",
+        &config,
+        &SerializationConfig::default(),
+        &mut analysis,
+    );
+
+    assert!(result.is_ok());
+    let source = &analysis.required_sources[0];
+
+    // The nested "topic.name" should be normalized to "topic"
+    assert_eq!(
+        source.properties.get("topic"),
+        Some(&"source_topic_name".to_string()),
+        "Expected topic.name to be normalized to topic key for source"
+    );
+}

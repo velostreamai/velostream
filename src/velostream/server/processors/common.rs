@@ -6,21 +6,55 @@
 use crate::velostream::datasource::{
     DataReader, DataSink, DataSource, DataWriter, SinkConfig, StdoutWriter,
     file::{FileDataSink, FileDataSource},
-    kafka::{KafkaDataSink, KafkaDataSource},
+    kafka::{
+        KafkaDataSink, KafkaDataSource,
+        config_helpers::{
+            ClientType, generate_processor_client_id, generate_transactional_id,
+            log_processor_client_id, log_transactional_id,
+        },
+    },
 };
 use crate::velostream::server::processors::SimpleJobProcessor;
+use crate::velostream::sql::config::substitute_env_vars;
 use crate::velostream::sql::{
     StreamExecutionEngine, StreamingQuery,
     ast::{StreamSource, StreamingQuery as AstStreamingQuery},
-    execution::{config::StreamingConfig, types::StreamRecord},
+    execution::{
+        config::StreamingConfig, processors::context::ProcessorContext,
+        processors::order::OrderProcessor, types::StreamRecord,
+    },
     query_analyzer::{DataSinkRequirement, DataSinkType, DataSourceRequirement, DataSourceType},
 };
 use log::{debug, error, info, warn};
+use serde::Serializer;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, mpsc};
+
+/// Serialize Duration as milliseconds (f64)
+fn serialize_duration_as_ms<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_f64(duration.as_secs_f64() * 1000.0)
+}
+
+/// Serialize Option<Instant> as elapsed milliseconds since that instant (f64)
+/// Returns null if None, or elapsed ms since the instant if Some
+fn serialize_option_instant_as_elapsed_ms<S>(
+    instant: &Option<Instant>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match instant {
+        Some(i) => serializer.serialize_f64(i.elapsed().as_secs_f64() * 1000.0),
+        None => serializer.serialize_none(),
+    }
+}
 
 /// Result of batch processing
 #[derive(Debug, Clone)]
@@ -33,7 +67,7 @@ pub struct BatchProcessingResult {
 }
 
 /// Details about a processing error
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ProcessingError {
     pub record_index: usize,
     pub error_message: String,
@@ -215,19 +249,43 @@ impl Default for DeadLetterQueue {
 }
 
 /// Statistics for job execution
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct JobExecutionStats {
     pub records_processed: u64,
     pub records_failed: u64,
     pub batches_processed: u64,
     pub batches_failed: u64,
+    #[serde(skip_deserializing)]
+    #[serde(serialize_with = "serialize_option_instant_as_elapsed_ms")]
     pub start_time: Option<Instant>,
+    #[serde(skip_deserializing)]
+    #[serde(serialize_with = "serialize_option_instant_as_elapsed_ms")]
     pub last_record_time: Option<Instant>,
     pub avg_batch_size: f64,
     pub avg_processing_time_ms: f64,
+    #[serde(serialize_with = "serialize_duration_as_ms")]
     pub total_processing_time: Duration,
     /// Detailed error information for debugging
     pub error_details: Vec<ProcessingError>,
+
+    // Timing breakdown for performance analysis
+    /// Total time spent reading from source (poll + deserialization)
+    #[serde(serialize_with = "serialize_duration_as_ms")]
+    pub total_read_time: Duration,
+    /// Total time spent on SQL processing
+    #[serde(serialize_with = "serialize_duration_as_ms")]
+    pub total_sql_time: Duration,
+    /// Total time spent writing to sink (serialization + produce)
+    #[serde(serialize_with = "serialize_duration_as_ms")]
+    pub total_write_time: Duration,
+
+    // Idle detection
+    /// Whether the last batch had records (for idle transition detection)
+    #[serde(skip)]
+    pub last_batch_had_records: bool,
+    /// Whether we've logged the idle transition (to avoid spam)
+    #[serde(skip)]
+    pub idle_logged: bool,
 }
 
 impl JobExecutionStats {
@@ -262,18 +320,28 @@ impl JobExecutionStats {
                 + result.batch_size as f64)
                 / total_batches;
 
+            // Use as_secs_f64() * 1000.0 for sub-millisecond precision (as_millis() truncates to 0 for <1ms)
             self.avg_processing_time_ms = ((self.avg_processing_time_ms * (total_batches - 1.0))
-                + result.processing_time.as_millis() as f64)
+                + result.processing_time.as_secs_f64() * 1000.0)
                 / total_batches;
         }
     }
 
     pub fn records_per_second(&self) -> f64 {
-        if let Some(start) = self.start_time {
-            let elapsed = start.elapsed().as_secs_f64();
-            if elapsed > 0.0 {
-                return self.records_processed as f64 / elapsed;
-            }
+        // Calculate based on actual processing time (read + sql + write)
+        // This gives the true processing rate: records / time_spent_processing
+        // Note: SimpleJobProcessor uses add_read_time/add_sql_time/add_write_time,
+        // while update_from_batch uses total_processing_time - support both
+        let tracked_time = self.total_read_time + self.total_sql_time + self.total_write_time;
+        let processing_time = if tracked_time > Duration::ZERO {
+            tracked_time
+        } else {
+            self.total_processing_time
+        };
+
+        let processing_secs = processing_time.as_secs_f64();
+        if processing_secs > 0.0 {
+            return self.records_processed as f64 / processing_secs;
         }
         0.0
     }
@@ -287,10 +355,95 @@ impl JobExecutionStats {
         }
     }
 
+    /// Returns the processing duration (start to last record, or start to now if still processing)
     pub fn elapsed(&self) -> Duration {
-        self.start_time
-            .map(|s| s.elapsed())
-            .unwrap_or(Duration::from_secs(0))
+        if let Some(start) = self.start_time {
+            // Use last_record_time if available (processing complete),
+            // otherwise use current time (still processing)
+            let end = self.last_record_time.unwrap_or_else(Instant::now);
+            end.duration_since(start)
+        } else {
+            Duration::from_secs(0)
+        }
+    }
+
+    /// Add read time (Kafka poll + deserialization)
+    pub fn add_read_time(&mut self, duration: Duration) {
+        self.total_read_time += duration;
+    }
+
+    /// Add SQL processing time
+    pub fn add_sql_time(&mut self, duration: Duration) {
+        self.total_sql_time += duration;
+    }
+
+    /// Add write time (serialization + Kafka produce)
+    pub fn add_write_time(&mut self, duration: Duration) {
+        self.total_write_time += duration;
+    }
+
+    /// Get effective average processing time per batch in milliseconds.
+    /// Calculates from breakdown times when available, otherwise uses the stored avg_processing_time_ms.
+    pub fn effective_avg_batch_time_ms(&self) -> f64 {
+        // If breakdown times are available, calculate from them
+        let tracked_time = self.total_read_time + self.total_sql_time + self.total_write_time;
+        if tracked_time > Duration::ZERO && self.batches_processed > 0 {
+            return (tracked_time.as_secs_f64() * 1000.0) / self.batches_processed as f64;
+        }
+
+        // Fall back to stored avg_processing_time_ms (populated by update_from_batch)
+        self.avg_processing_time_ms
+    }
+
+    /// Get timing breakdown as percentages of elapsed time
+    pub fn timing_breakdown(&self) -> (f64, f64, f64, f64) {
+        let elapsed = self.elapsed().as_secs_f64();
+        if elapsed <= 0.0 {
+            return (0.0, 0.0, 0.0, 0.0);
+        }
+
+        let read_pct = (self.total_read_time.as_secs_f64() / elapsed) * 100.0;
+        let sql_pct = (self.total_sql_time.as_secs_f64() / elapsed) * 100.0;
+        let write_pct = (self.total_write_time.as_secs_f64() / elapsed) * 100.0;
+        let other_pct = 100.0 - read_pct - sql_pct - write_pct;
+
+        (read_pct, sql_pct, write_pct, other_pct.max(0.0))
+    }
+
+    /// Sync stats to shared stats for real-time monitoring.
+    /// This is used by processors to update the shared stats reference
+    /// that external observers (like the test harness) can poll.
+    pub fn sync_to_shared(
+        &self,
+        shared_stats: &Option<crate::velostream::server::processors::SharedJobStats>,
+    ) {
+        if let Some(shared) = shared_stats {
+            match shared.write() {
+                Ok(mut shared_lock) => {
+                    *shared_lock = self.clone();
+                }
+                Err(e) => {
+                    log::warn!("Failed to sync to shared_stats: {} - stats may be stale", e);
+                }
+            }
+        }
+    }
+
+    /// Mark whether the current batch had records.
+    /// Returns true if this is a transition to idle (was processing, now empty).
+    pub fn mark_batch(&mut self, had_records: bool) -> bool {
+        let transition_to_idle = self.last_batch_had_records && !had_records && !self.idle_logged;
+        self.last_batch_had_records = had_records;
+
+        if had_records {
+            // Reset idle flag when we get records again
+            self.idle_logged = false;
+        } else if transition_to_idle {
+            // Mark that we've logged the idle transition
+            self.idle_logged = true;
+        }
+
+        transition_to_idle
     }
 }
 
@@ -435,17 +588,33 @@ pub async fn process_batch(
                 });
 
                 // Log first 3 errors to avoid log spam
+                // Use error! for non-recoverable errors (schema issues, field not found, etc.)
+                // Use warn! for recoverable errors (transient network issues, etc.)
                 if index < 3 {
-                    warn!(
-                        "Job '{}' failed to process record {}: {} [Recoverable: {}]",
-                        job_name, index, detailed_msg, recoverable
-                    );
+                    if recoverable {
+                        warn!(
+                            "Job '{}' failed to process record {}: {} [Recoverable]",
+                            job_name, index, detailed_msg
+                        );
+                    } else {
+                        error!(
+                            "Job '{}' failed to process record {}: {} [Non-recoverable]",
+                            job_name, index, detailed_msg
+                        );
+                    }
                     debug!("Full error details: {:?}", e);
                 } else if index == 3 {
-                    warn!(
-                        "Job '{}' (suppressing further error logs for batch, {} errors total)",
-                        job_name, batch_size
-                    );
+                    if recoverable {
+                        warn!(
+                            "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                            job_name, batch_size
+                        );
+                    } else {
+                        error!(
+                            "Job '{}' (suppressing further error logs for batch, {} errors total)",
+                            job_name, batch_size
+                        );
+                    }
                 }
             }
         }
@@ -456,6 +625,10 @@ pub async fn process_batch(
         job_name, records_processed, records_failed
     );
 
+    // Phase 5: Apply ORDER BY sorting to batch results (FR-084 extension)
+    // This sorts records within each batch according to ORDER BY expressions.
+    let output_records = apply_order_by_sorting(output_records, query);
+
     BatchProcessingResultWithOutput {
         records_processed,
         records_failed,
@@ -463,6 +636,68 @@ pub async fn process_batch(
         batch_size,
         error_details,
         output_records,
+    }
+}
+
+/// Apply ORDER BY sorting to output records if the query has an ORDER BY clause
+///
+/// Extracts ORDER BY expressions from the query and sorts the records accordingly.
+/// This implements Phase 5 batch-level sorting for non-windowed queries.
+fn apply_order_by_sorting(
+    output_records: Vec<Arc<StreamRecord>>,
+    query: &StreamingQuery,
+) -> Vec<Arc<StreamRecord>> {
+    // Extract ORDER BY from query (handles Select and CreateStream variants)
+    let order_by = match query {
+        StreamingQuery::Select {
+            order_by, window, ..
+        } => {
+            // Skip if query has WINDOW clause (window adapter handles sorting)
+            if window.is_some() {
+                return output_records;
+            }
+            order_by.as_ref()
+        }
+        StreamingQuery::CreateStream { as_select, .. } => {
+            if let StreamingQuery::Select {
+                order_by, window, ..
+            } = as_select.as_ref()
+            {
+                if window.is_some() {
+                    return output_records;
+                }
+                order_by.as_ref()
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
+
+    // If no ORDER BY or empty, return records as-is
+    let order_exprs = match order_by {
+        Some(exprs) if !exprs.is_empty() => exprs,
+        _ => return output_records,
+    };
+
+    // Convert Arc<StreamRecord> to owned StreamRecord for sorting
+    let records: Vec<StreamRecord> = output_records
+        .into_iter()
+        .map(|arc| (*arc).clone())
+        .collect();
+
+    // Create a minimal ProcessorContext for ORDER BY evaluation
+    let context = ProcessorContext::new("order_by_batch");
+
+    // Sort using OrderProcessor (sorting cannot fail for valid ORDER BY expressions)
+    match OrderProcessor::process(records, order_exprs, &context) {
+        Ok(sorted) => sorted.into_iter().map(Arc::new).collect(),
+        Err(e) => {
+            warn!("ORDER BY sorting failed: {}, returning unsorted records", e);
+            // Reconstruct the original records (we consumed them for sorting attempt)
+            // This shouldn't happen in practice - ORDER BY expressions are validated at parse time
+            Vec::new()
+        }
     }
 }
 
@@ -539,43 +774,30 @@ fn is_recoverable_error(_error: &crate::velostream::sql::SqlError) -> bool {
     false
 }
 
-/// Log progress for a job
-pub fn log_job_progress(job_name: &str, stats: &JobExecutionStats) {
-    let rps = stats.records_per_second();
-    let success_rate = stats.success_rate();
-    let elapsed = stats.elapsed();
+/// Log progress for a job - shows per-batch throughput only
+///
+/// This function is called after each batch. It shows:
+/// - Batch-level stats (records in THIS batch, time for THIS batch)
+/// - NOT cumulative totals (those are shown at the end by log_final_stats)
+///
+/// Parameters:
+/// - batch_records: Number of records processed in this specific batch
+/// - batch_time_ms: Time taken to process this specific batch
+pub fn log_job_progress(job_name: &str, batch_records: usize, batch_time_ms: f64) {
+    // Calculate per-batch throughput
+    let batch_rps = if batch_time_ms > 0.0 {
+        (batch_records as f64 / batch_time_ms) * 1000.0
+    } else {
+        0.0
+    };
 
-    // Check for data starvation - job running but processing 0 records
-    if stats.records_processed == 0 && elapsed.as_secs() >= 60 {
-        error!(
-            "🚨 DATA STARVATION DETECTED: Job '{}' has processed 0 records for {} seconds",
-            job_name,
-            elapsed.as_secs()
-        );
-        error!("   Possible causes:");
-        error!("   1. Source Kafka topic is empty or not producing messages");
-        error!("   2. Schema deserialization is failing (check for missing schema files)");
-        error!("   3. Consumer group offset is stuck or invalid");
-        error!("   4. Network connectivity issues with data source");
-        error!("   Action required: Investigate source configuration and data flow immediately");
-        error!("   Check: curl http://localhost:9091/metrics | grep velo_streaming_throughput_rps");
-    } else if stats.records_processed == 0 {
-        warn!(
-            "Job '{}': 0 records processed after {} seconds (waiting for data...)",
-            job_name,
-            elapsed.as_secs()
+    // Only log if there were records in this batch
+    if batch_records > 0 {
+        info!(
+            "Job '{}': batch processed {} records in {:.1}ms ({:.0} records/sec)",
+            job_name, batch_records, batch_time_ms, batch_rps
         );
     }
-
-    info!(
-        "Job '{}': {} records processed ({} batches), {:.2} records/sec, {:.1}% success rate, {:.1}ms avg batch time",
-        job_name,
-        stats.records_processed,
-        stats.batches_processed,
-        rps,
-        success_rate,
-        stats.avg_processing_time_ms
-    );
 }
 
 /// Log final statistics for a job
@@ -600,9 +822,35 @@ pub fn log_final_stats(job_name: &str, stats: &JobExecutionStats) {
             stats.batches_processed,
             stats.batches_failed,
             stats.avg_batch_size,
-            stats.avg_processing_time_ms
+            stats.effective_avg_batch_time_ms()
         );
     }
+
+    // Log timing breakdown if any timing data was collected
+    let has_timing = stats.total_read_time.as_nanos() > 0
+        || stats.total_sql_time.as_nanos() > 0
+        || stats.total_write_time.as_nanos() > 0;
+
+    if has_timing {
+        let (read_pct, sql_pct, write_pct, other_pct) = stats.timing_breakdown();
+        info!(
+            "  Timing breakdown: read={:.1}ms ({:.1}%), sql={:.1}ms ({:.1}%), write={:.1}ms ({:.1}%), other={:.1}%",
+            stats.total_read_time.as_secs_f64() * 1000.0,
+            read_pct,
+            stats.total_sql_time.as_secs_f64() * 1000.0,
+            sql_pct,
+            stats.total_write_time.as_secs_f64() * 1000.0,
+            write_pct,
+            other_pct
+        );
+    }
+}
+
+/// Log when processor transitions to idle state (first empty batch after processing records)
+/// This helps diagnose when the data stream stops producing records.
+/// Note: Does NOT log cumulative stats - those are shown at the end by log_final_stats.
+pub fn log_idle_transition(job_name: &str) {
+    debug!("Job '{}' ⏸️  IDLE: waiting for more records...", job_name);
 }
 
 /// Result type for datasource operations
@@ -617,6 +865,8 @@ pub struct DataSourceConfig {
     pub app_name: Option<String>, // For multi-JobServer consumer group coordination
     pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
+    /// Enable transactional mode (isolation.level=read_committed for consumers)
+    pub use_transactions: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -626,6 +876,8 @@ pub struct DataSinkConfig {
     pub app_name: Option<String>, // For hierarchical client.id generation
     pub instance_id: Option<String>, // For unique client.id generation
     pub batch_config: Option<crate::velostream::datasource::BatchConfig>,
+    /// Enable transactional mode (transactional.id for exactly-once producers)
+    pub use_transactions: bool,
 }
 
 /// Result of datasource creation
@@ -719,6 +971,7 @@ pub async fn create_datasource_reader(config: &DataSourceConfig) -> DataSourceCr
                 config.app_name.as_deref(),
                 config.instance_id.as_deref(),
                 &config.batch_config,
+                config.use_transactions,
             )
             .await
         }
@@ -740,6 +993,7 @@ async fn create_kafka_reader(
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> DataSourceCreationResult {
     // Extract topic name from properties, or use source name as default
     let topic = props
@@ -750,16 +1004,43 @@ async fn create_kafka_reader(
         .unwrap_or_else(|| source_name.to_string());
 
     info!(
-        "Creating Kafka reader for source '{}' with topic '{}' (app: {}, instance: {})",
+        "Creating Kafka reader for source '{}' with topic '{}' (app: {}, instance: {}, transactional: {})",
         source_name,
         topic,
         app_name.unwrap_or("none"),
-        instance_id.unwrap_or("none")
+        instance_id.unwrap_or("none"),
+        use_transactions
     );
+
+    // Build properties with client.id and isolation.level if transactional mode is enabled
+    let mut source_props = props.clone();
+
+    // Generate client.id for consumer identification in logs and monitoring
+    let client_id = generate_processor_client_id(app_name, job_name, instance_id, source_name);
+    source_props.insert("client.id".to_string(), client_id.clone());
+    log_processor_client_id(
+        &client_id,
+        ClientType::Source,
+        app_name,
+        job_name,
+        instance_id,
+        source_name,
+    );
+
+    if use_transactions {
+        // Configure consumer for exactly-once semantics:
+        // 1. isolation.level=read_committed - Only see committed transactional messages
+        // 2. enable.auto.commit=false - Manual offset management for transactional guarantees
+        info!(
+            "Enabling transactional consumer with isolation.level=read_committed, enable.auto.commit=false"
+        );
+        source_props.insert("isolation.level".to_string(), "read_committed".to_string());
+        source_props.insert("enable.auto.commit".to_string(), "false".to_string());
+    }
 
     // Let KafkaDataSource handle its own configuration extraction
     let mut datasource =
-        KafkaDataSource::from_properties(props, &topic, job_name, app_name, instance_id);
+        KafkaDataSource::from_properties(&source_props, &topic, job_name, app_name, instance_id);
 
     // Self-initialize with the extracted configuration
     datasource
@@ -838,6 +1119,8 @@ pub async fn create_datasource_writer(config: &DataSinkConfig) -> DataSinkCreati
                 config.app_name.as_deref(),
                 config.instance_id.as_deref(),
                 &config.batch_config,
+                config.use_transactions,
+                requirement.primary_keys.as_ref(), // Pass PRIMARY KEY from SQL
             )
             .await
         }
@@ -859,15 +1142,25 @@ async fn create_kafka_writer(
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
+    primary_keys: Option<&Vec<String>>,
 ) -> DataSinkCreationResult {
     // Extract brokers from properties
-    let brokers = props
-        .get("bootstrap.servers")
+    // NOTE: Check flattened YAML keys (datasink.producer_config.bootstrap.servers) first
+    // as they contain the raw ${ENV_VAR:default} pattern that needs substitution
+    let brokers_raw = props
+        .get("datasink.producer_config.bootstrap.servers")
+        .or_else(|| props.get("datasink.config.bootstrap.servers"))
+        .or_else(|| props.get("bootstrap.servers"))
         .or_else(|| props.get("brokers"))
         .or_else(|| props.get("kafka.brokers"))
         .or_else(|| props.get("producer_config.bootstrap.servers"))
-        .map(|s| s.to_string())
+        .cloned()
         .unwrap_or_else(|| "localhost:9092".to_string());
+
+    // Apply runtime env var substitution if the value contains ${VAR:default} pattern
+    // This handles cases where YAML was loaded before env vars were set (e.g., testcontainers)
+    let brokers = substitute_env_vars(&brokers_raw);
 
     // Extract topic name from properties, or use sink name as default
     let topic = props
@@ -877,21 +1170,54 @@ async fn create_kafka_writer(
         .unwrap_or_else(|| sink_name.to_string());
 
     info!(
-        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}', instance: {}",
+        "Creating Kafka writer for sink '{}' with brokers '{}', topic '{}', instance: {}, transactional: {}",
         sink_name,
         brokers,
         topic,
-        instance_id.unwrap_or("none")
+        instance_id.unwrap_or("none"),
+        use_transactions
     );
 
+    // Build properties with client.id and transactional.id if transactional mode is enabled
+    let mut sink_props = props.clone();
+
+    // Generate client.id for producer identification in logs and monitoring
+    let client_id = generate_processor_client_id(app_name, job_name, instance_id, sink_name);
+    sink_props.insert("client.id".to_string(), client_id.clone());
+    log_processor_client_id(
+        &client_id,
+        ClientType::Sink,
+        app_name,
+        job_name,
+        instance_id,
+        sink_name,
+    );
+
+    if use_transactions {
+        // Generate unique transactional.id (must be unique per producer instance)
+        let txn_id = generate_transactional_id(app_name, job_name, instance_id, sink_name);
+        sink_props.insert("transactional.id".to_string(), txn_id.clone());
+        log_transactional_id(&txn_id, app_name, job_name, instance_id, sink_name);
+    }
+
     // Let KafkaDataSink handle its own configuration extraction
-    let mut datasink = KafkaDataSink::from_properties(props, job_name, app_name, instance_id);
+    // Pass use_transactions so the sink knows to configure transactional producer
+    // Pass primary_keys from SQL PRIMARY KEY annotation for Kafka message key
+    let mut datasink = KafkaDataSink::from_properties(
+        &sink_props,
+        job_name,
+        app_name,
+        instance_id,
+        use_transactions,
+        primary_keys.cloned(),
+    );
 
     // Initialize with Kafka SinkConfig using extracted brokers, topic, and properties
+    // Note: sink_props includes transactional.id if use_transactions is true
     let config = SinkConfig::Kafka {
         brokers,
         topic,
-        properties: props.clone(),
+        properties: sink_props.clone(),
     };
     datasink
         .initialize(config)
@@ -925,15 +1251,51 @@ async fn create_file_writer(
     props: &HashMap<String, String>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
 ) -> DataSinkCreationResult {
-    // Let FileSink handle its own configuration extraction
+    use crate::velostream::datasource::config::FileFormat as ConfigFileFormat;
+
+    // Extract format from properties first (needed for default path extension)
+    let format_str = props
+        .get("sink.format")
+        .or_else(|| props.get("format"))
+        .map(|s| s.to_lowercase());
+
+    let format = match format_str.as_deref() {
+        Some("csv") => ConfigFileFormat::Csv {
+            header: true,
+            delimiter: ',',
+            quote: '"',
+        },
+        Some("jsonlines") | Some("json_lines") => ConfigFileFormat::JsonLines,
+        _ => ConfigFileFormat::Json,
+    };
+
+    // Extract path from properties with format-appropriate default extension
+    let default_path = match format_str.as_deref() {
+        Some("csv") => "output.csv",
+        Some("jsonlines") | Some("json_lines") => "output.jsonl",
+        _ => "output.json",
+    };
+
+    let path = props
+        .get("sink.path")
+        .or_else(|| props.get("path"))
+        .cloned()
+        .unwrap_or_else(|| default_path.to_string());
+
+    info!(
+        "Creating File datasink writer with path: '{}', format: {:?}",
+        path, format
+    );
+
+    // Create datasink from properties
     let mut datasink = FileDataSink::from_properties(props);
 
-    // Initialize with File SinkConfig
+    // Initialize with SinkConfig using extracted path and format
     let config = SinkConfig::File {
-        path: "output.json".to_string(),
-        format: crate::velostream::datasource::FileFormat::Json,
+        path,
+        format,
         compression: None,
-        properties: HashMap::new(),
+        properties: props.clone(),
     };
     datasink
         .initialize(config)
@@ -968,27 +1330,31 @@ async fn create_file_writer(
 /// * `sources` - Data source requirements
 /// * `job_name` - Name of the job
 /// * `app_name` - Optional SQL Application name for consumer group coordination
+/// * `instance_id` - Optional instance ID for unique client.id generation
 /// * `batch_config` - Optional batch configuration
+/// * `use_transactions` - Enable transactional mode (isolation.level=read_committed for Kafka consumers)
 pub async fn create_multi_source_readers(
     sources: &[DataSourceRequirement],
     job_name: &str,
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> MultiSourceCreationResult {
     let mut readers = HashMap::new();
 
     info!(
-        "Creating {} data sources for job '{}'",
+        "Creating {} data sources for job '{}' (transactional={})",
         sources.len(),
-        job_name
+        job_name,
+        use_transactions
     );
 
     for (idx, requirement) in sources.iter().enumerate() {
         let source_name = format!("source_{}_{}", idx, requirement.name);
         info!(
-            "Creating source '{}' of type {:?}",
-            source_name, requirement.source_type
+            "Creating source '{}' of type {:?} (transactional={})",
+            source_name, requirement.source_type, use_transactions
         );
 
         // Use requirement.name as the default topic for this source
@@ -999,6 +1365,7 @@ pub async fn create_multi_source_readers(
             app_name: app_name.map(|a| a.to_string()),
             instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
+            use_transactions,
         };
 
         match create_datasource_reader(&source_config).await {
@@ -1028,12 +1395,21 @@ pub async fn create_multi_source_readers(
 }
 
 /// Create multiple datasink writers from analysis requirements
+///
+/// # Arguments
+/// * `sinks` - Data sink requirements
+/// * `job_name` - Name of the job
+/// * `app_name` - Optional SQL Application name
+/// * `instance_id` - Optional instance ID for unique client.id generation
+/// * `batch_config` - Optional batch configuration
+/// * `use_transactions` - Enable transactional mode (injects transactional.id for Kafka producers)
 pub async fn create_multi_sink_writers(
     sinks: &[DataSinkRequirement],
     job_name: &str,
     app_name: Option<&str>,
     instance_id: Option<&str>,
     batch_config: &Option<crate::velostream::datasource::BatchConfig>,
+    use_transactions: bool,
 ) -> MultiSinkCreationResult {
     let mut writers = HashMap::new();
 
@@ -1045,13 +1421,18 @@ pub async fn create_multi_sink_writers(
         return Ok(writers);
     }
 
-    info!("Creating {} data sinks for job '{}'", sinks.len(), job_name);
+    info!(
+        "Creating {} data sinks for job '{}' (transactional={})",
+        sinks.len(),
+        job_name,
+        use_transactions
+    );
 
     for (idx, requirement) in sinks.iter().enumerate() {
         let sink_name = format!("sink_{}_{}", idx, requirement.name);
         info!(
-            "Creating sink '{}' of type {:?}",
-            sink_name, requirement.sink_type
+            "Creating sink '{}' of type {:?} (transactional={})",
+            sink_name, requirement.sink_type, use_transactions
         );
 
         let sink_config = DataSinkConfig {
@@ -1060,6 +1441,7 @@ pub async fn create_multi_sink_writers(
             app_name: app_name.map(|a| a.to_string()),
             instance_id: instance_id.map(|i| i.to_string()),
             batch_config: batch_config.clone(),
+            use_transactions,
         };
 
         match create_datasource_writer(&sink_config).await {

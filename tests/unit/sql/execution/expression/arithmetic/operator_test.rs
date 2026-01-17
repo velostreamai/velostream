@@ -27,6 +27,8 @@ fn create_test_record(text_field: &str) -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -49,6 +51,8 @@ fn create_edge_case_record() -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -73,6 +77,7 @@ async fn test_like_operator() {
 
     for (pattern, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::BinaryOp {
                     left: Box::new(Expr::Column("text_field".to_string())),
@@ -81,6 +86,7 @@ async fn test_like_operator() {
                 },
                 alias: Some("like_result".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: None,
@@ -138,6 +144,7 @@ async fn test_not_like_operator() {
 
     for (pattern, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::BinaryOp {
                     left: Box::new(Expr::Column("text_field".to_string())),
@@ -146,6 +153,7 @@ async fn test_not_like_operator() {
                 },
                 alias: Some("not_like_result".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: None,
@@ -205,6 +213,7 @@ async fn test_like_operator_edge_cases() {
 
     for (pattern, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::BinaryOp {
                     left: Box::new(Expr::Column("text_field".to_string())),
@@ -213,6 +222,7 @@ async fn test_like_operator_edge_cases() {
                 },
                 alias: Some("like_result".to_string()),
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: None,
@@ -250,6 +260,7 @@ async fn test_like_operator_edge_cases() {
 
     // Test NULL field - should not match anything
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::Column("null_field".to_string())),
@@ -258,6 +269,7 @@ async fn test_like_operator_edge_cases() {
             },
             alias: Some("null_like_result".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: None,
@@ -289,6 +301,7 @@ async fn test_like_operator_edge_cases() {
 
     // Test numeric field with LIKE
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::Column("number_field".to_string())),
@@ -297,6 +310,7 @@ async fn test_like_operator_edge_cases() {
             },
             alias: Some("number_like_result".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: None,
@@ -350,6 +364,8 @@ async fn test_in_operator_basic() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test cases for IN operator
@@ -373,10 +389,12 @@ async fn test_in_operator_basic() {
 
     for (query_str, expected) in test_cases {
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Column("id".to_string()), // Just select id to have some output
                 alias: None,
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: Some(Expr::BinaryOp {
@@ -434,6 +452,8 @@ async fn test_not_in_operator_basic() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test NOT IN operator - opposite of IN results
@@ -452,10 +472,12 @@ async fn test_not_in_operator_basic() {
         let list_str = parts[1];
 
         let query = StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Expression {
                 expr: Expr::Column("id".to_string()),
                 alias: None,
             }],
+            key_fields: None,
             from: StreamSource::Stream("test".to_string()),
             from_alias: None,
             where_clause: Some(Expr::BinaryOp {
@@ -507,14 +529,18 @@ async fn test_in_operator_with_null_values() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test NULL IN list (should never match)
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {
@@ -549,10 +575,12 @@ async fn test_in_operator_with_null_values() {
 
     // Test NOT IN with NULL - should also not match
     let query_not_in = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {
@@ -603,6 +631,8 @@ async fn test_in_operator_edge_cases() {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     };
 
     // Test empty list (should never match)
@@ -613,10 +643,12 @@ async fn test_in_operator_edge_cases() {
         .map(|i| Expr::Literal(LiteralValue::Integer(i)))
         .collect();
     let query_large = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {
@@ -647,10 +679,12 @@ async fn test_in_operator_edge_cases() {
 
     // Test with duplicate values in list (should still work)
     let query_duplicates = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Column("id".to_string()),
             alias: None,
         }],
+        key_fields: None,
         from: StreamSource::Stream("test".to_string()),
         from_alias: None,
         where_clause: Some(Expr::BinaryOp {

@@ -90,6 +90,8 @@ mod tests {
                 partition: 0,
                 event_time: None,
                 headers: HashMap::new(),
+                topic: None,
+                key: None,
             };
             // Execute each record individually
             engine.execute_with_record(&query, &record).await.unwrap();
@@ -134,6 +136,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record1).await.unwrap();
 
@@ -147,6 +151,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record2).await.unwrap();
 
@@ -160,6 +166,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record3).await.unwrap();
 
@@ -212,6 +220,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record).await.unwrap();
 
@@ -245,6 +255,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record1).await.unwrap();
 
@@ -258,6 +270,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record2).await.unwrap();
 
@@ -300,6 +314,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record1).await.unwrap();
 
@@ -312,6 +328,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record2).await.unwrap();
 
@@ -358,6 +376,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: headers.clone(),
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record1).await.unwrap();
 
@@ -370,6 +390,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
         engine.execute_with_record(&query, &record2).await.unwrap();
 

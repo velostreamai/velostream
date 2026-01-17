@@ -36,6 +36,7 @@
 pub mod builder;
 pub mod connection_string;
 pub mod environment;
+pub mod resolver;
 pub mod types;
 pub mod validation;
 pub mod with_clause_parser;
@@ -44,6 +45,7 @@ pub mod yaml_loader;
 // Re-export main types for convenience
 pub use connection_string::ConnectionString;
 pub use environment::ConfigSource;
+pub use resolver::{PropertyResolver, default_resolver};
 pub use types::{ConfigError, DataSourceConfig};
 pub use validation::ValidationError;
-pub use yaml_loader::load_yaml_config;
+pub use yaml_loader::{load_yaml_config, load_yaml_config_with_base, substitute_env_vars};

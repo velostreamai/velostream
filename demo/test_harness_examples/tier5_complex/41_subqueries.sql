@@ -1,0 +1,54 @@
+-- SQL Application: subqueries_demo
+-- Version: 1.0.0
+-- Description: Subquery patterns for filtering
+-- =============================================================================
+-- Tier 5: Subqueries
+-- =============================================================================
+--
+-- Tests: IN (SELECT ...), EXISTS patterns
+-- Expected: Correct subquery evaluation
+--
+-- =============================================================================
+
+-- @app: subqueries_demo
+-- @description: Subquery patterns for filtering
+
+-- Step 1: Create VIP customers reference table from file
+CREATE TABLE vip_customers AS
+SELECT
+    customer_id,
+    customer_name,
+    tier,
+    region,
+    signup_date
+FROM customers_file
+WITH (
+    'customers_file.type' = 'file_source',
+    'customers_file.config_file' = '../configs/customers_table.yaml'
+);
+
+-- Step 2: Filter orders from VIP customers using subquery pattern
+CREATE STREAM vip_orders AS
+SELECT
+    o.order_id,
+    o.customer_id,
+    o.product_id,
+    o.quantity,
+    o.unit_price,
+    o.quantity * o.unit_price AS order_total,
+    o.status,
+    o.event_time
+FROM all_orders o
+WHERE o.customer_id IN (
+    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+)
+EMIT CHANGES
+WITH (
+    'all_orders.type' = 'kafka_source',
+    'all_orders.topic.name' = 'test_all_orders',
+    'all_orders.config_file' = '../configs/orders_source.yaml',
+
+    'vip_orders.type' = 'kafka_sink',
+    'vip_orders.topic.name' = 'test_vip_orders',
+    'vip_orders.config_file' = '../configs/orders_sink.yaml'
+);

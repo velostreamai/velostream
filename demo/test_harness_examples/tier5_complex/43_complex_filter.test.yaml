@@ -1,0 +1,46 @@
+application: complex_filter_demo
+description: Test complex filtering with multiple predicates
+default_timeout_ms: 60000
+default_records: 500
+
+queries:
+  - name: filtered_orders
+    description: Verify complex filter conditions are correctly applied
+    inputs:
+      - source: order_stream
+        schema: order_event
+        records: 500
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 500  # Should filter out some records
+      - type: schema_contains
+        fields: [order_id, customer_id, product_id, quantity, unit_price, subtotal, net_total, status, region, priority]
+      - type: field_values
+        field: quantity
+        operator: greater_than_or_equals
+        value: 1
+      - type: field_values
+        field: quantity
+        operator: less_than_or_equals
+        value: 100
+      - type: field_values
+        field: unit_price
+        operator: greater_than
+        value: 10.00
+      - type: field_in_set
+        field: status
+        values: ["confirmed", "processing", "shipped"]
+      - type: field_in_set
+        field: region
+        values: ["US", "EU", "APAC"]
+      - type: field_in_set
+        field: priority
+        values: ["high", "medium"]
+      - type: field_values
+        field: customer_id
+        operator: greater_than
+        value: 0
+      - type: no_nulls
+        fields: [order_id, customer_id, quantity, unit_price, status, region, category]
+    timeout_ms: 60000

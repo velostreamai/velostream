@@ -121,7 +121,7 @@ async fn test_multi_job_server_deploy_all_jobs() {
     }
 
     // Determine binary path based on environment
-    let binary_name = "velo-sql-multi";
+    let binary_name = "velo-sql";
     let binary_path = if std::env::var("CI").is_ok() {
         format!("./target/debug/{}", binary_name)
     } else {
@@ -552,15 +552,15 @@ async fn test_prerequisites() {
     println!("🔍 Checking test prerequisites...");
 
     // Check if multi-job server binary exists
-    let binary_path = "./target/release/velo-sql-multi";
+    let binary_path = "./target/release/velo-sql";
     let binary_exists = std::path::Path::new(binary_path).exists();
     println!(
-        "   velo-sql-multi binary: {}",
+        "   velo-sql binary: {}",
         if binary_exists { "✅" } else { "❌" }
     );
 
     if !binary_exists {
-        println!("💡 Run 'cargo build --release --bin velo-sql-multi' to build the binary");
+        println!("💡 Run 'cargo build --release --bin velo-sql' to build the binary");
     }
 
     // Check if Kafka is available
@@ -583,6 +583,6 @@ async fn test_prerequisites() {
 
     println!("\n📝 To run integration tests:");
     println!("   1. Start Kafka: docker-compose -f demo/trading/kafka-compose.yml up -d");
-    println!("   2. Build binary: cargo build --release --bin velo-sql-multi");
+    println!("   2. Build binary: cargo build --release --bin velo-sql");
     println!("   3. Run tests: cargo test test_multi_job_server -- --ignored");
 }

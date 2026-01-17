@@ -13,7 +13,6 @@ delivery_profile: high_priority
 
 datasink:
   schema:
-    key.field: symbol
     value.serializer: json
 
   topic_config:

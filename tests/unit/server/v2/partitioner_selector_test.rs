@@ -18,11 +18,13 @@ fn test_scenario_0_pure_select_should_use_hash() {
     // Performance: 2.27x faster than SQL Engine
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("order_id".to_string()),
             SelectField::Column("customer_id".to_string()),
             SelectField::Column("total_amount".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -59,10 +61,12 @@ fn test_scenario_1_rows_window_without_group_by_should_use_sticky() {
     // Performance: Optimal with source partition affinity
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("symbol".to_string()),
             SelectField::Column("price".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -109,6 +113,7 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
     // Performance: 2.42x faster (super-linear: 291% per-core efficiency!)
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("symbol".to_string()),
             SelectField::Expression {
@@ -126,6 +131,7 @@ fn test_scenario_2_group_by_aggregation_should_use_hash() {
                 alias: Some("avg_price".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -163,10 +169,12 @@ fn test_scenario_3a_tumbling_with_group_by_should_use_hash() {
     // GROUP BY keys define how data is grouped within each window
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("trader_id".to_string()),
             SelectField::Column("symbol".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -211,6 +219,7 @@ fn test_scenario_3b_emit_changes_with_group_by_should_use_hash() {
     // Performance: 4.6x faster than SQL Engine (batch handles amplification well)
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("trader_id".to_string()),
             SelectField::Column("symbol".to_string()),
@@ -222,6 +231,7 @@ fn test_scenario_3b_emit_changes_with_group_by_should_use_hash() {
                 alias: Some("trade_count".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,
@@ -262,7 +272,9 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
         name: "high_value_orders".to_string(),
         columns: None,
         as_select: Box::new(StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("orders".to_string()),
             from_alias: None,
             joins: None,
@@ -300,7 +312,9 @@ fn test_default_behavior_uses_smart_repartition_for_create_stream() {
 fn test_routing_keys_extracted_correctly_for_multi_column_group_by() {
     // Verify that routing keys are correctly extracted from complex GROUP BY
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("trades".to_string()),
         from_alias: None,
         joins: None,
@@ -343,7 +357,9 @@ fn test_user_explicit_choice_principle_documented() {
     // If user explicitly chooses Sticky in config, that choice must be RESPECTED
 
     let window_query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,

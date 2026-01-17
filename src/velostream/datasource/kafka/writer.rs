@@ -1,7 +1,15 @@
 //! Unified Kafka data writer implementation
+//!
+//! Supports two producer modes:
+//! - **Async mode** (default): High-throughput with `BaseProducer` and dedicated poll thread
+//! - **Transactional mode**: Exactly-once semantics with `TransactionalPolledProducer`
+//!
+//! Transactional mode is automatically enabled when `transactional.id` is provided in properties.
 
 use crate::velostream::datasource::config::unified::{ConfigFactory, ConfigLogger};
 use crate::velostream::datasource::{BatchConfig, DataWriter};
+use crate::velostream::kafka::common_config::apply_broker_address_family;
+use crate::velostream::kafka::kafka_fast_producer::{PolledProducer, TransactionalPolledProducer};
 use crate::velostream::serialization::helpers::{
     create_avro_codec, create_protobuf_codec, field_value_to_json,
 };
@@ -9,12 +17,30 @@ use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use async_trait::async_trait;
 use rdkafka::{
     ClientConfig,
-    producer::{FutureProducer, FutureRecord, Producer},
+    producer::{BaseProducer, BaseRecord, DefaultProducerContext, Producer},
 };
 use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
+
+/// Internal enum to hold either async BaseProducer or TransactionalPolledProducer
+///
+/// This enables KafkaDataWriter to support both high-throughput async mode
+/// and exactly-once transactional mode based on configuration.
+enum ProducerKind {
+    /// Async mode: BaseProducer with dedicated poll thread for high throughput
+    Async {
+        producer: Arc<BaseProducer<DefaultProducerContext>>,
+        poll_stop: Arc<AtomicBool>,
+        poll_thread: Option<JoinHandle<()>>,
+    },
+    /// Transactional mode: TransactionalPolledProducer for exactly-once semantics
+    Transactional(TransactionalPolledProducer),
+}
 
 use crate::velostream::kafka::serialization_format::SerializationFormat;
 
@@ -23,13 +49,40 @@ use crate::velostream::serialization::avro_codec::AvroCodec;
 use crate::velostream::serialization::protobuf_codec::ProtobufCodec;
 
 /// Unified Kafka DataWriter that handles all serialization formats
+///
+/// Supports two producer modes based on configuration:
+///
+/// ## Async Mode (default)
+/// Uses `BaseProducer` for maximum throughput:
+/// - Sync send() queues messages immediately (non-blocking)
+/// - Internal librdkafka batching optimizes network I/O
+/// - **Dedicated poll thread** for async delivery confirmation
+/// - One producer instance, many sends = highest performance
+///
+/// ## Transactional Mode
+/// Automatically enabled when `transactional.id` is provided in properties:
+/// - Uses `TransactionalPolledProducer` for exactly-once semantics
+/// - All operations serialized through dedicated manager thread
+/// - `init_transactions()` called automatically at construction
+/// - Proper `enable.idempotence=true` and `acks=all` settings
+///
+/// ## Configuration
+/// To enable transactional mode, include `transactional.id` in properties:
+/// ```yaml
+/// transactional.id: "my-app-producer-1"
+/// ```
 pub struct KafkaDataWriter {
-    producer: FutureProducer,
+    /// Internal producer - either async BaseProducer or TransactionalPolledProducer
+    producer_kind: ProducerKind,
     topic: String,
     format: SerializationFormat,
-    key_field: Option<String>, // Field name to use as message key
+    /// Primary key fields from SQL PRIMARY KEY annotation (for Kafka message key)
+    /// Multiple fields are joined with pipe delimiter for compound keys
+    primary_keys: Option<Vec<String>>,
     avro_codec: Option<AvroCodec>,
     protobuf_codec: Option<ProtobufCodec>,
+    /// Track if we've warned about null keys (warn once per writer instance)
+    warned_null_key: std::sync::atomic::AtomicBool,
 }
 
 impl KafkaDataWriter {
@@ -39,14 +92,14 @@ impl KafkaDataWriter {
         brokers: &str,
         topic: String,
         format: SerializationFormat,
-        key_field: Option<String>,
+        primary_keys: Option<Vec<String>>,
         schema: Option<&str>, // Unified schema parameter
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         Self::create_with_schema_validation_and_batch_config(
             brokers,
             topic,
             format,
-            key_field,
+            primary_keys,
             schema,
             &HashMap::new(),
             None,
@@ -59,6 +112,7 @@ impl KafkaDataWriter {
         brokers: &str,
         topic: String,
         properties: &HashMap<String, String>,
+        primary_keys: Option<Vec<String>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Extract format from properties
         let format_str = properties
@@ -71,13 +125,6 @@ impl KafkaDataWriter {
 
         let format = Self::parse_serialization_format(format_str);
 
-        // Extract key field configuration
-        let key_field = properties
-            .get("key.field")
-            .or_else(|| properties.get("message.key.field"))
-            .or_else(|| properties.get("schema.key.field"))
-            .cloned();
-
         // Extract schema based on format
         let schema = Self::extract_schema_from_properties(&format, properties)?;
 
@@ -85,9 +132,9 @@ impl KafkaDataWriter {
             brokers,
             topic,
             format,
-            key_field,
+            primary_keys,
             schema.as_deref(),
-            &HashMap::new(),
+            properties,
             None,
         )
         .await
@@ -99,6 +146,7 @@ impl KafkaDataWriter {
         topic: String,
         properties: &HashMap<String, String>,
         batch_config: BatchConfig,
+        primary_keys: Option<Vec<String>>,
     ) -> Result<Self, Box<dyn Error + Send + Sync>> {
         // Extract format from properties
         let format_str = properties
@@ -111,13 +159,6 @@ impl KafkaDataWriter {
 
         let format = Self::parse_serialization_format(format_str);
 
-        // Extract key field configuration
-        let key_field = properties
-            .get("key.field")
-            .or_else(|| properties.get("message.key.field"))
-            .or_else(|| properties.get("schema.key.field"))
-            .cloned();
-
         // Extract schema based on format
         let schema = Self::extract_schema_from_properties(&format, properties)?;
 
@@ -125,7 +166,7 @@ impl KafkaDataWriter {
             brokers,
             topic,
             format,
-            key_field,
+            primary_keys,
             schema.as_deref(),
             properties,
             Some(batch_config),
@@ -138,7 +179,7 @@ impl KafkaDataWriter {
         brokers: &str,
         topic: String,
         format: SerializationFormat,
-        key_field: Option<String>,
+        primary_keys: Option<Vec<String>>,
         schema: Option<&str>,
         properties: &HashMap<String, String>,
         batch_config: Option<BatchConfig>,
@@ -159,31 +200,11 @@ impl KafkaDataWriter {
             filtered_properties.insert(key, value);
         }
 
-        let producer_config = if let Some(batch_config) = batch_config {
-            let config = ConfigFactory::create_kafka_producer_config(
-                brokers,
-                &filtered_properties,
-                &batch_config,
-            );
-            ConfigLogger::log_kafka_producer_config(&config, &batch_config, &topic, brokers);
-            config
-        } else {
-            let mut config = HashMap::new();
-            config.insert("bootstrap.servers".to_string(), brokers.to_string());
-            // Apply filtered user properties only
-            for (key, value) in filtered_properties.iter() {
-                config.insert(key.clone(), value.clone());
-            }
-            config
-        };
-
-        // Create Kafka ClientConfig from our optimized configuration
-        let mut client_config = ClientConfig::new();
-        for (key, value) in &producer_config {
-            client_config.set(key, value);
-        }
-
-        let producer: FutureProducer = client_config.create()?;
+        // Check for transactional.id to determine producer mode
+        let transactional_id = properties
+            .get("transactional.id")
+            .or_else(|| properties.get("transactional_id"))
+            .cloned();
 
         // Initialize codec based on format using optimized single codec creation
         let (avro_codec, protobuf_codec) = match &format {
@@ -198,20 +219,119 @@ impl KafkaDataWriter {
             _ => (None, None),
         };
 
+        // Create appropriate producer based on transactional.id presence
+        let producer_kind = if let Some(txn_id) = transactional_id {
+            // Transactional mode: use TransactionalPolledProducer
+            log::info!(
+                "KafkaDataWriter: Creating TRANSACTIONAL producer for topic '{}' with transactional.id='{}'",
+                topic,
+                txn_id
+            );
+
+            let txn_producer = TransactionalPolledProducer::with_config(
+                brokers,
+                &txn_id,
+                Duration::from_secs(30), // init_transactions timeout
+                Some(&filtered_properties),
+            )?;
+
+            log::info!(
+                "KafkaDataWriter: Transactional producer initialized successfully (enable.idempotence=true, acks=all)"
+            );
+
+            ProducerKind::Transactional(txn_producer)
+        } else {
+            // Async mode: use BaseProducer with poll thread for max throughput
+            let producer_config = if let Some(batch_config) = batch_config {
+                let config = ConfigFactory::create_kafka_producer_config(
+                    brokers,
+                    &filtered_properties,
+                    &batch_config,
+                );
+                ConfigLogger::log_kafka_producer_config(&config, &batch_config, &topic, brokers);
+                config
+            } else {
+                let mut config = HashMap::new();
+                config.insert("bootstrap.servers".to_string(), brokers.to_string());
+                for (key, value) in filtered_properties.iter() {
+                    config.insert(key.clone(), value.clone());
+                }
+                config
+            };
+
+            // Create Kafka ClientConfig from our optimized configuration
+            let mut client_config = ClientConfig::new();
+            for (key, value) in &producer_config {
+                client_config.set(key, value);
+            }
+
+            // Add high-throughput BaseProducer settings (if not already set by batch config)
+            if !producer_config.contains_key("queue.buffering.max.kbytes") {
+                client_config.set("queue.buffering.max.kbytes", "1048576"); // 1GB queue
+            }
+            if !producer_config.contains_key("queue.buffering.max.messages") {
+                client_config.set("queue.buffering.max.messages", "500000");
+            }
+            if !producer_config.contains_key("batch.size") {
+                client_config.set("batch.size", "1048576"); // 1MB batches
+            }
+            if !producer_config.contains_key("linger.ms") {
+                client_config.set("linger.ms", "5"); // Small delay for batching
+            }
+            if !producer_config.contains_key("compression.type") {
+                client_config.set("compression.type", "lz4");
+            }
+            if !producer_config.contains_key("acks") {
+                client_config.set("acks", "1"); // Leader only (faster flush)
+            }
+            if !producer_config.contains_key("enable.idempotence") {
+                client_config.set("enable.idempotence", "false"); // Disable for max throughput
+            }
+
+            // Configure broker address family (env: VELOSTREAM_BROKER_ADDRESS_FAMILY, default: v4)
+            apply_broker_address_family(&mut client_config);
+
+            // Create high-performance BaseProducer (sync, internal batching)
+            let producer: BaseProducer<DefaultProducerContext> = client_config.create()?;
+            let producer = Arc::new(producer);
+
+            // Create poll control and spawn initial poll thread
+            let poll_stop = Arc::new(AtomicBool::new(false));
+            let poll_thread = Self::spawn_poll_thread(
+                Arc::clone(&producer),
+                Arc::clone(&poll_stop),
+                topic.clone(),
+            );
+
+            log::info!(
+                "KafkaDataWriter: Created ASYNC producer for topic '{}' with dedicated poll thread",
+                topic
+            );
+
+            ProducerKind::Async {
+                producer,
+                poll_stop,
+                poll_thread: Some(poll_thread),
+            }
+        };
+
+        let is_transactional = matches!(producer_kind, ProducerKind::Transactional(_));
         let writer = Self {
-            producer,
+            producer_kind,
             topic: topic.clone(),
             format,
-            key_field: key_field.or(Some("key".to_string())), // Default to "key" field
+            primary_keys, // No default - if not configured, records use round-robin partitioning
             avro_codec,
             protobuf_codec,
+            warned_null_key: std::sync::atomic::AtomicBool::new(false),
         };
 
         log::info!(
-            "KafkaDataWriter: Initialized writer for topic '{}' with format={:?}, key_field={:?}",
+            "KafkaDataWriter: Initialized writer for topic '{}' with format={:?}, primary_keys={:?}, transactional={}",
             topic,
             writer.format,
-            writer.key_field
+            writer.primary_keys,
+            is_transactional
         );
 
         Ok(writer)
@@ -328,9 +448,16 @@ impl KafkaDataWriter {
         schema: Option<&str>,
     ) -> Result<ProtobufCodec, Box<dyn Error + Send + Sync>> {
         if let Some(proto_schema) = schema {
+            log::debug!(
+                "KafkaDataWriter: Creating Protobuf codec with provided schema ({} bytes)",
+                proto_schema.len()
+            );
             create_protobuf_codec(Some(proto_schema))
         } else {
             // Use default schema for backward compatibility (writer-specific behavior)
+            log::warn!(
+                "KafkaDataWriter: No Protobuf schema provided, using default generic schema"
+            );
             Ok(ProtobufCodec::new_with_default_schema())
         }
     }
@@ -367,6 +494,11 @@ impl KafkaDataWriter {
             }
             SerializationFormat::Protobuf { .. } => {
                 // Look for Protobuf schema in various config keys (dot notation preferred, underscore fallback)
+                log::debug!(
+                    "KafkaDataWriter: Extracting Protobuf schema, {} properties available",
+                    properties.len()
+                );
+
                 let schema = properties
                     .get("protobuf.schema")
                     .or_else(|| properties.get("value.protobuf.schema"))
@@ -375,21 +507,33 @@ impl KafkaDataWriter {
                     .or_else(|| properties.get("proto.schema"))
                     .cloned();
 
-                if schema.is_none() {
-                    // Check for schema file path (dot notation preferred, underscore fallback)
-                    if let Some(schema_file) = properties
-                        .get("protobuf.schema.file")
-                        .or_else(|| properties.get("proto.schema.file"))
-                        .or_else(|| properties.get("schema.value.schema.file"))
-                        .or_else(|| properties.get("value.schema.file"))
-                        .or_else(|| properties.get("schema.file"))
-                        .or_else(|| properties.get("protobuf_schema_file"))
-                        .or_else(|| properties.get("schema_file"))
-                    {
-                        return Self::load_schema_from_file(schema_file);
-                    }
+                if schema.is_some() {
+                    log::debug!("KafkaDataWriter: Found inline protobuf schema");
+                    return Ok(schema);
                 }
-                Ok(schema)
+
+                // Check for schema file path (dot notation preferred, underscore fallback)
+                log::debug!("KafkaDataWriter: No inline schema, checking for schema file...");
+                if let Some(schema_file) = properties
+                    .get("protobuf.schema.file")
+                    .or_else(|| properties.get("proto.schema.file"))
+                    .or_else(|| properties.get("schema.value.schema.file"))
+                    .or_else(|| properties.get("value.schema.file"))
+                    .or_else(|| properties.get("schema.file"))
+                    .or_else(|| properties.get("protobuf_schema_file"))
+                    .or_else(|| properties.get("schema_file"))
+                {
+                    log::info!(
+                        "KafkaDataWriter: Loading protobuf schema from file: {}",
+                        schema_file
+                    );
+                    return Self::load_schema_from_file(schema_file);
+                }
+
+                log::warn!(
+                    "KafkaDataWriter: No protobuf schema or schema file found in properties"
+                );
+                Ok(None)
             }
             SerializationFormat::Json
             | SerializationFormat::Bytes
@@ -409,9 +553,27 @@ impl KafkaDataWriter {
         file_path: &str,
     ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
         use std::fs;
+        log::debug!(
+            "KafkaDataWriter: Attempting to load schema from file: {}",
+            file_path
+        );
         match fs::read_to_string(file_path) {
-            Ok(content) => Ok(Some(content)),
-            Err(e) => Err(format!("Failed to load schema from file '{}': {}", file_path, e).into()),
+            Ok(content) => {
+                log::info!(
+                    "KafkaDataWriter: Successfully loaded schema from file '{}' ({} bytes)",
+                    file_path,
+                    content.len()
+                );
+                Ok(Some(content))
+            }
+            Err(e) => {
+                log::error!(
+                    "KafkaDataWriter: Failed to load schema from file '{}': {}",
+                    file_path,
+                    e
+                );
+                Err(format!("Failed to load schema from file '{}': {}", file_path, e).into())
+            }
         }
     }
 
@@ -435,37 +597,220 @@ impl KafkaDataWriter {
         }"#
     }
 
-    /// Extract message key from StreamRecord fields
-    fn extract_key(&self, record: &StreamRecord) -> Option<String> {
-        if let Some(key_field) = &self.key_field {
-            match record.fields.get(key_field) {
-                Some(FieldValue::String(s)) => Some(s.clone()),
-                Some(FieldValue::Integer(i)) => Some(i.to_string()),
-                Some(FieldValue::Float(f)) => Some(f.to_string()),
-                Some(FieldValue::ScaledInteger(val, scale)) => {
-                    // Format as decimal string
-                    let divisor = 10_i64.pow(*scale as u32);
-                    let integer_part = val / divisor;
-                    let fractional_part = (val % divisor).abs();
-                    if fractional_part == 0 {
-                        Some(integer_part.to_string())
-                    } else {
-                        let frac_str =
-                            format!("{:0width$}", fractional_part, width = *scale as usize);
-                        let frac_trimmed = frac_str.trim_end_matches('0');
-                        if frac_trimmed.is_empty() {
-                            Some(integer_part.to_string())
-                        } else {
-                            Some(format!("{}.{}", integer_part, frac_trimmed))
-                        }
-                    }
+    // =========================================================================
+    // Poll Thread Management
+    // =========================================================================
+
+    /// Spawn a new poll thread for async delivery confirmation
+    ///
+    /// The poll thread runs poll(0) in a tight loop to process delivery callbacks.
+    /// This is stopped during flush() to avoid contention, then restarted after.
+    fn spawn_poll_thread(
+        producer: Arc<BaseProducer<DefaultProducerContext>>,
+        poll_stop: Arc<AtomicBool>,
+        topic: String,
+    ) -> JoinHandle<()> {
+        thread::spawn(move || {
+            log::debug!("KafkaDataWriter: Poll thread started for topic '{}'", topic);
+            while !poll_stop.load(Ordering::Relaxed) {
+                // poll(0) = process callbacks immediately, no blocking
+                // This runs at 100% CPU but is required for maximum throughput
+                // to keep up with high-speed message production.
+                producer.poll(Duration::from_millis(0));
+            }
+            log::debug!("KafkaDataWriter: Poll thread stopped for topic '{}'", topic);
+        })
+    }
+
+    /// Stop the poll thread and wait for it to exit (Async mode only)
+    ///
+    /// Must be called before transaction operations to prevent contention
+    /// with the transaction coordinator.
+    fn stop_poll_thread(&mut self) {
+        if let ProducerKind::Async {
+            poll_stop,
+            poll_thread,
+            ..
+        } = &mut self.producer_kind
+        {
+            poll_stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = poll_thread.take() {
+                let _ = handle.join();
+            }
+        }
+        // TransactionalPolledProducer manages its own thread - no action needed
+    }
+
+    /// Restart the poll thread after transaction operations complete (Async mode only)
+    fn restart_poll_thread(&mut self) {
+        if let ProducerKind::Async {
+            producer,
+            poll_stop,
+            poll_thread,
+        } = &mut self.producer_kind
+        {
+            *poll_stop = Arc::new(AtomicBool::new(false));
+            *poll_thread = Some(Self::spawn_poll_thread(
+                Arc::clone(producer),
+                Arc::clone(poll_stop),
+                self.topic.clone(),
+            ));
+        }
+        // TransactionalPolledProducer manages its own thread - no action needed
+    }
+
+    /// Check if this writer is in transactional mode
+    fn is_transactional(&self) -> bool {
+        matches!(self.producer_kind, ProducerKind::Transactional(_))
+    }
+
+    /// Internal: Send a record to the producer (Async mode only)
+    ///
+    /// For Async mode, directly calls producer.send().
+    /// For Transactional mode, this method should not be called - use send_transactional() instead.
+    #[allow(clippy::result_large_err)] // Error type is from rdkafka and cannot be changed
+    fn send_async_record<'a, K, P>(
+        &self,
+        record: BaseRecord<'a, K, P>,
+    ) -> Result<(), (rdkafka::error::KafkaError, BaseRecord<'a, K, P>)>
+    where
+        K: rdkafka::message::ToBytes + ?Sized,
+        P: rdkafka::message::ToBytes + ?Sized,
+    {
+        match &self.producer_kind {
+            ProducerKind::Async { producer, .. } => producer.send(record),
+            ProducerKind::Transactional(_) => {
+                // Should not reach here - transactional mode uses send_transactional
+                panic!(
+                    "send_async_record called on transactional producer - use send_transactional instead"
+                )
+            }
+        }
+    }
+
+    /// Internal: Send a record via TransactionalPolledProducer
+    ///
+    /// TransactionalPolledProducer has to copy data to send to its manager thread,
+    /// so we need to provide owned data.
+    fn send_transactional(
+        &self,
+        topic: &str,
+        key: Option<&str>,
+        payload: &[u8],
+    ) -> Result<(), rdkafka::error::KafkaError> {
+        match &self.producer_kind {
+            ProducerKind::Transactional(txn_producer) => {
+                // Build a BaseRecord for the TransactionalPolledProducer
+                let mut record = BaseRecord::to(topic).payload(payload);
+                if let Some(k) = key {
+                    record = record.key(k);
                 }
-                Some(FieldValue::Boolean(b)) => Some(b.to_string()),
-                Some(FieldValue::Null) | None => None,
-                _ => None,
+                match txn_producer.send(record) {
+                    Ok(()) => Ok(()),
+                    Err((err, _)) => Err(err),
+                }
+            }
+            ProducerKind::Async { .. } => {
+                panic!(
+                    "send_transactional called on async producer - use send_async_record instead"
+                )
+            }
+        }
+    }
+
+    /// Internal: Flush the producer (works with both modes)
+    fn flush_producer(&mut self, timeout: Duration) -> Result<(), rdkafka::error::KafkaError> {
+        match &mut self.producer_kind {
+            ProducerKind::Async { producer, .. } => producer.flush(timeout),
+            ProducerKind::Transactional(txn_producer) => txn_producer.flush(timeout),
+        }
+    }
+
+    // =========================================================================
+    // Key Extraction and Serialization
+    // =========================================================================
+
+    /// Extract message key from StreamRecord
+    ///
+    /// Priority:
+    /// 1. record.key - set by GROUP BY queries or PRIMARY KEY annotation
+    /// 2. primary_keys - field names from SQL PRIMARY KEY annotation
+    /// 3. None - null key (round-robin partitioning)
+    ///
+    /// Key format:
+    /// - Single key: raw value (e.g., "AAPL")
+    /// - Compound key: pipe-delimited (e.g., "US|Widget")
+    fn extract_key(&self, record: &StreamRecord) -> Option<String> {
+        // Priority 1: Use record.key if set (from GROUP BY or PRIMARY KEY)
+        if let Some(ref key_value) = record.key {
+            return Some(key_value.to_key_string());
+        }
+
+        // Priority 2: Use configured primary_keys from SQL PRIMARY KEY annotation
+        if let Some(ref key_fields) = self.primary_keys {
+            if key_fields.len() == 1 {
+                // Single key field
+                self.extract_single_key_value(record, &key_fields[0])
+            } else {
+                // Compound key - extract each field and join with pipe delimiter
+                let key_parts: Vec<String> = key_fields
+                    .iter()
+                    .filter_map(|field_name| self.extract_single_key_value(record, field_name))
+                    .collect();
+
+                if key_parts.len() == key_fields.len() {
+                    // All fields found - return pipe-delimited key
+                    Some(key_parts.join("|"))
+                } else {
+                    // Some fields missing
+                    if !self
+                        .warned_null_key
+                        .swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        log::warn!(
+                            "Writing record with NULL key to topic '{}' (some key fields missing from compound key {:?}). \
+                             Records with NULL keys use round-robin partitioning.",
+                            self.topic,
+                            key_fields
+                        );
+                    }
+                    None
+                }
             }
         } else {
+            // No primary_keys configured at all
+            if !self
+                .warned_null_key
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                log::warn!(
+                    "Writing records with NULL keys to topic '{}' (no PRIMARY KEY configured). \
+                     Records with NULL keys use round-robin partitioning.",
+                    self.topic
+                );
+            }
             None
+        }
+    }
+
+    /// Extract a single field value as a key string
+    fn extract_single_key_value(&self, record: &StreamRecord, field_name: &str) -> Option<String> {
+        match record.fields.get(field_name) {
+            Some(value) => Some(value.to_key_string()),
+            None => {
+                if !self
+                    .warned_null_key
+                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                {
+                    log::warn!(
+                        "Writing record with NULL key to topic '{}' (PRIMARY KEY field '{}' is null/missing). \
+                         Records with NULL keys use round-robin partitioning.",
+                        self.topic,
+                        field_name
+                    );
+                }
+                None
+            }
         }
     }
 
@@ -482,14 +827,22 @@ impl KafkaDataWriter {
         }
     }
 
-    /// Serialize to JSON format
+    /// Serialize to JSON format using direct serialization (no intermediate Value allocation)
+    ///
+    /// Uses sonic-rs SIMD-accelerated serialization directly on record.fields.
+    /// This is consistent with Avro/Protobuf serialization - all formats serialize
+    /// the fields HashMap as-is, preserving any upstream metadata (like _timestamp).
+    ///
+    /// Note: We do NOT inject _timestamp, _offset, _partition here because:
+    /// - _offset and _partition are meaningless to downstream consumers (they have their own)
+    /// - _timestamp should be preserved from upstream if present in fields
     fn serialize_json(
         &self,
         record: &StreamRecord,
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-        let json_obj = self.build_json_payload(record, true)?; // Include metadata for JSON
-        let json_str = serde_json::to_string(&json_obj)?;
-        Ok(json_str.into_bytes())
+        // Direct serialization with sonic-rs SIMD acceleration
+        // Same approach as Avro/Protobuf - just serialize the fields
+        sonic_rs::to_vec(&record.fields).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
     }
 
     /// Serialize to Avro format
@@ -532,12 +885,8 @@ impl KafkaDataWriter {
     ) -> Result<Value, Box<dyn Error + Send + Sync>> {
         let mut json_obj = serde_json::Map::new();
 
-        // Convert all fields to JSON, excluding key field if used as message key
+        // Convert all fields to JSON (key field included for complete payloads)
         for (field_name, field_value) in &record.fields {
-            if self.should_exclude_field_from_payload(field_name) {
-                continue;
-            }
-
             let json_value = field_value_to_json(field_value)
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
             json_obj.insert(field_name.clone(), json_value);
@@ -549,15 +898,6 @@ impl KafkaDataWriter {
         }
 
         Ok(Value::Object(json_obj))
-    }
-
-    /// Check if field should be excluded from payload (e.g., key field used as message key)
-    fn should_exclude_field_from_payload(&self, field_name: &str) -> bool {
-        if let Some(key_field) = &self.key_field {
-            field_name == key_field
-        } else {
-            false
-        }
     }
 
     /// Add metadata fields to JSON object
@@ -588,75 +928,153 @@ impl KafkaDataWriter {
             .collect()
     }
 
-    /// Filter and validate producer properties (aligned with KafkaDataReader pattern)
+    /// Valid librdkafka producer configuration properties (allowlist approach)
+    /// Source: https://github.com/confluentinc/librdkafka/blob/master/CONFIGURATION.md
+    fn valid_producer_properties() -> std::collections::HashSet<&'static str> {
+        [
+            // Global configuration
+            "bootstrap.servers",
+            "client.id",
+            "metadata.broker.list",
+            "message.max.bytes",
+            "message.copy.max.bytes",
+            "receive.message.max.bytes",
+            "max.in.flight.requests.per.connection",
+            "max.in.flight",
+            "topic.metadata.refresh.interval.ms",
+            "metadata.max.age.ms",
+            "topic.metadata.refresh.fast.interval.ms",
+            "topic.metadata.refresh.sparse",
+            "topic.metadata.propagation.max.ms",
+            "topic.blacklist",
+            "debug",
+            "socket.timeout.ms",
+            "socket.blocking.max.ms",
+            "socket.send.buffer.bytes",
+            "socket.receive.buffer.bytes",
+            "socket.keepalive.enable",
+            "socket.nagle.disable",
+            "socket.max.fails",
+            "broker.address.ttl",
+            "broker.address.family",
+            "reconnect.backoff.jitter.ms",
+            "reconnect.backoff.ms",
+            "reconnect.backoff.max.ms",
+            "statistics.interval.ms",
+            "log_level",
+            "log.queue",
+            "log.thread.name",
+            "log.connection.close",
+            "api.version.request",
+            "api.version.request.timeout.ms",
+            "api.version.fallback.ms",
+            "broker.version.fallback",
+            // Security
+            "security.protocol",
+            "ssl.cipher.suites",
+            "ssl.curves.list",
+            "ssl.sigalgs.list",
+            "ssl.key.location",
+            "ssl.key.password",
+            "ssl.key.pem",
+            "ssl.certificate.location",
+            "ssl.certificate.pem",
+            "ssl.ca.location",
+            "ssl.ca.pem",
+            "ssl.ca.certificate.stores",
+            "ssl.crl.location",
+            "ssl.keystore.location",
+            "ssl.keystore.password",
+            "ssl.providers",
+            "ssl.engine.location",
+            "enable.ssl.certificate.verification",
+            "ssl.endpoint.identification.algorithm",
+            // SASL
+            "sasl.mechanisms",
+            "sasl.mechanism",
+            "sasl.kerberos.service.name",
+            "sasl.kerberos.principal",
+            "sasl.kerberos.kinit.cmd",
+            "sasl.kerberos.keytab",
+            "sasl.kerberos.min.time.before.relogin",
+            "sasl.username",
+            "sasl.password",
+            "sasl.oauthbearer.config",
+            "enable.sasl.oauthbearer.unsecure.jwt",
+            "sasl.oauthbearer.method",
+            "sasl.oauthbearer.client.id",
+            "sasl.oauthbearer.client.secret",
+            "sasl.oauthbearer.scope",
+            "sasl.oauthbearer.extensions",
+            "sasl.oauthbearer.token.endpoint.url",
+            // Producer specific
+            "transactional.id",
+            "transaction.timeout.ms",
+            "enable.idempotence",
+            "enable.gapless.guarantee",
+            "queue.buffering.max.messages",
+            "queue.buffering.max.kbytes",
+            "queue.buffering.max.ms",
+            "linger.ms",
+            "message.send.max.retries",
+            "retries",
+            "retry.backoff.ms",
+            "retry.backoff.max.ms",
+            "queue.buffering.backpressure.threshold",
+            "compression.codec",
+            "compression.type",
+            "compression.level",
+            "batch.num.messages",
+            "batch.size",
+            "delivery.report.only.error",
+            "sticky.partitioning.linger.ms",
+            "request.required.acks",
+            "acks",
+            "request.timeout.ms",
+            "message.timeout.ms",
+            "delivery.timeout.ms",
+            "partitioner",
+            "partitioner.consistent.random",
+            "msg_order_cmp",
+            "produce.offset.report",
+            // Client rack
+            "client.rack",
+            // Interceptors
+            "plugin.library.paths",
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    /// Filter producer properties using allowlist of valid librdkafka properties
     ///
-    /// Skips metadata, schema, and datasource properties that shouldn't be passed to Kafka producer.
-    /// This prevents unknown properties from being silently ignored by the Kafka producer.
+    /// Only passes through properties that are known valid librdkafka producer configuration.
+    /// All other properties (schema, format, custom) are skipped.
     fn filter_producer_properties(
         properties: &HashMap<String, String>,
     ) -> (Vec<(String, String)>, Vec<String>) {
+        let valid_rdkafka_props = Self::valid_producer_properties();
         let mut valid_props = Vec::new();
         let mut skipped_props = Vec::new();
-
-        // Properties that are metadata or handled separately
-        let skip_prefixes = [
-            "schema.",     // Schema configuration (handled separately)
-            "value.",      // Value-specific config (Kafka will interpret these)
-            "datasource.", // Datasource-specific config
-            "avro.",       // Avro schema (handled separately)
-            "protobuf.",   // Protobuf schema (handled separately)
-            "proto.",      // Proto schema (handled separately)
-            "json.",       // JSON schema (handled separately)
-        ];
-
-        let skip_exact = [
-            "topic",                   // Topic is not a producer property
-            "consumer.group",          // Consumer group is not a producer property
-            "key.field",               // Key field extraction (handled separately)
-            "message.key.field",       // Key field extraction (handled separately)
-            "schema.key.field",        // Key field extraction (handled separately)
-            "performance_profile",     // Performance profile is metadata
-            "format",                  // Format is handled separately
-            "serializer.format",       // Format is handled separately
-            "value.serializer",        // Format is handled separately
-            "schema.value.serializer", // Format is handled separately
-        ];
 
         for (key, value) in properties.iter() {
             let key_lower = key.to_lowercase();
 
-            // Check skip prefixes
-            if skip_prefixes
-                .iter()
-                .any(|prefix| key_lower.starts_with(prefix))
-            {
+            if valid_rdkafka_props.contains(key_lower.as_str()) {
                 log::debug!(
-                    "KafkaDataWriter: Skipping property (schema/metadata): {} = {}",
+                    "KafkaDataWriter: Applying producer property: {} = {}",
+                    key,
+                    value
+                );
+                valid_props.push((key.clone(), value.clone()));
+            } else {
+                log::debug!(
+                    "KafkaDataWriter: Skipping non-rdkafka property: {} = {}",
                     key,
                     value
                 );
                 skipped_props.push(key.clone());
-                continue;
             }
-
-            // Check exact skip matches
-            if skip_exact.contains(&key.as_str()) {
-                log::debug!(
-                    "KafkaDataWriter: Skipping property (metadata): {} = {}",
-                    key,
-                    value
-                );
-                skipped_props.push(key.clone());
-                continue;
-            }
-
-            // Valid producer property
-            log::debug!(
-                "KafkaDataWriter: Applying producer property: {} = {}",
-                key,
-                value
-            );
-            valid_props.push((key.clone(), value.clone()));
         }
 
         (valid_props, skipped_props)
@@ -666,13 +1084,13 @@ impl KafkaDataWriter {
     fn log_producer_properties(valid_props: &[(String, String)], skipped_props: &[String]) {
         if !valid_props.is_empty() || !skipped_props.is_empty() {
             log::info!("KafkaDataWriter: Producer Properties Configuration");
-            log::info!("  Valid properties: {}", valid_props.len());
+            log::info!("  Applied properties ({}):", valid_props.len());
             for (key, value) in valid_props {
-                log::debug!("    • {}: {}", key, value);
+                log::info!("    • {}: {}", key, value);
             }
 
             if !skipped_props.is_empty() {
-                log::info!("  Skipped properties: {}", skipped_props.len());
+                log::debug!("  Skipped properties ({}):", skipped_props.len());
                 for key in skipped_props {
                     log::debug!("    • {} (metadata/schema/datasource)", key);
                 }
@@ -684,7 +1102,8 @@ impl KafkaDataWriter {
 #[async_trait]
 impl DataWriter for KafkaDataWriter {
     async fn write(&mut self, record: StreamRecord) -> Result<(), Box<dyn Error + Send + Sync>> {
-        log::debug!(
+        // Per-record logging at TRACE level to avoid hot path overhead
+        log::trace!(
             "KafkaDataWriter: Sending record to topic '{}', format={:?}",
             self.topic,
             self.format
@@ -707,8 +1126,8 @@ impl DataWriter for KafkaDataWriter {
         // Convert headers and build owned headers collection, preserving all headers
         let headers = self.convert_headers(&record.headers);
 
-        // Build Kafka record
-        let mut kafka_record = FutureRecord::to(&self.topic).payload(&payload);
+        // Build Kafka record using BaseRecord for high-performance sync send
+        let mut kafka_record = BaseRecord::to(&self.topic).payload(&payload);
 
         if let Some(key_str) = &key {
             kafka_record = kafka_record.key(key_str);
@@ -726,8 +1145,8 @@ impl DataWriter for KafkaDataWriter {
             kafka_record = kafka_record.headers(owned_headers);
         }
 
-        // Send to Kafka with comprehensive debug logging
-        log::debug!(
+        // Per-record logging at TRACE level to avoid hot path overhead
+        log::trace!(
             "KafkaDataWriter: Sending record to topic '{}' with key {:?}, payload_size={} bytes, format={:?}",
             self.topic,
             key,
@@ -735,23 +1154,35 @@ impl DataWriter for KafkaDataWriter {
             self.format
         );
 
-        match self
-            .producer
-            .send(kafka_record, Duration::from_secs(5))
-            .await
-        {
-            Ok(delivery) => {
-                log::debug!(
-                    "KafkaDataWriter: Successfully sent record to topic '{}', partition={}, offset={}",
-                    self.topic,
-                    delivery.partition,
-                    delivery.offset
+        // Send record - different handling for async vs transactional modes
+        let send_result = if self.is_transactional() {
+            // Transactional mode: use dedicated send method
+            self.send_transactional(&self.topic.clone(), key.as_deref(), &payload)
+                .map_err(|e| (e, ()))
+        } else {
+            // Async mode: use BaseProducer directly
+            match &self.producer_kind {
+                ProducerKind::Async { producer, .. } => {
+                    producer.send(kafka_record).map_err(|(e, _)| (e, ()))
+                }
+                ProducerKind::Transactional(_) => unreachable!(),
+            }
+        };
+
+        match send_result {
+            Ok(()) => {
+                // Message queued successfully - flush to ensure delivery for single writes
+                self.flush_producer(Duration::from_secs(5))?;
+
+                log::trace!(
+                    "KafkaDataWriter: Successfully sent record to topic '{}'",
+                    self.topic
                 );
                 Ok(())
             }
             Err((kafka_error, _)) => {
                 log::error!(
-                    "KafkaDataWriter: Failed to send record to topic '{}': {:?}",
+                    "KafkaDataWriter: Failed to queue record to topic '{}': {:?}",
                     self.topic,
                     kafka_error
                 );
@@ -770,56 +1201,156 @@ impl DataWriter for KafkaDataWriter {
         &mut self,
         records: Vec<std::sync::Arc<StreamRecord>>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let batch_size = records.len();
+        if batch_size == 0 {
+            return Ok(());
+        }
+
         log::debug!(
-            "KafkaDataWriter: Starting batch write of {} records to topic '{}', format={:?}",
-            records.len(),
+            "KafkaDataWriter: Starting high-performance batch write of {} records to topic '{}', format={:?}",
+            batch_size,
             self.topic,
             self.format
         );
 
-        let batch_size = records.len();
-        let mut successful_writes = 0;
+        let start = std::time::Instant::now();
+        let mut queued = 0usize;
+        let mut errors = Vec::new();
 
-        // Process each record individually to avoid lifetime issues
-        for (index, record_arc) in records.into_iter().enumerate() {
-            // Dereference Arc and clone for write() which takes ownership
-            let record = (*record_arc).clone();
-            log::debug!(
-                "KafkaDataWriter: Processing record {}/{} in batch for topic '{}'",
-                index + 1,
-                batch_size,
-                self.topic
-            );
-
-            match self.write(record).await {
-                Ok(()) => {
-                    successful_writes += 1;
-                }
+        // Phase 1: Queue ALL messages to producer (non-blocking, no awaits!)
+        // BaseProducer.send() returns immediately - messages are queued in librdkafka's internal buffer
+        for (index, record_arc) in records.iter().enumerate() {
+            // Serialize payload
+            let payload = match self.serialize_payload(record_arc) {
+                Ok(p) => p,
                 Err(e) => {
                     log::error!(
-                        "🚨 BATCH WRITE FAILED at record {}/{} in topic '{}': {:?}",
+                        "🚨 SERIALIZATION FAILURE at record {}/{} on topic '{}': {:?}",
                         index + 1,
                         batch_size,
                         self.topic,
                         e
                     );
+                    errors.push((index, format!("serialization: {:?}", e)));
+                    continue;
+                }
+            };
+
+            // Extract key
+            let key = self.extract_key(record_arc);
+
+            // Build BaseRecord for high-performance sync send
+            let mut kafka_record = BaseRecord::to(&self.topic).payload(&payload);
+            if let Some(key_str) = &key {
+                kafka_record = kafka_record.key(key_str);
+            }
+
+            // Add headers if present
+            let headers = self.convert_headers(&record_arc.headers);
+            if !headers.is_empty() {
+                let mut owned_headers = rdkafka::message::OwnedHeaders::new();
+                for (header_key, header_value) in headers {
+                    owned_headers = owned_headers.insert(rdkafka::message::Header {
+                        key: &header_key,
+                        value: Some(&header_value),
+                    });
+                }
+                kafka_record = kafka_record.headers(owned_headers);
+            }
+
+            // Queue message - returns immediately (non-blocking!)
+            // Different handling for async vs transactional modes
+            let send_result = if self.is_transactional() {
+                // Transactional mode: use dedicated send method
+                self.send_transactional(&self.topic.clone(), key.as_deref(), &payload)
+            } else {
+                // Async mode: use BaseProducer directly
+                match &self.producer_kind {
+                    ProducerKind::Async { producer, .. } => {
+                        producer.send(kafka_record).map_err(|(e, _)| e)
+                    }
+                    ProducerKind::Transactional(_) => unreachable!(),
+                }
+            };
+
+            match send_result {
+                Ok(()) => {
+                    queued += 1;
+                }
+                Err(kafka_error) => {
                     log::error!(
-                        "KafkaDataWriter: Batch statistics - {}/{} records successfully written to topic '{}' before failure",
-                        successful_writes,
+                        "🚨 QUEUE FAILED at record {}/{} on topic '{}': {:?}",
+                        index + 1,
                         batch_size,
-                        self.topic
+                        self.topic,
+                        kafka_error
                     );
-                    return Err(e);
+                    errors.push((index, format!("queue: {:?}", kafka_error)));
                 }
             }
         }
 
-        log::debug!(
-            "KafkaDataWriter: Successfully completed batch write of {}/{} records to topic '{}'",
-            successful_writes,
-            batch_size,
-            self.topic
-        );
+        let queue_time = start.elapsed();
+
+        // Flush behavior depends on transactional mode:
+        // - Transactional: flush synchronously for exactly-once semantics
+        // - Non-transactional (async): poll thread handles delivery, no blocking flush
+        let flush_time = if self.is_transactional() {
+            let flush_start = std::time::Instant::now();
+            let flush_result = self.flush_producer(Duration::from_secs(30));
+
+            if let Err(e) = flush_result {
+                log::error!(
+                    "🚨 FLUSH FAILED after queuing {} records to topic '{}': {:?}",
+                    queued,
+                    self.topic,
+                    e
+                );
+                return Err(Box::new(e));
+            }
+            flush_start.elapsed()
+        } else {
+            // Async mode: poll thread handles delivery, no blocking flush
+            Duration::ZERO
+        };
+
+        let total_time = queue_time + flush_time;
+        let rate = if total_time.as_secs_f64() > 0.0 {
+            queued as f64 / total_time.as_secs_f64()
+        } else {
+            0.0
+        };
+
+        if self.is_transactional() {
+            log::debug!(
+                "KafkaDataWriter: Batch complete (transactional) - {}/{} records to '{}' in {:.2}ms (queue: {:.2}ms, flush: {:.2}ms) = {:.0} rec/s",
+                queued,
+                batch_size,
+                self.topic,
+                total_time.as_millis(),
+                queue_time.as_millis(),
+                flush_time.as_millis(),
+                rate
+            );
+        } else {
+            log::debug!(
+                "KafkaDataWriter: Batch queued (async) - {}/{} records to '{}' in {:.2}ms = {:.0} rec/s",
+                queued,
+                batch_size,
+                self.topic,
+                queue_time.as_millis(),
+                rate
+            );
+        }
+
+        if !errors.is_empty() {
+            log::warn!(
+                "KafkaDataWriter: {} errors in batch of {} records",
+                errors.len(),
+                batch_size
+            );
+        }
+
         Ok(())
     }
 
@@ -833,31 +1364,42 @@ impl DataWriter for KafkaDataWriter {
     }
 
     async fn delete(&mut self, key: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // Send tombstone record (null payload) for deletion
+        // Send tombstone record (empty payload) for deletion
         log::debug!(
             "KafkaDataWriter: Sending tombstone record for key '{}' to topic '{}'",
             key,
             self.topic
         );
-        let kafka_record: FutureRecord<'_, _, ()> = FutureRecord::to(&self.topic).key(key);
-        // No payload = tombstone
 
-        match self
-            .producer
-            .send(kafka_record, Duration::from_secs(5))
-            .await
-        {
-            Ok(delivery) => {
+        let empty_payload: &[u8] = &[];
+
+        // Different handling for async vs transactional modes
+        let send_result = if self.is_transactional() {
+            // Transactional mode: use dedicated send method
+            self.send_transactional(&self.topic.clone(), Some(key), empty_payload)
+        } else {
+            // Async mode: use BaseProducer directly
+            let kafka_record = BaseRecord::to(&self.topic).key(key).payload(empty_payload);
+            match &self.producer_kind {
+                ProducerKind::Async { producer, .. } => {
+                    producer.send(kafka_record).map_err(|(e, _)| e)
+                }
+                ProducerKind::Transactional(_) => unreachable!(),
+            }
+        };
+
+        match send_result {
+            Ok(()) => {
+                self.flush_producer(Duration::from_secs(5))?;
+
                 log::debug!(
-                    "KafkaDataWriter: Successfully sent tombstone for key '{}' to topic '{}', partition={}, offset={}",
+                    "KafkaDataWriter: Successfully sent tombstone for key '{}' to topic '{}'",
                     key,
-                    self.topic,
-                    delivery.partition,
-                    delivery.offset
+                    self.topic
                 );
                 Ok(())
             }
-            Err((kafka_error, _)) => {
+            Err(kafka_error) => {
                 log::error!(
                     "KafkaDataWriter: Failed to send tombstone for key '{}' to topic '{}': {:?}",
                     key,
@@ -875,7 +1417,8 @@ impl DataWriter for KafkaDataWriter {
             "KafkaDataWriter: Flushing pending messages to topic '{}'",
             self.topic
         );
-        match self.producer.flush(Duration::from_secs(5)) {
+
+        match self.flush_producer(Duration::from_secs(30)) {
             Ok(()) => {
                 log::debug!(
                     "KafkaDataWriter: Successfully flushed all pending messages to topic '{}'",
@@ -895,17 +1438,45 @@ impl DataWriter for KafkaDataWriter {
     }
 
     // Transaction support methods
+    //
+    // Transactional mode: TransactionalPolledProducer handles everything internally
+    // Async mode: Not configured for transactions - will return error
     async fn begin_transaction(&mut self) -> Result<bool, Box<dyn Error + Send + Sync>> {
-        // Initialize transactions first if not already done
-        match self.producer.init_transactions(Duration::from_secs(5)) {
-            Ok(()) => {
-                // Now begin the transaction
-                match self.producer.begin_transaction() {
-                    Ok(()) => Ok(true),
-                    Err(e) => Err(Box::new(e) as Box<dyn Error + Send + Sync>),
+        match &mut self.producer_kind {
+            ProducerKind::Transactional(txn_producer) => {
+                // TransactionalPolledProducer already has init_transactions() called at construction
+                // Just begin the transaction
+                log::debug!(
+                    "KafkaDataWriter: Beginning transaction for topic '{}' (transactional mode)",
+                    self.topic
+                );
+
+                match txn_producer.begin_transaction() {
+                    Ok(()) => {
+                        log::debug!(
+                            "KafkaDataWriter: Transaction begun successfully for topic '{}'",
+                            self.topic
+                        );
+                        Ok(true)
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "KafkaDataWriter: Failed to begin transaction for topic '{}': {:?}",
+                            self.topic,
+                            e
+                        );
+                        Err(Box::new(e) as Box<dyn Error + Send + Sync>)
+                    }
                 }
             }
-            Err(e) => Err(Box::new(e) as Box<dyn Error + Send + Sync>),
+            ProducerKind::Async { .. } => {
+                // Async mode without transactional.id cannot do transactions
+                log::error!(
+                    "KafkaDataWriter: Cannot begin transaction - writer was created without transactional.id. \
+                     Configure 'transactional.id' in properties to enable transaction support."
+                );
+                Err("Transaction support requires transactional.id configuration".into())
+            }
         }
     }
 
@@ -920,15 +1491,74 @@ impl DataWriter for KafkaDataWriter {
     /// and the producer was created with transactional.id
     /// For non-transactional producers, this will return an error
     async fn commit_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // self.producer.send_offsets_to_transaction(offsets, cgm, timeout)
-        self.producer
-            .commit_transaction(Duration::from_secs(60))
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        match &mut self.producer_kind {
+            ProducerKind::Transactional(txn_producer) => {
+                log::debug!(
+                    "KafkaDataWriter: Committing transaction for topic '{}'",
+                    self.topic
+                );
+
+                match txn_producer.commit_transaction(Duration::from_secs(60)) {
+                    Ok(()) => {
+                        log::debug!(
+                            "KafkaDataWriter: Transaction committed successfully for topic '{}'",
+                            self.topic
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "KafkaDataWriter: Failed to commit transaction for topic '{}': {:?}",
+                            self.topic,
+                            e
+                        );
+                        Err(Box::new(e) as Box<dyn Error + Send + Sync>)
+                    }
+                }
+            }
+            ProducerKind::Async { .. } => {
+                log::error!(
+                    "KafkaDataWriter: Cannot commit transaction - writer was created without transactional.id"
+                );
+                Err("Transaction support requires transactional.id configuration".into())
+            }
+        }
     }
+
+    /// Abort the current transaction
     async fn abort_transaction(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.producer
-            .abort_transaction(Duration::from_secs(60))
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)
+        match &mut self.producer_kind {
+            ProducerKind::Transactional(txn_producer) => {
+                log::debug!(
+                    "KafkaDataWriter: Aborting transaction for topic '{}'",
+                    self.topic
+                );
+
+                match txn_producer.abort_transaction(Duration::from_secs(60)) {
+                    Ok(()) => {
+                        log::debug!(
+                            "KafkaDataWriter: Transaction aborted successfully for topic '{}'",
+                            self.topic
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "KafkaDataWriter: Failed to abort transaction for topic '{}': {:?}",
+                            self.topic,
+                            e
+                        );
+                        Err(Box::new(e) as Box<dyn Error + Send + Sync>)
+                    }
+                }
+            }
+            ProducerKind::Async { .. } => {
+                log::error!(
+                    "KafkaDataWriter: Cannot abort transaction - writer was created without transactional.id"
+                );
+                Err("Transaction support requires transactional.id configuration".into())
+            }
+        }
     }
 
     async fn rollback(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -939,5 +1569,63 @@ impl DataWriter for KafkaDataWriter {
 
     fn supports_transactions(&self) -> bool {
         true
+    }
+}
+
+/// Ensure poll thread is stopped and producer is flushed on drop
+impl Drop for KafkaDataWriter {
+    fn drop(&mut self) {
+        log::debug!(
+            "KafkaDataWriter: Dropping writer for topic '{}'",
+            self.topic
+        );
+
+        match &mut self.producer_kind {
+            ProducerKind::Async {
+                producer,
+                poll_stop,
+                poll_thread,
+            } => {
+                log::debug!(
+                    "KafkaDataWriter: Stopping async poll thread for topic '{}'",
+                    self.topic
+                );
+
+                // Signal poll thread to stop
+                poll_stop.store(true, Ordering::Relaxed);
+
+                // Wait for poll thread to finish
+                if let Some(handle) = poll_thread.take() {
+                    if let Err(e) = handle.join() {
+                        log::warn!(
+                            "KafkaDataWriter: Poll thread panicked during shutdown: {:?}",
+                            e
+                        );
+                    }
+                }
+
+                // Final flush to ensure all queued messages are delivered
+                if let Err(e) = producer.flush(Duration::from_secs(5)) {
+                    log::warn!(
+                        "KafkaDataWriter: Final flush failed during drop for topic '{}': {:?}",
+                        self.topic,
+                        e
+                    );
+                }
+            }
+            ProducerKind::Transactional(_) => {
+                // TransactionalPolledProducer has its own Drop implementation
+                // that handles cleanup, including aborting pending transactions
+                log::debug!(
+                    "KafkaDataWriter: TransactionalPolledProducer will handle cleanup for topic '{}'",
+                    self.topic
+                );
+            }
+        }
+
+        log::debug!(
+            "KafkaDataWriter: Successfully dropped writer for topic '{}'",
+            self.topic
+        );
     }
 }

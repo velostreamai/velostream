@@ -1,0 +1,43 @@
+-- SQL Application: stream_stream_join_demo
+-- Version: 1.0.0
+-- Description: Stream-to-stream temporal join
+-- =============================================================================
+-- Tier 3: Stream-Stream Join
+-- =============================================================================
+--
+-- Tests: JOIN two streams with time window
+-- Expected: Matched records from both streams
+--
+-- =============================================================================
+
+-- @app: stream_stream_join_demo
+-- @description: Stream-to-stream temporal join
+
+CREATE STREAM matched_events AS
+SELECT
+    o.order_id AS order_id,
+    o.customer_id AS customer_id,
+    o.total_amount AS order_total,
+    o.event_time AS order_time,
+    s.shipment_id AS shipment_id,
+    s.carrier AS carrier,
+    s.tracking_number AS tracking_number,
+    s.event_time AS shipment_time
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+EMIT CHANGES
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic.name' = 'test_orders',
+    'orders.config_file' = '../configs/orders_source.yaml',
+
+    'shipments.type' = 'kafka_source',
+    'shipments.topic.name' = 'test_shipments',
+    'shipments.config_file' = '../configs/shipments_source.yaml',
+
+    'matched_events.type' = 'kafka_sink',
+    'matched_events.topic.name' = 'test_matched_events',
+    'matched_events.config_file' = '../configs/orders_sink.yaml',
+
+    'join.timeout' = '30s'
+);

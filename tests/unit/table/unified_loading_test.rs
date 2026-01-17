@@ -319,6 +319,8 @@ fn create_test_record(key: i64, name: &str, value: i64) -> StreamRecord {
         partition: 0,
         headers: HashMap::new(),
         event_time: Some(Utc::now()),
+        topic: None,
+        key: None,
     }
 }
 

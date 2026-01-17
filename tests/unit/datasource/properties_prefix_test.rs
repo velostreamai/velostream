@@ -111,10 +111,7 @@ mod properties_prefix_tests {
         // Verify defaults
         assert_eq!(kafka_source.brokers(), "localhost:9092");
         assert_eq!(kafka_source.topic(), "default_topic");
-        assert_eq!(
-            kafka_source.group_id(),
-            &Some("velo-sql-test_job".to_string())
-        );
+        assert_eq!(kafka_source.group_id(), &Some("velo_test_job".to_string()));
     }
 
     #[test]
@@ -124,7 +121,8 @@ mod properties_prefix_tests {
         props.insert("sink.topic".to_string(), "sink_topic".to_string());
         props.insert("sink.value.format".to_string(), "avro".to_string());
 
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None, None);
+        let kafka_sink =
+            KafkaDataSink::from_properties(&props, "test_job", None, None, false, None);
 
         // Verify that prefixed properties are used
         assert_eq!(kafka_sink.brokers(), "sink_broker:9092");
@@ -147,7 +145,8 @@ mod properties_prefix_tests {
             "fallback_broker:9092".to_string(),
         );
 
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None, None);
+        let kafka_sink =
+            KafkaDataSink::from_properties(&props, "test_job", None, None, false, None);
 
         // Verify fallback and defaults
         assert_eq!(kafka_sink.brokers(), "fallback_broker:9092");
@@ -299,7 +298,8 @@ mod properties_prefix_tests {
 
         let kafka_source =
             KafkaDataSource::from_properties(&props, "default_topic", "test_job", None, None);
-        let kafka_sink = KafkaDataSink::from_properties(&props, "test_job", None, None);
+        let kafka_sink =
+            KafkaDataSink::from_properties(&props, "test_job", None, None, false, None);
 
         // Source should use source-prefixed properties and defaults
         assert_eq!(kafka_source.brokers(), "kafka1:9092");

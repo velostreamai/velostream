@@ -1,0 +1,40 @@
+application: format_conversion_demo
+description: Test JSON to Avro format conversion
+default_timeout_ms: 30000
+default_records: 50
+
+queries:
+  - name: trades_converted
+    description: Verify format conversion from JSON to Avro
+    inputs:
+      - source: json_trades
+        schema: trade_record
+        records: 50
+        format: json      # Input as JSON
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [trade_id, symbol, quantity, price, side, notional_value, event_time]
+      - type: field_values
+        field: quantity
+        operator: greater_than
+        value: 0
+    timeout_ms: 30000
+    # Capture format for deserializing Avro output
+    capture_format: avro
+    capture_schema: |
+      {
+        "type": "record",
+        "name": "TradeRecord",
+        "namespace": "com.velostream.demo",
+        "fields": [
+          {"name": "trade_id", "type": "string"},
+          {"name": "symbol", "type": "string"},
+          {"name": "quantity", "type": "long"},
+          {"name": "price", "type": "double"},
+          {"name": "side", "type": "string"},
+          {"name": "notional_value", "type": "double"},
+          {"name": "event_time", "type": "string"}
+        ]
+      }

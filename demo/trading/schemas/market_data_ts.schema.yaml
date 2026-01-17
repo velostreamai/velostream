@@ -1,0 +1,108 @@
+name: market_data_ts
+description: Event-time processed market data
+record_count: 100
+
+fields:
+  - name: symbol
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["AAPL", "GOOG", "MSFT", "AMZN", "META"]
+        weights: [0.25, 0.25, 0.2, 0.15, 0.15]
+
+  - name: exchange
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["NASDAQ", "NYSE"]
+        weights: [0.6, 0.4]
+
+  - name: timestamp
+    type: integer
+    nullable: false
+    constraints:
+      timestamp_epoch_ms:
+        start: "-1h"
+        end: "now"
+
+  - name: _event_time
+    type: integer
+    nullable: false
+    constraints:
+      timestamp_epoch_ms:
+        start: "-1h"
+        end: "now"
+
+  - name: price
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 100.0
+        max: 300.0
+
+  - name: bid_price
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 100.0
+        max: 300.0
+
+  - name: ask_price
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 100.0
+        max: 300.0
+
+  - name: bid_size
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 10000
+
+  - name: ask_size
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 10000
+
+  - name: volume
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1000
+        max: 500000
+
+  - name: vwap
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 100.0
+        max: 300.0
+
+  - name: market_cap
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100000000000
+        max: 3000000000000
+
+  - name: event_time
+    type: timestamp
+    nullable: true
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

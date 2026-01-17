@@ -427,5 +427,7 @@ async fn process_financial_record(record: StreamRecord) -> Result<StreamRecord, 
         partition: record.partition,
         headers: record.headers,
         event_time: None,
+        topic: None,
+        key: None,
     })
 }

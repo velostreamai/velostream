@@ -29,15 +29,66 @@
 
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::{
-    JobProcessor, ProcessorMetrics, common::JobExecutionStats,
+    JobProcessor, ProcessorMetrics, SharedJobStats, common::JobExecutionStats,
 };
 use crate::velostream::server::v2::AdaptiveJobProcessor;
 use crate::velostream::sql::StreamExecutionEngine;
 use crate::velostream::sql::StreamingQuery;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// Find a matching writer for a reader using multiple pairing strategies.
+///
+/// Strategies (in order of preference):
+/// 1. Exact name match (reader_name == writer_name)
+/// 2. Single writer fallback (if only one writer exists, use it for the first reader)
+/// 3. Index-based pairing (source_0_xxx -> sink_0_xxx)
+///
+/// Returns the matched writer and its name, or None if no match found.
+fn find_writer_for_reader(
+    writers: &mut HashMap<String, Box<dyn DataWriter>>,
+    reader_name: &str,
+    reader_idx: usize,
+) -> Option<(String, Box<dyn DataWriter>)> {
+    // Strategy 1: Exact name match
+    if let Some(writer) = writers.remove(reader_name) {
+        debug!("Writer pairing: exact match for '{}'", reader_name);
+        return Some((reader_name.to_string(), writer));
+    }
+
+    // Strategy 2: Single writer fallback (only for first reader)
+    if writers.len() == 1 && reader_idx == 0 {
+        if let Some(key) = writers.keys().next().cloned() {
+            if let Some(writer) = writers.remove(&key) {
+                info!(
+                    "Writer pairing: single writer '{}' paired with reader '{}'",
+                    key, reader_name
+                );
+                return Some((key, writer));
+            }
+        }
+    }
+
+    // Strategy 3: Index-based pairing (source_N -> sink_N)
+    let sink_prefix = format!("sink_{}_", reader_idx);
+    if let Some(key) = writers
+        .keys()
+        .find(|k| k.starts_with(&sink_prefix))
+        .cloned()
+    {
+        if let Some(writer) = writers.remove(&key) {
+            info!(
+                "Writer pairing: index-based match '{}' for reader '{}'",
+                key, reader_name
+            );
+            return Some((key, writer));
+        }
+    }
+
+    None
+}
 
 /// Implement JobProcessor trait for AdaptiveJobProcessor (V2 Architecture)
 ///
@@ -78,6 +129,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Job Processing with Synchronous Receivers
         //
@@ -114,7 +166,7 @@ impl JobProcessor for AdaptiveJobProcessor {
             self.initialize_partitions_v6_6(query_arc.clone(), shared_writer.clone());
 
         info!(
-            "Initialized {} Phase 6.8 partition receivers with lock-free queues for job: {}",
+            "Initialized {} partition receivers with lock-free queues for job: {}",
             batch_queues.len(),
             job_name
         );
@@ -189,6 +241,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                             aggregated_stats.records_processed += routed_count as u64;
                             aggregated_stats.batches_processed += 1;
                             total_routed += routed_count as u64;
+
+                            // Sync to shared stats for real-time monitoring
+                            aggregated_stats.sync_to_shared(&shared_stats);
                         }
                         Err(e) => {
                             log::warn!("Error routing batch: {:?}", e);
@@ -219,23 +274,55 @@ impl JobProcessor for AdaptiveJobProcessor {
         // The partition receiver tasks spawned in initialize_partitions_v6_6() will
         // process all queued batches and then exit when EOF is signaled
         // Join on all task handles to ensure they complete
+        let num_partitions = task_handles.len();
+        let mut partition_failures = 0;
         for handle in task_handles {
             if let Err(e) = handle.await {
-                warn!("Partition receiver task failed to complete: {:?}", e);
+                error!(
+                    "Job '{}': Partition receiver task panicked or was cancelled: {:?}",
+                    job_name, e
+                );
+                partition_failures += 1;
             }
         }
-        debug!("All partition receiver tasks completed");
+        if partition_failures > 0 {
+            warn!(
+                "Job '{}': {} of {} partition receivers failed",
+                job_name, partition_failures, num_partitions
+            );
+            aggregated_stats.batches_failed += partition_failures as u64;
+        }
+        debug!(
+            "All partition receiver tasks completed ({} failures)",
+            partition_failures
+        );
 
         // Step 6: Finalize writer
         // Partition receivers process records internally and update per-partition state
         if let Some(writer_arc) = shared_writer {
             let mut w = writer_arc.lock().await;
-            let _ = w.flush().await;
-            let _ = w.commit().await;
+            if let Err(e) = w.flush().await {
+                error!(
+                    "Job '{}': Failed to flush writer after processing {} records: {:?}",
+                    job_name, total_routed, e
+                );
+                aggregated_stats.records_failed += total_routed;
+            }
+            if let Err(e) = w.commit().await {
+                error!(
+                    "Job '{}': Failed to commit writer: {:?}. Data may not be persisted.",
+                    job_name, e
+                );
+            }
         }
 
         // Step 7: Finalize reader
-        let _ = reader.commit().await;
+        if let Err(e) = reader.commit().await {
+            warn!(
+                "Job '{}': Failed to commit reader: {:?}. Offsets may not be saved.",
+                job_name, e
+            );
+        }
 
         aggregated_stats.total_processing_time = start_time.elapsed();
 
@@ -258,6 +345,7 @@ impl JobProcessor for AdaptiveJobProcessor {
         query: StreamingQuery,
         job_name: String,
         _shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         // Phase 6.6: V2 Coordinator-Based Multi-Job Processing with Synchronous Receivers
         //
@@ -275,10 +363,30 @@ impl JobProcessor for AdaptiveJobProcessor {
         let mut aggregated_stats = JobExecutionStats::new();
         let mut writers = writers;
 
+        // Convert readers to a list to enable index-based writer pairing
+        let readers_list: Vec<(String, Box<dyn DataReader>)> = readers.into_iter().collect();
+        let num_readers = readers_list.len();
+        let num_writers = writers.len();
+
+        info!(
+            "V2 process_multi_job: pairing {} readers with {} writers",
+            num_readers, num_writers
+        );
+
         // Process each reader-writer pair
-        for (reader_name, mut reader) in readers.into_iter() {
-            // Get the corresponding writer if available
-            let writer = writers.remove(&reader_name);
+        for (reader_idx, (reader_name, mut reader)) in readers_list.into_iter().enumerate() {
+            // Find a matching writer using the helper function
+            let writer_result = find_writer_for_reader(&mut writers, &reader_name, reader_idx);
+
+            if writer_result.is_none() && num_writers > 0 {
+                warn!(
+                    "No writer found for reader '{}'. Available writers: {:?}",
+                    reader_name,
+                    writers.keys().collect::<Vec<_>>()
+                );
+            }
+
+            let writer = writer_result.map(|(_, w)| w);
 
             let query_arc = Arc::new(query.clone());
 
@@ -289,7 +397,7 @@ impl JobProcessor for AdaptiveJobProcessor {
                 self.initialize_partitions_v6_6(query_arc, shared_writer.clone());
 
             info!(
-                "Initialized {} Phase 6.8 partition receivers with lock-free queues for source: {} (job: {})",
+                "Initialized {} partition receivers with lock-free queues for source: {} (job: {})",
                 batch_queues.len(),
                 reader_name,
                 job_name
@@ -303,6 +411,8 @@ impl JobProcessor for AdaptiveJobProcessor {
             let mut consecutive_empty_batches = 0;
             let max_empty_batches = self.config().empty_batch_count as usize;
 
+            info!("Starting read loop for reader: {}", reader_name);
+
             loop {
                 // Check if processor stop signal was raised
                 if self.stop_flag.load(std::sync::atomic::Ordering::Relaxed) {
@@ -315,6 +425,9 @@ impl JobProcessor for AdaptiveJobProcessor {
 
                 match reader.read().await {
                     Ok(batch) => {
+                        if !batch.is_empty() {
+                            info!("Read {} records from reader: {}", batch.len(), reader_name);
+                        }
                         if batch.is_empty() {
                             // Data source returned empty batch
                             consecutive_empty_batches += 1;
@@ -363,6 +476,9 @@ impl JobProcessor for AdaptiveJobProcessor {
                                 aggregated_stats.records_processed += routed_count as u64;
                                 aggregated_stats.batches_processed += 1;
                                 total_routed += routed_count as u64;
+
+                                // Sync to shared stats for real-time monitoring
+                                aggregated_stats.sync_to_shared(&shared_stats);
                             }
                             Err(e) => {
                                 log::warn!("Error routing batch: {:?}", e);
@@ -392,23 +508,52 @@ impl JobProcessor for AdaptiveJobProcessor {
             }
 
             // Wait for receiver tasks to complete by joining on task handles
+            let num_partitions = task_handles.len();
+            let mut partition_failures = 0;
             for handle in task_handles {
                 if let Err(e) = handle.await {
-                    warn!("Partition receiver task failed to complete: {:?}", e);
+                    error!(
+                        "Job '{}' source '{}': Partition receiver task panicked or was cancelled: {:?}",
+                        job_name, reader_name, e
+                    );
+                    partition_failures += 1;
                 }
             }
+            if partition_failures > 0 {
+                warn!(
+                    "Job '{}' source '{}': {} of {} partition receivers failed",
+                    job_name, reader_name, partition_failures, num_partitions
+                );
+                aggregated_stats.batches_failed += partition_failures as u64;
+            }
             debug!(
-                "All partition receiver tasks completed for source: {}",
-                reader_name
+                "All partition receiver tasks completed for source: {} ({} failures)",
+                reader_name, partition_failures
             );
 
             // Finalize writer and reader for this source
             if let Some(writer_arc) = shared_writer {
                 let mut w = writer_arc.lock().await;
-                let _ = w.flush().await;
-                let _ = w.commit().await;
+                if let Err(e) = w.flush().await {
+                    error!(
+                        "Job '{}' source '{}': Failed to flush writer after {} records: {:?}",
+                        job_name, reader_name, total_routed, e
+                    );
+                    aggregated_stats.records_failed += total_routed;
+                }
+                if let Err(e) = w.commit().await {
+                    error!(
+                        "Job '{}' source '{}': Failed to commit writer: {:?}. Data may not be persisted.",
+                        job_name, reader_name, e
+                    );
+                }
             }
-            let _ = reader.commit().await;
+            if let Err(e) = reader.commit().await {
+                warn!(
+                    "Job '{}' source '{}': Failed to commit reader: {:?}. Offsets may not be saved.",
+                    job_name, reader_name, e
+                );
+            }
 
             info!(
                 "Source {} completed: {} records routed",

@@ -35,7 +35,7 @@ This guide provides systematic approaches for debugging SQL-native metrics in Ve
 curl -f http://localhost:9091/metrics
 
 # If this fails:
-# - Check velo-sql-multi process is running: ps aux | grep velo-sql-multi
+# - Check velo-sql process is running: ps aux | grep velo-sql
 # - Check port binding: lsof -i :9091
 # - Check firewall rules
 ```

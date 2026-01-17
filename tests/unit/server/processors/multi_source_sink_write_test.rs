@@ -44,6 +44,8 @@ impl MockDataReader {
                 timestamp: 1640995200000 + (i as i64 * 1000),
                 offset: i as i64,
                 partition: 0,
+                topic: None,
+                key: None,
             });
         }
 
@@ -265,6 +267,7 @@ async fn test_multi_source_processor_writes_to_sinks() {
                 query,
                 "test-sink-writes".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

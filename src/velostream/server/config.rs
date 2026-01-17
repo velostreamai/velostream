@@ -58,7 +58,9 @@
 //!   - Pattern 3 example: `test_configuration_pattern_3_environment_variables`
 //!   - Custom broker examples: `test_custom_kafka_broker_pattern_1` and `test_custom_kafka_broker_pattern_2`
 
-use std::env;
+use crate::velostream::sql::config::PropertyResolver;
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Configuration for StreamJobServer
@@ -98,6 +100,10 @@ pub struct StreamJobServerConfig {
 
     /// Table registry cache size (number of cached table definitions)
     pub table_cache_size: usize,
+
+    /// Base directory for resolving relative paths in SQL (e.g., config_file paths)
+    /// If None, paths are resolved relative to current working directory
+    pub base_dir: Option<PathBuf>,
 }
 
 impl StreamJobServerConfig {
@@ -121,7 +127,14 @@ impl StreamJobServerConfig {
             enable_monitoring: false,
             job_timeout: Duration::from_secs(86400), // 24 hours
             table_cache_size: 100,
+            base_dir: None,
         }
+    }
+
+    /// Set the base directory for resolving relative paths in SQL
+    pub fn with_base_dir(mut self, base_dir: impl Into<PathBuf>) -> Self {
+        self.base_dir = Some(base_dir.into());
+        self
     }
 
     /// Load configuration from environment variables with fallback to defaults
@@ -147,28 +160,26 @@ impl StreamJobServerConfig {
     /// let config = StreamJobServerConfig::from_env("prod-group");
     /// ```
     pub fn from_env(base_group_id: impl Into<String>) -> Self {
-        let brokers =
-            env::var("VELOSTREAM_KAFKA_BROKERS").unwrap_or_else(|_| "localhost:9092".to_string());
+        // Use PropertyResolver for consistent ENV → default resolution chain
+        let resolver = PropertyResolver::default();
+        let empty_props: HashMap<String, String> = HashMap::new();
 
-        let max_jobs = env::var("VELOSTREAM_MAX_JOBS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(100);
+        // Resolve all configuration values using the resolver
+        let brokers = resolver.resolve(
+            "KAFKA_BROKERS",
+            &[], // No property fallbacks for server config
+            &empty_props,
+            "localhost:9092".to_string(),
+        );
 
-        let enable_monitoring = env::var("VELOSTREAM_ENABLE_MONITORING")
-            .ok()
-            .map(|v| v.to_lowercase() == "true" || v == "1")
-            .unwrap_or(false);
+        let max_jobs: usize = resolver.resolve("MAX_JOBS", &[], &empty_props, 100);
 
-        let job_timeout_secs = env::var("VELOSTREAM_JOB_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(86400);
+        let enable_monitoring =
+            resolver.resolve_bool("ENABLE_MONITORING", &[], &empty_props, false);
 
-        let table_cache_size = env::var("VELOSTREAM_TABLE_CACHE_SIZE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(100);
+        let job_timeout_secs: u64 = resolver.resolve("JOB_TIMEOUT_SECS", &[], &empty_props, 86400);
+
+        let table_cache_size: usize = resolver.resolve("TABLE_CACHE_SIZE", &[], &empty_props, 100);
 
         Self {
             kafka_brokers: brokers,
@@ -177,6 +188,7 @@ impl StreamJobServerConfig {
             enable_monitoring,
             job_timeout: Duration::from_secs(job_timeout_secs),
             table_cache_size,
+            base_dir: None,
         }
     }
 
@@ -259,6 +271,7 @@ impl Default for StreamJobServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_default_config() {
@@ -356,6 +369,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_defaults() {
         // Clear any existing env vars before and after the test
         // to ensure clean state and avoid interference from other tests
@@ -384,6 +398,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_broker_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_KAFKA_BROKERS", "test-broker:9092");
@@ -396,6 +411,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_max_jobs_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_MAX_JOBS", "250");
@@ -408,6 +424,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_monitoring_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_ENABLE_MONITORING", "true");
@@ -420,6 +437,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_timeout_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_JOB_TIMEOUT_SECS", "3600");
@@ -432,6 +450,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_cache_override() {
         unsafe {
             std::env::set_var("VELOSTREAM_TABLE_CACHE_SIZE", "500");
@@ -444,6 +463,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_monitoring_1() {
         unsafe {
             std::env::set_var("VELOSTREAM_ENABLE_MONITORING", "1");
@@ -456,6 +476,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_from_env_with_monitoring_false() {
         unsafe {
             std::env::set_var("VELOSTREAM_ENABLE_MONITORING", "false");

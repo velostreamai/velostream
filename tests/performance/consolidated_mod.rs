@@ -301,6 +301,8 @@ pub mod test_data {
                 partition: (i % 4) as i32,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             });
         }
 
@@ -363,6 +365,8 @@ pub mod test_data {
                     headers
                 },
                 event_time: None,
+                topic: None,
+                key: None,
             });
         }
 

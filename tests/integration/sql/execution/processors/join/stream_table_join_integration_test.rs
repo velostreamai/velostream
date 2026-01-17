@@ -27,6 +27,8 @@ fn create_trade_record(trade_id: &str, user_id: i64, symbol: &str, quantity: i64
         partition: 0,
         headers: HashMap::new(),
         event_time: Some(chrono::Utc::now()),
+        topic: None,
+        key: None,
     }
 }
 

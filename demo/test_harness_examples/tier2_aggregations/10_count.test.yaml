@@ -1,0 +1,26 @@
+application: count_demo
+description: Test COUNT aggregation with GROUP BY
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: count_output
+    description: Verify count aggregation produces correct results
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+    assertions:
+      # Streaming aggregation emits updates per input record
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [active, total_count, value_count]
+      - type: no_nulls
+        fields: [active, total_count, value_count]
+      # Verify count values are positive
+      - type: field_values
+        field: total_count
+        operator: greater_than
+        value: 0
+    timeout_ms: 60000

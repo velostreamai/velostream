@@ -63,6 +63,8 @@ fn create_test_record_with_timestamp(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -72,6 +74,7 @@ async fn test_windowed_execution_tumbling() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "SUM".to_string(),
@@ -79,6 +82,7 @@ async fn test_windowed_execution_tumbling() {
             },
             alias: Some("total_amount".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -216,6 +220,7 @@ async fn test_sliding_window_execution() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "AVG".to_string(),
@@ -223,6 +228,7 @@ async fn test_sliding_window_execution() {
             },
             alias: Some("avg_amount".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -317,6 +323,7 @@ async fn test_session_window_execution() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::Function {
                 name: "COUNT".to_string(),
@@ -324,6 +331,7 @@ async fn test_session_window_execution() {
             },
             alias: Some("session_count".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -428,6 +436,7 @@ async fn test_aggregation_functions() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Expression {
                 expr: Expr::Function {
@@ -453,6 +462,7 @@ async fn test_aggregation_functions() {
                 alias: Some("min_amount".to_string()),
             },
         ],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,

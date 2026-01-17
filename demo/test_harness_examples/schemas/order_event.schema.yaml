@@ -1,0 +1,112 @@
+name: order_event
+description: E-commerce order event schema
+record_count: 1000
+
+fields:
+  - name: order_id
+    type: uuid
+    nullable: false
+
+  - name: customer_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1001
+        max: 1010  # Match customers.csv IDs for join/subquery tests
+
+  - name: product_id
+    type: string
+    nullable: false
+    constraints:
+      length:
+        min: 8
+        max: 12
+
+  - name: quantity
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 10
+
+  - name: unit_price
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 1.00
+        max: 999.99
+
+  - name: total_amount
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 1.00
+        max: 9999.99
+
+  - name: status
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["pending", "confirmed", "shipped", "delivered", "cancelled"]
+        weights: [0.1, 0.3, 0.25, 0.3, 0.05]
+
+  - name: region
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["US", "EU", "APAC", "LATAM"]
+        weights: [0.35, 0.30, 0.25, 0.10]
+
+  - name: category
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["Electronics", "Clothing", "Home", "Sports", "Toys"]
+        weights: [0.25, 0.25, 0.20, 0.15, 0.15]
+
+  - name: priority
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["high", "medium", "low"]
+        weights: [0.2, 0.5, 0.3]
+
+  - name: discount_pct
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 0.00
+        max: 30.00
+
+  - name: amount
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 10.00
+        max: 5000.00
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-24h"
+        end: "now"

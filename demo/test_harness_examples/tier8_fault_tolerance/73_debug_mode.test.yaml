@@ -1,0 +1,43 @@
+application: debug_mode_demo
+description: Test multi-stage pipeline with step-through debugging
+default_timeout_ms: 120000
+default_records: 10
+
+# Debug mode configuration
+debug:
+  enabled: true
+  pause_on_start: true
+  breakpoints:
+    - query: validated_orders
+      after_record: true
+  show_intermediate_values: true
+  log_level: debug
+
+queries:
+  # Stage 1: Validation (currently single-query test harness limitation)
+  - name: validated_orders
+    description: Verify input validation and calculations
+    inputs:
+      - source: raw_orders
+        schema: order_record
+        records: 10
+    assertions:
+      - type: record_count
+        equals: 10
+
+      - type: schema_contains
+        fields: [order_id, line_total]
+
+      # Verify quantity is positive
+      - type: field_values
+        field: quantity
+        operator: greater_than
+        value: 0
+
+      # Verify line_total is positive (calculated field)
+      - type: field_values
+        field: line_total
+        operator: greater_than
+        value: 0
+
+    timeout_ms: 120000

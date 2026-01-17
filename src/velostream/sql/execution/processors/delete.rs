@@ -126,6 +126,8 @@ impl DeleteProcessor {
                 headers
             },
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         log::info!("DELETE: Created tombstone record for table {}", table_name);
@@ -207,6 +209,8 @@ impl DeleteProcessor {
                 headers
             },
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         log::info!(

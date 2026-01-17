@@ -339,6 +339,7 @@ async fn measure_v1(
             (*query_arc).clone(),
             "timebased_join_v1_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -400,6 +401,7 @@ async fn measure_transactional_jp(
             (*query_arc).clone(),
             "timebased_join_transactional_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -452,6 +454,7 @@ async fn measure_adaptive_jp(
             (*query_arc).clone(),
             format!("timebased_join_adaptive_{}c_test", num_cores),
             shutdown_rx,
+            None,
         ),
     )
     .await;

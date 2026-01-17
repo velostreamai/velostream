@@ -210,6 +210,7 @@ async fn test_simple_processor_completes() {
             query,
             "simple_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -267,6 +268,7 @@ async fn test_transactional_processor_completes() {
             query,
             "transactional_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -329,6 +331,7 @@ async fn test_adaptive_processor_completes() {
                 query,
                 "adaptive_test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

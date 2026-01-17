@@ -1,5 +1,10 @@
 # FR-084: SQL Application Test Harness
 
+> **📖 Documentation**
+>
+> - **User Documentation**: [docs/test-harness/](../../test-harness/README.md) - Getting started, user guide, quick reference
+> - **Developer Documentation**: [docs/developer/test-harness/](../../developer/test-harness/README.md) - Architecture, extending, internals
+
 ## Overview
 
 A comprehensive test framework for validating Velostream SQL applications. The harness enables developers to test their SQL pipelines with generated or captured data, validate outputs against assertions, and produce detailed reports.
@@ -37,6 +42,168 @@ A comprehensive test framework for validating Velostream SQL applications. The h
 │                                          └──────────────┘          │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Implementation Status
+
+> **Note**: This section shows the actual implementation status as of the completion of FR-084.
+
+| Module | File | Status | Description |
+|--------|------|--------|-------------|
+| **Module Exports** | [`mod.rs`](../../src/velostream/test_harness/mod.rs) | ✅ Complete | Public API exports |
+| **Infrastructure** | [`infra.rs`](../../src/velostream/test_harness/infra.rs) | ✅ Complete | Testcontainers Kafka, topic management, message peeking |
+| **Schema** | [`schema.rs`](../../src/velostream/test_harness/schema.rs) | ✅ Complete | YAML schema parsing, validation, SchemaRegistry |
+| **Data Generator** | [`generator.rs`](../../src/velostream/test_harness/generator.rs) | ✅ Complete | Enum, range, timestamp, distribution, derived fields |
+| **Query Executor** | [`executor.rs`](../../src/velostream/test_harness/executor.rs) | ✅ Complete | Publishes data, deploys jobs via StreamJobServer, captures output |
+| **Statement Executor** | [`statement_executor.rs`](../../src/velostream/test_harness/statement_executor.rs) | ✅ Complete | Interactive debugging, breakpoints, step execution, data visibility |
+| **Sink Capture** | [`capture.rs`](../../src/velostream/test_harness/capture.rs) | ✅ Complete | Kafka consumer, file reader, timeout handling |
+| **Assertions** | [`assertions.rs`](../../src/velostream/test_harness/assertions.rs) | ✅ Complete | 10+ assertion types, template assertions |
+| **Reports** | [`report.rs`](../../src/velostream/test_harness/report.rs) | ✅ Complete | Text, JSON, JUnit XML output formats |
+| **CLI** | [`cli.rs`](../../src/velostream/test_harness/cli.rs) | ✅ Complete | clap-based argument parsing |
+| **AI Features** | [`ai.rs`](../../src/velostream/test_harness/ai.rs) | ✅ Complete | Claude API integration, schema inference, failure analysis |
+| **Test Spec** | [`spec.rs`](../../src/velostream/test_harness/spec.rs) | ✅ Complete | YAML test spec parsing, validation |
+| **Errors** | [`error.rs`](../../src/velostream/test_harness/error.rs) | ✅ Complete | Structured error types with thiserror |
+| **Config Override** | [`config_override.rs`](../../src/velostream/test_harness/config_override.rs) | ✅ Complete | Bootstrap servers, topic prefix, temp paths |
+| **Schema Inference** | [`inference.rs`](../../src/velostream/test_harness/inference.rs) | ✅ Complete | SQL analysis, CSV sampling |
+| **Spec Generator** | [`spec_generator.rs`](../../src/velostream/test_harness/spec_generator.rs) | ✅ Complete | Auto-generate test specs from SQL |
+| **Stress Test** | [`stress.rs`](../../src/velostream/test_harness/stress.rs) | ✅ Complete | Throughput metrics, memory tracking (macOS/Linux) |
+| **DLQ Capture** | [`dlq.rs`](../../src/velostream/test_harness/dlq.rs) | ✅ Complete | Dead Letter Queue capture, error classification |
+| **Fault Injection** | [`fault_injection.rs`](../../src/velostream/test_harness/fault_injection.rs) | ✅ Complete | Chaos testing: malformed records, duplicates, out-of-order |
+| **Table State** | [`table_state.rs`](../../src/velostream/test_harness/table_state.rs) | ✅ Complete | CTAS table tracking, snapshots, changelog |
+| **File I/O** | [`file_io.rs`](../../src/velostream/test_harness/file_io.rs) | ✅ Complete | CSV/JSON file loading and writing for test data |
+| **Scaffold** | [`scaffold.rs`](../../src/velostream/test_harness/scaffold.rs) | ✅ Complete | Generate velo-test.sh runner scripts |
+
+### Known Limitations
+
+All major features are now implemented. The test harness is fully functional.
+
+### Recently Completed (Phases 7-10)
+
+#### Phase 10: In-Memory Schema Registry ✅
+
+The test harness now includes an in-memory schema registry that is **API-compatible with Confluent Schema Registry**. This means:
+- No Docker container required for schema registry
+- Same API as production Confluent Schema Registry
+- Supports Avro and Protobuf schema registration
+- Supports schema references for nested types
+
+```rust
+// Register a schema
+let schema_id = infra.register_schema(
+    "market_data-value",
+    r#"{"type":"record","name":"MarketData","fields":[{"name":"symbol","type":"string"}]}"#
+).await?;
+
+// Retrieve a schema
+let schema = infra.get_schema(schema_id).await?;
+
+// Get latest schema for a subject
+let latest = infra.get_latest_schema("market_data-value").await?;
+
+// List all subjects
+let subjects = infra.get_subjects().await?;
+```
+
+| Method | Description |
+|--------|-------------|
+| `register_schema(subject, schema)` | Register a new schema version |
+| `register_schema_with_refs(subject, schema, refs)` | Register with references |
+| `get_schema(id)` | Get schema by ID |
+| `get_latest_schema(subject)` | Get latest version for subject |
+| `get_subjects()` | List all registered subjects |
+| `has_schema_registry()` | Check if registry is available |
+| `schema_registry()` | Get the underlying backend |
+
+**API Compatibility with Confluent:**
+
+| Method | In-Memory | Confluent | Notes |
+|--------|-----------|-----------|-------|
+| `get_schema` | ✅ | ✅ | By ID |
+| `get_latest_schema` | ✅ | ✅ | By subject |
+| `get_schema_version` | ✅ | ✅ | Specific version |
+| `register_schema` | ✅ | ✅ | Returns schema ID |
+| `check_compatibility` | ✅ (always true) | ✅ | Real check in prod |
+| `get_versions` | ✅ | ✅ | All versions for subject |
+| `get_subjects` | ✅ | ✅ | All subjects |
+| `delete_schema_version` | ✅ | ✅ | Delete specific version |
+
+### Recently Completed (Phases 7-9)
+
+#### Phase 7: StreamJobServer Integration ✅
+
+The `QueryExecutor` now fully integrates with `StreamJobServer` to execute SQL queries:
+
+```rust
+// Initialize executor with server
+let executor = QueryExecutor::new(infra, overrides)
+    .with_server()  // Creates StreamJobServer instance
+    .await?;
+
+// Execute queries - internally calls:
+// 1. server.deploy_job(name, version, query, topic, None, None)
+// 2. wait_for_job_completion(job_name, timeout)
+// 3. server.stop_job(&name) after capture
+```
+
+| Method | Description |
+|--------|-------------|
+| `with_server()` | Initializes `StreamJobServer` with bootstrap servers from infra |
+| `deploy_job()` | Deploys SQL query as a streaming job |
+| `wait_for_job_completion()` | Polls job status until done or timeout |
+| `stop_job()` | Stops running job after sink capture |
+
+#### Phase 8: Performance Assertions ✅
+
+New assertion types for performance constraints:
+
+```yaml
+assertions:
+  - type: execution_time
+    max_ms: 5000      # Maximum execution time
+    min_ms: 100       # Minimum execution time (optional)
+
+  - type: memory_usage
+    max_bytes: 104857600    # 100 MB max
+    max_mb: 100             # Alternative: specify in MB
+    max_growth_bytes: 52428800  # Max memory growth during execution
+
+  - type: throughput
+    min_records_per_second: 100       # Minimum throughput
+    max_records_per_second: 10000     # Maximum throughput (for rate limiting)
+    expected_records_per_second: 500  # Expected rate with tolerance
+    tolerance_percent: 20             # Tolerance for expected rate (default: 20%)
+```
+
+`CapturedOutput` now includes memory metrics:
+- `memory_peak_bytes: Option<u64>` - Peak memory during execution
+- `memory_growth_bytes: Option<i64>` - Memory growth (can be negative)
+
+#### Phase 9: Foreign Key Reference Data ✅
+
+Full support for foreign key relationships in data generation:
+
+```rust
+let mut generator = SchemaDataGenerator::new(Some(42));
+
+// Method 1: Load explicit values
+generator.load_reference_data("customers", "id", vec![
+    FieldValue::String("CUST001".to_string()),
+    FieldValue::String("CUST002".to_string()),
+]);
+
+// Method 2: Load from generated records
+let customer_records = generator.generate(&customer_schema, 100)?;
+generator.load_reference_data_from_records("customers", "id", &customer_records);
+
+// Now orders.customer_id will sample from loaded reference data
+let order_records = generator.generate(&order_schema, 1000)?;
+```
+
+| Method | Description |
+|--------|-------------|
+| `load_reference_data(table, field, values)` | Load explicit value list |
+| `load_reference_data_from_records(table, field, records)` | Extract from generated records |
+| `has_reference_data(table, field)` | Check if data is loaded |
+| `reference_data_count(table, field)` | Get count of loaded values |
 
 ## Components
 
@@ -224,12 +391,102 @@ queries:
         on_failure: "Enrichment fields should be populated"
 ```
 
+### 3.1. Explicit Dependencies
+
+When a query requires reference tables (CREATE TABLE) to be deployed before execution, use the `dependencies` field:
+
+```yaml
+queries:
+  - name: vip_orders
+    description: Filter orders by VIP customers from reference table
+    dependencies:
+      - vip_customers  # CREATE TABLE statement that must run first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 200  # Should filter out non-VIP orders
+```
+
+**Dependency Behavior:**
+
+| Feature | Description |
+|---------|-------------|
+| **Ordering** | Dependencies deploy in the order listed |
+| **Deduplication** | Each dependency deploys only once per test run |
+| **Error Handling** | Missing dependency returns `ConfigError` |
+| **Server Required** | Dependencies require `StreamJobServer` to be configured |
+
+**Note**: The `velo-test init` command generates empty `dependencies: []`. You must manually add dependencies when using file-based reference tables for JOINs or subqueries.
+
+### 3.2. File-Based Reference Tables
+
+Load reference data from CSV/JSON files for use in SQL JOINs and IN subqueries.
+
+**Config File** (`configs/customers_table.yaml`):
+```yaml
+source_type: file
+file:
+  path: ../data/vip_customers.csv
+  format: csv
+```
+
+**SQL Definition**:
+```sql
+-- Create reference table from file
+CREATE TABLE vip_customers AS
+SELECT customer_id, name, tier, credit_limit
+FROM vip_source
+WITH ('vip_source.config_file' = '../configs/customers_table.yaml');
+
+-- Use in main query with IN subquery
+CREATE STREAM vip_orders AS
+SELECT o.order_id, o.customer_id, o.product_id,
+       o.quantity * o.unit_price AS order_total
+FROM all_orders o
+WHERE o.customer_id IN (
+    SELECT customer_id FROM vip_customers WHERE tier IN ('gold', 'platinum')
+)
+WITH (
+    'all_orders.type' = 'kafka_source',
+    'all_orders.topic' = 'orders',
+    'vip_orders.type' = 'kafka_sink',
+    'vip_orders.topic' = 'vip_orders'
+);
+```
+
+**Test Spec**:
+```yaml
+queries:
+  - name: vip_orders
+    dependencies:
+      - vip_customers  # File-based table must load first
+    inputs:
+      - source: all_orders
+        schema: order_event
+        records: 200
+    assertions:
+      - type: record_count
+        greater_than: 0
+```
+
+**Supported File Formats:**
+
+| Format | Config | Use Case |
+|--------|--------|----------|
+| CSV | `format: csv` | Tabular reference data with headers |
+| JSON Lines | `format: json_lines` | One JSON object per line |
+| JSON | `format: json` | JSON array of objects |
+
 ### 4. Assertion Types
 
 | Assertion Type | Parameters | Description |
 |----------------|------------|-------------|
 | `record_count` | `operator`, `expected/min/max` | Validate output record count |
-| `schema_contains` | `fields` | Required fields present in output |
+| `schema_contains` | `fields`, `key_field` | Required fields present in output (see below) |
 | `no_nulls` | `fields` | Specified fields have no null values |
 | `field_not_null` | `fields` | Alias for `no_nulls` |
 | `field_values` | `field`, `operator`, `value` | Field values meet condition |
@@ -238,9 +495,33 @@ queries:
 | `join_coverage` | `left`, `right`, `key`, `min_match_rate` | JOIN produces expected matches |
 | `execution_time` | `operator`, `value_ms` | Performance constraint |
 | `memory_usage` | `operator`, `value_mb` | Memory constraint |
+| `throughput` | `min/max/expected_records_per_second`, `tolerance_percent` | Throughput rate constraint |
 | `template` | `name`, `template` | Custom Jinja-style template assertion |
 
 **Operators:** `equals`, `greater_than`, `less_than`, `between`, `not_equals`
+
+#### Key Field Support in `schema_contains`
+
+When using GROUP BY with a key field configured in the SQL (e.g., `'sink.key.field' = 'symbol'`),
+the key is stored in the Kafka message key, not in the value payload. Use `key_field` to validate this:
+
+```yaml
+assertions:
+  - type: schema_contains
+    key_field: symbol        # Field stored in Kafka message key (GROUP BY field)
+    fields:                  # Fields in the value payload
+      - trade_count
+      - total_volume
+      - avg_price
+      - window_start
+      - window_end
+```
+
+**Behavior:**
+- `key_field` (optional): Validates that Kafka message keys are present and non-empty
+- `fields`: Validates fields in the message value payload
+- If `key_field` is specified but no keys are found, the assertion fails
+- Empty string keys are considered invalid (keys must have content)
 
 ### 5. Sequential Pipeline Execution
 
@@ -275,7 +556,96 @@ Queries execute in dependency order, with sink outputs captured for downstream q
 - **Kafka**: Consume all messages from topic with timeout
 - **File**: Read JSONL output file from temp directory
 
-### 6. Report Output
+### 6. Integration with Existing Engine
+
+The test harness reuses existing Velostream components for realistic testing:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Velostream Components Reused                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  src/velostream/sql/validator.rs      → SQL parsing & validation    │
+│  src/velostream/sql/query_analyzer.rs → Source/sink extraction      │
+│  src/velostream/server/mod.rs         → StreamJobServer execution   │
+│  src/velostream/kafka/                → Producer/Consumer adapters  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Execution Flow:**
+1. `SqlValidator` parses the SQL file and extracts queries
+2. `QueryAnalyzer` identifies sources, sinks, and their configurations
+3. Test harness injects testcontainers config overrides
+4. `StreamJobServer` executes each query with real Kafka
+5. Sink capture reads output for assertions
+
+### 7. Configuration Override
+
+The test harness automatically overrides production configurations to use test infrastructure:
+
+```yaml
+# Original config (production)
+bootstrap.servers: kafka.prod.example.com:9092
+topic: market_data
+
+# Test harness overrides to:
+bootstrap.servers: localhost:32789  # Testcontainers dynamic port
+topic: test_a1b2c3_market_data      # Prefixed with run ID
+```
+
+**Override Rules:**
+| Original Key | Test Override |
+|--------------|---------------|
+| `bootstrap.servers` | Testcontainers Kafka address |
+| `topic` / `topic.name` | `test_{run_id}_{original_topic}` |
+| File sink `path` | `{temp_dir}/{sink_name}.jsonl` |
+| `schema.registry.url` | Testcontainers Schema Registry (if enabled) |
+
+### 8. Test Isolation & Cleanup
+
+Each test run is fully isolated:
+
+**Topic Naming:**
+```
+test_{run_id}_{sink_name}
+     │         │
+     │         └── Original sink name from SQL
+     └── UUID generated per test run (e.g., a1b2c3d4)
+```
+
+**Cleanup Strategy:**
+- Topics are automatically deleted after test run completes
+- Temp directories are removed on harness shutdown
+- Consumer groups are cleaned up to prevent offset conflicts
+
+**Isolation Benefits:**
+- Parallel test runs don't interfere
+- No leftover state between runs
+- CI/CD safe with multiple concurrent jobs
+
+### 9. Error Handling
+
+**Testcontainers Failures:**
+```
+⚠️ Could not start Kafka container: Docker not available
+   Skipping integration tests. Run with --mock for unit tests only.
+```
+
+**Query Timeouts:**
+```yaml
+# test_spec.yaml
+queries:
+  - name: slow_query
+    timeout_ms: 60000  # Override default 30s timeout
+```
+
+**Retry Logic:**
+- Transient Kafka errors: 3 retries with exponential backoff
+- Container startup: Wait up to 60s for health check
+- Topic creation: Retry up to 5 times
+
+### 10. Report Output
 
 ```
 ═══════════════════════════════════════════════════════════════════
@@ -358,6 +728,11 @@ velo-test validate demo/trading/sql/financial_trading.sql
 velo-test run demo/trading/sql/financial_trading.sql \
   --query enriched_market_data
 
+# Keep containers running for debugging
+velo-test run demo/trading/sql/financial_trading.sql \
+  --spec demo/trading/test_spec.yaml \
+  --keep-containers
+
 # Generate test spec template from SQL file
 velo-test init demo/trading/sql/financial_trading.sql \
   --output demo/trading/test_spec.yaml
@@ -371,62 +746,638 @@ velo-test infer-schema demo/trading/sql/financial_trading.sql \
 velo-test run app.sql --output json > results.json
 velo-test run app.sql --output junit > results.xml
 
+# Generate a velo-test.sh runner script for a project
+velo-test scaffold demo/trading/
+velo-test scaffold demo/test_harness_examples/ --style tiered
+
 # Stress test mode
 velo-test stress demo/trading/sql/financial_trading.sql \
   --records 100000 \
   --duration 60s
+
+# Interactive debug mode
+velo-test debug demo/trading/sql/financial_trading.sql \
+  --spec demo/trading/test_spec.yaml \
+  --schemas demo/trading/schemas/
 ```
 
+## Interactive Debug Mode
+
+The `velo-test debug` command provides a full-featured interactive debugger for streaming SQL applications. It allows step-by-step execution, breakpoints, and deep inspection of topics, messages, and job state.
+
+### Starting a Debug Session
+
+```bash
+# Basic debug session
+velo-test debug app.sql
+
+# With test spec and schemas
+velo-test debug app.sql --spec test_spec.yaml --schemas ./schemas/
+
+# With breakpoints on specific statements
+velo-test debug app.sql --breakpoint create_enriched_stream --breakpoint final_aggregation
+
+# Connect to existing Kafka (no testcontainers)
+velo-test debug app.sql --kafka localhost:9092
+
+# Keep containers after exit for inspection
+velo-test debug app.sql --keep-containers
+```
+
+### Debug Commands Reference
+
+#### Execution Control
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `step` | `s` | Execute the next SQL statement |
+| `continue` | `c` | Run until the next breakpoint |
+| `run` | `r` | Run all remaining statements |
+| `break <N>` | `b <N>` | Set breakpoint on statement N |
+| `unbreak <N>` | `u <N>` | Remove breakpoint from statement N |
+| `clear` | `cb` | Clear all breakpoints |
+| `quit` | `q` | Exit debugger and cleanup |
+
+#### State Inspection
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `list` | `l` | List all SQL statements with breakpoints |
+| `status` | `st` | Show current execution state |
+| `inspect <N>` | `i <N>` | Inspect captured output from statement N |
+| `inspect-all` | `ia` | Inspect all captured outputs |
+| `history` | `hi` | Show command history |
+
+#### Infrastructure Inspection
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `topics` | `lt` | List all Kafka topics with message counts and offsets |
+| `consumers` | `lc` | List all consumer groups with lag info |
+| `jobs` | `lj` | List all jobs with source/sink details |
+| `schema <topic>` | `sc <topic>` | Show inferred schema for a topic |
+
+#### Data Visibility Commands
+
+| Command | Description |
+|---------|-------------|
+| `messages <topic\|N> [options]` | Peek at topic messages (see below) |
+| `head <stmt> [-n N]` | Show first N records from statement output (default: 10) |
+| `tail <stmt> [-n N]` | Show last N records from statement output (default: 10) |
+| `filter <stmt> <expr>` | Filter records by expression (e.g., `status=FAILED`) |
+| `export <stmt> <file>` | Export records to JSON or CSV file |
+
+### Numbered Topic References
+
+After running `topics`, you can reference topics by number instead of typing full names:
+
+```
+(debug) topics
+   📋 Topics (3):
+   (Use number with 'messages N' for quick access)
+   [1] test_abc123_market_data [test] (150 messages)
+   [2] test_abc123_enriched_output [test] (75 messages)
+   [3] test_abc123_aggregated [test] (12 messages)
+
+(debug) messages 1 --last 5    # Instead of typing full topic name
+```
+
+### Messages Command Options
+
+```bash
+# Show last 5 messages (default)
+messages <topic|N>
+
+# Show last N messages
+messages <topic|N> --last 10
+
+# Show first N messages
+messages <topic|N> --first 10
+
+# Show from specific offset
+messages <topic|N> --offset 100
+
+# Filter by partition
+messages <topic|N> --partition 0 --last 5
+```
+
+**Message Display Format:**
+
+Each message shows:
+- Partition and offset
+- Timestamp (formatted)
+- Key (or `<null>` if not set)
+- Headers (if present)
+- Value (pretty-printed JSON)
+
+```
+📨 5 messages:
+  ─────────────────────────────────────────
+  [1] P0:offset 145
+      timestamp: 2025-01-15 14:30:22.456
+      key: AAPL
+      headers:
+        content-type: application/json
+        source: market-feed-1
+      value:
+        {
+          "symbol": "AAPL",
+          "price": 178.50,
+          "quantity": 100,
+          "event_time": "2025-01-15T14:30:22Z"
+        }
+```
+
+### Filter Expressions
+
+Filter records using field comparisons:
+
+```bash
+# Equality
+filter 1 status=COMPLETED
+
+# Inequality
+filter 1 error_count!=0
+
+# Numeric comparisons
+filter 1 price>100
+filter 1 quantity>=1000
+
+# Contains (substring match)
+filter 1 message~error
+```
+
+**Operators:** `=`, `!=`, `>`, `<`, `>=`, `<=`, `~` (contains)
+
+### Export Command
+
+Export captured records to files:
+
+```bash
+# Export to JSON
+export 1 results.json
+
+# Export to CSV (inferred from extension)
+export 1 results.csv
+```
+
+### Example Debug Session
+
+```
+🐛 Velostream SQL Debugger
+════════════════════════════════════════
+SQL File: demo/trading/sql/financial_trading.sql
+Test Spec: demo/trading/test_spec.yaml
+Timeout: 60000ms
+
+📁 Loading schemas from demo/trading/schemas
+   ✓ market_data (5 fields, key_field: symbol)
+   ✓ positions (4 fields)
+
+🔧 Initializing debug infrastructure...
+🐳 Starting Kafka via testcontainers...
+   Kafka: localhost:32789 (testcontainers)
+
+📝 SQL Statements:
+    [1] create_market_stream (CREATE STREAM)
+    [2] create_positions_table (CREATE TABLE)
+  * [3] enriched_trades (SELECT)           <- breakpoint
+    [4] aggregated_output (SELECT)
+
+▶️  Ready to execute [1/4] create_market_stream
+(debug) step
+   ✅ create_market_stream completed in 234ms
+      Output: 0 records to market_data
+
+   📋 Topic State:
+      • test_abc123_market_data [test]: 100 msgs
+
+(debug) topics
+   📋 Topics (2):
+   [1] test_abc123_market_data [test] (100 messages)
+     └─ P0: 100 msgs (offsets: 0..100) [last: key="MSFT", @14:30:45]
+
+(debug) messages 1 --last 2
+📨 2 messages:
+  ─────────────────────────────────────────
+  [1] P0:offset 98
+      timestamp: 2025-01-15 14:30:44.123
+      key: AAPL
+      value:
+        {"symbol": "AAPL", "price": 178.50, "quantity": 100}
+  ─────────────────────────────────────────
+  [2] P0:offset 99
+      timestamp: 2025-01-15 14:30:45.234
+      key: MSFT
+      value:
+        {"symbol": "MSFT", "price": 425.20, "quantity": 50}
+
+(debug) continue
+⏸️  Paused at [3/4] enriched_trades (SELECT)
+
+(debug) step
+   ✅ enriched_trades completed in 456ms
+      Output: 100 records to enriched_output
+
+(debug) head 3 -n 3
+📊 First (3 of 100 records) from 'enriched_trades':
+  [1] {"symbol":"AAPL","price":178.50,"enriched_field":"value1"}
+  [2] {"symbol":"GOOGL","price":142.30,"enriched_field":"value2"}
+  [3] {"symbol":"MSFT","price":425.20,"enriched_field":"value3"}
+
+(debug) filter 3 symbol=AAPL
+🔍 Filtered 'enriched_trades' where symbol=AAPL:
+   Found 15 of 100 records matching
+  [1] {"symbol":"AAPL","price":178.50,"enriched_field":"value1"}
+  [12] {"symbol":"AAPL","price":179.20,"enriched_field":"value1"}
+  ...
+
+(debug) export 3 results.json
+✅ Exported 100 records to results.json (JSON)
+
+(debug) jobs
+   🔧 Jobs (3):
+   ▶️ 🌊 create_market_stream [Stream] (Running)
+     📝 SQL: CREATE STREAM market_data ...
+     📈 Stats: 100 written, 0 errors, 234ms
+     📥 Sources:
+       • market_data_source [Kafka]
+         bootstrap.servers: localhost:32789
+         group.id: test-abc123-market-data
+     📤 Sinks:
+       • market_data_sink [Kafka]
+         stats: 100 records
+
+(debug) run
+   ✅ aggregated_output completed in 123ms
+✅ All statements completed
+
+🏁 (inspect) quit
+👋 Exiting debugger
+🧹 Cleaning up...
+
+📊 Debug Session Summary
+   Executed: 4/4 statements
+   Passed: 4/4
+```
+
+## Scaffold Command
+
+The `velo-test scaffold` command auto-generates `velo-test.sh` runner scripts for SQL application projects. It analyzes your directory structure and generates an appropriate shell script for running tests.
+
+### Usage
+
+```bash
+# Generate runner script in current directory
+velo-test scaffold .
+
+# Generate for a specific project
+velo-test scaffold demo/trading/
+
+# Force a specific style
+velo-test scaffold demo/test_harness_examples/ --style tiered
+
+# Custom output path and project name
+velo-test scaffold demo/myproject/ --output run-tests.sh --name "My Project"
+
+# Specify velo-test binary path
+velo-test scaffold demo/trading/ --velo-test-path ../target/release/velo-test
+```
+
+### Directory Structure Detection
+
+The scaffold command automatically detects your project structure and generates the appropriate script style:
+
+| Structure | Pattern | Generated Style |
+|-----------|---------|-----------------|
+| **Simple** | `apps/*.sql` + `tests/*.yaml` | Trading-style runner with app selection |
+| **Tiered** | `tier*_*/` or `getting_started/` directories | Tiered runner with tier progression |
+| **Minimal** | Single SQL file | Basic runner script |
+
+### Simple Style (Trading Demo Pattern)
+
+For projects with `apps/` and `tests/` directories:
+
+```
+demo/trading/
+├── apps/
+│   ├── financial_trading.sql
+│   └── market_analytics.sql
+├── tests/
+│   ├── financial_trading.test.yaml
+│   └── market_analytics.test.yaml
+├── schemas/
+│   └── *.schema.yaml
+└── velo-test.sh                    # Generated
+```
+
+**Generated script features:**
+- `./velo-test.sh` - List available apps
+- `./velo-test.sh <app_name>` - Run specific app tests
+- `./velo-test.sh validate` - Validate all SQL syntax
+- `./velo-test.sh all` - Run all app tests
+- `--step` - Step through queries interactively
+- `--keep` - Keep containers running after test
+- `-v, --verbose` - Verbose output
+
+### Tiered Style (Test Harness Examples Pattern)
+
+For projects with tiered test directories:
+
+```
+demo/test_harness_examples/
+├── getting_started/
+│   ├── 01_hello_world.sql
+│   └── test_spec.yaml
+├── tier1_basic/
+│   └── ...
+├── tier2_aggregations/
+│   └── ...
+├── schemas/
+│   └── *.schema.yaml
+└── velo-test.sh                    # Generated
+```
+
+**Generated script features:**
+- `./velo-test.sh` - Interactive menu to select SQL files
+- `./velo-test.sh run` - Run all tiers
+- `./velo-test.sh validate` - Validate all SQL syntax
+- `./velo-test.sh tier1` - Run specific tier
+- `./velo-test.sh .` - Run current directory (from subdirectory)
+- `-q, --query <name>` - Run specific test case
+
+### Minimal Style
+
+For simple single-file projects:
+
+```
+demo/simple/
+├── app.sql
+└── velo-test.sh                    # Generated
+```
+
+**Generated script features:**
+- `./velo-test.sh` - Run the SQL file
+- `./velo-test.sh validate` - Validate SQL syntax
+
+### Example Generated Script
+
+```bash
+#!/bin/bash
+# =============================================================================
+# trading - velo-test Runner
+# =============================================================================
+# Generated by: velo-test scaffold
+# =============================================================================
+
+set -e
+
+# Use Redpanda by default (faster startup: ~3s vs ~10s for Confluent)
+export VELOSTREAM_TEST_CONTAINER="${VELOSTREAM_TEST_CONTAINER:-redpanda}"
+
+VELO_TEST="${VELO_TEST:-../../target/release/velo-test}"
+
+# ... (full script with app detection, validation, run modes, etc.)
+```
+
+### CLI Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `directory` | `.` | Project directory to analyze |
+| `-o, --output` | `velo-test.sh` | Output script filename |
+| `-n, --name` | Directory name | Project name in script header |
+| `--style` | Auto-detected | Force style: `simple`, `tiered`, or `minimal` |
+| `--velo-test-path` | `../../target/release/velo-test` | Path to velo-test binary |
+
+### Workflow Integration
+
+1. **Initial Setup**: Run `velo-test scaffold` after creating your SQL project structure
+2. **CI/CD**: Commit the generated `velo-test.sh` to version control
+3. **Updates**: Re-run scaffold if you change your directory structure
+4. **Customization**: Edit the generated script to add project-specific options
+
 ## Project Structure
+
+> All file paths are relative to project root. Click to view source.
 
 ```
 src/
 ├── bin/
-│   └── velo_test.rs                  # CLI entry point
-└── test_harness/
+│   └── velo-test.rs                  # CLI entry point (run, validate, debug, stress)
+└── velostream/test_harness/
     ├── mod.rs                        # Module exports
-    ├── infra.rs                      # Testcontainers setup
-    ├── schema.rs                     # Schema parsing & types
-    ├── generator.rs                  # Data generation engine
-    ├── executor.rs                   # Pipeline executor
-    ├── capture.rs                    # Sink capture (Kafka/File)
-    ├── assertions.rs                 # Assertion engine
-    ├── report.rs                     # Report generation
-    └── cli.rs                        # CLI argument parsing
+    ├── infra.rs                      # Testcontainers setup, topic management, message peek
+    ├── schema.rs                     # Schema parsing & types (YAML deserialization)
+    ├── generator.rs                  # Data generation engine (distributions, derived)
+    ├── executor.rs                   # Query execution (StreamJobServer integration)
+    ├── statement_executor.rs         # Interactive debugging, breakpoints, data visibility
+    ├── capture.rs                    # Sink capture (Kafka consumer, file reader)
+    ├── assertions.rs                 # Assertion engine (10+ types, templates)
+    ├── report.rs                     # Report generation (Text, JSON, JUnit)
+    ├── cli.rs                        # CLI argument parsing (clap)
+    ├── ai.rs                         # AI-powered features (Claude API)
+    ├── spec.rs                       # Test specification parsing
+    ├── error.rs                      # Error types (thiserror)
+    ├── config_override.rs            # Config override mechanism
+    ├── inference.rs                  # Schema inference from SQL/CSV
+    ├── spec_generator.rs             # Auto-generate test specs
+    ├── stress.rs                     # Stress test mode (throughput, memory)
+    ├── dlq.rs                        # Dead Letter Queue capture, error classification
+    ├── fault_injection.rs            # Chaos testing (malformed, duplicates, out-of-order)
+    ├── table_state.rs                # CTAS table tracking, snapshots
+    ├── file_io.rs                    # CSV/JSON file loading and writing
+    └── scaffold.rs                   # Generate velo-test.sh runner scripts
+
+tests/integration/
+    └── test_harness_integration_test.rs  # Integration tests with testcontainers
 ```
+
+**Source Links:**
+- [`src/bin/velo-test.rs`](../../src/bin/velo-test.rs) - CLI entry point
+- [`src/velostream/test_harness/`](../../src/velostream/test_harness/) - All test harness modules
 
 ## Implementation Phases
 
-### Phase 1: Foundation
-- [ ] CLI skeleton with clap
-- [ ] Testcontainers infrastructure (Kafka)
-- [ ] Basic schema parsing
-- [ ] Simple data generation (enum, range)
+> **All phases completed.** See [TODO.md](./TODO.md) for detailed task tracking.
 
-### Phase 2: Execution Engine
-- [ ] Sequential query execution
-- [ ] Kafka sink capture
-- [ ] File sink capture
-- [ ] Input chaining (`from_previous`)
+### Phase 1: Foundation ✅
+- [x] CLI skeleton with clap - [`cli.rs`](../../src/velostream/test_harness/cli.rs)
+- [x] Testcontainers infrastructure (Kafka) - [`infra.rs`](../../src/velostream/test_harness/infra.rs)
+- [x] Basic schema parsing - [`schema.rs`](../../src/velostream/test_harness/schema.rs)
+- [x] Simple data generation (enum, range) - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
 
-### Phase 3: Assertions
-- [ ] Basic assertions (record_count, schema_contains, no_nulls)
-- [ ] Field value assertions
-- [ ] Aggregate checks
-- [ ] JOIN coverage validation
+### Phase 2: Execution Engine ✅
+- [x] Sequential query execution - [`executor.rs`](../../src/velostream/test_harness/executor.rs)
+- [x] StreamJobServer integration - `with_server()`, `deploy_job()`, `wait_for_job_completion()`
+- [x] Kafka sink capture - [`capture.rs`](../../src/velostream/test_harness/capture.rs)
+- [x] File sink capture - [`capture.rs`](../../src/velostream/test_harness/capture.rs)
+- [x] Input chaining (`from_previous`) - [`executor.rs`](../../src/velostream/test_harness/executor.rs)
 
-### Phase 4: Reporting
-- [ ] Text report output
-- [ ] JSON output
-- [ ] JUnit XML output
+### Phase 3: Assertions ✅
+- [x] Basic assertions (record_count, schema_contains, no_nulls) - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Field value assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Aggregate checks - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] JOIN coverage validation - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
 
-### Phase 5: Advanced Features
-- [ ] Schema inference from SQL/CSV
-- [ ] Test spec generation (`velo-test init`)
-- [ ] Derived field expressions
-- [ ] Foreign key relationships in data generation
-- [ ] Template-based custom assertions
-- [ ] Stress test mode
+### Phase 4: Reporting ✅
+- [x] Text report output - [`report.rs`](../../src/velostream/test_harness/report.rs)
+- [x] JSON output - [`report.rs`](../../src/velostream/test_harness/report.rs)
+- [x] JUnit XML output - [`report.rs`](../../src/velostream/test_harness/report.rs)
+
+### Phase 5: Advanced Features ✅
+- [x] Schema inference from SQL/CSV - [`inference.rs`](../../src/velostream/test_harness/inference.rs)
+- [x] Test spec generation (`velo-test init`) - [`spec_generator.rs`](../../src/velostream/test_harness/spec_generator.rs)
+- [x] Derived field expressions - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
+- [x] Foreign key relationships in data generation - [`generator.rs`](../../src/velostream/test_harness/generator.rs)
+- [x] `execution_time`, `memory_usage`, and `throughput` assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Template-based custom assertions - [`assertions.rs`](../../src/velostream/test_harness/assertions.rs)
+- [x] Stress test mode - [`stress.rs`](../../src/velostream/test_harness/stress.rs)
+
+### Phase 6: AI-Powered Features ✅
+- [x] Claude API integration - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+- [x] AI schema inference (`--ai` flag) - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+- [x] AI failure analysis - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+- [x] AI test generation - [`ai.rs`](../../src/velostream/test_harness/ai.rs)
+
+### Phase 7: Project Scaffolding ✅
+- [x] Directory structure detection - [`scaffold.rs`](../../src/velostream/test_harness/scaffold.rs)
+- [x] Simple style script generation (apps/*.sql pattern) - [`scaffold.rs`](../../src/velostream/test_harness/scaffold.rs)
+- [x] Tiered style script generation (tier*_*/ pattern) - [`scaffold.rs`](../../src/velostream/test_harness/scaffold.rs)
+- [x] Minimal style for single-file projects - [`scaffold.rs`](../../src/velostream/test_harness/scaffold.rs)
+- [x] CLI integration (`velo-test scaffold`) - [`velo-test.rs`](../../src/bin/velo-test.rs)
+
+## AI-Powered Features
+
+Built-in Claude API integration for intelligent test assistance.
+
+### AI Schema Inference
+
+```bash
+velo-test infer-schema financial_trading.sql \
+  --data-dir data/ \
+  --ai \
+  --output schemas/
+```
+
+**Capabilities:**
+- Analyzes SQL queries to understand field types and relationships
+- Samples CSV data to infer realistic value ranges
+- Generates schema.yaml with intelligent constraints
+- Detects foreign key relationships from JOINs
+
+**Example Output:**
+```yaml
+# AI-generated schema for market_data
+schema:
+  name: market_data
+  # AI detected: price field appears to be currency (USD)
+  # Range inferred from CSV sample: $45.23 - $4,892.50
+fields:
+  - name: price
+    type: decimal
+    precision: 19
+    scale: 4
+    constraints:
+      min: 45.0
+      max: 5000.0
+      # AI note: Realistic stock price range for US equities
+```
+
+### AI Failure Analysis
+
+When assertions fail, AI provides actionable explanations:
+
+```
+❌ Query #5: enriched_market_data
+   FAILURE: join_coverage (0% match rate, expected 80%)
+
+   🤖 AI Analysis:
+   The JOIN on 'symbol' produced no matches because:
+   - market_data contains symbols: [AAPL, GOOGL, MSFT]
+   - instrument_reference contains symbols: [IBM, ORCL, SAP]
+
+   Suggested fix:
+   1. Update schema relationships to sample symbols from instrument_reference.csv
+   2. Or add [AAPL, GOOGL, MSFT] to instrument_reference.csv
+
+   Related schema change:
+   ```yaml
+   relationships:
+     - field: symbol
+       references: instrument_reference.symbol
+       strategy: sample  # Ensures generated symbols exist in reference
+   ```
+```
+
+### AI Test Generation
+
+```bash
+velo-test init financial_trading.sql --ai --output test_spec.yaml
+```
+
+**AI analyzes query patterns to generate intelligent assertions:**
+
+| Query Pattern | Generated Assertion |
+|---------------|---------------------|
+| `GROUP BY` + aggregates | `aggregate_check` with expected totals |
+| `JOIN` operations | `join_coverage` with realistic match rates |
+| Window functions | Time-based validations |
+| `WHERE` filters | `record_count` with estimated reduction |
+
+**Example AI-Generated Test Spec:**
+```yaml
+# AI-generated test spec for financial_trading.sql
+queries:
+  - name: tick_buckets
+    # AI detected: 5-minute tumbling window aggregation
+    # Expected: ~12 buckets per hour of input data
+    assertions:
+      - type: record_count
+        operator: between
+        min: 10
+        max: 15
+        # AI note: Based on 1 hour of data with 5-min windows
+
+      - type: aggregate_check
+        expression: "SUM(trade_count)"
+        operator: equals
+        expected: "{{inputs.market_data_ts.count}}"
+        # AI note: Window aggregation should preserve total count
+```
+
+### AI Implementation
+
+```rust
+// src/test_harness/ai.rs
+pub struct AiAssistant {
+    client: anthropic::Client,
+    model: String,  // "claude-sonnet-4-20250514"
+}
+
+impl AiAssistant {
+    /// Analyze SQL and CSV samples to generate schema definitions
+    pub async fn infer_schema(
+        &self,
+        sql: &str,
+        csv_samples: &[CsvSample],
+    ) -> Result<Schema, AiError>;
+
+    /// Explain why an assertion failed and suggest fixes
+    pub async fn analyze_failure(
+        &self,
+        failure: &AssertionFailure,
+        context: &TestContext,
+    ) -> Result<String, AiError>;
+
+    /// Generate test_spec.yaml from SQL analysis
+    pub async fn generate_test_spec(
+        &self,
+        sql: &str,
+        queries: &[ParsedQuery],
+    ) -> Result<TestSpec, AiError>;
+}
+```
 
 ## Dependencies
 
@@ -440,6 +1391,9 @@ clap = { version = "4.0", features = ["derive"] }
 tokio = { version = "1.0", features = ["full"] }
 rand = "0.8"
 chrono = "0.4"
+
+# AI Features (Phase 6)
+anthropic = "0.1"  # Claude API client
 ```
 
 ## Example: Complete Test Setup
@@ -467,6 +1421,119 @@ cd demo/trading
 velo-test run sql/financial_trading.sql --spec test_spec.yaml
 ```
 
+## Claude Code Integration (CLAUDE.md)
+
+For interactive SQL development assistance, include a `CLAUDE.md` in your SQL application directory:
+
+```
+demo/trading/
+├── CLAUDE.md                       # Claude Code context for SQL assistance
+├── sql/
+│   └── financial_trading.sql
+├── schemas/
+├── data/
+└── test_spec.yaml
+```
+
+**Example `demo/trading/CLAUDE.md`:**
+
+```markdown
+# Trading Demo - Claude Code Context
+
+## Velostream SQL Syntax
+
+This application uses Velostream streaming SQL. Key syntax differences from standard SQL:
+
+### Window Functions
+Use `ROWS WINDOW BUFFER N ROWS` syntax (NOT standard `OVER (ROWS BETWEEN ...)`):
+```sql
+-- Correct Velostream syntax
+AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol ORDER BY event_time)
+
+-- NOT standard SQL (will fail)
+AVG(price) OVER (PARTITION BY symbol ORDER BY event_time ROWS BETWEEN 99 PRECEDING AND CURRENT ROW)
+```
+
+### Time Windows
+```sql
+GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)
+GROUP BY symbol WINDOW SLIDING(INTERVAL '1' HOUR, INTERVAL '5' MINUTE)
+GROUP BY symbol WINDOW SESSION(INTERVAL '30' SECOND)
+```
+
+### Source/Sink Configuration
+```sql
+WITH (
+    'source_name.type' = 'kafka_source',
+    'source_name.config_file' = 'configs/source.yaml',
+    'sink_name.type' = 'kafka_sink',
+    'sink_name.config_file' = 'configs/sink.yaml'
+)
+```
+
+## Test Specification Format
+
+When writing test_spec.yaml:
+- Use `from_previous: true` to chain query outputs
+- Use `from_file: path.csv` for reference tables
+- Available assertions: record_count, schema_contains, no_nulls, join_coverage, aggregate_check
+
+## Schema Definition Format
+
+When writing schemas/*.schema.yaml:
+- Supported types: string, integer, decimal, timestamp, boolean
+- Use `relationships` for JOIN consistency
+- Use `derived` for calculated fields (e.g., bid_price from price)
+
+## Common Patterns
+
+### Stream-Table JOIN
+```sql
+SELECT s.*, t.enrichment_field
+FROM stream_source s
+LEFT JOIN table_source t ON s.key = t.key
+```
+
+### Windowed Aggregation
+```sql
+SELECT symbol, COUNT(*) as trade_count, AVG(price) as avg_price
+FROM market_data
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '5' MINUTE)
+EMIT CHANGES
+```
+```
+
+### Using Claude for SQL Construction
+
+With the CLAUDE.md in place, Claude Code can help developers:
+
+1. **Write new queries** with correct Velostream syntax
+2. **Debug SQL errors** by understanding the parser grammar
+3. **Generate test specs** for new queries
+4. **Create schemas** for data generation
+
+**Example interaction:**
+```
+User: Help me write a query that detects price spikes > 5% in 1-minute windows
+
+Claude: Here's a Velostream query for detecting price spikes:
+
+SELECT
+    symbol,
+    price,
+    LAG(price, 1) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time) as prev_price,
+    ((price - LAG(price, 1) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time))
+     / LAG(price, 1) OVER (ROWS WINDOW BUFFER 10 ROWS PARTITION BY symbol ORDER BY event_time)) * 100 as pct_change
+FROM market_data
+WHERE ABS(((price - LAG(price, 1) OVER (...)) / LAG(price, 1) OVER (...))) * 100 > 5.0
+EMIT CHANGES
+WITH (
+    'market_data.type' = 'kafka_source',
+    'market_data.config_file' = 'configs/market_data_source.yaml'
+);
+```
+
 ## Success Criteria
 
 1. **Usability**: Developer can create and run tests for a new SQL app in < 30 minutes
@@ -474,3 +1541,4 @@ velo-test run sql/financial_trading.sql --spec test_spec.yaml
 3. **Performance**: Full test suite for trading demo completes in < 60 seconds
 4. **CI Integration**: Works seamlessly in GitHub Actions with JUnit output
 5. **Error Clarity**: Failed assertions provide actionable debugging information
+6. **AI Assistance**: Claude Code can help write correct Velostream SQL with CLAUDE.md context

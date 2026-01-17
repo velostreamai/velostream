@@ -1,0 +1,68 @@
+name: user_activity
+description: User activity event schema for analytics
+record_count: 1000
+
+fields:
+  - name: user_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 10000
+
+  - name: session_id
+    type: uuid
+    nullable: false
+
+  - name: action
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["page_view", "click", "scroll", "search", "add_to_cart", "purchase", "logout"]
+        weights: [0.35, 0.25, 0.15, 0.1, 0.08, 0.05, 0.02]
+
+  - name: page
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["/home", "/products", "/product/detail", "/cart", "/checkout", "/account", "/search"]
+        weights: [0.25, 0.2, 0.2, 0.1, 0.1, 0.1, 0.05]
+
+  - name: device
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["desktop", "mobile", "tablet"]
+        weights: [0.4, 0.5, 0.1]
+
+  - name: browser
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["chrome", "safari", "firefox", "edge", "other"]
+        weights: [0.5, 0.25, 0.1, 0.1, 0.05]
+
+  - name: duration_ms
+    type: integer
+    nullable: true
+    constraints:
+      range:
+        min: 100
+        max: 300000
+      distribution:
+        log_normal:
+          mean: 8.0
+          std_dev: 1.5
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

@@ -1,0 +1,48 @@
+# Shared Kafka Sink Configuration
+# Used by all trading demo SQL files
+# Topic names are specified in SQL WITH clause: 'sink.topic.name' = 'xxx'
+
+datasink:
+  type: kafka
+
+  # Standard producer configuration
+  # NOTE: Values use ${ENV_VAR:default} syntax - env var takes precedence (12-factor app style)
+  producer_config:
+    bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
+    retries: 3
+    batch.size: 16384
+    buffer_memory: 33554432
+    max_in_flight_requests_per_connection: 5
+
+  schema:
+    key.format: string
+    value.serializer: "json"
+
+  topic_config:
+    replication.factor: 1
+    cleanup.policy: "delete"
+    segment_ms: 3600000
+
+  headers:
+    source_system: "velo_stream"
+    compliance: "FR-047"
+
+# Delivery profiles - select via 'delivery_profile' in WITH clause
+delivery_profiles:
+  critical:
+    acks: "all"
+    linger.ms: 0
+    compression.type: "lz4"
+    delivery_guarantee: "exactly_once"
+
+  high_priority:
+    acks: "1"
+    linger.ms: 1
+    compression.type: "lz4"
+    delivery_guarantee: "at_least_once"
+
+  balanced:
+    acks: "1"
+    linger.ms: 10
+    compression.type: "gzip"
+    delivery_guarantee: "at_least_once"

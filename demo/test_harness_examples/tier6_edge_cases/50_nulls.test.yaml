@@ -1,0 +1,31 @@
+application: nulls_demo
+description: Test null value handling with COALESCE
+default_timeout_ms: 60000
+default_records: 200
+
+queries:
+  - name: processed_readings
+    description: Verify COALESCE replaces nulls with defaults
+    inputs:
+      - source: sensor_readings
+        schema: sensor_readings
+        records: 200
+        # Generator should include some null values
+        null_probability: 0.2
+    assertions:
+      - type: record_count
+        equals: 200
+      - type: schema_contains
+        fields: [sensor_id, temperature, humidity, pressure, battery_level, signal_strength, status, temp_missing, humidity_missing, pressure_missing]
+      - type: no_nulls
+        fields: [sensor_id, temperature, humidity, pressure, status]
+      - type: field_in_set
+        field: temp_missing
+        values: ["0", "1"]
+      - type: field_in_set
+        field: humidity_missing
+        values: ["0", "1"]
+      - type: field_in_set
+        field: pressure_missing
+        values: ["0", "1"]
+    timeout_ms: 60000

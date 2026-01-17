@@ -517,6 +517,10 @@ pub struct FileWriter {
     created_at: SystemTime,
     last_rotation: SystemTime,
     active_writers: Arc<Mutex<Vec<FileWriterState>>>,
+    /// Column order for CSV output (populated from first record)
+    csv_column_order: Option<Vec<String>>,
+    /// Whether CSV header has been written
+    csv_header_written: bool,
 }
 
 impl FileWriter {
@@ -537,15 +541,12 @@ impl FileWriter {
             created_at: SystemTime::now(),
             last_rotation: SystemTime::now(),
             active_writers,
+            csv_column_order: None,
+            csv_header_written: false,
         };
 
         // Open initial file
         writer.open_new_file().await?;
-
-        // Write CSV header if needed
-        if writer.config.format == FileFormat::Csv && writer.config.csv_has_header {
-            // Header will be written with first record when schema is known
-        }
 
         Ok(writer)
     }
@@ -593,15 +594,12 @@ impl FileWriter {
             created_at: SystemTime::now(),
             last_rotation: SystemTime::now(),
             active_writers,
+            csv_column_order: None,
+            csv_header_written: false,
         };
 
         // Open initial file
         writer.open_new_file().await?;
-
-        // Write CSV header if needed
-        if writer.config.format == FileFormat::Csv && writer.config.csv_has_header {
-            // Header will be written with first record when schema is known
-        }
 
         Ok(writer)
     }
@@ -731,7 +729,7 @@ impl FileWriter {
 
     /// Serialize record to bytes based on format
     fn serialize_record(
-        &self,
+        &mut self,
         record: &StreamRecord,
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
         match self.config.format {
@@ -762,14 +760,105 @@ impl FileWriter {
                 Ok(format!("{},\n", json).into_bytes())
             }
             FileFormat::Csv | FileFormat::CsvNoHeader => {
-                // Convert record to CSV row
-                let mut csv_row = Vec::new();
-                for value in record.fields.values() {
-                    // Simple CSV serialization - in production use proper CSV library
-                    let value_str = format!("{:?}", value); // TODO: Proper CSV escaping
-                    csv_row.push(value_str);
+                let mut output = Vec::new();
+
+                // Establish column order from first record
+                // Note: HashMap iteration order is not guaranteed, so we sort for consistent output.
+                // If original insertion order is needed, use IndexMap in StreamRecord.fields.
+                if self.csv_column_order.is_none() {
+                    let mut columns: Vec<String> = record.fields.keys().cloned().collect();
+                    columns.sort(); // Alphabetical for deterministic output
+                    self.csv_column_order = Some(columns);
                 }
-                Ok(format!("{}\n", csv_row.join(&self.config.csv_delimiter)).into_bytes())
+
+                // Write CSV header on first record if configured
+                if !self.csv_header_written
+                    && self.config.format == FileFormat::Csv
+                    && self.config.csv_has_header
+                {
+                    if let Some(ref columns) = self.csv_column_order {
+                        let header_line = format!("{}\n", columns.join(&self.config.csv_delimiter));
+                        output.extend_from_slice(header_line.as_bytes());
+                    }
+                    self.csv_header_written = true;
+                }
+
+                // Write CSV row using established column order
+                if let Some(ref columns) = self.csv_column_order {
+                    let mut csv_row = Vec::new();
+                    for column in columns {
+                        let value_str = if let Some(value) = record.fields.get(column) {
+                            self.field_value_to_csv_string(value)
+                        } else {
+                            String::new() // Empty string for missing columns
+                        };
+                        csv_row.push(value_str);
+                    }
+                    let row_line = format!("{}\n", csv_row.join(&self.config.csv_delimiter));
+                    output.extend_from_slice(row_line.as_bytes());
+                }
+
+                Ok(output)
+            }
+        }
+    }
+
+    /// Convert FieldValue to a CSV-friendly string representation
+    fn field_value_to_csv_string(&self, value: &FieldValue) -> String {
+        match value {
+            FieldValue::Null => String::new(),
+            FieldValue::Boolean(b) => b.to_string(),
+            FieldValue::Integer(i) => i.to_string(),
+            FieldValue::Float(f) => f.to_string(),
+            FieldValue::String(s) => {
+                // Escape quotes and wrap in quotes if contains delimiter, quote, or newline
+                if s.contains(&self.config.csv_delimiter)
+                    || s.contains('"')
+                    || s.contains('\n')
+                    || s.contains('\r')
+                {
+                    format!("\"{}\"", s.replace('"', "\"\""))
+                } else {
+                    s.clone()
+                }
+            }
+            FieldValue::Timestamp(ts) => ts.to_string(),
+            FieldValue::Date(d) => d.to_string(),
+            FieldValue::Array(_) | FieldValue::Map(_) | FieldValue::Struct(_) => {
+                // Use proper JSON serialization for complex types
+                let json_value = value.to_json();
+                let json_str =
+                    serde_json::to_string(&json_value).unwrap_or_else(|_| "null".to_string());
+                // Escape for CSV if needed (JSON strings containing delimiters/quotes)
+                if json_str.contains(&self.config.csv_delimiter)
+                    || json_str.contains('"')
+                    || json_str.contains('\n')
+                {
+                    format!("\"{}\"", json_str.replace('"', "\"\""))
+                } else {
+                    json_str
+                }
+            }
+            FieldValue::Decimal(d) => d.to_string(),
+            FieldValue::ScaledInteger(val, scale) => {
+                // Format as decimal string: 123450 with scale 3 -> "123.450"
+                if *scale == 0 {
+                    val.to_string()
+                } else {
+                    let divisor = 10i64.pow(*scale as u32);
+                    let int_part = val / divisor;
+                    let frac_part = (val % divisor).abs();
+                    format!(
+                        "{}.{:0>width$}",
+                        int_part,
+                        frac_part,
+                        width = *scale as usize
+                    )
+                }
+            }
+            FieldValue::Interval { value, unit } => {
+                // Format interval as "value UNIT" (e.g., "5 MINUTE")
+                format!("{} {}", value, unit)
             }
         }
     }

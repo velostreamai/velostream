@@ -1,7 +1,7 @@
 apiVersion: 1
 
 providers:
-  - name: 'velostream'
+  - name: 'app_compliance'
     orgId: 1
     folder: 'Velostream'
     type: file

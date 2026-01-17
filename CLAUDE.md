@@ -21,6 +21,7 @@
 - Always ensure that the code passes all pre-commit checks before marking any task as complete.
 - Always ensure that the code passes all CI/CD checks before marking any task as complete.
 - Always check CLIPPY errors and fix them before marking any task as complete.
+- When fixing a BUG - reproduce the bug in a test, applying the fix and then verify the test passes
 - Look at run-commit.sh for pre-commit checks and ensure that all checks pass before marking any task as complete.
 
 ## Project Overview
@@ -51,131 +52,113 @@ and compatibility, particularly for financial analytics use cases.
 - **Schema Support**: Avro schema registry integration
 - **Performance Presets**: Optimized configurations for different use cases
 
-## Recent Major Enhancements
+### Test Harness (`src/velostream/test_harness/`)
 
-### Advanced SQL Parser Features (Latest)
+A comprehensive testing framework for validating streaming SQL queries with real Kafka infrastructure.
 
-**Problem Solved**
+#### Architecture
 
-- Limited SQL standard compliance for complex window functions
-- Missing support for table aliases in PARTITION BY clauses
-- No support for INTERVAL syntax in window frames
-- EXTRACT function only supported non-standard syntax
-
-**Solution Implemented**
-
-- **Table Alias Support**: Full support for `table.column` syntax in PARTITION BY and ORDER BY clauses
-- **INTERVAL Window Frames**: Native support for `RANGE BETWEEN INTERVAL '1' DAY PRECEDING AND CURRENT ROW`
-- **Dual EXTRACT Syntax**: Both function call style `EXTRACT('YEAR', date)` and SQL standard `EXTRACT(YEAR FROM date)`
-- **Enhanced Financial SQL**: 100% compatibility with complex financial trading queries
-
-**Key Benefits**
-
-```sql
--- Table aliases in complex window functions (NEW)
-SELECT p.trader_id,
-       LAG(m.price, 1) OVER (PARTITION BY p.trader_id ORDER BY m.event_time) as prev_price
-FROM market_data m
-         JOIN positions p ON m.symbol = p.symbol;
-
--- INTERVAL-based window frames (NEW)
-SELECT symbol,
-       price,
-       AVG(price) OVER (
-        PARTITION BY symbol
-        ORDER BY event_time
-        RANGE BETWEEN INTERVAL '1' HOUR PRECEDING AND CURRENT ROW
-    ) as hourly_moving_avg
-FROM trades;
-
--- SQL standard EXTRACT syntax (NEW)
-SELECT EXTRACT(EPOCH FROM (end_time - start_time)) as duration_seconds,
-       EXTRACT(YEAR FROM order_date)               as order_year
-FROM orders;
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│    Executor     │────▶│    Capture      │────▶│   Assertions    │
+│ (runs queries)  │     │ (reads output)  │     │  (validates)    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
-**Financial Trading Compatibility**: Achieved 100% parser compatibility with complex financial SQL (improved from 30% to
-100%).
+- **Executor** (`executor.rs`): Runs SQL queries from `.test.yaml` specs, manages job lifecycle
+- **Capture** (`capture.rs`): Reads output from Kafka topics in JSON/Avro/Protobuf formats
+- **Assertions** (`assertions.rs`): Validates captured output against expected values
 
-See updated [SQL function documentation](docs/sql/functions/) for complete syntax reference.
+#### Supported Assertion Types
 
-### Compression Independence in Batch Configuration
+| Type | Description | Example |
+|------|-------------|---------|
+| `record_count` | Verify number of output records | `equals: 100`, `greater_than: 90` |
+| `schema_contains` | Check required fields exist | `fields: [id, name, total]` |
+| `field_values` | Validate field values with operators | `field: amount, operator: greater_than, value: 0` |
+| `dlq_count` | Count records in Dead Letter Queue | `greater_than: 0, less_than: 50` |
+| `error_rate` | Maximum error percentage | `max_percent: 5.0` |
+| `throughput` | Records per second threshold | `greater_than: 1000` |
+| `latency` | Processing time thresholds | `max_ms: 100` |
+| `percentile` | Statistical percentile checks | `p50: 10, p95: 50, p99: 100` |
 
-**Problem Solved**
+#### Capture Formats
 
-- Batch strategies were overriding explicit compression settings
-- Users couldn't configure compression independently from batch optimizations
-- Need for fine-grained control over compression vs automatic optimization
+```yaml
+# JSON (default) - no schema required
+capture_format: json
 
-**Solution Implemented**
+# Avro - requires schema
+capture_format: avro
+capture_schema: |
+  {"type":"record","name":"Record","fields":[{"name":"id","type":"long"}]}
 
-- **Suggestion vs Override Pattern**: Batch strategies suggest compression only when none is explicitly set
-- **Full Independence**: Explicit compression settings are never overridden by batch configurations
-- **Intelligent Defaults**: When no compression is specified, batch strategies provide optimal suggestions
-- **Comprehensive Logging**: Detailed logging shows final applied compression settings
-
-**Key Benefits**
-
-```rust
-// Explicit compression is always preserved
-props.insert("compression.type".to_string(), "zstd".to_string());
-let batch_config = BatchConfig {
-strategy: BatchStrategy::MemoryBased(1024 * 1024), // Would suggest gzip
-// ... 
-};
-// Result: compression.type remains "zstd" (user choice preserved)
+# Protobuf - requires schema
+capture_format: protobuf
+capture_schema: |
+  syntax = "proto3";
+  message Record {
+    string id = 1;
+    int64 value = 2;
+  }
 ```
 
-See [docs/compression-independence.md](docs/developer/compression-independence.md) for complete documentation.
+#### DLQ (Dead Letter Queue) (`dlq.rs`)
 
-### SerializationError Enhancement: Comprehensive Error Chaining
+Captures failed records with error context:
+- `DlqCapture`: Manages DLQ record storage
+- `DlqRecord`: Contains original record, error type, timestamp
+- `DlqStatistics`: Aggregated error metrics
 
-**Problem Solved**
+#### Fault Injection (`fault_injection.rs`)
 
-- Limited error diagnostics for serialization failures
-- Loss of original error context in error chains
-- Difficult debugging of cross-format serialization issues
+Injects faults for resilience testing:
+- **Malformed records**: Missing fields, wrong types, invalid JSON
+- **Duplicates**: Repeated messages at configurable rates
+- **Out-of-order**: Delayed delivery to test ordering
+- **Field corruption**: Random field value corruption
 
-**Solution Implemented**
+#### Running Test Harness Examples
 
-- **Enhanced Error Variants**: 6 new structured error types with full source chain preservation
-- **JSON/Avro/Protobuf Support**: All serialization formats now use enhanced error variants
-- **Error Chain Traversal**: Full error source chain information for debugging
-- **100% Backward Compatibility**: Existing error handling patterns continue to work
+```bash
+# Build the test runner
+cargo build --release --bin velo-test
 
-**Enhanced Error Types**
+# Run all tier tests
+./target/release/velo-test run demo/test_harness_examples/tier1_basic/
 
-```rust
-SerializationError::JsonError { message, source }          // JSON serialization with source
-SerializationError::AvroError { message, source }          // Avro serialization with source  
-SerializationError::ProtobufError { message, source }      // Protobuf serialization with source
-SerializationError::TypeConversionError { message, from_type, to_type, source }
-SerializationError::SchemaValidationError { message, source }
-SerializationError::EncodingError { message, source }
+# Run specific test
+./target/release/velo-test run demo/test_harness_examples/tier1_basic/01_passthrough.test.yaml
 ```
 
-### Financial Precision Enhancement
+#### Test Spec Structure
 
-### Problem Solved
+```yaml
+application: my_test_app
+description: Test description
+default_timeout_ms: 60000
+default_records: 100
 
-- f64 floating-point precision errors in financial calculations
-- Need for exact arithmetic in financial analytics
-- Performance bottlenecks in financial computations
+queries:
+  - name: my_query
+    description: What this query tests
+    inputs:
+      - source: input_topic
+        schema: record_schema
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [id, name, total]
+      - type: field_values
+        field: total
+        operator: greater_than
+        value: 0
+    timeout_ms: 30000
+```
 
-### Solution Implemented
-
-- **FieldValue::ScaledInteger(i64, u8)**: Stores scaled integer with decimal precision
-- **42x Performance Improvement**: ScaledInteger operations are 42x faster than f64
-- **Perfect Precision**: No floating-point rounding errors
-- **Cross-System Compatibility**: Serializes as decimal strings for JSON/Avro
-
-## Performance Benchmarks
-
-Financial calculation patterns (price × quantity):
-
-- **f64**: 83.458µs (with precision errors)
-- **ScaledInteger**: 1.958µs (exact precision) → **42x FASTER**
-- **Decimal**: 53.583µs (exact precision) → 1.5x faster than f64
+See `demo/test_harness_examples/` for comprehensive examples across 8 tiers of complexity.
 
 ## Development Commands
 
@@ -184,7 +167,7 @@ Financial calculation patterns (price × quantity):
 ```bash
 # Run all tests
 cargo test
-2
+
 # Unit test
 cargo test --tests --verbose -- --skip integration:: --skip performance:: --skip comprehensive
 
@@ -205,7 +188,7 @@ cargo test windowing_test -- --nocapture
 cargo build
 
 # Build specific binaries
-cargo build --bin velo-sql-multi
+cargo build --bin velo-sql
 ```
 
 ### Code Formatting
@@ -251,24 +234,24 @@ git push origin branch-name
 
 ### Performance Testing
 
-#### FR-082 Comprehensive Baseline Comparison
+#### Baseline Comparison Benchmarks
 
 ```bash
 # All scenarios, release build (recommended for final benchmarks)
-./run_baseline.sh
+./benchmarks/run_baseline.sh
 
 # Choose mode and scenarios flexibly
-./run_baseline_flexible.sh release 1    # Release, scenario 1 only
-./run_baseline_flexible.sh debug        # Debug, all scenarios
-./run_baseline_flexible.sh profile 2    # Profile, scenario 2 only
+./benchmarks/run_baseline_flexible.sh release 1    # Release, scenario 1 only
+./benchmarks/run_baseline_flexible.sh debug        # Debug, all scenarios
+./benchmarks/run_baseline_flexible.sh profile 2    # Profile, scenario 2 only
 
 # Quick iteration with minimal recompilation
-./run_baseline_quick.sh
+./benchmarks/run_baseline_quick.sh
 
 # Multiple compilation modes
-./run_baseline_options.sh debug         # Fast compile
-./run_baseline_options.sh release       # Optimized runtime
-./run_baseline_options.sh profile       # With debug symbols
+./benchmarks/run_baseline_options.sh debug         # Fast compile
+./benchmarks/run_baseline_options.sh release       # Optimized runtime
+./benchmarks/run_baseline_options.sh profile       # With debug symbols
 ```
 
 **Documentation:** See [`docs/benchmarks/`](docs/benchmarks/) for:
@@ -276,16 +259,6 @@ git push origin branch-name
 - [`SCRIPTS_README.md`](docs/benchmarks/SCRIPTS_README.md) - Complete reference guide
 - [`BASELINE_TESTING.md`](docs/benchmarks/BASELINE_TESTING.md) - Detailed methodology
 - [`BASELINE_QUICK_REFERENCE.md`](docs/benchmarks/BASELINE_QUICK_REFERENCE.md) - Quick cheat sheet
-
-#### Financial Precision & Compatibility Tests
-
-```bash
-# Run financial precision tests
-cargo run --bin test_financial_precision
-
-# Test serialization compatibility
-cargo run --bin test_serialization_compatibility
-```
 
 ## Schema Configuration
 
@@ -332,6 +305,90 @@ protobuf.schema.file: "./schemas/example.proto"
 
 See [docs/kafka-schema-configuration.md](docs/developer/kafka-schema-configuration.md) for complete configuration guide.
 
+## Environment Variables
+
+Velostream supports environment variable configuration using the `VELOSTREAM_` prefix. Environment variables take
+precedence over configuration file settings (12-factor app style).
+
+### Kafka Configuration
+
+| Environment Variable               | Description                                                                 | Default          |
+|------------------------------------|-----------------------------------------------------------------------------|------------------|
+| `VELOSTREAM_KAFKA_BROKERS`         | Kafka broker endpoints (comma-separated)                                    | `localhost:9092` |
+| `VELOSTREAM_KAFKA_TOPIC`           | Default Kafka topic name                                                    | (from config)    |
+| `VELOSTREAM_KAFKA_GROUP_ID`        | Consumer group ID                                                           | `velo-sql-{job}` |
+| `VELOSTREAM_BROKER_ADDRESS_FAMILY` | Broker address resolution: `v4` (IPv4 only), `v6` (IPv6 only), `any` (both) | `v4`             |
+
+### Server Configuration
+
+| Environment Variable           | Description                                            | Default |
+|--------------------------------|--------------------------------------------------------|---------|
+| `VELOSTREAM_MAX_JOBS`          | Maximum concurrent jobs                                | `100`   |
+| `VELOSTREAM_ENABLE_MONITORING` | Enable performance monitoring (`true`/`false`/`1`/`0`) | `false` |
+| `VELOSTREAM_JOB_TIMEOUT_SECS`  | Job timeout in seconds                                 | `86400` |
+| `VELOSTREAM_TABLE_CACHE_SIZE`  | Table registry cache size                              | `100`   |
+
+### Retry Configuration
+
+| Environment Variable              | Description                               | Default       |
+|-----------------------------------|-------------------------------------------|---------------|
+| `VELOSTREAM_RETRY_INTERVAL_SECS`  | Base retry interval in seconds            | `1`           |
+| `VELOSTREAM_RETRY_MULTIPLIER`     | Exponential backoff multiplier            | `2.0`         |
+| `VELOSTREAM_RETRY_MAX_DELAY_SECS` | Maximum retry delay in seconds            | `60`          |
+| `VELOSTREAM_RETRY_STRATEGY`       | Retry strategy (`fixed` or `exponential`) | `exponential` |
+
+### Topic Configuration
+
+| Environment Variable                    | Description                      | Default |
+|-----------------------------------------|----------------------------------|---------|
+| `VELOSTREAM_DEFAULT_PARTITIONS`         | Default Kafka topic partitions   | `6`     |
+| `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | Default topic replication factor | `3`     |
+
+### Usage Examples
+
+```bash
+# Docker/Kubernetes deployment
+export VELOSTREAM_KAFKA_BROKERS="broker1:9092,broker2:9092,broker3:9092"
+export VELOSTREAM_MAX_JOBS=500
+export VELOSTREAM_ENABLE_MONITORING=true
+
+# Test harness with testcontainers (dynamic broker)
+export VELOSTREAM_KAFKA_BROKERS="localhost:${KAFKA_PORT}"
+
+# Production with IPv6 or mixed network (disable IPv4-only default)
+export VELOSTREAM_BROKER_ADDRESS_FAMILY=any
+```
+
+**Note on `VELOSTREAM_BROKER_ADDRESS_FAMILY`**: Defaults to `v4` (IPv4 only) because testcontainers and Docker often
+advertise `localhost` in Kafka broker metadata, which can resolve to IPv6 `::1` on some systems while the container only
+listens on IPv4. Set to `any` for production environments with proper DNS or IPv6 support.
+
+### Resolution Chain
+
+Configuration values are resolved in this order (highest priority first):
+
+1. Environment variable: `VELOSTREAM_{KEY}`
+2. Configuration file property (from YAML, SQL WITH clause, etc.)
+3. Default value
+
+The `PropertyResolver` utility (`src/velostream/sql/config/resolver.rs`) provides type-safe resolution with logging.
+
+### YAML Variable Substitution
+
+YAML configuration files support inline environment variable substitution using `${VAR:default}` syntax:
+
+```yaml
+# Environment variable takes precedence, falls back to default
+consumer_config:
+  bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
+
+# Supported patterns:
+# ${VAR}          - Required env var (empty string if not set)
+# ${VAR:default}  - Optional env var with default value
+```
+
+This follows **12-factor app** principles where configuration is externalized and explicit.
+
 ## SQL Grammar Rules for Claude
 
 ### ⭐ CRITICAL: SQL Syntax is NOT Optional
@@ -339,12 +396,16 @@ See [docs/kafka-schema-configuration.md](docs/developer/kafka-schema-configurati
 When writing SQL for this project, **DO NOT GUESS**. The parser has strict grammar rules that must be followed exactly.
 
 **Truth Sources (in order of preference)**:
+
 1. [`docs/sql/COPY_PASTE_EXAMPLES.md`](docs/sql/COPY_PASTE_EXAMPLES.md) - Working examples for all query types
 2. [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Formal EBNF grammar and AST structure
 3. [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules specifically for Claude
-4. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
+4. [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations reference (@job_mode,
+   @metric, etc.)
+5. `tests/unit/sql/parser/*_test.rs` - Unit tests with exact syntax examples
 
 **Before writing ANY SQL**:
+
 - ✅ Search for similar example in COPY_PASTE_EXAMPLES.md
 - ✅ Verify syntax matches PARSER_GRAMMAR.md
 - ✅ Check CLAUDE SQL_GRAMMAR_RULES.md for common mistakes
@@ -354,42 +415,49 @@ When writing SQL for this project, **DO NOT GUESS**. The parser has strict gramm
 
 Velostream has **TWO different window mechanisms in different parts of the AST**:
 
-| Feature | Time Window | ROWS Window |
-|---------|------------|-----------|
-| **Syntax** | `WINDOW TUMBLING(...)` | `ROWS WINDOW BUFFER N ROWS` |
-| **Location** | SELECT statement (top-level) | OVER clause (inside function) |
-| **Use Case** | Time-bucketed aggregations | Row-count window functions |
-| **Watermarks** | ✅ YES | ❌ NO |
-| **Example** | `GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)` | `AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol)` |
+| Feature        | Time Window                                            | ROWS Window                                                         |
+|----------------|--------------------------------------------------------|---------------------------------------------------------------------|
+| **Syntax**     | `WINDOW TUMBLING(...)`                                 | `ROWS WINDOW BUFFER N ROWS`                                         |
+| **Location**   | SELECT statement (top-level)                           | OVER clause (inside function)                                       |
+| **Use Case**   | Time-bucketed aggregations                             | Row-count window functions                                          |
+| **Watermarks** | ✅ YES                                                  | ❌ NO                                                                |
+| **Example**    | `GROUP BY symbol WINDOW TUMBLING(INTERVAL '5' MINUTE)` | `AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS PARTITION BY symbol)` |
 
 ### Most Common SQL Mistakes
 
-```sql
-❌ ROWS BUFFER 100 ROWS         → ✅ ROWS WINDOW BUFFER 100 ROWS
-❌ ROWS WINDOW BUFFER 100       → ✅ ROWS WINDOW BUFFER 100 ROWS
-❌ SELECT * WHERE x > 100       → ✅ SELECT * FROM table WHERE x > 100
-❌ AVG(price) OVER ROWS WINDOW  → ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
-❌ GROUP BY ... PARTITION BY ... → ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
+```
+❌ ROWS BUFFER 100 ROWS          → ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ ROWS WINDOW BUFFER 100        → ✅ ROWS WINDOW BUFFER 100 ROWS
+❌ SELECT * WHERE x > 100        → ✅ SELECT * FROM table WHERE x > 100
+❌ AVG(price) OVER ROWS WINDOW   → ✅ AVG(price) OVER (ROWS WINDOW BUFFER 100 ROWS)
+❌ GROUP BY...PARTITION BY...    → ✅ PARTITION BY only in ROWS WINDOW, GROUP BY at top level
 ```
 
 ### Clause Order (Must be Exact)
 
 ```sql
-SELECT ...
-FROM ...
-[WHERE ...]
-[GROUP BY ...]
-[HAVING ...]
-[WINDOW ...]          -- Time-based windows (optional)
-[ORDER BY ...]
-[LIMIT ...]
+SELECT...
+    FROM...
+    [
+WHERE...]
+    [
+GROUP BY...]
+    [
+HAVING...]
+    [WINDOW...] -- Time-based windows (optional)
+    [
+ORDER BY...]
+    [LIMIT...]
 ```
 
 **NOT optional.** If clauses appear out of order, the query will fail.
 
 See full details in:
+
 - [`docs/sql/PARSER_GRAMMAR.md`](docs/sql/PARSER_GRAMMAR.md) - Complete formal grammar
 - [`docs/claude/SQL_GRAMMAR_RULES.md`](docs/claude/SQL_GRAMMAR_RULES.md) - Rules for Claude (14 specific rules)
+- [`docs/user-guides/sql-annotations.md`](docs/user-guides/sql-annotations.md) - SQL annotations (@job_mode, @metric,
+  @observability, etc.)
 
 ## Code Organization
 
@@ -816,125 +884,22 @@ These checks mirror the GitHub Actions pipeline:
 
 Running these locally ensures CI/CD success and maintains code quality standards.
 
-### Useful Debug Commands
-
-```bash
-# Debug specific test with full output
-
 ## Architecture Principles
 
 ### Performance First
+
 - **Zero-Copy Where Possible**: Minimize allocations in hot paths
 - **Integer Arithmetic**: ScaledInteger for financial calculations
 - **Efficient Serialization**: Direct binary formats over text when possible
 
 ### Precision Over Speed (for Financial Data)
+
 - **Exact Arithmetic**: Never compromise precision for performance
 - **Deterministic Results**: Same inputs always produce identical outputs
 - **Regulatory Compliance**: Meet financial industry precision requirements
 
 ### Compatibility
+
 - **Standard Formats**: Use industry-standard serialization patterns
 - **Cross-Language**: Ensure other systems can consume data
 - **Schema Evolution**: Support backward-compatible changes
-
-## Current Status
-
-✅ **Completed**: Enhanced SerializationError system with comprehensive error chaining
-✅ **Completed**: Financial precision implementation with 42x performance improvement
-✅ **Completed**: Cross-compatible JSON/Avro/Protobuf serialization with enhanced errors
-✅ **Completed**: Comprehensive test coverage (255+ tests passing)
-✅ **Completed**: All demos, examples, and doctests verified compliant
-✅ **Completed**: High-performance Protobuf implementation with Decimal message
-✅ **Completed**: Performance test compilation issues resolved (Phase 3 benchmarks)
-✅ **Completed**: Complete pre-commit validation pipeline passing
-✅ **Completed**: Type system conflicts resolved (WatermarkStrategy, CircuitBreakerConfig)
-✅ **Completed**: Circuit breaker pattern fixes with proper closure handling
-✅ **Completed**: Production-ready CI/CD compliance validation
-
-### Latest Achievement: Performance Test Infrastructure Completion
-
-**Problem Solved**: Critical compilation failures in performance testing infrastructure
-- Fixed complex type conflicts between `config::WatermarkStrategy` and `watermarks::WatermarkStrategy`
-- Resolved CircuitBreakerConfig field mismatches and missing properties
-- Fixed Rust closure borrowing issues in circuit breaker patterns
-- Updated SystemTime to DateTime<Utc> conversions for proper StreamRecord compatibility
-
-**Technical Implementation**:
-- **Type System Fixes**: Proper module imports with aliases for conflicting types
-- **Circuit Breaker Enhancement**: Added missing fields (failure_rate_window, min_calls_in_window, failure_rate_threshold)
-- **Closure Pattern Fixes**: Used `move` keyword and variable extraction to resolve borrowing conflicts
-- **Stream Processing**: Fixed enum variant usage and struct field access patterns
-
-**Key Benefits**:
-```rust
-// Fixed type conflicts with proper module imports
-use config::{WatermarkStrategy as ConfigWatermarkStrategy};
-use watermarks::{WatermarkStrategy, WatermarkManager};
-
-// Enhanced circuit breaker configuration
-CircuitBreakerConfig {
-    failure_threshold: 5,
-    recovery_timeout: Duration::from_secs(60),
-    failure_rate_window: Duration::from_secs(60),    // Added
-    min_calls_in_window: 10,                         // Added
-    failure_rate_threshold: 50.0,                    // Added
-}
-
-// Fixed closure borrowing patterns
-let has_field = record.fields.get("id").is_some();
-let result = circuit_breaker.execute(move || {
-    let _processing = has_field;  // No borrowing conflict
-    Ok(())
-}).await;
-```
-
-### Latest Achievement: Reserved Keyword Fixes for Common Field Names
-
-**Problem Solved**: Reserved keywords conflicting with common field names in data streams
-
-- Fixed `STATUS`, `METRICS`, and `PROPERTIES` being globally reserved, preventing their use as field names
-- Enhanced `OptimizedTableImpl` to support SUM aggregation functions alongside existing COUNT support
-- Updated test expectations to reflect current parser capabilities (BETWEEN now supported)
-
-**Technical Implementation**:
-
-- **Contextual Keywords**: Converted global reserved keywords to contextual-only parsing
-- **Enhanced Aggregation**: Added SUM support to `sql_scalar` method with proper type handling
-- **Parser Compatibility**: Updated SQL parser to allow common field names while preserving command functionality
-
-**Key Benefits**:
-
-```sql
--- Now works perfectly! ✅ (Previously failed due to reserved keywords)
-SELECT order_id,
-       status,                                                                            -- No longer globally reserved
-       metrics,                                                                           -- No longer globally reserved
-       properties,                                                                        -- No longer globally reserved
-       COUNT(*) OVER (PARTITION BY status) as status_count, SUM(metrics) as total_metrics -- SUM now fully supported
-FROM data_stream
-WHERE status = 'active'
-  AND metrics > 100
-  AND properties IS NOT NULL;
-
--- Command functionality preserved ✅
-SHOW
-STATUS;           -- Still works via contextual parsing
-SHOW
-METRICS;          -- Still works via contextual parsing
-SHOW
-PROPERTIES;       -- Still works via contextual parsing
-```
-
-**Reserved Keywords Fixed**:
-
-- **`STATUS`**: Most common status field (order status, job status, system status)
-- **`METRICS`**: Performance metrics, business metrics, system metrics
-- **`PROPERTIES`**: Configuration properties, object properties, metadata
-
-**Parser Improvements**: BETWEEN operator now fully supported, enhancing SQL standard compliance.
-
-The codebase is now **production-ready** for financial analytics use cases requiring exact precision and high
-performance. All performance testing infrastructure is operational and validated for continuous integration.
-
-- Always run clippy checks#

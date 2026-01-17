@@ -187,6 +187,8 @@ fn create_test_record() -> StreamRecord {
         offset: 0,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -353,7 +355,9 @@ fn test_exists_and_aggregate_function() {
 
     let exists_subquery = Expr::Subquery {
         query: Box::new(StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("market_data_ts".to_string()),
             from_alias: None,
             joins: None,
@@ -406,7 +410,9 @@ fn test_complex_nested_expression_with_subqueries() {
     // Test a complex nested expression: (EXISTS subquery) AND (BETWEEN expr) AND (CASE expr)
     let exists_subquery = Expr::Subquery {
         query: Box::new(StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("market_data_ts".to_string()),
             from_alias: None,
             joins: None,
@@ -474,7 +480,9 @@ fn test_not_exists_with_aggregate() {
     // Test NOT EXISTS combined with aggregate functions
     let not_exists_subquery = Expr::Subquery {
         query: Box::new(StreamingQuery::Select {
+            distinct: false,
             fields: vec![SelectField::Wildcard],
+            key_fields: None,
             from: StreamSource::Stream("market_data_ts".to_string()),
             from_alias: None,
             joins: None,

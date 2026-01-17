@@ -1,0 +1,27 @@
+application: filter_demo
+description: Test WHERE clause filtering
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: filtered_output
+    description: Verify filter conditions work correctly (amount > 100 AND active = true)
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+    assertions:
+      - type: record_count
+        greater_than: 0
+        less_than: 100  # Should filter out some records
+      - type: field_values
+        field: amount
+        operator: greater_than
+        value: 100
+      - type: field_values
+        field: active
+        operator: equals
+        value: true
+      - type: no_nulls
+        fields: [id, value, amount, active]
+    timeout_ms: 30000

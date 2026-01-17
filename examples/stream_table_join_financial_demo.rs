@@ -45,6 +45,8 @@ fn create_trade(
         fields,
         headers: HashMap::new(),
         event_time: Some(Utc::now()),
+        topic: None,
+        key: None,
     }
 }
 

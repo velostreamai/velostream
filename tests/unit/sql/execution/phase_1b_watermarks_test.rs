@@ -60,6 +60,8 @@ fn create_test_record_with_event_time(
         offset: id,
         partition: 0,
         event_time: Some(event_time),
+        topic: None,
+        key: None,
     }
 }
 
@@ -76,6 +78,8 @@ fn create_test_record_legacy(id: i64) -> StreamRecord {
         offset: id,
         partition: 0,
         event_time: None, // Legacy record without event time
+        topic: None,
+        key: None,
     }
 }
 
@@ -286,7 +290,9 @@ async fn test_window_processor_watermark_aware_processing() {
     };
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![], // Simplified for test
+        key_fields: None,
         from_alias: None,
         from: velostream::velostream::sql::ast::StreamSource::Table("test_stream".to_string()),
         joins: None,

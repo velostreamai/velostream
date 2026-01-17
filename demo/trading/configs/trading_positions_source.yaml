@@ -28,7 +28,6 @@ datasource:
 
   # Position event schema
   schema:
-    key.field: position_id
     key.format: string
     value.serializer: json
 

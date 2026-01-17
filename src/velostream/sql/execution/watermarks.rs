@@ -473,6 +473,8 @@ mod tests {
             offset: 0,
             partition: 0,
             event_time: Some(event_time),
+            topic: None,
+            key: None,
         }
     }
 

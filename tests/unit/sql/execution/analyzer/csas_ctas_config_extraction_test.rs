@@ -82,6 +82,7 @@ fn test_ctas_with_named_source_config_parsing() {
     let parser = StreamingSqlParser::new();
 
     // CTAS with named source configured directly (no config file)
+    // Note: CREATE TABLE requires both source and sink configurations
     let sql = r#"
         CREATE TABLE trading_positions AS
         SELECT
@@ -98,6 +99,10 @@ fn test_ctas_with_named_source_config_parsing() {
             'trades_source.bootstrap.servers' = 'localhost:9092',
             'trades_source.topic' = 'trades',
             'trades_source.group.id' = 'trades-group',
+
+            'trading_positions.type' = 'kafka_sink',
+            'trading_positions.bootstrap.servers' = 'localhost:9092',
+            'trading_positions.topic' = 'trading_positions_output',
 
             'table_model' = 'normal',
             'retention' = '7 days'

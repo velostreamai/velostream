@@ -118,6 +118,8 @@ impl InsertProcessor {
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             result_records.push(insert_record);
@@ -241,6 +243,8 @@ impl InsertProcessor {
             offset: input_record.offset,           // Preserve INSERT context offset
             partition: input_record.partition,     // Preserve INSERT context partition
             event_time: None,
+            topic: None,
+            key: None,
         })
     }
 
@@ -345,7 +349,11 @@ impl InsertProcessor {
                     InsertSource::Select { query } => {
                         // Get columns from SELECT query
                         match query.as_ref() {
-                            StreamingQuery::Select { fields: _, .. } => {
+                            StreamingQuery::Select {
+                                distinct: false,
+                                fields: _,
+                                ..
+                            } => {
                                 // TODO: Extract actual column names from SELECT fields
                                 Ok(vec!["inferred_col".to_string()])
                             }

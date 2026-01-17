@@ -1,0 +1,20 @@
+application: rows_buffer_demo
+description: Test ROWS WINDOW BUFFER for fixed-size windows
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: buffered_analysis
+    description: Verify row-based window calculations
+    inputs:
+      - source: market_data
+        schema: market_data
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [symbol, price, volume, avg_50, avg_200, stddev_100, min_100, max_100]
+      - type: no_nulls
+        fields: [symbol, price, volume, avg_50, avg_200]
+    timeout_ms: 60000

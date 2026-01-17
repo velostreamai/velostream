@@ -1,0 +1,31 @@
+// Trade record schema for Protobuf serialization demo
+syntax = "proto3";
+
+package velostream.demo;
+
+option java_package = "com.velostream.demo.proto";
+option java_outer_classname = "TradeProto";
+
+// Simple trade record matching SQL output fields
+message TradeRecord {
+    // Unique trade identifier
+    string trade_id = 1;
+
+    // Trading symbol
+    string symbol = 2;
+
+    // Trade quantity
+    int64 quantity = 3;
+
+    // Trade price (simple double for compatibility)
+    double price = 4;
+
+    // Trade side (BUY/SELL as string)
+    string side = 5;
+
+    // Calculated notional value
+    double notional_value = 6;
+
+    // Event timestamp as string (ISO 8601)
+    string event_time = 7;
+}

@@ -1,15 +1,30 @@
-//! YAML Configuration Loader with Extends Support
+//! YAML Configuration Loader with Extends and Variable Substitution Support
 //!
 //! This module provides YAML configuration loading with inheritance support
-//! through the `extends` keyword, enabling DRY configuration management.
+//! through the `extends` keyword and environment variable substitution,
+//! enabling DRY configuration management and 12-factor app style configuration.
 //!
 //! ## Features
 //!
 //! - **Inheritance**: Support for `extends: base_config.yaml` syntax
+//! - **Variable Substitution**: Support for `${ENV_VAR:default}` syntax
 //! - **Merge Strategy**: Base configs are merged with derived configs
 //! - **Circular Detection**: Prevents infinite inheritance loops
 //! - **Path Resolution**: Resolves relative paths from config file locations
 //! - **Validation**: Validates merged configuration structure
+//!
+//! ## Variable Substitution
+//!
+//! String values can contain environment variable references:
+//! - `${VAR_NAME}` - Replaced with env var value, empty string if not set
+//! - `${VAR_NAME:default}` - Replaced with env var value, or default if not set
+//!
+//! ```yaml
+//! datasource:
+//!   consumer_config:
+//!     # Explicit: uses env var VELOSTREAM_KAFKA_BROKERS, defaults to localhost:9092
+//!     bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
+//! ```
 //!
 //! ## Usage
 //!
@@ -31,11 +46,63 @@
 //!   key.field: symbol
 //! ```
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+
+/// Substitute environment variables in a string value.
+///
+/// Supports two syntaxes:
+/// - `${VAR_NAME}` - replaced with env var value, or empty string if not set
+/// - `${VAR_NAME:default}` - replaced with env var value, or default if not set
+///
+/// Multiple substitutions in a single string are supported.
+/// Substitute environment variables in a string value at runtime.
+///
+/// This function is public to allow deferred/lazy substitution - call it at the point
+/// where you need the final value, not at config load time. This is important for
+/// testcontainers and other scenarios where env vars are set after config loading.
+pub fn substitute_env_vars(value: &str) -> String {
+    // Match ${VAR_NAME} or ${VAR_NAME:default}
+    // The regex captures: VAR_NAME and optionally :default
+    let re = Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}").unwrap();
+
+    re.replace_all(value, |caps: &regex::Captures| {
+        let var_name = &caps[1];
+        let default = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+
+        match std::env::var(var_name) {
+            Ok(val) => val,
+            Err(_) => default.to_string(),
+        }
+    })
+    .to_string()
+}
+
+/// Recursively substitute environment variables in all string values in a YAML structure
+fn substitute_env_vars_recursive(value: &mut serde_yaml::Value) {
+    match value {
+        serde_yaml::Value::String(s) => {
+            if s.contains("${") {
+                *s = substitute_env_vars(s);
+            }
+        }
+        serde_yaml::Value::Mapping(map) => {
+            for (_, v) in map.iter_mut() {
+                substitute_env_vars_recursive(v);
+            }
+        }
+        serde_yaml::Value::Sequence(seq) => {
+            for v in seq.iter_mut() {
+                substitute_env_vars_recursive(v);
+            }
+        }
+        _ => {} // Numbers, booleans, null - no substitution needed
+    }
+}
 
 /// YAML configuration loader with extends support
 pub struct YamlConfigLoader {
@@ -207,6 +274,11 @@ impl YamlConfigLoader {
 
         inheritance_chain.push(current_path.to_path_buf());
 
+        // NOTE: Environment variable substitution is now deferred to runtime
+        // This is critical for testcontainers integration where env vars are set AFTER config loading
+        // The substitute_env_vars() function is called when values are actually used
+        // substitute_env_vars_recursive(&mut merged_config);
+
         Ok(ResolvedYamlConfig {
             config: merged_config,
             metadata: ConfigResolutionMetadata {
@@ -309,6 +381,41 @@ pub fn load_yaml_config<P: AsRef<Path>>(
 
     let mut loader = YamlConfigLoader::new(base_dir);
     loader.load_config(config_path)
+}
+
+/// Load a config file with a custom base directory for resolving relative paths
+///
+/// This is useful when config_file paths in SQL are relative to the SQL file's directory,
+/// not the current working directory.
+///
+/// # Arguments
+/// * `file_path` - The config file path (can be relative or absolute)
+/// * `base_dir` - The base directory for resolving relative paths (typically the SQL file's directory)
+///
+/// # Example
+/// ```ignore
+/// // If SQL file is at /app/sql/app.sql and references '../configs/kafka.yaml'
+/// // The base_dir should be /app/sql/ so the config resolves to /app/configs/kafka.yaml
+/// let config = load_yaml_config_with_base("../configs/kafka.yaml", "/app/sql/")?;
+/// ```
+pub fn load_yaml_config_with_base<P: AsRef<Path>, B: AsRef<Path>>(
+    file_path: P,
+    base_dir: B,
+) -> Result<ResolvedYamlConfig, YamlConfigError> {
+    let path = file_path.as_ref();
+    let base = base_dir.as_ref();
+
+    // If path is absolute, ignore base_dir and use path's parent
+    if path.is_absolute() {
+        let parent = path.parent().unwrap_or_else(|| Path::new("/"));
+        let mut loader = YamlConfigLoader::new(parent);
+        loader.load_config(path)
+    } else {
+        // For relative paths, use the provided base directory
+        // The loader's resolve_path will join base_dir + file_path
+        let mut loader = YamlConfigLoader::new(base);
+        loader.load_config(path)
+    }
 }
 
 #[cfg(test)]
@@ -420,5 +527,142 @@ value: "b"
             result,
             Err(YamlConfigError::CircularDependency { .. })
         ));
+    }
+
+    #[test]
+    fn test_env_var_substitution_with_default() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("env_test.yaml");
+
+        fs::write(
+            &config_path,
+            r#"
+datasource:
+  consumer_config:
+    bootstrap.servers: "${YAML_TEST_BROKERS:localhost:9092}"
+    group.id: "${YAML_TEST_GROUP_ID:default-group}"
+"#,
+        )
+        .unwrap();
+
+        let mut loader = YamlConfigLoader::new(temp_dir.path());
+        let result = loader.load_config(&config_path).unwrap();
+
+        // Config loading preserves env var placeholders (substitution is deferred for testcontainers)
+        // Substitution happens when values are actually used via substitute_env_vars()
+        let raw_servers = result.config["datasource"]["consumer_config"]["bootstrap.servers"]
+            .as_str()
+            .unwrap();
+        let raw_group = result.config["datasource"]["consumer_config"]["group.id"]
+            .as_str()
+            .unwrap();
+
+        // Apply deferred substitution
+        assert_eq!(substitute_env_vars(raw_servers), "localhost:9092");
+        assert_eq!(substitute_env_vars(raw_group), "default-group");
+    }
+
+    #[test]
+    fn test_env_var_substitution_from_env() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("env_test2.yaml");
+
+        fs::write(
+            &config_path,
+            r#"
+datasource:
+  consumer_config:
+    bootstrap.servers: "${YAML_TEST_BROKERS_2:localhost:9092}"
+"#,
+        )
+        .unwrap();
+
+        // Set env var (unsafe in Rust 2024 due to thread safety)
+        // SAFETY: This test runs in isolation and we clean up after
+        unsafe {
+            std::env::set_var("YAML_TEST_BROKERS_2", "testcontainer:32789");
+        }
+
+        let mut loader = YamlConfigLoader::new(temp_dir.path());
+        let result = loader.load_config(&config_path).unwrap();
+
+        // Config preserves placeholders; substitution is deferred
+        let raw_value = result.config["datasource"]["consumer_config"]["bootstrap.servers"]
+            .as_str()
+            .unwrap();
+
+        // With env var set, deferred substitution should use env value
+        assert_eq!(substitute_env_vars(raw_value), "testcontainer:32789");
+
+        // Cleanup
+        unsafe {
+            std::env::remove_var("YAML_TEST_BROKERS_2");
+        }
+    }
+
+    #[test]
+    fn test_env_var_substitution_without_default() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("env_test3.yaml");
+
+        fs::write(
+            &config_path,
+            r#"
+datasource:
+  optional_field: "${YAML_TEST_OPTIONAL}"
+"#,
+        )
+        .unwrap();
+
+        let mut loader = YamlConfigLoader::new(temp_dir.path());
+        let result = loader.load_config(&config_path).unwrap();
+
+        // Config preserves placeholders; substitution is deferred
+        let raw_value = result.config["datasource"]["optional_field"]
+            .as_str()
+            .unwrap();
+
+        // Without env var and no default, deferred substitution yields empty string
+        assert_eq!(substitute_env_vars(raw_value), "");
+    }
+
+    #[test]
+    fn test_env_var_substitution_multiple_in_string() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("env_test4.yaml");
+
+        fs::write(
+            &config_path,
+            r#"
+connection_string: "kafka://${YAML_HOST:localhost}:${YAML_PORT:9092}/topic"
+"#,
+        )
+        .unwrap();
+
+        let mut loader = YamlConfigLoader::new(temp_dir.path());
+        let result = loader.load_config(&config_path).unwrap();
+
+        // Config preserves placeholders; substitution is deferred
+        let raw_value = result.config["connection_string"].as_str().unwrap();
+
+        // Deferred substitution handles multiple vars in one string
+        assert_eq!(
+            substitute_env_vars(raw_value),
+            "kafka://localhost:9092/topic"
+        );
+    }
+
+    #[test]
+    fn test_substitute_env_vars_function() {
+        // Direct function tests
+        assert_eq!(
+            substitute_env_vars("${NONEXISTENT_VAR:default_value}"),
+            "default_value"
+        );
+        assert_eq!(
+            substitute_env_vars("prefix_${NONEXISTENT_VAR:middle}_suffix"),
+            "prefix_middle_suffix"
+        );
+        assert_eq!(substitute_env_vars("no_vars_here"), "no_vars_here");
     }
 }

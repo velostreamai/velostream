@@ -1,0 +1,178 @@
+# Quickstart Demo Test Specification
+# Validates all quickstart examples work correctly
+
+application: quickstart_demos
+description: Beginner-friendly streaming SQL examples with file I/O
+
+default_timeout_ms: 30000
+
+queries:
+  # ============================================================================
+  # Hello World - Simplest passthrough
+  # ============================================================================
+  - name: hello_world
+    description: Passthrough all data unchanged
+    inputs:
+      - source: input_data
+        source_type:
+          type: file
+          path: ./hello_world_input.csv
+          format: Csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ./output/hello_world_output.csv
+        format: Csv
+    assertions:
+      - type: file_exists
+        path: ./output/hello_world_output.csv
+      - type: file_row_count
+        path: ./output/hello_world_output.csv
+        format: Csv
+        equals: 5
+      - type: file_matches
+        actual_path: ./hello_world_output.csv
+        expected_path: ./hello_world_expected.csv
+        format: Csv
+        ignore_order: false
+
+  # ============================================================================
+  # 01_filter - WHERE clause filtering
+  # ============================================================================
+  - name: filtered_data
+    description: Filter rows where value > 150
+    inputs:
+      - source: input_data
+        source_type:
+          type: file
+          path: ./hello_world_input.csv
+          format: Csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ./output/01_filter_output.csv
+        format: Csv
+    assertions:
+      - type: file_exists
+        path: ./output/01_filter_output.csv
+      # Should have 3 rows: Bob (200), Dave (300), Eve (250)
+      - type: file_row_count
+        path: ./output/01_filter_output.csv
+        format: Csv
+        equals: 3
+      - type: file_contains
+        path: ./output/01_filter_output.csv
+        format: Csv
+        field: name
+        expected_values:
+          - Bob
+          - Dave
+          - Eve
+        mode: all
+
+  # ============================================================================
+  # 02_transform - Column transformations
+  # ============================================================================
+  - name: transformed_data
+    description: Transform columns with calculations
+    inputs:
+      - source: input_data
+        source_type:
+          type: file
+          path: ./hello_world_input.csv
+          format: Csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ./output/02_transform_output.csv
+        format: Csv
+    assertions:
+      - type: file_exists
+        path: ./output/02_transform_output.csv
+      - type: file_row_count
+        path: ./output/02_transform_output.csv
+        format: Csv
+        equals: 5
+      # Check doubled_value column exists and has correct values
+      - type: file_contains
+        path: ./output/02_transform_output.csv
+        format: Csv
+        field: name_upper
+        expected_values:
+          - ALICE
+          - BOB
+          - CAROL
+          - DAVE
+          - EVE
+        mode: all
+
+  # ============================================================================
+  # 03_aggregate - COUNT, SUM, AVG with GROUP BY
+  # ============================================================================
+  - name: category_stats
+    description: Aggregate transactions by category
+    inputs:
+      - source: transactions
+        source_type:
+          type: file
+          path: ./03_aggregate_input.csv
+          format: Csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ./output/03_aggregate_output.csv
+        format: Csv
+    assertions:
+      - type: file_exists
+        path: ./output/03_aggregate_output.csv
+      # Streaming aggregations emit incrementally (8 rows for 8 input records)
+      - type: file_row_count
+        path: ./output/03_aggregate_output.csv
+        format: Csv
+        equals: 8
+      - type: file_contains
+        path: ./output/03_aggregate_output.csv
+        format: Csv
+        field: category
+        expected_values:
+          - Electronics
+          - Books
+          - Clothing
+        mode: all
+
+  # ============================================================================
+  # 04_window - LAG window function
+  # ============================================================================
+  - name: price_with_change
+    description: Window function to get previous price
+    inputs:
+      - source: stock_prices
+        source_type:
+          type: file
+          path: ./04_window_input.csv
+          format: Csv
+          watch: false
+    output:
+      sink_type:
+        type: file
+        path: ./output/04_window_output.csv
+        format: Csv
+    assertions:
+      - type: file_exists
+        path: ./output/04_window_output.csv
+      - type: file_row_count
+        path: ./output/04_window_output.csv
+        format: Csv
+        equals: 8
+      - type: file_contains
+        path: ./output/04_window_output.csv
+        format: Csv
+        field: symbol
+        expected_values:
+          - AAPL
+          - GOOGL
+        mode: all

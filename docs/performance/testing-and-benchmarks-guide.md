@@ -120,7 +120,7 @@ cargo run --bin velo-cli validate examples/sql/ --verbose --no-default-features
 cargo run --bin velo-cli validate examples/sql/ --format json --no-default-features
 
 # Test pre-deployment validation
-cargo run --bin velo-sql-multi deploy-app --file examples/sql/simple.sql --no-monitor --no-default-features
+cargo run --bin velo-sql deploy-app --file examples/sql/simple.sql --no-monitor --no-default-features
 
 # Kafka configuration testing
 cargo run --bin test_kafka_configuration --no-default-features

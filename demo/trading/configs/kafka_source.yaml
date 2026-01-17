@@ -1,0 +1,47 @@
+# Shared Kafka Source Configuration
+# Used by all trading demo SQL files
+# Topic names are specified in SQL WITH clause: 'source.topic.name' = 'xxx'
+
+datasource:
+  type: kafka
+
+  # Standard consumer configuration
+  # NOTE: Values use ${ENV_VAR:default} syntax - env var takes precedence (12-factor app style)
+  consumer_config:
+    bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
+    auto.offset.reset: "earliest"
+    enable.auto.commit: true
+    auto.commit.interval.ms: 100
+    session.timeout.ms: 6000
+    heartbeat.interval.ms: 2000
+
+  schema:
+    key.format: string
+    value.serializer: "json"
+
+  performance:
+    compression.type: "lz4"
+
+  stream.config:
+    replication.factor: 1
+    cleanup.policy: "delete"
+
+# Performance profiles - select via 'performance_profile' in WITH clause
+performance_profiles:
+  ultra_low_latency:
+    fetch.max.wait.ms: 10
+    max.poll.records: 1000
+    fetch.min.bytes: 1024
+    linger.ms: 1
+
+  high_throughput:
+    fetch.max.wait.ms: 50
+    max.poll.records: 2000
+    fetch.min.bytes: 2048
+    linger.ms: 5
+
+  balanced:
+    fetch.max.wait.ms: 20
+    max.poll.records: 1000
+    fetch.min.bytes: 1024
+    linger.ms: 2

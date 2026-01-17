@@ -6,28 +6,32 @@
 
 use crate::velostream::datasource::DataWriter;
 use crate::velostream::observability::{
-    ObservabilityManager, SharedObservabilityManager, error_tracker::DeploymentContext,
+    SharedObservabilityManager, error_tracker::DeploymentContext,
 };
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::instance_id::get_instance_id;
 use crate::velostream::server::observability_config_extractor::ObservabilityConfigExtractor;
+use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
-    SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
-    create_multi_source_readers,
+    SharedJobStats, SimpleJobProcessor, create_multi_sink_writers, create_multi_source_readers,
 };
+use crate::velostream::server::shutdown::{ShutdownConfig, ShutdownResult, ShutdownSignal};
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
-use crate::velostream::server::v2::{AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode};
+// Note: AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode are now accessed
+// through JobProcessorFactory::create_adaptive_full() - no direct imports needed
 use crate::velostream::sql::{
     SqlApplication, SqlError, SqlValidator, StreamExecutionEngine, StreamingSqlParser,
+    annotation_parser::SqlAnnotationParser,
     ast::{JobProcessorMode, StreamingQuery},
     config::with_clause_parser::WithClauseParser,
     execution::config::StreamingConfig,
     execution::performance::PerformanceMonitor,
-    query_analyzer::QueryAnalyzer,
+    query_analyzer::{DataSourceRequirement, DataSourceType, QueryAnalyzer},
 };
+use crate::velostream::table::unified_table::UnifiedTable;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -48,6 +52,8 @@ pub struct StreamJobServer {
     observability: Option<SharedObservabilityManager>,
     /// Job processor architecture configuration (V1 or V2)
     processor_config: JobProcessorConfig,
+    /// Base directory for resolving relative paths in SQL config files
+    base_dir: Option<std::path::PathBuf>,
 }
 
 pub struct RunningJob {
@@ -60,8 +66,9 @@ pub struct RunningJob {
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub execution_handle: JoinHandle<()>,
     pub shutdown_sender: mpsc::Sender<()>,
-    pub metrics: JobMetrics,
     pub observability: Option<SharedObservabilityManager>,
+    /// Shared stats for real-time monitoring from test harness
+    pub shared_stats: SharedJobStats,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -74,46 +81,13 @@ pub enum JobStatus {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct JobMetrics {
-    pub records_processed: u64,
-    pub records_per_second: f64,
-    pub last_record_time: Option<chrono::DateTime<chrono::Utc>>,
-    pub errors: u64,
-    pub memory_usage_mb: f64,
-    /// Partitioner strategy used for this job (e.g., "always_hash", "sticky_partition", "smart_repartition")
-    /// Helps understand performance characteristics
-    pub partitioner: Option<String>,
-}
-
-impl Default for JobMetrics {
-    fn default() -> Self {
-        Self {
-            records_processed: 0,
-            records_per_second: 0.0,
-            last_record_time: None,
-            errors: 0,
-            memory_usage_mb: 0.0,
-            partitioner: None,
-        }
-    }
-}
-
-impl JobMetrics {
-    /// Set the partitioner strategy for this job's metrics
-    pub fn with_partitioner(mut self, partitioner: String) -> Self {
-        self.partitioner = Some(partitioner);
-        self
-    }
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
 pub struct JobSummary {
     pub name: String,
     pub version: String,
     pub topic: String,
     pub status: JobStatus,
     pub created_at: chrono::DateTime<chrono::Utc>,
-    pub metrics: JobMetrics,
+    pub stats: JobExecutionStats,
 }
 
 impl StreamJobServer {
@@ -121,8 +95,6 @@ impl StreamJobServer {
     pub fn with_config(config: StreamJobServerConfig) -> Self {
         let table_registry_config = TableRegistryConfig {
             max_tables: config.table_cache_size,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: config.kafka_brokers.clone(),
             base_group_id: config.base_group_id.clone(),
         };
@@ -136,6 +108,7 @@ impl StreamJobServer {
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: None,
             processor_config: JobProcessorConfig::default(),
+            base_dir: config.base_dir,
         }
     }
 
@@ -195,8 +168,6 @@ impl StreamJobServer {
 
         let table_registry_config = TableRegistryConfig {
             max_tables: config.table_cache_size,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: config.kafka_brokers.clone(),
             base_group_id: config.base_group_id.clone(),
         };
@@ -210,6 +181,7 @@ impl StreamJobServer {
             table_registry: TableRegistry::with_config(table_registry_config),
             observability,
             processor_config: JobProcessorConfig::default(),
+            base_dir: config.base_dir,
         }
     }
 
@@ -274,8 +246,6 @@ impl StreamJobServer {
 
         let table_registry_config = TableRegistryConfig {
             max_tables: config.table_cache_size,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: config.kafka_brokers.clone(),
             base_group_id: config.base_group_id.clone(),
         };
@@ -289,6 +259,7 @@ impl StreamJobServer {
             table_registry: TableRegistry::with_config(table_registry_config),
             observability: observability.clone(),
             processor_config: JobProcessorConfig::default(),
+            base_dir: config.base_dir,
         };
 
         // Initialize server-level deployment context for system metrics
@@ -489,12 +460,14 @@ impl StreamJobServer {
             } else {
                 let mut summary = format!("Active Jobs: {}\n", jobs.len());
                 for (name, job) in jobs.iter() {
+                    let stats = job
+                        .shared_stats
+                        .read()
+                        .map(|s| (s.records_processed, s.records_per_second()))
+                        .unwrap_or((0, 0.0));
                     summary.push_str(&format!(
                         "  - {}: {:?} (records: {}, rps: {:.1})\n",
-                        name,
-                        job.status,
-                        job.metrics.records_processed,
-                        job.metrics.records_per_second
+                        name, job.status, stats.0, stats.1
                     ));
                 }
                 summary
@@ -570,79 +543,178 @@ impl StreamJobServer {
         let parsed_query = parser.parse(&query)?;
 
         // Extract table dependencies and ensure they exist AND ARE READY
+        // All tables are passed to processors - they handle which ones they need
         let required_tables = TableRegistry::extract_table_dependencies(&parsed_query);
+        let properties = Self::get_query_properties(&parsed_query);
+
+        // Create QueryAnalyzer for determining required resources
+        // Use base_dir for resolving relative config file paths
+        let mut analyzer = if let Some(ref base_dir) = self.base_dir {
+            QueryAnalyzer::with_base_dir(self.base_group_id.clone(), base_dir)
+        } else {
+            QueryAnalyzer::new(self.base_group_id.clone())
+        };
+
         if !required_tables.is_empty() {
-            info!("Job '{}' requires tables: {:?}", name, required_tables);
+            info!(
+                "Job '{}' has table dependencies: {:?}",
+                name, required_tables
+            );
 
-            // Check that all required tables exist in the registry
+            // Identify file_source tables that need to be loaded into the registry
+            // Other source types (kafka_source, etc.) are external and don't need registry loading
+            let file_source_tables: Vec<String> = required_tables
+                .iter()
+                .filter(|name| {
+                    let type_key = format!("{}.type", name);
+                    properties
+                        .get(&type_key)
+                        .map(|t| t == "file_source")
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+
+            // Check which file_source tables are missing from the registry
             let mut missing_tables = Vec::new();
-
-            for table_name in &required_tables {
+            for table_name in &file_source_tables {
                 if !self.table_registry.exists(table_name).await {
                     missing_tables.push(table_name.clone());
                 }
             }
 
+            // Auto-load missing file_source tables from their config files
             if !missing_tables.is_empty() {
-                return Err(SqlError::ExecutionError {
-                    message: format!(
-                        "Job '{}' cannot be deployed: missing required tables: {:?}\n\
-                        Create them first using: CREATE TABLE <name> AS SELECT ...",
-                        name, missing_tables
-                    ),
-                    query: Some(query),
-                });
-            }
+                info!(
+                    "Job '{}': Auto-loading {} missing file_source tables...",
+                    name,
+                    missing_tables.len()
+                );
 
-            info!(
-                "Job '{}': All required tables exist, waiting for them to be ready...",
-                name
-            );
-
-            // CRITICAL: Wait for ALL tables to be fully loaded before starting the stream
-            // This prevents missing enrichment data and ensures data consistency
-            let table_ready_timeout = Duration::from_secs(60); // Conservative 60s default
-
-            match self
-                .table_registry
-                .wait_for_tables_ready(&required_tables, table_ready_timeout)
-                .await
-            {
-                Ok(table_statuses) => {
-                    info!(
-                        "Job '{}': All {} tables are ready!",
-                        name,
-                        table_statuses.len()
-                    );
-                    for (table_name, status) in table_statuses {
-                        info!("  Table '{}': {:?}", table_name, status);
+                for table_name in &missing_tables {
+                    let config_key = format!("{}.config_file", table_name);
+                    if let Some(config_path) = properties.get(&config_key) {
+                        match self
+                            .table_registry
+                            .load_file_source_table(
+                                table_name,
+                                config_path,
+                                self.base_dir.as_deref(),
+                            )
+                            .await
+                        {
+                            Ok(row_count) => {
+                                info!(
+                                    "  ✓ Loaded table '{}' from '{}' ({} rows)",
+                                    table_name, config_path, row_count
+                                );
+                            }
+                            Err(e) => {
+                                error!(
+                                    "  ✗ Failed to load table '{}' from '{}': {}",
+                                    table_name, config_path, e
+                                );
+                                return Err(SqlError::ExecutionError {
+                                    message: format!(
+                                        "Job '{}' cannot be deployed: failed to load table '{}' from '{}': {}",
+                                        name, table_name, config_path, e
+                                    ),
+                                    query: Some(query),
+                                });
+                            }
+                        }
+                    } else {
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Job '{}' cannot be deployed: missing required table '{}' and no config_file specified.\n\
+                                Add '{}.config_file' to the WITH clause or create the table using: CREATE TABLE {} AS SELECT ...",
+                                name, table_name, table_name, table_name
+                            ),
+                            query: Some(query),
+                        });
                     }
                 }
-                Err(e) => {
-                    error!(
-                        "Job '{}': Failed waiting for tables to be ready: {}",
-                        name, e
-                    );
-                    return Err(SqlError::ExecutionError {
-                        message: format!(
-                            "Job '{}' cannot be deployed: tables not ready after {:?} timeout: {}",
-                            name, table_ready_timeout, e
-                        ),
-                        query: Some(query),
-                    });
+            }
+
+            // Wait for file_source tables to be ready (if any)
+            if !file_source_tables.is_empty() {
+                info!(
+                    "Job '{}': Waiting for {} file_source tables to be ready...",
+                    name,
+                    file_source_tables.len()
+                );
+
+                // CRITICAL: Wait for file_source tables to be fully loaded before starting the stream
+                // This prevents missing enrichment data and ensures data consistency
+                let table_ready_timeout = Duration::from_secs(60); // Conservative 60s default
+
+                match self
+                    .table_registry
+                    .wait_for_tables_ready(&file_source_tables, table_ready_timeout)
+                    .await
+                {
+                    Ok(table_statuses) => {
+                        info!(
+                            "Job '{}': All {} file_source tables are ready!",
+                            name,
+                            table_statuses.len()
+                        );
+                        for (table_name, status) in table_statuses {
+                            info!("  Table '{}': {:?}", table_name, status);
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Job '{}': Failed waiting for tables to be ready: {}",
+                            name, e
+                        );
+                        return Err(SqlError::ExecutionError {
+                            message: format!(
+                                "Job '{}' cannot be deployed: tables not ready after {:?} timeout: {}",
+                                name, table_ready_timeout, e
+                            ),
+                            query: Some(query),
+                        });
+                    }
                 }
             }
+            // Register file_source tables as known (they're in the registry)
+            // This allows QueryAnalyzer to skip validation for these tables
+            // while still analyzing external sources (kafka_source, etc.)
+            analyzer.add_known_tables(file_source_tables);
         } else {
             info!("Job '{}' has no table dependencies", name);
         }
 
-        // Analyze query to determine required resources
-        let mut analyzer = QueryAnalyzer::new(self.base_group_id.clone());
-
-        // Register known tables to skip external source validation
-        analyzer.add_known_tables(required_tables.clone());
-
         let analysis = analyzer.analyze(&parsed_query)?;
+
+        // Check if this is a reference table CTAS (CREATE TABLE with file_source input, no sink)
+        // If so, materialize the table directly instead of starting a streaming job
+        let is_ctas = matches!(&parsed_query, StreamingQuery::CreateTable { .. });
+        let has_file_source = analysis.required_sources.iter().any(|s| {
+            matches!(
+                s.source_type,
+                crate::velostream::sql::query_analyzer::DataSourceType::File
+            )
+        });
+        let has_no_sink = analysis.required_sinks.is_empty();
+
+        if is_ctas && has_file_source && has_no_sink {
+            info!(
+                "Job '{}': Reference table CTAS detected (file_source input, no sink) - materializing table directly",
+                name
+            );
+            // Use create_table() to execute CTAS and register the output table in the registry
+            let table_name = self.table_registry.create_table(query.clone()).await?;
+            info!(
+                "Job '{}': Table '{}' created and registered in table registry",
+                name, table_name
+            );
+
+            // Return early - no streaming job needed for reference tables
+            // The table is now available for other jobs to use via subqueries/joins
+            return Ok(());
+        }
 
         // Extract batch configuration from WITH clauses
         let batch_config = Self::extract_batch_config_from_query(&parsed_query)?;
@@ -739,51 +811,68 @@ impl StreamJobServer {
             execution_engine.set_performance_monitor(Some(Arc::clone(monitor)));
         }
 
-        // Inject shared tables into execution context if any required
-        if !required_tables.is_empty() {
-            let table_registry = self.table_registry.clone();
-            let required_tables_clone = required_tables.clone();
+        // Extract tables ONCE for both execution_engine and Adaptive processor
+        // This avoids duplicate extraction and blocking async calls
+        // NOTE: required_tables includes ALL source references (kafka_source, file_source, etc.)
+        // Only tables actually in the registry will be extracted - external sources (kafka_source)
+        // are not expected to be in the registry and are handled by their respective data sources.
+        let tables_for_processor: Option<HashMap<String, Arc<dyn UnifiedTable>>> =
+            if !required_tables.is_empty() {
+                let mut tables = HashMap::new();
 
-            execution_engine.context_customizer = Some(Arc::new(move |context| {
-                // Use blocking task to get tables
-                let tables_to_inject = tokio::task::block_in_place(|| {
-                    let runtime = tokio::runtime::Handle::current();
-                    runtime.block_on(async {
-                        let mut tables = HashMap::new();
-                        for table_name in &required_tables_clone {
-                            if let Ok(table) = table_registry.get_table(table_name).await {
-                                tables.insert(table_name.clone(), table);
-                                info!("Injected table '{}' into job execution context", table_name);
-                            }
-                        }
-                        tables
-                    })
-                });
-
-                for (table_name, table) in tables_to_inject {
-                    context.load_reference_table(&table_name, table);
+                for table_name in &required_tables {
+                    // Silently skip tables not in registry - these may be external sources
+                    // (kafka_source, etc.) that don't need registry lookup
+                    if let Ok(table) = self.table_registry.get_table(table_name).await {
+                        tables.insert(table_name.clone(), table);
+                    }
                 }
-            }));
 
-            info!(
-                "Job '{}': Configured table injection for {} tables",
-                name,
-                required_tables.len()
-            );
-        }
+                if tables.is_empty() {
+                    None
+                } else {
+                    info!(
+                        "Job '{}': Extracted {} tables for processor: {:?}",
+                        name,
+                        tables.len(),
+                        tables.keys().collect::<Vec<_>>()
+                    );
+                    Some(tables)
+                }
+            } else {
+                None
+            };
+
+        // Note: Tables are now passed directly to processors via JobProcessorFactory
+        // in create_processor(), eliminating the need for context_customizer closure pattern.
+        // Processors inject tables directly into their ProcessorContext.
 
         let execution_engine = Arc::new(RwLock::new(execution_engine));
 
         // Clone data for the job task
         let job_name = name.clone();
-        let topic_clone = topic.clone();
+        let _topic_clone = topic.clone();
         let batch_config_clone = batch_config.clone();
         let observability_for_spawn = observability_manager.clone();
+        let tables_for_spawn = tables_for_processor;
+
+        // Create shared stats for real-time monitoring from test harness
+        let shared_stats: SharedJobStats =
+            Arc::new(std::sync::RwLock::new(JobExecutionStats::new()));
+        let shared_stats_for_spawn = shared_stats.clone();
 
         // Wire job_mode annotation from query to processor configuration
         // Per-query job_mode takes precedence over server-level configuration
-        let processor_config_for_spawn =
-            Self::get_processor_config_from_query(&parsed_query, &self.processor_config);
+        // Pass raw SQL string for annotation parsing (works with CREATE STREAM and other query types)
+        let processor_config_from_query =
+            Self::get_processor_config_from_query(&parsed_query, &query, &self.processor_config);
+
+        // Apply source-based partition limits (e.g., file sources only support 1 partition)
+        let processor_config_for_spawn = Self::apply_source_partition_limit(
+            processor_config_from_query,
+            &analysis.required_sources,
+        )
+        .await;
 
         // FR-082 Phase 5: Output handler task no longer needed
         // The engine now owns the output_receiver for EMIT CHANGES support.
@@ -805,15 +894,35 @@ impl StreamJobServer {
                 analysis.required_sinks.len()
             );
 
+            // Extract job processing configuration EARLY - before creating sources/sinks
+            // This allows us to configure transactional.id and isolation.level appropriately
+            let job_config = Self::extract_job_config_from_query(&parsed_query);
+
+            // Determine use_transactions from both WITH clause properties AND @job_mode annotation
+            // The @job_mode: transactional annotation should enable transactions even without
+            // explicit WITH ('mode' = 'transactional') property
+            let use_transactions = job_config.use_transactions
+                || matches!(
+                    processor_config_for_spawn,
+                    JobProcessorConfig::Transactional
+                );
+
+            info!(
+                "Job '{}' transactional mode: {} (config: {}, processor: {:?})",
+                job_name, use_transactions, job_config.use_transactions, processor_config_for_spawn
+            );
+
             // Use multi-source processing for all jobs (handles single-source as special case)
             // Thread app_name from SqlApplication metadata for coordinated consumer groups
             // Thread instance_id for unique client.id generation
+            // Thread use_transactions for isolation.level=read_committed
             match create_multi_source_readers(
                 &analysis.required_sources,
                 &job_name,
                 app_name.as_deref(),
                 instance_id.as_deref(),
                 &batch_config_clone,
+                use_transactions,
             )
             .await
             {
@@ -826,12 +935,33 @@ impl StreamJobServer {
 
                     // Create all sinks
                     // Thread app_name and instance_id for hierarchical client.id generation
+                    // Thread use_transactions for transactional.id injection
+                    log::debug!(
+                        "Job '{}': Creating sinks. Required sinks count: {}, use_transactions: {}",
+                        job_name,
+                        analysis.required_sinks.len(),
+                        use_transactions
+                    );
+                    for (i, sink) in analysis.required_sinks.iter().enumerate() {
+                        log::debug!(
+                            "Job '{}': Sink[{}] name='{}', type={:?}, props_count={}",
+                            job_name,
+                            i,
+                            sink.name,
+                            sink.sink_type,
+                            sink.properties.len()
+                        );
+                        for (k, v) in &sink.properties {
+                            log::debug!("Job '{}': Sink[{}] property: {} = {}", job_name, i, k, v);
+                        }
+                    }
                     match create_multi_sink_writers(
                         &analysis.required_sinks,
                         &job_name,
                         app_name.as_deref(),
                         instance_id.as_deref(),
                         &batch_config_clone,
+                        use_transactions,
                     )
                     .await
                     {
@@ -841,12 +971,18 @@ impl StreamJobServer {
                                 job_name,
                                 writers.len()
                             );
+                            log::debug!(
+                                "Job '{}': Writers map keys: {:?}",
+                                job_name,
+                                writers.keys().collect::<Vec<_>>()
+                            );
 
                             // Add stdout as fallback if no sinks were created
                             if writers.is_empty() {
-                                info!(
-                                    "Job '{}' no sinks created, adding stdout as default",
-                                    job_name
+                                log::warn!(
+                                    "Job '{}': STDOUT FALLBACK - No sinks were successfully created, adding stdout as default. Required sinks: {}",
+                                    job_name,
+                                    analysis.required_sinks.len()
                                 );
                                 writers.insert(
                                     "stdout_default".to_string(),
@@ -856,20 +992,17 @@ impl StreamJobServer {
                                 );
                             }
 
-                            // Determine processing mode and create appropriate processor
-                            let config = Self::extract_job_config_from_query(&parsed_query);
-                            let use_transactions = config.use_transactions;
-
+                            // Log processing configuration (job_config extracted earlier for source/sink creation)
                             info!(
                                 "Job '{}' processing configuration: use_transactions={}, failure_strategy={:?}, max_batch_size={}, batch_timeout={}ms, max_retries={}, retry_backoff={}ms, log_progress={}",
                                 job_name,
-                                config.use_transactions,
-                                config.failure_strategy,
-                                config.max_batch_size,
-                                config.batch_timeout.as_millis(),
-                                config.max_retries,
-                                config.retry_backoff.as_millis(),
-                                config.log_progress
+                                job_config.use_transactions,
+                                job_config.failure_strategy,
+                                job_config.max_batch_size,
+                                job_config.batch_timeout.as_millis(),
+                                job_config.max_retries,
+                                job_config.retry_backoff.as_millis(),
+                                job_config.log_progress
                             );
 
                             info!(
@@ -883,6 +1016,7 @@ impl StreamJobServer {
                                 &processor_config_for_spawn,
                                 &parsed_query,
                                 &job_name,
+                                tables_for_spawn.clone(),
                             );
 
                             // Execute the selected processor (unified API for all three)
@@ -894,6 +1028,7 @@ impl StreamJobServer {
                                     parsed_query,
                                     job_name.clone(),
                                     shutdown_receiver,
+                                    Some(shared_stats_for_spawn.clone()), // Pass shared stats for real-time monitoring
                                 )
                                 .await
                             {
@@ -951,6 +1086,7 @@ impl StreamJobServer {
                                     parsed_query,
                                     job_name.clone(),
                                     shutdown_receiver,
+                                    Some(shared_stats_for_spawn.clone()), // Pass shared stats for real-time monitoring
                                 )
                                 .await
                             {
@@ -984,8 +1120,8 @@ impl StreamJobServer {
             updated_at: chrono::Utc::now(),
             execution_handle,
             shutdown_sender,
-            metrics: JobMetrics::default(),
             observability: observability_manager,
+            shared_stats, // Store shared stats for real-time monitoring
         };
 
         // Store the job
@@ -1034,7 +1170,9 @@ impl StreamJobServer {
         self.table_registry.get_all_table_stats().await
     }
 
-    /// Clean up inactive tables based on TTL
+    /// Clean up inactive tables (placeholder for future cleanup strategies)
+    ///
+    /// Currently returns an empty list. Tables should be explicitly dropped.
     pub async fn cleanup_inactive_tables(&self) -> Result<Vec<String>, SqlError> {
         self.table_registry.cleanup_inactive_tables().await
     }
@@ -1053,9 +1191,23 @@ impl StreamJobServer {
     }
 
     pub async fn stop_job(&self, name: &str) -> Result<(), SqlError> {
-        let mut jobs = self.jobs.write().await;
+        self.stop_job_with_timeout(name, Duration::from_secs(10))
+            .await
+    }
 
-        if let Some(job) = jobs.remove(name) {
+    /// Stop a job with a configurable timeout for graceful shutdown
+    pub async fn stop_job_with_timeout(
+        &self,
+        name: &str,
+        timeout: Duration,
+    ) -> Result<(), SqlError> {
+        // First, get the job and send shutdown signal (while holding write lock briefly)
+        let job = {
+            let mut jobs = self.jobs.write().await;
+            jobs.remove(name)
+        };
+
+        if let Some(job) = job {
             info!("Stopping job '{}'", name);
 
             // Send shutdown signal
@@ -1063,10 +1215,30 @@ impl StreamJobServer {
                 warn!("Failed to send shutdown signal to job '{}': {:?}", name, e);
             }
 
-            // Abort the execution task
-            job.execution_handle.abort();
+            // Wait for job to finish gracefully (with timeout)
+            let wait_for_completion = async {
+                loop {
+                    if job.execution_handle.is_finished() {
+                        return true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+            };
 
-            info!("Successfully stopped job '{}'", name);
+            match tokio::time::timeout(timeout, wait_for_completion).await {
+                Ok(_) => {
+                    info!("Successfully stopped job '{}' (graceful)", name);
+                }
+                Err(_) => {
+                    warn!(
+                        "Job '{}' did not stop within {:?}, forcing abort",
+                        name, timeout
+                    );
+                    job.execution_handle.abort();
+                    info!("Successfully stopped job '{}' (forced)", name);
+                }
+            }
+
             Ok(())
         } else {
             Err(SqlError::ExecutionError {
@@ -1074,6 +1246,191 @@ impl StreamJobServer {
                 query: None,
             })
         }
+    }
+
+    /// Gracefully shutdown all running jobs in response to a signal
+    ///
+    /// This method:
+    /// 1. Stops accepting new jobs
+    /// 2. Sends shutdown signals to all running jobs
+    /// 3. Waits for jobs to commit offsets and flush sinks (with timeout)
+    /// 4. Force-kills any jobs that don't stop within the timeout
+    ///
+    /// # Arguments
+    /// * `signal` - The signal that triggered the shutdown
+    /// * `config` - Shutdown configuration including timeout
+    ///
+    /// # Returns
+    /// A `ShutdownResult` with statistics about the shutdown process
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// use velostream::velostream::server::shutdown::{ShutdownConfig, ShutdownSignal, shutdown_signal};
+    /// use velostream::velostream::server::stream_job_server::StreamJobServer;
+    ///
+    /// # async fn example() {
+    /// let server = StreamJobServer::new("localhost:9092".to_string(), "myapp".to_string(), 10);
+    ///
+    /// // Wait for shutdown signal and then gracefully stop
+    /// let signal = shutdown_signal().await;
+    /// let result = server.graceful_shutdown(signal, ShutdownConfig::default()).await;
+    /// println!("{}", result);
+    /// # }
+    /// ```
+    pub async fn graceful_shutdown(
+        &self,
+        signal: ShutdownSignal,
+        config: ShutdownConfig,
+    ) -> ShutdownResult {
+        let start = std::time::Instant::now();
+        let mut jobs_stopped = 0;
+        let mut jobs_force_killed = 0;
+
+        if config.verbose {
+            info!(
+                "Initiating graceful shutdown due to {} (timeout: {:?})",
+                signal, config.timeout
+            );
+        }
+
+        // Dump diagnostics on SIGQUIT if configured
+        if signal == ShutdownSignal::Quit && config.dump_on_quit {
+            self.dump_diagnostics().await;
+        }
+
+        // Get list of all running job names
+        let job_names: Vec<String> = {
+            let jobs = self.jobs.read().await;
+            jobs.keys().cloned().collect()
+        };
+
+        let total_jobs = job_names.len();
+        if config.verbose {
+            info!("Shutting down {} running jobs", total_jobs);
+        }
+
+        // Phase 1: Send shutdown signals to all jobs
+        {
+            let jobs = self.jobs.read().await;
+            for name in &job_names {
+                if let Some(job) = jobs.get(name) {
+                    if config.verbose {
+                        debug!("Sending shutdown signal to job '{}'", name);
+                    }
+                    let _ = job.shutdown_sender.try_send(());
+                }
+            }
+        }
+
+        // Phase 2: Wait for jobs to stop gracefully (with timeout per job)
+        let per_job_timeout = if total_jobs > 0 {
+            config.timeout / total_jobs as u32
+        } else {
+            config.timeout
+        };
+
+        for name in &job_names {
+            let job_start = std::time::Instant::now();
+
+            // Try to gracefully stop the job
+            let graceful_stop = async {
+                // Check if job has already stopped
+                loop {
+                    {
+                        let jobs = self.jobs.read().await;
+                        if !jobs.contains_key(name) {
+                            return true; // Job already stopped
+                        }
+                        if let Some(job) = jobs.get(name) {
+                            if job.execution_handle.is_finished() {
+                                return true; // Job finished
+                            }
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            };
+
+            match tokio::time::timeout(per_job_timeout, graceful_stop).await {
+                Ok(true) => {
+                    jobs_stopped += 1;
+                    if config.verbose {
+                        info!(
+                            "Job '{}' stopped gracefully in {:?}",
+                            name,
+                            job_start.elapsed()
+                        );
+                    }
+                }
+                Ok(false) | Err(_) => {
+                    // Timeout or job didn't stop - force kill
+                    warn!(
+                        "Job '{}' did not stop within {:?}, force killing",
+                        name, per_job_timeout
+                    );
+
+                    let mut jobs = self.jobs.write().await;
+                    if let Some(job) = jobs.remove(name) {
+                        job.execution_handle.abort();
+                        jobs_force_killed += 1;
+                    }
+                }
+            }
+        }
+
+        // Phase 3: Clean up any remaining jobs
+        {
+            let mut jobs = self.jobs.write().await;
+            for (name, job) in jobs.drain() {
+                warn!("Force killing remaining job '{}'", name);
+                job.execution_handle.abort();
+                jobs_force_killed += 1;
+            }
+        }
+
+        let elapsed = start.elapsed();
+        let completed_gracefully = elapsed <= config.timeout && jobs_force_killed == 0;
+
+        let result = ShutdownResult {
+            signal,
+            jobs_stopped,
+            jobs_force_killed,
+            completed_gracefully,
+            elapsed,
+        };
+
+        if config.verbose {
+            info!("{}", result);
+        }
+
+        result
+    }
+
+    /// Dump diagnostic information for debugging (called on SIGQUIT)
+    async fn dump_diagnostics(&self) {
+        info!("=== VELOSTREAM DIAGNOSTICS DUMP ===");
+
+        // Dump job information
+        let jobs = self.jobs.read().await;
+        info!("Running jobs: {}", jobs.len());
+        for (name, job) in jobs.iter() {
+            info!("  Job '{}': {:?}", name, job.status);
+            if let Ok(stats) = job.shared_stats.read() {
+                info!(
+                    "    Records processed: {}, Failed: {}",
+                    stats.records_processed, stats.records_failed
+                );
+            }
+        }
+
+        // Dump table registry info
+        let table_health = self.get_tables_health().await;
+        info!("Table registry health:");
+        for (table, status) in &table_health {
+            info!("  {}: {}", table, status);
+        }
+
+        info!("=== END DIAGNOSTICS DUMP ===");
     }
 
     pub async fn pause_job(&self, name: &str) -> Result<(), SqlError> {
@@ -1099,26 +1456,48 @@ impl StreamJobServer {
     pub async fn list_jobs(&self) -> Vec<JobSummary> {
         let jobs = self.jobs.read().await;
         jobs.values()
-            .map(|job| JobSummary {
-                name: job.name.clone(),
-                version: job.version.clone(),
-                topic: job.topic.clone(),
-                status: job.status.clone(),
-                created_at: job.created_at,
-                metrics: job.metrics.clone(),
+            .map(|job| {
+                let stats = job
+                    .shared_stats
+                    .read()
+                    .map(|s| s.clone())
+                    .unwrap_or_default();
+                JobSummary {
+                    name: job.name.clone(),
+                    version: job.version.clone(),
+                    topic: job.topic.clone(),
+                    status: job.status.clone(),
+                    created_at: job.created_at,
+                    stats,
+                }
             })
             .collect()
     }
 
     pub async fn get_job_status(&self, name: &str) -> Option<JobSummary> {
         let jobs = self.jobs.read().await;
-        jobs.get(name).map(|job| JobSummary {
-            name: job.name.clone(),
-            version: job.version.clone(),
-            topic: job.topic.clone(),
-            status: job.status.clone(),
-            created_at: job.created_at,
-            metrics: job.metrics.clone(),
+        jobs.get(name).map(|job| {
+            // Read real-time stats from shared_stats
+            let stats = match job.shared_stats.read() {
+                Ok(s) => s.clone(),
+                Err(e) => {
+                    log::warn!(
+                        "Failed to read shared_stats for job '{}': {} - using default",
+                        job.name,
+                        e
+                    );
+                    JobExecutionStats::default()
+                }
+            };
+
+            JobSummary {
+                name: job.name.clone(),
+                version: job.version.clone(),
+                topic: job.topic.clone(),
+                status: job.status.clone(),
+                created_at: job.created_at,
+                stats,
+            }
         })
     }
 
@@ -1555,6 +1934,7 @@ impl StreamJobServer {
         processor_config: &JobProcessorConfig,
         parsed_query: &StreamingQuery,
         job_name: &str,
+        table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
     ) -> Arc<dyn JobProcessor> {
         match processor_config {
             JobProcessorConfig::Simple => {
@@ -1562,14 +1942,24 @@ impl StreamJobServer {
                     "Job '{}' using Simple processor (single-threaded, best-effort delivery)",
                     job_name
                 );
-                JobProcessorFactory::create_simple()
+                // Pass table_registry to processor via factory for direct table injection
+                JobProcessorFactory::create_with_config_and_tables(
+                    JobProcessorConfig::Simple,
+                    None,
+                    table_registry,
+                )
             }
             JobProcessorConfig::Transactional => {
                 info!(
                     "Job '{}' using Transactional processor (single-threaded, at-least-once delivery)",
                     job_name
                 );
-                JobProcessorFactory::create_transactional()
+                // Pass table_registry to processor via factory for direct table injection
+                JobProcessorFactory::create_with_config_and_tables(
+                    JobProcessorConfig::Transactional,
+                    None,
+                    table_registry,
+                )
             }
             JobProcessorConfig::Adaptive {
                 num_partitions,
@@ -1587,28 +1977,22 @@ impl StreamJobServer {
 
                 // Enable auto-selection from query if no explicit strategy provided
                 // CRITICAL: User explicit strategy takes priority and is NEVER overridden
-                let auto_select = partitioning_strategy.is_none();
-
-                let adaptive_config = PartitionedJobConfig {
-                    num_partitions: *num_partitions,
-                    processing_mode: ProcessingMode::Batch { size: 1000 },
-                    partition_buffer_size: 1000,
-                    enable_core_affinity: *enable_core_affinity,
-                    backpressure_config: Default::default(),
-                    partitioning_strategy,
-                    auto_select_from_query: if auto_select {
-                        Some(Arc::new(parsed_query.clone()))
-                    } else {
-                        None
-                    },
-                    sticky_partition_id: None,
-                    annotation_partition_count: None,
-                    empty_batch_count: 1000,
-                    wait_on_empty_batch_ms: 1000,
-                    table_registry: None, // Tables are managed by StreamJobServer's table_registry
+                let auto_select_from_query = if partitioning_strategy.is_none() {
+                    Some(Arc::new(parsed_query.clone()))
+                } else {
+                    None
                 };
 
-                Arc::new(AdaptiveJobProcessor::new(adaptive_config))
+                // Use factory for consistent processor creation
+                JobProcessorFactory::create_adaptive_full(
+                    *num_partitions,
+                    *enable_core_affinity,
+                    partitioning_strategy,
+                    auto_select_from_query,
+                    table_registry,
+                    1000, // empty_batch_count - production default
+                    1000, // wait_on_empty_batch_ms - production default
+                )
             }
         }
     }
@@ -1633,6 +2017,87 @@ impl StreamJobServer {
         properties.get("partitioning_strategy").cloned()
     }
 
+    /// Query data sources for their partition count limits and return the minimum.
+    ///
+    /// Creates temporary DataSource objects to query their `partition_count()` method.
+    /// The minimum partition count across all sources is returned to ensure compatibility.
+    ///
+    /// # Returns
+    /// - `Some(n)` if any source has a fixed partition limit (use the minimum)
+    /// - `None` if all sources support dynamic partitioning (use system default)
+    async fn query_source_partition_limits(sources: &[DataSourceRequirement]) -> Option<usize> {
+        use crate::velostream::datasource::DataSource;
+        use crate::velostream::datasource::file::FileDataSource;
+
+        let mut min_partitions: Option<usize> = None;
+
+        for source in sources {
+            // Query partition count from DataSource trait implementation
+            // Note: We create minimal instances just to query the static partition_count property
+            let source_partitions: Option<usize> = match source.source_type {
+                DataSourceType::File => {
+                    // FileDataSource::new() requires no arguments
+                    let ds = FileDataSource::new();
+                    ds.partition_count()
+                }
+                DataSourceType::Kafka => {
+                    // Kafka supports dynamic partitioning (trait default returns None)
+                    None
+                }
+                _ => None, // Unknown source types default to dynamic partitioning
+            };
+
+            if let Some(count) = source_partitions {
+                info!(
+                    "Source '{}' ({:?}) supports {} partition(s)",
+                    source.name, source.source_type, count
+                );
+                min_partitions = Some(min_partitions.map_or(count, |min| min.min(count)));
+            }
+        }
+
+        min_partitions
+    }
+
+    /// Adjust processor config to respect source partition limits.
+    ///
+    /// If any source only supports a limited number of partitions (e.g., file sources
+    /// support only 1), the processor config is adjusted accordingly.
+    async fn apply_source_partition_limit(
+        config: JobProcessorConfig,
+        sources: &[DataSourceRequirement],
+    ) -> JobProcessorConfig {
+        let source_limit = Self::query_source_partition_limits(sources).await;
+
+        match (config, source_limit) {
+            // Source has a partition limit - override Adaptive to use that limit
+            (
+                JobProcessorConfig::Adaptive {
+                    enable_core_affinity,
+                    num_partitions,
+                },
+                Some(limit),
+            ) => {
+                // Use the minimum of: source limit, explicit partition count, or the limit itself
+                let effective_partitions = num_partitions.map(|n| n.min(limit)).unwrap_or(limit);
+
+                if num_partitions.is_none_or(|n| n > limit) {
+                    info!(
+                        "Limiting partition count to {} based on source constraints (requested: {:?})",
+                        limit, num_partitions
+                    );
+                }
+
+                JobProcessorConfig::Adaptive {
+                    num_partitions: Some(effective_partitions),
+                    enable_core_affinity,
+                }
+            }
+            // No source constraint or non-Adaptive config - keep as-is
+            (config, _) => config,
+        }
+    }
+
     /// Wire job_mode annotation from StreamingQuery to JobProcessorConfig
     ///
     /// Per-query job_mode takes precedence over the server-level default configuration.
@@ -1649,48 +2114,59 @@ impl StreamJobServer {
     /// The JobProcessorConfig to use for this query (either from query annotation or default)
     fn get_processor_config_from_query(
         query: &StreamingQuery,
+        raw_sql: &str,
         default_config: &JobProcessorConfig,
     ) -> JobProcessorConfig {
-        // Only SELECT queries can have job_mode annotations
-        if let StreamingQuery::Select {
+        // First, try to parse job annotations from raw SQL text
+        // This works for all query types including CREATE STREAM, CREATE TABLE, etc.
+        let (parsed_job_mode, _, parsed_num_partitions, _) =
+            SqlAnnotationParser::parse_job_annotations(raw_sql);
+
+        // Use parsed annotations if available, otherwise fall back to AST fields (for SELECT)
+        let (job_mode, num_partitions) = if parsed_job_mode.is_some() {
+            (parsed_job_mode, parsed_num_partitions)
+        } else if let StreamingQuery::Select {
             job_mode,
             num_partitions,
             ..
         } = query
         {
-            // If the query has a job_mode annotation, use it
-            if let Some(mode) = job_mode {
-                match mode {
-                    JobProcessorMode::Simple => {
-                        info!("Using Simple processor mode from query annotation");
-                        JobProcessorConfig::Simple
-                    }
-                    JobProcessorMode::Transactional => {
-                        info!("Using Transactional processor mode from query annotation");
-                        JobProcessorConfig::Transactional
-                    }
-                    JobProcessorMode::Adaptive => {
-                        info!(
-                            "Using Adaptive processor mode from query annotation with {} partitions",
-                            num_partitions.unwrap_or(0)
-                        );
-                        JobProcessorConfig::Adaptive {
-                            num_partitions: *num_partitions,
-                            enable_core_affinity: false,
-                        }
+            (*job_mode, *num_partitions)
+        } else {
+            (None, None)
+        };
+
+        // If we have a job_mode annotation, use it
+        if let Some(mode) = job_mode {
+            match mode {
+                JobProcessorMode::Simple => {
+                    info!("Using Simple processor mode from query annotation");
+                    JobProcessorConfig::Simple
+                }
+                JobProcessorMode::Transactional => {
+                    info!("Using Transactional processor mode from query annotation");
+                    JobProcessorConfig::Transactional
+                }
+                JobProcessorMode::Adaptive => {
+                    info!(
+                        "Using Adaptive processor mode from query annotation with {} partitions",
+                        num_partitions.unwrap_or(0)
+                    );
+                    JobProcessorConfig::Adaptive {
+                        num_partitions,
+                        enable_core_affinity: false,
                     }
                 }
-            } else {
-                // No job_mode annotation, use server default
-                default_config.clone()
             }
         } else {
-            // Non-SELECT queries use server default
+            // No job_mode annotation, use server default
             default_config.clone()
         }
     }
 
-    /// Extract properties from different query types
+    /// Extract properties from different query types.
+    /// Note: PRIMARY KEY fields are now passed directly to sink constructors via
+    /// DataSinkRequirement.primary_keys, not through properties.
     fn get_query_properties(query: &StreamingQuery) -> HashMap<String, String> {
         match query {
             StreamingQuery::CreateStream { properties, .. } => properties.clone(),
@@ -1753,8 +2229,6 @@ impl StreamJobServer {
     fn extract_streaming_config_from_query(
         query: &StreamingQuery,
     ) -> Result<StreamingConfig, SqlError> {
-        use std::time::Duration;
-
         let properties = Self::get_query_properties(query);
         let mut config = StreamingConfig::default();
 
@@ -1952,7 +2426,7 @@ impl StreamJobServer {
     /// 3. Hostname fallback
     ///
     /// This context is attached to all error messages for production observability.
-    fn build_deployment_context(job_name: &str, version: &str) -> DeploymentContext {
+    fn build_deployment_context(_job_name: &str, version: &str) -> DeploymentContext {
         let node_id = std::env::var("NODE_ID")
             .ok()
             .or_else(|| std::env::var("HOSTNAME").ok())

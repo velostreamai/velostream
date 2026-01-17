@@ -66,6 +66,8 @@ use crate::velostream::server::processors::common::JobProcessingConfig;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
 use crate::velostream::server::v2::metrics::PartitionMetrics;
 use crate::velostream::sql::error::SqlError;
+use crate::velostream::sql::execution::processors::context::ProcessorContext;
+use crate::velostream::sql::execution::processors::order::OrderProcessor;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
 use crossbeam_queue::SegQueue;
@@ -76,6 +78,23 @@ use std::time::Instant;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
+
+/// Pending DLQ entry to be written asynchronously after sync batch processing
+///
+/// This struct captures the information needed to write a DLQ entry without
+/// blocking the sync processing loop. The actual async write happens in the
+/// run() method after process_batch() returns.
+#[derive(Debug)]
+struct PendingDlqEntry {
+    /// The record that failed processing
+    record: StreamRecord,
+    /// Error message describing the failure
+    error_message: String,
+    /// Index of the record in the original batch
+    record_index: usize,
+    /// Whether this failure is recoverable
+    recoverable: bool,
+}
 
 /// Synchronous partition receiver with direct ownership model
 ///
@@ -189,8 +208,8 @@ impl PartitionReceiver {
         observability: Option<crate::velostream::observability::SharedObservabilityManager>,
     ) -> Self {
         debug!(
-            "PartitionReceiver {}: Created with lock-free queue support (Phase 6.8)",
-            partition_id
+            "PartitionReceiver {}: Created for Query: {}",
+            partition_id, query
         );
 
         let observability_wrapper = ObservabilityWrapper::builder()
@@ -248,7 +267,7 @@ impl PartitionReceiver {
     /// - `Err(SqlError)` if a fatal error occurred
     pub async fn run(&mut self) -> Result<(), SqlError> {
         debug!(
-            "PartitionReceiver {}: Starting synchronous processing loop (Phase 6.8 queue mode: {})",
+            "PartitionReceiver {}: Starting synchronous processing loop (queue mode: {})",
             self.partition_id,
             self.queue.is_some()
         );
@@ -324,9 +343,14 @@ impl PartitionReceiver {
                 while retry_count <= self.config.max_retries {
                     // Process batch synchronously (Phase 6.7: no async overhead)
                     match self.process_batch(&batch) {
-                        Ok((processed, output_records)) => {
+                        Ok((processed, output_records, pending_dlq_entries)) => {
                             total_records += processed as u64;
                             batch_count += 1;
+
+                            // Write any pending DLQ entries asynchronously (fix for block_on panic)
+                            if !pending_dlq_entries.is_empty() {
+                                self.write_pending_dlq_entries(pending_dlq_entries).await;
+                            }
 
                             // Record processed records to metrics
                             self.job_metrics.record_processed(processed);
@@ -345,13 +369,43 @@ impl PartitionReceiver {
                             // Write output records to sink if available
                             if !output_records.is_empty() {
                                 if let Some(ref writer_arc) = self.writer {
+                                    let output_count = output_records.len();
+                                    debug!(
+                                        "PartitionReceiver {}: Writing {} output records to sink",
+                                        self.partition_id, output_count
+                                    );
                                     let mut writer = writer_arc.lock().await;
-                                    if let Err(e) = writer.write_batch(output_records).await {
-                                        warn!(
-                                            "PartitionReceiver {}: Error writing {} output records to sink: {}",
-                                            self.partition_id, batch_size, e
-                                        );
+                                    match writer.write_batch(output_records).await {
+                                        Ok(()) => {
+                                            // Flush the writer to ensure records are persisted
+                                            if let Err(e) = writer.flush().await {
+                                                error!(
+                                                    "PartitionReceiver {}: Failed to flush {} records to sink: {}",
+                                                    self.partition_id, output_count, e
+                                                );
+                                                self.job_metrics.record_failed(output_count);
+                                            } else {
+                                                debug!(
+                                                    "PartitionReceiver {}: Successfully wrote and flushed {} records to sink",
+                                                    self.partition_id, output_count
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(
+                                                "PartitionReceiver {}: Failed to write {} output records to sink: {}",
+                                                self.partition_id, output_count, e
+                                            );
+                                            // Track write failures - these records are lost
+                                            self.job_metrics.record_failed(output_count);
+                                        }
                                     }
+                                } else {
+                                    debug!(
+                                        "PartitionReceiver {}: No writer configured, {} output records not written",
+                                        self.partition_id,
+                                        output_records.len()
+                                    );
                                 }
                             }
 
@@ -496,12 +550,16 @@ impl PartitionReceiver {
     /// - Enables deterministic output availability per record
     /// - Allows main loop to immediately decide commit/fail/rollback
     /// - Expected: 15% throughput improvement (693K → 800K+ rec/sec)
+    ///
+    /// Returns (processed_count, output_records, pending_dlq_entries)
+    /// DLQ entries are collected but NOT written - caller must write them asynchronously
     fn process_batch(
         &mut self,
         batch: &[StreamRecord],
-    ) -> Result<(usize, Vec<Arc<StreamRecord>>), SqlError> {
+    ) -> Result<(usize, Vec<Arc<StreamRecord>>, Vec<PendingDlqEntry>), SqlError> {
         let mut processed = 0;
         let mut output_records = Vec::new();
+        let mut pending_dlq_entries = Vec::new();
 
         for (record_index, record) in batch.iter().enumerate() {
             match self
@@ -522,63 +580,142 @@ impl PartitionReceiver {
                         self.partition_id, record_index, e
                     );
 
-                    // Send to DLQ if enabled
-                    if self.config.enable_dlq {
-                        if let Some(dlq) = self.observability_wrapper.dlq() {
-                            let error_msg = format!(
-                                "PartitionReceiver {}: SQL execution error at index {}: {}",
-                                self.partition_id, record_index, e
-                            );
-                            // Create a DLQ record with error context
-                            let mut record_data = std::collections::HashMap::new();
-                            record_data
-                                .insert("error".to_string(), FieldValue::String(error_msg.clone()));
-                            record_data.insert(
-                                "partition_id".to_string(),
-                                FieldValue::Integer(self.partition_id as i64),
-                            );
+                    // Collect DLQ entry if enabled (will be written asynchronously by caller)
+                    if self.config.enable_dlq && self.observability_wrapper.dlq().is_some() {
+                        let error_msg = format!(
+                            "PartitionReceiver {}: SQL execution error at index {}: {}",
+                            self.partition_id, record_index, e
+                        );
+                        // Create a DLQ record with error context
+                        let mut record_data = std::collections::HashMap::new();
+                        record_data
+                            .insert("error".to_string(), FieldValue::String(error_msg.clone()));
+                        record_data.insert(
+                            "partition_id".to_string(),
+                            FieldValue::Integer(self.partition_id as i64),
+                        );
 
-                            let dlq_record = StreamRecord::new(record_data);
+                        let dlq_record = StreamRecord::new(record_data);
 
-                            // Add to DLQ using spawn_blocking to avoid nested runtime panic
-                            // Instead of trying to block_on within an async context, we spawn
-                            // the DLQ operation as a separate blocking task
-                            let dlq_ref = Arc::clone(dlq);
-                            let error_msg_clone = error_msg.clone();
-                            let partition_id = self.partition_id;
-
-                            tokio::spawn(async move {
-                                let success = dlq_ref
-                                    .add_entry(
-                                        dlq_record,
-                                        error_msg_clone.clone(),
-                                        record_index,
-                                        true, // recoverable
-                                    )
-                                    .await;
-
-                                if success {
-                                    debug!(
-                                        "PartitionReceiver {}: DLQ Entry Added - Record {} - {}",
-                                        partition_id, record_index, error_msg_clone
-                                    );
-                                } else {
-                                    error!(
-                                        "PartitionReceiver {}: Failed to add DLQ entry for Record {}. Record logged for manual recovery.",
-                                        partition_id, record_index
-                                    );
-                                }
-                            });
-                        }
+                        // Collect for async write (no block_on panic!)
+                        pending_dlq_entries.push(PendingDlqEntry {
+                            record: dlq_record,
+                            error_message: error_msg,
+                            record_index,
+                            recoverable: true,
+                        });
+                    } else if !self.config.enable_dlq {
+                        // DLQ disabled - track the failure directly
+                        self.job_metrics.record_failed(1);
                     }
 
-                    processed += 1;
-                    // Continue processing remaining records on error
+                    // Don't increment processed - this record failed
+                    // Continue processing remaining records
                 }
             }
         }
 
-        Ok((processed, output_records))
+        // Phase 5: Apply ORDER BY sorting to batch results (FR-084 extension)
+        // This sorts records within each batch according to ORDER BY expressions.
+        // Note: This is batch-level sorting, not global sorting across all batches.
+        let output_records = self.apply_order_by_sorting(output_records)?;
+
+        Ok((processed, output_records, pending_dlq_entries))
+    }
+
+    /// Apply ORDER BY sorting to output records if the query has an ORDER BY clause
+    ///
+    /// Extracts ORDER BY expressions from the query and sorts the records accordingly.
+    /// This implements Phase 5 batch-level sorting for non-windowed queries.
+    fn apply_order_by_sorting(
+        &self,
+        output_records: Vec<Arc<StreamRecord>>,
+    ) -> Result<Vec<Arc<StreamRecord>>, SqlError> {
+        // Extract ORDER BY from query (handles Select and CreateStream variants)
+        let order_by = match self.query.as_ref() {
+            StreamingQuery::Select {
+                order_by, window, ..
+            } => {
+                // Skip if query has WINDOW clause (window adapter handles sorting)
+                if window.is_some() {
+                    return Ok(output_records);
+                }
+                order_by.as_ref()
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                if let StreamingQuery::Select {
+                    order_by, window, ..
+                } = as_select.as_ref()
+                {
+                    if window.is_some() {
+                        return Ok(output_records);
+                    }
+                    order_by.as_ref()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        // If no ORDER BY or empty, return records as-is
+        let order_exprs = match order_by {
+            Some(exprs) if !exprs.is_empty() => exprs,
+            _ => return Ok(output_records),
+        };
+
+        // Convert Arc<StreamRecord> to owned StreamRecord for sorting
+        let mut records: Vec<StreamRecord> = output_records
+            .into_iter()
+            .map(|arc| (*arc).clone())
+            .collect();
+
+        // Create a minimal ProcessorContext for ORDER BY evaluation
+        let context = ProcessorContext::new("order_by_batch");
+
+        // Sort using OrderProcessor
+        records = OrderProcessor::process(records, order_exprs, &context)?;
+
+        // Convert back to Arc<StreamRecord>
+        Ok(records.into_iter().map(Arc::new).collect())
+    }
+
+    /// Write pending DLQ entries asynchronously
+    ///
+    /// This method is called from the async run() context after process_batch()
+    /// returns, avoiding the block_on panic that occurred when trying to call
+    /// async DLQ writes from within sync code.
+    async fn write_pending_dlq_entries(&self, entries: Vec<PendingDlqEntry>) {
+        if entries.is_empty() {
+            return;
+        }
+
+        if let Some(dlq) = self.observability_wrapper.dlq() {
+            for entry in entries {
+                let success = dlq
+                    .add_entry(
+                        entry.record,
+                        entry.error_message.clone(),
+                        entry.record_index,
+                        entry.recoverable,
+                    )
+                    .await;
+
+                if success {
+                    debug!(
+                        "PartitionReceiver {}: DLQ entry added for record {}",
+                        self.partition_id, entry.record_index
+                    );
+                } else {
+                    error!(
+                        "PartitionReceiver {}: Failed to add DLQ entry for record {} - record is LOST. Error: {}",
+                        self.partition_id, entry.record_index, entry.error_message
+                    );
+                    // Track the failure
+                    self.job_metrics.record_failed(1);
+                }
+            }
+        }
     }
 
     /// Check if partition is experiencing backpressure

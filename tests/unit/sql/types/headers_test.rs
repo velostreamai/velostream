@@ -56,6 +56,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query with headers
@@ -107,6 +109,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -154,6 +158,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -202,6 +208,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -252,6 +260,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers: headers.clone(),
+            topic: None,
+            key: None,
         };
 
         // Execute query - should pass WHERE condition
@@ -277,6 +287,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
         let result = engine.execute_with_record(&query, &record2).await;
         assert!(result.is_ok());
@@ -313,6 +325,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute CREATE STREAM
@@ -371,6 +385,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -466,6 +482,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query
@@ -513,6 +531,8 @@ mod tests {
             partition: 0,
             event_time: None,
             headers,
+            topic: None,
+            key: None,
         };
 
         // Execute query

@@ -295,6 +295,8 @@ impl SchemaEvolution {
             partition: record.partition,
             headers: record.headers,
             event_time: None,
+            topic: None,
+            key: None,
         })
     }
 

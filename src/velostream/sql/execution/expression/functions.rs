@@ -85,8 +85,8 @@ impl BuiltinFunctions {
 
     /// Evaluates a function by name with arguments
     ///
-    /// First checks the inventory system for self-registered functions,
-    /// then falls back to the legacy match statement for backward compatibility.
+    /// Uses the inventory system to look up self-registered functions.
+    /// All SQL functions are registered via the `register_sql_function!` macro.
     pub fn evaluate_function_by_name(
         name: &str,
         args: &[Expr],
@@ -94,127 +94,13 @@ impl BuiltinFunctions {
     ) -> Result<FieldValue, SqlError> {
         use crate::velostream::sql::execution::expression::function_metadata;
 
-        // First, try to find function in inventory (self-registered functions)
+        // Look up function in inventory (all functions are self-registered)
         if let Some(func_def) = function_metadata::find_function(name) {
             return (func_def.handler)(args, record);
         }
 
-        // Fall back to legacy match statement for functions not yet migrated
-        match name.to_uppercase().as_str() {
-            // Aggregate functions
-            "COUNT" => Self::count_function(args, record),
-            "SUM" => Self::sum_function(args, record),
-            "AVG" => Self::avg_function(args, record),
-            "MIN" => Self::min_function(args, record),
-            "MAX" => Self::max_function(args, record),
-            "APPROX_COUNT_DISTINCT" => Self::approx_count_distinct_function(args, record),
-            "FIRST_VALUE" => Self::first_value_function(args, record),
-            "LAST_VALUE" => Self::last_value_function(args, record),
-            "LISTAGG" => Self::listagg_function(args, record),
-
-            // Header functions
-            "HEADER" => Self::header_function(args, record),
-            "HEADER_KEYS" => Self::header_keys_function(args, record),
-            "HAS_HEADER" => Self::has_header_function(args, record),
-
-            // Math functions
-            "ABS" => Self::abs_function(args, record),
-            "ROUND" => Self::round_function(args, record),
-            "CEIL" | "CEILING" => Self::ceil_function(args, record),
-            "FLOOR" => Self::floor_function(args, record),
-            "SQRT" => Self::sqrt_function(args, record),
-            "POWER" | "POW" => Self::power_function(args, record),
-            "MOD" => Self::mod_function(args, record),
-
-            // String functions
-            "UPPER" => Self::upper_function(args, record),
-            "LOWER" => Self::lower_function(args, record),
-            "SUBSTRING" => Self::substring_function(args, record),
-            "REPLACE" => Self::replace_function(args, record),
-            "TRIM" => Self::trim_function(args, record),
-            "REGEXP" => Self::regexp_function(args, record),
-            "LTRIM" => Self::ltrim_function(args, record),
-            "RTRIM" => Self::rtrim_function(args, record),
-            "LENGTH" | "LEN" => Self::length_function(args, record),
-            "SPLIT" => Self::split_function(args, record),
-            "JOIN" => Self::join_function(args, record),
-
-            // JSON functions
-            "JSON_EXTRACT" => Self::json_extract_function(args, record),
-            "JSON_VALUE" => Self::json_value_function(args, record),
-
-            // Conversion functions
-            "CAST" => Self::cast_function(args, record),
-
-            // System functions
-            "TIMESTAMP" => Self::timestamp_function(args, record),
-
-            // Advanced type functions
-            "ARRAY" => Self::array_function(args, record),
-            "STRUCT" => Self::struct_function(args, record),
-            "MAP" => Self::map_function(args, record),
-            "ARRAY_LENGTH" => Self::array_length_function(args, record),
-            "ARRAY_CONTAINS" => Self::array_contains_function(args, record),
-            "MAP_KEYS" => Self::map_keys_function(args, record),
-            "MAP_VALUES" => Self::map_values_function(args, record),
-            "CONCAT" => Self::concat_function(args, record),
-            "COALESCE" => Self::coalesce_function(args, record),
-            "NULLIF" => Self::nullif_function(args, record),
-
-            "EXTRACT" => Self::extract_function(args, record),
-
-            "DATEDIFF" => Self::datediff_function(args, record),
-
-            "MEDIAN" => Self::median_function(args, record),
-
-            "STDDEV" | "STDDEV_SAMP" => Self::stddev_function(args, record),
-
-            "VARIANCE" | "VAR_SAMP" => Self::evaluate_variance(args, record),
-
-            "VAR_POP" => Self::var_pop_function(args, record),
-
-            "STDDEV_POP" => Self::stddev_pop_function(args, record),
-
-            // String manipulation functions
-            "LEFT" => Self::left_function(args, record),
-            "RIGHT" => Self::right_function(args, record),
-
-            // Date/Time functions
-            "NOW" => Self::now_function(args, record),
-            "CURRENT_TIMESTAMP" => Self::current_timestamp_function(args, record),
-            "TUMBLE_START" => Self::tumble_start_function(args, record),
-            "TUMBLE_END" => Self::tumble_end_function(args, record),
-            "DATE_FORMAT" => Self::date_format_function(args, record),
-            "FROM_UNIXTIME" => Self::from_unixtime_function(args, record),
-            "UNIX_TIMESTAMP" => Self::unix_timestamp_function(args, record),
-
-            // Search functions
-            "POSITION" => Self::position_function(args, record),
-
-            // Comparison functions
-            "LEAST" => Self::least_function(args, record),
-            "GREATEST" => Self::greatest_function(args, record),
-
-            // Header manipulation functions
-            "SET_HEADER" => Self::set_header_function(args, record),
-            "REMOVE_HEADER" => Self::remove_header_function(args, record),
-
-            // Additional aggregate functions
-            "STRING_AGG" => Self::string_agg_function(args, record),
-            "COUNT_DISTINCT" => Self::count_distinct_function(args, record),
-
-            // Statistical / Analytics functions
-            "PERCENTILE_CONT" => Self::percentile_cont_function(args, record),
-            "PERCENTILE_DISC" => Self::percentile_disc_function(args, record),
-            "CORR" => Self::corr_function(args, record),
-            "COVAR_POP" => Self::covar_pop_function(args, record),
-            "COVAR_SAMP" => Self::covar_samp_function(args, record),
-            "REGR_SLOPE" => Self::regr_slope_function(args, record),
-            "REGR_INTERCEPT" => Self::regr_intercept_function(args, record),
-            "REGR_R2" => Self::regr_r2_function(args, record),
-
-            _ => Err(SqlError::unknown_function_error(name)),
-        }
+        // Function not found in registry
+        Err(SqlError::unknown_function_error(name))
     }
 
     fn evaluate_variance(args: &[Expr], record: &StreamRecord) -> Result<FieldValue, SqlError> {

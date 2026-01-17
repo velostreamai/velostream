@@ -12,9 +12,10 @@ delivery_profile: high_priority
 
 # Topic-specific schema
 schema:
-  key.field: symbol
-#  defaulting to json for this demo (see parent config
-#  value.schema.file: "schemas/price_alerts.avsc"
+  value.serializer: json
+  # Avro alternative:
+  # value.serializer: avro
+  # value.schema.file: "schemas/price_alerts.avsc"
   
 # Topic properties
 topic_config:

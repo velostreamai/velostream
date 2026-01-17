@@ -39,8 +39,10 @@ SELECT_STATEMENT = SELECT select_list
 
 SELECT_LIST = select_item (',' select_item)*
 select_item = '*'
-            | expression [AS identifier]
+            | expression [AS identifier] [PRIMARY KEY]    # PRIMARY KEY annotation for Kafka message key
             | identifier '.*'
+
+PRIMARY_KEY_ANNOTATION = 'PRIMARY' 'KEY'   # Marks field as Kafka message key (SQL standard)
 
 TABLE_SOURCE = identifier
 
@@ -59,7 +61,9 @@ order_item = expression ['ASC' | 'DESC']
 LIMIT_CLAUSE = 'LIMIT' number
 ```
 
-**AST Structure**: `StreamingQuery::Select { fields, from, from_alias, joins, where_clause, group_by, having, window, order_by, limit }`
+**AST Structure**: `StreamingQuery::Select { fields, key_fields, from, from_alias, joins, where_clause, group_by, having, window, order_by, limit }`
+
+**key_fields**: `Option<Vec<String>>` - Fields marked with PRIMARY KEY annotation for Kafka message key
 
 ---
 
@@ -501,6 +505,48 @@ grep -r "GROUP BY.*WINDOW" tests/
 
 ---
 
+## Kafka Message Key - PRIMARY KEY Annotation (FR-089)
+
+The `PRIMARY KEY` keywords can be placed after a field or alias to mark it as the Kafka message key. This follows the SQL standard syntax used by Flink, RisingWave, and Materialize.
+
+### Syntax
+
+```
+select_item = expression [AS alias] [PRIMARY KEY]
+```
+
+### Examples
+
+```sql
+-- Single key field
+SELECT symbol PRIMARY KEY, price, quantity FROM trades
+
+-- Compound key (multiple fields)
+SELECT region PRIMARY KEY, product PRIMARY KEY, SUM(qty) FROM orders GROUP BY region, product
+
+-- PRIMARY KEY with alias (alias name becomes the key)
+SELECT stock_symbol AS sym PRIMARY KEY, price FROM market_data
+
+-- PRIMARY KEY with GROUP BY (explicit key matches GROUP BY)
+SELECT symbol PRIMARY KEY, COUNT(*) as cnt
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+```
+
+### Key Behavior
+
+| Scenario | Resulting Kafka Key |
+|----------|---------------------|
+| `symbol PRIMARY KEY` | `"AAPL"` (raw value) |
+| `a PRIMARY KEY, b PRIMARY KEY` | `"X\|Y"` (pipe-delimited) |
+| `col AS alias PRIMARY KEY` | Uses alias name for key |
+| `GROUP BY symbol` (no PRIMARY KEY) | `"AAPL"` (raw value) |
+| `GROUP BY a, b` (compound) | `"X\|Y"` (pipe-delimited) |
+| No PRIMARY KEY, no GROUP BY | Null key (round-robin partitioning) |
+
+---
+
 ## Quick Reference Table
 
 | Feature | WINDOW Clause | ROWS WINDOW Clause | Location |
@@ -513,4 +559,15 @@ grep -r "GROUP BY.*WINDOW" tests/
 | **Grace Period** | ✅ YES | ❌ NO | - |
 | **Late Records** | ✅ Handled | ❌ N/A | - |
 | **Use Case** | Aggregations | Moving windows, LAG/LEAD | - |
+
+### PRIMARY KEY Annotation Summary
+
+| Feature | Description |
+|---------|-------------|
+| **Syntax** | `column PRIMARY KEY` or `column AS alias PRIMARY KEY` |
+| **Location** | After field expression/alias in SELECT |
+| **Single Key** | Raw value as Kafka key |
+| **Compound Key** | JSON object `{"field1":"value1","field2":"value2"}` |
+| **With GROUP BY** | Explicit key (overrides auto-generated) |
+| **Use Case** | Control Kafka message partitioning |
 

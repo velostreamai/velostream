@@ -1,0 +1,25 @@
+application: order_by_demo
+description: Test ORDER BY clause sorts results correctly
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: ordered_output
+    description: Verify records are sorted by amount descending
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [id, value, amount, event_time]
+      - type: ordering
+        field: amount
+        direction: descending
+      - type: field_values
+        field: amount
+        operator: greater_than
+        value: 0
+    timeout_ms: 30000

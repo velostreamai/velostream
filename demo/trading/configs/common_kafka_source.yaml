@@ -6,8 +6,9 @@ datasource:
   type: kafka
   
   # Standard consumer configuration for trading system
+  # NOTE: Values use ${ENV_VAR:default} syntax - env var takes precedence (12-factor app style)
   consumer_config:
-    bootstrap.servers: "localhost:9092"
+    bootstrap.servers: "${VELOSTREAM_KAFKA_BROKERS:localhost:9092}"
     # Use 'earliest' for demos to process all existing data from topic start
     # Use 'latest' in production to only process new messages after subscription
     auto.offset.reset: "earliest"

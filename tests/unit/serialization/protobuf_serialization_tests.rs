@@ -39,6 +39,8 @@ mod protobuf_tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Test serialization round-trip using StreamRecord's fields
@@ -78,6 +80,8 @@ mod protobuf_tests {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         };
 
         // Serialize the StreamRecord's fields

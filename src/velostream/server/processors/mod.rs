@@ -25,7 +25,7 @@ pub use common::*;
 pub use error_tracking_helper::ErrorTracker;
 pub use job_processor_config::JobProcessorConfig;
 pub use job_processor_factory::JobProcessorFactory;
-pub use job_processor_trait::{JobProcessor, LifecycleState, ProcessorMetrics};
+pub use job_processor_trait::{JobProcessor, LifecycleState, ProcessorMetrics, SharedJobStats};
 pub use metrics_collector::MetricsCollector;
 pub use metrics_helper::{
     LabelHandlingConfig, MetricsPerformanceTelemetry, ProcessorMetricsHelper,

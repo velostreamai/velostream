@@ -29,6 +29,8 @@ fn create_test_record(id: i64, name: &str, amount: f64, timestamp: i64) -> Strea
         offset: id,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -50,6 +52,8 @@ fn create_financial_record(id: i64, price_cents: i64, quantity: i64) -> StreamRe
         offset: id,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -294,26 +298,23 @@ mod kafka_data_writer_tests {
     }
 
     #[test]
-    fn test_metadata_fields_inclusion() {
+    fn test_metadata_fields_in_struct() {
         let record = create_test_record(1, "Test", 42.0, 1640995200000);
 
-        // Verify that metadata fields would be included in JSON serialization
+        // Verify that metadata fields are present in the StreamRecord struct
         assert_eq!(record.timestamp, 1640995200000);
         assert_eq!(record.offset, 1);
         assert_eq!(record.partition, 0);
 
-        // These should be added as _timestamp, _offset, _partition in the JSON output
-        let expected_metadata = vec![
-            ("_timestamp", record.timestamp),
-            ("_offset", record.offset),
-            ("_partition", record.partition as i64),
-        ];
+        // Note: These metadata fields are NOT injected into the serialized output.
+        // The writer only serializes record.fields as-is.
+        // If _timestamp needs to be in the output, it should already be in record.fields
+        // (e.g., from an upstream stage that included it in the payload).
 
-        for (key, expected_value) in expected_metadata {
-            // These would be added to the JSON object during serialization
-            assert!(key.starts_with("_"));
-            assert!(expected_value >= 0);
-        }
+        // Verify struct fields are accessible for other purposes (key extraction, etc.)
+        assert!(record.timestamp > 0);
+        assert!(record.offset >= 0);
+        assert!(record.partition >= 0);
     }
 
     #[test]
@@ -328,6 +329,8 @@ mod kafka_data_writer_tests {
             offset: 0,
             partition: 0,
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         // Should handle empty fields gracefully
@@ -345,5 +348,106 @@ mod kafka_data_writer_tests {
             // Null should not be used as key
             assert!(true);
         }
+    }
+
+    /// Test that key field is INCLUDED in JSON payload (not excluded)
+    ///
+    /// This is critical for multi-stage pipelines where downstream stages
+    /// need the key field in the payload to perform GROUP BY operations.
+    ///
+    /// Regression test for: key field exclusion causing NULL GROUP BY keys
+    #[test]
+    fn test_key_field_included_in_json_payload() {
+        // Create a record with a "symbol" field that would typically be used as key
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+        fields.insert("price".to_string(), FieldValue::Float(150.25));
+        fields.insert("volume".to_string(), FieldValue::Integer(1000));
+
+        let record = StreamRecord {
+            fields,
+            headers: HashMap::new(),
+            timestamp: 1640995200000,
+            offset: 0,
+            partition: 0,
+            event_time: None,
+            topic: None,
+            key: None,
+        };
+
+        // Serialize using sonic_rs (matches new writer behavior - just serialize fields)
+        let bytes = sonic_rs::to_vec(&record.fields).expect("serialization should succeed");
+        let json_payload: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("should parse as JSON");
+
+        // CRITICAL: Verify that "symbol" (the key field) IS present in the payload
+        assert!(
+            json_payload.get("symbol").is_some(),
+            "Key field 'symbol' must be included in JSON payload for downstream GROUP BY"
+        );
+        assert_eq!(
+            json_payload.get("symbol").unwrap().as_str().unwrap(),
+            "AAPL",
+            "Key field value should be preserved"
+        );
+
+        // Verify other data fields are also present
+        assert!(json_payload.get("price").is_some());
+        assert!(json_payload.get("volume").is_some());
+
+        // Note: _timestamp, _offset, _partition are NOT injected by writer
+        // They should be preserved from upstream if present in fields
+        assert!(
+            json_payload.get("_timestamp").is_none(),
+            "Writer should not inject _timestamp - it should come from upstream fields"
+        );
+
+        // Count total fields: 3 data fields only (no metadata injection)
+        if let serde_json::Value::Object(map) = &json_payload {
+            assert_eq!(map.len(), 3, "Only data fields should be in payload");
+        }
+    }
+
+    /// Test that a multi-stage pipeline scenario works correctly
+    ///
+    /// Stage 1: Writes records with key_field='symbol'
+    /// Stage 2: Reads records and should see 'symbol' in the payload
+    #[test]
+    fn test_multi_stage_pipeline_key_propagation() {
+        // Stage 1 output record (simulating what the writer produces)
+        let mut fields = HashMap::new();
+        fields.insert("symbol".to_string(), FieldValue::String("MSFT".to_string()));
+        fields.insert("trade_count".to_string(), FieldValue::Integer(42));
+        fields.insert("total_value".to_string(), FieldValue::Float(12345.67));
+
+        // Simulate JSON serialization (key field INCLUDED)
+        let json_str = serde_json::to_string(&{
+            let mut map = serde_json::Map::new();
+            for (k, v) in &fields {
+                let json_val = match v {
+                    FieldValue::String(s) => serde_json::Value::String(s.clone()),
+                    FieldValue::Integer(i) => {
+                        serde_json::Value::Number(serde_json::Number::from(*i))
+                    }
+                    FieldValue::Float(f) => serde_json::Number::from_f64(*f)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null),
+                    _ => serde_json::Value::Null,
+                };
+                map.insert(k.clone(), json_val);
+            }
+            serde_json::Value::Object(map)
+        })
+        .unwrap();
+
+        // Stage 2: Parse the JSON (simulating reader)
+        let parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        // CRITICAL: Stage 2 must see 'symbol' for GROUP BY to work
+        assert!(
+            parsed.get("symbol").is_some(),
+            "Stage 2 must receive 'symbol' field for GROUP BY to work"
+        );
+        assert_eq!(parsed.get("symbol").unwrap().as_str().unwrap(), "MSFT");
     }
 }

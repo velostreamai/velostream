@@ -146,6 +146,7 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> f64 
                 parsed_query,
                 "strategy_test_1core".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -190,6 +191,7 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> f64 
                 parsed_query,
                 "strategy_test_4core".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

@@ -90,6 +90,8 @@ impl MockDataSource {
                 partition: 0,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             });
         }
 
@@ -165,7 +167,8 @@ async fn test_ctas_emit_changes_with_sink_integration() {
                 "Properties should be empty without WITH clause"
             );
 
-            // Verify nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)
+            // Verify nested SELECT has EMIT CHANGES set (EMIT is part of SELECT syntax)
+            // This allows window processing to detect EMIT CHANGES mode
             match *as_select {
                 StreamingQuery::Select {
                     emit_mode,
@@ -174,8 +177,9 @@ async fn test_ctas_emit_changes_with_sink_integration() {
                     ..
                 } => {
                     assert_eq!(
-                        emit_mode, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        emit_mode,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
                     assert!(group_by.is_some(), "Should have GROUP BY clause");
                     assert_eq!(fields.len(), 5, "Should have 5 SELECT fields");
@@ -302,6 +306,8 @@ async fn test_ctas_emit_changes_cdc_with_config_files() {
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             // Send to configured sink (INTO clause behavior)
@@ -448,6 +454,8 @@ async fn test_ctas_emit_changes_data_flow() {
                 partition: input_record.partition,
                 headers: input_record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             // Send to sink (INTO clause behavior)
@@ -562,6 +570,8 @@ async fn test_ctas_emit_final_vs_emit_changes_behavior() {
             partition: input_record.partition,
             headers: input_record.headers,
             event_time: None,
+            topic: None,
+            key: None,
         };
 
         emit_changes_sink.send_record(output_record).await.unwrap();
@@ -631,6 +641,8 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
             partition: 0,
             headers: HashMap::new(),
             event_time: None,
+            topic: None,
+            key: None,
         });
     }
 
@@ -692,6 +704,8 @@ async fn test_ctas_with_complex_aggregations_and_sink() {
                 partition: record.partition,
                 headers: record.headers.clone(),
                 event_time: None,
+                topic: None,
+                key: None,
             };
 
             sink.send_record(cdc_record).await.unwrap();

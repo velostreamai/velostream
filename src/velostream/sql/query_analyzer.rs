@@ -5,6 +5,9 @@
 
 use crate::velostream::config::HierarchicalSchemaRegistry;
 use crate::velostream::config::schema_registry::validate_configuration;
+use crate::velostream::datasource::config_loader::{
+    load_config_file_to_properties_with_base, normalize_topic_property,
+};
 use crate::velostream::datasource::file::{FileDataSink, FileDataSource};
 use crate::velostream::datasource::kafka::data_sink::KafkaDataSink;
 use crate::velostream::datasource::kafka::data_source::KafkaDataSource;
@@ -12,10 +15,10 @@ use crate::velostream::kafka::serialization_format::SerializationConfig;
 use crate::velostream::sql::{
     SqlError,
     ast::{InsertSource, IntoClause, StreamSource, StreamingQuery},
-    config::load_yaml_config,
 };
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
 /// Trait for checking if tables exist in a table registry
@@ -45,7 +48,7 @@ pub struct DataSourceRequirement {
     pub properties: HashMap<String, String>,
 }
 
-/// Data sink requirement extracted from SQL  
+/// Data sink requirement extracted from SQL
 #[derive(Debug, Clone)]
 pub struct DataSinkRequirement {
     /// Sink name/identifier
@@ -54,6 +57,8 @@ pub struct DataSinkRequirement {
     pub sink_type: DataSinkType,
     /// Configuration properties including serialization
     pub properties: HashMap<String, String>,
+    /// Primary key fields from SELECT clause (for Kafka message key)
+    pub primary_keys: Option<Vec<String>>,
 }
 
 /// Types of data sources
@@ -83,43 +88,8 @@ pub type ProducerRequirement = DataSinkRequirement;
 pub type FileSourceRequirement = DataSourceRequirement;
 pub type FileSinkRequirement = DataSinkRequirement;
 
-/// Recursively flatten a YAML value into a HashMap with dot-separated keys
-fn flatten_yaml_value(
-    value: &serde_yaml::Value,
-    prefix: &str,
-    flattened: &mut HashMap<String, String>,
-) {
-    match value {
-        serde_yaml::Value::Mapping(map) => {
-            for (key, val) in map {
-                if let Some(key_str) = key.as_str() {
-                    let new_prefix = if prefix.is_empty() {
-                        key_str.to_string()
-                    } else {
-                        format!("{}.{}", prefix, key_str)
-                    };
-                    flatten_yaml_value(val, &new_prefix, flattened);
-                }
-            }
-        }
-        serde_yaml::Value::Sequence(seq) => {
-            for (i, val) in seq.iter().enumerate() {
-                let new_prefix = format!("{}[{}]", prefix, i);
-                flatten_yaml_value(val, &new_prefix, flattened);
-            }
-        }
-        _ => {
-            let value_str = match value {
-                serde_yaml::Value::String(s) => s.clone(),
-                serde_yaml::Value::Number(n) => n.to_string(),
-                serde_yaml::Value::Bool(b) => b.to_string(),
-                serde_yaml::Value::Null => "null".to_string(),
-                _ => format!("{:?}", value),
-            };
-            flattened.insert(prefix.to_string(), value_str);
-        }
-    }
-}
+// Note: YAML flattening is now centralized in config_loader.rs
+// Use load_config_file_to_props() for consistent handling across all components
 
 /// SQL Query Analyzer for resource requirement extraction
 pub struct QueryAnalyzer {
@@ -129,6 +99,8 @@ pub struct QueryAnalyzer {
     schema_registry: HierarchicalSchemaRegistry,
     /// Known table names (from table registry) that should not be validated as external sources
     known_tables: std::collections::HashSet<String>,
+    /// Base directory for resolving relative config_file paths (e.g., SQL file's directory)
+    base_dir: Option<PathBuf>,
 }
 
 impl QueryAnalyzer {
@@ -146,7 +118,46 @@ impl QueryAnalyzer {
             default_group_id,
             schema_registry,
             known_tables: std::collections::HashSet::new(),
+            base_dir: None,
         }
+    }
+
+    /// Create a new query analyzer with a base directory for resolving relative config paths
+    pub fn with_base_dir<P: AsRef<Path>>(default_group_id: String, base_dir: P) -> Self {
+        let mut schema_registry = HierarchicalSchemaRegistry::new();
+
+        // Register all schema providers for validation
+        schema_registry.register_source_schema::<KafkaDataSource>();
+        schema_registry.register_source_schema::<FileDataSource>();
+        schema_registry.register_sink_schema::<KafkaDataSink>();
+        schema_registry.register_sink_schema::<FileDataSink>();
+
+        Self {
+            default_group_id,
+            schema_registry,
+            known_tables: std::collections::HashSet::new(),
+            base_dir: Some(base_dir.as_ref().to_path_buf()),
+        }
+    }
+
+    /// Set the base directory for resolving relative config paths
+    pub fn set_base_dir<P: AsRef<Path>>(&mut self, base_dir: P) {
+        self.base_dir = Some(base_dir.as_ref().to_path_buf());
+    }
+
+    /// Load a YAML config file and flatten to properties with topic normalization
+    ///
+    /// Uses the centralized config_loader for consistent handling across all components:
+    /// - KafkaDataSource/Sink
+    /// - QueryAnalyzer
+    /// - Test Harness
+    ///
+    /// Resolves relative paths against base_dir if set.
+    fn load_config_file_to_props(
+        &self,
+        config_path: &str,
+    ) -> Result<HashMap<String, String>, Box<dyn std::error::Error + Send + Sync>> {
+        load_config_file_to_properties_with_base(config_path, self.base_dir.as_deref())
     }
 
     /// Register a table as known (from table registry) to skip external source validation
@@ -227,6 +238,22 @@ impl QueryAnalyzer {
                 // Pass the stream name so we can match properties by direct name (e.g., output_stream.type)
                 self.detect_sinks_from_config(name, &mut analysis)?;
 
+                // Extract PRIMARY KEY fields from the nested SELECT and inject into sinks
+                let primary_keys = Self::extract_key_fields_from_query(as_select);
+                if let Some(ref keys) = primary_keys {
+                    log::debug!(
+                        "CreateStream '{}': Extracted primary_keys from SELECT: {:?}",
+                        name,
+                        keys
+                    );
+                    // Inject primary_keys into all sinks created for this stream
+                    for sink in &mut analysis.required_sinks {
+                        if sink.primary_keys.is_none() {
+                            sink.primary_keys = primary_keys.clone();
+                        }
+                    }
+                }
+
                 // VALIDATION: CSAS (CREATE STREAM AS SELECT) requires a sink configuration
                 if analysis.required_sinks.is_empty() {
                     return Err(SqlError::ConfigurationError {
@@ -240,6 +267,7 @@ impl QueryAnalyzer {
                 }
             }
             StreamingQuery::CreateTable {
+                name,
                 as_select,
                 properties,
                 ..
@@ -248,9 +276,48 @@ impl QueryAnalyzer {
                 for (key, value) in properties {
                     analysis.configuration.insert(key.clone(), value.clone());
                 }
+
                 // Recursively analyze the nested SELECT with context
                 let nested_analysis = self.analyze_with_context(as_select, &analysis)?;
                 self.merge_analysis(&mut analysis, nested_analysis);
+
+                // ENHANCEMENT: Detect sinks defined in WITH clause (same as CreateStream)
+                // This enables config_file loading for CREATE TABLE statements
+                self.detect_sinks_from_config(name, &mut analysis)?;
+
+                // Extract PRIMARY KEY fields from the nested SELECT and inject into sinks
+                let primary_keys = Self::extract_key_fields_from_query(as_select);
+                if let Some(ref keys) = primary_keys {
+                    log::debug!(
+                        "CreateTable '{}': Extracted primary_keys from SELECT: {:?}",
+                        name,
+                        keys
+                    );
+                    // Inject primary_keys into all sinks created for this table
+                    for sink in &mut analysis.required_sinks {
+                        if sink.primary_keys.is_none() {
+                            sink.primary_keys = primary_keys.clone();
+                        }
+                    }
+                }
+
+                // VALIDATION: CTAS (CREATE TABLE AS SELECT) requires a sink configuration
+                // EXCEPTION: Reference tables from file_source don't need a sink - they stay in memory
+                let has_file_source = analysis
+                    .required_sources
+                    .iter()
+                    .any(|s| matches!(s.source_type, DataSourceType::File));
+
+                if analysis.required_sinks.is_empty() && !has_file_source {
+                    return Err(SqlError::ConfigurationError {
+                        message: format!(
+                            "CREATE TABLE '{}' requires a sink configuration. \
+                            Define a sink in the WITH clause with '{}.type' = 'kafka_sink' (or file_sink/s3_sink). \
+                            Example: WITH ('{}.type' = 'kafka_sink', '{}.topic' = 'output_topic', ...)",
+                            name, name, name, name
+                        ),
+                    });
+                }
             }
             StreamingQuery::Show { .. } => {
                 // SHOW queries don't require consumers/producers
@@ -339,18 +406,38 @@ impl QueryAnalyzer {
         if self.known_tables.contains(table_name) {
             return Ok(());
         }
+
+        log::debug!(
+            "analyze_source called for '{}' with {} config keys: {:?}",
+            table_name,
+            config.len(),
+            config.keys().collect::<Vec<_>>()
+        );
+
         // Build properties map from named source configuration
         let mut properties = HashMap::new();
         let source_prefix = format!("{}.", table_name);
 
-        // Check for config_file and load YAML configuration
+        // Check for config_file and load YAML configuration using centralized config_loader
+        // This ensures consistent topic.name normalization across all components
         let config_file_key = format!("{}.config_file", table_name);
         let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
-            match load_yaml_config(config_file_path) {
-                Ok(yaml_config) => {
-                    // Use recursive flattening to properly handle all nested structures
-                    flatten_yaml_value(&yaml_config.config, "", &mut properties);
+            log::debug!(
+                "Loading config file '{}' for source '{}'",
+                config_file_path,
+                table_name
+            );
+            match self.load_config_file_to_props(config_file_path) {
+                Ok(file_props) => {
+                    // Merge file properties into properties map
+                    properties.extend(file_props);
+                    log::debug!(
+                        "Loaded {} properties from config file '{}' for source '{}'",
+                        properties.len(),
+                        config_file_path,
+                        table_name
+                    );
                 }
                 Err(e) => {
                     // Store the error to show in the enhanced error message
@@ -358,8 +445,15 @@ impl QueryAnalyzer {
                         "Failed to load config file '{}': {}",
                         config_file_path, e
                     ));
+                    log::warn!("{}", config_file_error.as_ref().unwrap());
                 }
             }
+        } else {
+            log::debug!(
+                "No config_file specified for source '{}' (looking for key '{}')",
+                table_name,
+                config_file_key
+            );
         }
 
         // Add all source-specific properties (e.g., "kafka_source.bootstrap.servers")
@@ -450,14 +544,22 @@ impl QueryAnalyzer {
         match source_type {
             DataSourceType::Kafka => {
                 // Ensure we have broker and topic info
-                if !properties.contains_key("bootstrap.servers")
-                    && !properties.contains_key("brokers")
-                {
+                // Check all possible bootstrap server keys from YAML config paths
+                let has_bootstrap = properties.contains_key("bootstrap.servers")
+                    || properties.contains_key("brokers")
+                    || properties.contains_key("datasource.consumer_config.bootstrap.servers")
+                    || properties.contains_key("datasource.config.bootstrap.servers")
+                    || properties.contains_key("consumer_config.bootstrap.servers");
+
+                if !has_bootstrap {
                     properties.insert(
                         "bootstrap.servers".to_string(),
                         "localhost:9092".to_string(),
                     );
                 }
+                // Apply topic normalization (centralized in config_loader)
+                normalize_topic_property(&mut properties);
+                // Set default topic to table name if still not set
                 if !properties.contains_key("topic") {
                     properties.insert("topic".to_string(), table_name.to_string());
                 }
@@ -514,20 +616,21 @@ impl QueryAnalyzer {
         let mut properties = HashMap::new();
         let sink_prefix = format!("{}.", table_name);
 
-        // Check for config_file and load YAML configuration
+        // Check for config_file and load YAML configuration using centralized config_loader
+        // This ensures consistent topic.name normalization across all components
         let config_file_key = format!("{}.config_file", table_name);
         let mut config_file_error: Option<String> = None;
         if let Some(config_file_path) = config.get(&config_file_key) {
-            log::info!(
+            log::debug!(
                 "Loading config file '{}' for sink '{}' (via analyze_sink)",
                 config_file_path,
                 table_name
             );
-            match load_yaml_config(config_file_path) {
-                Ok(yaml_config) => {
-                    // Use recursive flattening to properly handle all nested structures
-                    flatten_yaml_value(&yaml_config.config, "", &mut properties);
-                    log::info!(
+            match self.load_config_file_to_props(config_file_path) {
+                Ok(file_props) => {
+                    // Merge file properties into properties map
+                    properties.extend(file_props);
+                    log::debug!(
                         "Loaded YAML config for sink '{}' with {} properties",
                         table_name,
                         properties.len()
@@ -633,15 +736,27 @@ impl QueryAnalyzer {
         match sink_type {
             DataSinkType::Kafka => {
                 // Ensure we have broker and topic info
-                if !properties.contains_key("bootstrap.servers")
-                    && !properties.contains_key("brokers")
-                {
+                // Check all possible bootstrap server keys from YAML config paths
+                let has_bootstrap = properties.contains_key("bootstrap.servers")
+                    || properties.contains_key("brokers")
+                    || properties.contains_key("datasink.producer_config.bootstrap.servers")
+                    || properties.contains_key("datasink.config.bootstrap.servers")
+                    || properties.contains_key("producer_config.bootstrap.servers");
+
+                if !has_bootstrap {
                     properties.insert(
                         "bootstrap.servers".to_string(),
                         "localhost:9092".to_string(),
                     );
                 }
+                // Apply topic normalization (centralized in config_loader)
+                normalize_topic_property(&mut properties);
+                // Set default topic to table name if still not set
                 if !properties.contains_key("topic") {
+                    log::debug!(
+                        "No topic found for sink '{}', using table_name as default",
+                        table_name
+                    );
                     properties.insert("topic".to_string(), table_name.to_string());
                 }
 
@@ -673,6 +788,7 @@ impl QueryAnalyzer {
             name: table_name.to_string(),
             sink_type,
             properties,
+            primary_keys: None,
         };
 
         analysis.required_sinks.push(sink_req);
@@ -833,6 +949,7 @@ impl QueryAnalyzer {
             name: uri.to_string(),
             sink_type,
             properties,
+            primary_keys: None,
         };
 
         analysis.required_sinks.push(requirement);
@@ -1065,43 +1182,48 @@ impl QueryAnalyzer {
                     })
                     .collect();
 
-                // Check if there's a config_file to load
+                // Check if there's a config_file to load using centralized config_loader
+                // This ensures consistent topic.name normalization across all components
                 if let Some(config_file) = properties.get("config_file").cloned() {
-                    log::info!(
+                    log::debug!(
                         "Loading config file '{}' for sink '{}'",
                         config_file,
                         sink_name
                     );
-                    // Load and merge YAML configuration
-                    match super::config::yaml_loader::load_yaml_config(&config_file) {
-                        Ok(yaml_config) => {
-                            // Flatten YAML first, then SQL properties will override
-                            let mut yaml_properties = HashMap::new();
-                            flatten_yaml_value(&yaml_config.config, "", &mut yaml_properties);
-
+                    match self.load_config_file_to_props(&config_file) {
+                        Ok(file_props) => {
                             // Merge: YAML provides defaults, SQL properties override
-                            for (yaml_key, yaml_value) in yaml_properties {
+                            // Note: file_props already has topic.name normalized to topic
+                            for (yaml_key, yaml_value) in file_props {
                                 properties.entry(yaml_key).or_insert(yaml_value);
                             }
-                            log::info!(
+                            log::debug!(
                                 "Loaded {} properties from config file '{}'",
                                 properties.len(),
                                 config_file
                             );
+                            // Remove config_file from properties since we've already loaded and merged it
+                            // This prevents the config_loader from trying to reload it with a relative path
+                            properties.remove("config_file");
                         }
                         Err(e) => {
                             log::warn!("Failed to load sink config file '{}': {}", config_file, e);
                         }
                     }
                 } else {
-                    log::info!("No config_file specified for sink '{}'", sink_name);
+                    log::debug!("No config_file specified for sink '{}'", sink_name);
                 }
+
+                // Apply topic normalization again in case SQL properties had topic.name
+                // (centralized loader handles YAML normalization, this handles SQL WITH clause)
+                normalize_topic_property(&mut properties);
 
                 // Create sink requirement
                 let sink_req = DataSinkRequirement {
                     name: sink_name.to_string(),
                     sink_type,
                     properties,
+                    primary_keys: None, // Will be populated from query's key_fields after analysis
                 };
 
                 // Add to analysis if not already present
@@ -1112,5 +1234,21 @@ impl QueryAnalyzer {
         }
 
         Ok(())
+    }
+
+    /// Extract key_fields from a query's nested SELECT clause
+    /// Used to propagate PRIMARY KEY annotations to sink configuration
+    fn extract_key_fields_from_query(query: &StreamingQuery) -> Option<Vec<String>> {
+        match query {
+            StreamingQuery::CreateStream { as_select, .. } => {
+                Self::extract_key_fields_from_query(as_select)
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                Self::extract_key_fields_from_query(as_select)
+            }
+            StreamingQuery::Select { key_fields, .. } => key_fields.clone(),
+            StreamingQuery::StartJob { query, .. } => Self::extract_key_fields_from_query(query),
+            _ => None,
+        }
     }
 }

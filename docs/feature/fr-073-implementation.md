@@ -1854,7 +1854,7 @@ Integrated SQL-native observability metrics into the trading demo's existing Gra
 
 **Phase 7.A: SQL Annotations** (1 day)
 1. Add `@metric` annotations to `demo/trading/sql/financial_trading.sql`
-2. Test SQL file with `velo-sql-multi deploy-app --file demo/trading/sql/financial_trading.sql`
+2. Test SQL file with `velo-sql deploy-app --file demo/trading/sql/financial_trading.sql`
 3. Verify metrics appear in Prometheus endpoint (`http://localhost:9090/metrics`)
 4. Validate metric naming matches dashboard expectations
 

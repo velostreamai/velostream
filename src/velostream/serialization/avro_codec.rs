@@ -7,9 +7,52 @@ use crate::velostream::sql::execution::types::FieldValue;
 use apache_avro::{Reader, Schema as AvroSchema, Writer, types::Value as AvroValue};
 use std::collections::HashMap;
 
+/// Pre-computed field metadata for fast lookups during deserialization
+/// This avoids expensive schema traversal on every field access
+#[derive(Clone, Debug, Default)]
+struct FieldMetadata {
+    /// Decimal schema info (precision, scale) if this is a decimal field
+    decimal_scale: Option<u8>,
+    /// Logical type for timestamp/date fields
+    logical_type: Option<CachedLogicalType>,
+    /// Whether this field is a union type (nullable)
+    is_union: bool,
+    /// Whether the schema expects Int (i32) instead of Long (i64)
+    expects_int: bool,
+}
+
+/// Cached logical type enum for fast matching
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+enum CachedLogicalType {
+    Date,
+    TimeMillis,
+    TimeMicros,
+    TimestampMillis,
+    TimestampMicros,
+    Uuid,
+    Duration,
+}
+
+impl CachedLogicalType {
+    /// Convert to static string representation (for compatibility with existing code)
+    fn as_str(&self) -> &'static str {
+        match self {
+            CachedLogicalType::Date => "date",
+            CachedLogicalType::TimeMillis => "time-millis",
+            CachedLogicalType::TimeMicros => "time-micros",
+            CachedLogicalType::TimestampMillis => "timestamp-millis",
+            CachedLogicalType::TimestampMicros => "timestamp-micros",
+            CachedLogicalType::Uuid => "uuid",
+            CachedLogicalType::Duration => "duration",
+        }
+    }
+}
+
 /// Avro codec for serializing/deserializing HashMap<String, FieldValue> using a schema
 pub struct AvroCodec {
     schema: AvroSchema,
+    /// Pre-computed field metadata cache (built once at construction)
+    field_metadata: HashMap<String, FieldMetadata>,
 }
 
 impl AvroCodec {
@@ -18,12 +61,118 @@ impl AvroCodec {
         let schema = AvroSchema::parse_str(schema_json)
             .map_err(|e| SerializationError::avro_error("Failed to parse Avro schema", e))?;
 
-        Ok(AvroCodec { schema })
+        // Build field metadata cache at construction time
+        let field_metadata = Self::build_field_metadata(&schema);
+
+        Ok(AvroCodec {
+            schema,
+            field_metadata,
+        })
     }
 
     /// Create a new AvroCodec with a pre-parsed schema
     pub fn with_schema(schema: AvroSchema) -> Self {
-        AvroCodec { schema }
+        let field_metadata = Self::build_field_metadata(&schema);
+        AvroCodec {
+            schema,
+            field_metadata,
+        }
+    }
+
+    /// Build field metadata cache from schema (called once at construction)
+    /// This pre-computes all field properties to avoid expensive lookups during deserialization
+    fn build_field_metadata(schema: &AvroSchema) -> HashMap<String, FieldMetadata> {
+        let mut metadata = HashMap::new();
+
+        if let AvroSchema::Record(record_schema) = schema {
+            for field in &record_schema.fields {
+                // Build FieldMetadata directly to avoid field_reassign_with_default warning
+                let logical_type = match &field.schema {
+                    AvroSchema::Date => Some(CachedLogicalType::Date),
+                    AvroSchema::TimeMillis => Some(CachedLogicalType::TimeMillis),
+                    AvroSchema::TimeMicros => Some(CachedLogicalType::TimeMicros),
+                    AvroSchema::TimestampMillis => Some(CachedLogicalType::TimestampMillis),
+                    AvroSchema::TimestampMicros => Some(CachedLogicalType::TimestampMicros),
+                    AvroSchema::Uuid => Some(CachedLogicalType::Uuid),
+                    AvroSchema::Duration => Some(CachedLogicalType::Duration),
+                    // Check for union types containing logical types
+                    AvroSchema::Union(union_schema) => {
+                        union_schema
+                            .variants()
+                            .iter()
+                            .find_map(|variant| match variant {
+                                AvroSchema::Date => Some(CachedLogicalType::Date),
+                                AvroSchema::TimeMillis => Some(CachedLogicalType::TimeMillis),
+                                AvroSchema::TimeMicros => Some(CachedLogicalType::TimeMicros),
+                                AvroSchema::TimestampMillis => {
+                                    Some(CachedLogicalType::TimestampMillis)
+                                }
+                                AvroSchema::TimestampMicros => {
+                                    Some(CachedLogicalType::TimestampMicros)
+                                }
+                                AvroSchema::Uuid => Some(CachedLogicalType::Uuid),
+                                AvroSchema::Duration => Some(CachedLogicalType::Duration),
+                                _ => None,
+                            })
+                    }
+                    _ => None,
+                };
+
+                let is_union = matches!(&field.schema, AvroSchema::Union(_));
+
+                let expects_int = matches!(&field.schema, AvroSchema::Int)
+                    || matches!(&field.schema, AvroSchema::Union(u) if u.variants().iter().any(|v| matches!(v, AvroSchema::Int)));
+
+                let decimal_scale = Self::extract_decimal_scale_from_field(field);
+
+                let fm = FieldMetadata {
+                    logical_type,
+                    is_union,
+                    expects_int,
+                    decimal_scale,
+                };
+
+                metadata.insert(field.name.clone(), fm);
+            }
+        }
+
+        metadata
+    }
+
+    /// Extract decimal scale from a record field (fast path, no JSON parsing)
+    fn extract_decimal_scale_from_field(field: &apache_avro::schema::RecordField) -> Option<u8> {
+        // Check the field's schema type
+        match &field.schema {
+            AvroSchema::Decimal(decimal_schema) => {
+                // Standard Avro Decimal logical type
+                Some(decimal_schema.scale as u8)
+            }
+            AvroSchema::Union(union_schema) => {
+                // Check if any variant is a decimal
+                for variant in union_schema.variants() {
+                    if let AvroSchema::Decimal(decimal_schema) = variant {
+                        return Some(decimal_schema.scale as u8);
+                    }
+                }
+                None
+            }
+            AvroSchema::Bytes | AvroSchema::Fixed(_) => {
+                // Check custom attributes for decimal info (field-level properties)
+                let attrs = &field.custom_attributes;
+                if let (Some(scale_val), Some(_precision_val)) = (
+                    attrs.get("decimalScale").or(attrs.get("scale")),
+                    attrs.get("decimalPrecision").or(attrs.get("precision")),
+                ) {
+                    if let Some(scale) = scale_val.as_u64() {
+                        if scale <= 255 {
+                            return Some(scale as u8);
+                        }
+                    }
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     /// Serialize a HashMap<String, FieldValue> to Avro bytes
@@ -45,6 +194,8 @@ impl AvroCodec {
     }
 
     /// Deserialize Avro bytes to HashMap<String, FieldValue>
+    ///
+    /// OPTIMIZED: Uses consuming conversion to avoid String cloning
     pub fn deserialize(
         &self,
         bytes: &[u8],
@@ -54,7 +205,8 @@ impl AvroCodec {
         let avro_value = apache_avro::from_avro_datum(&self.schema, &mut &bytes[..], None)
             .map_err(|e| SerializationError::avro_error("Failed to decode Avro datum", e))?;
 
-        self.avro_value_to_record(&avro_value)
+        // Use consuming conversion to move ownership and avoid cloning
+        self.avro_value_into_record(avro_value)
     }
 
     /// Get the schema used by this codec
@@ -79,16 +231,18 @@ impl AvroCodec {
     }
 
     /// Convert FieldValue to Avro Value with schema-aware field name context
+    /// OPTIMIZED: Uses pre-computed field_metadata cache instead of expensive schema lookups
     fn field_value_to_avro_with_name(
         &self,
         field_value: &FieldValue,
         field_name: Option<&str>,
     ) -> Result<AvroValue, SerializationError> {
-        // Check if this field is a decimal type in the schema
-        let decimal_scale = field_name.and_then(|name| self.get_decimal_scale_from_schema(name));
-
-        // Check for logical type in schema
-        let logical_type = field_name.and_then(|name| self.get_logical_type_from_schema(name));
+        // OPTIMIZATION: O(1) HashMap lookup for field metadata instead of JSON parsing/linear scans
+        let metadata = field_name.and_then(|name| self.field_metadata.get(name));
+        let decimal_scale = metadata.and_then(|m| m.decimal_scale);
+        let logical_type = metadata.and_then(|m| m.logical_type.as_ref().map(|lt| lt.as_str()));
+        let is_union = metadata.map(|m| m.is_union).unwrap_or(false);
+        let expects_int = metadata.map(|m| m.expects_int).unwrap_or(false);
 
         log::debug!(
             "Converting field {:?}: value={:?}, decimal_scale={:?}, logical_type={:?}",
@@ -127,7 +281,7 @@ impl AvroCodec {
                 // Convert Integer to TimestampMicros logical type
                 Ok(AvroValue::TimestampMicros(*i))
             }
-            FieldValue::Integer(i) if self.schema_expects_int(field_name) => {
+            FieldValue::Integer(i) if expects_int => {
                 // Convert Integer to Int when schema expects i32
                 Ok(AvroValue::Int(*i as i32))
             }
@@ -143,11 +297,9 @@ impl AvroCodec {
                 let decimal_bytes = self.scaled_integer_to_decimal_bytes(scaled_value, scale)?;
 
                 // Check if this field is part of a union (nullable)
-                if let Some(name) = field_name {
-                    if self.is_union_field(name) {
-                        // Wrap in Union with variant index 1 (assuming [null, decimal] order)
-                        return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
-                    }
+                if is_union {
+                    // Wrap in Union with variant index 1 (assuming [null, decimal] order)
+                    return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
                 }
 
                 Ok(decimal_bytes)
@@ -159,11 +311,9 @@ impl AvroCodec {
                 let decimal_bytes = self.scaled_integer_to_decimal_bytes(*value, schema_scale)?;
 
                 // Check if this field is part of a union (nullable)
-                if let Some(name) = field_name {
-                    if self.is_union_field(name) {
-                        // Wrap in Union with variant index 1 (assuming [null, decimal] order)
-                        return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
-                    }
+                if is_union {
+                    // Wrap in Union with variant index 1 (assuming [null, decimal] order)
+                    return Ok(AvroValue::Union(1, Box::new(decimal_bytes)));
                 }
 
                 Ok(decimal_bytes)
@@ -300,7 +450,8 @@ impl AvroCodec {
         }
     }
 
-    /// Convert Avro Value to HashMap<String, FieldValue>
+    /// Convert Avro Value to HashMap<String, FieldValue> (borrowing version)
+    #[allow(dead_code)]
     fn avro_value_to_record(
         &self,
         avro_value: &AvroValue,
@@ -321,50 +472,295 @@ impl AvroCodec {
         }
     }
 
+    /// Convert Avro Value to HashMap<String, FieldValue> (consuming version)
+    ///
+    /// OPTIMIZED: Moves ownership of strings instead of cloning them.
+    /// This eliminates all String allocations in the conversion path.
+    fn avro_value_into_record(
+        &self,
+        avro_value: AvroValue,
+    ) -> Result<HashMap<String, FieldValue>, SerializationError> {
+        match avro_value {
+            AvroValue::Record(fields) => {
+                // Pre-size HashMap based on number of fields
+                let mut record = HashMap::with_capacity(fields.len());
+                for (key, value) in fields {
+                    // Get field name reference for metadata lookup before moving key
+                    let field_name_ref = key.as_str();
+                    let field_value =
+                        self.avro_value_into_field_value_with_context(value, Some(field_name_ref))?;
+                    // Move key directly, no clone needed
+                    record.insert(key, field_value);
+                }
+                Ok(record)
+            }
+            _ => Err(SerializationError::SchemaError(
+                "Expected Avro record, got other type".to_string(),
+            )),
+        }
+    }
+
+    /// Convert Avro Value to FieldValue with field context (consuming version)
+    ///
+    /// OPTIMIZED: Moves ownership of values instead of cloning them.
+    fn avro_value_into_field_value_with_context(
+        &self,
+        avro_value: AvroValue,
+        field_name: Option<&str>,
+    ) -> Result<FieldValue, SerializationError> {
+        // Fast path: handle common types without any metadata lookup
+        match avro_value {
+            AvroValue::Null => return Ok(FieldValue::Null),
+            AvroValue::Boolean(b) => return Ok(FieldValue::Boolean(b)),
+            AvroValue::Int(i) => return Ok(FieldValue::Integer(i as i64)),
+            AvroValue::Long(l) => return Ok(FieldValue::Integer(l)),
+            // OPTIMIZATION: Move String directly, no clone
+            AvroValue::String(s) => return Ok(FieldValue::String(s)),
+            _ => {}
+        }
+
+        // For types that need metadata lookup, get it once
+        let decimal_scale = field_name
+            .and_then(|name| self.field_metadata.get(name))
+            .and_then(|m| m.decimal_scale);
+
+        match avro_value {
+            // Already handled in fast path
+            AvroValue::Null
+            | AvroValue::Boolean(_)
+            | AvroValue::Int(_)
+            | AvroValue::Long(_)
+            | AvroValue::String(_) => {
+                unreachable!("Already handled in fast path")
+            }
+            AvroValue::Float(f) => {
+                if let Some(scale) = decimal_scale {
+                    let scaled_value = (f as f64 * 10_f64.powf(scale as f64)).round() as i64;
+                    return Ok(FieldValue::ScaledInteger(scaled_value, scale));
+                }
+                Ok(FieldValue::Float(f as f64))
+            }
+            AvroValue::Double(d) => {
+                if let Some(scale) = decimal_scale {
+                    let scaled_value = (d * 10_f64.powf(scale as f64)).round() as i64;
+                    return Ok(FieldValue::ScaledInteger(scaled_value, scale));
+                }
+                Ok(FieldValue::Float(d))
+            }
+            AvroValue::Bytes(bytes) => {
+                if let Some(scale) = decimal_scale {
+                    if bytes.len() <= 8 {
+                        let mut padded = vec![0u8; 8];
+                        let start = 8 - bytes.len();
+                        padded[start..].copy_from_slice(&bytes);
+                        let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
+                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
+                    }
+                }
+                if bytes.len() == 8 {
+                    let value = i64::from_be_bytes(bytes.as_slice().try_into().unwrap());
+                    Ok(FieldValue::ScaledInteger(value, 2))
+                } else {
+                    use base64::Engine;
+                    let b64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    Ok(FieldValue::String(b64_str))
+                }
+            }
+            AvroValue::Decimal(decimal) => {
+                if let Some(scale) = decimal_scale {
+                    let bytes: Vec<u8> = (&decimal).try_into().map_err(|e| {
+                        SerializationError::SchemaError(format!(
+                            "Failed to convert Decimal to bytes: {:?}",
+                            e
+                        ))
+                    })?;
+                    if bytes.len() <= 8 {
+                        let mut padded = vec![0u8; 8];
+                        let start = 8 - bytes.len();
+                        padded[start..].copy_from_slice(&bytes);
+                        let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
+                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
+                    }
+                }
+                Err(SerializationError::SchemaError(
+                    "Decimal value without proper schema context or value too large".to_string(),
+                ))
+            }
+            AvroValue::Array(arr) => {
+                let mut field_values = Vec::with_capacity(arr.len());
+                for item in arr {
+                    field_values.push(self.avro_value_into_field_value_with_context(item, None)?);
+                }
+                Ok(FieldValue::Array(field_values))
+            }
+            AvroValue::Map(map) => {
+                let mut field_map = HashMap::with_capacity(map.len());
+                for (k, v) in map {
+                    let field_value = self.avro_value_into_field_value_with_context(v, None)?;
+                    // Move key directly
+                    field_map.insert(k, field_value);
+                }
+                Ok(FieldValue::Map(field_map))
+            }
+            AvroValue::Union(_index, boxed_value) => {
+                self.avro_value_into_field_value_with_context(*boxed_value, field_name)
+            }
+            AvroValue::Record(fields) => {
+                let mut nested_map = HashMap::with_capacity(fields.len());
+                for (key, value) in fields {
+                    let field_value =
+                        self.avro_value_into_field_value_with_context(value, Some(&key))?;
+                    nested_map.insert(key, field_value);
+                }
+                Ok(FieldValue::Map(nested_map))
+            }
+            AvroValue::Enum(_index, symbol) => Ok(FieldValue::String(symbol)),
+            AvroValue::Fixed(_size, bytes) => {
+                if let Some(scale) = decimal_scale {
+                    if bytes.len() <= 8 {
+                        let mut padded = vec![0u8; 8];
+                        let start = 8 - bytes.len();
+                        padded[start..].copy_from_slice(&bytes);
+                        let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
+                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
+                    }
+                }
+                use base64::Engine;
+                let b64_str = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                Ok(FieldValue::String(b64_str))
+            }
+            AvroValue::TimestampMillis(millis) => {
+                use chrono::NaiveDateTime;
+                let seconds = millis / 1000;
+                let nanos = ((millis % 1000) * 1_000_000) as u32;
+                #[allow(deprecated)]
+                match NaiveDateTime::from_timestamp_opt(seconds, nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt)),
+                    None => Ok(FieldValue::Integer(millis)),
+                }
+            }
+            AvroValue::TimestampMicros(micros) => {
+                use chrono::NaiveDateTime;
+                let seconds = micros / 1_000_000;
+                let nanos = ((micros % 1_000_000) * 1000) as u32;
+                #[allow(deprecated)]
+                match NaiveDateTime::from_timestamp_opt(seconds, nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt)),
+                    None => Ok(FieldValue::Integer(micros)),
+                }
+            }
+            AvroValue::Date(days) => {
+                use chrono::NaiveDate;
+                match NaiveDate::from_num_days_from_ce_opt(days + 719163) {
+                    Some(date) => Ok(FieldValue::Date(date)),
+                    None => Ok(FieldValue::Integer(days as i64)),
+                }
+            }
+            AvroValue::TimeMillis(millis) => Ok(FieldValue::Integer(millis as i64)),
+            AvroValue::TimeMicros(micros) => Ok(FieldValue::Integer(micros)),
+            AvroValue::Duration(_) => Ok(FieldValue::String("duration".to_string())),
+            AvroValue::Uuid(uuid) => Ok(FieldValue::String(uuid.to_string())),
+            AvroValue::BigDecimal(_) => Ok(FieldValue::String("big_decimal".to_string())),
+            AvroValue::LocalTimestampMillis(millis) => {
+                use chrono::NaiveDateTime;
+                let seconds = millis / 1000;
+                let nanos = ((millis % 1000) * 1_000_000) as u32;
+                #[allow(deprecated)]
+                match NaiveDateTime::from_timestamp_opt(seconds, nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt)),
+                    None => Ok(FieldValue::Integer(millis)),
+                }
+            }
+            AvroValue::LocalTimestampMicros(micros) => {
+                use chrono::NaiveDateTime;
+                let seconds = micros / 1_000_000;
+                let nanos = ((micros % 1_000_000) * 1000) as u32;
+                #[allow(deprecated)]
+                match NaiveDateTime::from_timestamp_opt(seconds, nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt)),
+                    None => Ok(FieldValue::Integer(micros)),
+                }
+            }
+            AvroValue::LocalTimestampNanos(nanos) => {
+                use chrono::NaiveDateTime;
+                let seconds = nanos / 1_000_000_000;
+                let remaining_nanos = (nanos % 1_000_000_000) as u32;
+                #[allow(deprecated)]
+                match NaiveDateTime::from_timestamp_opt(seconds, remaining_nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt)),
+                    None => Ok(FieldValue::Integer(nanos)),
+                }
+            }
+            AvroValue::TimestampNanos(nanos) => {
+                use chrono::NaiveDateTime;
+                let seconds = nanos / 1_000_000_000;
+                let remaining_nanos = (nanos % 1_000_000_000) as u32;
+                #[allow(deprecated)]
+                match NaiveDateTime::from_timestamp_opt(seconds, remaining_nanos) {
+                    Some(dt) => Ok(FieldValue::Timestamp(dt)),
+                    None => Ok(FieldValue::Integer(nanos)),
+                }
+            }
+        }
+    }
+
     /// Convert Avro Value to FieldValue with field context for logical type detection
+    /// OPTIMIZED: Uses pre-computed field_metadata cache instead of expensive schema lookups
     fn avro_value_to_field_value_with_context(
         &self,
         avro_value: &AvroValue,
         field_name: Option<&str>,
     ) -> Result<FieldValue, SerializationError> {
+        // Fast path: handle common types without any metadata lookup
         match avro_value {
-            AvroValue::Null => Ok(FieldValue::Null),
-            AvroValue::Boolean(b) => Ok(FieldValue::Boolean(*b)),
-            AvroValue::Int(i) => Ok(FieldValue::Integer(*i as i64)),
-            AvroValue::Long(l) => Ok(FieldValue::Integer(*l)),
+            AvroValue::Null => return Ok(FieldValue::Null),
+            AvroValue::Boolean(b) => return Ok(FieldValue::Boolean(*b)),
+            AvroValue::Int(i) => return Ok(FieldValue::Integer(*i as i64)),
+            AvroValue::Long(l) => return Ok(FieldValue::Integer(*l)),
+            AvroValue::String(s) => return Ok(FieldValue::String(s.clone())),
+            _ => {}
+        }
+
+        // OPTIMIZATION: Only lookup metadata for types that might need it (O(1) HashMap lookup)
+        let decimal_scale = field_name
+            .and_then(|name| self.field_metadata.get(name))
+            .and_then(|m| m.decimal_scale);
+
+        match avro_value {
+            // Already handled in fast path above
+            AvroValue::Null
+            | AvroValue::Boolean(_)
+            | AvroValue::Int(_)
+            | AvroValue::Long(_)
+            | AvroValue::String(_) => {
+                unreachable!("Already handled in fast path")
+            }
             AvroValue::Float(f) => {
                 // Check if this field should be treated as a decimal logical type
-                if let Some(name) = field_name {
-                    if let Some(scale) = self.get_decimal_scale_from_schema(name) {
-                        let scaled_value = (*f as f64 * 10_f64.powf(scale as f64)).round() as i64;
-                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
-                    }
+                if let Some(scale) = decimal_scale {
+                    let scaled_value = (*f as f64 * 10_f64.powf(scale as f64)).round() as i64;
+                    return Ok(FieldValue::ScaledInteger(scaled_value, scale));
                 }
                 Ok(FieldValue::Float(*f as f64))
             }
             AvroValue::Double(d) => {
                 // Check if this field should be treated as a decimal logical type
-                if let Some(name) = field_name {
-                    if let Some(scale) = self.get_decimal_scale_from_schema(name) {
-                        let scaled_value = (*d * 10_f64.powf(scale as f64)).round() as i64;
-                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
-                    }
+                if let Some(scale) = decimal_scale {
+                    let scaled_value = (*d * 10_f64.powf(scale as f64)).round() as i64;
+                    return Ok(FieldValue::ScaledInteger(scaled_value, scale));
                 }
                 Ok(FieldValue::Float(*d))
             }
-            AvroValue::String(s) => Ok(FieldValue::String(s.clone())),
             AvroValue::Bytes(bytes) => {
                 // Check if this is a decimal logical type encoded as bytes
-                if let Some(name) = field_name {
-                    if let Some(scale) = self.get_decimal_scale_from_schema(name) {
-                        // Try to decode as fixed-length big-endian integer
-                        if bytes.len() <= 8 {
-                            let mut padded = vec![0u8; 8];
-                            let start = 8 - bytes.len();
-                            padded[start..].copy_from_slice(bytes);
-                            let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
-                            return Ok(FieldValue::ScaledInteger(scaled_value, scale));
-                        }
+                if let Some(scale) = decimal_scale {
+                    // Try to decode as fixed-length big-endian integer
+                    if bytes.len() <= 8 {
+                        let mut padded = vec![0u8; 8];
+                        let start = 8 - bytes.len();
+                        padded[start..].copy_from_slice(bytes);
+                        let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
+                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
                     }
                 }
 
@@ -382,24 +778,22 @@ impl AvroCodec {
             }
             AvroValue::Decimal(decimal) => {
                 // Avro Decimal type - convert to ScaledInteger
-                if let Some(name) = field_name {
-                    if let Some(scale) = self.get_decimal_scale_from_schema(name) {
-                        // Use TryFrom to get bytes from Decimal
-                        let bytes: Vec<u8> = decimal.try_into().map_err(|e| {
-                            SerializationError::SchemaError(format!(
-                                "Failed to convert Decimal to bytes: {:?}",
-                                e
-                            ))
-                        })?;
+                if let Some(scale) = decimal_scale {
+                    // Use TryFrom to get bytes from Decimal
+                    let bytes: Vec<u8> = decimal.try_into().map_err(|e| {
+                        SerializationError::SchemaError(format!(
+                            "Failed to convert Decimal to bytes: {:?}",
+                            e
+                        ))
+                    })?;
 
-                        // Decode as big-endian signed integer
-                        if bytes.len() <= 8 {
-                            let mut padded = vec![0u8; 8];
-                            let start = 8 - bytes.len();
-                            padded[start..].copy_from_slice(&bytes);
-                            let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
-                            return Ok(FieldValue::ScaledInteger(scaled_value, scale));
-                        }
+                    // Decode as big-endian signed integer
+                    if bytes.len() <= 8 {
+                        let mut padded = vec![0u8; 8];
+                        let start = 8 - bytes.len();
+                        padded[start..].copy_from_slice(&bytes);
+                        let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
+                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
                     }
                 }
 
@@ -440,16 +834,14 @@ impl AvroCodec {
             }
             AvroValue::Enum(_index, symbol) => Ok(FieldValue::String(symbol.clone())),
             AvroValue::Fixed(_size, bytes) => {
-                // Check if this is a decimal logical type
-                if let Some(name) = field_name {
-                    if let Some(scale) = self.get_decimal_scale_from_schema(name) {
-                        if bytes.len() <= 8 {
-                            let mut padded = vec![0u8; 8];
-                            let start = 8 - bytes.len();
-                            padded[start..].copy_from_slice(bytes);
-                            let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
-                            return Ok(FieldValue::ScaledInteger(scaled_value, scale));
-                        }
+                // Check if this is a decimal logical type (use cached scale)
+                if let Some(scale) = decimal_scale {
+                    if bytes.len() <= 8 {
+                        let mut padded = vec![0u8; 8];
+                        let start = 8 - bytes.len();
+                        padded[start..].copy_from_slice(bytes);
+                        let scaled_value = i64::from_be_bytes(padded.try_into().unwrap());
+                        return Ok(FieldValue::ScaledInteger(scaled_value, scale));
                     }
                 }
 

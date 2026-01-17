@@ -1,0 +1,20 @@
+application: passthrough_demo
+description: Test basic passthrough functionality
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: passthrough_output
+    description: Verify all records pass through unchanged
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [id, value, amount, count, active, event_time]
+      - type: no_nulls
+        fields: [id, value, amount]
+    timeout_ms: 30000

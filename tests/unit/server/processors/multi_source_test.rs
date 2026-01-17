@@ -48,6 +48,8 @@ impl MockDataReader {
                 timestamp: 1640995200000 + (i as i64 * 1000),
                 offset: i as i64,
                 partition: 0,
+                topic: None,
+                key: None,
             });
         }
 
@@ -295,6 +297,7 @@ async fn test_simple_processor_multi_source_processing() {
                 query,
                 "test-multi-simple".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -382,6 +385,7 @@ async fn test_transactional_processor_multi_source_processing() {
                 query,
                 "test-multi-transactional".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -452,7 +456,8 @@ async fn test_multi_source_creation_helpers() {
 
     // Test source creation (will fail without actual sources but tests interface)
     let result =
-        create_multi_source_readers(&sources, "test-creation", None, None, &batch_config).await;
+        create_multi_source_readers(&sources, "test-creation", None, None, &batch_config, false)
+            .await;
 
     match result {
         Ok(readers) => {
@@ -491,6 +496,7 @@ async fn test_multi_sink_creation_helpers() {
                 props.insert("topic".to_string(), "output-topic".to_string());
                 props
             },
+            primary_keys: None,
         },
         DataSinkRequirement {
             name: "file_sink".to_string(),
@@ -501,13 +507,21 @@ async fn test_multi_sink_creation_helpers() {
                 props.insert("sink.format".to_string(), "json".to_string());
                 props
             },
+            primary_keys: None,
         },
     ];
 
     let batch_config = None;
 
-    let result =
-        create_multi_sink_writers(&sinks, "test-sink-creation", None, None, &batch_config).await;
+    let result = create_multi_sink_writers(
+        &sinks,
+        "test-sink-creation",
+        None,
+        None,
+        &batch_config,
+        false,
+    )
+    .await;
 
     match result {
         Ok(writers) => {
@@ -567,6 +581,7 @@ async fn test_error_handling_in_multi_source_processing() {
                 query,
                 "test-error-handling".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

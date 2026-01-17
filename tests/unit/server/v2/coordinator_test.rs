@@ -392,7 +392,9 @@ fn test_auto_selection_from_query_respects_user_explicit_choice() {
 
     // Create a query that would select "sticky_partition" (Pure SELECT, no aggregation)
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("market_data".to_string()),
         from_alias: None,
         joins: None,

@@ -32,7 +32,9 @@ fn create_simple_query() -> velostream::velostream::sql::ast::StreamingQuery {
     use velostream::velostream::sql::ast::{SelectField, StreamSource, StreamingQuery};
 
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Wildcard],
+        key_fields: None,
         from: StreamSource::Stream("test_stream".to_string()),
         from_alias: None,
         joins: None,
@@ -125,6 +127,10 @@ async fn test_job_execution_stats_metrics() {
 
     stats.records_processed = 1000;
     stats.records_failed = 50;
+
+    // Set some processing time so records_per_second() can calculate a rate
+    // In real usage, this is set by add_read_time/add_sql_time/add_write_time
+    stats.total_processing_time = Duration::from_millis(100);
 
     let rps = stats.records_per_second();
     let success_rate = stats.success_rate();
@@ -260,7 +266,8 @@ async fn test_log_functions() {
     stats.avg_processing_time_ms = 25.5;
 
     // These should not panic
-    log_job_progress("test_job", &stats);
+    // log_job_progress now takes per-batch stats: (job_name, batch_records, batch_time_ms)
+    log_job_progress("test_job", 100, 25.5);
     log_final_stats("test_job", &stats);
 }
 
@@ -520,12 +527,12 @@ async fn test_job_metrics() {
         .await
         .unwrap();
 
-    // Verify metrics are initialized to zero
+    // Verify stats are initialized to zero
     if let Some(status) = server.get_job_status(job_name).await {
-        assert_eq!(status.metrics.records_processed, 0);
-        assert_eq!(status.metrics.errors, 0);
-        assert!(status.metrics.last_record_time.is_none());
+        assert_eq!(status.stats.records_processed, 0);
+        assert_eq!(status.stats.records_failed, 0);
+        assert!(status.stats.last_record_time.is_none());
     }
 
-    println!("✅ Job metrics tracking validated");
+    println!("✅ Job stats tracking validated");
 }

@@ -122,6 +122,8 @@ fn create_test_stream_record(user_id: i64, amount: f64) -> StreamRecord {
                 .unwrap()
                 .with_timezone(&chrono::Utc),
         ),
+        topic: None,
+        key: None,
     }
 }
 

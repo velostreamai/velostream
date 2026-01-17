@@ -41,7 +41,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/sql_server.rs && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
 
 # Build dependencies with ALL serialization features enabled
-RUN cargo build --release --features "avro,protobuf" --bin velo-sql --bin velo-sql-multi
+RUN cargo build --release --features "avro,protobuf" --bin velo-sql --bin velo-sql
 
 # Copy source code
 COPY src ./src
@@ -49,7 +49,7 @@ COPY examples ./examples
 
 # Build the actual application with all serialization features
 RUN touch src/main.rs src/bin/sql_server.rs src/bin/multi_job_sql_server.rs
-RUN cargo build --release --features "avro,protobuf" --bin velo-sql --bin velo-sql-multi
+RUN cargo build --release --features "avro,protobuf" --bin velo-sql --bin velo-sql
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -72,7 +72,7 @@ WORKDIR /app
 
 # Copy binaries from builder stage
 COPY --from=builder /app/target/release/velo-sql /usr/local/bin/
-COPY --from=builder /app/target/release/velo-sql-multi /usr/local/bin/
+COPY --from=builder /app/target/release/velo-sql /usr/local/bin/
 
 # Copy configuration files
 COPY configs/velo-default.yaml ./sql-config.yaml
@@ -92,7 +92,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD [ "velo-sql", "--help" ] || exit 1
 
 # Default command - run multi-job SQL server with all serialization support
-CMD ["velo-sql-multi", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["velo-sql", "--host", "0.0.0.0", "--port", "8080"]
 
 # Build metadata
 LABEL org.opencontainers.image.title="Velostream"

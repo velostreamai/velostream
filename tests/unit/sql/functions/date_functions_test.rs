@@ -36,6 +36,8 @@ fn create_test_record_with_timestamps() -> StreamRecord {
         offset: 1000,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 
@@ -448,6 +450,8 @@ fn create_test_record_for_timestamp_functions() -> StreamRecord {
         offset: 1001,
         partition: 0,
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 

@@ -328,6 +328,17 @@ consumer_group: "orders_processor"
 | `${VAR:-default}` | Use default if unset | `"kafka_${ENV:-dev}.yaml"` |
 | `${VAR:?message}` | Error if unset | `"${REQUIRED_CONFIG:?Config required}"` |
 
+### Velostream-Specific Environment Variables
+
+These environment variables are read directly by Velostream at runtime:
+
+| Variable | Description | Values | Default |
+|----------|-------------|--------|---------|
+| `VELOSTREAM_KAFKA_BROKERS` | Kafka broker endpoints | comma-separated list | `localhost:9092` |
+| `VELOSTREAM_BROKER_ADDRESS_FAMILY` | Broker address resolution | `v4`, `v6`, `any` | `v4` |
+
+**Note on `VELOSTREAM_BROKER_ADDRESS_FAMILY`**: Defaults to `v4` (IPv4 only) because containers (Docker, testcontainers) often advertise `localhost` in Kafka broker metadata, which can resolve to IPv6 `::1` on some systems while the broker only listens on IPv4. Set to `any` for production environments with proper DNS or IPv6 support.
+
 ## Best Practices
 
 ### 1. Organize Configuration Hierarchy

@@ -1,3 +1,4 @@
+use super::common_config::{BrokerAddressFamily, get_broker_address_family};
 use rdkafka::config::ClientConfig;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -21,6 +22,39 @@ impl ClientConfigBuilder {
     /// Set bootstrap servers (brokers)
     pub fn bootstrap_servers(mut self, brokers: &str) -> Self {
         self.config.set("bootstrap.servers", brokers);
+        self
+    }
+
+    /// Configure broker address family resolution
+    ///
+    /// Reads from environment variable `VELOSTREAM_BROKER_ADDRESS_FAMILY`:
+    /// - `v4` or `ipv4` - Force IPv4 only (default, best for Docker/testcontainers)
+    /// - `v6` or `ipv6` - Force IPv6 only
+    /// - `any` or `both` - Allow both (librdkafka default)
+    ///
+    /// If not set or invalid, defaults to `v4` to avoid common IPv6 issues with containers.
+    ///
+    /// This is useful when:
+    /// - Running with testcontainers where localhost may resolve to IPv6
+    /// - Brokers advertise hostnames that resolve differently on IPv4/IPv6
+    /// - Network environment has IPv6 connectivity issues
+    pub fn broker_address_family(mut self) -> Self {
+        let family = get_broker_address_family();
+        if family.should_configure() {
+            self.config
+                .set("broker.address.family", family.as_librdkafka_value());
+        }
+        self
+    }
+
+    /// Force IPv4 address resolution for broker connections (explicit override)
+    ///
+    /// Use `broker_address_family()` for configurable behavior.
+    pub fn ipv4_only(mut self) -> Self {
+        self.config.set(
+            "broker.address.family",
+            BrokerAddressFamily::V4.as_librdkafka_value(),
+        );
         self
     }
 

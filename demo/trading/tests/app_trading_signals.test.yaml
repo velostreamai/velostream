@@ -1,0 +1,37 @@
+# =============================================================================
+# Test: Trading Signals
+# =============================================================================
+# Tests volume analytics and signal generation
+
+application: trading_signals
+description: |
+  Tests trading signal generation including volume spike detection.
+
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  # Test volume spike analysis
+  - name: volume_spike_analysis
+    description: Test volume spike detection with sliding window
+    inputs:
+      - source: market_data_ts
+        records: 100
+        time_simulation:
+          start_time: "-1h"
+          end_time: "now"
+          sequential: true
+          events_per_second: 50
+    outputs:
+      - sink: volume_spikes
+        assertions:
+          - type: record_count
+            greater_than: 0
+
+          - type: schema_contains
+            key_field: symbol
+            fields:
+              - avg_volume
+
+          - type: no_nulls
+            fields: [symbol]

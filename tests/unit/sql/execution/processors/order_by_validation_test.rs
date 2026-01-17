@@ -35,6 +35,8 @@ fn create_test_record() -> StreamRecord {
         partition: 0,
         headers: HashMap::new(),
         event_time: None,
+        topic: None,
+        key: None,
     }
 }
 

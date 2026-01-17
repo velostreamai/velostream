@@ -1,0 +1,42 @@
+name: transaction_record
+description: Transaction record for regional streams (US, EU, APAC)
+record_count: 100
+
+fields:
+  - name: order_id
+    type: uuid
+    nullable: false
+
+  - name: customer_id
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1000
+        max: 99999
+
+  - name: amount
+    type:
+      decimal:
+        precision: 2
+    nullable: false
+    constraints:
+      range:
+        min: 10.00
+        max: 10000.00
+
+  - name: currency
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["USD", "EUR", "GBP", "JPY", "AUD"]
+        weights: [0.4, 0.3, 0.1, 0.1, 0.1]
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

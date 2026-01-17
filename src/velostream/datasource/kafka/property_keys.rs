@@ -128,8 +128,12 @@ pub const GROUP_ID: &str = "group.id";
 // METADATA/CONFIGURATION PROPERTIES
 // ============================================================================
 
-/// Performance profile property key (metadata only, not passed to Kafka)
+/// Performance profile property key for consumers (metadata only, not passed to Kafka)
 pub const PERFORMANCE_PROFILE: &str = "performance_profile";
+
+/// Delivery profile property key for producers (metadata only, not passed to Kafka)
+/// Valid values: high_throughput, low_latency, durable, balanced, development
+pub const DELIVERY_PROFILE: &str = "delivery_profile";
 
 // ============================================================================
 // PREFIX FILTERS (for property skipping/filtering)
@@ -153,7 +157,8 @@ pub const SKIP_EXACT: &[&str] = &[
     KEY_FIELD,               // Key field extraction (handled separately)
     "message.key.field",     // Key field extraction (handled separately)
     "schema.key.field",      // Key field extraction (handled separately)
-    PERFORMANCE_PROFILE,     // Performance profile is metadata
+    PERFORMANCE_PROFILE,     // Performance profile is metadata (consumer)
+    DELIVERY_PROFILE,        // Delivery profile is metadata (producer)
     FORMAT,                  // Format is handled separately
     SERIALIZER_FORMAT,       // Format is handled separately
     VALUE_SERIALIZER,        // Format is handled separately

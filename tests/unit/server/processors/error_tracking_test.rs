@@ -48,6 +48,8 @@ impl FailingMockDataReader {
                 timestamp: 1640995200000 + (i as i64 * 1000),
                 offset: i as i64,
                 partition: 0,
+                topic: None,
+                key: None,
             });
         }
 
@@ -277,6 +279,7 @@ async fn test_simple_processor_handles_read_errors() {
                 query,
                 "test-read-error".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -335,6 +338,7 @@ async fn test_simple_processor_handles_write_errors_with_retry() {
                 query,
                 "test-write-retry".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -394,6 +398,7 @@ async fn test_transactional_processor_handles_write_errors() {
                 query,
                 "test-transactional-write-error".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -453,6 +458,7 @@ async fn test_error_tracking_without_observability_manager() {
                 query,
                 "test-no-observability".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -512,6 +518,7 @@ async fn test_simple_processor_log_and_continue_strategy() {
                 query,
                 "test-log-and-continue".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -577,6 +584,7 @@ async fn test_transactional_processor_fail_batch_strategy() {
                 query,
                 "test-fail-batch".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -635,6 +643,7 @@ async fn test_error_tracking_performance_impact() {
                 query,
                 "performance-test".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

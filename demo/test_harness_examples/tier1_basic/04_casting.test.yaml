@@ -1,0 +1,20 @@
+application: casting_demo
+description: Test type casting operations
+default_timeout_ms: 30000
+default_records: 100
+
+queries:
+  - name: cast_output
+    description: Verify type casts work correctly
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 100
+    assertions:
+      - type: record_count
+        equals: 100
+      - type: schema_contains
+        fields: [id, amount_int, count_decimal, active_string, id_string, event_time]
+      - type: no_nulls
+        fields: [id, amount_int, id_string]
+    timeout_ms: 30000

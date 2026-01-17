@@ -42,6 +42,8 @@ fn create_test_record_for_on_condition() -> StreamRecord {
         timestamp: 1234567890000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 

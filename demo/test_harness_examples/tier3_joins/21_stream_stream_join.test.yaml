@@ -1,0 +1,21 @@
+application: stream_stream_join_demo
+description: Test stream-stream JOIN with time window
+default_timeout_ms: 60000
+
+queries:
+  # Single join query with two input streams
+  - name: matched_events
+    description: Join orders with shipments within 24-hour window
+    inputs:
+      - source: orders
+        data_file: "demo/test_harness_examples/data/orders_join_test.csv"
+      - source: shipments
+        data_file: "demo/test_harness_examples/data/shipments_join_test.csv"
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [order_id, customer_id, order_total, shipment_id, carrier, tracking_number]
+      - type: no_nulls
+        fields: [order_id, shipment_id, carrier]
+    timeout_ms: 60000

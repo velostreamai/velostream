@@ -107,6 +107,8 @@ use std::time::Duration;
 pub mod annotations;
 pub mod validator;
 
+// AggregateValidator is used for validation of aggregate expressions
+#[allow(unused_imports)]
 use self::validator::AggregateValidator;
 
 /// Main parser for streaming SQL queries.
@@ -155,6 +157,7 @@ pub struct StreamingSqlParser {
 pub enum TokenType {
     // SQL Keywords
     Select,     // SELECT
+    Distinct,   // DISTINCT
     From,       // FROM
     Where,      // WHERE
     GroupBy,    // GROUP (parsed as GROUP BY)
@@ -278,6 +281,10 @@ pub enum TokenType {
     SingleLineComment, // -- comment text
     MultiLineComment,  // /* comment text */
 
+    // Primary Key annotation (SQL standard)
+    Primary, // PRIMARY (for PRIMARY KEY)
+    Key,     // KEY (for PRIMARY KEY designation)
+
     // Special
     Eof,       // End of input
     Semicolon, // ; (statement terminator)
@@ -317,6 +324,7 @@ impl StreamingSqlParser {
     pub fn new() -> Self {
         let mut keywords = HashMap::new();
         keywords.insert("SELECT".to_string(), TokenType::Select);
+        keywords.insert("DISTINCT".to_string(), TokenType::Distinct);
         keywords.insert("FROM".to_string(), TokenType::From);
         keywords.insert("WHERE".to_string(), TokenType::Where);
         keywords.insert("GROUP".to_string(), TokenType::GroupBy);
@@ -398,6 +406,10 @@ impl StreamingSqlParser {
         keywords.insert("UNBOUNDED".to_string(), TokenType::Unbounded);
         keywords.insert("OVER".to_string(), TokenType::Over);
         keywords.insert("NULL".to_string(), TokenType::Null);
+
+        // Primary Key annotation (SQL standard)
+        keywords.insert("PRIMARY".to_string(), TokenType::Primary);
+        keywords.insert("KEY".to_string(), TokenType::Key);
 
         Self { keywords }
     }
@@ -1089,10 +1101,23 @@ impl<'a> TokenParser<'a> {
         }
     }
 
+    /// Check for and consume the DISTINCT keyword, returning true if found.
+    /// This is a shared helper to avoid duplicating the DISTINCT parsing logic.
+    fn parse_distinct(&mut self) -> bool {
+        if self.current_token().token_type == TokenType::Distinct {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
     fn parse_select(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
-        let fields = self.parse_select_fields()?;
+        let distinct = self.parse_distinct();
+
+        let (fields, key_fields) = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
@@ -1356,6 +1381,8 @@ impl<'a> TokenParser<'a> {
             // Create the nested SELECT query
             let select_query = StreamingQuery::Select {
                 fields,
+                distinct,
+                key_fields: key_fields.clone(),
                 from: from_source,
                 from_alias,
                 joins,
@@ -1416,6 +1443,8 @@ impl<'a> TokenParser<'a> {
 
         let select_query = StreamingQuery::Select {
             fields,
+            distinct,
+            key_fields: key_fields.clone(),
             from: from_source,
             from_alias,
             joins,
@@ -1463,7 +1492,9 @@ impl<'a> TokenParser<'a> {
         // to allow CREATE TABLE parser to continue with WITH clause
         self.expect(TokenType::Select)?;
 
-        let fields = self.parse_select_fields()?;
+        let distinct = self.parse_distinct();
+
+        let (fields, key_fields) = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
@@ -1608,6 +1639,7 @@ impl<'a> TokenParser<'a> {
         let mut having = None;
         let mut order_by = None;
         let mut limit = None;
+        let mut emit_mode = None;
 
         // Loop to parse clauses in any order - continues until no more recognized clauses
         loop {
@@ -1634,6 +1666,10 @@ impl<'a> TokenParser<'a> {
                     self.advance();
                     limit = Some(self.expect(TokenType::Number)?.value.parse().unwrap_or(100));
                 }
+                // EMIT CHANGES/FINAL is part of SELECT syntax
+                TokenType::Emit if emit_mode.is_none() => {
+                    emit_mode = self.parse_emit_clause()?;
+                }
                 _ => break, // No more recognized clauses, exit loop
             }
         }
@@ -1645,11 +1681,12 @@ impl<'a> TokenParser<'a> {
             StreamSource::Stream(from_stream) // Both scalar queries and named streams
         };
 
-        // DO NOT parse EMIT clause here - let CREATE STREAM/TABLE parser handle it
         // DO NOT consume semicolon here - let CREATE TABLE parser handle WITH clause
 
         Ok(StreamingQuery::Select {
             fields,
+            distinct,
+            key_fields,
             from: from_source,
             from_alias,
             joins,
@@ -1659,7 +1696,7 @@ impl<'a> TokenParser<'a> {
             window,
             order_by,
             limit,
-            emit_mode: None, // EMIT is parsed at CREATE STREAM/TABLE level
+            emit_mode,
             properties: _from_with_options, // WITH clause options from FROM source
             job_mode: None,
             batch_size: None,
@@ -1671,7 +1708,9 @@ impl<'a> TokenParser<'a> {
     fn parse_select_no_with(&mut self) -> Result<StreamingQuery, SqlError> {
         self.expect(TokenType::Select)?;
 
-        let fields = self.parse_select_fields()?;
+        let distinct = self.parse_distinct();
+
+        let (fields, key_fields) = self.parse_select_fields()?;
 
         // FROM clause is optional (for scalar subqueries like SELECT 1)
         let mut from_alias = None;
@@ -1887,6 +1926,8 @@ impl<'a> TokenParser<'a> {
 
         let select_query = StreamingQuery::Select {
             fields,
+            distinct,
+            key_fields,
             from: from_source,
             from_alias,
             joins,
@@ -1929,8 +1970,15 @@ impl<'a> TokenParser<'a> {
         }
     }
 
-    fn parse_select_fields(&mut self) -> Result<Vec<SelectField>, SqlError> {
+    /// Parse SELECT fields with optional PRIMARY KEY annotation (SQL standard).
+    ///
+    /// Syntax: SELECT field1 PRIMARY KEY, field2, field3 PRIMARY KEY FROM ...
+    ///
+    /// Returns (fields, key_fields) where key_fields contains the names of
+    /// fields marked with PRIMARY KEY for Kafka message key designation.
+    fn parse_select_fields(&mut self) -> Result<(Vec<SelectField>, Option<Vec<String>>), SqlError> {
         let mut fields = Vec::new();
+        let mut key_fields = Vec::new();
 
         loop {
             if self.current_token().token_type == TokenType::Asterisk {
@@ -1944,6 +1992,37 @@ impl<'a> TokenParser<'a> {
                 } else {
                     None
                 };
+
+                // Check for PRIMARY KEY annotation after expression/alias (SQL standard)
+                let is_key = if self.current_token().token_type == TokenType::Primary {
+                    self.advance();
+                    if self.current_token().token_type == TokenType::Key {
+                        self.advance();
+                        true
+                    } else {
+                        return Err(SqlError::parse_error(
+                            "Expected KEY after PRIMARY",
+                            Some(self.current_token().position),
+                        ));
+                    }
+                } else {
+                    false
+                };
+
+                // If marked as PRIMARY KEY, extract the field name for key_fields
+                if is_key {
+                    let field_name = alias.clone().or_else(|| {
+                        if let Expr::Column(name) = &expr {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    });
+                    if let Some(name) = field_name {
+                        key_fields.push(name);
+                    }
+                }
+
                 fields.push(SelectField::Expression { expr, alias });
             }
 
@@ -1954,7 +2033,13 @@ impl<'a> TokenParser<'a> {
             }
         }
 
-        Ok(fields)
+        let key_fields_opt = if key_fields.is_empty() {
+            None
+        } else {
+            Some(key_fields)
+        };
+
+        Ok((fields, key_fields_opt))
     }
 
     fn parse_join_clauses(&mut self) -> Result<Option<Vec<JoinClause>>, SqlError> {
@@ -3290,12 +3375,39 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_for_create_table to avoid consuming the WITH clause that belongs to CREATE STREAM
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
-        // Parse EMIT clause first (if present) - must come before WITH per SQL standard
-        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+        log::debug!(
+            "CREATE STREAM parser: after SELECT, current_token={:?} (value='{}')",
+            self.current_token().token_type,
+            self.current_token().value
+        );
+
+        // Parse EMIT clause if present at wrapper level - must come before WITH per SQL standard
+        // If not found at wrapper level, extract from inner SELECT (EMIT is part of SELECT syntax)
+        let mut emit_mode = if self.current_token().token_type == TokenType::Emit {
+            log::debug!("CREATE STREAM parser: EMIT token detected at wrapper level");
             self.parse_emit_clause()?
         } else {
             None
         };
+
+        // Extract emit_mode from inner SELECT if not set at wrapper level
+        if emit_mode.is_none() {
+            if let StreamingQuery::Select {
+                emit_mode: select_emit_mode,
+                ..
+            } = as_select.as_ref()
+            {
+                if select_emit_mode.is_some() {
+                    log::debug!(
+                        "CREATE STREAM parser: emit_mode extracted from inner SELECT: {:?}",
+                        select_emit_mode
+                    );
+                    emit_mode = select_emit_mode.clone();
+                }
+            }
+        }
+
+        log::debug!("CREATE STREAM parser: final emit_mode={:?}", emit_mode);
 
         // Parse WITH properties for sink configuration (comes after EMIT)
         let mut properties = if self.current_token().token_type == TokenType::With {
@@ -3397,6 +3509,26 @@ impl<'a> TokenParser<'a> {
         // Use parse_select_no_with to avoid consuming the WITH clause that belongs to CREATE TABLE
         let as_select = Box::new(self.parse_select_for_create_table()?);
 
+        // Parse EMIT clause if present BEFORE WITH (common pattern: ... EMIT CHANGES WITH (...))
+        let mut emit_mode = if self.current_token().token_type == TokenType::Emit {
+            self.parse_emit_clause()?
+        } else {
+            None
+        };
+
+        // Extract emit_mode from inner SELECT if not set at wrapper level
+        if emit_mode.is_none() {
+            if let StreamingQuery::Select {
+                emit_mode: select_emit_mode,
+                ..
+            } = as_select.as_ref()
+            {
+                if select_emit_mode.is_some() {
+                    emit_mode = select_emit_mode.clone();
+                }
+            }
+        }
+
         // Parse WITH properties
         let mut properties = if self.current_token().token_type == TokenType::With {
             self.parse_with_properties()?
@@ -3418,12 +3550,12 @@ impl<'a> TokenParser<'a> {
             }
         }
 
-        // For CREATE TABLE AS SELECT, the EMIT clause should be in the SELECT, not at CREATE TABLE level
-        // Only parse EMIT at this level if it exists (which would be unusual)
-        let emit_mode = if self.current_token().token_type == TokenType::Emit {
+        // Also check for EMIT clause AFTER WITH (alternative ordering)
+        let emit_mode = if emit_mode.is_none() && self.current_token().token_type == TokenType::Emit
+        {
             self.parse_emit_clause()?
         } else {
-            None
+            emit_mode
         };
 
         // Consume optional semicolon

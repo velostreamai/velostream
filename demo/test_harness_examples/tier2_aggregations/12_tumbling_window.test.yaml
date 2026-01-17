@@ -1,0 +1,28 @@
+application: tumbling_window_demo
+description: Test tumbling window aggregation
+default_timeout_ms: 60000
+default_records: 100
+
+queries:
+  - name: tumbling_output
+    description: Verify tumbling window produces time-bucketed aggregates
+    inputs:
+      - source: market_data
+        schema: market_data
+        records: 100
+        time_simulation:
+          start_time: "-3m"    # 3 minutes ago - spans multiple 1-minute windows
+          end_time: "now"
+          sequential: true     # Ordered timestamps ensure window progression
+    assertions:
+      - type: record_count
+        greater_than: 0
+      - type: schema_contains
+        fields: [symbol, trade_count, total_volume, avg_price, min_price, max_price]
+      - type: field_values
+        field: trade_count
+        operator: greater_than
+        value: 0
+      - type: no_nulls
+        fields: [symbol, trade_count, total_volume, avg_price, min_price, max_price]
+    timeout_ms: 60000

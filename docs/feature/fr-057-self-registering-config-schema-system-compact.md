@@ -100,7 +100,7 @@ impl HierarchicalSchemaRegistry {
 |----------------------|----------|-------------------|-----------------|
 | **IDE Integration** | Real-time typing | Language Server Protocol | < 100ms |
 | **SQL Validator** | File validation | Enhanced SqlValidator + schema registry | < 100ms |
-| **CLI Tools** | `velo-sql-multi validate --file` | StreamJobServer + SqlValidator | < 100ms |
+| **CLI Tools** | `velo-sql validate --file` | StreamJobServer + SqlValidator | < 100ms |
 | **CI/CD Pipeline** | Every commit/PR | GitHub Actions/GitLab CI | < 5s |
 | **REST API** | `/api/jobs/validate` | HTTP validation endpoint | < 100ms |
 | **Pre-deployment** | Before job deployment | StreamJobServer integration | < 100ms |
@@ -126,8 +126,8 @@ impl SqlValidator {
 ### CLI Integration
 ```bash
 # Combined SQL + Config validation
-velo-sql-multi validate --file ./demo.sql
-velo-sql-multi deploy-app --file ./demo.sql  # Auto-validates before deploy
+velo-sql validate --file ./demo.sql
+velo-sql deploy-app --file ./demo.sql  # Auto-validates before deploy
 
 # Standalone config validation
 velo-config validate ./configs/ --check-inheritance

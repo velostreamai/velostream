@@ -279,6 +279,7 @@ async fn scenario_3a_tumbling_standard_baseline() {
             query,
             "tumbling_perf_test".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
 
@@ -528,6 +529,7 @@ async fn scenario_3a_v2_sticky_partition_1core() {
             parsed_query,
             "tumbling_v2_baseline".to_string(),
             shutdown_rx,
+            None,
         )
         .await;
     let v2_time_us = v2_start.elapsed().as_micros();

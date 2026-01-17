@@ -36,7 +36,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN mkdir -p src/bin && echo "fn main() {}" > src/bin/multi_job_sql_server.rs
 
 # Build dependencies
-RUN cargo build --release --bin velo-sql-multi
+RUN cargo build --release --bin velo-sql
 
 # Copy source code
 COPY src ./src
@@ -44,7 +44,7 @@ COPY examples ./examples
 
 # Build the application
 RUN touch src/main.rs src/bin/multi_job_sql_server.rs
-RUN cargo build --release --bin velo-sql-multi
+RUN cargo build --release --bin velo-sql
 
 # Runtime stage
 FROM debian:bookworm-slim
@@ -65,7 +65,7 @@ RUN useradd -r -s /bin/false -d /app velo
 WORKDIR /app
 
 # Copy binary from builder stage
-COPY --from=builder /app/target/release/velo-sql-multi /usr/local/bin/
+COPY --from=builder /app/target/release/velo-sql /usr/local/bin/
 
 # Copy configuration
 COPY configs/velo-default.yaml ./sql-config.yaml
@@ -81,7 +81,7 @@ EXPOSE 8080 9080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD [ "velo-sql-multi", "--help" ] || exit 1
+    CMD [ "velo-sql", "--help" ] || exit 1
 
 # Default command - expects SQL_FILE environment variable
-CMD ["sh", "-c", "velo-sql-multi deploy-app --file ${SQL_FILE:-/app/sql-files/app.sql} --brokers ${KAFKA_BROKERS:-kafka:9092}"]
+CMD ["sh", "-c", "velo-sql deploy-app --file ${SQL_FILE:-/app/sql-files/app.sql} --brokers ${KAFKA_BROKERS:-kafka:9092}"]

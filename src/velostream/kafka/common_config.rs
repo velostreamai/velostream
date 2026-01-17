@@ -1,5 +1,119 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
+
+/// Environment variable name for broker address family configuration
+pub const BROKER_ADDRESS_FAMILY_ENV: &str = "VELOSTREAM_BROKER_ADDRESS_FAMILY";
+
+/// Valid values for broker address family configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrokerAddressFamily {
+    /// Force IPv4 only (useful for testcontainers, Docker)
+    V4,
+    /// Force IPv6 only
+    V6,
+    /// Allow both IPv4 and IPv6 (librdkafka default)
+    Any,
+}
+
+impl BrokerAddressFamily {
+    /// Get the librdkafka configuration value
+    pub fn as_librdkafka_value(&self) -> &'static str {
+        match self {
+            BrokerAddressFamily::V4 => "v4",
+            BrokerAddressFamily::V6 => "v6",
+            BrokerAddressFamily::Any => "any",
+        }
+    }
+
+    /// Returns true if this family should be explicitly configured
+    /// (i.e., not the librdkafka default "any")
+    pub fn should_configure(&self) -> bool {
+        *self != BrokerAddressFamily::Any
+    }
+}
+
+/// Error type for parsing BrokerAddressFamily
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseBrokerAddressFamilyError {
+    pub invalid_value: String,
+}
+
+impl std::fmt::Display for ParseBrokerAddressFamilyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Invalid broker address family '{}'. Valid values: v4, v6, any",
+            self.invalid_value
+        )
+    }
+}
+
+impl std::error::Error for ParseBrokerAddressFamilyError {}
+
+impl FromStr for BrokerAddressFamily {
+    type Err = ParseBrokerAddressFamilyError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "v4" | "ipv4" => Ok(BrokerAddressFamily::V4),
+            "v6" | "ipv6" => Ok(BrokerAddressFamily::V6),
+            "any" | "both" => Ok(BrokerAddressFamily::Any),
+            _ => Err(ParseBrokerAddressFamilyError {
+                invalid_value: s.to_string(),
+            }),
+        }
+    }
+}
+
+impl Default for BrokerAddressFamily {
+    fn default() -> Self {
+        // Default to v4 to avoid common IPv6 issues with containers
+        BrokerAddressFamily::V4
+    }
+}
+
+/// Get the configured broker address family from environment
+///
+/// Reads from `VELOSTREAM_BROKER_ADDRESS_FAMILY` environment variable.
+/// Valid values:
+/// - `v4` or `ipv4` - Force IPv4 only (default, best for Docker/testcontainers)
+/// - `v6` or `ipv6` - Force IPv6 only
+/// - `any` or `both` - Allow both (librdkafka default)
+///
+/// If not set or invalid, defaults to `v4`.
+///
+/// This is useful when:
+/// - Running with testcontainers where localhost may resolve to IPv6
+/// - Brokers advertise hostnames that resolve differently on IPv4/IPv6
+/// - Network environment has IPv6 connectivity issues
+pub fn get_broker_address_family() -> BrokerAddressFamily {
+    std::env::var(BROKER_ADDRESS_FAMILY_ENV)
+        .ok()
+        .and_then(|v| {
+            v.parse()
+                .map_err(|e: ParseBrokerAddressFamilyError| {
+                    log::warn!(
+                        "Invalid broker address family '{}', using default 'v4'. \
+                     Valid values: v4, v6, any",
+                        e.invalid_value
+                    );
+                })
+                .ok()
+        })
+        .unwrap_or_default()
+}
+
+/// Apply broker address family configuration to a ClientConfig
+///
+/// This is a convenience function that applies the broker address family
+/// configuration from the environment to a given ClientConfig.
+pub fn apply_broker_address_family(config: &mut rdkafka::config::ClientConfig) {
+    let family = get_broker_address_family();
+    if family.should_configure() {
+        config.set("broker.address.family", family.as_librdkafka_value());
+    }
+}
 
 /// Common configuration fields shared between producer and consumer
 ///
@@ -182,5 +296,60 @@ mod tests {
 
         config = config.clear_custom_properties();
         assert!(config.custom_config.is_empty());
+    }
+
+    #[test]
+    fn test_broker_address_family_parsing() {
+        assert_eq!(
+            "v4".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V4
+        );
+        assert_eq!(
+            "ipv4".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V4
+        );
+        assert_eq!(
+            "V4".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V4
+        );
+        assert_eq!(
+            "v6".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V6
+        );
+        assert_eq!(
+            "ipv6".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::V6
+        );
+        assert_eq!(
+            "any".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::Any
+        );
+        assert_eq!(
+            "both".parse::<BrokerAddressFamily>().unwrap(),
+            BrokerAddressFamily::Any
+        );
+        // Invalid values return an error
+        assert!("invalid".parse::<BrokerAddressFamily>().is_err());
+        let err = "invalid".parse::<BrokerAddressFamily>().unwrap_err();
+        assert_eq!(err.invalid_value, "invalid");
+    }
+
+    #[test]
+    fn test_broker_address_family_librdkafka_value() {
+        assert_eq!(BrokerAddressFamily::V4.as_librdkafka_value(), "v4");
+        assert_eq!(BrokerAddressFamily::V6.as_librdkafka_value(), "v6");
+        assert_eq!(BrokerAddressFamily::Any.as_librdkafka_value(), "any");
+    }
+
+    #[test]
+    fn test_broker_address_family_should_configure() {
+        assert!(BrokerAddressFamily::V4.should_configure());
+        assert!(BrokerAddressFamily::V6.should_configure());
+        assert!(!BrokerAddressFamily::Any.should_configure());
+    }
+
+    #[test]
+    fn test_broker_address_family_default() {
+        assert_eq!(BrokerAddressFamily::default(), BrokerAddressFamily::V4);
     }
 }

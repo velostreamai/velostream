@@ -7,6 +7,8 @@
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
+use std::collections::HashMap;
+use std::sync::LazyLock;
 
 /// Function handler signature
 pub type FunctionHandler = fn(&[Expr], &StreamRecord) -> Result<FieldValue, SqlError>;
@@ -54,6 +56,27 @@ pub enum FunctionCategory {
 // Distributed registration storage for SQL functions
 inventory::collect!(SqlFunctionDef);
 
+/// Cached function lookup table for O(1) access.
+///
+/// Maps uppercase function names (including aliases) to their definitions.
+/// Lazily initialized on first access.
+static FUNCTION_LOOKUP_CACHE: LazyLock<HashMap<String, &'static SqlFunctionDef>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::new();
+
+        for func_def in inventory::iter::<SqlFunctionDef> {
+            // Insert primary name
+            map.insert(func_def.name.to_string(), func_def);
+
+            // Insert all aliases
+            for alias in func_def.aliases {
+                map.insert((*alias).to_string(), func_def);
+            }
+        }
+
+        map
+    });
+
 /// Macro to register a SQL function with metadata
 ///
 /// # Example
@@ -95,23 +118,13 @@ pub fn all_registered_functions() -> impl Iterator<Item = &'static SqlFunctionDe
     inventory::iter::<SqlFunctionDef>.into_iter()
 }
 
-/// Find a function by name (case-insensitive)
+/// Find a function by name (case-insensitive).
+///
+/// Uses a cached HashMap for O(1) lookup performance.
+/// The cache is lazily initialized on first access.
 pub fn find_function(name: &str) -> Option<&'static SqlFunctionDef> {
     let name_upper = name.to_uppercase();
-
-    for func_def in all_registered_functions() {
-        if func_def.name == name_upper {
-            return Some(func_def);
-        }
-
-        for alias in func_def.aliases {
-            if *alias == name_upper {
-                return Some(func_def);
-            }
-        }
-    }
-
-    None
+    FUNCTION_LOOKUP_CACHE.get(&name_upper).copied()
 }
 
 /// Get all functions in a specific category

@@ -1,0 +1,11 @@
+customer_id,customer_name,tier,region,signup_date
+1001,Alice Johnson,gold,us-east,2023-01-15
+1002,Bob Smith,silver,us-west,2023-03-22
+1003,Carol White,bronze,eu-west,2023-05-10
+1004,David Brown,gold,apac,2023-02-28
+1005,Emma Davis,platinum,us-east,2022-11-05
+1006,Frank Miller,silver,eu-central,2023-04-18
+1007,Grace Lee,bronze,us-west,2023-06-01
+1008,Henry Wilson,gold,apac,2023-01-30
+1009,Ivy Chen,silver,eu-west,2023-07-12
+1010,Jack Taylor,platinum,us-east,2022-09-25

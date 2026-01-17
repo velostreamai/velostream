@@ -268,6 +268,7 @@ async fn measure_v1(records: Vec<StreamRecord>, query: &str) -> (f64, usize) {
             (*query_arc).clone(),
             "v1_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -317,6 +318,7 @@ async fn measure_transactional_jp(records: Vec<StreamRecord>, query: &str) -> (f
             (*query_arc).clone(),
             "transactional_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -374,6 +376,7 @@ async fn measure_adaptive_1core(records: Vec<StreamRecord>, query: &str) -> (f64
             (*query_arc).clone(),
             "v2_1core_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;
@@ -433,6 +436,7 @@ async fn measure_adaptive_4core(records: Vec<StreamRecord>, query: &str) -> (f64
             (*query_arc).clone(),
             "v2_4core_test".to_string(),
             shutdown_rx,
+            None,
         ),
     )
     .await;

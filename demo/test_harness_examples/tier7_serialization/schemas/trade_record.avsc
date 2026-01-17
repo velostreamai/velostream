@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "TradeRecord",
+  "namespace": "com.velostream.demo",
+  "doc": "Trade record for Avro serialization demo",
+  "fields": [
+    {"name": "trade_id", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "quantity", "type": "long"},
+    {"name": "price", "type": "double"},
+    {"name": "side", "type": "string"},
+    {"name": "notional_value", "type": "double"},
+    {"name": "event_time", "type": "string"}
+  ]
+}

@@ -9,12 +9,12 @@ use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::metrics::JobMetrics;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
-use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
-use crate::velostream::server::processors::metrics_collector::MetricsCollector;
-use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
+use crate::velostream::server::processors::job_processor_trait::{
+    JobProcessor, ProcessorMetrics, SharedJobStats,
+};
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
-use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
+use crate::velostream::server::processors::profiling_helper::ProfilingHelper;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::{StreamExecutionEngine, StreamingQuery};
@@ -26,12 +26,18 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::time::sleep;
+
+/// Type alias for table registry - simplified from Arc<Mutex<Option<HashMap>>>
+/// Tables are set once at creation and read during processing
+type TableRegistry = Arc<Mutex<HashMap<String, Arc<dyn UnifiedTable>>>>;
 
 /// Transactional job processor with at-least-once delivery semantics
 ///
 /// Provides ACID transaction boundaries for batch processing but does not guarantee
 /// exactly-once semantics. Records may be reprocessed on retry, making this suitable
 /// for idempotent operations or scenarios where occasional duplicates are acceptable.
+#[allow(clippy::type_complexity)]
 pub struct TransactionalJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
@@ -43,7 +49,7 @@ pub struct TransactionalJobProcessor {
     /// Stop flag for graceful shutdown
     stop_flag: Arc<AtomicBool>,
     /// Optional table registry for SQL queries that reference tables
-    table_registry: Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>,
+    table_registry: TableRegistry,
 }
 
 impl TransactionalJobProcessor {
@@ -68,7 +74,7 @@ impl TransactionalJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -91,14 +97,14 @@ impl TransactionalJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Set table registry for SQL queries that reference tables
     pub fn set_table_registry(&mut self, tables: HashMap<String, Arc<dyn UnifiedTable>>) {
         if let Ok(mut registry) = self.table_registry.lock() {
-            *registry = Some(tables);
+            *registry = tables;
         }
     }
 
@@ -119,15 +125,11 @@ impl TransactionalJobProcessor {
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
-        info!(
-            "Job '{}' starting multi-source transactional processing with {} sources and {} sinks",
-            job_name,
-            readers.len(),
-            writers.len()
-        );
+        debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
         // Check transaction support for all readers and writers
         let readers_support_tx: HashMap<String, bool> = readers
@@ -194,24 +196,30 @@ impl TransactionalJobProcessor {
             );
         }
 
-        // FR-082 Phase 6.5: Initialize QueryExecution in the engine
-        // This creates the persistent ProcessorContext that will hold state across all batches
+        // FR-082 Option 3: Processor owns ProcessorContext and injects tables directly
+        // This eliminates the context_customizer closure pattern - cleaner ownership model
         {
             let mut engine_lock = engine.write().await;
 
-            // Inject table registry if provided
+            // Generate query_id using Engine's method for consistency
+            let query_id = engine_lock.generate_query_id(&query);
+
+            // Create ProcessorContext and inject tables directly
+            let mut sql_context =
+                crate::velostream::sql::execution::processors::ProcessorContext::new(&query_id);
+
+            // Inject tables from processor's table_registry (set by JobProcessorFactory)
             if let Ok(registry_lock) = self.table_registry.lock() {
-                if let Some(ref tables) = *registry_lock {
-                    let tables_clone = tables.clone();
-                    engine_lock.context_customizer = Some(Arc::new(move |context| {
-                        for (table_name, table) in &tables_clone {
-                            context.load_reference_table(table_name, table.clone());
-                        }
-                    }));
+                for (table_name, table) in registry_lock.iter() {
+                    sql_context.load_reference_table(table_name, table.clone());
                 }
             }
 
-            engine_lock.init_query_execution(query.clone());
+            // Pass pre-configured context to engine
+            engine_lock.init_query_execution_with_context(
+                query.clone(),
+                Arc::new(std::sync::Mutex::new(sql_context)),
+            );
         }
 
         // Create enhanced context with multiple sources and sinks
@@ -279,6 +287,10 @@ impl TransactionalJobProcessor {
                 break;
             }
 
+            // Track records processed before this batch for progress logging
+            let records_before = stats.records_processed;
+            let batch_start = Instant::now();
+
             // Process transactional batch from all sources
             match self
                 .process_multi_source_transactional_batch(
@@ -293,12 +305,21 @@ impl TransactionalJobProcessor {
                 .await
             {
                 Ok(()) => {
+                    // Calculate batch timing and records
+                    let batch_time_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
+                    let records_this_batch = stats.records_processed - records_before;
+
+                    // Log per-batch throughput when:
+                    // 1. Progress logging is enabled
+                    // 2. Records were actually processed this batch
+                    // 3. Batch count hits the progress interval
                     if self.config.log_progress
+                        && records_this_batch > 0
                         && stats
                             .batches_processed
                             .is_multiple_of(self.config.progress_interval)
                     {
-                        log_job_progress(&job_name, &stats);
+                        log_job_progress(&job_name, records_this_batch as usize, batch_time_ms);
                     }
                 }
                 Err(e) => {
@@ -315,9 +336,12 @@ impl TransactionalJobProcessor {
                     stats.batches_failed += 1;
 
                     // Apply retry backoff
-                    tokio::time::sleep(self.config.retry_backoff).await;
+                    sleep(self.config.retry_backoff).await;
                 }
             }
+
+            // Sync to shared stats for real-time monitoring
+            stats.sync_to_shared(&shared_stats);
         }
 
         // Final commit all sources and flush all sinks
@@ -329,12 +353,20 @@ impl TransactionalJobProcessor {
         for source_name in context.list_sources() {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
-                warn!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    self.observability_wrapper.observability_ref(),
-                    &job_name,
-                    error_msg,
-                );
+                // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                    debug!(
+                        "Job '{}': {} (benign - no messages consumed yet)",
+                        job_name, error_msg
+                    );
+                } else {
+                    warn!("Job '{}': {}", job_name, error_msg);
+                    ErrorTracker::record_error(
+                        self.observability_wrapper.observability_ref(),
+                        &job_name,
+                        error_msg,
+                    );
+                }
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -371,7 +403,8 @@ impl TransactionalJobProcessor {
         engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
         query: StreamingQuery,
         job_name: String,
-        _shutdown_rx: mpsc::Receiver<()>,
+        shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             vec![("default_source".to_string(), reader)]
@@ -385,7 +418,8 @@ impl TransactionalJobProcessor {
             engine,
             query,
             job_name,
-            _shutdown_rx,
+            shutdown_rx,
+            shared_stats,
         )
         .await
     }
@@ -408,7 +442,23 @@ impl TransactionalJobProcessor {
         writer_supports_tx: bool,
         stats: &mut JobExecutionStats,
     ) -> DataSourceResult<bool> {
-        // Step 1: Begin transactions if supported
+        // Step 1: Read batch from datasource FIRST (before starting transactions)
+        // This avoids unnecessary begin/abort cycles for empty batches
+        let batch_start = Instant::now();
+        let deser_start = Instant::now();
+        let batch = reader.read().await?;
+        let deser_elapsed = deser_start.elapsed();
+        let deser_duration = deser_elapsed.as_millis() as u64;
+
+        // Accumulate read time for final stats breakdown
+        stats.add_read_time(deser_elapsed);
+
+        if batch.is_empty() {
+            // No data available - no need to start or abort transactions
+            return Ok(true); // Signal empty batch to caller
+        }
+
+        // Step 2: Begin transactions only when we have data to process
         let reader_tx_active = if reader_supports_tx {
             match reader.begin_transaction().await? {
                 true => {
@@ -449,19 +499,6 @@ impl TransactionalJobProcessor {
             false
         };
 
-        // Step 2: Read batch from datasource (with deserialization telemetry)
-        let batch_start = Instant::now();
-        let deser_start = Instant::now();
-        let batch = reader.read().await?;
-        let deser_duration = deser_start.elapsed().as_millis() as u64;
-
-        if batch.is_empty() {
-            // No data available - abort any active transactions and return
-            self.abort_transactions(reader, writer, reader_tx_active, writer_tx_active, job_name)
-                .await?;
-            return Ok(true); // Signal empty batch to caller
-        }
-
         // Create batch span with trace extraction from first record
         let mut batch_span_guard = ObservabilityHelper::start_batch_span(
             self.observability_wrapper.observability_ref(),
@@ -483,7 +520,11 @@ impl TransactionalJobProcessor {
         // Step 3: Process batch through SQL engine and capture output (with SQL telemetry)
         let sql_start = Instant::now();
         let batch_result = process_batch(batch, engine, query, job_name).await;
-        let sql_duration = sql_start.elapsed().as_millis() as u64;
+        let sql_elapsed = sql_start.elapsed();
+        let sql_duration = sql_elapsed.as_millis() as u64;
+
+        // Accumulate SQL time for final stats breakdown
+        stats.add_sql_time(sql_elapsed);
 
         // Record SQL processing telemetry
         ObservabilityHelper::record_sql_processing(
@@ -555,7 +596,11 @@ impl TransactionalJobProcessor {
                 // PERF(FR-082 Phase 2): Pass Arc records directly - no clone!
                 match w.write_batch(output_owned).await {
                     Ok(()) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown
+                        stats.add_write_time(ser_elapsed);
 
                         // Record serialization telemetry on success
                         ObservabilityHelper::record_serialization_success(
@@ -573,7 +618,12 @@ impl TransactionalJobProcessor {
                         );
                     }
                     Err(e) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown (even on error)
+                        stats.add_write_time(ser_elapsed);
+
                         let error_msg =
                             format!("Failed to write {} records to sink: {:?}", record_count, e);
 
@@ -612,7 +662,7 @@ impl TransactionalJobProcessor {
                                 "Job '{}': Applying retry backoff of {:?} before retrying batch",
                                 job_name, self.config.retry_backoff
                             );
-                            tokio::time::sleep(self.config.retry_backoff).await;
+                            sleep(self.config.retry_backoff).await;
                             return Err(format!("Sink write failed, will retry: {}", e).into());
                         } else {
                             // This will cause transaction abort in step 6
@@ -846,7 +896,7 @@ impl TransactionalJobProcessor {
         let source_names = context.list_sources();
         if source_names.is_empty() {
             warn!("Job '{}': No sources available for processing", job_name);
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            sleep(Duration::from_millis(100)).await;
             return Ok(());
         }
 
@@ -962,7 +1012,12 @@ impl TransactionalJobProcessor {
             context.set_active_reader(source_name)?;
             let deser_start = Instant::now();
             let batch = context.read().await?;
-            let deser_duration = deser_start.elapsed().as_millis() as u64;
+            let deser_elapsed = deser_start.elapsed();
+            let deser_duration = deser_elapsed.as_millis() as u64;
+
+            // Accumulate read time for final stats breakdown
+            stats.add_read_time(deser_elapsed);
+
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
 
@@ -1018,7 +1073,11 @@ impl TransactionalJobProcessor {
             // Process batch through SQL engine and capture output records (with SQL telemetry)
             let sql_start = Instant::now();
             let batch_result = process_batch(batch, engine, query, job_name).await;
-            let sql_duration = sql_start.elapsed().as_millis() as u64;
+            let sql_elapsed = sql_start.elapsed();
+            let sql_duration = sql_elapsed.as_millis() as u64;
+
+            // Accumulate SQL time for final stats breakdown
+            stats.add_sql_time(sql_elapsed);
 
             // Record SQL processing telemetry
             ObservabilityHelper::record_sql_processing(
@@ -1084,10 +1143,11 @@ impl TransactionalJobProcessor {
                 self.job_metrics.record_failed(batch_result.records_failed);
 
                 // Record individual error messages to error tracker
+                let obs_manager = self.observability_wrapper.observability().cloned();
                 for error in &batch_result.error_details {
                     ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        &job_name,
+                        &obs_manager,
+                        job_name,
                         format!("[{}] {}", source_name, error.error_message),
                     );
                 }
@@ -1156,7 +1216,11 @@ impl TransactionalJobProcessor {
                 let record_count = output_owned.len();
                 match context.write_batch_to(&sink_names[0], output_owned).await {
                     Ok(()) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown
+                        stats.add_write_time(ser_elapsed);
 
                         // Record serialization telemetry on success
                         ObservabilityHelper::record_serialization_success(
@@ -1174,7 +1238,12 @@ impl TransactionalJobProcessor {
                         );
                     }
                     Err(e) => {
-                        let ser_duration = ser_start.elapsed().as_millis() as u64;
+                        let ser_elapsed = ser_start.elapsed();
+                        let ser_duration = ser_elapsed.as_millis() as u64;
+
+                        // Accumulate write time for final stats breakdown (even on error)
+                        stats.add_write_time(ser_elapsed);
+
                         let error_msg = format!(
                             "Failed to write {} records to sink '{}' within transaction: {:?}",
                             record_count, &sink_names[0], e
@@ -1211,7 +1280,11 @@ impl TransactionalJobProcessor {
                         .await
                     {
                         Ok(()) => {
-                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+                            let ser_elapsed = ser_start.elapsed();
+                            let ser_duration = ser_elapsed.as_millis() as u64;
+
+                            // Accumulate write time for final stats breakdown
+                            stats.add_write_time(ser_elapsed);
 
                             // Record serialization telemetry on success
                             ObservabilityHelper::record_serialization_success(
@@ -1229,7 +1302,12 @@ impl TransactionalJobProcessor {
                             );
                         }
                         Err(e) => {
-                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+                            let ser_elapsed = ser_start.elapsed();
+                            let ser_duration = ser_elapsed.as_millis() as u64;
+
+                            // Accumulate write time for final stats breakdown (even on error)
+                            stats.add_write_time(ser_elapsed);
+
                             let error_msg = format!(
                                 "Failed to write {} records to sink '{}' within transaction: {:?}",
                                 record_count, sink_name, e
@@ -1414,14 +1492,23 @@ impl TransactionalJobProcessor {
         for (source_name, is_active) in reader_transactions {
             if *is_active {
                 context.set_active_reader(source_name)?;
-                context
-                    .commit_source(source_name)
-                    .await
-                    .map_err(|e| format!("Failed to commit source '{}': {:?}", source_name, e))?;
-                debug!(
-                    "Job '{}': Committed transaction for source '{}'",
-                    job_name, source_name
-                );
+                if let Err(e) = context.commit_source(source_name).await {
+                    let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
+                    // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                    if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                        debug!(
+                            "Job '{}': {} (benign - no messages consumed yet)",
+                            job_name, error_msg
+                        );
+                    } else {
+                        return Err(error_msg.into());
+                    }
+                } else {
+                    debug!(
+                        "Job '{}': Committed transaction for source '{}'",
+                        job_name, source_name
+                    );
+                }
             }
         }
 
@@ -1440,6 +1527,8 @@ impl TransactionalJobProcessor {
         writer_transactions: &HashMap<String, bool>,
         job_name: &str,
     ) -> DataSourceResult<()> {
+        let mut aborted_count = 0;
+
         // Abort sink transactions first
         for (sink_name, is_active) in writer_transactions {
             if *is_active {
@@ -1452,10 +1541,13 @@ impl TransactionalJobProcessor {
                 }
 
                 match context.abort_writer().await {
-                    Ok(()) => debug!(
-                        "Job '{}': Aborted transaction for sink '{}'",
-                        job_name, sink_name
-                    ),
+                    Ok(()) => {
+                        debug!(
+                            "Job '{}': Aborted transaction for sink '{}'",
+                            job_name, sink_name
+                        );
+                        aborted_count += 1;
+                    }
                     Err(e) => {
                         let error_msg = format!(
                             "Failed to abort transaction for sink '{}': {:?}",
@@ -1484,10 +1576,13 @@ impl TransactionalJobProcessor {
                 }
 
                 match context.abort_reader().await {
-                    Ok(()) => debug!(
-                        "Job '{}': Aborted transaction for source '{}'",
-                        job_name, source_name
-                    ),
+                    Ok(()) => {
+                        debug!(
+                            "Job '{}': Aborted transaction for source '{}'",
+                            job_name, source_name
+                        );
+                        aborted_count += 1;
+                    }
                     Err(e) => {
                         let error_msg = format!(
                             "Failed to abort transaction for source '{}': {:?}",
@@ -1504,7 +1599,13 @@ impl TransactionalJobProcessor {
             }
         }
 
-        warn!("Job '{}': Aborted all multi-source transactions", job_name);
+        // Only log if we actually aborted something
+        if aborted_count > 0 {
+            debug!(
+                "Job '{}': Aborted {} multi-source transaction(s)",
+                job_name, aborted_count
+            );
+        }
         Ok(())
     }
 
@@ -1557,7 +1658,7 @@ impl TransactionalJobProcessor {
 
 /// Implement JobProcessor trait for TransactionalJobProcessor (V1 Architecture)
 #[async_trait::async_trait]
-impl crate::velostream::server::processors::JobProcessor for TransactionalJobProcessor {
+impl JobProcessor for TransactionalJobProcessor {
     fn num_partitions(&self) -> usize {
         1 // V1 uses single-threaded, single partition
     }
@@ -1586,21 +1687,25 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
 
     async fn process_job(
         &self,
-        reader: Box<dyn crate::velostream::datasource::DataReader>,
-        writer: Option<Box<dyn crate::velostream::datasource::DataWriter>>,
-        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
-        query: crate::velostream::sql::StreamingQuery,
+        reader: Box<dyn DataReader>,
+        writer: Option<Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        self.process_multi_job(
+        // Delegate to inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        TransactionalJobProcessor::process_multi_job(
+            self,
             {
-                let mut readers = std::collections::HashMap::new();
+                let mut readers = HashMap::new();
                 readers.insert("default_reader".to_string(), reader);
                 readers
             },
             {
-                let mut writers = std::collections::HashMap::new();
+                let mut writers = HashMap::new();
                 if let Some(w) = writer {
                     writers.insert("default_writer".to_string(), w);
                 }
@@ -1610,28 +1715,34 @@ impl crate::velostream::server::processors::JobProcessor for TransactionalJobPro
             query,
             job_name,
             shutdown_rx,
+            shared_stats,
         )
         .await
     }
 
     async fn process_multi_job(
         &self,
-        readers: std::collections::HashMap<
-            String,
-            Box<dyn crate::velostream::datasource::DataReader>,
-        >,
-        writers: std::collections::HashMap<
-            String,
-            Box<dyn crate::velostream::datasource::DataWriter>,
-        >,
-        engine: Arc<tokio::sync::RwLock<crate::velostream::sql::StreamExecutionEngine>>,
-        query: crate::velostream::sql::StreamingQuery,
+        readers: HashMap<String, Box<dyn DataReader>>,
+        writers: HashMap<String, Box<dyn DataWriter>>,
+        engine: Arc<tokio::sync::RwLock<StreamExecutionEngine>>,
+        query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        // Delegate to the existing process_multi_job implementation
-        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
-            .await
+        // Delegate to the inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        TransactionalJobProcessor::process_multi_job(
+            self,
+            readers,
+            writers,
+            engine,
+            query,
+            job_name,
+            shutdown_rx,
+            shared_stats,
+        )
+        .await
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

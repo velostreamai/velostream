@@ -3,19 +3,18 @@
 //! This module provides best-effort job processing without transactional semantics.
 //! It's optimized for throughput and simplicity, using basic commit/flush operations.
 
-use super::common::DeadLetterQueue;
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::metrics::JobMetrics;
-use crate::velostream::server::processors;
 use crate::velostream::server::processors::common::*;
 use crate::velostream::server::processors::error_tracking_helper::ErrorTracker;
-use crate::velostream::server::processors::job_processor_trait::{JobProcessor, ProcessorMetrics};
-use crate::velostream::server::processors::metrics_collector::MetricsCollector;
+use crate::velostream::server::processors::job_processor_trait::{
+    JobProcessor, ProcessorMetrics, SharedJobStats,
+};
 use crate::velostream::server::processors::metrics_helper::ProcessorMetricsHelper;
 use crate::velostream::server::processors::observability_helper::ObservabilityHelper;
 use crate::velostream::server::processors::observability_wrapper::ObservabilityWrapper;
-use crate::velostream::server::processors::profiling_helper::{ProfilingHelper, ProfilingMetrics};
+use crate::velostream::server::processors::profiling_helper::ProfilingHelper;
 use crate::velostream::sql::execution::StreamRecord;
 use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::execution::processors::ProcessorContext;
@@ -30,7 +29,12 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
+/// Type alias for table registry - simplified from Arc<Mutex<Option<HashMap>>>
+/// Tables are set once at creation and read during processing
+type TableRegistry = Arc<Mutex<HashMap<String, Arc<dyn UnifiedTable>>>>;
+
 /// Simple (non-transactional) job processor
+#[allow(clippy::type_complexity)]
 pub struct SimpleJobProcessor {
     config: JobProcessingConfig,
     /// Unified observability, metrics, and DLQ wrapper
@@ -42,7 +46,7 @@ pub struct SimpleJobProcessor {
     /// Stop flag for graceful shutdown
     stop_flag: Arc<AtomicBool>,
     /// Optional table registry for SQL queries that reference tables
-    table_registry: Arc<Mutex<Option<HashMap<String, Arc<dyn UnifiedTable>>>>>,
+    table_registry: TableRegistry,
 }
 
 impl SimpleJobProcessor {
@@ -64,7 +68,7 @@ impl SimpleJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -81,7 +85,7 @@ impl SimpleJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -104,14 +108,14 @@ impl SimpleJobProcessor {
             job_metrics: JobMetrics::new(),
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
-            table_registry: Arc::new(Mutex::new(None)),
+            table_registry: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Set table registry for SQL queries that reference tables
     pub fn set_table_registry(&mut self, tables: HashMap<String, Arc<dyn UnifiedTable>>) {
         if let Ok(mut registry) = self.table_registry.lock() {
-            *registry = Some(tables);
+            *registry = tables;
         }
     }
 
@@ -307,21 +311,35 @@ impl SimpleJobProcessor {
     }
 
     /// Handle batch processing results (success or failure)
-    /// Logs progress and records failures
+    /// Logs per-batch throughput and records failures
+    ///
+    /// `records_processed_this_batch` indicates how many records were processed in this iteration.
+    /// `batch_time_ms` is the time taken for this batch in milliseconds.
     fn handle_batch_result(
         &self,
         result: Result<(), Box<dyn std::error::Error + Send + Sync>>,
         stats: &mut JobExecutionStats,
         job_name: &str,
+        records_processed_this_batch: u64,
+        batch_time_ms: f64,
     ) -> bool {
         match result {
             Ok(()) => {
+                // Log per-batch throughput when:
+                // 1. Progress logging is enabled
+                // 2. Records were actually processed this batch (not an empty poll)
+                // 3. Batch count hits the progress interval
                 if self.config.log_progress
+                    && records_processed_this_batch > 0
                     && stats
                         .batches_processed
                         .is_multiple_of(self.config.progress_interval)
                 {
-                    log_job_progress(job_name, stats);
+                    log_job_progress(
+                        job_name,
+                        records_processed_this_batch as usize,
+                        batch_time_ms,
+                    );
                 }
                 false // No error
             }
@@ -344,6 +362,7 @@ impl SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         self.process_multi_job(
             HashMap::from([(String::from("default_source"), reader)]),
@@ -355,6 +374,7 @@ impl SimpleJobProcessor {
             query,
             job_name,
             shutdown_rx,
+            shared_stats, // Pass shared_stats to enable real-time stats monitoring
         )
         .await
     }
@@ -368,6 +388,7 @@ impl SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         mut shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
         let mut stats = JobExecutionStats::new();
 
@@ -392,24 +413,29 @@ impl SimpleJobProcessor {
             warn!("Job '{}': Failed to register metrics: {:?}", job_name, e);
         }
 
-        // FR-082 Phase 6.5: Initialize QueryExecution in the engine
-        // This creates the persistent ProcessorContext that will hold state across all batches
+        // FR-082 Option 3: Processor owns ProcessorContext and injects tables directly
+        // This eliminates the context_customizer closure pattern - cleaner ownership model
         {
             let mut engine_lock = engine.write().await;
 
-            // Inject table registry if provided
+            // Generate query_id using Engine's method for consistency
+            let query_id = engine_lock.generate_query_id(&query);
+
+            // Create ProcessorContext and inject tables directly
+            let mut sql_context = ProcessorContext::new(&query_id);
+
+            // Inject tables from processor's table_registry (set by JobProcessorFactory)
             if let Ok(registry_lock) = self.table_registry.lock() {
-                if let Some(ref tables) = *registry_lock {
-                    let tables_clone = tables.clone();
-                    engine_lock.context_customizer = Some(Arc::new(move |context| {
-                        for (table_name, table) in &tables_clone {
-                            context.load_reference_table(table_name, table.clone());
-                        }
-                    }));
+                for (table_name, table) in registry_lock.iter() {
+                    sql_context.load_reference_table(table_name, table.clone());
                 }
             }
 
-            engine_lock.init_query_execution(query.clone());
+            // Pass pre-configured context to engine
+            engine_lock.init_query_execution_with_context(
+                query.clone(),
+                Arc::new(std::sync::Mutex::new(sql_context)),
+            );
         }
 
         // Create enhanced context with multiple sources and sinks
@@ -464,16 +490,35 @@ impl SimpleJobProcessor {
             // Reset empty batch counter since we found data
             consecutive_empty_batches = 0;
 
-            // Track records processed before this batch
+            // Track records processed before this batch and start timing
             let records_before = stats.records_processed;
+            let batch_start = Instant::now();
 
             // Process from all sources
             let result = self
                 .process_data(&mut context, &engine, &query, &job_name, &mut stats)
                 .await;
 
-            // Handle batch result (logs progress or errors)
-            if self.handle_batch_result(result, &mut stats, &job_name) {
+            // Calculate batch time and records
+            let batch_time_ms = batch_start.elapsed().as_secs_f64() * 1000.0;
+            let records_this_batch = stats.records_processed - records_before;
+
+            // Check if we transitioned to idle (first empty batch after processing)
+            if stats.mark_batch(records_this_batch > 0) {
+                log_idle_transition(&job_name);
+            }
+
+            // Sync to shared stats for real-time monitoring
+            stats.sync_to_shared(&shared_stats);
+
+            // Handle batch result (logs per-batch throughput or errors)
+            if self.handle_batch_result(
+                result,
+                &mut stats,
+                &job_name,
+                records_this_batch,
+                batch_time_ms,
+            ) {
                 // On error, apply retry backoff
                 sleep(self.config.retry_backoff).await;
             }
@@ -488,12 +533,20 @@ impl SimpleJobProcessor {
         for source_name in context.list_sources() {
             if let Err(e) = context.commit_source(&source_name).await {
                 let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
-                error!("Job '{}': {}", job_name, error_msg);
-                ErrorTracker::record_error(
-                    &self.observability_wrapper.observability().cloned(),
-                    &job_name,
-                    error_msg,
-                );
+                // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                    debug!(
+                        "Job '{}': {} (benign - no messages consumed yet)",
+                        job_name, error_msg
+                    );
+                } else {
+                    warn!("Job '{}': {}", job_name, error_msg);
+                    ErrorTracker::record_error(
+                        &self.observability_wrapper.observability().cloned(),
+                        &job_name,
+                        error_msg,
+                    );
+                }
             } else {
                 info!(
                     "Job '{}': Successfully committed source '{}'",
@@ -575,10 +628,7 @@ impl SimpleJobProcessor {
         job_name: &str,
         stats: &mut JobExecutionStats,
     ) -> DataSourceResult<()> {
-        debug!(
-            "Job '{}': Starting multi-source batch processing cycle",
-            job_name
-        );
+        debug!("Job '{}': Starting batch for Query: {}", job_name, query);
 
         let source_names = context.list_sources();
         if source_names.is_empty() {
@@ -611,7 +661,11 @@ impl SimpleJobProcessor {
             // Read batch from current source
             let deser_start = Instant::now();
             let batch = context.read().await?;
-            let deser_duration = deser_start.elapsed().as_millis() as u64;
+            let deser_elapsed = deser_start.elapsed();
+            let deser_duration = deser_elapsed.as_millis() as u64;
+
+            // Accumulate read time for final stats breakdown
+            stats.add_read_time(deser_elapsed);
 
             source_batches.push((source_name.clone(), batch, deser_duration));
         }
@@ -673,7 +727,11 @@ impl SimpleJobProcessor {
             // Process batch through SQL engine and capture output records (with telemetry)
             let sql_start = Instant::now();
             let batch_result = process_batch(batch, engine, query, job_name).await;
-            let sql_duration = sql_start.elapsed().as_millis() as u64;
+            let sql_elapsed = sql_start.elapsed();
+            let sql_duration = sql_elapsed.as_millis() as u64;
+
+            // Accumulate SQL time for final stats breakdown
+            stats.add_sql_time(sql_elapsed);
 
             // Record SQL processing telemetry and metrics on per-source span
             ObservabilityHelper::record_sql_processing(
@@ -716,10 +774,11 @@ impl SimpleJobProcessor {
                 self.job_metrics.record_failed(batch_result.records_failed);
 
                 // Record individual error messages to error tracker
+                let obs_manager = self.observability_wrapper.observability().cloned();
                 for error in &batch_result.error_details {
                     ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        &job_name,
+                        &obs_manager,
+                        job_name,
                         format!("[{}] {}", source_name, error.error_message),
                     );
                 }
@@ -890,7 +949,11 @@ impl SimpleJobProcessor {
                     let record_count = output_owned.len();
                     match context.write_batch_to(&sink_names[0], output_owned).await {
                         Ok(()) => {
-                            let ser_duration = ser_start.elapsed().as_millis() as u64;
+                            let ser_elapsed = ser_start.elapsed();
+                            let ser_duration = ser_elapsed.as_millis() as u64;
+
+                            // Accumulate write time for final stats breakdown
+                            stats.add_write_time(ser_elapsed);
 
                             // Record serialization telemetry and metrics
                             ObservabilityHelper::record_serialization_success(
@@ -937,7 +1000,11 @@ impl SimpleJobProcessor {
                             .await
                         {
                             Ok(()) => {
-                                let ser_duration = ser_start.elapsed().as_millis() as u64;
+                                let ser_elapsed = ser_start.elapsed();
+                                let ser_duration = ser_elapsed.as_millis() as u64;
+
+                                // Accumulate write time for final stats breakdown
+                                stats.add_write_time(ser_elapsed);
 
                                 // Record serialization telemetry and metrics
                                 ObservabilityHelper::record_serialization_success(
@@ -1020,16 +1087,26 @@ impl SimpleJobProcessor {
             for source_name in &source_names {
                 if let Err(e) = context.commit_source(source_name).await {
                     let error_msg = format!("Failed to commit source '{}': {:?}", source_name, e);
-                    error!("Job '{}': {}", job_name, error_msg);
-                    ErrorTracker::record_error(
-                        &self.observability_wrapper.observability().cloned(),
-                        job_name,
-                        error_msg,
-                    );
-                    if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
-                        return Err(
-                            format!("Failed to commit source '{}': {:?}", source_name, e).into(),
+                    // NoOffset is benign - happens when consumer hasn't consumed any messages yet
+                    if error_msg.contains("NoOffset") || error_msg.contains("No offset stored") {
+                        debug!(
+                            "Job '{}': {} (benign - no messages consumed yet)",
+                            job_name, error_msg
                         );
+                    } else {
+                        warn!("Job '{}': {}", job_name, error_msg);
+                        ErrorTracker::record_error(
+                            &self.observability_wrapper.observability().cloned(),
+                            job_name,
+                            error_msg,
+                        );
+                        if matches!(self.config.failure_strategy, FailureStrategy::FailBatch) {
+                            return Err(format!(
+                                "Failed to commit source '{}': {:?}",
+                                source_name, e
+                            )
+                            .into());
+                        }
                     }
                 }
             }
@@ -1141,8 +1218,12 @@ impl JobProcessor for SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        self.process_multi_job(
+        // Delegate to inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        SimpleJobProcessor::process_multi_job(
+            self,
             HashMap::from([(String::from("default_source"), reader)]),
             match writer {
                 Some(w) => HashMap::from([(String::from("default_sink"), w)]),
@@ -1152,6 +1233,7 @@ impl JobProcessor for SimpleJobProcessor {
             query,
             job_name,
             shutdown_rx,
+            shared_stats,
         )
         .await
     }
@@ -1164,10 +1246,21 @@ impl JobProcessor for SimpleJobProcessor {
         query: StreamingQuery,
         job_name: String,
         shutdown_rx: mpsc::Receiver<()>,
+        shared_stats: Option<SharedJobStats>,
     ) -> Result<JobExecutionStats, Box<dyn std::error::Error + Send + Sync>> {
-        // Delegate to the existing process_multi_job implementation
-        self.process_multi_job(readers, writers, engine, query, job_name, shutdown_rx)
-            .await
+        // Delegate to the inherent process_multi_job method (7 args)
+        // Pass shared_stats to enable real-time stats monitoring
+        SimpleJobProcessor::process_multi_job(
+            self,
+            readers,
+            writers,
+            engine,
+            query,
+            job_name,
+            shutdown_rx,
+            shared_stats,
+        )
+        .await
     }
 
     async fn stop(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

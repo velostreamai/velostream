@@ -1,0 +1,59 @@
+application: headers_demo
+description: Test Kafka message header manipulation functions
+default_timeout_ms: 30000
+default_records: 50
+
+queries:
+  - name: headers_output
+    description: Verify header functions (HEADER, SET_HEADER, HAS_HEADER, HEADER_KEYS)
+    inputs:
+      - source: input_stream
+        schema: simple_record
+        records: 50
+    assertions:
+      # All records should pass through
+      - type: record_count
+        equals: 50
+
+      # Output schema should contain all selected fields including header function results
+      - type: schema_contains
+        fields:
+          - id
+          - value
+          - input_trace_id
+          - input_correlation_id
+          - has_trace_header
+          - has_nonexistent_header
+          - set_trace_result
+          - set_processor_result
+          - set_priority_result
+          - set_value_result
+          - all_header_keys
+          - event_time
+
+      # SET_HEADER should return the value that was set
+      - type: field_values
+        field: set_processor_result
+        operator: equals
+        value: "velostream"
+
+      - type: field_values
+        field: set_priority_result
+        operator: equals
+        value: "high"
+
+      # HAS_HEADER for nonexistent header should be false
+      - type: field_values
+        field: has_nonexistent_header
+        operator: equals
+        value: false
+
+      # No nulls in SET_HEADER results (they always return the set value)
+      - type: no_nulls
+        fields:
+          - set_trace_result
+          - set_processor_result
+          - set_priority_result
+          - set_value_result
+
+    timeout_ms: 30000

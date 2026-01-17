@@ -193,22 +193,15 @@ impl FileReader {
 
         let file_path = &self.file_list[self.current_file_index];
 
-        // Debug info: log current working directory and file path
-        let current_dir = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
-
-        println!("DEBUG: FileReader attempting to open file");
-        println!("DEBUG: Current working directory: {}", current_dir);
-        println!("DEBUG: File path: {}", file_path);
-        println!("DEBUG: File exists: {}", Path::new(file_path).exists());
-
         let file = File::open(file_path).map_err(|e| {
+            let current_dir = std::env::current_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "unknown".to_string());
             let error_msg = format!(
                 "Failed to open file '{}' from directory '{}': {}",
                 file_path, current_dir, e
             );
-            println!("DEBUG: {}", error_msg);
+            log::error!("{}", error_msg);
             FileDataSourceError::IoError(error_msg)
         })?;
 
@@ -358,6 +351,8 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
             event_time,
+            topic: None,
+            key: None,
         })
     }
 
@@ -429,22 +424,8 @@ impl FileReader {
             }
         }
 
-        // Integer detection
-        if let Ok(i) = field_value.parse::<i64>() {
-            return FieldValue::Integer(i);
-        }
-
-        // Float detection
-        if let Ok(f) = field_value.parse::<f64>() {
-            return FieldValue::Float(f);
-        }
-
-        // Boolean detection
-        match field_value.to_lowercase().as_str() {
-            "true" | "yes" | "1" => FieldValue::Boolean(true),
-            "false" | "no" | "0" => FieldValue::Boolean(false),
-            _ => FieldValue::String(field_value.to_string()),
-        }
+        // Fallback to simple type inference (integer, float, boolean, string)
+        self.infer_field_type_simple(field_value)
     }
 
     /// Detect if a field contains financial/monetary data
@@ -545,6 +526,8 @@ impl FileReader {
                         partition: 0,
                         headers: HashMap::new(),
                         event_time,
+                        topic: None,
+                        key: None,
                     };
 
                     self.records_read += 1;
@@ -767,8 +750,9 @@ impl FileReader {
                 let mut line = String::new();
                 match reader.read_line(&mut line) {
                     Ok(0) => {
-                        // EOF reached
+                        // EOF reached on current file
                         self.eof_reached = true;
+                        self.current_file_index += 1;
                         self.open_next_file().await?;
                         break;
                     }
@@ -1150,6 +1134,8 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
             event_time,
+            topic: None,
+            key: None,
         };
 
         Ok(Some(record))
@@ -1193,6 +1179,8 @@ impl FileReader {
             partition: 0,
             headers: HashMap::new(),
             event_time,
+            topic: None,
+            key: None,
         };
 
         Ok(Some(record))
@@ -1226,14 +1214,7 @@ impl FileReader {
             return FieldValue::Null;
         }
 
-        // Try boolean
-        match value.to_lowercase().as_str() {
-            "true" | "yes" | "1" => return FieldValue::Boolean(true),
-            "false" | "no" | "0" => return FieldValue::Boolean(false),
-            _ => {}
-        }
-
-        // Try integer
+        // Try integer first (before boolean to avoid "1" -> true, "0" -> false)
         if let Ok(i) = value.parse::<i64>() {
             return FieldValue::Integer(i);
         }
@@ -1241,6 +1222,13 @@ impl FileReader {
         // Try float
         if let Ok(f) = value.parse::<f64>() {
             return FieldValue::Float(f);
+        }
+
+        // Try boolean (only explicit boolean strings, not "1"/"0")
+        match value.to_lowercase().as_str() {
+            "true" | "yes" => return FieldValue::Boolean(true),
+            "false" | "no" => return FieldValue::Boolean(false),
+            _ => {}
         }
 
         // Default to string

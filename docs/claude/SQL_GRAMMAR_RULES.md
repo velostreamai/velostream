@@ -508,6 +508,58 @@ If you can't find your syntax in any of these, ask the user before proceeding.
 
 ---
 
+## Rule 15: PRIMARY KEY Annotation for Kafka Message Keys (FR-089)
+
+The `PRIMARY KEY` keywords mark a field as the Kafka message key. It goes **after** the field or alias.
+
+### Syntax
+
+```sql
+SELECT column PRIMARY KEY, ...                     -- Single key
+SELECT col1 PRIMARY KEY, col2 PRIMARY KEY, ...    -- Compound key
+SELECT column AS alias PRIMARY KEY, ...           -- PRIMARY KEY with alias (alias becomes key name)
+```
+
+### Correct ✅
+
+```sql
+-- Single key
+SELECT symbol PRIMARY KEY, price FROM trades
+
+-- Compound key (produces JSON: {"region":"US","product":"Widget"})
+SELECT region PRIMARY KEY, product PRIMARY KEY, SUM(qty) FROM orders GROUP BY region, product
+
+-- PRIMARY KEY with alias (uses alias name as key)
+SELECT stock_symbol AS sym PRIMARY KEY, price FROM market_data
+
+-- PRIMARY KEY with GROUP BY
+SELECT symbol PRIMARY KEY, COUNT(*) as trade_count
+FROM trades
+GROUP BY symbol
+WINDOW TUMBLING(INTERVAL '1' MINUTE)
+```
+
+### Wrong ❌
+
+```sql
+❌ SELECT PRIMARY KEY symbol, price FROM trades    -- PRIMARY KEY must come AFTER field/alias
+❌ SELECT symbol, PRIMARY KEY price FROM trades    -- PRIMARY KEY must come AFTER field/alias
+❌ SELECT PRIMARY KEY, price FROM trades           -- PRIMARY KEY is not a column name
+```
+
+### Key Behavior
+
+| Scenario | Kafka Key |
+|----------|-----------|
+| `symbol PRIMARY KEY` (single field) | Raw value: `"AAPL"` |
+| `a PRIMARY KEY, b PRIMARY KEY` (compound) | Pipe-delimited: `"X\|Y"` |
+| `col AS alias PRIMARY KEY` | Uses alias name |
+| `GROUP BY symbol` (single) | Raw value: `"AAPL"` |
+| `GROUP BY a, b` (compound) | Pipe-delimited: `"X\|Y"` |
+| No PRIMARY KEY, no GROUP BY | Null key (round-robin partitioning) |
+
+---
+
 ## Final Checklist Before Submitting SQL
 
 - [ ] Syntax matches `COPY_PASTE_EXAMPLES.md` or `PARSER_GRAMMAR.md`
@@ -519,6 +571,7 @@ If you can't find your syntax in any of these, ask the user before proceeding.
 - [ ] ROWS WINDOW includes "ROWS" after buffer size
 - [ ] No confusion between GROUP BY and PARTITION BY
 - [ ] ROWS WINDOW uses count-based buffers, WINDOW uses time-based intervals
+- [ ] PRIMARY KEY annotation placed AFTER field/alias (not before)
 
 **If any check fails, fix it before submitting.**
 

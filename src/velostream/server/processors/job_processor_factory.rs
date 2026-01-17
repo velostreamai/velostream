@@ -12,7 +12,6 @@ use crate::velostream::table::UnifiedTable;
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 /// Factory for creating JobProcessor implementations
 pub struct JobProcessorFactory;
@@ -284,6 +283,53 @@ impl JobProcessorFactory {
             num_partitions: Some(num_partitions),
             enable_core_affinity: false,
         })
+    }
+
+    /// Create an Adaptive mode processor with full configuration options.
+    ///
+    /// This is the most complete factory method for Adaptive processors, supporting:
+    /// - Custom partition count and core affinity
+    /// - Partitioning strategy selection (by name: "always_hash", "smart_repartition", etc.)
+    /// - Query-based auto-selection
+    /// - Table registry injection for subqueries
+    /// - Production-ready timeout configuration
+    ///
+    /// Used by StreamJobServer for deploying Adaptive jobs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_adaptive_full(
+        num_partitions: Option<usize>,
+        enable_core_affinity: bool,
+        partitioning_strategy: Option<String>,
+        auto_select_from_query: Option<Arc<crate::velostream::sql::ast::StreamingQuery>>,
+        table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
+        empty_batch_count: u32,
+        wait_on_empty_batch_ms: u64,
+    ) -> Arc<dyn JobProcessor> {
+        let partitioned_config = PartitionedJobConfig {
+            num_partitions,
+            enable_core_affinity,
+            partitioning_strategy: partitioning_strategy.clone(),
+            auto_select_from_query,
+            table_registry,
+            empty_batch_count,
+            wait_on_empty_batch_ms,
+            ..Default::default()
+        };
+
+        let actual_partitions = num_partitions.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(8)
+        });
+
+        info!(
+            "Creating Adaptive processor (Full config): {} partitions, affinity: {}, strategy: {:?}",
+            actual_partitions,
+            enable_core_affinity,
+            partitioning_strategy.as_deref().unwrap_or("auto")
+        );
+
+        Arc::new(AdaptiveJobProcessor::new(partitioned_config))
     }
 
     /// Create a processor from a configuration string

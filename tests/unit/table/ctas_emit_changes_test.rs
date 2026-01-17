@@ -40,15 +40,17 @@ fn test_create_table_with_emit_changes_parsing() {
                 "CREATE TABLE with EMIT CHANGES should have emit_mode set"
             );
 
-            // The nested SELECT inherits EMIT from parent, doesn't have its own
+            // The nested SELECT now has emit_mode set (EMIT is part of SELECT syntax)
+            // This allows window processing to detect EMIT CHANGES mode
             match *as_select {
                 StreamingQuery::Select {
                     emit_mode: nested_emit,
                     ..
                 } => {
                     assert_eq!(
-                        nested_emit, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        nested_emit,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
                 }
                 _ => panic!("Expected nested SELECT query"),
@@ -87,15 +89,16 @@ fn test_create_table_into_with_emit_changes() {
         } => {
             assert_eq!(name, "analytics_summary");
 
-            // Verify nested SELECT has EMIT CHANGES
+            // Verify nested SELECT has EMIT CHANGES (EMIT is parsed as part of SELECT syntax)
             match *as_select {
                 StreamingQuery::Select {
                     emit_mode: nested_emit,
                     ..
                 } => {
                     assert_eq!(
-                        nested_emit, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent level)"
+                        nested_emit,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
                 }
                 _ => panic!("Expected nested SELECT"),
@@ -138,12 +141,13 @@ async fn test_ctas_executor_with_emit_changes() {
 
     match parsed.unwrap() {
         StreamingQuery::CreateTable { as_select, .. } => {
-            // Check nested SELECT (EMIT is at CREATE TABLE level)
+            // Check nested SELECT has EMIT CHANGES (parsed as part of SELECT syntax)
             match *as_select {
                 StreamingQuery::Select { emit_mode, .. } => {
                     assert_eq!(
-                        emit_mode, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        emit_mode,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
                 }
                 _ => panic!("Expected SELECT query"),
@@ -193,7 +197,7 @@ fn test_create_table_emit_final_with_window() {
                 "CREATE TABLE with EMIT FINAL should have emit_mode set"
             );
 
-            // Verify window exists in nested SELECT
+            // Verify window exists in nested SELECT and EMIT FINAL is propagated
             match *as_select {
                 StreamingQuery::Select {
                     window,
@@ -202,8 +206,9 @@ fn test_create_table_emit_final_with_window() {
                 } => {
                     assert!(window.is_some(), "EMIT FINAL requires WINDOW clause");
                     assert_eq!(
-                        nested_emit, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        nested_emit,
+                        Some(EmitMode::Final),
+                        "Nested SELECT should have EMIT FINAL set for window processing"
                     );
                 }
                 _ => panic!("Expected nested SELECT"),
@@ -345,10 +350,11 @@ fn test_ctas_with_named_sources_and_sinks() {
                         _ => panic!("Should have FROM clause with named source"),
                     }
 
-                    // Nested SELECT doesn't have EMIT (it's at parent level)
+                    // Nested SELECT has EMIT CHANGES (parsed as part of SELECT syntax)
                     assert_eq!(
-                        emit_mode, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        emit_mode,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
 
                     // Should have WHERE and GROUP BY
@@ -412,8 +418,9 @@ fn test_ctas_emit_changes_cdc_semantics() {
                     assert!(group_by.is_some(), "Should have GROUP BY");
                     assert!(where_clause.is_some(), "Should have WHERE clause");
                     assert_eq!(
-                        nested_emit, None,
-                        "Nested SELECT doesn't have EMIT (it's at parent CREATE TABLE level)"
+                        nested_emit,
+                        Some(EmitMode::Changes),
+                        "Nested SELECT should have EMIT CHANGES set for window processing"
                     );
                 }
                 _ => panic!("Expected SELECT query"),

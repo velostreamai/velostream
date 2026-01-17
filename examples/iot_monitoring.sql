@@ -40,8 +40,8 @@ WHERE sensor_type = 'pressure' AND pressure < 15;
 -- Windowed analysis of vibration levels for predictive maintenance
 CREATE STREAM vibration_analytics AS
 SELECT
-    device_id,
-    location,
+    device_id PRIMARY KEY,
+    location PRIMARY KEY,
     AVG(vibration_level) as avg_vibration,
     MAX(vibration_level) as peak_vibration,
     COUNT(*) as reading_count,
@@ -77,9 +77,9 @@ WHERE battery_level IS NOT NULL;
 -- Windowed health monitoring for sensor availability and performance
 CREATE STREAM sensor_health_reports AS
 SELECT
-    device_id,
-    location,
-    sensor_type,
+    device_id PRIMARY KEY,
+    location PRIMARY KEY,
+    sensor_type PRIMARY KEY,
     COUNT(*) as reading_count,
     MAX(timestamp) as last_reading,
     DATEDIFF('minutes', MAX(timestamp), NOW()) as minutes_since_last_reading,

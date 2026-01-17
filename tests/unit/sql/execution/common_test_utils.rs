@@ -305,6 +305,8 @@ impl TestDataBuilder {
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 
@@ -332,6 +334,8 @@ impl TestDataBuilder {
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 
@@ -370,6 +374,8 @@ impl TestDataBuilder {
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 
@@ -388,6 +394,8 @@ impl TestDataBuilder {
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 
@@ -418,6 +426,8 @@ impl TestDataBuilder {
             timestamp: 1640995200000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 
@@ -447,6 +457,8 @@ impl TestDataBuilder {
             timestamp: timestamp_seconds * 1000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 }
@@ -682,6 +694,8 @@ impl CommonTestRecords {
             timestamp: 1234567890000,
             offset: 1,
             partition: 0,
+            topic: None,
+            key: None,
         }
     }
 

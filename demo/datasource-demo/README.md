@@ -34,11 +34,11 @@ cd demo/datasource-demo
 ./generate_demo_data.sh
 
 # Step 2: Start Velostream SQL server  
-cargo run --bin velo-sql-multi --no-default-features -- server
+cargo run --bin velo-sql --no-default-features -- server
 
 # Step 3: Run the SQL demo (copy/paste from file_processing_sql_demo.sql)
 # OR execute directly:
-# velo-sql-multi deploy-app --file ./demo/datasource-demo/file_processing_sql_demo.sql
+# velo-sql deploy-app --file ./demo/datasource-demo/file_processing_sql_demo.sql
 ```
 
 ### Option 3: Full Pipeline with Kafka (Advanced)

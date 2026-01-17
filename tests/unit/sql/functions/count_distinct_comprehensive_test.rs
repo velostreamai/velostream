@@ -408,5 +408,7 @@ fn create_test_record(customer_id: &str, amount: i64) -> StreamRecord {
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }

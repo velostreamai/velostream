@@ -610,11 +610,10 @@ async fn test_job_metrics_initialization() {
 
     let job = status.unwrap();
 
-    // Verify metrics are initialized
-    assert_eq!(job.metrics.records_processed, 0);
-    assert_eq!(job.metrics.records_per_second, 0.0);
-    assert_eq!(job.metrics.errors, 0);
-    assert!(job.metrics.last_record_time.is_none());
+    // Verify stats are initialized
+    assert_eq!(job.stats.records_processed, 0);
+    assert_eq!(job.stats.records_failed, 0);
+    assert!(job.stats.last_record_time.is_none());
 
     // Verify timestamps
     assert!(job.created_at <= chrono::Utc::now());

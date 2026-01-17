@@ -1,0 +1,79 @@
+name: market_data
+description: Financial market data schema for trading scenarios
+record_count: 1000
+
+fields:
+  - name: trader_id
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["T1", "T2", "T3", "T4", "T5"]
+        weights: [0.25, 0.25, 0.20, 0.15, 0.15]
+
+  - name: symbol
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["AAPL", "GOOGL", "MSFT", "AMZN", "META", "NVDA", "TSLA"]
+        weights: [0.2, 0.15, 0.15, 0.15, 0.1, 0.15, 0.1]
+
+  - name: price
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 10.0
+        max: 500.0
+      distribution: uniform
+
+  - name: quantity
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 1
+        max: 1000
+      distribution: uniform
+
+  - name: volume
+    type: integer
+    nullable: false
+    constraints:
+      range:
+        min: 100
+        max: 1000000
+      distribution: uniform
+
+  - name: bid
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 10.0
+        max: 500.0
+
+  - name: ask
+    type: float
+    nullable: false
+    constraints:
+      range:
+        min: 10.0
+        max: 500.0
+
+  - name: exchange
+    type: string
+    nullable: false
+    constraints:
+      enum_values:
+        values: ["NYSE", "NASDAQ", "BATS", "IEX"]
+        weights: [0.4, 0.4, 0.1, 0.1]
+
+  - name: event_time
+    type: timestamp
+    nullable: false
+    constraints:
+      timestamp_range:
+        start: "-1h"
+        end: "now"

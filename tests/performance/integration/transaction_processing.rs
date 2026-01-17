@@ -249,6 +249,8 @@ fn create_test_batches(record_count: usize, batch_size: usize) -> Vec<Vec<Stream
                 partition: (i % 4) as i32,
                 headers: HashMap::new(),
                 event_time: None,
+                topic: None,
+                key: None,
             });
         }
         batches.push(batch);
@@ -259,11 +261,13 @@ fn create_test_batches(record_count: usize, batch_size: usize) -> Vec<Vec<Stream
 
 fn create_benchmark_query() -> StreamingQuery {
     StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             SelectField::Column("symbol".to_string()),
             SelectField::Column("price".to_string()),
             SelectField::Column("volume".to_string()),
         ],
+        key_fields: None,
         from: StreamSource::Stream("benchmark_data".to_string()),
         from_alias: None,
         joins: None,
@@ -356,6 +360,7 @@ async fn benchmark_simple_processor(
                 query,
                 "simple_benchmark".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });
@@ -408,6 +413,7 @@ async fn benchmark_transactional_processor(
                 query,
                 "transactional_benchmark".to_string(),
                 shutdown_rx,
+                None,
             )
             .await
     });

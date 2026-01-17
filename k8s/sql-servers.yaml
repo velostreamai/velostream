@@ -105,23 +105,23 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: velo-sql-multi
+  name: velo-sql
   namespace: velo-sql
   labels:
-    app: velo-sql-multi
+    app: velo-sql
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: velo-sql-multi
+      app: velo-sql
   template:
     metadata:
       labels:
-        app: velo-sql-multi
+        app: velo-sql
     spec:
       containers:
-      - name: velo-sql-multi
-        image: velo-sql-multi:latest
+      - name: velo-sql
+        image: velo-sql:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8080
@@ -133,7 +133,7 @@ spec:
           value: "info"
         - name: KAFKA_BROKERS
           value: "kafka:9092"
-        command: ["velo-sql-multi", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "velo-sql-multi-k8s", "--max-jobs", "50"]
+        command: ["velo-sql", "server", "--brokers", "kafka:9092", "--port", "8080", "--group-id", "velo-sql-k8s", "--max-jobs", "50"]
         resources:
           requests:
             memory: "1Gi"
@@ -153,7 +153,7 @@ spec:
           mountPath: /app/logs
         livenessProbe:
           exec:
-            command: ["velo-sql-multi", "--help"]
+            command: ["velo-sql", "--help"]
           initialDelaySeconds: 30
           periodSeconds: 30
         readinessProbe:
@@ -198,11 +198,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: velo-sql-multi
+  name: velo-sql
   namespace: velo-sql
 spec:
   selector:
-    app: velo-sql-multi
+    app: velo-sql
   ports:
   - name: api
     port: 8080

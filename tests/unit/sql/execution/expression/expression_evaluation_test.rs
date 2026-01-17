@@ -37,6 +37,8 @@ fn create_test_record(
         partition: 0,
         event_time: None,
         headers: HashMap::new(),
+        topic: None,
+        key: None,
     }
 }
 
@@ -46,6 +48,7 @@ async fn test_arithmetic_expressions() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::Column("amount".to_string())),
@@ -54,6 +57,7 @@ async fn test_arithmetic_expressions() {
             },
             alias: Some("amount_with_tax".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -90,6 +94,7 @@ async fn test_boolean_expressions() {
     let mut engine = StreamExecutionEngine::new(tx);
 
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::Column("amount".to_string())),
@@ -98,6 +103,7 @@ async fn test_boolean_expressions() {
             },
             alias: Some("is_large_order".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -134,6 +140,7 @@ async fn test_complex_expression_evaluation() {
 
     // Complex expression: (amount * 1.1) + 10
     let query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![SelectField::Expression {
             expr: Expr::BinaryOp {
                 left: Box::new(Expr::BinaryOp {
@@ -146,6 +153,7 @@ async fn test_complex_expression_evaluation() {
             },
             alias: Some("complex_calc".to_string()),
         }],
+        key_fields: None,
         from: StreamSource::Stream("orders".to_string()),
         from_alias: None,
         joins: None,
@@ -194,6 +202,8 @@ async fn test_in_operator_with_alias_in_case_when() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         }
     };
 
@@ -239,6 +249,8 @@ async fn test_in_operator_with_alias_false_case() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         }
     };
 
@@ -284,6 +296,8 @@ async fn test_not_in_operator_with_alias() {
             partition: 0,
             event_time: None,
             headers: HashMap::new(),
+            topic: None,
+            key: None,
         }
     };
 

@@ -24,6 +24,8 @@ fn create_test_record() -> StreamRecord {
         timestamp: 1234567890000,
         offset: 1,
         partition: 0,
+        topic: None,
+        key: None,
     }
 }
 
@@ -155,6 +157,7 @@ async fn test_insert_select() {
 
     // Create a mock SELECT query that selects the fields we need
     let select_query = StreamingQuery::Select {
+        distinct: false,
         fields: vec![
             velostream::velostream::sql::ast::SelectField::Expression {
                 expr: velostream::velostream::sql::ast::Expr::Literal(
@@ -169,6 +172,7 @@ async fn test_insert_select() {
                 alias: Some("name".to_string()),
             },
         ],
+        key_fields: None,
         from_alias: None,
         from: velostream::velostream::sql::ast::StreamSource::Table("source_table".to_string()),
         joins: None,

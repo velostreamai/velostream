@@ -23,7 +23,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: velo-sql-multi
+            name: velo-sql
             port:
               number: 8080
       - path: /metrics/single
@@ -37,7 +37,7 @@ spec:
         pathType: Prefix
         backend:
           service:
-            name: velo-sql-multi
+            name: velo-sql
             port:
               number: 9090
 

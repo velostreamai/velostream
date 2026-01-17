@@ -37,6 +37,7 @@ pub mod parallel_loader;
 pub mod processors;
 pub mod progress_monitoring;
 pub mod progress_streaming;
+pub mod shutdown;
 pub mod stream_job_server;
 pub mod table_registry;
 pub mod v2; // FR-082 Phase 1: Hash-partitioned pipeline architecture

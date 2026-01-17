@@ -92,12 +92,22 @@ pub(crate) fn extract_record_timestamp(
             })
         }
         None => {
+            // FAIL LOUDLY: Missing timestamp fields should error, not silently fall back.
+            // This catches SQL configuration errors like field name mismatches
+            // (e.g., using 'event_time' when the field is actually '_EVENT_TIME').
+            //
+            // Users should explicitly use:
+            // - '_TIMESTAMP' for Kafka processing-time
+            // - '_EVENT_TIME' for Kafka event-time
+            // - Or ensure their payload field exists
             let error_msg = format!(
-                "Time field '{}' not found in record. Available fields: {:?}. Use _TIMESTAMP for system processing-time.",
+                "Timestamp field '{}' not found in record. \
+                Available fields: {:?}. \
+                Hint: Use '_TIMESTAMP' for Kafka message time, or check field name spelling.",
                 time_field,
                 rec.fields.keys().collect::<Vec<_>>()
             );
-            log::error!("WINDOW ERROR: {}", error_msg);
+            log::error!("WINDOW TIMESTAMP ERROR: {}", error_msg);
             Err(SqlError::ExecutionError {
                 message: error_msg,
                 query: None,
@@ -178,15 +188,21 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_field_error() {
+    fn test_missing_field_returns_error() {
+        // Missing fields should FAIL LOUDLY with a clear error message,
+        // not silently fall back. This helps catch SQL configuration errors
+        // like field name mismatches (e.g., 'event_time' vs '_event_time').
         let record = create_test_record(1000);
         let result = extract_record_timestamp(&record, "nonexistent");
-        assert!(result.is_err());
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("not found in record")
+            result.is_err(),
+            "Missing field should return an error, not silently fall back"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("not found"),
+            "Error should mention field not found: {}",
+            err_msg
         );
     }
 
@@ -228,15 +244,30 @@ mod tests {
     }
 
     #[test]
-    fn test_missing_field_helpful_error() {
-        let record = create_test_record(1000);
-        let result = extract_record_timestamp(&record, "nonexistent");
-        assert!(result.is_err());
-        let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("not found in record"));
+    fn test_missing_field_error_shows_available_fields() {
+        // Missing fields should return error with helpful diagnostics
+        // showing which fields ARE available
+        let mut fields = HashMap::new();
+        fields.insert("some_other_field".to_string(), FieldValue::Integer(42));
+        let mut record = StreamRecord::new(fields);
+        record.timestamp = 9876543210;
+        let shared_record = SharedRecord::new(record);
+
+        let result = extract_record_timestamp(&shared_record, "nonexistent_time_field");
         assert!(
-            error_msg.contains("_TIMESTAMP"),
-            "Error should suggest using _TIMESTAMP"
+            result.is_err(),
+            "Missing field should return error, not silently fall back"
+        );
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("nonexistent_time_field"),
+            "Error should mention the missing field name: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("some_other_field") || err_msg.contains("Available fields"),
+            "Error should show available fields: {}",
+            err_msg
         );
     }
 }

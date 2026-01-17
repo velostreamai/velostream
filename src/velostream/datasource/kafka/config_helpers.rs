@@ -174,6 +174,269 @@ pub fn load_schema_from_file(
     }
 }
 
+/// Client type for generating client IDs
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientType {
+    /// Source/consumer client
+    Source,
+    /// Sink/producer client
+    Sink,
+}
+
+impl ClientType {
+    /// Get the suffix for client IDs
+    pub fn suffix(&self) -> &'static str {
+        match self {
+            ClientType::Source => "src",
+            ClientType::Sink => "snk",
+        }
+    }
+
+    /// Get the display name for logging
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ClientType::Source => "consumer",
+            ClientType::Sink => "producer",
+        }
+    }
+}
+
+/// Generate a hierarchical client ID for Kafka observability
+///
+/// Format: `velo_{app_name}_{job_name}_{instance_id}_{type_suffix}`
+///
+/// Uses underscores as delimiters so that dashes can be used within component names
+/// (e.g., app name "my-app" or job name "etl-pipeline").
+///
+/// This ensures:
+/// - Jobs from the same app sort together in Kafka UI
+/// - Instance/run IDs provide uniqueness
+/// - Client type (src/snk) is visible at a glance
+/// - Component names can contain dashes without ambiguity
+///
+/// # Arguments
+/// * `app_name` - Optional application name (from SQL app metadata)
+/// * `job_name` - Job/query name
+/// * `instance_id` - Optional instance ID (for test isolation or multi-instance)
+/// * `client_type` - Source or Sink client
+///
+/// # Examples
+/// ```
+/// use velostream::velostream::datasource::kafka::config_helpers::{generate_client_id, ClientType};
+///
+/// // Full specification
+/// let id = generate_client_id(Some("my-app"), "etl-pipeline", Some("inst-1"), ClientType::Sink);
+/// assert_eq!(id, "velo_my-app_etl-pipeline_inst-1_snk");
+///
+/// // App only
+/// let id = generate_client_id(Some("myapp"), "analytics", None, ClientType::Source);
+/// assert_eq!(id, "velo_myapp_analytics_src");
+///
+/// // Instance only
+/// let id = generate_client_id(None, "analytics", Some("test-123"), ClientType::Sink);
+/// assert_eq!(id, "velo_test-123_analytics_snk");
+///
+/// // Minimal
+/// let id = generate_client_id(None, "analytics", None, ClientType::Source);
+/// assert_eq!(id, "velo_analytics_src");
+/// ```
+pub fn generate_client_id(
+    app_name: Option<&str>,
+    job_name: &str,
+    instance_id: Option<&str>,
+    client_type: ClientType,
+) -> String {
+    let suffix = client_type.suffix();
+    match (app_name, instance_id) {
+        (Some(app), Some(inst)) => format!("velo_{}_{}_{}_{}", app, job_name, inst, suffix),
+        (Some(app), None) => format!("velo_{}_{}_{}", app, job_name, suffix),
+        (None, Some(inst)) => format!("velo_{}_{}_{}", inst, job_name, suffix),
+        (None, None) => format!("velo_{}_{}", job_name, suffix),
+    }
+}
+
+/// Log client ID creation with consistent format
+pub fn log_client_id(
+    client_id: &str,
+    client_type: ClientType,
+    app_name: Option<&str>,
+    job_name: &str,
+    instance_id: Option<&str>,
+) {
+    log::info!(
+        "Kafka {} client.id: '{}' (app: {}, job: {}, instance: {})",
+        client_type.display_name(),
+        client_id,
+        app_name.unwrap_or("none"),
+        job_name,
+        instance_id.unwrap_or("none")
+    );
+}
+
+/// Generate a processor-level client ID for multi-source/multi-sink jobs
+///
+/// Format: `velo_{app_name}_{job_name}_{instance_id}_{endpoint_name}`
+///
+/// This format is used by job processors where a single job may have multiple
+/// sources or sinks, and each needs a unique client.id for Kafka monitoring.
+///
+/// # Arguments
+/// * `app_name` - Optional application name (defaults to "default")
+/// * `job_name` - Job/query name
+/// * `instance_id` - Optional instance ID (defaults to "0")
+/// * `endpoint_name` - Source or sink name (e.g., "orders", "users")
+///
+/// # Examples
+/// ```
+/// use velostream::velostream::datasource::kafka::config_helpers::generate_processor_client_id;
+///
+/// let id = generate_processor_client_id(Some("myapp"), "analytics", Some("inst-1"), "orders");
+/// assert_eq!(id, "velo_myapp_analytics_inst-1_orders");
+///
+/// let id = generate_processor_client_id(None, "etl", None, "source_events");
+/// assert_eq!(id, "velo_default_etl_0_events");
+/// ```
+pub fn generate_processor_client_id(
+    app_name: Option<&str>,
+    job_name: &str,
+    instance_id: Option<&str>,
+    endpoint_name: &str,
+) -> String {
+    // Strip common prefixes from endpoint name for cleaner IDs
+    let clean_name = endpoint_name
+        .strip_prefix("source_")
+        .or_else(|| endpoint_name.strip_prefix("sink_"))
+        .unwrap_or(endpoint_name);
+
+    format!(
+        "velo_{}_{}_{}_{}",
+        app_name.unwrap_or("default"),
+        job_name,
+        instance_id.unwrap_or("0"),
+        clean_name
+    )
+}
+
+/// Generate a transactional ID for exactly-once Kafka producers
+///
+/// Format: `velo_{app_name}_{job_name}_{instance_id}_{sink_name}`
+///
+/// The transactional.id must be unique per producer instance to avoid conflicts.
+/// It uses the same format as processor client IDs for consistency.
+///
+/// # Arguments
+/// * `app_name` - Optional application name (defaults to "default")
+/// * `job_name` - Job/query name
+/// * `instance_id` - Optional instance ID (defaults to "0")
+/// * `sink_name` - Sink name (e.g., "output", "results")
+///
+/// # Examples
+/// ```
+/// use velostream::velostream::datasource::kafka::config_helpers::generate_transactional_id;
+///
+/// let txn_id = generate_transactional_id(Some("myapp"), "analytics", Some("inst-1"), "output");
+/// assert_eq!(txn_id, "velo_myapp_analytics_inst-1_output");
+/// ```
+pub fn generate_transactional_id(
+    app_name: Option<&str>,
+    job_name: &str,
+    instance_id: Option<&str>,
+    sink_name: &str,
+) -> String {
+    // Use same format as processor client ID for consistency
+    generate_processor_client_id(app_name, job_name, instance_id, sink_name)
+}
+
+/// Log processor client ID creation with endpoint context
+pub fn log_processor_client_id(
+    client_id: &str,
+    client_type: ClientType,
+    app_name: Option<&str>,
+    job_name: &str,
+    instance_id: Option<&str>,
+    endpoint_name: &str,
+) {
+    log::debug!(
+        "Setting {} client.id='{}' (app: {}, job: {}, instance: {}, endpoint: {})",
+        client_type.display_name(),
+        client_id,
+        app_name.unwrap_or("default"),
+        job_name,
+        instance_id.unwrap_or("0"),
+        endpoint_name
+    );
+}
+
+/// Log transactional ID creation
+pub fn log_transactional_id(
+    txn_id: &str,
+    app_name: Option<&str>,
+    job_name: &str,
+    instance_id: Option<&str>,
+    sink_name: &str,
+) {
+    log::info!(
+        "Enabling transactional producer with transactional.id='{}' (app: {}, job: {}, instance: {}, sink: {})",
+        txn_id,
+        app_name.unwrap_or("default"),
+        job_name,
+        instance_id.unwrap_or("0"),
+        sink_name
+    );
+}
+
+/// Generate a consumer group ID for Kafka consumers
+///
+/// Format: `velo_{app_name}_{job_name}` or `velo_{job_name}` if no app
+///
+/// Uses underscores as delimiters so that dashes can be used within component names.
+///
+/// # Arguments
+/// * `app_name` - Optional application name
+/// * `job_name` - Job/query name
+///
+/// # Examples
+/// ```
+/// use velostream::velostream::datasource::kafka::config_helpers::generate_consumer_group_id;
+///
+/// let group = generate_consumer_group_id(Some("my-app"), "etl-job");
+/// assert_eq!(group, "velo_my-app_etl-job");
+///
+/// let group = generate_consumer_group_id(None, "analytics");
+/// assert_eq!(group, "velo_analytics");
+/// ```
+pub fn generate_consumer_group_id(app_name: Option<&str>, job_name: &str) -> String {
+    match app_name {
+        Some(app) => format!("velo_{}_{}", app, job_name),
+        None => format!("velo_{}", job_name),
+    }
+}
+
+/// Generate a consumer group ID for test harness usage
+///
+/// Format: `test_harness_{run_id}_{context}`
+///
+/// # Arguments
+/// * `run_id` - Unique run identifier (e.g., UUID prefix)
+/// * `context` - Optional context (e.g., topic name)
+///
+/// # Examples
+/// ```
+/// use velostream::velostream::datasource::kafka::config_helpers::generate_test_harness_group_id;
+///
+/// let group = generate_test_harness_group_id("abc123", Some("orders"));
+/// assert_eq!(group, "test_harness_abc123_orders");
+///
+/// let group = generate_test_harness_group_id("abc123", None);
+/// assert_eq!(group, "test_harness_abc123");
+/// ```
+pub fn generate_test_harness_group_id(run_id: &str, context: Option<&str>) -> String {
+    match context {
+        Some(ctx) => format!("test_harness_{}_{}", run_id, ctx),
+        None => format!("test_harness_{}", run_id),
+    }
+}
+
 /// Suspicious topic names that indicate misconfiguration
 /// These are common placeholder/fallback values
 const SUSPICIOUS_TOPIC_NAMES: &[&str] = &[
@@ -353,5 +616,152 @@ mod tests {
         let result = validate_topic_configuration("", "source");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("empty"));
+    }
+
+    // ============================================================================
+    // CLIENT ID GENERATION TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_generate_client_id_full() {
+        let id = generate_client_id(Some("myapp"), "analytics", Some("inst-1"), ClientType::Sink);
+        assert_eq!(id, "velo_myapp_analytics_inst-1_snk");
+    }
+
+    #[test]
+    fn test_generate_client_id_app_only() {
+        let id = generate_client_id(Some("myapp"), "analytics", None, ClientType::Source);
+        assert_eq!(id, "velo_myapp_analytics_src");
+    }
+
+    #[test]
+    fn test_generate_client_id_instance_only() {
+        let id = generate_client_id(None, "analytics", Some("test-123"), ClientType::Sink);
+        assert_eq!(id, "velo_test-123_analytics_snk");
+    }
+
+    #[test]
+    fn test_generate_client_id_minimal() {
+        let id = generate_client_id(None, "analytics", None, ClientType::Source);
+        assert_eq!(id, "velo_analytics_src");
+    }
+
+    #[test]
+    fn test_generate_client_id_with_dashes_in_names() {
+        // Verify dashes within component names are preserved
+        let id = generate_client_id(
+            Some("my-app"),
+            "etl-pipeline",
+            Some("run-001"),
+            ClientType::Source,
+        );
+        assert_eq!(id, "velo_my-app_etl-pipeline_run-001_src");
+    }
+
+    #[test]
+    fn test_client_type_suffix() {
+        assert_eq!(ClientType::Source.suffix(), "src");
+        assert_eq!(ClientType::Sink.suffix(), "snk");
+    }
+
+    #[test]
+    fn test_client_type_display_name() {
+        assert_eq!(ClientType::Source.display_name(), "consumer");
+        assert_eq!(ClientType::Sink.display_name(), "producer");
+    }
+
+    // ============================================================================
+    // PROCESSOR CLIENT ID TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_generate_processor_client_id_full() {
+        let id = generate_processor_client_id(Some("myapp"), "analytics", Some("inst-1"), "orders");
+        assert_eq!(id, "velo_myapp_analytics_inst-1_orders");
+    }
+
+    #[test]
+    fn test_generate_processor_client_id_defaults() {
+        let id = generate_processor_client_id(None, "etl", None, "events");
+        assert_eq!(id, "velo_default_etl_0_events");
+    }
+
+    #[test]
+    fn test_generate_processor_client_id_strips_source_prefix() {
+        let id = generate_processor_client_id(None, "job", None, "source_events");
+        assert_eq!(id, "velo_default_job_0_events");
+    }
+
+    #[test]
+    fn test_generate_processor_client_id_strips_sink_prefix() {
+        let id = generate_processor_client_id(None, "job", None, "sink_output");
+        assert_eq!(id, "velo_default_job_0_output");
+    }
+
+    // ============================================================================
+    // TRANSACTIONAL ID TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_generate_transactional_id() {
+        let txn_id =
+            generate_transactional_id(Some("myapp"), "analytics", Some("inst-1"), "output");
+        assert_eq!(txn_id, "velo_myapp_analytics_inst-1_output");
+    }
+
+    #[test]
+    fn test_generate_transactional_id_defaults() {
+        let txn_id = generate_transactional_id(None, "etl", None, "results");
+        assert_eq!(txn_id, "velo_default_etl_0_results");
+    }
+
+    #[test]
+    fn test_generate_transactional_id_strips_sink_prefix() {
+        let txn_id = generate_transactional_id(None, "job", None, "sink_final");
+        assert_eq!(txn_id, "velo_default_job_0_final");
+    }
+
+    // ============================================================================
+    // CONSUMER GROUP ID TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_generate_consumer_group_id_with_app() {
+        let group = generate_consumer_group_id(Some("my-app"), "etl-job");
+        assert_eq!(group, "velo_my-app_etl-job");
+    }
+
+    #[test]
+    fn test_generate_consumer_group_id_without_app() {
+        let group = generate_consumer_group_id(None, "analytics");
+        assert_eq!(group, "velo_analytics");
+    }
+
+    #[test]
+    fn test_generate_consumer_group_id_preserves_dashes() {
+        let group = generate_consumer_group_id(Some("streaming-app"), "etl-pipeline-v2");
+        assert_eq!(group, "velo_streaming-app_etl-pipeline-v2");
+    }
+
+    // ============================================================================
+    // TEST HARNESS GROUP ID TESTS
+    // ============================================================================
+
+    #[test]
+    fn test_generate_test_harness_group_id_with_context() {
+        let group = generate_test_harness_group_id("abc123", Some("orders"));
+        assert_eq!(group, "test_harness_abc123_orders");
+    }
+
+    #[test]
+    fn test_generate_test_harness_group_id_without_context() {
+        let group = generate_test_harness_group_id("abc123", None);
+        assert_eq!(group, "test_harness_abc123");
+    }
+
+    #[test]
+    fn test_generate_test_harness_group_id_preserves_dashes() {
+        let group = generate_test_harness_group_id("run-001", Some("market-data"));
+        assert_eq!(group, "test_harness_run-001_market-data");
     }
 }

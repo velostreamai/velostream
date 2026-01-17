@@ -63,8 +63,6 @@ pub struct TableHealth {
 #[derive(Debug, Clone)]
 pub struct TableRegistryConfig {
     pub max_tables: usize,
-    pub enable_ttl: bool,
-    pub ttl_duration_secs: Option<u64>,
     pub kafka_brokers: String,
     pub base_group_id: String,
 }
@@ -73,8 +71,6 @@ impl Default for TableRegistryConfig {
     fn default() -> Self {
         Self {
             max_tables: 100,
-            enable_ttl: false,
-            ttl_duration_secs: None,
             kafka_brokers: "localhost:9092".to_string(),
             base_group_id: "velostream".to_string(),
         }
@@ -181,6 +177,294 @@ impl TableRegistry {
 
         info!("Successfully registered table '{}'", name);
         Ok(())
+    }
+
+    /// Load a file_source table from its config file.
+    ///
+    /// This handles the full table lifecycle:
+    /// 1. Creates metadata with Populating status
+    /// 2. Loads and parses config file (async)
+    /// 3. Loads and parses data file (async)
+    /// 4. Creates and populates table
+    /// 5. Registers table and updates status to Active
+    ///
+    /// # Arguments
+    /// * `table_name` - Name to register the table under
+    /// * `config_path` - Path to the YAML config file
+    /// * `base_dir` - Optional base directory for resolving relative paths
+    ///
+    /// # Returns
+    /// * `Ok(usize)` - Number of rows loaded
+    /// * `Err(SqlError)` - If loading fails
+    pub async fn load_file_source_table(
+        &self,
+        table_name: &str,
+        config_path: &str,
+        base_dir: Option<&std::path::Path>,
+    ) -> Result<usize, SqlError> {
+        use crate::velostream::sql::execution::types::FieldValue;
+        use crate::velostream::table::OptimizedTableImpl;
+
+        info!(
+            "Loading file_source table '{}' from config: {}",
+            table_name, config_path
+        );
+
+        // Check capacity
+        {
+            let tables = self.tables.read().await;
+            if tables.len() >= self.config.max_tables {
+                return Err(SqlError::ExecutionError {
+                    message: format!(
+                        "Table registry at maximum capacity ({}). Drop unused tables or increase limit.",
+                        self.config.max_tables
+                    ),
+                    query: None,
+                });
+            }
+
+            // Check for duplicates
+            if tables.contains_key(table_name) {
+                return Err(SqlError::ExecutionError {
+                    message: format!("Table '{}' already exists in registry", table_name),
+                    query: None,
+                });
+            }
+        }
+
+        // Create metadata entry with Populating status
+        {
+            let mut metadata = self.metadata.write().await;
+            metadata.insert(
+                table_name.to_string(),
+                TableMetadata {
+                    name: table_name.to_string(),
+                    status: TableStatus::Populating,
+                    record_count: 0,
+                    created_at: std::time::SystemTime::now(),
+                    last_updated: std::time::SystemTime::now(),
+                    size_bytes: None,
+                    schema: None,
+                },
+            );
+        }
+
+        // Store table_name for status updates
+        let table_name_owned = table_name.to_string();
+
+        // Resolve relative config path against base_dir if available
+        let resolved_path = if let Some(base) = base_dir {
+            let path = std::path::Path::new(config_path);
+            if path.is_relative() {
+                base.join(path)
+            } else {
+                path.to_path_buf()
+            }
+        } else {
+            std::path::PathBuf::from(config_path)
+        };
+
+        debug!(
+            "Resolved config path for table '{}': {:?}",
+            table_name, resolved_path
+        );
+
+        // Read and parse the config file (async to avoid blocking the runtime)
+        let config_content = match tokio::fs::read_to_string(&resolved_path).await {
+            Ok(content) => content,
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to read config file for table '{}': {} (path: {:?})",
+                    table_name, e, resolved_path
+                );
+                // Update status to Error
+                {
+                    let mut metadata = self.metadata.write().await;
+                    if let Some(meta) = metadata.get_mut(&table_name_owned) {
+                        meta.status = TableStatus::Error(error_msg.clone());
+                        meta.last_updated = std::time::SystemTime::now();
+                    }
+                }
+                return Err(SqlError::ExecutionError {
+                    message: error_msg,
+                    query: None,
+                });
+            }
+        };
+
+        let config: serde_yaml::Value = match serde_yaml::from_str(&config_content) {
+            Ok(config) => config,
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to parse config file for table '{}': {}",
+                    table_name, e
+                );
+                // Update status to Error
+                {
+                    let mut metadata = self.metadata.write().await;
+                    if let Some(meta) = metadata.get_mut(&table_name_owned) {
+                        meta.status = TableStatus::Error(error_msg.clone());
+                        meta.last_updated = std::time::SystemTime::now();
+                    }
+                }
+                return Err(SqlError::ExecutionError {
+                    message: error_msg,
+                    query: None,
+                });
+            }
+        };
+
+        // Extract file path from config
+        let file_path = config
+            .get("file")
+            .and_then(|f| f.get("path"))
+            .and_then(|p| p.as_str())
+            .ok_or_else(|| {
+                let error_msg = format!(
+                    "Config file for table '{}' missing 'file.path' field",
+                    table_name
+                );
+                SqlError::ExecutionError {
+                    message: error_msg,
+                    query: None,
+                }
+            })?;
+
+        // Resolve file path relative to config file directory
+        let config_dir = resolved_path.parent().unwrap_or(std::path::Path::new("."));
+        let data_path = config_dir.join(file_path);
+
+        debug!("Loading table '{}' data from: {:?}", table_name, data_path);
+
+        // Read file contents (async to avoid blocking the runtime)
+        let file_content = match tokio::fs::read_to_string(&data_path).await {
+            Ok(content) => content,
+            Err(e) => {
+                let error_msg = format!(
+                    "Failed to read data file for table '{}': {} (path: {:?})",
+                    table_name, e, data_path
+                );
+                // Update status to Error
+                {
+                    let mut metadata = self.metadata.write().await;
+                    if let Some(meta) = metadata.get_mut(&table_name_owned) {
+                        meta.status = TableStatus::Error(error_msg.clone());
+                        meta.last_updated = std::time::SystemTime::now();
+                    }
+                }
+                return Err(SqlError::ExecutionError {
+                    message: error_msg,
+                    query: None,
+                });
+            }
+        };
+
+        // Parse CSV and create table
+        let table = Arc::new(OptimizedTableImpl::new());
+
+        // Parse CSV with header
+        let mut lines = file_content.lines();
+        let headers: Vec<String> = if let Some(header_line) = lines.next() {
+            header_line
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect()
+        } else {
+            let error_msg = format!("Data file for table '{}' is empty", table_name);
+            // Update status to Error
+            {
+                let mut metadata = self.metadata.write().await;
+                if let Some(meta) = metadata.get_mut(&table_name_owned) {
+                    meta.status = TableStatus::Error(error_msg.clone());
+                    meta.last_updated = std::time::SystemTime::now();
+                }
+            }
+            return Err(SqlError::ExecutionError {
+                message: error_msg,
+                query: None,
+            });
+        };
+
+        // Find key field from config (first field with key: true, or first field)
+        let key_field = config
+            .get("schema")
+            .and_then(|s| s.get("fields"))
+            .and_then(|f| f.as_sequence())
+            .and_then(|fields| {
+                fields.iter().find_map(|f| {
+                    if f.get("key").and_then(|k| k.as_bool()).unwrap_or(false) {
+                        f.get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| headers.first().cloned().unwrap_or_default());
+
+        debug!(
+            "Using '{}' as key field for table '{}'",
+            key_field, table_name
+        );
+
+        // Load rows into table
+        let mut row_count = 0;
+        for line in lines {
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let values: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+            let mut row = std::collections::HashMap::new();
+            let mut key_value = String::new();
+
+            for (i, header) in headers.iter().enumerate() {
+                if let Some(value) = values.get(i) {
+                    // Parse value - try integer first, then keep as string
+                    let field_value = if let Ok(int_val) = value.parse::<i64>() {
+                        FieldValue::Integer(int_val)
+                    } else {
+                        FieldValue::String(value.to_string())
+                    };
+                    row.insert(header.clone(), field_value);
+
+                    // Capture key value
+                    if header == &key_field {
+                        key_value = value.to_string();
+                    }
+                }
+            }
+
+            if let Err(e) = table.insert(key_value, row) {
+                warn!("Failed to insert row into table '{}': {}", table_name, e);
+            } else {
+                row_count += 1;
+            }
+        }
+
+        // Register table in registry
+        {
+            let mut tables = self.tables.write().await;
+            tables.insert(table_name.to_string(), table);
+        }
+
+        // Update metadata to Active status
+        {
+            let mut metadata = self.metadata.write().await;
+            if let Some(meta) = metadata.get_mut(table_name) {
+                meta.status = TableStatus::Active;
+                meta.record_count = row_count;
+                meta.last_updated = std::time::SystemTime::now();
+            }
+        }
+
+        info!(
+            "Successfully loaded {} rows into table '{}' (columns: {:?})",
+            row_count, table_name, headers
+        );
+
+        Ok(row_count)
     }
 
     /// Create a new table via CREATE TABLE AS SELECT
@@ -415,48 +699,13 @@ impl TableRegistry {
         }
     }
 
-    /// Clean up tables based on TTL or other criteria
+    /// Clean up inactive tables (placeholder for future cleanup strategies)
+    ///
+    /// Currently returns an empty list. Tables should be explicitly dropped
+    /// using `drop_table()` when no longer needed.
     pub async fn cleanup_inactive_tables(&self) -> Result<Vec<String>, SqlError> {
-        if !self.config.enable_ttl {
-            debug!("TTL-based cleanup is disabled");
-            return Ok(Vec::new());
-        }
-
-        let ttl_duration = match self.config.ttl_duration_secs {
-            Some(secs) => std::time::Duration::from_secs(secs),
-            None => {
-                warn!("TTL enabled but no duration specified");
-                return Ok(Vec::new());
-            }
-        };
-
-        let now = std::time::SystemTime::now();
-        let mut tables_to_drop = Vec::new();
-
-        // Identify tables that exceed TTL
-        let metadata = self.metadata.read().await;
-        for (table_name, meta) in metadata.iter() {
-            if let Ok(age) = now.duration_since(meta.last_updated) {
-                if age > ttl_duration {
-                    tables_to_drop.push(table_name.clone());
-                }
-            }
-        }
-        drop(metadata);
-
-        // Drop identified tables
-        for table_name in &tables_to_drop {
-            if let Err(e) = self.drop_table(table_name).await {
-                warn!(
-                    "Failed to drop table '{}' during cleanup: {:?}",
-                    table_name, e
-                );
-            } else {
-                info!("Dropped inactive table '{}' (exceeded TTL)", table_name);
-            }
-        }
-
-        Ok(tables_to_drop)
+        // No automatic cleanup - tables must be explicitly dropped
+        Ok(Vec::new())
     }
 
     /// Get the number of registered tables
@@ -544,7 +793,7 @@ impl TableRegistry {
             let jobs = self.background_jobs.read().await;
             let metadata = self.metadata.read().await;
 
-            let status = if let Some(job) = jobs.get(table_name) {
+            let _status = if let Some(job) = jobs.get(table_name) {
                 if job.is_finished() {
                     // Job completed - table is ready
                     info!(
@@ -670,11 +919,20 @@ impl TableRegistry {
                 // For CREATE TABLE AS SELECT, extract from the SELECT part
                 Self::extract_tables_recursive(as_select, tables);
             }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                // For CREATE STREAM AS SELECT, extract from the SELECT part
+                Self::extract_tables_recursive(as_select, tables);
+            }
             _ => {}
         }
     }
 
     /// Extract table names from stream sources
+    ///
+    /// Both Table and Stream references are added as potential table dependencies.
+    /// The parser creates StreamSource::Stream for all named references since it
+    /// can't distinguish tables from streams at parse time. The actual check for
+    /// whether something exists in the table registry happens in the caller.
     fn extract_from_stream_source(
         source: &crate::velostream::sql::ast::StreamSource,
         tables: &mut Vec<String>,
@@ -683,12 +941,14 @@ impl TableRegistry {
 
         match source {
             StreamSource::Table(name) => {
-                // Only add actual tables to dependencies, not streams
+                // Explicit table reference
                 tables.push(name.clone());
             }
-            StreamSource::Stream(_name) => {
-                // Streams are not table dependencies - they are data sources
-                // Do not add to tables list
+            StreamSource::Stream(name) => {
+                // Stream references could be table dependencies (e.g., in subqueries
+                // or JOINs with file_source tables). The caller checks whether each
+                // name actually exists in the table registry.
+                tables.push(name.clone());
             }
             StreamSource::Subquery(subquery) => {
                 Self::extract_tables_recursive(subquery, tables);

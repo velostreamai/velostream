@@ -17,7 +17,6 @@ delivery_profile: high_priority
 # Topic-specific configuration
 datasink:
   schema:
-    key.field: symbol
     value.serializer: json
     # Optional: value.schema.file: "schemas/enriched_market_data.avsc"
 
