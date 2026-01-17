@@ -43,6 +43,7 @@ pub mod config;
 pub mod engine;
 pub mod expression;
 pub mod internal;
+pub mod join;
 pub mod performance;
 pub mod processors;
 pub mod types;
