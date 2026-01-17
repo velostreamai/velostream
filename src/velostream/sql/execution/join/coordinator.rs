@@ -194,6 +194,8 @@ impl JoinConfig {
     /// occur up to 1 hour BEFORE left event":
     ///
     /// ```
+    /// use velostream::velostream::sql::execution::join::JoinConfig;
+    ///
     /// // Shipment can arrive 1 hour before to 24 hours after order
     /// let config = JoinConfig::interval_ms(
     ///     "orders", "shipments",

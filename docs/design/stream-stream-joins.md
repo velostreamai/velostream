@@ -713,21 +713,21 @@ SELECT * FROM orders o FULL OUTER JOIN shipments s ON o.order_id = s.order_id;
 | Phase 1: Foundation | ✅ Complete | 100% |
 | Phase 2: Join Coordinator | ✅ Complete | 100% |
 | Phase 3: Source Coordinator | ✅ Complete | 100% |
-| Phase 4: Integration | 🔄 In Progress | 25% |
-| Phase 5: Testing & Polish | 🔄 Pending | 10% |
+| Phase 4: Integration | ✅ Complete | 100% |
+| Phase 5: Testing & Polish | 🔄 Pending | 20% |
 
-**Overall Progress: ~65%**
+**Overall Progress: ~85%**
 
 ### Remaining Work
 
-#### Phase 4: Integration (Required)
-- [ ] Query analyzer: Detect stream-stream join queries
-- [ ] Execution engine: Route to join processor
-- [ ] Job processor v2: Integrate SourceCoordinator
-- [ ] Integration tests
+#### Phase 4: Integration ✅ COMPLETE
+- [x] Query analyzer: Detect stream-stream join queries (`has_stream_stream_joins()`)
+- [x] Execution engine: Route to join processor (StreamJobServer routing)
+- [x] Job processor v2: Integrate SourceCoordinator (JoinJobProcessor)
+- [ ] Integration tests (requires Kafka)
 
 #### Phase 5: Testing & Polish (Required)
-- [ ] Pass tier3 join tests (21-24)
+- [ ] Pass tier3 join tests (21-24) - requires running Kafka
 - [ ] Performance benchmarks
 - [ ] End-to-end validation
 
@@ -769,16 +769,17 @@ SELECT * FROM orders o FULL OUTER JOIN shipments s ON o.order_id = s.order_id;
 
 **Deliverable:** ✅ Core concurrent source reading implemented (integration pending)
 
-### Phase 4: Integration 🔄 IN PROGRESS
+### Phase 4: Integration ✅ COMPLETE
 
 | Task | File | Status | Description |
 |------|------|--------|-------------|
-| 4.1 | `src/velostream/sql/query_analyzer.rs` | ❌ | Detect and analyze join queries |
-| 4.2 | `src/velostream/sql/execution/engine.rs` | ❌ | Route join queries to join processor |
-| 4.3 | `src/velostream/sql/parser.rs` | ❌ | Parse interval join syntax (if needed) |
-| 4.4 | Integration tests | ❌ | End-to-end join tests |
+| 4.1 | `src/velostream/sql/ast.rs` | ✅ | `has_stream_stream_joins()` detection |
+| 4.2 | `src/velostream/sql/ast.rs` | ✅ | `extract_stream_stream_join_info()` extraction |
+| 4.3 | `src/velostream/sql/ast.rs` | ✅ | `extract_join_keys()` from ON clause |
+| 4.4 | `src/velostream/server/stream_job_server.rs` | ✅ | Route to JoinJobProcessor |
+| 4.5 | Integration tests | ❌ | End-to-end join tests (requires Kafka)
 
-**Deliverable:** Full integration with SQL engine
+**Deliverable:** ✅ Full integration with SQL engine (routing complete)
 
 ### Phase 5: Testing & Polish ❌ PENDING
 

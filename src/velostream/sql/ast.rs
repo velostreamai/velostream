@@ -1074,6 +1074,136 @@ impl StreamingQuery {
             }
         }
     }
+
+    /// Check if this query contains a stream-stream join
+    ///
+    /// A stream-stream join is detected when:
+    /// - The query has JOIN clauses
+    /// - Both the FROM source and JOIN source are streams (not tables)
+    ///
+    /// # Returns
+    /// `true` if the query contains at least one stream-stream join
+    pub fn has_stream_stream_joins(&self) -> bool {
+        match self {
+            StreamingQuery::Select { from, joins, .. } => {
+                if let Some(join_clauses) = joins {
+                    let left_is_stream = matches!(from, StreamSource::Stream(_));
+                    join_clauses.iter().any(|j| {
+                        let right_is_stream = matches!(j.right_source, StreamSource::Stream(_));
+                        left_is_stream && right_is_stream
+                    })
+                } else {
+                    false
+                }
+            }
+            StreamingQuery::CreateStream { as_select, .. } => as_select.has_stream_stream_joins(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.has_stream_stream_joins(),
+            StreamingQuery::StartJob { query, .. } => query.has_stream_stream_joins(),
+            StreamingQuery::DeployJob { query, .. } => query.has_stream_stream_joins(),
+            StreamingQuery::Union { left, right, .. } => {
+                left.has_stream_stream_joins() || right.has_stream_stream_joins()
+            }
+            _ => false,
+        }
+    }
+
+    /// Extract stream-stream join information from the query
+    ///
+    /// Returns the left source name, right source name, and join type
+    /// for the first stream-stream join found.
+    ///
+    /// # Returns
+    /// `Some((left_name, right_name, join_type))` if a stream-stream join is found
+    /// `None` if no stream-stream join exists
+    pub fn extract_stream_stream_join_info(&self) -> Option<(String, String, JoinType)> {
+        match self {
+            StreamingQuery::Select { from, joins, .. } => {
+                if let Some(join_clauses) = joins {
+                    if let StreamSource::Stream(left_name) = from {
+                        for join in join_clauses {
+                            if let StreamSource::Stream(right_name) = &join.right_source {
+                                return Some((
+                                    left_name.clone(),
+                                    right_name.clone(),
+                                    join.join_type.clone(),
+                                ));
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            StreamingQuery::CreateStream { as_select, .. } => {
+                as_select.extract_stream_stream_join_info()
+            }
+            StreamingQuery::CreateTable { as_select, .. } => {
+                as_select.extract_stream_stream_join_info()
+            }
+            StreamingQuery::StartJob { query, .. } => query.extract_stream_stream_join_info(),
+            StreamingQuery::DeployJob { query, .. } => query.extract_stream_stream_join_info(),
+            _ => None,
+        }
+    }
+
+    /// Extract join key columns from the ON clause
+    ///
+    /// Parses simple equality conditions like `a.col = b.col` to extract
+    /// the join key column pairs.
+    ///
+    /// # Returns
+    /// Vector of (left_column, right_column) pairs
+    pub fn extract_join_keys(&self) -> Vec<(String, String)> {
+        match self {
+            StreamingQuery::Select { joins, .. } => {
+                if let Some(join_clauses) = joins {
+                    for join in join_clauses {
+                        return Self::extract_keys_from_condition(&join.condition);
+                    }
+                }
+                Vec::new()
+            }
+            StreamingQuery::CreateStream { as_select, .. } => as_select.extract_join_keys(),
+            StreamingQuery::CreateTable { as_select, .. } => as_select.extract_join_keys(),
+            StreamingQuery::StartJob { query, .. } => query.extract_join_keys(),
+            StreamingQuery::DeployJob { query, .. } => query.extract_join_keys(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Extract key pairs from a join condition expression
+    fn extract_keys_from_condition(expr: &Expr) -> Vec<(String, String)> {
+        let mut keys = Vec::new();
+        match expr {
+            Expr::BinaryOp { left, op, right } => {
+                if matches!(op, BinaryOperator::Equal) {
+                    // Try to extract column names from both sides
+                    if let (Some(left_col), Some(right_col)) = (
+                        Self::extract_column_name(left),
+                        Self::extract_column_name(right),
+                    ) {
+                        keys.push((left_col, right_col));
+                    }
+                } else if matches!(op, BinaryOperator::And) {
+                    // Recursively handle AND conditions
+                    keys.extend(Self::extract_keys_from_condition(left));
+                    keys.extend(Self::extract_keys_from_condition(right));
+                }
+            }
+            _ => {}
+        }
+        keys
+    }
+
+    /// Extract column name from an expression (handling qualified names like a.col)
+    fn extract_column_name(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Column(name) => {
+                // Handle qualified names like "orders.order_id" -> "order_id"
+                Some(name.split('.').last().unwrap_or(name.as_str()).to_string())
+            }
+            _ => None,
+        }
+    }
 }
 
 impl SelectField {
