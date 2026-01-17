@@ -257,8 +257,8 @@ fn test_join_coordinator_creation() {
         "orders",
         "shipments",
         vec![("order_id".to_string(), "order_id".to_string())],
-        -3600_000, // 1 hour before
-        86400_000, // 24 hours after
+        -3_600_000, // 1 hour before
+        86_400_000, // 24 hours after
     )
     .with_retention(Duration::from_secs(3600));
 
@@ -681,8 +681,8 @@ async fn test_full_join_pipeline_with_kafka() {
                 "orders",
                 "shipments",
                 vec![("order_id".to_string(), "order_id".to_string())],
-                -3600_000, // -1h
-                86400_000, // +24h
+                -3_600_000, // -1h
+                86_400_000, // +24h
             )
             .with_retention(Duration::from_secs(3600));
 

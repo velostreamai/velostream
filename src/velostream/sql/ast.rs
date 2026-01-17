@@ -1156,7 +1156,7 @@ impl StreamingQuery {
         match self {
             StreamingQuery::Select { joins, .. } => {
                 if let Some(join_clauses) = joins {
-                    for join in join_clauses {
+                    if let Some(join) = join_clauses.first() {
                         return Self::extract_keys_from_condition(&join.condition);
                     }
                 }
