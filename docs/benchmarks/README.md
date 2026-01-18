@@ -39,7 +39,41 @@ Real-time performance comparison across execution models with 5 realistic SQL sc
 
 ---
 
-### 2. **Phase 4 Batch Strategy Benchmarks**
+### 2. **FR-085 Stream-Stream Join Benchmarks** (NEW)
+Performance benchmarks for interval-based stream-stream join infrastructure.
+
+**File:** `tests/performance/analysis/sql_operations/tier3_advanced/interval_stream_join.rs`
+
+**Key Features:**
+- JoinCoordinator throughput (direct API and SQL engine)
+- JoinStateStore store/lookup/expiration performance
+- Memory-bounded operation validation
+- High cardinality stress testing
+
+**Quick Start:**
+```bash
+# Run all interval join benchmarks
+cargo test --release --no-default-features interval_stream_join -- --nocapture
+
+# Run specific benchmark
+cargo test --release --no-default-features test_interval_stream_join_performance -- --nocapture
+```
+
+**Performance Results:**
+
+| Component | Throughput | Notes |
+|-----------|------------|-------|
+| JoinCoordinator (unlimited) | 517K rec/sec | Full join pipeline |
+| JoinCoordinator (limit=5000) | 152K rec/sec | Memory-bounded mode |
+| JoinStateStore (store+lookup) | 5.1M rec/sec | BTreeMap operations |
+| JoinStateStore (with expiration) | 5.0M rec/sec | Watermark cleanup |
+| SQL Engine (sync) | 376K rec/sec | End-to-end execution |
+| SQL Engine (async) | 235K rec/sec | Async pipeline |
+| High cardinality | 1.9M rec/sec | Unique keys stress test |
+
+---
+
+### 3. **Phase 4 Batch Strategy Benchmarks**
 Validates batch processing optimizations and streaming strategy performance.
 
 **File:** [`phase4-batch-benchmarks.md`](phase4-batch-benchmarks.md)
@@ -72,6 +106,13 @@ cargo run --bin phase4_batch_benchmark --no-default-features production
 - Validate end-to-end streaming throughput
 - Get quick feedback during development
 - Run specific scenarios for targeted testing
+
+**Choose FR-085 Stream-Stream Join Benchmarks if you want to:**
+- Measure stream-stream join throughput
+- Validate JoinCoordinator and JoinStateStore performance
+- Test memory-bounded join operations
+- Benchmark high cardinality scenarios
+- Compare sync vs async SQL execution paths
 
 **Choose Phase 4 Batch Benchmarks if you want to:**
 - Validate batch optimization strategies

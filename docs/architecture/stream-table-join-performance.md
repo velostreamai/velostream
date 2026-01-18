@@ -9,6 +9,8 @@
 
 This document details the architecture, performance characteristics, and optimization strategies for Velostream's Stream-Table JOIN implementation. Through advanced optimization techniques including O(1) table lookups, SIMD vectorization, and zero-copy field access, we've achieved an exceptional 840x performance improvement, making the system suitable for enterprise-scale financial analytics.
 
+> **Note**: For **stream-stream joins** (interval-based joins between two unbounded streams), see [Stream-Stream Joins Design Document](../design/stream-stream-joins.md). Stream-stream joins achieve 517K rec/sec throughput with the JoinCoordinator architecture.
+
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)

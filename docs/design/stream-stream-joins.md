@@ -1,9 +1,9 @@
 # Design Document: Stream-Stream Joins
 
-**Status:** In Progress (Phases 1-3 Complete)
+**Status:** In Progress (Phases 1-4 Complete, Phase 5: 60%)
 **Author:** Claude Code
 **Created:** 2026-01-16
-**Last Updated:** 2026-01-17
+**Last Updated:** 2026-01-18
 **Issue:** FR-085 (stream-stream joins)
 
 ---
@@ -714,9 +714,9 @@ SELECT * FROM orders o FULL OUTER JOIN shipments s ON o.order_id = s.order_id;
 | Phase 2: Join Coordinator | ✅ Complete | 100% |
 | Phase 3: Source Coordinator | ✅ Complete | 100% |
 | Phase 4: Integration | ✅ Complete | 100% |
-| Phase 5: Testing & Polish | 🔄 Pending | 20% |
+| Phase 5: Testing & Polish | 🔄 In Progress | 60% |
 
-**Overall Progress: ~85%**
+**Overall Progress: ~92%**
 
 ### Remaining Work
 
@@ -781,12 +781,12 @@ SELECT * FROM orders o FULL OUTER JOIN shipments s ON o.order_id = s.order_id;
 
 **Deliverable:** ✅ Full integration with SQL engine (routing complete)
 
-### Phase 5: Testing & Polish ❌ PENDING
+### Phase 5: Testing & Polish 🔄 IN PROGRESS
 
 | Task | Status | Description |
 |------|--------|-------------|
-| 5.1 | ❌ | Pass all tier3 join tests (21-24) |
-| 5.2 | ❌ | Performance benchmarks |
+| 5.1 | ❌ | Pass all tier3 join tests (21-24) - requires Kafka |
+| 5.2 | ✅ | Performance benchmarks (517K rec/sec JoinCoordinator, 5.1M rec/sec StateStore) |
 | 5.3 | ✅ | Documentation (this document) |
 | 5.4 | ✅ | Edge case handling (in unit tests) |
 
@@ -888,14 +888,53 @@ Existing tests that should pass after implementation:
 | Expiration | Watermark-driven lazy expiration |
 | Peak memory | Monitor via JoinStateStats.peak_size |
 
-### Expected Performance
+### Benchmark Results (2026-01-18)
 
-| Metric | Target | Implementation |
-|--------|--------|----------------|
-| Latency overhead | < 10ms per record | BTreeMap range queries |
+**Test Environment**: Fixture-based benchmarks (no Kafka overhead)
+**Location**: `tests/performance/analysis/sql_operations/tier3_advanced/interval_stream_join.rs`
+
+#### Component Throughput
+
+| Component | Throughput | Notes |
+|-----------|------------|-------|
+| **JoinCoordinator (unlimited)** | 517,450 rec/sec | Full join pipeline |
+| **JoinCoordinator (memory-bounded)** | 151,790 rec/sec | With 5K record limit |
+| **JoinStateStore (store+lookup)** | 5,080,279 rec/sec | BTreeMap range queries |
+| **JoinStateStore (with expiration)** | 4,998,228 rec/sec | Watermark cleanup overhead |
+| **SQL Engine (sync)** | 376,355 rec/sec | End-to-end execution |
+| **SQL Engine (async)** | 234,513 rec/sec | Async pipeline |
+| **High Cardinality** | 1,869,865 rec/sec | Unique keys stress test |
+
+#### Performance Characteristics
+
+| Metric | Measured | Implementation |
+|--------|----------|----------------|
+| Join throughput | 517K rec/sec | JoinCoordinator pipeline |
 | State lookup | O(1) by key, O(log n) for time | HashMap + BTreeMap |
-| Memory per key | ~200 bytes + record size | JoinBufferEntry overhead |
-| Expiration cost | Amortized O(1) per record | Watermark-driven cleanup |
+| Memory-bounded overhead | ~70% slower | Eviction cost at 5K limit |
+| High cardinality penalty | None | 1.9M rec/sec with unique keys |
+
+#### Memory Bounds Validation
+
+| Configuration | Records Stored | Records Evicted | Compliance |
+|---------------|----------------|-----------------|------------|
+| Limit = 100 | 100 | 17,000+ | ✅ Within bounds |
+| Limit = 5000 | 5000 | Proportional | ✅ Within bounds |
+
+### Performance Summary
+
+```
+┌─────────────────────────────┬──────────────────┐
+│ Component                   │ Throughput       │
+├─────────────────────────────┼──────────────────┤
+│ JoinStateStore             │ 5.1M rec/sec     │
+│ High Cardinality           │ 1.9M rec/sec     │
+│ JoinCoordinator            │ 517K rec/sec     │
+│ SQL Engine (sync)          │ 376K rec/sec     │
+│ SQL Engine (async)         │ 235K rec/sec     │
+│ Memory-bounded             │ 152K rec/sec     │
+└─────────────────────────────┴──────────────────┘
+```
 
 ### Optimizations (Future)
 
