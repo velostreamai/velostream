@@ -275,6 +275,13 @@ pub struct JoinStateStore {
 
     /// Flag indicating if we've logged a memory warning
     memory_warning_logged: bool,
+
+    /// Global access counter for LRU tracking (incremented on each access)
+    access_counter: u64,
+
+    /// Last access time per key (maps key -> access_counter value)
+    /// Used for LRU eviction policy
+    key_access_times: HashMap<String, u64>,
 }
 
 // Constants for memory estimation
@@ -314,6 +321,8 @@ impl JoinStateStore {
             config: JoinStateStoreConfig::default(),
             capacity_warning_logged: false,
             memory_warning_logged: false,
+            access_counter: 0,
+            key_access_times: HashMap::new(),
         }
     }
 
@@ -418,6 +427,8 @@ impl JoinStateStore {
             config,
             capacity_warning_logged: false,
             memory_warning_logged: false,
+            access_counter: 0,
+            key_access_times: HashMap::new(),
         }
     }
 
@@ -530,10 +541,20 @@ impl JoinStateStore {
             .record_store(self.record_count, self.estimated_memory);
         self.stats.current_keys = self.records.len();
 
+        // Track access for LRU
+        self.touch_key(key);
+
         expire_at
     }
 
-    /// Find the key with the most records (for eviction targeting)
+    /// Update access time for a key (for LRU tracking)
+    fn touch_key(&mut self, key: &str) {
+        self.access_counter += 1;
+        self.key_access_times
+            .insert(key.to_string(), self.access_counter);
+    }
+
+    /// Find the key with the most records (for FIFO eviction targeting)
     ///
     /// Returns None if the store is empty.
     fn find_largest_key(&self) -> Option<&str> {
@@ -543,16 +564,37 @@ impl JoinStateStore {
             .map(|(key, _)| key.as_str())
     }
 
-    /// Evict oldest records to free space
+    /// Find the least recently used key (for LRU eviction)
     ///
-    /// Strategy: evict from keys with most records first to balance load.
-    /// Optimized to avoid cloning keys - uses reference-based lookup.
+    /// Returns None if the store is empty.
+    fn find_lru_key(&self) -> Option<&str> {
+        // Find the key with the lowest access time
+        // Keys not in access_times are treated as oldest (access_time = 0)
+        self.records
+            .keys()
+            .min_by_key(|key| self.key_access_times.get(*key).unwrap_or(&0))
+            .map(|s| s.as_str())
+    }
+
+    /// Find the key to evict based on the configured policy
+    fn find_eviction_target(&self) -> Option<&str> {
+        match self.config.eviction_policy {
+            EvictionPolicy::Fifo => self.find_largest_key(),
+            EvictionPolicy::Lru => self.find_lru_key(),
+        }
+    }
+
+    /// Evict records to free space
+    ///
+    /// Strategy depends on eviction policy:
+    /// - FIFO: evict from keys with most records first (balances load)
+    /// - LRU: evict from least recently accessed keys first
     fn evict_oldest_records(&mut self, count: usize) {
         let mut evicted = 0;
 
         while evicted < count {
-            // Find the key with the most records (without cloning)
-            let target_key = match self.find_largest_key() {
+            // Find the key to evict from based on policy
+            let target_key = match self.find_eviction_target() {
                 Some(key) => key.to_string(), // Clone only the target key
                 None => break,                // Store is empty
             };
@@ -577,9 +619,10 @@ impl JoinStateStore {
                         }
                     }
                 }
-                // Remove empty keys
+                // Remove empty keys and their access tracking
                 if time_index.is_empty() {
                     self.records.remove(&target_key);
+                    self.key_access_times.remove(&target_key);
                 }
             }
         }
@@ -598,6 +641,13 @@ impl JoinStateStore {
     /// # Returns
     /// Vector of references to matching records
     pub fn lookup(&mut self, key: &str, time_lower: i64, time_upper: i64) -> Vec<&StreamRecord> {
+        // Track access for LRU first (before borrowing records)
+        if self.records.contains_key(key) {
+            self.access_counter += 1;
+            self.key_access_times
+                .insert(key.to_string(), self.access_counter);
+        }
+
         let watermark = self.watermark;
         let matches: Vec<&StreamRecord> = self
             .records
@@ -621,6 +671,13 @@ impl JoinStateStore {
     ///
     /// Returns all non-expired records for the given key.
     pub fn lookup_all(&mut self, key: &str) -> Vec<&StreamRecord> {
+        // Track access for LRU first (before borrowing records)
+        if self.records.contains_key(key) {
+            self.access_counter += 1;
+            self.key_access_times
+                .insert(key.to_string(), self.access_counter);
+        }
+
         let watermark = self.watermark;
         let matches: Vec<&StreamRecord> = self
             .records
@@ -657,9 +714,10 @@ impl JoinStateStore {
         self.watermark = new_watermark;
         let mut expired_count = 0;
         let mut memory_freed = 0usize;
+        let mut removed_keys = Vec::new();
 
         // Remove expired entries from each key's time index
-        self.records.retain(|_key, time_index| {
+        self.records.retain(|key, time_index| {
             // For each time slot, remove expired entries
             time_index.retain(|_event_time, entries| {
                 let before_len = entries.len();
@@ -673,8 +731,17 @@ impl JoinStateStore {
                 expired_count += before_len - entries.len();
                 !entries.is_empty()
             });
-            !time_index.is_empty()
+            let keep = !time_index.is_empty();
+            if !keep {
+                removed_keys.push(key.clone());
+            }
+            keep
         });
+
+        // Clean up access tracking for removed keys
+        for key in removed_keys {
+            self.key_access_times.remove(&key);
+        }
 
         // Update running counts
         self.record_count = self.record_count.saturating_sub(expired_count);
@@ -744,6 +811,9 @@ impl JoinStateStore {
         self.stats.record_expiration(expired, 0, 0, 0);
         self.capacity_warning_logged = false;
         self.memory_warning_logged = false;
+        // Reset LRU tracking
+        self.access_counter = 0;
+        self.key_access_times.clear();
     }
 
     /// Get all keys currently in the store

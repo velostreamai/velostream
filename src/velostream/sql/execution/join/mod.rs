@@ -61,5 +61,7 @@ pub use coordinator::{
     MemoryPressure, MissingEventTimeBehavior,
 };
 pub use key_extractor::{JoinKeyExtractor, JoinKeyExtractorPair};
-pub use state_store::{JoinBufferEntry, JoinStateStats, JoinStateStore, JoinStateStoreConfig};
+pub use state_store::{
+    EvictionPolicy, JoinBufferEntry, JoinStateStats, JoinStateStore, JoinStateStoreConfig,
+};
 pub use watermark::{JoinWatermarkTracker, WatermarkConfig, WatermarkStats};

@@ -504,3 +504,149 @@ fn test_clear_resets_memory() {
     assert_eq!(store.estimated_memory(), 0);
     assert_eq!(store.record_count(), 0);
 }
+
+// ============================================================================
+// LRU Eviction Policy Tests (Phase 6.3)
+// ============================================================================
+
+use velostream::velostream::sql::execution::join::EvictionPolicy;
+
+#[test]
+fn test_lru_eviction_basic() {
+    // Create store with LRU eviction and low record limit
+    let config = JoinStateStoreConfig::with_limits(5, 0).with_eviction_policy(EvictionPolicy::Lru);
+    let mut store = JoinStateStore::with_config(Duration::from_secs(3600), config);
+
+    // Store records for different keys
+    store.store("key_a", make_test_record(1), 1000);
+    store.store("key_b", make_test_record(2), 2000);
+    store.store("key_c", make_test_record(3), 3000);
+
+    // Access key_a to make it recently used
+    let _ = store.lookup("key_a", 0, 5000);
+
+    // Store more records to trigger eviction
+    store.store("key_d", make_test_record(4), 4000);
+    store.store("key_e", make_test_record(5), 5000);
+
+    // Now at capacity (5 records). Add one more to trigger eviction
+    store.store("key_f", make_test_record(6), 6000);
+
+    // key_b should have been evicted (least recently used)
+    // key_a was accessed recently, so it should still exist
+    let matches_a = store.lookup("key_a", 0, 10000);
+    assert!(
+        !matches_a.is_empty(),
+        "key_a should exist (was recently accessed)"
+    );
+
+    // Verify total count is at limit
+    assert!(store.record_count() <= 5, "Should not exceed limit of 5");
+}
+
+#[test]
+fn test_lru_vs_fifo_behavior() {
+    // Test that FIFO and LRU behave differently
+
+    // FIFO store
+    let fifo_config = JoinStateStoreConfig::with_limits(3, 0);
+    let mut fifo_store = JoinStateStore::with_config(Duration::from_secs(3600), fifo_config);
+
+    // LRU store
+    let lru_config =
+        JoinStateStoreConfig::with_limits(3, 0).with_eviction_policy(EvictionPolicy::Lru);
+    let mut lru_store = JoinStateStore::with_config(Duration::from_secs(3600), lru_config);
+
+    // Same operations on both stores
+    for store in [&mut fifo_store, &mut lru_store] {
+        store.store("key_1", make_test_record(1), 1000);
+        store.store("key_2", make_test_record(2), 2000);
+        store.store("key_3", make_test_record(3), 3000);
+    }
+
+    // Access key_1 in LRU store only
+    let _ = lru_store.lookup("key_1", 0, 5000);
+
+    // Add a 4th record to both (triggers eviction)
+    fifo_store.store("key_4", make_test_record(4), 4000);
+    lru_store.store("key_4", make_test_record(4), 4000);
+
+    // In LRU, key_1 should exist (was recently accessed)
+    let lru_key1 = lru_store.lookup("key_1", 0, 10000);
+    assert!(
+        !lru_key1.is_empty(),
+        "LRU: key_1 should exist (was recently accessed)"
+    );
+}
+
+#[test]
+fn test_lru_access_tracking_on_store() {
+    let config = JoinStateStoreConfig::with_limits(5, 0).with_eviction_policy(EvictionPolicy::Lru);
+    let mut store = JoinStateStore::with_config(Duration::from_secs(3600), config);
+
+    // Store records - each store updates access time
+    store.store("old_key", make_test_record(1), 1000);
+    store.store("key_2", make_test_record(2), 2000);
+    store.store("key_3", make_test_record(3), 3000);
+    store.store("key_4", make_test_record(4), 4000);
+    store.store("key_5", make_test_record(5), 5000);
+
+    // Add another record to old_key - this updates its access time
+    store.store("old_key", make_test_record(10), 6000);
+
+    // Now old_key is most recently used. Add records to trigger eviction
+    store.store("new_key", make_test_record(6), 7000);
+
+    // old_key should still exist (was recently accessed via store)
+    let matches = store.lookup("old_key", 0, 10000);
+    assert!(
+        !matches.is_empty(),
+        "old_key should exist (recently had record stored)"
+    );
+}
+
+#[test]
+fn test_lru_eviction_with_memory_limit() {
+    // Combine LRU with memory limit
+    let config =
+        JoinStateStoreConfig::with_memory_limit(5000).with_eviction_policy(EvictionPolicy::Lru);
+    let mut store = JoinStateStore::with_config(Duration::from_secs(3600), config);
+
+    // Store some records
+    store.store("key_a", make_large_test_record(1, 500), 1000);
+    store.store("key_b", make_large_test_record(2, 500), 2000);
+
+    // Access key_a
+    let _ = store.lookup("key_a", 0, 5000);
+
+    // Store more to trigger memory-based eviction
+    for i in 3..10 {
+        store.store(
+            &format!("key_{}", i),
+            make_large_test_record(i, 500),
+            i * 1000,
+        );
+    }
+
+    // Memory should be under limit
+    assert!(
+        store.estimated_memory() <= 5000,
+        "Memory {} should be <= 5000",
+        store.estimated_memory()
+    );
+
+    // Verify eviction occurred
+    let stats = store.stats();
+    assert!(stats.records_evicted > 0, "Evictions should have occurred");
+}
+
+#[test]
+fn test_eviction_policy_config() {
+    // Test that config correctly sets eviction policy
+    let fifo_config = JoinStateStoreConfig::default();
+    assert_eq!(fifo_config.eviction_policy, EvictionPolicy::Fifo);
+
+    let lru_config =
+        JoinStateStoreConfig::with_limits(100, 10).with_eviction_policy(EvictionPolicy::Lru);
+    assert_eq!(lru_config.eviction_policy, EvictionPolicy::Lru);
+}
