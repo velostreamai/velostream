@@ -7,89 +7,121 @@
 
 ## Executive Summary
 
-Velostream achieves high-throughput performance across all SQL operations, with stream-stream joins at 624K rec/sec, state store operations at 4.8-5.4M rec/sec, and SQL engine end-to-end at 256-390K rec/sec.
+Comprehensive benchmark results across all SQL operations. Throughput measured in records/sec.
 
 ---
 
 ## Performance Dashboard
 
 ```
-┌─────────────────────────────┬──────────────────┬──────────────┐
-│ Feature                     │ Throughput       │ Status       │
-├─────────────────────────────┼──────────────────┼──────────────┤
-│ StateStore (with expiry)    │ 5.4M rec/sec     │ ✅ Excellent │
-│ StateStore (store+lookup)   │ 4.8M rec/sec     │ ✅ Excellent │
-│ High Cardinality Join       │ 1.8M rec/sec     │ ✅ Excellent │
-│ JoinCoordinator (unlimited) │ 624K rec/sec     │ ✅ Excellent │
-│ SQL Engine (sync)           │ 390K rec/sec     │ ✅ Good      │
-│ SQL Engine (async)          │ 256K rec/sec     │ ✅ Good      │
-│ JoinCoordinator (bounded)   │ 150K rec/sec     │ ✅ Good      │
-└─────────────────────────────┴──────────────────┴──────────────┘
+┌─────────────────────────────┬──────────────┬──────────────┬──────────────┐
+│ Operation                   │ SQL Sync     │ SQL Async    │ Tier         │
+├─────────────────────────────┼──────────────┼──────────────┼──────────────┤
+│ ANY/ALL Operators           │ 1,344K       │ 742K         │ 4            │
+│ IN Subquery                 │ 1,217K       │ 865K         │ 3            │
+│ EXISTS Subquery             │ 1,079K       │ 546K         │ 3            │
+│ ROWS Window                 │ 865K         │ 380K         │ 1            │
+│ SELECT WHERE                │ 767K         │ 354K         │ 1            │
+│ Correlated Subquery         │ 538K         │ 547K         │ 3            │
+│ Scalar Subquery             │ 468K         │ 266K         │ 2            │
+│ Stream-Table Join (tier3)   │ 463K         │ 460K         │ 3            │
+│ Time-based Join             │ 435K         │ 436K         │ 2            │
+│ Interval Stream Join        │ 364K         │ 228K         │ 3            │
+│ HAVING Clause               │ 331K         │ 231K         │ 2            │
+│ Stream-Table Join (tier1)   │ 280K         │ 188K         │ 1            │
+│ Scalar Subquery w/EXISTS    │ 239K         │ 248K         │ 2            │
+│ Tumbling Window             │ 231K         │ 180K         │ 1            │
+│ GROUP BY Continuous         │ 218K         │ 159K         │ 1            │
+│ EMIT CHANGES                │ 9K           │ 7K           │ 1            │
+└─────────────────────────────┴──────────────┴──────────────┴──────────────┘
 ```
 
 ---
 
-## Stream-Stream Joins (FR-085)
+## Tier 1: Essential Operations
 
-**Location**: `tests/performance/analysis/sql_operations/tier3_advanced/interval_stream_join.rs`
-**Test Date**: 2026-01-18
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| ROWS Window | 865,248 | 379,944 | 620,153 | 642,853 |
+| SELECT WHERE | 766,923 | 353,854 | 523,756 | 519,559 |
+| Stream-Table Join | 279,744 | 187,915 | 234,816 | 233,076 |
+| Tumbling Window | 230,687 | 179,981 | 742,643 | 681,991 |
+| GROUP BY Continuous | 218,470 | 158,876 | 242,226 | 242,629 |
+| EMIT CHANGES | 9,390 | 6,684 | 28,874 | 28,809 |
 
-### JoinCoordinator Performance
+---
 
-| Configuration | Throughput | Records | Matches | Duration |
-|---------------|------------|---------|---------|----------|
-| Unlimited state | 624,107 rec/sec | 18,000 | 8,000 | 28.84ms |
-| Memory-bounded (5K limit) | 149,570 rec/sec | 18,000 | 4,024 | 120.35ms |
+## Tier 2: Common Operations
 
-### JoinStateStore Performance
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| Scalar Subquery | 467,851 | 265,556 | 351,420 | 357,744 |
+| Time-based Join | 435,010 | 436,315 | 356,526 | 364,544 |
+| HAVING Clause | 331,280 | 230,728 | 276,575 | 276,503 |
+| Scalar Subquery w/EXISTS | 239,192 | 247,647 | 157,704 | 149,742 |
 
-| Operation | Throughput | Records | Matches | Duration |
-|-----------|------------|---------|---------|----------|
-| Store + Lookup | 4,835,152 rec/sec | 20,000 | 10,000 | 4.14ms |
-| With Expiration | 5,431,341 rec/sec | 10,000 | 9,799 | 1.84ms |
+---
 
-### SQL Engine End-to-End
+## Tier 3: Advanced Operations
 
-| Mode | Throughput | Records | Duration |
-|------|------------|---------|----------|
-| Synchronous | 389,823 rec/sec | 18,000 | 46.17ms |
-| Asynchronous | 255,920 rec/sec | 18,000 | 70.33ms |
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| IN Subquery | 1,217,100 | 865,476 | 683,905 | 744,701 |
+| EXISTS Subquery | 1,079,467 | 545,504 | 675,009 | 37,347 |
+| Correlated Subquery | 538,449 | 547,060 | 450,935 | 433,978 |
+| Stream-Table Join | 462,808 | 460,110 | 372,218 | 394,468 |
 
-### Stress Tests
+### Stream-Stream Joins (FR-085)
 
-| Test | Throughput | Records | Matches | Notes |
-|------|------------|---------|---------|-------|
-| High Cardinality | 1,785,841 rec/sec | 20,000 | 51 | Unique keys (worst case) |
-| Memory Bounded | 1,130,000 rec/sec | 18,000 | 79 | 100 record limit, 17.8K evictions |
+| Component | Throughput | Notes |
+|-----------|------------|-------|
+| JoinStateStore | 5,346,820 | BTreeMap operations |
+| High Cardinality | 1,722,461 | Unique keys stress test |
+| JoinCoordinator | 607,437 | Full join pipeline |
+| SQL Engine (sync) | 363,823 | End-to-end |
+| SQL Engine (async) | 228,083 | Async pipeline |
+
+---
+
+## Tier 4: Specialized Operations
+
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| ANY/ALL Operators | 1,344,704 | 742,184 | 999,908 | 915,150 |
 
 ---
 
 ## Running Benchmarks
 
-### Stream-Stream Join Benchmarks
 ```bash
-# Full benchmark suite
-cargo test --release --no-default-features interval_stream_join -- --nocapture
+# Run all SQL operation benchmarks
+cargo test --release --no-default-features "performance::analysis::sql_operations" -- --nocapture
 
-# Individual tests
+# Run by tier
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier1" -- --nocapture
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier2" -- --nocapture
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier3" -- --nocapture
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier4" -- --nocapture
+
+# Run specific benchmark
 cargo test --release --no-default-features test_interval_stream_join_performance -- --nocapture
-cargo test --release --no-default-features test_interval_join_high_cardinality -- --nocapture
-cargo test --release --no-default-features test_interval_join_memory_bounded -- --nocapture
 ```
 
 ---
 
 ## Benchmark Locations
 
-| Category | Location |
-|----------|----------|
-| Stream-Stream Joins | `tests/performance/analysis/sql_operations/tier3_advanced/interval_stream_join.rs` |
-| Stream-Table Joins | `tests/performance/analysis/sql_operations/tier3_advanced/stream_table_join.rs` |
+| Tier | Location |
+|------|----------|
+| Tier 1 | `tests/performance/analysis/sql_operations/tier1_essential/` |
+| Tier 2 | `tests/performance/analysis/sql_operations/tier2_common/` |
+| Tier 3 | `tests/performance/analysis/sql_operations/tier3_advanced/` |
+| Tier 4 | `tests/performance/analysis/sql_operations/tier4_specialized/` |
 
 ---
 
 ## Related Documentation
 
-- [Benchmarks Guide](../benchmarks/README.md) - How to run benchmarks
-- [Stream-Stream Joins Design](../design/stream-stream-joins.md) - FR-085 architecture
-- [Stream-Table Join Performance](../architecture/stream-table-join-performance.md) - Hash-based joins
+- [Benchmarks Guide](../benchmarks/README.md)
+- [Stream-Stream Joins Design](../design/stream-stream-joins.md)
+- [Stream-Table Join Architecture](../architecture/stream-table-join-performance.md)
