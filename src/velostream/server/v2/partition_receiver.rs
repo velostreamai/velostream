@@ -79,6 +79,9 @@ use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
+/// Result type for process_batch: (processed_count, output_records, pending_dlq_entries)
+type BatchProcessResult = (usize, Vec<Arc<StreamRecord>>, Vec<PendingDlqEntry>);
+
 /// Pending DLQ entry to be written asynchronously after sync batch processing
 ///
 /// This struct captures the information needed to write a DLQ entry without
@@ -553,10 +556,7 @@ impl PartitionReceiver {
     ///
     /// Returns (processed_count, output_records, pending_dlq_entries)
     /// DLQ entries are collected but NOT written - caller must write them asynchronously
-    fn process_batch(
-        &mut self,
-        batch: &[StreamRecord],
-    ) -> Result<(usize, Vec<Arc<StreamRecord>>, Vec<PendingDlqEntry>), SqlError> {
+    fn process_batch(&mut self, batch: &[StreamRecord]) -> Result<BatchProcessResult, SqlError> {
         let mut processed = 0;
         let mut output_records = Vec::new();
         let mut pending_dlq_entries = Vec::new();

@@ -1199,7 +1199,8 @@ impl StreamingQuery {
         match expr {
             Expr::Column(name) => {
                 // Handle qualified names like "orders.order_id" -> "order_id"
-                Some(name.split('.').last().unwrap_or(name.as_str()).to_string())
+                // Use rsplit().next() instead of split().last() for DoubleEndedIterator
+                Some(name.rsplit('.').next().unwrap_or(name.as_str()).to_string())
             }
             _ => None,
         }

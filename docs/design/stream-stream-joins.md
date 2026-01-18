@@ -1,10 +1,17 @@
 # Design Document: Stream-Stream Joins
 
-**Status:** In Progress (Phases 1-5 Complete, Phase 6: Memory Optimization)
+**Status:** In Progress (Phases 1-6 Complete, Phase 7: Window Joins Complete)
 **Author:** Claude Code
 **Created:** 2026-01-16
 **Last Updated:** 2026-01-18
 **Issue:** FR-085 (stream-stream joins)
+
+### Completed Features
+- ✅ Interval Joins (time-bounded correlation)
+- ✅ Memory-Based Limits (Phase 6.1)
+- ✅ LRU Eviction Policy (Phase 6.3)
+- ✅ Tumbling Window Joins (Phase 7)
+- ✅ Sliding Window Joins (Phase 7)
 
 ---
 
@@ -594,6 +601,40 @@ WINDOW SLIDING(SIZE INTERVAL '1' HOUR, SLIDE INTERVAL '10' MINUTE)
 EMIT CHANGES;
 ```
 
+### Window Join Emit Modes
+
+Window joins support two emission modes via `JoinEmitMode`:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| `Final` (default) | Buffer records, emit all matches when window closes | Batch analytics, complete window results |
+| `Changes` | Emit matches immediately as they arrive | Real-time dashboards, streaming updates |
+
+**Configuration in code:**
+
+```rust
+use velostream::velostream::sql::execution::join::{JoinConfig, JoinEmitMode};
+use std::time::Duration;
+
+// EMIT FINAL (default) - emit when window closes
+let batch_config = JoinConfig::tumbling(
+    "orders", "shipments",
+    vec![("order_id".to_string(), "order_id".to_string())],
+    Duration::from_secs(3600),
+);
+
+// EMIT CHANGES - emit immediately on match
+let streaming_config = JoinConfig::tumbling(
+    "orders", "shipments",
+    vec![("order_id".to_string(), "order_id".to_string())],
+    Duration::from_secs(3600),
+).with_emit_mode(JoinEmitMode::Changes);
+```
+
+**Behavior differences:**
+- **EMIT FINAL**: Records are buffered in state stores. When `close_windows(watermark)` is called and the watermark advances past a window's end time, all matches for that window are emitted as a batch.
+- **EMIT CHANGES**: Each new record is stored and immediately matched against existing records in the same window. Matches are emitted in real-time as they're found.
+
 ### Join Types
 
 ```sql
@@ -1077,21 +1118,26 @@ WITH (
 
 ## Future Enhancements
 
-### Short Term
+### Short Term - COMPLETE ✅
 - [x] LEFT/RIGHT/FULL OUTER join support (JoinType enum implemented)
 - [x] Multiple join keys (composite keys) (JoinKeyExtractor supports multi-column)
 - [x] Configurable grace period for late data (WatermarkConfig.max_lateness_ms)
 - [x] Memory limits and backpressure (JoinStateStoreConfig, MemoryPressure)
-- [ ] SQL engine integration (Phase 4)
-- [ ] tier3 test validation
+- [x] Memory-based limits (Phase 6.1)
+- [x] LRU eviction policy (Phase 6.3)
+- [x] tier3 test validation (all 5 tests pass)
 
-### Medium Term
-- [ ] Window joins (tumbling, sliding)
-- [ ] Session window joins
+### Medium Term - PARTIALLY COMPLETE
+- [x] Tumbling window joins (JoinMode::Tumbling with close_windows())
+- [x] Sliding window joins (JoinMode::Sliding with compute_window_ids())
+- [x] EMIT CHANGES mode for window joins (JoinEmitMode::Changes for streaming emission)
+- [ ] Session window joins (JoinMode::Session - partial support)
 - [ ] Multi-way joins (3+ streams)
+- [ ] Phase 6.2: String interning for field names (30-40% memory savings)
+- [ ] Phase 6.4: Compact records storage (15-25% memory savings)
 
-### Long Term
-- [ ] Persistent state with RocksDB
+### Long Term - DEFERRED
+- [ ] Persistent state with RocksDB (deferred per user request)
 - [ ] Exactly-once with transactional output
 - [ ] State migration for rescaling
 
@@ -1105,6 +1151,8 @@ WITH (
 |------|------------|
 | **Interval Join** | Join where records match if their timestamps fall within a specified interval |
 | **Window Join** | Join where records match if they fall within the same time window |
+| **EMIT FINAL** | Window join emission mode: emit all matches when window closes (batch mode) |
+| **EMIT CHANGES** | Window join emission mode: emit matches immediately as they arrive (streaming mode) |
 | **Watermark** | Monotonically increasing timestamp indicating no more events before this time |
 | **Retention** | How long to keep records in state before expiring |
 | **Co-partitioning** | When two streams are partitioned by the same key |

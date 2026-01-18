@@ -57,8 +57,8 @@ mod state_store;
 mod watermark;
 
 pub use coordinator::{
-    JoinConfig, JoinCoordinator, JoinCoordinatorConfig, JoinCoordinatorStats, JoinSide, JoinType,
-    MemoryPressure, MissingEventTimeBehavior,
+    JoinConfig, JoinCoordinator, JoinCoordinatorConfig, JoinCoordinatorStats, JoinEmitMode,
+    JoinMode, JoinSide, JoinType, MemoryPressure, MissingEventTimeBehavior, WindowJoinState,
 };
 pub use key_extractor::{JoinKeyExtractor, JoinKeyExtractorPair};
 pub use state_store::{

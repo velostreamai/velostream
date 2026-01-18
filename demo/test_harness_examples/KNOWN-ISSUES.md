@@ -2,21 +2,21 @@
 
 This document tracks known limitations and issues discovered during test harness validation.
 
-## Current Status (2026-01-15)
+## Current Status (2026-01-18)
 
-> **TEST HARNESS: 32 Passed, 8 Failed, 1 Skipped (41 total)**
+> **TEST HARNESS: 36 Passed, 4 Failed, 1 Skipped (41 total)**
 
 | Tier                | Passed | Failed | Status     |
 |---------------------|--------|--------|------------|
 | tier1_basic         | 8      | 0      | **100%** ★ |
 | tier2_aggregations  | 6      | 0      | **100%** ★ |
-| tier3_joins         | 1      | 4      | 20%        |
+| tier3_joins         | 5      | 0      | **100%** ★ |
 | tier4_window_funcs  | 4      | 0      | **100%** ★ |
 | tier5_complex       | 4      | 1      | 80%        |
 | tier6_edge_cases    | 1      | 3      | 25%        |
 | tier7_serialization | 4      | 0      | **100%** ★ |
 | tier8_fault_tol     | 4      | 0      | **100%** ★ |
-| **TOTAL**           | **32** | **8**  | **78%**    |
+| **TOTAL**           | **36** | **4**  | **88%**    |
 
 **Run tests:** `./run-tests.sh`
 
@@ -44,7 +44,6 @@ This document tracks known limitations and issues discovered during test harness
 
 | Test        | Error Type | Notes                             |
 |-------------|------------|-----------------------------------|
-| tier3/21-24 | ⚠️ ARCH    | Stream-stream joins (Issue #19)   |
 | tier6/51-53 | TIMEOUT    | Edge cases timing out (Issue #27) |
 
 ---
@@ -82,78 +81,6 @@ Implement UNION/UNION ALL execution in `StreamExecutionEngine` that:
 
 ---
 
-### 19. Stream-Stream Joins Failing (tier3/21-24)
-
-**Status:** Architectural Limitation - Sequential Source Processing
-**Affected Tests:** 21_stream_stream_join, 22_multi_join, 23_right_join, 24_full_outer_join
-**Severity:** High
-
-**Description:**
-Fixed issues:
-
-1. ✅ **Timestamp + Interval arithmetic** - BETWEEN conditions now work correctly
-2. ✅ **String timestamp parsing** - ISO 8601 strings now parse for interval arithmetic
-3. ✅ **Shorthand SQL pattern** - Single-query inline source definitions work
-
-**Root Cause:**
-The V2 AdaptiveJobProcessor processes multiple sources **sequentially**, not concurrently:
-
-```rust
-for (reader_idx, (reader_name, mut reader)) in readers_list.into_iter().enumerate() {
-// Each source is processed one at a time
-}
-```
-
-For stream-stream joins, this means:
-
-1. Orders are read first, processed (no shipments available to join)
-2. Shipments are read second, processed (no orders in buffer to join with)
-3. Result: All join fields from the second source are NULL
-
-**Evidence:**
-Test output shows records produced, but all shipment fields are NULL:
-
-```
-Found null values: shipment_id[0-9], carrier[0-9], tracking_number[0-9]
-```
-
-**Required Fix:**
-Stream-stream joins need:
-
-1. **Temporal coordination of data sources** - Both sources must be read concurrently and
-   coordinated by event time so that records from both streams arrive within the same
-   time window for correlation
-2. **Join buffer/state** - Records from both sides must be buffered until matching
-   records arrive from the other stream
-3. **Temporal windowing** - For time-based joins, a time window determines how long
-   records are held waiting for matches (e.g., "join orders with shipments within 24 hours")
-4. **Watermark synchronization** - Both streams need synchronized watermarks to know
-   when to emit results and expire buffered records
-
-This is a significant architectural enhancement beyond test harness scope. The current
-sequential processing model cannot support stream-stream joins because there's no
-mechanism to hold records from one stream while waiting for correlated records from another.
-
-**Workaround:** Use stream-table joins instead (table is preloaded, then stream is processed).
-
----
-
-### 20. Tier 6-8 Timeouts and Failures
-
-**Status:** Partially Resolved
-**Affected Tests:** tier6/51-53, tier8/*
-**Severity:** Medium
-
-**Description:**
-
-- tier6 edge cases are timing out (empty, large_volume, late_arrivals)
-- tier8 fault tolerance tests all failing
-
-**Resolved:** tier7/61 (Avro) and tier7/63 (format conversion) now pass after fixing schema paths and adding capture
-format support.
-
----
-
 ### 27. Empty Stream Tests Timeout (tier6/51-53)
 
 **Status:** Architectural Limitation
@@ -182,6 +109,29 @@ Modify the executor's job completion detection to recognize empty stream scenari
 ---
 
 ## Resolved Issues
+
+### ~~19. Stream-Stream Joins Failing~~ ✅ RESOLVED
+
+**Status:** Fixed (2026-01-18)
+**Affected Tests:** `tier3_joins/21-24` - All now pass
+
+**What Was Fixed:**
+Implemented complete stream-stream join architecture (FR-085):
+
+1. **JoinCoordinator** - Manages join state and produces matched results
+2. **SourceCoordinator** - Concurrent source reading with temporal coordination
+3. **JoinJobProcessor** - Specialized processor for stream-stream joins
+4. **JoinStateStore** - Buffered state with memory limits and LRU eviction
+5. **Query routing** - `has_stream_stream_joins()` routes to JoinJobProcessor
+
+**Key Features:**
+- Temporal coordination of data sources (concurrent reading)
+- Join buffer/state with configurable retention
+- Memory-based limits with LRU/FIFO eviction policies
+- Watermark synchronization for result emission and state expiry
+- Support for INNER, LEFT, RIGHT, and FULL OUTER joins
+
+---
 
 ### ~~11. IN (SELECT) Subquery Filter Not Applied~~ ✅ RESOLVED
 
@@ -416,15 +366,15 @@ queries:
 | 14_session_window  | ✅ PASSED | **FIXED** - Test spec source/query alignment |
 | 15_compound_keys   | ✅ PASSED | **FIXED** - Multi-key aggregation            |
 
-### tier3_joins (5 tests) - Join Operations
+### tier3_joins (5 tests) - Join Operations ★ 100%
 
-| Test                  | Status   | Notes                                        |
-|-----------------------|----------|----------------------------------------------|
-| 20_stream_table_join  | ✅ PASSED | **FIXED** - AS aliases added                 |
-| 21_stream_stream_join | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
-| 22_multi_join         | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
-| 23_right_join         | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
-| 24_full_outer_join    | ⚠️ ARCH  | Sequential processing limitation (Issue #19) |
+| Test                  | Status   | Notes                                                        |
+|-----------------------|----------|--------------------------------------------------------------|
+| 20_stream_table_join  | ✅ PASSED | **FIXED** - AS aliases added                                 |
+| 21_stream_stream_join | ✅ PASSED | **FIXED** - JoinJobProcessor with concurrent source reading  |
+| 22_multi_join         | ✅ PASSED | **FIXED** - JoinCoordinator with watermark synchronization   |
+| 23_right_join         | ✅ PASSED | **FIXED** - Stream-stream join implementation complete       |
+| 24_full_outer_join    | ✅ PASSED | **FIXED** - Full interval join support with state management |
 
 ### tier4_window_functions (4 tests) - Window Functions ★ 100%
 
@@ -483,14 +433,14 @@ queries:
 ```
 tier1_basic:        8/8  passed (100%) ★ ORDER BY/LIMIT FIXED
 tier2_aggregations: 6/6  passed (100%) ★ SLIDING/SESSION WINDOWS FIXED
-tier3_joins:        1/5  passed (20%)
+tier3_joins:        5/5  passed (100%) ★ STREAM-STREAM JOINS IMPLEMENTED
 tier4_window_funcs: 4/4  passed (100%) ★
 tier5_complex:      4/5  passed (80%)
 tier6_edge_cases:   1/4  passed (25%)  - Empty stream timeouts (Issue #27)
 tier7_serialization:4/4  passed (100%) ★ AVRO + PROTOBUF + FORMAT CONVERSION FIXED
 tier8_fault_tol:    4/4  passed (100%) ★ DLQ + ERROR_RATE + THROUGHPUT ASSERTIONS
 ─────────────────────────────────────────
-TOTAL:              32/41 passed (78%)
+TOTAL:              36/41 passed (88%)
 ```
 
 ---
@@ -498,10 +448,10 @@ TOTAL:              32/41 passed (78%)
 ## Recommendations
 
 1. ~~**Investigate tier1 ORDER BY/LIMIT failures**~~ ✅ RESOLVED - Phase 5 batch sorting implemented
-2. **Debug tier3 join failures** - Stream-stream joins need temporal join support
+2. ~~**Debug tier3 join failures**~~ ✅ RESOLVED - Stream-stream join architecture implemented (FR-085)
 3. ~~**Increase timeout for 15_compound_keys**~~ ✅ RESOLVED - Now passes
 4. ~~**Investigate sliding/session window issues**~~ ✅ RESOLVED - Test spec source/query name alignment
-5. **Check tier6-8 configuration** - May be test spec or schema issues
+5. **Check tier6 edge case timeouts** - Empty/large_volume/late_arrivals timing out (Issue #27)
 
 ---
 
