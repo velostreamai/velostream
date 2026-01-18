@@ -786,7 +786,7 @@ SELECT * FROM orders o FULL OUTER JOIN shipments s ON o.order_id = s.order_id;
 | Task | Status | Description |
 |------|--------|-------------|
 | 5.1 | ❌ | Pass all tier3 join tests (21-24) - requires Kafka |
-| 5.2 | ✅ | Performance benchmarks (517K rec/sec JoinCoordinator, 5.1M rec/sec StateStore) |
+| 5.2 | ✅ | Performance benchmarks (624K rec/sec JoinCoordinator, 5.4M rec/sec StateStore) |
 | 5.3 | ✅ | Documentation (this document) |
 | 5.4 | ✅ | Edge case handling (in unit tests) |
 
@@ -897,28 +897,28 @@ Existing tests that should pass after implementation:
 
 | Component | Throughput | Notes |
 |-----------|------------|-------|
-| **JoinCoordinator (unlimited)** | 517,450 rec/sec | Full join pipeline |
-| **JoinCoordinator (memory-bounded)** | 151,790 rec/sec | With 5K record limit |
-| **JoinStateStore (store+lookup)** | 5,080,279 rec/sec | BTreeMap range queries |
-| **JoinStateStore (with expiration)** | 4,998,228 rec/sec | Watermark cleanup overhead |
-| **SQL Engine (sync)** | 376,355 rec/sec | End-to-end execution |
-| **SQL Engine (async)** | 234,513 rec/sec | Async pipeline |
-| **High Cardinality** | 1,869,865 rec/sec | Unique keys stress test |
+| **JoinCoordinator (unlimited)** | 624,107 rec/sec | Full join pipeline |
+| **JoinCoordinator (memory-bounded)** | 149,570 rec/sec | With 5K record limit |
+| **JoinStateStore (store+lookup)** | 4,835,152 rec/sec | BTreeMap range queries |
+| **JoinStateStore (with expiration)** | 5,431,341 rec/sec | Watermark cleanup overhead |
+| **SQL Engine (sync)** | 389,823 rec/sec | End-to-end execution |
+| **SQL Engine (async)** | 255,920 rec/sec | Async pipeline |
+| **High Cardinality** | 1,785,841 rec/sec | Unique keys stress test |
 
 #### Performance Characteristics
 
 | Metric | Measured | Implementation |
 |--------|----------|----------------|
-| Join throughput | 517K rec/sec | JoinCoordinator pipeline |
+| Join throughput | 624K rec/sec | JoinCoordinator pipeline |
 | State lookup | O(1) by key, O(log n) for time | HashMap + BTreeMap |
-| Memory-bounded overhead | ~70% slower | Eviction cost at 5K limit |
-| High cardinality penalty | None | 1.9M rec/sec with unique keys |
+| Memory-bounded overhead | ~76% slower | Eviction cost at 5K limit |
+| High cardinality penalty | None | 1.8M rec/sec with unique keys |
 
 #### Memory Bounds Validation
 
 | Configuration | Records Stored | Records Evicted | Compliance |
 |---------------|----------------|-----------------|------------|
-| Limit = 100 | 100 | 17,000+ | ✅ Within bounds |
+| Limit = 100 | 100 | 17,800 | ✅ Within bounds |
 | Limit = 5000 | 5000 | Proportional | ✅ Within bounds |
 
 ### Performance Summary
@@ -927,12 +927,13 @@ Existing tests that should pass after implementation:
 ┌─────────────────────────────┬──────────────────┐
 │ Component                   │ Throughput       │
 ├─────────────────────────────┼──────────────────┤
-│ JoinStateStore             │ 5.1M rec/sec     │
-│ High Cardinality           │ 1.9M rec/sec     │
-│ JoinCoordinator            │ 517K rec/sec     │
-│ SQL Engine (sync)          │ 376K rec/sec     │
-│ SQL Engine (async)         │ 235K rec/sec     │
-│ Memory-bounded             │ 152K rec/sec     │
+│ JoinStateStore (expiry)    │ 5.4M rec/sec     │
+│ JoinStateStore (lookup)    │ 4.8M rec/sec     │
+│ High Cardinality           │ 1.8M rec/sec     │
+│ JoinCoordinator            │ 624K rec/sec     │
+│ SQL Engine (sync)          │ 390K rec/sec     │
+│ SQL Engine (async)         │ 256K rec/sec     │
+│ Memory-bounded             │ 150K rec/sec     │
 └─────────────────────────────┴──────────────────┘
 ```
 

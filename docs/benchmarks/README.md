@@ -59,17 +59,17 @@ cargo test --release --no-default-features interval_stream_join -- --nocapture
 cargo test --release --no-default-features test_interval_stream_join_performance -- --nocapture
 ```
 
-**Performance Results:**
+**Performance Results (2026-01-18):**
 
 | Component | Throughput | Notes |
 |-----------|------------|-------|
-| JoinCoordinator (unlimited) | 517K rec/sec | Full join pipeline |
-| JoinCoordinator (limit=5000) | 152K rec/sec | Memory-bounded mode |
-| JoinStateStore (store+lookup) | 5.1M rec/sec | BTreeMap operations |
-| JoinStateStore (with expiration) | 5.0M rec/sec | Watermark cleanup |
-| SQL Engine (sync) | 376K rec/sec | End-to-end execution |
-| SQL Engine (async) | 235K rec/sec | Async pipeline |
-| High cardinality | 1.9M rec/sec | Unique keys stress test |
+| JoinCoordinator (unlimited) | 624K rec/sec | Full join pipeline |
+| JoinCoordinator (limit=5000) | 150K rec/sec | Memory-bounded mode |
+| JoinStateStore (store+lookup) | 4.8M rec/sec | BTreeMap operations |
+| JoinStateStore (with expiration) | 5.4M rec/sec | Watermark cleanup |
+| SQL Engine (sync) | 390K rec/sec | End-to-end execution |
+| SQL Engine (async) | 256K rec/sec | Async pipeline |
+| High cardinality | 1.8M rec/sec | Unique keys stress test |
 
 ---
 
