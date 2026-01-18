@@ -107,6 +107,69 @@ WITHIN INTERVAL '2' HOURS;
 - **MINUTES** - Payment processing, order fulfillment
 - **HOURS** - Session analysis, user behavior tracking
 
+## Interval Stream-Stream JOINs (FR-085)
+
+**For unbounded streams:** Join two continuous streams with time-bounded conditions. Uses the JoinCoordinator with watermark-driven state management.
+
+### Basic Interval Join
+```sql
+-- Orders joined with shipments within 24 hours
+SELECT
+    o.order_id,
+    o.customer_id,
+    o.total_amount,
+    s.shipment_id,
+    s.carrier,
+    s.tracking_number
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+  AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '24' HOUR
+EMIT CHANGES;
+```
+
+### Click Attribution
+```sql
+-- Attribute purchases to ad clicks within 30 minutes
+SELECT
+    c.user_id,
+    c.ad_id,
+    c.click_time,
+    p.purchase_id,
+    p.amount
+FROM ad_clicks c
+JOIN purchases p ON c.user_id = p.user_id
+  AND p.event_time BETWEEN c.event_time AND c.event_time + INTERVAL '30' MINUTE
+EMIT CHANGES;
+```
+
+### With Explicit Configuration
+```sql
+-- Stream-stream join with retention config
+SELECT o.*, s.*
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+  AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '24' HOUR
+EMIT CHANGES
+WITH (
+    'join.type' = 'interval',
+    'join.lower_bound' = '0s',
+    'join.upper_bound' = '24h',
+    'join.retention' = '48h'
+);
+```
+
+### Performance Characteristics
+| Component | Throughput |
+|-----------|------------|
+| JoinStateStore | 5.3M rec/sec |
+| JoinCoordinator | 607K rec/sec |
+| SQL Engine (sync) | 364K rec/sec |
+| High Cardinality | 1.7M rec/sec |
+
+**See also:** [Stream-Stream Joins Design](../../design/stream-stream-joins.md)
+
+---
+
 ## Stream-Table JOINs
 
 **Optimized pattern:** Join streaming data with reference tables for data enrichment.
