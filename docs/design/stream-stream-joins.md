@@ -1,6 +1,6 @@
 # Design Document: Stream-Stream Joins
 
-**Status:** In Progress (Phases 1-4 Complete, Phase 5: 60%)
+**Status:** In Progress (Phases 1-5 Complete, Phase 6: Memory Optimization)
 **Author:** Claude Code
 **Created:** 2026-01-16
 **Last Updated:** 2026-01-18
@@ -931,6 +931,147 @@ Existing tests that should pass after implementation:
 2. **Time-bucketed storage** for faster time range queries
 3. **RocksDB backing** for larger-than-memory state
 4. **Incremental checkpointing** for fault tolerance
+
+---
+
+## Memory Optimization Plan
+
+### Current Memory Layout Analysis
+
+```
+JoinStateStore Memory Per Record (~1,200 bytes typical):
+├── JoinBufferEntry overhead:     16 bytes (event_time + expire_at)
+├── StreamRecord base:           144 bytes (struct fields)
+├── HashMap (fields) base:        48 bytes
+├── 10 field entries:            720 bytes (~72 bytes/entry)
+├── Field names (avg 8 chars):    80 bytes
+├── Field values (typical):      160 bytes
+├── Headers HashMap:              48 bytes
+├── BTreeMap amortized:            8 bytes
+└── VecDeque amortized:            4 bytes
+```
+
+### Capacity Estimates
+
+| Available RAM | Records (1.2KB each) | Notes |
+|---------------|----------------------|-------|
+| 1 GB | 833K | Current default limit |
+| 4 GB | 3.3M | Medium workload |
+| 8 GB | 6.6M | Large workload |
+| 16 GB | 13.3M | Production scale |
+
+### Identified Inefficiencies
+
+| Issue | Impact | Savings Potential |
+|-------|--------|-------------------|
+| **String Duplication** | HIGH | 30-40% - field names repeated per record |
+| **HashMap Overhead** | MEDIUM | 15-25% - 48 bytes base + entry overhead |
+| **No Columnar Storage** | MEDIUM | 20-30% - row-oriented storage |
+| **No Memory-Based Limits** | HIGH | OOM risk - only record counts |
+
+### Comparison with Flink/ksqlDB
+
+| Feature | Flink | ksqlDB | Velostream (Current) |
+|---------|-------|--------|----------------------|
+| **State Backend** | RocksDB/Heap | RocksDB | In-memory HashMap |
+| **Eviction Policy** | TTL-based | LRU (cache) | FIFO by event_time |
+| **Record Count Limit** | ❌ | ❌ | ✅ 1M default |
+| **Per-Key Limit** | ❌ | ❌ | ✅ 10K default |
+| **Memory Limit** | RocksDB cache | Global bound | ❌ None |
+| **Spill to Disk** | ✅ | ✅ | ❌ |
+
+### Implementation Roadmap
+
+#### Phase 6.1: Memory-Based Limits (Priority 1) - 1-2 days
+```rust
+pub struct JoinStateStoreConfig {
+    pub max_memory_bytes: usize,      // NEW: e.g., 1GB
+    pub max_records: usize,           // Keep as fallback
+    pub max_records_per_key: usize,
+    pub warning_threshold_pct: u8,
+}
+
+impl JoinStateStore {
+    fn estimate_record_size(record: &StreamRecord) -> usize;
+    fn current_memory_usage(&self) -> usize;  // Track incrementally
+}
+```
+
+#### Phase 6.2: String Interning (Priority 2) - 2-3 days
+```rust
+// Before: Each record clones field names
+HashMap<String, FieldValue>  // "symbol" repeated millions of times
+
+// After: Single allocation, shared reference
+use arc_interner::ArcIntern;
+HashMap<ArcIntern<str>, FieldValue>  // One copy, shared refs
+```
+
+**Expected savings: 30-40% memory reduction**
+
+#### Phase 6.3: LRU Eviction Policy (Priority 3) - 2-3 days
+```rust
+pub enum EvictionPolicy {
+    Fifo,           // Current: oldest event_time first
+    Lru,            // Least recently accessed
+    LruByEventTime, // Hybrid: LRU within time buckets
+}
+
+pub struct JoinBufferEntry {
+    pub record: StreamRecord,
+    pub event_time: i64,
+    pub expire_at: i64,
+    pub last_accessed: Instant,  // NEW: for LRU tracking
+}
+```
+
+#### Phase 6.4: Compact Records (Priority 4) - 3-5 days
+```rust
+// Schema-aware storage to eliminate per-record HashMap overhead
+struct CompactRecord {
+    schema: Arc<Schema>,      // Shared across all records
+    values: Vec<FieldValue>,  // Indexed by schema position
+}
+```
+
+**Expected savings: 15-25% + better cache locality**
+
+#### Phase 6.5: RocksDB Backing (Priority 5) - 1-2 weeks
+```rust
+pub struct JoinStateStore {
+    hot_cache: HashMap<String, TimeIndex>,  // In-memory LRU
+    cold_store: Option<rocksdb::DB>,        // Disk-backed
+    cache_size_limit: usize,
+}
+```
+
+### SQL Configuration
+
+```sql
+-- Memory-based configuration
+SELECT o.*, s.*
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+EMIT CHANGES
+WITH (
+    'join.max_memory_bytes' = '1073741824',  -- 1GB
+    'join.max_records' = '1000000',          -- Fallback limit
+    'join.max_records_per_key' = '10000',
+    'join.eviction_policy' = 'lru',          -- fifo|lru|lru_by_event_time
+    'join.retention' = '24h'
+);
+```
+
+### Metrics to Track
+
+| Metric | Description |
+|--------|-------------|
+| `join_state_memory_bytes` | Current memory usage |
+| `join_state_memory_limit_bytes` | Configured limit |
+| `join_state_evictions_total` | Records evicted (by policy) |
+| `join_state_evictions_memory` | Evictions due to memory pressure |
+| `join_state_evictions_ttl` | Evictions due to TTL |
+| `join_state_cache_hit_ratio` | For LRU policy effectiveness |
 
 ---
 

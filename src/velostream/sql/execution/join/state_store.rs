@@ -52,6 +52,10 @@ pub struct JoinStateStats {
     pub records_expired: u64,
     /// Total records evicted due to memory limits (lifetime)
     pub records_evicted: u64,
+    /// Records evicted due to memory pressure specifically
+    pub records_evicted_memory: u64,
+    /// Records evicted due to record count limit
+    pub records_evicted_count: u64,
     /// Total lookup operations
     pub lookups: u64,
     /// Total matches found across all lookups
@@ -64,23 +68,40 @@ pub struct JoinStateStats {
     pub current_keys: usize,
     /// Number of times max_records limit was hit
     pub limit_hits: u64,
+    /// Number of times max_memory limit was hit
+    pub memory_limit_hits: u64,
+    /// Current estimated memory usage in bytes
+    pub current_memory_bytes: usize,
+    /// Peak memory usage observed
+    pub peak_memory_bytes: usize,
 }
 
 impl JoinStateStats {
     /// Record that a record was stored
-    pub fn record_store(&mut self, new_size: usize) {
+    pub fn record_store(&mut self, new_size: usize, memory_bytes: usize) {
         self.records_stored += 1;
         self.current_size = new_size;
+        self.current_memory_bytes = memory_bytes;
         if new_size > self.peak_size {
             self.peak_size = new_size;
+        }
+        if memory_bytes > self.peak_memory_bytes {
+            self.peak_memory_bytes = memory_bytes;
         }
     }
 
     /// Record that records were expired
-    pub fn record_expiration(&mut self, count: usize, new_size: usize, new_keys: usize) {
+    pub fn record_expiration(
+        &mut self,
+        count: usize,
+        new_size: usize,
+        new_keys: usize,
+        memory_bytes: usize,
+    ) {
         self.records_expired += count as u64;
         self.current_size = new_size;
         self.current_keys = new_keys;
+        self.current_memory_bytes = memory_bytes;
     }
 
     /// Record a lookup operation
@@ -88,6 +109,29 @@ impl JoinStateStats {
         self.lookups += 1;
         self.matches_found += matches as u64;
     }
+
+    /// Record memory-based eviction
+    pub fn record_memory_eviction(&mut self, count: usize) {
+        self.records_evicted += count as u64;
+        self.records_evicted_memory += count as u64;
+        self.memory_limit_hits += 1;
+    }
+
+    /// Record count-based eviction
+    pub fn record_count_eviction(&mut self, count: usize) {
+        self.records_evicted += count as u64;
+        self.records_evicted_count += count as u64;
+    }
+}
+
+/// Eviction policy when memory or record limits are reached
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EvictionPolicy {
+    /// Evict oldest records by event time (default, current behavior)
+    #[default]
+    Fifo,
+    /// Evict least recently accessed records (requires access tracking)
+    Lru,
 }
 
 /// Configuration for state store memory limits
@@ -97,16 +141,22 @@ pub struct JoinStateStoreConfig {
     pub max_records: usize,
     /// Maximum records per key (0 = unlimited)
     pub max_records_per_key: usize,
-    /// Warning threshold as percentage of max_records (0-100)
+    /// Maximum memory usage in bytes (0 = unlimited)
+    pub max_memory_bytes: usize,
+    /// Warning threshold as percentage of limits (0-100)
     pub warning_threshold_pct: u8,
+    /// Eviction policy when limits are reached
+    pub eviction_policy: EvictionPolicy,
 }
 
 impl Default for JoinStateStoreConfig {
     fn default() -> Self {
         Self {
-            max_records: 1_000_000,      // 1M records default limit
-            max_records_per_key: 10_000, // 10K records per key
-            warning_threshold_pct: 80,   // Warn at 80% capacity
+            max_records: 1_000_000,          // 1M records default limit
+            max_records_per_key: 10_000,     // 10K records per key
+            max_memory_bytes: 1_073_741_824, // 1GB default memory limit
+            warning_threshold_pct: 80,       // Warn at 80% capacity
+            eviction_policy: EvictionPolicy::Fifo,
         }
     }
 }
@@ -117,17 +167,53 @@ impl JoinStateStoreConfig {
         Self {
             max_records: 0,
             max_records_per_key: 0,
+            max_memory_bytes: 0,
             warning_threshold_pct: 0,
+            eviction_policy: EvictionPolicy::Fifo,
         }
     }
 
-    /// Create config with specific limits
+    /// Create config with specific record limits
     pub fn with_limits(max_records: usize, max_per_key: usize) -> Self {
         Self {
             max_records,
             max_records_per_key: max_per_key,
+            max_memory_bytes: 0, // No memory limit
             warning_threshold_pct: 80,
+            eviction_policy: EvictionPolicy::Fifo,
         }
+    }
+
+    /// Create config with memory limit
+    pub fn with_memory_limit(max_memory_bytes: usize) -> Self {
+        Self {
+            max_records: 0, // No record limit
+            max_records_per_key: 0,
+            max_memory_bytes,
+            warning_threshold_pct: 80,
+            eviction_policy: EvictionPolicy::Fifo,
+        }
+    }
+
+    /// Create config with both record and memory limits
+    pub fn with_all_limits(
+        max_records: usize,
+        max_per_key: usize,
+        max_memory_bytes: usize,
+    ) -> Self {
+        Self {
+            max_records,
+            max_records_per_key: max_per_key,
+            max_memory_bytes,
+            warning_threshold_pct: 80,
+            eviction_policy: EvictionPolicy::Fifo,
+        }
+    }
+
+    /// Set eviction policy
+    pub fn with_eviction_policy(mut self, policy: EvictionPolicy) -> Self {
+        self.eviction_policy = policy;
+        self
     }
 }
 
@@ -156,8 +242,9 @@ type TimeIndex = BTreeMap<i64, VecDeque<JoinBufferEntry>>;
 /// The store enforces configurable memory limits:
 /// - `max_records`: Maximum total records across all keys
 /// - `max_records_per_key`: Maximum records for any single key
+/// - `max_memory_bytes`: Maximum estimated memory usage
 ///
-/// When limits are hit, oldest records are evicted (FIFO within each key).
+/// When limits are hit, records are evicted based on the configured eviction policy.
 #[derive(Debug)]
 pub struct JoinStateStore {
     /// Records indexed by join key, then by event time
@@ -177,12 +264,26 @@ pub struct JoinStateStore {
     /// Running count of total records (maintained incrementally for O(1) lookup)
     record_count: usize,
 
+    /// Estimated memory usage in bytes (tracked incrementally)
+    estimated_memory: usize,
+
     /// Memory limit configuration
     config: JoinStateStoreConfig,
 
     /// Flag indicating if we've logged a capacity warning
     capacity_warning_logged: bool,
+
+    /// Flag indicating if we've logged a memory warning
+    memory_warning_logged: bool,
 }
+
+// Constants for memory estimation
+const ENTRY_OVERHEAD: usize = 16; // event_time + expire_at
+const HASHMAP_ENTRY_OVERHEAD: usize = 72; // HashMap entry overhead per field
+const HASHMAP_BASE_SIZE: usize = 48; // Empty HashMap
+const BTREEMAP_NODE_OVERHEAD: usize = 48; // BTreeMap node overhead
+const VECDEQUE_OVERHEAD: usize = 24; // VecDeque base size
+const STRING_OVERHEAD: usize = 24; // String struct overhead
 
 impl JoinStateStore {
     /// Create a new state store with the given retention period
@@ -209,14 +310,91 @@ impl JoinStateStore {
             retention_ms,
             stats: JoinStateStats::default(),
             record_count: 0,
+            estimated_memory: 0,
             config: JoinStateStoreConfig::default(),
             capacity_warning_logged: false,
+            memory_warning_logged: false,
         }
     }
 
     /// Count records for a specific key (O(n) where n is distinct event times)
     fn count_records_for_key(time_index: &TimeIndex) -> usize {
         time_index.values().map(|entries| entries.len()).sum()
+    }
+
+    /// Estimate memory size of a StreamRecord
+    ///
+    /// This provides a conservative estimate of heap memory usage.
+    /// The actual memory may vary based on allocator behavior.
+    pub fn estimate_record_size(record: &StreamRecord) -> usize {
+        use crate::velostream::sql::execution::types::FieldValue;
+
+        let mut size = ENTRY_OVERHEAD; // JoinBufferEntry overhead
+        size += std::mem::size_of::<StreamRecord>(); // Base struct size
+
+        // Fields HashMap
+        size += HASHMAP_BASE_SIZE;
+        for (key, value) in &record.fields {
+            size += HASHMAP_ENTRY_OVERHEAD;
+            size += STRING_OVERHEAD + key.len();
+            size += Self::estimate_field_value_size(value);
+        }
+
+        // Headers HashMap
+        size += HASHMAP_BASE_SIZE;
+        for (key, value) in &record.headers {
+            size += HASHMAP_ENTRY_OVERHEAD;
+            size += STRING_OVERHEAD + key.len();
+            size += STRING_OVERHEAD + value.len();
+        }
+
+        // Optional fields
+        if let Some(topic) = &record.topic {
+            size += Self::estimate_field_value_size(topic);
+        }
+        if let Some(key) = &record.key {
+            size += Self::estimate_field_value_size(key);
+        }
+
+        size
+    }
+
+    /// Estimate memory size of a FieldValue
+    fn estimate_field_value_size(
+        value: &crate::velostream::sql::execution::types::FieldValue,
+    ) -> usize {
+        use crate::velostream::sql::execution::types::FieldValue;
+
+        match value {
+            FieldValue::Null => 1,
+            FieldValue::Boolean(_) => 1,
+            FieldValue::Integer(_) => 8,
+            FieldValue::Float(_) => 8,
+            FieldValue::String(s) => STRING_OVERHEAD + s.len(),
+            FieldValue::Date(_) => 4,
+            FieldValue::Timestamp(_) => 12,
+            FieldValue::Decimal(_) => 16,
+            FieldValue::ScaledInteger(_, _) => 9,
+            FieldValue::Array(arr) => {
+                24 + arr
+                    .iter()
+                    .map(Self::estimate_field_value_size)
+                    .sum::<usize>()
+            }
+            FieldValue::Map(map) | FieldValue::Struct(map) => {
+                HASHMAP_BASE_SIZE
+                    + map
+                        .iter()
+                        .map(|(k, v)| {
+                            HASHMAP_ENTRY_OVERHEAD
+                                + STRING_OVERHEAD
+                                + k.len()
+                                + Self::estimate_field_value_size(v)
+                        })
+                        .sum::<usize>()
+            }
+            FieldValue::Interval { .. } => 16,
+        }
     }
 
     /// Create a new state store with custom configuration
@@ -236,8 +414,10 @@ impl JoinStateStore {
             retention_ms,
             stats: JoinStateStats::default(),
             record_count: 0,
+            estimated_memory: 0,
             config,
             capacity_warning_logged: false,
+            memory_warning_logged: false,
         }
     }
 
@@ -253,11 +433,46 @@ impl JoinStateStore {
     ///
     /// # Memory Management
     /// If limits are configured, oldest records may be evicted to make room.
+    /// Both record count and memory limits are enforced.
     pub fn store(&mut self, key: &str, record: StreamRecord, event_time: i64) -> i64 {
-        // Check global limit and evict if needed
+        // Estimate memory for this record
+        let record_memory = Self::estimate_record_size(&record)
+            + STRING_OVERHEAD
+            + key.len() // Key string
+            + BTREEMAP_NODE_OVERHEAD // Amortized BTreeMap overhead
+            + VECDEQUE_OVERHEAD; // Amortized VecDeque overhead
+
+        // Check memory limit and evict if needed
+        if self.config.max_memory_bytes > 0 {
+            while self.estimated_memory + record_memory > self.config.max_memory_bytes
+                && self.record_count > 0
+            {
+                self.evict_oldest_records(1);
+                self.stats.record_memory_eviction(1);
+            }
+
+            // Check memory warning threshold
+            if !self.memory_warning_logged {
+                let threshold = (self.config.max_memory_bytes
+                    * self.config.warning_threshold_pct as usize)
+                    / 100;
+                if self.estimated_memory >= threshold {
+                    log::warn!(
+                        "JoinStateStore: Approaching memory limit ({}/{} bytes, {}%)",
+                        self.estimated_memory,
+                        self.config.max_memory_bytes,
+                        (self.estimated_memory * 100) / self.config.max_memory_bytes
+                    );
+                    self.memory_warning_logged = true;
+                }
+            }
+        }
+
+        // Check global record count limit and evict if needed
         if self.config.max_records > 0 && self.record_count >= self.config.max_records {
             self.evict_oldest_records(1);
             self.stats.limit_hits += 1;
+            self.stats.record_count_eviction(1);
         }
 
         // Check capacity warning threshold
@@ -288,7 +503,11 @@ impl JoinStateStore {
                 // Remove oldest entry for this key (smallest event_time)
                 if let Some((&oldest_time, _)) = time_index.first_key_value() {
                     if let Some(entries) = time_index.get_mut(&oldest_time) {
-                        entries.pop_front();
+                        if let Some(evicted) = entries.pop_front() {
+                            let evicted_size = Self::estimate_record_size(&evicted.record);
+                            self.estimated_memory =
+                                self.estimated_memory.saturating_sub(evicted_size);
+                        }
                         self.record_count = self.record_count.saturating_sub(1);
                         self.stats.records_evicted += 1;
                         // Remove empty time slot
@@ -304,9 +523,11 @@ impl JoinStateStore {
         let entries = time_index.entry(event_time).or_default();
         entries.push_back(entry);
 
-        // Update running count (O(1) instead of O(n))
+        // Update running counts (O(1) instead of O(n))
         self.record_count += 1;
-        self.stats.record_store(self.record_count);
+        self.estimated_memory += record_memory;
+        self.stats
+            .record_store(self.record_count, self.estimated_memory);
         self.stats.current_keys = self.records.len();
 
         expire_at
@@ -341,8 +562,11 @@ impl JoinStateStore {
                 // Get the oldest time slot using BTreeMap's first entry
                 if let Some((&oldest_time, _)) = time_index.first_key_value() {
                     if let Some(entries) = time_index.get_mut(&oldest_time) {
-                        if !entries.is_empty() {
-                            entries.pop_front();
+                        if let Some(evicted_entry) = entries.pop_front() {
+                            // Track memory freed
+                            let evicted_size = Self::estimate_record_size(&evicted_entry.record);
+                            self.estimated_memory =
+                                self.estimated_memory.saturating_sub(evicted_size);
                             evicted += 1;
                             self.record_count = self.record_count.saturating_sub(1);
                             self.stats.records_evicted += 1;
@@ -432,12 +656,19 @@ impl JoinStateStore {
 
         self.watermark = new_watermark;
         let mut expired_count = 0;
+        let mut memory_freed = 0usize;
 
         // Remove expired entries from each key's time index
         self.records.retain(|_key, time_index| {
             // For each time slot, remove expired entries
             time_index.retain(|_event_time, entries| {
                 let before_len = entries.len();
+                // Track memory of expired entries before removing
+                for entry in entries.iter() {
+                    if entry.is_expired(new_watermark) {
+                        memory_freed += Self::estimate_record_size(&entry.record);
+                    }
+                }
                 entries.retain(|e| !e.is_expired(new_watermark));
                 expired_count += before_len - entries.len();
                 !entries.is_empty()
@@ -445,10 +676,31 @@ impl JoinStateStore {
             !time_index.is_empty()
         });
 
-        // Update running count
+        // Update running counts
         self.record_count = self.record_count.saturating_sub(expired_count);
-        self.stats
-            .record_expiration(expired_count, self.record_count, self.records.len());
+        self.estimated_memory = self.estimated_memory.saturating_sub(memory_freed);
+        self.stats.record_expiration(
+            expired_count,
+            self.record_count,
+            self.records.len(),
+            self.estimated_memory,
+        );
+
+        // Reset warning flags if we're below threshold again
+        if self.config.max_memory_bytes > 0 {
+            let threshold =
+                (self.config.max_memory_bytes * self.config.warning_threshold_pct as usize) / 100;
+            if self.estimated_memory < threshold {
+                self.memory_warning_logged = false;
+            }
+        }
+        if self.config.max_records > 0 {
+            let threshold =
+                (self.config.max_records * self.config.warning_threshold_pct as usize) / 100;
+            if self.record_count < threshold {
+                self.capacity_warning_logged = false;
+            }
+        }
 
         expired_count
     }
@@ -488,8 +740,10 @@ impl JoinStateStore {
         let expired = self.record_count();
         self.records.clear();
         self.record_count = 0;
-        self.stats.record_expiration(expired, 0, 0);
+        self.estimated_memory = 0;
+        self.stats.record_expiration(expired, 0, 0, 0);
         self.capacity_warning_logged = false;
+        self.memory_warning_logged = false;
     }
 
     /// Get all keys currently in the store
@@ -540,5 +794,62 @@ impl JoinStateStore {
             return usize::MAX;
         }
         self.config.max_records.saturating_sub(self.record_count)
+    }
+
+    /// Get current estimated memory usage in bytes
+    #[must_use]
+    pub fn estimated_memory(&self) -> usize {
+        self.estimated_memory
+    }
+
+    /// Get memory usage as a percentage (0.0 - 100.0)
+    /// Returns 0.0 if unlimited
+    #[must_use]
+    pub fn memory_usage_pct(&self) -> f64 {
+        if self.config.max_memory_bytes == 0 {
+            return 0.0;
+        }
+        (self.estimated_memory as f64 / self.config.max_memory_bytes as f64) * 100.0
+    }
+
+    /// Get remaining memory capacity in bytes
+    /// Returns usize::MAX if unlimited
+    #[must_use]
+    pub fn remaining_memory(&self) -> usize {
+        if self.config.max_memory_bytes == 0 {
+            return usize::MAX;
+        }
+        self.config
+            .max_memory_bytes
+            .saturating_sub(self.estimated_memory)
+    }
+
+    /// Check if the store is at or near memory limit
+    #[must_use]
+    pub fn is_near_memory_limit(&self) -> bool {
+        if self.config.max_memory_bytes == 0 {
+            return false; // Unlimited
+        }
+        let threshold =
+            (self.config.max_memory_bytes * self.config.warning_threshold_pct as usize) / 100;
+        self.estimated_memory >= threshold
+    }
+
+    /// Check if the store is at memory limit
+    #[must_use]
+    pub fn is_at_memory_limit(&self) -> bool {
+        if self.config.max_memory_bytes == 0 {
+            return false; // Unlimited
+        }
+        self.estimated_memory >= self.config.max_memory_bytes
+    }
+
+    /// Get the average memory per record (useful for capacity planning)
+    #[must_use]
+    pub fn avg_record_memory(&self) -> usize {
+        if self.record_count == 0 {
+            return 0;
+        }
+        self.estimated_memory / self.record_count
     }
 }

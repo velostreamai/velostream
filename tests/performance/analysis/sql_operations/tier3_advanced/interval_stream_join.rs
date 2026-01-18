@@ -27,12 +27,12 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
+use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::execution::join::{
     JoinConfig, JoinCoordinator, JoinCoordinatorConfig, JoinSide, JoinStateStore,
     JoinStateStoreConfig,
 };
 use velostream::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use velostream::velostream::sql::execution::StreamExecutionEngine;
 use velostream::velostream::sql::parser::StreamingSqlParser;
 
 use super::super::test_helpers::get_perf_record_count;
@@ -86,7 +86,10 @@ fn generate_interval_join_records(count: usize) -> (Vec<StreamRecord>, Vec<Strea
 
             fields.insert("shipment_id".to_string(), FieldValue::String(shipment_id));
             fields.insert("order_id".to_string(), FieldValue::String(order_id));
-            fields.insert("carrier".to_string(), FieldValue::String(carrier.to_string()));
+            fields.insert(
+                "carrier".to_string(),
+                FieldValue::String(carrier.to_string()),
+            );
             fields.insert("event_time".to_string(), FieldValue::Integer(event_time));
 
             StreamRecord::new(fields)
@@ -104,10 +107,7 @@ fn generate_high_cardinality_records(count: usize) -> (Vec<StreamRecord>, Vec<St
     let left: Vec<StreamRecord> = (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
-            fields.insert(
-                "key".to_string(),
-                FieldValue::String(format!("L-{:08}", i)),
-            );
+            fields.insert("key".to_string(), FieldValue::String(format!("L-{:08}", i)));
             fields.insert(
                 "event_time".to_string(),
                 FieldValue::Integer(base_time + (i as i64 * 100)),
@@ -157,7 +157,11 @@ impl BenchmarkResult {
     fn print(&self) {
         println!(
             "  {:<35} {:>12.0} rec/sec | {:>8} records | {:>6} matches | {:>8.2}ms",
-            self.name, self.throughput_rec_per_sec, self.records_processed, self.matches_produced, self.duration_ms
+            self.name,
+            self.throughput_rec_per_sec,
+            self.records_processed,
+            self.matches_produced,
+            self.duration_ms
         );
     }
 }
@@ -176,8 +180,8 @@ async fn benchmark_join_coordinator(
         "orders",
         "shipments",
         vec![("order_id".to_string(), "order_id".to_string())],
-        -3_600_000,  // 1 hour before
-        86_400_000,  // 24 hours after
+        -3_600_000, // 1 hour before
+        86_400_000, // 24 hours after
     )
     .with_retention(Duration::from_secs(86400));
 
@@ -230,8 +234,7 @@ async fn benchmark_join_coordinator_with_limits(
     )
     .with_retention(Duration::from_secs(3600));
 
-    let coordinator_config = JoinCoordinatorConfig::new(join_config)
-        .with_max_records(max_records);
+    let coordinator_config = JoinCoordinatorConfig::new(join_config).with_max_records(max_records);
 
     let mut coordinator = JoinCoordinator::with_config(coordinator_config);
     let total_records = orders.len() + shipments.len();
@@ -475,8 +478,12 @@ async fn test_interval_stream_join_performance() {
     println!("\n═══════════════════════════════════════════════════════════════════════════");
     println!("📊 INTERVAL STREAM-STREAM JOIN BENCHMARK (FR-085)");
     println!("═══════════════════════════════════════════════════════════════════════════");
-    println!("  Records: {} orders + {} shipments = {} total",
-             orders.len(), shipments.len(), orders.len() + shipments.len());
+    println!(
+        "  Records: {} orders + {} shipments = {} total",
+        orders.len(),
+        shipments.len(),
+        orders.len() + shipments.len()
+    );
     println!("  Interval: [-1h, +24h] (shipment within 24h of order)");
     println!("───────────────────────────────────────────────────────────────────────────\n");
 
@@ -486,14 +493,13 @@ async fn test_interval_stream_join_performance() {
         orders.clone(),
         shipments.clone(),
         "JoinCoordinator (unlimited)",
-    ).await;
+    )
+    .await;
     coord_result.print();
 
-    let coord_limited = benchmark_join_coordinator_with_limits(
-        orders.clone(),
-        shipments.clone(),
-        record_count / 2,
-    ).await;
+    let coord_limited =
+        benchmark_join_coordinator_with_limits(orders.clone(), shipments.clone(), record_count / 2)
+            .await;
     coord_limited.print();
 
     // StateStore benchmarks
@@ -513,11 +519,13 @@ async fn test_interval_stream_join_performance() {
     sql_async.print();
 
     println!("\n═══════════════════════════════════════════════════════════════════════════");
-    println!("🚀 BENCHMARK_RESULT | interval_stream_join | tier3 | Coordinator: {:.0} | StateStore: {:.0} | SQL Sync: {:.0} | SQL Async: {:.0}",
-             coord_result.throughput_rec_per_sec,
-             store_result.throughput_rec_per_sec,
-             sql_sync.throughput_rec_per_sec,
-             sql_async.throughput_rec_per_sec);
+    println!(
+        "🚀 BENCHMARK_RESULT | interval_stream_join | tier3 | Coordinator: {:.0} | StateStore: {:.0} | SQL Sync: {:.0} | SQL Async: {:.0}",
+        coord_result.throughput_rec_per_sec,
+        store_result.throughput_rec_per_sec,
+        sql_sync.throughput_rec_per_sec,
+        sql_async.throughput_rec_per_sec
+    );
     println!("═══════════════════════════════════════════════════════════════════════════\n");
 }
 
@@ -539,8 +547,8 @@ async fn test_interval_join_high_cardinality() {
         "left",
         "right",
         vec![("key".to_string(), "key".to_string())],
-        -10_000,  // 10 seconds before
-        10_000,   // 10 seconds after
+        -10_000, // 10 seconds before
+        10_000,  // 10 seconds after
     )
     .with_retention(Duration::from_secs(60));
 
@@ -571,10 +579,15 @@ async fn test_interval_join_high_cardinality() {
     println!("  Matches produced: {}", total_matches);
     println!("  Left store size:  {}", stats.left_store_size);
     println!("  Right store size: {}", stats.right_store_size);
-    println!("  Duration:         {:.2}ms", elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "  Duration:         {:.2}ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
 
-    println!("\n🚀 BENCHMARK_RESULT | high_cardinality_join | tier3 | Throughput: {:.0} | Matches: {}",
-             throughput, total_matches);
+    println!(
+        "\n🚀 BENCHMARK_RESULT | high_cardinality_join | tier3 | Throughput: {:.0} | Matches: {}",
+        throughput, total_matches
+    );
     println!("═══════════════════════════════════════════════════════════════════════════\n");
 }
 
@@ -591,7 +604,11 @@ async fn test_interval_join_memory_bounded() {
     println!("\n═══════════════════════════════════════════════════════════════════════════");
     println!("📊 MEMORY-BOUNDED JOIN TEST");
     println!("═══════════════════════════════════════════════════════════════════════════");
-    println!("  Input: {} records, Limit: {} per store", orders.len() + shipments.len(), max_records);
+    println!(
+        "  Input: {} records, Limit: {} per store",
+        orders.len() + shipments.len(),
+        max_records
+    );
     println!("───────────────────────────────────────────────────────────────────────────\n");
 
     let join_config = JoinConfig::interval_ms(
@@ -625,10 +642,19 @@ async fn test_interval_join_memory_bounded() {
     let elapsed = start.elapsed();
     let stats = coordinator.stats();
 
-    println!("  Duration:         {:.2}ms", elapsed.as_secs_f64() * 1000.0);
+    println!(
+        "  Duration:         {:.2}ms",
+        elapsed.as_secs_f64() * 1000.0
+    );
     println!("  Matches produced: {}", total_matches);
-    println!("  Left store size:  {} (limit: {})", stats.left_store_size, max_records);
-    println!("  Right store size: {} (limit: {})", stats.right_store_size, max_records);
+    println!(
+        "  Left store size:  {} (limit: {})",
+        stats.left_store_size, max_records
+    );
+    println!(
+        "  Right store size: {} (limit: {})",
+        stats.right_store_size, max_records
+    );
     println!("  Left evictions:   {}", stats.left_evictions);
     println!("  Right evictions:  {}", stats.right_evictions);
 
@@ -646,6 +672,9 @@ async fn test_interval_join_memory_bounded() {
         max_records
     );
 
-    println!("\n✅ Memory bounds verified: stores stayed within {} record limit", max_records);
+    println!(
+        "\n✅ Memory bounds verified: stores stayed within {} record limit",
+        max_records
+    );
     println!("═══════════════════════════════════════════════════════════════════════════\n");
 }
