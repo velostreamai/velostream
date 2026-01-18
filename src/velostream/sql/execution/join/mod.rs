@@ -51,17 +51,22 @@
 //! );
 //! ```
 
+mod compact_record;
 mod coordinator;
 mod key_extractor;
 mod state_store;
+mod string_interner;
 mod watermark;
 
+pub use compact_record::{CompactRecord, CompactRecordStats, RecordSchema};
 pub use coordinator::{
     JoinConfig, JoinCoordinator, JoinCoordinatorConfig, JoinCoordinatorStats, JoinEmitMode,
-    JoinMode, JoinSide, JoinType, MemoryPressure, MissingEventTimeBehavior, WindowJoinState,
+    JoinMode, JoinSide, JoinType, MemoryPressure, MissingEventTimeBehavior, Session,
+    SessionJoinState, WindowJoinState,
 };
 pub use key_extractor::{JoinKeyExtractor, JoinKeyExtractorPair};
 pub use state_store::{
     EvictionPolicy, JoinBufferEntry, JoinStateStats, JoinStateStore, JoinStateStoreConfig,
 };
+pub use string_interner::{InternedKey, InternerStats, StringInterner};
 pub use watermark::{JoinWatermarkTracker, WatermarkConfig, WatermarkStats};

@@ -4,11 +4,13 @@
 //! routing records to the appropriate side, and emitting joined results.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::join::key_extractor::JoinKeyExtractorPair;
 use crate::velostream::sql::execution::join::state_store::{JoinStateStore, JoinStateStoreConfig};
+use crate::velostream::sql::execution::join::string_interner::{InternerStats, StringInterner};
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
 
 /// Which side of the join a record belongs to
@@ -350,6 +352,46 @@ impl JoinConfig {
         }
     }
 
+    /// Create a session window join configuration
+    ///
+    /// Records match if they belong to the same session (activity period).
+    /// Sessions are dynamic windows that extend when new records arrive within the gap.
+    ///
+    /// # Example
+    /// ```
+    /// use velostream::velostream::sql::execution::join::JoinConfig;
+    /// use std::time::Duration;
+    ///
+    /// // 5-minute session gap - records within 5 minutes of each other are in same session
+    /// let config = JoinConfig::session(
+    ///     "clicks", "purchases",
+    ///     vec![("user_id".to_string(), "user_id".to_string())],
+    ///     Duration::from_secs(300),  // 5 minute gap
+    /// );
+    /// ```
+    pub fn session(
+        left_source: &str,
+        right_source: &str,
+        join_keys: Vec<(String, String)>,
+        gap: Duration,
+    ) -> Self {
+        let gap_ms = Self::duration_to_i64_ms(gap);
+        Self {
+            join_type: JoinType::Inner,
+            join_mode: JoinMode::Session { gap_ms },
+            emit_mode: JoinEmitMode::default(), // EMIT FINAL by default
+            // For session joins, bounds are dynamic based on session boundaries
+            lower_bound_ms: -gap_ms,
+            upper_bound_ms: gap_ms,
+            retention_ms: gap_ms.saturating_mul(3), // Keep 3x gap for session merging
+            left_source: left_source.to_string(),
+            right_source: right_source.to_string(),
+            join_keys,
+            event_time_field: "event_time".to_string(),
+            missing_event_time: MissingEventTimeBehavior::default(),
+        }
+    }
+
     /// Safely convert Duration to i64 milliseconds
     fn duration_to_i64_ms(duration: Duration) -> i64 {
         let millis = duration.as_millis();
@@ -562,6 +604,10 @@ pub struct JoinCoordinatorStats {
     pub windows_closed: u64,
     /// Windows currently active (for window joins)
     pub active_windows: usize,
+    /// Number of unique keys interned
+    pub interned_key_count: usize,
+    /// Estimated memory saved by interning (bytes)
+    pub interning_memory_saved: usize,
 }
 
 /// Memory pressure status for backpressure signaling
@@ -634,6 +680,167 @@ impl WindowJoinState {
     }
 }
 
+/// Tracks a single session for session window joins
+#[derive(Debug, Clone)]
+pub struct Session {
+    /// Session identifier (typically the start time of the first event)
+    pub id: i64,
+    /// Start time of the session (earliest event time)
+    pub start_time: i64,
+    /// End time of the session (latest event time + gap)
+    pub end_time: i64,
+}
+
+impl Session {
+    /// Create a new session starting at the given event time
+    fn new(event_time: i64, gap_ms: i64) -> Self {
+        Self {
+            id: event_time,
+            start_time: event_time,
+            end_time: event_time.saturating_add(gap_ms),
+        }
+    }
+
+    /// Check if an event time falls within or can extend this session
+    fn contains_or_extends(&self, event_time: i64, gap_ms: i64) -> bool {
+        // Event is within the session's active range (can extend from either end)
+        event_time >= self.start_time.saturating_sub(gap_ms)
+            && event_time <= self.end_time.saturating_add(gap_ms)
+    }
+
+    /// Extend the session to include a new event time
+    fn extend(&mut self, event_time: i64, gap_ms: i64) {
+        self.start_time = self.start_time.min(event_time);
+        self.end_time = self.end_time.max(event_time.saturating_add(gap_ms));
+    }
+
+    /// Check if this session overlaps with another
+    fn overlaps(&self, other: &Session) -> bool {
+        self.start_time <= other.end_time && other.start_time <= self.end_time
+    }
+
+    /// Merge another session into this one
+    fn merge(&mut self, other: &Session) {
+        self.id = self.id.min(other.id);
+        self.start_time = self.start_time.min(other.start_time);
+        self.end_time = self.end_time.max(other.end_time);
+    }
+}
+
+/// Tracks sessions per join key for session window joins
+#[derive(Debug, Default)]
+pub struct SessionJoinState {
+    /// Sessions indexed by join_key -> list of sessions (sorted by start_time)
+    sessions: HashMap<String, Vec<Session>>,
+    /// Gap duration for session windows
+    gap_ms: i64,
+}
+
+impl SessionJoinState {
+    /// Create new session state with the given gap duration
+    pub fn new(gap_ms: i64) -> Self {
+        Self {
+            sessions: HashMap::new(),
+            gap_ms,
+        }
+    }
+
+    /// Find or create a session for the given key and event time
+    ///
+    /// Returns the session ID to use for this record.
+    /// May merge sessions if the event bridges multiple sessions.
+    pub fn assign_session(&mut self, join_key: &str, event_time: i64) -> i64 {
+        let sessions = self.sessions.entry(join_key.to_string()).or_default();
+
+        // Find sessions that this event can belong to or extend
+        let mut matching_indices: Vec<usize> = sessions
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.contains_or_extends(event_time, self.gap_ms))
+            .map(|(i, _)| i)
+            .collect();
+
+        if matching_indices.is_empty() {
+            // Create new session
+            let session = Session::new(event_time, self.gap_ms);
+            let session_id = session.id;
+            sessions.push(session);
+            // Keep sorted by start_time
+            sessions.sort_by_key(|s| s.start_time);
+            session_id
+        } else if matching_indices.len() == 1 {
+            // Extend existing session
+            let idx = matching_indices[0];
+            sessions[idx].extend(event_time, self.gap_ms);
+            sessions[idx].id
+        } else {
+            // Event bridges multiple sessions - merge them
+            // Sort indices in reverse order so we can remove from back to front
+            matching_indices.sort_by(|a, b| b.cmp(a));
+
+            // Get the first (lowest index) session as the merge target
+            let target_idx = *matching_indices.last().unwrap();
+            let mut merged = sessions[target_idx].clone();
+            merged.extend(event_time, self.gap_ms);
+
+            // Merge all other sessions into the target
+            for &idx in &matching_indices[..matching_indices.len() - 1] {
+                merged.merge(&sessions[idx]);
+            }
+
+            // Remove all matching sessions (from back to front to preserve indices)
+            for &idx in &matching_indices {
+                sessions.remove(idx);
+            }
+
+            // Insert the merged session
+            let session_id = merged.id;
+            sessions.push(merged);
+            sessions.sort_by_key(|s| s.start_time);
+
+            session_id
+        }
+    }
+
+    /// Get closed sessions (sessions where watermark > end_time)
+    pub fn get_closed_sessions(&self, watermark: i64) -> Vec<(String, i64)> {
+        let mut closed = Vec::new();
+        for (key, sessions) in &self.sessions {
+            for session in sessions {
+                if watermark > session.end_time {
+                    closed.push((key.clone(), session.id));
+                }
+            }
+        }
+        closed
+    }
+
+    /// Remove a closed session
+    pub fn remove_session(&mut self, join_key: &str, session_id: i64) {
+        if let Some(sessions) = self.sessions.get_mut(join_key) {
+            sessions.retain(|s| s.id != session_id);
+            if sessions.is_empty() {
+                self.sessions.remove(join_key);
+            }
+        }
+    }
+
+    /// Get count of active sessions
+    pub fn active_session_count(&self) -> usize {
+        self.sessions.values().map(|v| v.len()).sum()
+    }
+
+    /// Get session end time for a given session ID (for window tracking)
+    pub fn get_session_end(&self, join_key: &str, session_id: i64) -> Option<i64> {
+        self.sessions.get(join_key).and_then(|sessions| {
+            sessions
+                .iter()
+                .find(|s| s.id == session_id)
+                .map(|s| s.end_time)
+        })
+    }
+}
+
 /// Coordinates stream-stream join processing
 ///
 /// The coordinator manages two windowed state stores (one per side) and
@@ -662,8 +869,15 @@ pub struct JoinCoordinator {
     /// Statistics
     stats: JoinCoordinatorStats,
 
-    /// Window tracking state (for window joins)
+    /// Window tracking state (for tumbling/sliding window joins)
     window_state: WindowJoinState,
+
+    /// Session tracking state (for session window joins)
+    session_state: SessionJoinState,
+
+    /// String interner for composite keys (window_id:join_key)
+    /// Reduces memory usage by storing unique strings once
+    key_interner: Arc<StringInterner>,
 }
 
 impl JoinCoordinator {
@@ -671,14 +885,20 @@ impl JoinCoordinator {
     pub fn new(config: JoinConfig) -> Self {
         let retention_ms = config.retention_ms;
         let key_extractors = JoinKeyExtractorPair::from_pairs(config.join_keys.clone());
+        let session_gap_ms = match &config.join_mode {
+            JoinMode::Session { gap_ms } => *gap_ms,
+            _ => 0,
+        };
 
         Self {
-            config,
             left_store: JoinStateStore::with_retention_ms(retention_ms),
             right_store: JoinStateStore::with_retention_ms(retention_ms),
             key_extractors,
             stats: JoinCoordinatorStats::default(),
             window_state: WindowJoinState::new(),
+            session_state: SessionJoinState::new(session_gap_ms),
+            key_interner: Arc::new(StringInterner::new()),
+            config,
         }
     }
 
@@ -699,14 +919,45 @@ impl JoinCoordinator {
             None => JoinStateStore::new(retention),
         };
 
+        let session_gap_ms = match &config.join_config.join_mode {
+            JoinMode::Session { gap_ms } => *gap_ms,
+            _ => 0,
+        };
+
         Self {
-            config: config.join_config,
             left_store,
             right_store,
             key_extractors,
             stats: JoinCoordinatorStats::default(),
             window_state: WindowJoinState::new(),
+            session_state: SessionJoinState::new(session_gap_ms),
+            key_interner: Arc::new(StringInterner::new()),
+            config: config.join_config,
         }
+    }
+
+    /// Create an interned composite key for window/session joins
+    ///
+    /// The key is formatted as "prefix_id:join_key" and stored in the interner.
+    /// Returns a shared Arc<str>, providing actual memory savings when the same
+    /// key is used across multiple records or both sides of the join.
+    ///
+    /// # Memory Savings
+    /// Multiple calls with the same key return clones of the same Arc (16 bytes each)
+    /// instead of separate String allocations (24+ bytes each).
+    fn intern_composite_key(&self, prefix_id: i64, join_key: &str) -> Arc<str> {
+        let composite = format!("{}:{}", prefix_id, join_key);
+        self.key_interner.intern_arc(&composite)
+    }
+
+    /// Get a reference to the key interner
+    pub fn key_interner(&self) -> &StringInterner {
+        &self.key_interner
+    }
+
+    /// Get interner statistics
+    pub fn interner_stats(&self) -> InternerStats {
+        self.key_interner.memory_stats()
     }
 
     /// Process a record from the specified side
@@ -742,19 +993,30 @@ impl JoinCoordinator {
             None => return Ok(vec![]), // Skip record (SkipRecord behavior)
         };
 
-        // For window joins, use composite key with window ID
-        if self.config.join_mode.emits_on_window_close() {
-            return self.process_left_windowed(&key, record, event_time);
+        // Route based on join mode
+        match &self.config.join_mode {
+            JoinMode::Session { .. } => {
+                return self.process_left_session(&key, record, event_time);
+            }
+            JoinMode::Tumbling { .. } | JoinMode::Sliding { .. } => {
+                return self.process_left_windowed(&key, record, event_time);
+            }
+            JoinMode::Interval { .. } => {
+                // Fall through to interval join handling below
+            }
         }
 
         // Interval join: store and lookup immediately
-        self.left_store.store(&key, record.clone(), event_time);
+        // Intern the key for memory sharing between left and right stores
+        let interned_key = self.key_interner.intern_arc(&key);
+        self.left_store
+            .store_arc(Arc::clone(&interned_key), record.clone(), event_time);
 
         // Lookup matches in right buffer
         let (time_lower, time_upper) = self.compute_lookup_bounds_for_left(event_time);
         let matches: Vec<StreamRecord> = self
             .right_store
-            .lookup(&key, time_lower, time_upper)
+            .lookup(&interned_key, time_lower, time_upper)
             .into_iter()
             .cloned()
             .collect();
@@ -789,19 +1051,30 @@ impl JoinCoordinator {
             None => return Ok(vec![]), // Skip record (SkipRecord behavior)
         };
 
-        // For window joins, use composite key with window ID
-        if self.config.join_mode.emits_on_window_close() {
-            return self.process_right_windowed(&key, record, event_time);
+        // Route based on join mode
+        match &self.config.join_mode {
+            JoinMode::Session { .. } => {
+                return self.process_right_session(&key, record, event_time);
+            }
+            JoinMode::Tumbling { .. } | JoinMode::Sliding { .. } => {
+                return self.process_right_windowed(&key, record, event_time);
+            }
+            JoinMode::Interval { .. } => {
+                // Fall through to interval join handling below
+            }
         }
 
         // Interval join: store and lookup immediately
-        self.right_store.store(&key, record.clone(), event_time);
+        // Intern the key for memory sharing between left and right stores
+        let interned_key = self.key_interner.intern_arc(&key);
+        self.right_store
+            .store_arc(Arc::clone(&interned_key), record.clone(), event_time);
 
         // Lookup matches in left buffer
         let (time_lower, time_upper) = self.compute_lookup_bounds_for_right(event_time);
         let matches: Vec<StreamRecord> = self
             .left_store
-            .lookup(&key, time_lower, time_upper)
+            .lookup(&interned_key, time_lower, time_upper)
             .into_iter()
             .cloned()
             .collect();
@@ -834,10 +1107,10 @@ impl JoinCoordinator {
         let window_ids = self.config.join_mode.compute_window_ids(event_time);
 
         for window_id in window_ids {
-            // Create composite key: window_id:join_key
-            let composite_key = format!("{}:{}", window_id, join_key);
+            // Create interned composite key: window_id:join_key (shared Arc<str>)
+            let composite_key = self.intern_composite_key(window_id, join_key);
             self.left_store
-                .store(&composite_key, record.clone(), event_time);
+                .store_arc(Arc::clone(&composite_key), record.clone(), event_time);
 
             // Track window end time
             if let Some(window_end) = self.config.join_mode.window_end_from_id(window_id) {
@@ -881,10 +1154,10 @@ impl JoinCoordinator {
         let window_ids = self.config.join_mode.compute_window_ids(event_time);
 
         for window_id in window_ids {
-            // Create composite key: window_id:join_key
-            let composite_key = format!("{}:{}", window_id, join_key);
+            // Create interned composite key: window_id:join_key (shared Arc<str>)
+            let composite_key = self.intern_composite_key(window_id, join_key);
             self.right_store
-                .store(&composite_key, record.clone(), event_time);
+                .store_arc(Arc::clone(&composite_key), record.clone(), event_time);
 
             // Track window end time
             if let Some(window_end) = self.config.join_mode.window_end_from_id(window_id) {
@@ -912,6 +1185,94 @@ impl JoinCoordinator {
         Ok(results)
     }
 
+    /// Process a left record for session window join
+    ///
+    /// Sessions are dynamic windows based on activity gaps. Records match if they
+    /// belong to the same session (within gap_ms of each other).
+    fn process_left_session(
+        &mut self,
+        join_key: &str,
+        record: StreamRecord,
+        event_time: i64,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        let mut results = Vec::new();
+
+        // Assign record to a session (may create new or extend existing)
+        let session_id = self.session_state.assign_session(join_key, event_time);
+
+        // Create interned composite key: session_id:join_key (shared Arc<str>)
+        let composite_key = self.intern_composite_key(session_id, join_key);
+        self.left_store
+            .store_arc(Arc::clone(&composite_key), record.clone(), event_time);
+
+        // Track session end time for window closure
+        if let Some(session_end) = self.session_state.get_session_end(join_key, session_id) {
+            self.window_state.add_to_window(session_end);
+        }
+
+        // EMIT CHANGES mode: emit matches immediately
+        if self.config.emits_immediately() {
+            // For session joins, we need to look up all records in the same session
+            let right_matches: Vec<StreamRecord> = self
+                .right_store
+                .lookup_all(&composite_key)
+                .into_iter()
+                .cloned()
+                .collect();
+
+            for right in &right_matches {
+                let joined = self.merge_records(&record, right);
+                results.push(joined);
+            }
+        }
+
+        self.stats.matches_emitted += results.len() as u64;
+        self.update_eviction_stats();
+        Ok(results)
+    }
+
+    /// Process a right record for session window join
+    fn process_right_session(
+        &mut self,
+        join_key: &str,
+        record: StreamRecord,
+        event_time: i64,
+    ) -> Result<Vec<StreamRecord>, SqlError> {
+        let mut results = Vec::new();
+
+        // Assign record to a session (may create new or extend existing)
+        let session_id = self.session_state.assign_session(join_key, event_time);
+
+        // Create interned composite key: session_id:join_key (shared Arc<str>)
+        let composite_key = self.intern_composite_key(session_id, join_key);
+        self.right_store
+            .store_arc(Arc::clone(&composite_key), record.clone(), event_time);
+
+        // Track session end time for window closure
+        if let Some(session_end) = self.session_state.get_session_end(join_key, session_id) {
+            self.window_state.add_to_window(session_end);
+        }
+
+        // EMIT CHANGES mode: emit matches immediately
+        if self.config.emits_immediately() {
+            let left_matches: Vec<StreamRecord> = self
+                .left_store
+                .lookup_all(&composite_key)
+                .into_iter()
+                .cloned()
+                .collect();
+
+            for left in &left_matches {
+                let joined = self.merge_records(left, &record);
+                results.push(joined);
+            }
+        }
+
+        self.stats.matches_emitted += results.len() as u64;
+        self.update_eviction_stats();
+        Ok(results)
+    }
+
     /// Close windows that have ended and emit join results
     ///
     /// For window joins, this should be called periodically (e.g., after processing a batch)
@@ -924,6 +1285,21 @@ impl JoinCoordinator {
         }
 
         let mut results = Vec::new();
+
+        // Handle session window closure
+        if matches!(self.config.join_mode, JoinMode::Session { .. }) {
+            let closed_sessions = self.session_state.get_closed_sessions(watermark);
+            for (join_key, session_id) in closed_sessions {
+                let session_results = self.emit_session_results(&join_key, session_id);
+                results.extend(session_results);
+                self.session_state.remove_session(&join_key, session_id);
+                self.stats.windows_closed += 1;
+            }
+            self.stats.active_windows = self.session_state.active_session_count();
+            return results;
+        }
+
+        // Handle tumbling/sliding window closure
         let closed_window_ends = self.window_state.get_closed_windows(watermark);
 
         for window_end in closed_window_ends {
@@ -963,21 +1339,22 @@ impl JoinCoordinator {
         // Get all unique join keys from both sides for this window
         let prefix = format!("{}:", window_id);
 
-        // Collect keys that match this window
-        let matching_keys: Vec<String> = self
+        // Collect keys that match this window (Arc<str> for memory efficiency)
+        let matching_keys: Vec<Arc<str>> = self
             .left_store
             .keys()
             .filter(|k| k.starts_with(&prefix))
             .cloned()
             .collect();
 
-        // Collect left records by key
-        let mut left_records: HashMap<String, Vec<StreamRecord>> = HashMap::new();
+        // Collect left records by key (using Arc<str> for composite keys)
+        let mut left_records: HashMap<Arc<str>, Vec<StreamRecord>> = HashMap::new();
         for composite_key in matching_keys {
-            let join_key = composite_key
+            // Extract the join_key portion and intern it
+            let join_key_str = composite_key
                 .strip_prefix(&prefix)
-                .unwrap_or(&composite_key)
-                .to_string();
+                .unwrap_or(&composite_key);
+            let join_key = self.key_interner.intern_arc(join_key_str);
             let records: Vec<StreamRecord> = self
                 .left_store
                 .lookup_all(&composite_key)
@@ -989,7 +1366,8 @@ impl JoinCoordinator {
 
         // For each left key, find matching right records and join
         for (join_key, left_recs) in left_records {
-            let right_composite_key = format!("{}{}", prefix, join_key);
+            // Create interned composite key for right store lookup
+            let right_composite_key = self.intern_composite_key(window_id, &join_key);
             let right_recs: Vec<StreamRecord> = self
                 .right_store
                 .lookup_all(&right_composite_key)
@@ -1003,6 +1381,41 @@ impl JoinCoordinator {
                     let joined = self.merge_records(left, right);
                     results.push(joined);
                 }
+            }
+        }
+
+        self.stats.matches_emitted += results.len() as u64;
+        results
+    }
+
+    /// Emit join results for a specific session
+    fn emit_session_results(&mut self, join_key: &str, session_id: i64) -> Vec<StreamRecord> {
+        let mut results = Vec::new();
+
+        // Interned composite key for this session
+        let composite_key = self.intern_composite_key(session_id, join_key);
+
+        // Get all left records in this session
+        let left_recs: Vec<StreamRecord> = self
+            .left_store
+            .lookup_all(&composite_key)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        // Get all right records in this session
+        let right_recs: Vec<StreamRecord> = self
+            .right_store
+            .lookup_all(&composite_key)
+            .into_iter()
+            .cloned()
+            .collect();
+
+        // Emit cartesian product of left × right for this session
+        for left in &left_recs {
+            for right in &right_recs {
+                let joined = self.merge_records(left, right);
+                results.push(joined);
             }
         }
 
@@ -1298,9 +1711,23 @@ impl JoinCoordinator {
         )
     }
 
-    /// Update stats with current eviction counts from stores
+    /// Update stats with current eviction counts from stores and interner stats
     fn update_eviction_stats(&mut self) {
         self.stats.left_evictions = self.left_store.stats().records_evicted;
         self.stats.right_evictions = self.right_store.stats().records_evicted;
+
+        // Update interner statistics
+        let interner_stats = self.key_interner.memory_stats();
+        self.stats.interned_key_count = interner_stats.string_count;
+
+        // Estimate memory saved: each unique key stored once instead of potentially many times
+        // Assume average 2x reuse rate (conservative estimate)
+        let total_records = self.stats.left_records_processed + self.stats.right_records_processed;
+        if total_records > 0 && interner_stats.string_count > 0 {
+            let avg_key_len = interner_stats.total_string_bytes / interner_stats.string_count;
+            // Memory saved = (total_records - unique_keys) * avg_key_len
+            let reuse_count = total_records.saturating_sub(interner_stats.string_count as u64);
+            self.stats.interning_memory_saved = (reuse_count as usize) * avg_key_len;
+        }
     }
 }
