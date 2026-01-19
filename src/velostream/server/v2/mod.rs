@@ -75,6 +75,8 @@ pub use coordinator::{
 };
 pub use fan_in_strategy::FanInStrategy;
 pub use join_job_processor::{JoinJobConfig, JoinJobProcessor, JoinJobStats};
+// Note: Join metrics are now integrated into the main MetricsProvider
+// Use MetricsProvider.update_join_metrics() instead of a separate exporter
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
 pub use partition_receiver::PartitionReceiver;

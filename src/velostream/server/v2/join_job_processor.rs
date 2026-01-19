@@ -18,11 +18,11 @@ use tokio::sync::Mutex;
 use crate::velostream::datasource::{DataReader, DataWriter};
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::v2::source_coordinator::{
-    SourceCoordinator, SourceCoordinatorConfig, SourceRecord,
+    SourceCoordinator, SourceCoordinatorConfig,
 };
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::StreamRecord;
-use crate::velostream::sql::execution::join::JoinSide;
+use crate::velostream::sql::execution::join::{JoinCoordinatorStats, JoinSide};
 use crate::velostream::sql::execution::processors::{IntervalJoinConfig, IntervalJoinProcessor};
 
 /// Configuration for join job processing
@@ -52,11 +52,40 @@ impl Default for JoinJobConfig {
 /// Statistics for join job execution
 #[derive(Debug, Clone, Default)]
 pub struct JoinJobStats {
+    // === Basic Processing Stats ===
     pub left_records_read: u64,
     pub right_records_read: u64,
     pub join_matches: u64,
     pub records_written: u64,
     pub processing_time_ms: u64,
+
+    // === State Store Stats (from JoinCoordinatorStats) ===
+    /// Current records in left state store
+    pub left_store_size: usize,
+    /// Current records in right state store
+    pub right_store_size: usize,
+    /// Records evicted from left store due to limits
+    pub left_evictions: u64,
+    /// Records evicted from right store due to limits
+    pub right_evictions: u64,
+
+    // === Memory Interning Stats ===
+    /// Number of unique keys interned
+    pub interned_key_count: usize,
+    /// Estimated memory saved by string interning (bytes)
+    pub interning_memory_saved: usize,
+
+    // === Error Stats ===
+    /// Records with missing join keys
+    pub missing_key_count: u64,
+    /// Records with missing event time
+    pub missing_time_count: u64,
+
+    // === Window Stats (for window joins) ===
+    /// Windows closed
+    pub windows_closed: u64,
+    /// Currently active windows
+    pub active_windows: usize,
 }
 
 impl JoinJobStats {
@@ -68,9 +97,38 @@ impl JoinJobStats {
         stats.total_processing_time = std::time::Duration::from_millis(self.processing_time_ms);
         stats
     }
+
+    /// Update stats from JoinCoordinatorStats
+    ///
+    /// This copies state store metrics, eviction counts, and interning stats
+    /// from the join coordinator into these job-level stats.
+    pub fn update_from_coordinator(&mut self, coord_stats: &JoinCoordinatorStats) {
+        // State store sizes
+        self.left_store_size = coord_stats.left_store_size;
+        self.right_store_size = coord_stats.right_store_size;
+
+        // Eviction counts
+        self.left_evictions = coord_stats.left_evictions;
+        self.right_evictions = coord_stats.right_evictions;
+
+        // Memory interning stats
+        self.interned_key_count = coord_stats.interned_key_count;
+        self.interning_memory_saved = coord_stats.interning_memory_saved;
+
+        // Error counts
+        self.missing_key_count = coord_stats.missing_key_count;
+        self.missing_time_count = coord_stats.missing_time_count;
+
+        // Window stats
+        self.windows_closed = coord_stats.windows_closed;
+        self.active_windows = coord_stats.active_windows;
+    }
 }
 
 /// Processor for stream-stream join jobs
+///
+/// Returns `JoinJobStats` which can be pushed to `MetricsProvider.update_join_metrics()`
+/// for Prometheus exposure.
 pub struct JoinJobProcessor {
     /// Configuration
     config: JoinJobConfig,
@@ -245,6 +303,10 @@ impl JoinJobProcessor {
 
         stats.processing_time_ms = start_time.elapsed().as_millis() as u64;
 
+        // Copy coordinator stats (state store sizes, evictions, interning)
+        // Caller can push these stats to MetricsProvider.update_join_metrics()
+        stats.update_from_coordinator(join_processor.stats());
+
         info!(
             "JoinJobProcessor: Completed - {} left + {} right records, {} joins, {} output in {}ms",
             stats.left_records_read,
@@ -252,6 +314,15 @@ impl JoinJobProcessor {
             stats.join_matches,
             stats.records_written,
             stats.processing_time_ms
+        );
+        debug!(
+            "JoinJobProcessor: State store: left={}, right={}, evicted: left={}, right={}, interned keys={}, memory saved={} bytes",
+            stats.left_store_size,
+            stats.right_store_size,
+            stats.left_evictions,
+            stats.right_evictions,
+            stats.interned_key_count,
+            stats.interning_memory_saved
         );
 
         Ok(stats)

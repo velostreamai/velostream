@@ -1268,6 +1268,54 @@ WITH (
 | `join_state_evictions_ttl` | Evictions due to TTL |
 | `join_state_cache_hit_ratio` | For LRU policy effectiveness |
 
+### Prometheus Metrics Integration
+
+**Location:** `src/velostream/observability/metrics.rs` (JoinMetrics struct)
+
+Join metrics are integrated with the main `MetricsProvider` for unified Prometheus exposure.
+This follows best practice - single registry, single `/metrics` endpoint, consistent with all other metrics.
+
+```rust
+use velostream::velostream::observability::metrics::MetricsProvider;
+
+// The main metrics provider handles all Prometheus metrics
+let metrics = MetricsProvider::new(config).await?;
+
+// Process a join job - returns JoinJobStats with all coordinator stats
+let processor = JoinJobProcessor::with_join_config(join_config);
+let stats = processor.process_join(left_name, left, right_name, right, writer).await?;
+
+// Push join stats to the unified metrics system
+// Metrics appear on the main /metrics endpoint alongside SQL, streaming, system metrics
+metrics.update_join_metrics("orders_shipments_join", coordinator_stats);
+```
+
+#### Exposed Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `velo_join_left_records_total` | Counter | Records processed from left source |
+| `velo_join_right_records_total` | Counter | Records processed from right source |
+| `velo_join_matches_total` | Counter | Total join matches emitted |
+| `velo_join_missing_keys_total` | Counter | Records skipped due to missing join keys |
+| `velo_join_left_store_size` | Gauge | Current records in left state store |
+| `velo_join_right_store_size` | Gauge | Current records in right state store |
+| `velo_join_interned_keys` | Gauge | Number of unique keys interned |
+| `velo_join_interning_memory_saved_bytes` | Gauge | Estimated memory saved by interning |
+| `velo_join_left_evictions_total` | Counter | Records evicted from left store |
+| `velo_join_right_evictions_total` | Counter | Records evicted from right store |
+| `velo_join_memory_pressure` | Gauge | Memory pressure level (0=Normal, 1=Warning, 2=Critical) |
+| `velo_join_windows_closed_total` | Counter | Windows closed (for window joins) |
+| `velo_join_active_windows` | Gauge | Currently active windows |
+
+All metrics include a `join_name` label for filtering by join.
+
+**Benefits of unified integration:**
+- Single `/metrics` endpoint for all Prometheus scraping
+- Consistent with SQL, streaming, and system metrics (velo_* prefix)
+- No separate registries to manage
+- Metrics appear automatically in existing Grafana dashboards
+
 ---
 
 ## Future Enhancements
