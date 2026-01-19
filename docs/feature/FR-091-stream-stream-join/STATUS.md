@@ -45,11 +45,12 @@ Stream-stream join functionality is **100% complete** and production-ready. All 
 - [x] Performance benchmarks (tier3)
 - [x] Example: `examples/join_metrics_demo.rs`
 
-### Phase 6: Memory Optimization
+### Phase 6: Memory Optimization ✅
 - [x] Memory-based limits (bytes, not just record count)
 - [x] Arc<str> string interning for join keys (30-40% memory savings)
 - [x] LRU eviction policy
 - [x] `MemoryPressure` monitoring (Normal/Warning/Critical)
+- **Result:** Production-ready memory management with significant savings
 
 ### Phase 7: Window Joins
 - [x] Tumbling window joins (`JoinMode::Tumbling`)
@@ -90,7 +91,9 @@ Tier3 Benchmarks:   All passing
 
 ---
 
-## Outstanding Work (Not Essential)
+## Outstanding Work (Optional Enhancements)
+
+These are **not required** for production use. All core functionality is complete.
 
 ### Multi-way Joins (3+ Streams)
 - **Priority:** Low
@@ -102,11 +105,11 @@ Tier3 Benchmarks:   All passing
   ```
 - **Assessment:** Nice to have. Most real-world joins are 2-way.
 
-### CompactRecord Integration
+### CompactRecord Integration (Further Optimization)
 - **Priority:** Low
 - **Status:** Types exist, not integrated into JoinStateStore
 - **LoE:** 1 week
-- **Assessment:** Optimization only. Current HashMap storage works fine.
+- **Assessment:** Additional 15-25% memory savings possible. Current implementation with Arc<str> interning already achieves 30-40% savings. Not essential.
 
 ### Deferred (By Design)
 | Feature | Reason |
