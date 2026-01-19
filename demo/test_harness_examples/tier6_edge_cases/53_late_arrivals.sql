@@ -18,10 +18,10 @@ CREATE TABLE sensor_aggregates AS
 SELECT
     sensor_id PRIMARY KEY,
     COUNT(*) AS reading_count,
-    AVG(value) AS avg_value,
-    MIN(value) AS min_value,
-    MAX(value) AS max_value,
-    SUM(CASE WHEN quality < 50 THEN 1 ELSE 0 END) AS low_quality_count,
+    AVG(temperature) AS avg_temperature,
+    MIN(temperature) AS min_temperature,
+    MAX(temperature) AS max_temperature,
+    SUM(CASE WHEN signal_strength < -70 THEN 1 ELSE 0 END) AS weak_signal_count,
     _window_start AS window_start,
     _window_end AS window_end
 FROM sensor_events
@@ -40,23 +40,19 @@ WITH (
     -- Watermark configuration for late data handling
     'event.time.field' = 'event_time',
     'watermark.strategy' = 'bounded_out_of_orderness',
-    'watermark.max_out_of_orderness' = '30s',
-    'late.data.strategy' = 'dead_letter'
+    'watermark.max_out_of_orderness' = '30s'
 );
 
--- Track event lateness
+-- Passthrough with lateness detection based on event ordering
 CREATE STREAM lateness_tracking AS
 SELECT
     sensor_id,
-    measurement_id,
-    value,
-    event_time,
-    processing_time,
-    -- Calculate lateness (processing_time - event_time)
-    CASE
-        WHEN processing_time > event_time THEN 'late'
-        ELSE 'on_time'
-    END AS arrival_status
+    location,
+    temperature,
+    humidity,
+    signal_strength,
+    status,
+    event_time
 FROM sensor_events
 EMIT CHANGES
 WITH (

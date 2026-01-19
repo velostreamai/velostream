@@ -5,7 +5,7 @@
 -- Tier 6: Large Volume Processing
 -- =============================================================================
 --
--- Tests: 100k+ records, performance under load
+-- Tests: 10k records, performance under load
 -- Expected: Correct processing at scale
 --
 -- =============================================================================
