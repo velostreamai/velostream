@@ -105,12 +105,36 @@ These are **not required** for production use. All core functionality is complet
   ```
 - **Assessment:** Nice to have. Most real-world joins are 2-way.
 
+### CompactRecord Integration (Recommended)
+
+**Priority:** Medium - Increases join capacity by 15-25%
+
+**Rationale:** Since we're memory-only (no RocksDB backing store), memory IS the bottleneck. CompactRecord would allow proportionally larger joins without increasing machine memory.
+
+**What exists:**
+- `RecordSchema` - maps field names → indices (already implemented)
+- `CompactRecord` - stores values in Vec instead of HashMap (already implemented)
+- Conversion functions between StreamRecord ↔ CompactRecord
+
+**What's needed:**
+
+| Task | Estimate |
+|------|----------|
+| Update `JoinStateStore` to store `CompactRecord` internally | 1 day |
+| Add conversion at store boundaries (insert/retrieve) | 0.5 day |
+| Share `RecordSchema` instance across records in store | 0.5 day |
+| Testing and validation | 1 day |
+| **Total** | **~3 days** |
+
+**Files to modify:**
+- `src/velostream/sql/execution/join/state_store.rs`
+- `src/velostream/sql/execution/join/coordinator.rs`
+
 ### Deferred (By Design)
 
 | Feature | Reason |
 |---------|--------|
 | RocksDB persistence | In-memory sufficient for current use cases |
-| CompactRecord integration | Premature without persistence; revisit with RocksDB |
 | Exactly-once semantics | Requires transactional output support |
 | State migration | Not needed without persistence |
 
