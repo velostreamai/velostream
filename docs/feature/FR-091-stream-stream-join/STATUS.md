@@ -105,16 +105,12 @@ These are **not required** for production use. All core functionality is complet
   ```
 - **Assessment:** Nice to have. Most real-world joins are 2-way.
 
-### CompactRecord Integration (Further Optimization)
-- **Priority:** Low
-- **Status:** Types exist, not integrated into JoinStateStore
-- **LoE:** 1 week
-- **Assessment:** Additional 15-25% memory savings possible. Current implementation with Arc<str> interning already achieves 30-40% savings. Not essential.
-
 ### Deferred (By Design)
+
 | Feature | Reason |
 |---------|--------|
 | RocksDB persistence | In-memory sufficient for current use cases |
+| CompactRecord integration | Premature without persistence; revisit with RocksDB |
 | Exactly-once semantics | Requires transactional output support |
 | State migration | Not needed without persistence |
 
