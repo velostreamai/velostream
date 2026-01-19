@@ -20,6 +20,9 @@ pub mod processors;
 // Utility tests
 pub mod utils;
 
+// Stream-stream join tests
+pub mod join;
+
 // Phase 1A: Streaming tests
 // TODO: Fix compilation errors - tests unimplemented FR-058 features
 // pub mod phase_1a_streaming_test;

@@ -228,9 +228,10 @@ Deploying application...
    - Unbounded state accumulation
 
 2. **JOIN Performance**
-   - Stream-to-stream JOINs without time windows
+   - Stream-to-stream JOINs without time bounds (use BETWEEN for interval joins)
    - Large table lookups without indexes
    - Cartesian products
+   - Stream-stream interval joins: 607K rec/sec (JoinCoordinator), 5.3M rec/sec (StateStore)
 
 3. **Throughput Optimization**
    - Missing batch configuration for multi-source queries
@@ -470,9 +471,10 @@ The core validator architecture is production-ready. Remaining optimizations are
 
 ### 🚀 **Next Focus Areas** (Business Value)
 
-1. **Stream-Table Join Validation**: Essential for financial demo completion
-2. **Financial SQL Patterns**: Domain-specific validation rules
-3. **Schema Integration**: Validate field references against actual schemas
+1. **Stream-Stream Interval Join Validation**: FR-085 interval joins with BETWEEN syntax
+2. **Stream-Table Join Validation**: Essential for financial demo completion
+3. **Financial SQL Patterns**: Domain-specific validation rules
+4. **Schema Integration**: Validate field references against actual schemas
 
 ## Conclusion
 

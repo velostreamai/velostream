@@ -1,17 +1,20 @@
-//! Stream-Stream JOIN Performance Benchmark - Tier 3 Operation
+//! Stream-Table JOIN Performance Benchmark - Tier 3 Operation
 //!
 //! **Operation #11 in STREAMING_SQL_OPERATION_RANKING.md**
 //! - **Tier**: Tier 3 (Advanced)
 //! - **Probability**: 42% of production streaming SQL jobs
-//! - **Use Cases**: Correlated events, pattern detection, sequence correlation
+//! - **Use Cases**: Stream enrichment, lookups against reference tables
 //!
-//! Stream-Stream JOINs are the most memory-intensive operation, requiring buffering
-//! both streams to find matching events. Critical window size for memory management.
+//! Stream-Table JOINs use hash-based lookups where one side is loaded as a table.
+//! This is the standard SQL JOIN pattern without interval/temporal semantics.
 //!
 //! **Test Pattern**: Measures throughput across implementations comparing:
 //! - SQL Engine (sync/async baseline)
 //! - SimpleJp (single-threaded best-effort)
 //! - TransactionalJp (single-threaded at-least-once)
+//!
+//! Note: For interval-based stream-stream joins with temporal semantics,
+//! see `interval_stream_join.rs` which uses the FR-085 JoinCoordinator.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,8 +34,8 @@ use super::super::test_helpers::{
     create_adaptive_processor, get_perf_record_count, print_perf_config, validate_sql_query,
 };
 
-/// Generate test data for Stream-Stream JOIN: click and purchase events
-fn generate_stream_stream_join_records(count: usize) -> (Vec<StreamRecord>, Vec<StreamRecord>) {
+/// Generate test data for Stream-Table JOIN: click and purchase events
+fn generate_stream_table_join_records(count: usize) -> (Vec<StreamRecord>, Vec<StreamRecord>) {
     let clicks: Vec<StreamRecord> = (0..count)
         .map(|i| {
             let mut fields = HashMap::new();
@@ -127,8 +130,8 @@ fn create_purchases_table() -> Arc<dyn UnifiedTable> {
     Arc::new(table)
 }
 
-/// SQL query for Stream-Stream JOIN: clicks matched with purchases within 30 seconds
-const STREAM_STREAM_JOIN_SQL: &str = r#"
+/// SQL query for Stream-Table JOIN: clicks matched with purchases within 30 seconds
+const STREAM_TABLE_JOIN_SQL: &str = r#"
     SELECT
         c.user_id,
         c.product_id,
@@ -140,29 +143,29 @@ const STREAM_STREAM_JOIN_SQL: &str = r#"
     WHERE p.purchase_timestamp - c.click_timestamp < 30000
 "#;
 
-/// Test: Stream-Stream JOIN performance measurement
+/// Test: Stream-Table JOIN performance measurement
 #[tokio::test(flavor = "multi_thread")]
 #[serial_test::serial]
-async fn test_stream_stream_join_performance() {
-    validate_sql_query(STREAM_STREAM_JOIN_SQL);
+async fn test_stream_table_join_performance() {
+    validate_sql_query(STREAM_TABLE_JOIN_SQL);
     let record_count = get_perf_record_count();
-    let (clicks, purchases) = generate_stream_stream_join_records(record_count);
+    let (clicks, purchases) = generate_stream_table_join_records(record_count);
 
     let (sql_sync_throughput, _, _) =
-        measure_sql_engine_sync(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+        measure_sql_engine_sync(clicks.clone(), purchases.clone(), STREAM_TABLE_JOIN_SQL).await;
     let (sql_async_throughput, _, _) =
-        measure_sql_engine(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+        measure_sql_engine(clicks.clone(), purchases.clone(), STREAM_TABLE_JOIN_SQL).await;
     let (simple_jp_throughput, _) =
-        measure_v1(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+        measure_v1(clicks.clone(), purchases.clone(), STREAM_TABLE_JOIN_SQL).await;
     let (transactional_jp_throughput, _) =
-        measure_transactional_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL).await;
+        measure_transactional_jp(clicks.clone(), purchases.clone(), STREAM_TABLE_JOIN_SQL).await;
     let (adaptive_1c_throughput, _) =
-        measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL, 1).await;
+        measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_TABLE_JOIN_SQL, 1).await;
     let (adaptive_4c_throughput, _) =
-        measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_STREAM_JOIN_SQL, 4).await;
+        measure_adaptive_jp(clicks.clone(), purchases.clone(), STREAM_TABLE_JOIN_SQL, 4).await;
 
     println!(
-        "🚀 BENCHMARK_RESULT | stream_stream_join | tier3 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
+        "🚀 BENCHMARK_RESULT | stream_table_join | tier3 | SQL Sync: {:.0} | SQL Async: {:.0} | SimpleJp: {:.0} | TransactionalJp: {:.0} | AdaptiveJp (1c): {:.0} | AdaptiveJp (4c): {:.0}",
         sql_sync_throughput,
         sql_async_throughput,
         simple_jp_throughput,
@@ -329,7 +332,7 @@ async fn measure_v1(
                 mpsc::unbounded_channel().0,
             ))),
             (*query_arc).clone(),
-            "stream_stream_join_v1_test".to_string(),
+            "stream_table_join_v1_test".to_string(),
             shutdown_rx,
             None,
         ),
@@ -391,7 +394,7 @@ async fn measure_transactional_jp(
                 mpsc::unbounded_channel().0,
             ))),
             (*query_arc).clone(),
-            "stream_stream_join_transactional_test".to_string(),
+            "stream_table_join_transactional_test".to_string(),
             shutdown_rx,
             None,
         ),
@@ -448,7 +451,7 @@ async fn measure_adaptive_jp(
                 mpsc::unbounded_channel().0,
             ))),
             (*query_arc).clone(),
-            format!("stream_stream_join_adaptive_{}c_test", num_cores),
+            format!("stream_table_join_adaptive_{}c_test", num_cores),
             shutdown_rx,
             None,
         ),

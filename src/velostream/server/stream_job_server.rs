@@ -20,6 +20,7 @@ use crate::velostream::server::shutdown::{ShutdownConfig, ShutdownResult, Shutdo
 use crate::velostream::server::table_registry::{
     TableMetadata as TableStatsInfo, TableRegistry, TableRegistryConfig,
 };
+use crate::velostream::server::v2::{JoinJobConfig, JoinJobProcessor};
 // Note: AdaptiveJobProcessor, PartitionedJobConfig, ProcessingMode are now accessed
 // through JobProcessorFactory::create_adaptive_full() - no direct imports needed
 use crate::velostream::sql::{
@@ -926,7 +927,7 @@ impl StreamJobServer {
             )
             .await
             {
-                Ok(readers) => {
+                Ok(mut readers) => {
                     info!(
                         "Job '{}' successfully created {} data sources",
                         job_name,
@@ -1011,44 +1012,157 @@ impl StreamJobServer {
                                 processor_config_for_spawn.description()
                             );
 
-                            // Create processor using factory pattern
-                            let processor = Self::create_processor_for_job(
-                                &processor_config_for_spawn,
-                                &parsed_query,
-                                &job_name,
-                                tables_for_spawn.clone(),
-                            );
+                            // FR-085: Check for stream-stream joins and route to specialized processor
+                            if parsed_query.has_stream_stream_joins() {
+                                info!(
+                                    "Job '{}': Detected stream-stream join, using JoinJobProcessor",
+                                    job_name
+                                );
 
-                            // Execute the selected processor (unified API for all three)
-                            match processor
-                                .process_multi_job(
-                                    readers,
-                                    writers,
-                                    execution_engine.clone(),
-                                    parsed_query,
-                                    job_name.clone(),
-                                    shutdown_receiver,
-                                    Some(shared_stats_for_spawn.clone()), // Pass shared stats for real-time monitoring
-                                )
-                                .await
-                            {
-                                Ok(stats) => {
+                                // Extract join information from query
+                                if let Some((left_name, right_name, join_type)) =
+                                    parsed_query.extract_stream_stream_join_info()
+                                {
                                     info!(
-                                        "Job '{}' completed successfully ({} - {}): {:?}",
-                                        job_name,
-                                        processor.processor_version(),
-                                        processor.processor_name(),
-                                        stats
+                                        "Job '{}': Join sources - left='{}', right='{}', type={:?}",
+                                        job_name, left_name, right_name, join_type
+                                    );
+
+                                    // Extract join keys from ON clause
+                                    let join_keys = parsed_query.extract_join_keys();
+                                    info!("Job '{}': Join keys: {:?}", job_name, join_keys);
+
+                                    // Get readers for left and right sources
+                                    let left_reader = readers.remove(&left_name);
+                                    let right_reader = readers.remove(&right_name);
+
+                                    match (left_reader, right_reader) {
+                                        (Some(left), Some(right)) => {
+                                            // Create join configuration
+                                            let mut join_config = crate::velostream::sql::execution::processors::IntervalJoinConfig::new(
+                                                &left_name,
+                                                &right_name,
+                                            );
+
+                                            // Add join keys
+                                            for (left_key, right_key) in join_keys {
+                                                join_config =
+                                                    join_config.with_key(&left_key, &right_key);
+                                            }
+
+                                            // Set time bounds (default 1 hour window for now)
+                                            join_config = join_config.with_bounds(
+                                                Duration::ZERO,
+                                                Duration::from_secs(3600),
+                                            );
+
+                                            // Create and execute join processor
+                                            let join_processor =
+                                                JoinJobProcessor::with_join_config(join_config);
+
+                                            // Get first writer (if any)
+                                            let writer = writers.into_values().next();
+
+                                            match join_processor
+                                                .process_join(
+                                                    left_name.clone(),
+                                                    left,
+                                                    right_name.clone(),
+                                                    right,
+                                                    writer,
+                                                )
+                                                .await
+                                            {
+                                                Ok(stats) => {
+                                                    info!(
+                                                        "Job '{}' (JoinJobProcessor) completed: {} left + {} right records, {} joins, {} output",
+                                                        job_name,
+                                                        stats.left_records_read,
+                                                        stats.right_records_read,
+                                                        stats.join_matches,
+                                                        stats.records_written
+                                                    );
+                                                    // Update shared stats
+                                                    if let Ok(mut shared) =
+                                                        shared_stats_for_spawn.write()
+                                                    {
+                                                        shared.records_processed = stats
+                                                            .left_records_read
+                                                            + stats.right_records_read;
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    error!(
+                                                        "Job '{}' (JoinJobProcessor) failed: {:?}",
+                                                        job_name, e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                        (None, _) => {
+                                            error!(
+                                                "Job '{}': Left source '{}' not found in readers. Available: {:?}",
+                                                job_name,
+                                                left_name,
+                                                readers.keys().collect::<Vec<_>>()
+                                            );
+                                        }
+                                        (_, None) => {
+                                            error!(
+                                                "Job '{}': Right source '{}' not found in readers. Available: {:?}",
+                                                job_name,
+                                                right_name,
+                                                readers.keys().collect::<Vec<_>>()
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    error!(
+                                        "Job '{}': Failed to extract join info despite has_stream_stream_joins() returning true",
+                                        job_name
                                     );
                                 }
-                                Err(e) => {
-                                    error!(
-                                        "Job '{}' failed ({} - {}): {:?}",
-                                        job_name,
-                                        processor.processor_version(),
-                                        processor.processor_name(),
-                                        e
-                                    );
+                            } else {
+                                // Normal (non-join) processing path
+                                // Create processor using factory pattern
+                                let processor = Self::create_processor_for_job(
+                                    &processor_config_for_spawn,
+                                    &parsed_query,
+                                    &job_name,
+                                    tables_for_spawn.clone(),
+                                );
+
+                                // Execute the selected processor (unified API for all three)
+                                match processor
+                                    .process_multi_job(
+                                        readers,
+                                        writers,
+                                        execution_engine.clone(),
+                                        parsed_query,
+                                        job_name.clone(),
+                                        shutdown_receiver,
+                                        Some(shared_stats_for_spawn.clone()), // Pass shared stats for real-time monitoring
+                                    )
+                                    .await
+                                {
+                                    Ok(stats) => {
+                                        info!(
+                                            "Job '{}' completed successfully ({} - {}): {:?}",
+                                            job_name,
+                                            processor.processor_version(),
+                                            processor.processor_name(),
+                                            stats
+                                        );
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Job '{}' failed ({} - {}): {:?}",
+                                            job_name,
+                                            processor.processor_version(),
+                                            processor.processor_name(),
+                                            e
+                                        );
+                                    }
                                 }
                             }
                         }

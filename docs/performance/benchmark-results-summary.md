@@ -1,477 +1,127 @@
-# Comprehensive SQL Benchmark Results
+# Velostream Performance Benchmark Results
 
-**Date**: 2025-10-02
-**Test Suite**: `tests/performance/unit/comprehensive_sql_benchmarks.rs`
+**Last Updated**: 2026-01-18
 **Mode**: Release build with `--no-default-features`
+
+---
 
 ## Executive Summary
 
-✅ **All Critical Gaps Completed and Benchmarked**
-
-The comprehensive SQL benchmark suite has been successfully created, consolidating all SQL performance tests into a single, well-organized file. All three critical gaps identified in the performance plan have been addressed and exceed their targets.
+Comprehensive benchmark results across all SQL operations. Throughput measured in records/sec.
 
 ---
 
-## Critical Gaps - Results ✅
-
-### 1. Subquery Performance Benchmarks (Critical Gap #1)
-
-| Benchmark | Performance | Target | Status |
-|-----------|-------------|--------|--------|
-| **EXISTS Subquery** | 30.1M records/sec | 1M records/sec | ✅ **30x above target** |
-| **IN Subquery** | 49.7M records/sec | 2M records/sec | ✅ **24.8x above target** |
-| **Scalar Subquery** | Not yet run | 3M records/sec | ⏸️ Pending |
-| **Correlated Subquery** | Not yet run | 500K records/sec | ⏸️ Pending |
-
-**Status**: ✅ **COMPLETED** - Subquery benchmarks implemented and validated
-- EXISTS: 1000 outer records against 100 inner records → 100 matches
-- IN: 1000 records against 5 categories → Ultra-fast hash-based lookup
-
----
-
-### 2. HAVING Clause Evaluation (Critical Gap #2)
-
-| Benchmark | Performance | Target | Status |
-|-----------|-------------|--------|--------|
-| **HAVING Clause Evaluation** | 7.7M records/sec | 1M records/sec | ✅ **7.7x above target** |
-| **Complex HAVING Predicates** | Not yet run | 500K records/sec | ⏸️ Pending |
-
-**Status**: ✅ **COMPLETED** - HAVING clause benchmarks implemented and validated
-- Processed 1000 records with GROUP BY aggregation
-- Applied HAVING filters: COUNT(*) > 10 AND SUM(value) > 1000
-- Result: 5 groups passed HAVING clause
-
----
-
-### 3. CTAS/CSAS Operations (Critical Gap #3)
-
-| Benchmark | Performance | Target | Status |
-|-----------|-------------|--------|--------|
-| **CTAS (CREATE TABLE AS SELECT)** | 864K records/sec | 500K records/sec | ✅ **1.7x above target** |
-| **CSAS (CREATE STREAM AS SELECT)** | Not yet run | 500K records/sec | ⏸️ Pending |
-| **CTAS with Schema Propagation** | Not yet run | 400K records/sec | ⏸️ Pending |
-
-**Status**: ✅ **COMPLETED** - CTAS benchmarks implemented and validated
-- Created table with 250 filtered records (50% filtered by WHERE clause)
-- Async pipeline: source → filter → target table
-- Schema propagation overhead tested
-
----
-
-## Additional Benchmarks Implemented
-
-### SELECT Query Benchmarks
-
-| Benchmark | Status | Notes |
-|-----------|--------|-------|
-| Simple SELECT | ✅ Implemented | Basic + Enhanced modes |
-| Complex SELECT | ✅ Implemented | Field transformations, type conversions |
-
-**Performance Targets**: >3M records/sec for simple, >500K for complex
-
----
-
-### WHERE Clause Benchmarks ✅
-
-| Benchmark | Performance | Target | Status |
-|-----------|-------------|--------|--------|
-| **Parsing** (first parse) | 836μs | N/A | ✅ Regex compilation (one-time cost) |
-| **Parsing** (cached) | 0-5μs | <10μs | ✅ **Sub-microsecond** |
-| **Evaluation** (Integer) | 11.01ns/eval | <30ns | ✅ **Excellent** |
-| **Evaluation** (Boolean) | 8.82ns/eval | <30ns | ✅ **Outstanding** |
-| **Evaluation** (Float) | 10.19ns/eval | <30ns | ✅ **Excellent** |
-| **Evaluation** (String) | 11.17ns/eval | <30ns | ✅ **Excellent** |
-
-**Performance Analysis** (Release Build - 2025-10-02):
-- **Evaluation Performance**: 8.82-11.17ns/eval (measured)
-- **HashMap Lookup Baseline**: ~10-15ns on modern hardware
-- **Overhead**: Near-zero (0-5ns) for type matching and comparison
-- **Throughput**: ~90-113M evaluations/sec (depends on field type)
-- **Regression Test**: ✅ 12.27ns/eval (well under 30ns target)
-
-**Note**: WHERE clause tests are in `tests/performance/where_clause_performance_test.rs` (registered and passing)
-
----
-
-### Window Functions Benchmarks
-
-| Benchmark | Status | Notes |
-|-----------|--------|-------|
-| ROW_NUMBER | ✅ Implemented | Simple row numbering |
-| RANK | ✅ Implemented | Partitioned ranking |
-| Moving Average | ✅ Implemented | LAG/LEAD simulation |
-
-**Performance Targets**: >2M records/sec
-
----
-
-### Aggregation Benchmarks
-
-| Benchmark | Status | Notes |
-|-----------|--------|-------|
-| GROUP BY + COUNT/SUM/AVG | ✅ Implemented | Complex multi-aggregation |
-| MIN/MAX | ✅ Implemented | Simple aggregations |
-
-**Performance Targets**: >1M records/sec for GROUP BY, >5M for MIN/MAX
-
----
-
-### Financial Precision Benchmark
-
-| Benchmark | Status | Notes |
-|-----------|--------|-------|
-| ScaledInteger vs f64 | ✅ Implemented | Target: 42x improvement |
-
-**Performance Target**: 20x minimum improvement (validated in other tests at 42x)
-
----
-
-## Benchmark Coverage Matrix (Updated)
-
-| Feature Category | Before | After | Tests | Status |
-|-----------------|--------|-------|-------|--------|
-| **SQL SELECT** | ✅ Basic | ✅ Basic + Complex | 2 | Enhanced |
-| **SQL WHERE** | ⚠️ Not registered | ✅ 90-113M eval/sec | 5 | **Complete** |
-| **Window Functions** | ✅ Basic | ✅ ROW_NUMBER, RANK, Moving Avg | 3 | Enhanced |
-| **Aggregations** | ✅ Basic | ✅ GROUP BY, MIN/MAX separate | 2 | Enhanced |
-| **HAVING Clause** | ❌ Missing | ✅ 7.7M rec/sec | 2 | **NEW** |
-| **Subqueries** | ❌ Missing | ✅ 30-50M rec/sec | 4 | **NEW** |
-| **CTAS/CSAS** | ❌ Missing | ✅ 864K rec/sec | 3 | **NEW** |
-| **Financial Precision** | ✅ Complete | ✅ 42x improvement | 1 | Maintained |
-| **Serialization (JSON)** | ⚠️ Basic | ✅ Comprehensive | 8 | **Enhanced** |
-| **Serialization (Avro)** | ❌ Missing | ✅ Complete | 6 | **NEW** |
-| **Serialization (Protobuf)** | ❌ Missing | ✅ Complete | 4 | **NEW** |
-
-**Total Benchmark Tests**: 40+ (was 18+)
-
----
-
-## Performance Summary Dashboard
+## Performance Dashboard
 
 ```
-┌─────────────────────────┬──────────────────┬──────────────┬──────────────┐
-│ SQL Feature             │ Performance      │ Target       │ Status       │
-├─────────────────────────┼──────────────────┼──────────────┼──────────────┤
-│ EXISTS Subquery         │ 30.1M/sec        │ 1M/sec       │ ✅ 30x       │
-│ IN Subquery             │ 49.7M/sec        │ 2M/sec       │ ✅ 24.8x     │
-│ HAVING Clause           │ 7.7M/sec         │ 1M/sec       │ ✅ 7.7x      │
-│ CTAS Operation          │ 864K/sec         │ 500K/sec     │ ✅ 1.7x      │
-│ WHERE Evaluation        │ 8.82-11.17ns     │ <30ns/eval   │ ✅ **3x better** │
-│ WHERE Throughput        │ 90-113M/sec      │ >33M/sec     │ ✅ 3x        │
-└─────────────────────────┴──────────────────┴──────────────┴──────────────┘
+┌─────────────────────────────┬──────────────┬──────────────┬──────────────┐
+│ Operation                   │ SQL Sync     │ SQL Async    │ Tier         │
+├─────────────────────────────┼──────────────┼──────────────┼──────────────┤
+│ ANY/ALL Operators           │ 1,344K       │ 742K         │ 4            │
+│ IN Subquery                 │ 1,217K       │ 865K         │ 3            │
+│ EXISTS Subquery             │ 1,079K       │ 546K         │ 3            │
+│ ROWS Window                 │ 865K         │ 380K         │ 1            │
+│ SELECT WHERE                │ 767K         │ 354K         │ 1            │
+│ Correlated Subquery         │ 538K         │ 547K         │ 3            │
+│ Scalar Subquery             │ 468K         │ 266K         │ 2            │
+│ Stream-Table Join (tier3)   │ 463K         │ 460K         │ 3            │
+│ Time-based Join             │ 435K         │ 436K         │ 2            │
+│ Interval Stream Join        │ 364K         │ 228K         │ 3            │
+│ HAVING Clause               │ 331K         │ 231K         │ 2            │
+│ Stream-Table Join (tier1)   │ 280K         │ 188K         │ 1            │
+│ Scalar Subquery w/EXISTS    │ 239K         │ 248K         │ 2            │
+│ Tumbling Window             │ 231K         │ 180K         │ 1            │
+│ GROUP BY Continuous         │ 218K         │ 159K         │ 1            │
+│ EMIT CHANGES                │ 9K           │ 7K           │ 1            │
+└─────────────────────────────┴──────────────┴──────────────┴──────────────┘
 ```
-
-**Overall Score**: ⭐⭐⭐⭐⭐ (5/5 stars)
-- All critical gaps completed
-- Performance exceeds targets (1.7-30x above)
-- Comprehensive test coverage (18+ benchmarks)
-- WHERE clause: 90-113M evaluations/sec
 
 ---
 
-## File Structure
+## Tier 1: Essential Operations
 
-### Comprehensive SQL Benchmarks
-**Location**: `tests/performance/unit/comprehensive_sql_benchmarks.rs`
-**Size**: 1200+ lines
-**Sections**:
-1. SELECT Query Benchmarks
-2. WHERE Clause Benchmarks
-3. Window Functions Benchmarks
-4. Aggregation Benchmarks
-5. HAVING Clause Benchmarks (NEW)
-6. Subquery Benchmarks (NEW)
-7. CTAS/CSAS Benchmarks (NEW)
-8. Financial Precision Benchmarks
-9. Performance Dashboard
-
-### Registration
-- ✅ Registered in `tests/performance/unit/mod.rs`
-- ✅ WHERE clause test registered in `tests/performance/mod.rs`
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| ROWS Window | 865,248 | 379,944 | 620,153 | 642,853 |
+| SELECT WHERE | 766,923 | 353,854 | 523,756 | 519,559 |
+| Stream-Table Join | 279,744 | 187,915 | 234,816 | 233,076 |
+| Tumbling Window | 230,687 | 179,981 | 742,643 | 681,991 |
+| GROUP BY Continuous | 218,470 | 158,876 | 242,226 | 242,629 |
+| EMIT CHANGES | 9,390 | 6,684 | 28,874 | 28,809 |
 
 ---
 
-## Running the Benchmarks
+## Tier 2: Common Operations
 
-### Run All Comprehensive SQL Benchmarks
-```bash
-cargo test --release --no-default-features performance::unit::comprehensive_sql_benchmarks -- --nocapture
-```
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| Scalar Subquery | 467,851 | 265,556 | 351,420 | 357,744 |
+| Time-based Join | 435,010 | 436,315 | 356,526 | 364,544 |
+| HAVING Clause | 331,280 | 230,728 | 276,575 | 276,503 |
+| Scalar Subquery w/EXISTS | 239,192 | 247,647 | 157,704 | 149,742 |
 
-### Run Specific Benchmarks
+---
+
+## Tier 3: Advanced Operations
+
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| IN Subquery | 1,217,100 | 865,476 | 683,905 | 744,701 |
+| EXISTS Subquery | 1,079,467 | 545,504 | 675,009 | 37,347 |
+| Correlated Subquery | 538,449 | 547,060 | 450,935 | 433,978 |
+| Stream-Table Join | 462,808 | 460,110 | 372,218 | 394,468 |
+
+### Stream-Stream Joins (FR-085)
+
+| Component | Throughput | Notes |
+|-----------|------------|-------|
+| JoinStateStore | 5,346,820 | BTreeMap operations |
+| High Cardinality | 1,722,461 | Unique keys stress test |
+| JoinCoordinator | 607,437 | Full join pipeline |
+| SQL Engine (sync) | 363,823 | End-to-end |
+| SQL Engine (async) | 228,083 | Async pipeline |
+
+---
+
+## Tier 4: Specialized Operations
+
+| Operation | SQL Sync | SQL Async | SimpleJp | AdaptiveJp (4c) |
+|-----------|----------|-----------|----------|-----------------|
+| ANY/ALL Operators | 1,344,704 | 742,184 | 999,908 | 915,150 |
+
+---
+
+## Running Benchmarks
 
 ```bash
-# HAVING clause
-cargo test --release --no-default-features benchmark_having_clause_evaluation -- --exact --nocapture
+# Run all SQL operation benchmarks
+cargo test --release --no-default-features "performance::analysis::sql_operations" -- --nocapture
 
-# Subqueries
-cargo test --release --no-default-features benchmark_subquery_exists -- --exact --nocapture
-cargo test --release --no-default-features benchmark_subquery_in -- --exact --nocapture
+# Run by tier
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier1" -- --nocapture
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier2" -- --nocapture
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier3" -- --nocapture
+cargo test --release --no-default-features "performance::analysis::sql_operations::tier4" -- --nocapture
 
-# CTAS/CSAS
-cargo test --release --no-default-features benchmark_ctas_operation -- --exact --nocapture
-cargo test --release --no-default-features benchmark_csas_operation -- --exact --nocapture
-
-# WHERE clause
-cargo test --release --no-default-features benchmark_where_clause_parsing -- --exact --nocapture
-```
-
-### List All Available Benchmarks
-```bash
-cargo test --release --no-default-features -- --list 2>&1 | grep comprehensive_sql
-```
-
-**Result**: 18+ benchmarks discovered
-
----
-
-## Serialization Format Benchmarks ✅ (NEW - 2025-10-02)
-
-### Implementation Summary
-
-Comprehensive benchmark suite for all three serialization formats: JSON, Avro, and Protobuf.
-
-### Test Coverage (18 Tests Total)
-
-| Category | JSON | Avro | Protobuf | Total |
-|----------|------|------|----------|-------|
-| **Memory Efficiency** | 2 | 2 | 1 | 5 |
-| **Large Payload** | 1 | 1 | 1 | 3 |
-| **Roundtrip Consistency** | 1 | 1 | 0 | 2 |
-| **Field Type Support** | 1 | 0 | 1 | 2 |
-| **Format Comparison** | 1 | 1 | 0 | 2 |
-| **Cross-Format** | 0 | 0 | 0 | 2 |
-| **Other** | 2 | 1 | 1 | 4 |
-| **TOTAL** | **8** | **6** | **4** | **18** |
-
-### Benchmark Results
-
-#### JSON Serialization
-- ✅ **Memory Efficiency**: 1000 serialize/deserialize operations successful
-- ✅ **Large Payloads**: 400 fields × 100 iterations handled efficiently
-- ✅ **Deterministic**: Consistent output across multiple serializations
-- ✅ **Null Handling**: 1000 null value fields processed efficiently
-- ✅ **Mixed Types**: Integer, Float, Boolean, String, Null all supported
-
-#### Avro Serialization
-- ✅ **Memory Efficiency**: 1000 serialize/deserialize operations successful
-- ✅ **Large Payloads**: 400 fields × 100 iterations handled efficiently
-- ✅ **Schema Support**: Dynamic schema generation for complex records
-- ✅ **Roundtrip**: Perfect fidelity for all core field types
-- ✅ **Compression**: Binary format produces compact output
-
-#### Protobuf Serialization
-- ✅ **Field Type Support**: All 6 FieldValue types (Null, Boolean, Integer, Float, String, ScaledInteger)
-- ✅ **Decimal Precision**: ScaledInteger preserves financial precision (2, 4, 6 decimal places tested)
-- ✅ **Large Payloads**: 400 fields × 100 iterations handled efficiently
-- ✅ **Memory Efficiency**: 1000 iteration stress test successful
-
-#### Cross-Format Comparison
-- **JSON Size**: Reference baseline
-- **Avro Size**: Comparable or smaller (binary format)
-- **Format Parity**: All formats handle the same data types
-- **Roundtrip Integrity**: Both JSON and Avro preserve all core fields
-
-### Performance Characteristics
-
-| Format | Serialization | Deserialization | Size | Best Use Case |
-|--------|--------------|-----------------|------|---------------|
-| **JSON** | Fast | Fast | Larger | Human-readable, debugging |
-| **Avro** | Fast | Fast | Compact | Schema evolution, compression |
-| **Protobuf** | Fastest | Fastest | Smallest | High-throughput, microservices |
-
-### Key Achievements
-
-1. ✅ **Comprehensive Coverage**: All three formats thoroughly tested
-2. ✅ **Memory Safety**: 1000-iteration stress tests verify no memory leaks
-3. ✅ **Large Payloads**: 400-field records handled efficiently
-4. ✅ **Financial Precision**: ScaledInteger support validated for Protobuf
-5. ✅ **Cross-Format Compatibility**: Data can move between formats without loss
-
-### Files Updated
-
-- `tests/performance/unit/serialization_formats.rs` - All 18 tests (273 lines added)
-
-### Test Location
-
-```bash
-# Run all serialization benchmarks
-cargo test --release --no-default-features performance::unit::serialization_formats -- --nocapture
-
-# Run specific format tests
-cargo test --release --no-default-features test_avro -- --nocapture
-cargo test --release --no-default-features test_protobuf -- --nocapture
-cargo test --release --no-default-features test_json -- --nocapture
+# Run specific benchmark
+cargo test --release --no-default-features test_interval_stream_join_performance -- --nocapture
 ```
 
 ---
 
-## Phase 4: Batch Strategy Optimization (NEW - 2025-10-02)
+## Benchmark Locations
 
-### Implementation Summary
-
-**Target**: 5x throughput improvement (8.37M records/sec)
-**Current Baseline**: 4.3M records/sec (2.6x from Phase 3)
-**Gap to Close**: 1.9x improvement needed
-
-### Three-Strategy Approach
-
-#### Strategy 1: Larger Batch Sizes ✅
-- **Implementation**: Added `MegaBatch` variant to `BatchStrategy` enum
-- **Batch Size**: Increased from 1K to 50K-100K records
-- **Expected Impact**: 1.5x improvement
-- **Configuration**:
-  ```rust
-  BatchConfig::high_throughput()     // 50K batch size
-  BatchConfig::ultra_throughput()    // 100K batch size
-  ```
-
-#### Strategy 2: Ring Buffer for Batch Reuse ✅
-- **Implementation**: `RingBatchBuffer` with pre-allocated capacity
-- **Mechanism**: Eliminates per-batch allocation overhead
-- **Expected Impact**: 1.2x improvement (20-30% reduction in allocations)
-- **Location**: `src/velostream/datasource/batch_buffer.rs`
-- **Key Features**:
-  - Pre-allocated buffer (10K-100K capacity)
-  - Zero-copy batch retrieval
-  - Reusable across batches
-
-#### Strategy 3: Parallel Batch Processing ✅
-- **Implementation**: `ParallelBatchProcessor` with rayon integration
-- **Mechanism**: Multi-core batch processing using `std::thread::available_parallelism()`
-- **Expected Impact**: 1.1x improvement (on 4+ core systems)
-- **Transaction Safety**: Documented for read vs write operations
-- **Configuration**: Auto-detects CPU cores, defaults to `num_cores - 1`
-
-### Combined Impact Projection
-
-| Strategy | Individual Impact | Cumulative Impact |
-|----------|------------------|-------------------|
-| Baseline | 4.3M rec/sec | - |
-| + Larger Batches | 1.5x | 6.45M rec/sec |
-| + Ring Buffer | 1.2x | 7.74M rec/sec |
-| + Parallel Processing | 1.1x | **8.51M rec/sec** |
-
-**Projected Result**: **8.51M records/sec** (exceeds 5x target of 8.37M by 1.7%)
-
-### Files Modified
-
-**Core Configuration**:
-- `src/velostream/datasource/config/types.rs` - MegaBatch strategy enum
-- `src/velostream/datasource/batch_buffer.rs` - Ring buffer + parallel processor (NEW)
-- `src/velostream/datasource/mod.rs` - Public API re-exports
-
-**Kafka Integration**:
-- `src/velostream/datasource/kafka/data_source.rs` - Consumer optimization
-- `src/velostream/datasource/kafka/data_sink.rs` - Producer optimization
-- `src/velostream/datasource/kafka/reader.rs` - Reader batch strategies
-
-**File Integration**:
-- `src/velostream/datasource/file/data_sink.rs` - File writer optimization
-- `src/velostream/datasource/file/reader.rs` - File reader batch strategies
-
-**Unified Config**:
-- `src/velostream/datasource/config/unified.rs` - Cross-cutting batch application
-
-### Benchmark Status
-
-| Benchmark | Status | Target | Notes |
-|-----------|--------|--------|-------|
-| **Table Load (Bulk)** | ⏸️ Pending | 8.37M rec/sec | Phase 4 target |
-| **Table Load (Incremental)** | ⏸️ Pending | 5M rec/sec | Streaming mode |
-| **Ring Buffer Overhead** | ⏸️ Pending | <5% | Allocation comparison |
-| **Parallel Scaling** | ⏸️ Pending | 1.1x on 4 cores | Multi-core efficiency |
-
-### Next Actions
-
-1. **Create Phase 4 Benchmark Suite**:
-   - Table bulk loading with MegaBatch strategy
-   - Ring buffer allocation comparison
-   - Parallel processing scaling test
-   - Cross-strategy performance validation
-
-2. **Run Benchmarks**:
-   ```bash
-   cargo test --release --no-default-features table_load_megabatch -- --exact --nocapture
-   ```
-
-3. **Document Results**: Update this file with actual measurements
+| Tier | Location |
+|------|----------|
+| Tier 1 | `tests/performance/analysis/sql_operations/tier1_essential/` |
+| Tier 2 | `tests/performance/analysis/sql_operations/tier2_common/` |
+| Tier 3 | `tests/performance/analysis/sql_operations/tier3_advanced/` |
+| Tier 4 | `tests/performance/analysis/sql_operations/tier4_specialized/` |
 
 ---
 
-## Next Steps
+## Related Documentation
 
-### Phase 1 (SQL Benchmarks) - ✅ COMPLETED
-- [x] Create comprehensive SQL benchmark file
-- [x] Implement HAVING clause benchmarks
-- [x] Implement subquery benchmarks (EXISTS, IN, Scalar, Correlated)
-- [x] Implement CTAS/CSAS benchmarks
-- [x] Register all benchmarks
-- [x] Validate benchmarks work
-
-### Phase 4 (Batch Optimization) - ✅ COMPLETED (2025-10-02)
-- [x] Implement Strategy 1: Larger batch sizes (MegaBatch 50K-100K records)
-- [x] Implement Strategy 2: Ring buffer for batch reuse
-- [x] Implement Strategy 3: Parallel batch processing with rayon
-- [x] Fix all pattern match errors for MegaBatch variant
-- [x] Verify compilation succeeds
-- [ ] **Run benchmarks to validate 5x target** (8.37M records/sec)
-
-### Short-term (Next Week)
-- [ ] Run remaining SQL benchmarks (Scalar subquery, Correlated subquery, CSAS)
-- [ ] Run Phase 4 batch optimization benchmarks
-- [ ] Fix WHERE clause parsing first-run slowness (regex pre-compilation)
-- [ ] Document benchmark methodology in CLAUDE.md
-- [ ] Add benchmark results to CI/CD dashboard
-
-### Serialization Benchmarks - ✅ COMPLETED (2025-10-02)
-- [x] Add Avro serialization benchmarks (6 tests)
-- [x] Add Protobuf serialization benchmarks (4 tests)
-- [x] Add cross-format comparison benchmarks (2 tests)
-- [x] Add memory efficiency tests (6 tests)
-- [x] **Total**: 18 serialization tests passing
-
-### Medium-term (Month 2)
-- [ ] Add multi-table JOIN benchmarks (3-way, 4-way)
-- [ ] Create schema operation benchmarks (SHOW STREAMS, DESCRIBE)
-- [ ] Add streaming window benchmarks (tumbling, sliding, session)
-
----
-
-## Conclusion
-
-**Status**: ✅ **PHASE 1 & PHASE 4 IMPLEMENTATION COMPLETE**
-
-### Phase 1: SQL Benchmarks (Completed)
-All three critical gaps identified in the performance plan have been successfully addressed:
-
-1. **Subquery Performance** (Gap #1): ✅ 30-50M records/sec (30-50x above target)
-2. **HAVING Clause** (Gap #2): ✅ 7.7M records/sec (7.7x above target)
-3. **CTAS/CSAS** (Gap #3): ✅ 864K records/sec (1.7x above target)
-
-The comprehensive SQL benchmark suite provides:
-- **Single consolidated file** for all SQL benchmarks
-- **18+ test functions** covering all major SQL features
-- **Performance validation** against production targets
-- **Easy discoverability** with consistent naming
-- **Detailed metrics** via MetricsCollector framework
-
-### Phase 4: Batch Strategy Optimization (Implemented - 2025-10-02)
-All three optimization strategies successfully implemented:
-
-1. **MegaBatch Strategy**: ✅ 50K-100K record batches (1.5x projected improvement)
-2. **Ring Buffer**: ✅ Pre-allocated reusable buffers (1.2x projected improvement)
-3. **Parallel Processing**: ✅ Multi-core batch processing (1.1x projected improvement)
-
-**Implementation Status**:
-- ✅ All code changes complete (9 files modified, 1 file created)
-- ✅ All pattern match errors resolved
-- ✅ Compilation successful
-- ⏸️ **Benchmarks pending** - validation of 8.37M rec/sec target needed
-
-**Projected Performance**: **8.51M records/sec** (1.01x above 5x target)
-
-**Next Step**: Run Phase 4 benchmarks to validate actual vs projected performance.
-
-**Recommendation**: Code implementation is production-ready. Proceed with benchmark validation before deployment.
-
+- [Benchmarks Guide](../benchmarks/README.md)
+- [Stream-Stream Joins Design](../design/stream-stream-joins.md)
+- [Stream-Table Join Architecture](../architecture/stream-table-join-performance.md)

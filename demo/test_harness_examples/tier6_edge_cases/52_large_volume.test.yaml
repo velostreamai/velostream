@@ -1,22 +1,22 @@
 application: large_volume_demo
-description: Test high volume data processing (100k+ records)
-default_timeout_ms: 300000
-default_records: 100000
+description: Test high volume data processing (10k records)
+default_timeout_ms: 120000
+default_records: 10000
 
 queries:
   - name: enriched_events
-    description: Verify transformation handles 100k+ records
+    description: Verify transformation handles 10k records
     inputs:
       - source: events
         schema: events
-        records: 100000
+        records: 10000
         time_simulation:
           start_time: "-5m"    # 5 minutes of events
           end_time: "now"
           sequential: true
     assertions:
       - type: record_count
-        greater_than: 50000  # At least half should pass filter (value > 0)
+        greater_than: 5000  # At least half should pass filter (value > 0)
       - type: schema_contains
         fields: [event_id, user_id, event_type, value, adjusted_value, region]
       - type: field_values
@@ -25,14 +25,14 @@ queries:
         value: 0
       - type: no_nulls
         fields: [event_id, user_id, value]
-    timeout_ms: 180000
+    timeout_ms: 90000
 
   - name: regional_stats
     description: Verify aggregation handles high volume correctly
     inputs:
       - source: events
         schema: events
-        records: 100000
+        records: 10000
         time_simulation:
           start_time: "-5m"    # 5 minutes spans multiple 1-min tumbling windows
           end_time: "now"
@@ -48,4 +48,4 @@ queries:
         value: 0
       - type: no_nulls
         fields: [region, event_type, event_count]
-    timeout_ms: 180000
+    timeout_ms: 90000

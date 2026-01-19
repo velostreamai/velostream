@@ -132,6 +132,7 @@ pub struct MetricsProvider {
     sql_metrics: SqlMetrics,
     streaming_metrics: StreamingMetrics,
     system_metrics: SystemMetrics,
+    join_metrics: JoinMetrics,
     active: bool,
     // Phase 3.2: Single consolidated lock for all dynamic metrics (reduced from 3 to 1)
     dynamic_metrics: Arc<Mutex<DynamicMetrics>>,
@@ -150,6 +151,7 @@ impl MetricsProvider {
         let sql_metrics = SqlMetrics::new(&registry, &config)?;
         let streaming_metrics = StreamingMetrics::new(&registry, &config)?;
         let system_metrics = SystemMetrics::new(&registry, &config)?;
+        let join_metrics = JoinMetrics::new(&registry)?;
 
         log::info!("📊 Phase 4: Prometheus metrics initialized");
         log::info!(
@@ -165,6 +167,7 @@ impl MetricsProvider {
             sql_metrics,
             streaming_metrics,
             system_metrics,
+            join_metrics,
             active: true,
             dynamic_metrics: Arc::new(Mutex::new(DynamicMetrics::new())),
             job_metrics: Arc::new(Mutex::new(HashMap::new())),
@@ -385,6 +388,40 @@ impl MetricsProvider {
                 memory_usage / (1024 * 1024),
                 active_jobs
             );
+        }
+    }
+
+    /// Update join metrics from JoinCoordinatorStats
+    ///
+    /// # Arguments
+    /// * `join_name` - Name of the join (used as Prometheus label)
+    /// * `stats` - Current coordinator stats from the join processor
+    pub fn update_join_metrics(
+        &self,
+        join_name: &str,
+        stats: &crate::velostream::sql::execution::join::JoinCoordinatorStats,
+    ) {
+        if self.active {
+            self.join_metrics.update_from_stats(join_name, stats);
+            log::trace!(
+                "📊 Updated join metrics: {} - left={}, right={}, matches={}",
+                join_name,
+                stats.left_records_processed,
+                stats.right_records_processed,
+                stats.matches_emitted
+            );
+        }
+    }
+
+    /// Update join memory pressure level
+    pub fn update_join_memory_pressure(
+        &self,
+        join_name: &str,
+        pressure: crate::velostream::sql::execution::join::MemoryPressure,
+    ) {
+        if self.active {
+            self.join_metrics
+                .update_memory_pressure(join_name, pressure);
         }
     }
 
@@ -1989,5 +2026,346 @@ impl SystemMetrics {
             .with_label_values(label_values)
             .set(memory_usage as i64);
         self.active_jobs.set(active_jobs);
+    }
+}
+
+/// Stream-stream join metrics
+///
+/// Tracks join processing, state store sizes, evictions, and memory interning efficiency.
+/// All metrics include a `join_name` label for filtering by join.
+#[derive(Debug)]
+pub struct JoinMetrics {
+    // === Processing Counters ===
+    /// Records processed from left source
+    left_records_total: IntCounterVec,
+    /// Records processed from right source
+    right_records_total: IntCounterVec,
+    /// Total join matches emitted
+    matches_total: IntCounterVec,
+    /// Records with missing join keys
+    missing_keys_total: IntCounterVec,
+
+    // === State Store Gauges ===
+    /// Current records in left state store
+    left_store_size: IntGaugeVec,
+    /// Current records in right state store
+    right_store_size: IntGaugeVec,
+
+    // === Eviction Counters ===
+    /// Records evicted from left store
+    left_evictions_total: IntCounterVec,
+    /// Records evicted from right store
+    right_evictions_total: IntCounterVec,
+
+    // === Memory Interning Gauges ===
+    /// Number of unique keys interned
+    interned_keys: IntGaugeVec,
+    /// Estimated memory saved by interning (bytes)
+    interning_memory_saved_bytes: IntGaugeVec,
+
+    // === Memory Pressure ===
+    /// Memory pressure level (0=Normal, 1=Warning, 2=Critical)
+    memory_pressure: IntGaugeVec,
+
+    // === Window Metrics ===
+    /// Windows closed (for window joins)
+    windows_closed_total: IntCounterVec,
+    /// Currently active windows
+    active_windows: IntGaugeVec,
+
+    // === Tracking for counter increments (per join_name) ===
+    last_values: Arc<Mutex<std::collections::HashMap<String, JoinMetricsSnapshot>>>,
+}
+
+/// Snapshot of counter values for delta calculation
+#[derive(Debug, Default, Clone)]
+struct JoinMetricsSnapshot {
+    left_records: u64,
+    right_records: u64,
+    matches: u64,
+    missing_keys: u64,
+    left_evictions: u64,
+    right_evictions: u64,
+    windows_closed: u64,
+}
+
+impl JoinMetrics {
+    fn new(registry: &Registry) -> Result<Self, SqlError> {
+        let left_records_total = register_int_counter_vec_with_registry!(
+            Opts::new(
+                "velo_join_left_records_total",
+                "Total records processed from left source"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join left records counter: {}", e),
+        })?;
+
+        let right_records_total = register_int_counter_vec_with_registry!(
+            Opts::new(
+                "velo_join_right_records_total",
+                "Total records processed from right source"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join right records counter: {}", e),
+        })?;
+
+        let matches_total = register_int_counter_vec_with_registry!(
+            Opts::new("velo_join_matches_total", "Total join matches emitted"),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join matches counter: {}", e),
+        })?;
+
+        let missing_keys_total = register_int_counter_vec_with_registry!(
+            Opts::new(
+                "velo_join_missing_keys_total",
+                "Records skipped due to missing join keys"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join missing keys counter: {}", e),
+        })?;
+
+        let left_store_size = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_join_left_store_size",
+                "Current records in left state store"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join left store size gauge: {}", e),
+        })?;
+
+        let right_store_size = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_join_right_store_size",
+                "Current records in right state store"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join right store size gauge: {}", e),
+        })?;
+
+        let left_evictions_total = register_int_counter_vec_with_registry!(
+            Opts::new(
+                "velo_join_left_evictions_total",
+                "Records evicted from left state store"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join left evictions counter: {}", e),
+        })?;
+
+        let right_evictions_total = register_int_counter_vec_with_registry!(
+            Opts::new(
+                "velo_join_right_evictions_total",
+                "Records evicted from right state store"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join right evictions counter: {}", e),
+        })?;
+
+        let interned_keys = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_join_interned_keys",
+                "Number of unique keys interned for memory sharing"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join interned keys gauge: {}", e),
+        })?;
+
+        let interning_memory_saved_bytes = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_join_interning_memory_saved_bytes",
+                "Estimated memory saved by string interning"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join memory saved gauge: {}", e),
+        })?;
+
+        let memory_pressure = register_int_gauge_vec_with_registry!(
+            Opts::new(
+                "velo_join_memory_pressure",
+                "Memory pressure level (0=Normal, 1=Warning, 2=Critical)"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join memory pressure gauge: {}", e),
+        })?;
+
+        let windows_closed_total = register_int_counter_vec_with_registry!(
+            Opts::new(
+                "velo_join_windows_closed_total",
+                "Total windows closed (for window joins)"
+            ),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join windows closed counter: {}", e),
+        })?;
+
+        let active_windows = register_int_gauge_vec_with_registry!(
+            Opts::new("velo_join_active_windows", "Currently active windows"),
+            &["join_name"],
+            registry
+        )
+        .map_err(|e| SqlError::ConfigurationError {
+            message: format!("Failed to register join active windows gauge: {}", e),
+        })?;
+
+        Ok(Self {
+            left_records_total,
+            right_records_total,
+            matches_total,
+            missing_keys_total,
+            left_store_size,
+            right_store_size,
+            left_evictions_total,
+            right_evictions_total,
+            interned_keys,
+            interning_memory_saved_bytes,
+            memory_pressure,
+            windows_closed_total,
+            active_windows,
+            last_values: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        })
+    }
+
+    /// Update join metrics from JoinCoordinatorStats
+    ///
+    /// # Arguments
+    /// * `join_name` - Name of the join (used as label)
+    /// * `stats` - Current coordinator stats
+    pub fn update_from_stats(
+        &self,
+        join_name: &str,
+        stats: &crate::velostream::sql::execution::join::JoinCoordinatorStats,
+    ) {
+        let labels = &[join_name];
+
+        // Get last values for delta calculation
+        let mut last_values = self.last_values.lock().unwrap_or_else(|e| e.into_inner());
+        let last = last_values
+            .entry(join_name.to_string())
+            .or_insert_with(JoinMetricsSnapshot::default);
+
+        // Update counters (increment by delta)
+        let left_delta = stats
+            .left_records_processed
+            .saturating_sub(last.left_records);
+        let right_delta = stats
+            .right_records_processed
+            .saturating_sub(last.right_records);
+        let matches_delta = stats.matches_emitted.saturating_sub(last.matches);
+        let missing_delta = stats.missing_key_count.saturating_sub(last.missing_keys);
+        let left_evict_delta = stats.left_evictions.saturating_sub(last.left_evictions);
+        let right_evict_delta = stats.right_evictions.saturating_sub(last.right_evictions);
+        let windows_delta = stats.windows_closed.saturating_sub(last.windows_closed);
+
+        if left_delta > 0 {
+            self.left_records_total
+                .with_label_values(labels)
+                .inc_by(left_delta);
+        }
+        if right_delta > 0 {
+            self.right_records_total
+                .with_label_values(labels)
+                .inc_by(right_delta);
+        }
+        if matches_delta > 0 {
+            self.matches_total
+                .with_label_values(labels)
+                .inc_by(matches_delta);
+        }
+        if missing_delta > 0 {
+            self.missing_keys_total
+                .with_label_values(labels)
+                .inc_by(missing_delta);
+        }
+        if left_evict_delta > 0 {
+            self.left_evictions_total
+                .with_label_values(labels)
+                .inc_by(left_evict_delta);
+        }
+        if right_evict_delta > 0 {
+            self.right_evictions_total
+                .with_label_values(labels)
+                .inc_by(right_evict_delta);
+        }
+        if windows_delta > 0 {
+            self.windows_closed_total
+                .with_label_values(labels)
+                .inc_by(windows_delta);
+        }
+
+        // Update last values for next delta
+        last.left_records = stats.left_records_processed;
+        last.right_records = stats.right_records_processed;
+        last.matches = stats.matches_emitted;
+        last.missing_keys = stats.missing_key_count;
+        last.left_evictions = stats.left_evictions;
+        last.right_evictions = stats.right_evictions;
+        last.windows_closed = stats.windows_closed;
+
+        // Update gauges (absolute values)
+        self.left_store_size
+            .with_label_values(labels)
+            .set(stats.left_store_size as i64);
+        self.right_store_size
+            .with_label_values(labels)
+            .set(stats.right_store_size as i64);
+        self.interned_keys
+            .with_label_values(labels)
+            .set(stats.interned_key_count as i64);
+        self.interning_memory_saved_bytes
+            .with_label_values(labels)
+            .set(stats.interning_memory_saved as i64);
+        self.active_windows
+            .with_label_values(labels)
+            .set(stats.active_windows as i64);
+    }
+
+    /// Update memory pressure level
+    pub fn update_memory_pressure(
+        &self,
+        join_name: &str,
+        pressure: crate::velostream::sql::execution::join::MemoryPressure,
+    ) {
+        let level = match pressure {
+            crate::velostream::sql::execution::join::MemoryPressure::Normal => 0,
+            crate::velostream::sql::execution::join::MemoryPressure::Warning => 1,
+            crate::velostream::sql::execution::join::MemoryPressure::Critical => 2,
+        };
+        self.memory_pressure
+            .with_label_values(&[join_name])
+            .set(level);
     }
 }

@@ -827,6 +827,75 @@ WITH (
 
 **When to use**: Join then aggregate
 
+### Stream-Stream Interval JOIN (FR-085)
+
+```sql
+-- Orders joined with shipments within 24 hours
+CREATE STREAM order_shipments AS
+SELECT o.order_id,
+       o.customer_id,
+       o.total_amount,
+       s.shipment_id,
+       s.carrier,
+       s.tracking_number
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+  AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '24' HOUR
+EMIT CHANGES
+WITH (
+    'orders.type' = 'kafka_source',
+    'orders.topic' = 'orders_input',
+    'orders.format' = 'json',
+    'shipments.type' = 'kafka_source',
+    'shipments.topic' = 'shipments_input',
+    'shipments.format' = 'json',
+    'order_shipments.type' = 'kafka_sink',
+    'order_shipments.topic' = 'order_shipments_output',
+    'order_shipments.format' = 'json'
+);
+```
+
+**When to use**: Join two unbounded streams with a time constraint
+**Performance**: ~517K rec/sec (JoinCoordinator), ~5.1M rec/sec (JoinStateStore)
+
+### Stream-Stream Interval JOIN with Configuration
+
+```sql
+-- Click attribution: join clicks with purchases within 30 minutes
+CREATE STREAM click_attribution AS
+SELECT c.user_id,
+       c.ad_id,
+       c.click_time,
+       p.purchase_id,
+       p.amount
+FROM ad_clicks c
+JOIN purchases p ON c.user_id = p.user_id
+  AND p.event_time BETWEEN c.event_time AND c.event_time + INTERVAL '30' MINUTE
+EMIT CHANGES
+WITH (
+    'join.type' = 'interval',
+    'join.lower_bound' = '0s',
+    'join.upper_bound' = '30m',
+    'join.retention' = '1h',
+    'ad_clicks.type' = 'kafka_source',
+    'ad_clicks.topic' = 'ad_clicks_input',
+    'ad_clicks.format' = 'json',
+    'purchases.type' = 'kafka_source',
+    'purchases.topic' = 'purchases_input',
+    'purchases.format' = 'json',
+    'click_attribution.type' = 'kafka_sink',
+    'click_attribution.topic' = 'click_attribution_output',
+    'click_attribution.format' = 'json'
+);
+```
+
+**When to use**: Stream-stream join with explicit retention and interval configuration
+**Key config options**:
+- `join.type`: `interval` for time-bounded joins
+- `join.lower_bound`: Minimum time difference (e.g., `0s`, `-5m`)
+- `join.upper_bound`: Maximum time difference (e.g., `30m`, `24h`)
+- `join.retention`: How long to keep records in state (e.g., `1h`, `48h`)
+
 ---
 
 ## Kafka Message Keys - PRIMARY KEY Annotation (FR-089)

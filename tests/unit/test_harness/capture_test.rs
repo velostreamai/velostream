@@ -796,7 +796,10 @@ fn test_protobuf_codec_deserialize_empty_payload() {
         Ok(fields) => {
             // Empty or has default values - both valid
             // For empty proto3 payload, we expect either empty map or default values
-            assert!(fields.len() <= 10, "Unexpected number of fields from empty payload");
+            assert!(
+                fields.len() <= 10,
+                "Unexpected number of fields from empty payload"
+            );
         }
         Err(_) => {
             // Some implementations may reject empty payload - also acceptable

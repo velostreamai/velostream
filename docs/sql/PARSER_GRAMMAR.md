@@ -59,7 +59,35 @@ ORDER_BY_CLAUSE = 'ORDER' 'BY' order_item (',' order_item)*
 order_item = expression ['ASC' | 'DESC']
 
 LIMIT_CLAUSE = 'LIMIT' number
+
+JOIN_CLAUSES = join_clause+
+
+join_clause = [JOIN_TYPE] 'JOIN' table_source [FROM_ALIAS] 'ON' join_condition
+
+JOIN_TYPE = 'INNER' | 'LEFT' ['OUTER'] | 'RIGHT' ['OUTER'] | 'FULL' ['OUTER']
+
+join_condition = expression
+               | expression 'AND' interval_condition  # For stream-stream interval joins
+
+interval_condition = identifier 'BETWEEN' expression 'AND' expression  # Time-bounded join
 ```
+
+### JOIN Clause (Stream-Table and Stream-Stream)
+
+```
+-- Stream-Table JOIN (hash-based lookup)
+SELECT o.*, c.customer_name
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+
+-- Stream-Stream Interval JOIN (FR-085)
+SELECT o.*, s.*
+FROM orders o
+JOIN shipments s ON o.order_id = s.order_id
+  AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '24' HOUR
+```
+
+**AST Structure**: `JoinClause { join_type, table, alias, condition }`
 
 **AST Structure**: `StreamingQuery::Select { fields, key_fields, from, from_alias, joins, where_clause, group_by, having, window, order_by, limit }`
 

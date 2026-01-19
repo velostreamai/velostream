@@ -52,6 +52,7 @@
 pub mod coordinator;
 pub mod fan_in_strategy;
 pub mod job_processor_v2;
+pub mod join_job_processor;
 pub mod metrics;
 pub mod partition_manager;
 pub mod partition_receiver;
@@ -60,6 +61,7 @@ pub mod partitioning_strategy;
 pub mod prometheus_exporter;
 pub mod round_robin_strategy;
 pub mod smart_repartition_strategy;
+pub mod source_coordinator;
 pub mod sticky_partition_strategy;
 pub mod strategy_config;
 pub mod strategy_factory;
@@ -72,6 +74,9 @@ pub use coordinator::{
     ProcessingMode, ThrottleConfig,
 };
 pub use fan_in_strategy::FanInStrategy;
+pub use join_job_processor::{JoinJobConfig, JoinJobProcessor, JoinJobStats};
+// Note: Join metrics are now integrated into the main MetricsProvider
+// Use MetricsProvider.update_join_metrics() instead of a separate exporter
 pub use metrics::{BackpressureState, PartitionMetrics, PartitionMetricsSnapshot};
 pub use partition_manager::PartitionStateManager;
 pub use partition_receiver::PartitionReceiver;
@@ -82,6 +87,10 @@ pub use partitioning_strategy::{
 pub use prometheus_exporter::PartitionPrometheusExporter;
 pub use round_robin_strategy::RoundRobinStrategy;
 pub use smart_repartition_strategy::SmartRepartitionStrategy;
+pub use source_coordinator::{
+    BackpressureMode, SourceCoordinator, SourceCoordinatorConfig, SourceCoordinatorError,
+    SourceCoordinatorStats, SourceCoordinatorStatsSnapshot, SourceRecord,
+};
 pub use sticky_partition_strategy::StickyPartitionStrategy;
 pub use strategy_config::{StrategyConfig, StrategyConfigBuilder};
 pub use strategy_factory::StrategyFactory;
