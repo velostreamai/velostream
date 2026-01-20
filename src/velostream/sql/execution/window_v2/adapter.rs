@@ -35,7 +35,9 @@ use crate::velostream::sql::ast::{
 };
 use crate::velostream::sql::execution::aggregation::accumulator::AccumulatorManager;
 use crate::velostream::sql::execution::aggregation::functions::AggregateFunctions;
-use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
+use crate::velostream::sql::execution::expression::{ExpressionEvaluator, SelectAliasContext};
+use crate::velostream::sql::execution::utils::FieldValueComparator;
+use crate::velostream::sql::execution::validation::AggregationValidator;
 use crate::velostream::sql::execution::internal::{GroupAccumulator, GroupByState, GroupKey};
 use crate::velostream::sql::execution::processors::OrderProcessor;
 use crate::velostream::sql::execution::processors::ProcessorContext;
@@ -72,7 +74,8 @@ pub struct WindowV2State {
     pub strategy: Box<dyn WindowStrategy>,
     /// The emission strategy (EmitFinal or EmitChanges)
     pub emission_strategy: Box<dyn EmissionStrategy>,
-    /// GROUP BY columns for partitioned processing
+    /// GROUP BY columns for partitioned processing (reserved for future use)
+    #[allow(dead_code)]
     pub group_by_columns: Option<Vec<String>>,
 }
 
@@ -531,34 +534,31 @@ impl WindowAdapter {
 
     /// Extract GROUP BY columns from query
     pub fn get_group_by_columns(query: &StreamingQuery) -> Option<Vec<String>> {
-        if let StreamingQuery::Select { group_by, .. } = query {
-            if let Some(group_exprs) = group_by {
-                // Extract column names from GROUP BY expressions
-                let columns: Vec<String> = group_exprs
-                    .iter()
-                    .filter_map(|expr| {
-                        if let crate::velostream::sql::ast::Expr::Column(col) = expr {
-                            Some(col.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+        let StreamingQuery::Select { group_by: Some(group_exprs), .. } = query else {
+            return None;
+        };
 
-                if columns.is_empty() {
-                    None
+        // Extract column names from GROUP BY expressions
+        let columns: Vec<String> = group_exprs
+            .iter()
+            .filter_map(|expr| {
+                if let crate::velostream::sql::ast::Expr::Column(col) = expr {
+                    Some(col.clone())
                 } else {
-                    Some(columns)
+                    None
                 }
-            } else {
-                None
-            }
-        } else {
+            })
+            .collect();
+
+        if columns.is_empty() {
             None
+        } else {
+            Some(columns)
         }
     }
 
     /// Convert window_v2 SharedRecord results back to legacy StreamRecords
+    #[allow(dead_code)]
     pub fn convert_window_results(
         records: Vec<SharedRecord>,
         _select_fields: &[SelectField],
@@ -703,10 +703,8 @@ impl WindowAdapter {
 
         // FR-084: Apply ORDER BY sorting to window results (Flink-style bounded sort)
         // This is safe because window records are bounded (finite), unlike unbounded streams
-        if let Some(order_exprs) = order_by {
-            if !order_exprs.is_empty() {
-                results = OrderProcessor::process(results, order_exprs, context)?;
-            }
+        if let Some(order_exprs) = order_by.as_ref().filter(|e| !e.is_empty()) {
+            results = OrderProcessor::process(results, order_exprs, context)?;
         }
 
         Ok(results)
@@ -746,15 +744,12 @@ impl WindowAdapter {
         Ok(aggregates)
     }
 
-    /// Check if an expression is an aggregate function.
+    /// Check if an expression contains an aggregate function (recursively).
     ///
-    /// Uses the centralized function catalog to determine if a function is aggregate,
-    /// avoiding hardcoded string matches throughout the codebase.
+    /// Delegates to the centralized `AggregationValidator::contains_aggregate`
+    /// which handles all expression types including CASE, BinaryOp, etc.
     fn is_aggregate_expression(expr: &Expr) -> bool {
-        match expr {
-            Expr::Function { name, .. } => is_aggregate_function(name),
-            _ => false,
-        }
+        AggregationValidator::contains_aggregate(expr)
     }
 
     /// Build a result StreamRecord from computed aggregate values
@@ -807,6 +802,11 @@ impl WindowAdapter {
             enriched
         });
 
+        // Create alias context for SELECT field references (FR-078 alias reuse)
+        // This enables expressions like: spike_classification IN ('HIGH', 'LOW')
+        // where spike_classification was defined in a previous SELECT field
+        let mut alias_context = SelectAliasContext::new();
+
         // Process each SELECT field
         for field in fields {
             match field {
@@ -823,9 +823,12 @@ impl WindowAdapter {
                             accumulator,
                         )?;
 
+                        // Add to alias context for subsequent fields to reference
+                        alias_context.add_alias(field_name.clone(), aggregate_value.clone());
                         result_fields.insert(field_name, aggregate_value);
                     } else {
-                        // Non-aggregate expression - use sample record (with window cols injected)
+                        // Non-aggregate expression - may contain aggregates (e.g., CASE with AVG)
+                        // Use evaluator that supports both alias context AND accumulator resolution
                         if let Some(sample) = &sample_with_window_cols {
                             // Determine field name: use alias, or column name, or formatted expr
                             let field_name = if let Some(alias_name) = alias {
@@ -841,9 +844,18 @@ impl WindowAdapter {
                             // CRITICAL: Don't overwrite GROUP BY keys that were already injected
                             // The sample record may not have the GROUP BY column, returning Null
                             // which would overwrite the correct value from group_by_info
-                            if let Vacant(e) = result_fields.entry(field_name) {
-                                let value =
-                                    ExpressionEvaluator::evaluate_expression_value(expr, sample)?;
+                            if let Vacant(e) = result_fields.entry(field_name.clone()) {
+                                // Use accumulator+alias aware evaluator for complex expressions
+                                // This handles CASE expressions that contain aggregates and/or
+                                // reference previous SELECT aliases (like spike_classification)
+                                let value = Self::evaluate_expression_with_accumulator_and_alias(
+                                    expr,
+                                    accumulator,
+                                    sample,
+                                    &alias_context,
+                                )?;
+                                // Add to alias context for subsequent fields
+                                alias_context.add_alias(field_name.clone(), value.clone());
                                 e.insert(value);
                             }
                         }
@@ -852,25 +864,25 @@ impl WindowAdapter {
                 SelectField::Column(col_name) => {
                     // Non-aggregate column - use sample record (with window cols injected)
                     // Don't overwrite GROUP BY keys that were already injected
-                    if !result_fields.contains_key(col_name) {
-                        if let Some(value) = sample_with_window_cols
-                            .as_ref()
-                            .and_then(|s| s.fields.get(col_name))
-                        {
-                            result_fields.insert(col_name.clone(), value.clone());
-                        }
+                    if let Some(value) = sample_with_window_cols
+                        .as_ref()
+                        .and_then(|s| s.fields.get(col_name))
+                        .filter(|_| !result_fields.contains_key(col_name))
+                    {
+                        alias_context.add_alias(col_name.clone(), value.clone());
+                        result_fields.insert(col_name.clone(), value.clone());
                     }
                 }
                 SelectField::AliasedColumn { column, alias } => {
                     // Non-aggregate column with alias - use sample record (with window cols)
                     // Don't overwrite GROUP BY keys that were already injected
-                    if !result_fields.contains_key(alias) {
-                        if let Some(value) = sample_with_window_cols
-                            .as_ref()
-                            .and_then(|s| s.fields.get(column))
-                        {
-                            result_fields.insert(alias.clone(), value.clone());
-                        }
+                    if let Some(value) = sample_with_window_cols
+                        .as_ref()
+                        .and_then(|s| s.fields.get(column))
+                        .filter(|_| !result_fields.contains_key(alias))
+                    {
+                        alias_context.add_alias(alias.clone(), value.clone());
+                        result_fields.insert(alias.clone(), value.clone());
                     }
                 }
                 SelectField::Wildcard => {
@@ -879,6 +891,7 @@ impl WindowAdapter {
                     if let Some(sample) = &sample_with_window_cols {
                         for (key, value) in &sample.fields {
                             if !result_fields.contains_key(key) {
+                                alias_context.add_alias(key.clone(), value.clone());
                                 result_fields.insert(key.clone(), value.clone());
                             }
                         }
@@ -1064,6 +1077,7 @@ impl WindowAdapter {
     /// # Returns
     ///
     /// Boolean indicating if this result passes the HAVING condition
+    #[allow(dead_code)]
     fn evaluate_having_with_result(
         having_expr: &Expr,
         result: &StreamRecord,
@@ -1125,6 +1139,7 @@ impl WindowAdapter {
     ///
     /// For aggregate functions like COUNT(*), look up the computed field in the result.
     /// For literals, return the literal value.
+    #[allow(dead_code)]
     fn evaluate_having_operand(expr: &Expr, result: &StreamRecord) -> Result<FieldValue, SqlError> {
         match expr {
             // Aggregate function - map to computed field name in result
@@ -1173,6 +1188,7 @@ impl WindowAdapter {
     }
 
     /// Find the alias for an aggregate function in the result fields
+    #[allow(dead_code)]
     fn find_aggregate_alias_in_result(result: &StreamRecord, func_name: &str) -> Option<String> {
         // Look for common aggregate aliases
         let func_lower = func_name.to_lowercase();
@@ -1266,6 +1282,421 @@ impl WindowAdapter {
             (FieldValue::Integer(l), FieldValue::Float(r)) => cmp(*l as f64, *r),
             (FieldValue::Float(l), FieldValue::Integer(r)) => cmp(*l, *r as f64),
             _ => false,
+        }
+    }
+
+    /// Evaluate an expression with support for BOTH accumulator-based aggregate resolution
+    /// AND alias context for SELECT field references.
+    ///
+    /// This enables complex expressions like:
+    /// ```sql
+    /// CASE
+    ///     WHEN AVG(volume) > 0 AND MAX(volume) > 5 * AVG(volume) THEN 'HIGH'
+    ///     ELSE 'NORMAL'
+    /// END AS classification,
+    /// CASE
+    ///     WHEN classification IN ('HIGH') THEN 'ALERT'
+    ///     ELSE 'OK'
+    /// END AS status
+    /// ```
+    ///
+    /// Where `classification` in the second CASE references the first CASE result via alias.
+    fn evaluate_expression_with_accumulator_and_alias(
+        expr: &Expr,
+        accumulator: &GroupAccumulator,
+        record: &StreamRecord,
+        alias_context: &SelectAliasContext,
+    ) -> Result<FieldValue, SqlError> {
+        use crate::velostream::sql::ast::BinaryOperator;
+
+        match expr {
+            // Column reference - check alias context first, then system columns, then record fields
+            Expr::Column(name) => {
+                // Check alias context first (for references to previous SELECT aliases)
+                if let Some(value) = alias_context.get_alias(name) {
+                    return Ok(value.clone());
+                }
+                // Check for system columns (normalized to UPPERCASE)
+                if let Some(sys_col) = system_columns::normalize_if_system_column(name) {
+                    return Ok(match sys_col {
+                        system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
+                        system_columns::OFFSET => FieldValue::Integer(record.offset),
+                        system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
+                        // Window columns from record fields (injected by build_result_record)
+                        _ => record.fields.get(sys_col).cloned().unwrap_or(FieldValue::Null),
+                    });
+                }
+                // Fall back to record fields
+                Ok(record.fields.get(name).cloned().unwrap_or(FieldValue::Null))
+            }
+
+            // Literal values
+            Expr::Literal(lit) => Ok(match lit {
+                LiteralValue::String(s) => FieldValue::String(s.clone()),
+                LiteralValue::Integer(i) => FieldValue::Integer(*i),
+                LiteralValue::Float(f) => FieldValue::Float(*f),
+                LiteralValue::Boolean(b) => FieldValue::Boolean(*b),
+                LiteralValue::Null => FieldValue::Null,
+                LiteralValue::Decimal(s) => {
+                    // Parse decimal to float, propagating parse errors
+                    FieldValue::Float(s.parse().map_err(|e| SqlError::ExecutionError {
+                        message: format!("Failed to parse decimal '{}': {}", s, e),
+                        query: None,
+                    })?)
+                }
+                LiteralValue::Interval { value, unit } => FieldValue::Interval {
+                    value: *value,
+                    unit: unit.clone(),
+                },
+            }),
+
+            // Aggregate functions - resolve from accumulator
+            Expr::Function { name, args } => {
+                let name_upper = name.to_uppercase();
+                match name_upper.as_str() {
+                    "COUNT" => {
+                        // COUNT(*) or COUNT(col) both use the row count
+                        Ok(FieldValue::Integer(accumulator.count as i64))
+                    }
+                    "SUM" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            let sum = accumulator.sums.get(col_name).copied().unwrap_or(0.0);
+                            Ok(FieldValue::Float(sum))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "AVG" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if !values.is_empty() {
+                                    let avg = values.iter().sum::<f64>() / values.len() as f64;
+                                    Ok(FieldValue::Float(avg))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MIN" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            Ok(accumulator
+                                .mins
+                                .get(col_name)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "MAX" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            Ok(accumulator
+                                .maxs
+                                .get(col_name)
+                                .cloned()
+                                .unwrap_or(FieldValue::Null))
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "STDDEV" | "STDDEV_SAMP" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if values.len() > 1 {
+                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                    let variance = values
+                                        .iter()
+                                        .map(|v| (v - mean).powi(2))
+                                        .sum::<f64>()
+                                        / (values.len() - 1) as f64;
+                                    Ok(FieldValue::Float(variance.sqrt()))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "STDDEV_POP" => {
+                        if let Some(Expr::Column(col_name)) = args.first() {
+                            if let Some(values) = accumulator.numeric_values.get(col_name) {
+                                if !values.is_empty() {
+                                    let mean = values.iter().sum::<f64>() / values.len() as f64;
+                                    let variance = values
+                                        .iter()
+                                        .map(|v| (v - mean).powi(2))
+                                        .sum::<f64>()
+                                        / values.len() as f64;
+                                    Ok(FieldValue::Float(variance.sqrt()))
+                                } else {
+                                    Ok(FieldValue::Null)
+                                }
+                            } else {
+                                Ok(FieldValue::Null)
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "ABS" => {
+                        if let Some(arg) = args.first() {
+                            let val = Self::evaluate_expression_with_accumulator_and_alias(
+                                arg,
+                                accumulator,
+                                record,
+                                alias_context,
+                            )?;
+                            match val {
+                                FieldValue::Integer(i) => Ok(FieldValue::Integer(i.abs())),
+                                FieldValue::Float(f) => Ok(FieldValue::Float(f.abs())),
+                                _ => Ok(FieldValue::Null),
+                            }
+                        } else {
+                            Ok(FieldValue::Null)
+                        }
+                    }
+                    "NOW" => Ok(FieldValue::Integer(chrono::Utc::now().timestamp_millis())),
+                    _ => {
+                        // Unknown function - try to evaluate with basic evaluator
+                        ExpressionEvaluator::evaluate_expression_value(expr, record)
+                    }
+                }
+            }
+
+            // Binary operations
+            Expr::BinaryOp { left, op, right } => {
+                // Handle IN/NOT IN specially - they need the List structure preserved
+                match op {
+                    BinaryOperator::In => {
+                        let left_val = Self::evaluate_expression_with_accumulator_and_alias(
+                            left,
+                            accumulator,
+                            record,
+                            alias_context,
+                        )?;
+
+                        // SQL semantics: NULL IN (...) returns NULL, but in boolean context
+                        // we treat it as false (consistent with FieldValueComparator behavior)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+
+                        match right.as_ref() {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_with_accumulator_and_alias(
+                                            value_expr,
+                                            accumulator,
+                                            record,
+                                            alias_context,
+                                        )?;
+                                    if FieldValueComparator::values_equal_with_coercion(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(false))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "IN operator requires a list on the right side".to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    BinaryOperator::NotIn => {
+                        let left_val = Self::evaluate_expression_with_accumulator_and_alias(
+                            left,
+                            accumulator,
+                            record,
+                            alias_context,
+                        )?;
+
+                        // SQL semantics: NULL NOT IN (...) returns NULL, but in boolean context
+                        // we treat it as false (consistent with FieldValueComparator behavior)
+                        if matches!(left_val, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+
+                        match right.as_ref() {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value =
+                                        Self::evaluate_expression_with_accumulator_and_alias(
+                                            value_expr,
+                                            accumulator,
+                                            record,
+                                            alias_context,
+                                        )?;
+                                    if FieldValueComparator::values_equal_with_coercion(&left_val, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(true))
+                            }
+                            _ => Err(SqlError::ExecutionError {
+                                message: "NOT IN operator requires a list on the right side"
+                                    .to_string(),
+                                query: None,
+                            }),
+                        }
+                    }
+                    _ => {
+                        // All other binary operations - evaluate both sides
+                        let left_val = Self::evaluate_expression_with_accumulator_and_alias(
+                            left,
+                            accumulator,
+                            record,
+                            alias_context,
+                        )?;
+                        let right_val = Self::evaluate_expression_with_accumulator_and_alias(
+                            right,
+                            accumulator,
+                            record,
+                            alias_context,
+                        )?;
+
+                        match op {
+                            BinaryOperator::Add => Self::apply_arithmetic(&left_val, &right_val, |l, r| l + r),
+                            BinaryOperator::Subtract => Self::apply_arithmetic(&left_val, &right_val, |l, r| l - r),
+                            BinaryOperator::Multiply => Self::apply_arithmetic(&left_val, &right_val, |l, r| l * r),
+                            BinaryOperator::Divide => {
+                                if Self::is_zero(&right_val) {
+                                    Ok(FieldValue::Null)
+                                } else {
+                                    Self::apply_arithmetic(&left_val, &right_val, |l, r| l / r)
+                                }
+                            }
+                            BinaryOperator::GreaterThan
+                            | BinaryOperator::GreaterThanOrEqual
+                            | BinaryOperator::LessThan
+                            | BinaryOperator::LessThanOrEqual
+                            | BinaryOperator::Equal
+                            | BinaryOperator::NotEqual => {
+                                // Use FieldValueComparator for all comparisons - handles ScaledInteger, Decimal, etc.
+                                Ok(FieldValue::Boolean(
+                                    FieldValueComparator::compare_values_for_boolean(&left_val, &right_val, op)?
+                                ))
+                            }
+                            BinaryOperator::And => {
+                                let l = Self::to_bool(&left_val);
+                                let r = Self::to_bool(&right_val);
+                                Ok(FieldValue::Boolean(l && r))
+                            }
+                            BinaryOperator::Or => {
+                                let l = Self::to_bool(&left_val);
+                                let r = Self::to_bool(&right_val);
+                                Ok(FieldValue::Boolean(l || r))
+                            }
+                            _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
+                        }
+                    }
+                }
+            }
+
+            // CASE expressions
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                for (condition, result) in when_clauses {
+                    let cond_value = Self::evaluate_expression_with_accumulator_and_alias(
+                        condition,
+                        accumulator,
+                        record,
+                        alias_context,
+                    )?;
+                    if Self::to_bool(&cond_value) {
+                        return Self::evaluate_expression_with_accumulator_and_alias(
+                            result,
+                            accumulator,
+                            record,
+                            alias_context,
+                        );
+                    }
+                }
+
+                // No condition matched - evaluate ELSE or return NULL
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_expression_with_accumulator_and_alias(
+                        else_expr,
+                        accumulator,
+                        record,
+                        alias_context,
+                    )
+                } else {
+                    Ok(FieldValue::Null)
+                }
+            }
+
+            // Unary operations (NOT, -, +, IS NULL, IS NOT NULL)
+            Expr::UnaryOp { op, expr: inner } => {
+                use crate::velostream::sql::ast::UnaryOperator;
+                let inner_val = Self::evaluate_expression_with_accumulator_and_alias(
+                    inner,
+                    accumulator,
+                    record,
+                    alias_context,
+                )?;
+                match op {
+                    UnaryOperator::Not => Ok(FieldValue::Boolean(!Self::to_bool(&inner_val))),
+                    UnaryOperator::Minus => match inner_val {
+                        FieldValue::Integer(i) => Ok(FieldValue::Integer(-i)),
+                        FieldValue::Float(f) => Ok(FieldValue::Float(-f)),
+                        _ => Ok(FieldValue::Null),
+                    },
+                    UnaryOperator::Plus => Ok(inner_val), // No-op for numeric types
+                    UnaryOperator::IsNull => Ok(FieldValue::Boolean(matches!(inner_val, FieldValue::Null))),
+                    UnaryOperator::IsNotNull => Ok(FieldValue::Boolean(!matches!(inner_val, FieldValue::Null))),
+                }
+            }
+
+            // For other expressions, fall back to basic evaluator
+            _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
+        }
+    }
+
+    /// Helper to convert FieldValue to bool
+    fn to_bool(value: &FieldValue) -> bool {
+        match value {
+            FieldValue::Boolean(b) => *b,
+            FieldValue::Integer(i) => *i != 0,
+            FieldValue::Float(f) => *f != 0.0,
+            FieldValue::String(s) => !s.is_empty(),
+            FieldValue::Null => false,
+            _ => false,
+        }
+    }
+
+    /// Helper to check if a FieldValue is zero
+    fn is_zero(value: &FieldValue) -> bool {
+        match value {
+            FieldValue::Integer(i) => *i == 0,
+            FieldValue::Float(f) => *f == 0.0,
+            _ => false,
+        }
+    }
+
+    /// Helper to apply arithmetic operation
+    fn apply_arithmetic<F>(left: &FieldValue, right: &FieldValue, op: F) -> Result<FieldValue, SqlError>
+    where
+        F: Fn(f64, f64) -> f64,
+    {
+        match (left, right) {
+            (FieldValue::Integer(l), FieldValue::Integer(r)) => {
+                Ok(FieldValue::Float(op(*l as f64, *r as f64)))
+            }
+            (FieldValue::Float(l), FieldValue::Float(r)) => Ok(FieldValue::Float(op(*l, *r))),
+            (FieldValue::Integer(l), FieldValue::Float(r)) => Ok(FieldValue::Float(op(*l as f64, *r))),
+            (FieldValue::Float(l), FieldValue::Integer(r)) => Ok(FieldValue::Float(op(*l, *r as f64))),
+            _ => Ok(FieldValue::Null),
         }
     }
 }

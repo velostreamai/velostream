@@ -1323,7 +1323,83 @@ impl SelectProcessor {
                             _ => Ok(FieldValue::Null),
                         }
                     }
+                    // Handle IN operator with accumulator support
+                    crate::velostream::sql::ast::BinaryOperator::In => {
+                        // NULL IN (...) returns false
+                        if matches!(left_value, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+                        match right.as_ref() {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_group_expression_with_accumulator(
+                                        value_expr,
+                                        accumulator,
+                                        record,
+                                    )?;
+                                    if Self::field_values_equal(&left_value, &value) {
+                                        return Ok(FieldValue::Boolean(true));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(false))
+                            }
+                            _ => Ok(FieldValue::Boolean(false)),
+                        }
+                    }
+                    // Handle NOT IN operator with accumulator support
+                    crate::velostream::sql::ast::BinaryOperator::NotIn => {
+                        // NULL NOT IN (...) returns false
+                        if matches!(left_value, FieldValue::Null) {
+                            return Ok(FieldValue::Boolean(false));
+                        }
+                        match right.as_ref() {
+                            Expr::List(values) => {
+                                for value_expr in values {
+                                    let value = Self::evaluate_group_expression_with_accumulator(
+                                        value_expr,
+                                        accumulator,
+                                        record,
+                                    )?;
+                                    if Self::field_values_equal(&left_value, &value) {
+                                        return Ok(FieldValue::Boolean(false));
+                                    }
+                                }
+                                Ok(FieldValue::Boolean(true))
+                            }
+                            _ => Ok(FieldValue::Boolean(true)),
+                        }
+                    }
                     _ => ExpressionEvaluator::evaluate_expression_value(expr, record),
+                }
+            }
+            // Handle CASE expressions with accumulator support
+            Expr::Case {
+                when_clauses,
+                else_clause,
+            } => {
+                for (condition, result) in when_clauses {
+                    let cond_value =
+                        Self::evaluate_group_expression_with_accumulator(condition, accumulator, record)?;
+                    let cond_bool = match cond_value {
+                        FieldValue::Boolean(b) => b,
+                        FieldValue::Integer(i) => i != 0,
+                        FieldValue::Float(f) => f != 0.0,
+                        _ => false,
+                    };
+                    if cond_bool {
+                        return Self::evaluate_group_expression_with_accumulator(
+                            result,
+                            accumulator,
+                            record,
+                        );
+                    }
+                }
+
+                // No condition matched - evaluate ELSE or return NULL
+                if let Some(else_expr) = else_clause {
+                    Self::evaluate_group_expression_with_accumulator(else_expr, accumulator, record)
+                } else {
+                    Ok(FieldValue::Null)
                 }
             }
             // For all other expression types, fall back to single-record evaluation

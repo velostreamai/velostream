@@ -920,6 +920,143 @@ fn test_qualified_column_names_in_group_by() {
     );
 }
 
+/// Test CASE expression with IN operator referencing previous SELECT alias
+/// This tests the fix for: spike_classification IN ('HIGH', 'LOW')
+/// where spike_classification is defined in a previous SELECT field
+#[test]
+fn test_case_with_in_operator_alias_reference() {
+    use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+
+    // SQL that uses CASE with IN operator referencing a previous alias
+    let sql = r#"
+        SELECT
+            symbol,
+            CASE
+                WHEN AVG(volume) > 500 THEN 'HIGH'
+                ELSE 'LOW'
+            END AS volume_class,
+            CASE
+                WHEN volume_class IN ('HIGH') THEN 'ALERT'
+                ELSE 'OK'
+            END AS alert_status
+        FROM market_data
+        GROUP BY symbol
+        WINDOW TUMBLING(10s)
+        EMIT CHANGES
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse(sql).expect("Query should parse");
+
+    let mut context = ProcessorContext::new("test_case_in_alias");
+
+    // Create a record with high volume (>500) so volume_class = 'HIGH'
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(5000));
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("volume".to_string(), FieldValue::Integer(1000)); // High volume
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 5000;
+
+    let result = WindowAdapter::process_with_v2("test_query", &query, &record, &mut context)
+        .expect("Should process record without 'List expressions' error");
+
+    assert!(result.is_some(), "Should emit a result");
+    let output = result.unwrap();
+
+    println!("Output fields: {:?}", output.fields);
+
+    // Verify volume_class is 'HIGH' (AVG(1000) > 500)
+    let volume_class = output.fields.get("volume_class");
+    assert!(volume_class.is_some(), "Should have volume_class field");
+    match volume_class.unwrap() {
+        FieldValue::String(s) => {
+            assert_eq!(s, "HIGH", "volume_class should be 'HIGH' for volume=1000");
+        }
+        other => panic!("volume_class should be String, got {:?}", other),
+    }
+
+    // Verify alert_status is 'ALERT' (because volume_class IN ('HIGH') is true)
+    let alert_status = output.fields.get("alert_status");
+    assert!(alert_status.is_some(), "Should have alert_status field");
+    match alert_status.unwrap() {
+        FieldValue::String(s) => {
+            assert_eq!(
+                s, "ALERT",
+                "alert_status should be 'ALERT' when volume_class='HIGH'"
+            );
+            println!("✅ CASE with IN operator and alias reference works correctly");
+        }
+        other => panic!("alert_status should be String, got {:?}", other),
+    }
+}
+
+/// Test CASE with IN operator when alias value doesn't match
+#[test]
+fn test_case_with_in_operator_alias_no_match() {
+    use velostream::velostream::sql::execution::processors::context::ProcessorContext;
+
+    let sql = r#"
+        SELECT
+            symbol,
+            CASE
+                WHEN AVG(volume) > 500 THEN 'HIGH'
+                ELSE 'LOW'
+            END AS volume_class,
+            CASE
+                WHEN volume_class IN ('HIGH') THEN 'ALERT'
+                ELSE 'OK'
+            END AS alert_status
+        FROM market_data
+        GROUP BY symbol
+        WINDOW TUMBLING(10s)
+        EMIT CHANGES
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let query = parser.parse(sql).expect("Query should parse");
+
+    let mut context = ProcessorContext::new("test_case_in_alias_no_match");
+
+    // Create a record with low volume (<500) so volume_class = 'LOW'
+    let mut fields = HashMap::new();
+    fields.insert("timestamp".to_string(), FieldValue::Integer(5000));
+    fields.insert("symbol".to_string(), FieldValue::String("AAPL".to_string()));
+    fields.insert("volume".to_string(), FieldValue::Integer(100)); // Low volume
+    let mut record = StreamRecord::new(fields);
+    record.timestamp = 5000;
+
+    let result = WindowAdapter::process_with_v2("test_query", &query, &record, &mut context)
+        .expect("Should process record");
+
+    assert!(result.is_some());
+    let output = result.unwrap();
+
+    // Verify volume_class is 'LOW'
+    let volume_class = output.fields.get("volume_class");
+    assert!(volume_class.is_some());
+    match volume_class.unwrap() {
+        FieldValue::String(s) => {
+            assert_eq!(s, "LOW", "volume_class should be 'LOW' for volume=100");
+        }
+        other => panic!("volume_class should be String, got {:?}", other),
+    }
+
+    // Verify alert_status is 'OK' (because volume_class='LOW' is NOT IN ('HIGH'))
+    let alert_status = output.fields.get("alert_status");
+    assert!(alert_status.is_some());
+    match alert_status.unwrap() {
+        FieldValue::String(s) => {
+            assert_eq!(
+                s, "OK",
+                "alert_status should be 'OK' when volume_class='LOW'"
+            );
+            println!("✅ CASE with IN operator correctly returns 'OK' for non-matching alias");
+        }
+        other => panic!("alert_status should be String, got {:?}", other),
+    }
+}
+
 /// Test integer GROUP BY key
 #[test]
 fn test_integer_group_by_key() {
