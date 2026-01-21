@@ -32,6 +32,8 @@
 set -e
 
 # Use Redpanda by default (faster startup: ~3s vs ~10s for Confluent Kafka)
+# Note: Single-broker testcontainers don't support Kafka transactions reliably,
+# so SQL files should use @job_mode: simple or adaptive for testing
 export VELOSTREAM_TEST_CONTAINER="${VELOSTREAM_TEST_CONTAINER:-redpanda}"
 
 # Colors for output
@@ -228,7 +230,12 @@ run_all() {
     local passed=0
     local failed=0
 
+    # Exclude .annotated.sql files - they use a different test spec format
     for sql in apps/*.sql; do
+        # Skip annotated files
+        if [[ "$sql" == *".annotated.sql" ]]; then
+            continue
+        fi
         name=$(basename "$sql" .sql)
         echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         if run_app "$name"; then

@@ -9,8 +9,6 @@ use super::functions::BuiltinFunctions;
 use super::subquery_executor::{SubqueryExecutor, evaluate_subquery_with_executor};
 use crate::velostream::sql::ast::{BinaryOperator, Expr, LiteralValue};
 use crate::velostream::sql::error::SqlError;
-use rust_decimal::Decimal;
-use std::str::FromStr;
 
 /// Type alias for WHERE clause predicate function
 type WhereClausePredicate = Box<dyn Fn(&String, &FieldValue) -> bool>;
@@ -105,6 +103,19 @@ impl ExpressionEvaluator {
         ExpressionEvaluator
     }
 
+    /// Get the _EVENT_TIME value for a record
+    ///
+    /// Returns the event time as milliseconds since epoch, falling back to
+    /// processing time (_TIMESTAMP) if event_time is not set.
+    /// This matches Flink/ksqlDB semantics where event time is always available.
+    #[inline]
+    fn get_event_time_value(record: &StreamRecord) -> FieldValue {
+        match record.event_time {
+            Some(event_time) => FieldValue::Integer(event_time.timestamp_millis()),
+            None => FieldValue::Integer(record.timestamp),
+        }
+    }
+
     /// Parse a WHERE clause and return a predicate function
     ///
     /// This is a simplified version for testing that returns a closure
@@ -112,7 +123,7 @@ impl ExpressionEvaluator {
     pub fn parse_where_clause(&self, where_clause: &str) -> Result<WhereClausePredicate, SqlError> {
         // This is a simplified implementation for testing
         // In a real implementation, you'd parse the WHERE clause into an AST
-        let clause = where_clause.to_string();
+        let _clause = where_clause.to_string();
 
         Ok(Box::new(
             move |_key: &String, _value: &FieldValue| -> bool {
@@ -138,14 +149,7 @@ impl ExpressionEvaluator {
                         system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
-                        system_columns::EVENT_TIME => {
-                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
-                            if let Some(event_time) = record.event_time {
-                                FieldValue::Integer(event_time.timestamp_millis())
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
+                        system_columns::EVENT_TIME => Self::get_event_time_value(record),
                         system_columns::WINDOW_START | system_columns::WINDOW_END => {
                             // Window columns are injected into fields HashMap by WindowProcessor
                             // Look them up as regular fields
@@ -405,14 +409,7 @@ impl ExpressionEvaluator {
                         system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
-                        system_columns::EVENT_TIME => {
-                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
-                            if let Some(event_time) = record.event_time {
-                                FieldValue::Integer(event_time.timestamp_millis())
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
+                        system_columns::EVENT_TIME => Self::get_event_time_value(record),
                         system_columns::WINDOW_START | system_columns::WINDOW_END => {
                             // Window columns are injected into fields HashMap by WindowProcessor
                             // Look them up as regular fields
@@ -1377,14 +1374,7 @@ impl ExpressionEvaluator {
                         system_columns::TIMESTAMP => FieldValue::Integer(record.timestamp),
                         system_columns::OFFSET => FieldValue::Integer(record.offset),
                         system_columns::PARTITION => FieldValue::Integer(record.partition as i64),
-                        system_columns::EVENT_TIME => {
-                            // Convert Option<DateTime<Utc>> to milliseconds since epoch
-                            if let Some(event_time) = record.event_time {
-                                FieldValue::Integer(event_time.timestamp_millis())
-                            } else {
-                                FieldValue::Null
-                            }
-                        }
+                        system_columns::EVENT_TIME => Self::get_event_time_value(record),
                         system_columns::WINDOW_START | system_columns::WINDOW_END => {
                             // Window columns are injected into fields HashMap by WindowProcessor
                             // Look them up as regular fields
@@ -1446,7 +1436,7 @@ impl ExpressionEvaluator {
                 // We'll evaluate the args first to ensure subqueries in args work
                 let mut evaluated_args = Vec::new();
                 for arg in args {
-                    let arg_value = Self::evaluate_expression_value_with_subqueries(
+                    let _arg_value = Self::evaluate_expression_value_with_subqueries(
                         arg,
                         record,
                         subquery_executor,

@@ -344,6 +344,19 @@ precedence over configuration file settings (12-factor app style).
 | `VELOSTREAM_DEFAULT_PARTITIONS`         | Default Kafka topic partitions   | `6`     |
 | `VELOSTREAM_DEFAULT_REPLICATION_FACTOR` | Default topic replication factor | `3`     |
 
+### Transactional Configuration
+
+| Environment Variable                       | Description                                              | Default |
+|--------------------------------------------|----------------------------------------------------------|---------|
+| `VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK`  | Allow fallback to non-transactional when init fails      | `false` |
+
+**Important**: When `@job_mode: transactional` is configured, the system requires exactly-once semantics. If the
+transactional producer fails to initialize (e.g., on testcontainers), the job will **fail by default** to prevent
+silent degradation of guarantees.
+
+Set `VELOSTREAM_ALLOW_TRANSACTIONAL_FALLBACK=true` only for testing with testcontainers where transaction coordinator
+support is limited. **Never use in production** as it breaks exactly-once semantics.
+
 ### Usage Examples
 
 ```bash

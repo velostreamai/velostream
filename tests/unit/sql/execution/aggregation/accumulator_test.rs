@@ -122,11 +122,13 @@ fn test_process_record_basic_count() {
     let record = create_test_record(vec![("category", FieldValue::String("test".to_string()))]);
 
     let aggregate_expressions = vec![];
+    let select_aliases = std::collections::HashSet::new();
 
     let result = AccumulatorManager::process_record_into_accumulator(
         &mut accumulator,
         &record,
         &aggregate_expressions,
+        &select_aliases,
     );
 
     assert!(result.is_ok());

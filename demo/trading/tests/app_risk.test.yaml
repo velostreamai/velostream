@@ -16,7 +16,8 @@ queries:
   - name: trading_positions_ts
     description: Test position tracking with event-time processing
     inputs:
-      - source: trading_positions_stream
+      - source: in_trading_positions_stream
+        schema: trading_positions
         records: 100
         time_simulation:
           start_time: "-1h"

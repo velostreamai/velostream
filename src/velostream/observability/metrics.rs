@@ -2273,9 +2273,7 @@ impl JoinMetrics {
 
         // Get last values for delta calculation
         let mut last_values = self.last_values.lock().unwrap_or_else(|e| e.into_inner());
-        let last = last_values
-            .entry(join_name.to_string())
-            .or_insert_with(JoinMetricsSnapshot::default);
+        let last = last_values.entry(join_name.to_string()).or_default();
 
         // Update counters (increment by delta)
         let left_delta = stats

@@ -483,6 +483,8 @@ where
     _phantom_value: std::marker::PhantomData<V>,
     batch_buffer: Vec<StreamRecord>, // Owned messages, not borrowed
     batch_size: usize,
+    /// Flag to track if we've already handled Invalid position issue (run once, not every poll)
+    invalid_position_handled: bool,
 }
 
 #[allow(dead_code)]
@@ -520,6 +522,7 @@ where
             _phantom_value: std::marker::PhantomData,
             batch_buffer: vec![],
             batch_size: 100,
+            invalid_position_handled: false,
         }
     }
 
@@ -626,6 +629,7 @@ where
             _phantom_value: std::marker::PhantomData,
             batch_buffer: vec![],
             batch_size: config.max_poll_records as usize,
+            invalid_position_handled: false,
         })
     }
 
@@ -971,6 +975,12 @@ where
     ) -> Result<Vec<StreamRecord>, ConsumerError> {
         self.batch_buffer.clear();
 
+        // One-time workaround for read_committed isolation level with non-transactional messages.
+        // Only check once to avoid overhead on every poll.
+        if !self.invalid_position_handled {
+            self.handle_invalid_position_workaround();
+        }
+
         // First poll with timeout
         match self.consumer.poll(timeout) {
             Some(Ok(msg)) => {
@@ -1007,7 +1017,72 @@ where
             }
         }
 
+        log::debug!(
+            "KafkaConsumer[{}]: poll_batch - returning {} records",
+            self.group_id,
+            self.batch_buffer.len()
+        );
+
         Ok(std::mem::take(&mut self.batch_buffer))
+    }
+
+    /// Workaround for read_committed isolation level with non-transactional messages.
+    ///
+    /// When using `isolation.level=read_committed` with testcontainers, the consumer
+    /// position may stay Invalid because the LSO (Last Stable Offset) doesn't advance
+    /// properly for non-transactional messages. This method detects this condition
+    /// and seeks to the beginning.
+    fn handle_invalid_position_workaround(&mut self) {
+        use rdkafka::Offset;
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+
+        let assignment = match self.consumer.assignment() {
+            Ok(a) if a.count() > 0 => a,
+            _ => return,
+        };
+
+        // Mark as handled regardless of outcome - we only try once
+        self.invalid_position_handled = true;
+
+        let position = match self.consumer.position() {
+            Ok(p) if !p.elements().is_empty() => p,
+            _ => return,
+        };
+
+        let all_invalid = position
+            .elements()
+            .iter()
+            .all(|elem| matches!(elem.offset(), Offset::Invalid));
+
+        if !all_invalid {
+            return;
+        }
+
+        log::info!(
+            "KafkaConsumer[{}]: Detected Invalid positions with read_committed, seeking to beginning",
+            self.group_id
+        );
+
+        let mut seek_tpl = rdkafka::TopicPartitionList::new();
+        for elem in assignment.elements() {
+            if let Err(e) =
+                seek_tpl.add_partition_offset(elem.topic(), elem.partition(), Offset::Beginning)
+            {
+                log::warn!(
+                    "KafkaConsumer[{}]: Failed to add partition offset: {:?}",
+                    self.group_id,
+                    e
+                );
+            }
+        }
+
+        if let Err(e) = self.consumer.assign(&seek_tpl) {
+            log::warn!(
+                "KafkaConsumer[{}]: Failed to seek to beginning: {:?}",
+                self.group_id,
+                e
+            );
+        }
     }
 }
 
@@ -1210,7 +1285,37 @@ where
     /// ```
     pub fn subscribe(&self, topics: &[&str]) -> Result<(), rdkafka::error::KafkaError> {
         use rdkafka::consumer::Consumer as RdKafkaConsumer;
+        log::debug!(
+            "KafkaConsumer[{}]: Subscribing to topics: {:?}",
+            self.group_id,
+            topics
+        );
         self.consumer.subscribe(topics)
+    }
+
+    /// Seek all assigned partitions to the beginning
+    ///
+    /// This is useful for read_committed isolation level with non-transactional messages,
+    /// where the consumer may not properly reset to earliest offset due to LSO handling.
+    pub fn seek_to_beginning(&self) -> Result<(), rdkafka::error::KafkaError> {
+        use rdkafka::TopicPartitionList;
+        use rdkafka::consumer::Consumer as RdKafkaConsumer;
+
+        let assignment = self.consumer.assignment()?;
+        if assignment.count() == 0 {
+            return Ok(());
+        }
+
+        let mut seek_tpl = TopicPartitionList::new();
+        for elem in assignment.elements() {
+            seek_tpl.add_partition_offset(
+                elem.topic(),
+                elem.partition(),
+                rdkafka::Offset::Beginning,
+            )?;
+        }
+
+        self.consumer.assign(&seek_tpl)
     }
 
     /// Manually commits the current consumer offset.

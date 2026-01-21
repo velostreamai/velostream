@@ -402,7 +402,161 @@ fn test_window_functions_with_alias() {
     );
 }
 
-/// Test 9: Edge cases - NULL values and type handling
+/// Test 9: Alias reuse with IN operator (FR-078 extension)
+/// Tests the pattern: alias IN ('value1', 'value2')
+#[test]
+fn test_alias_reuse_with_in_operator() {
+    let sql = r#"
+    SELECT
+        CASE
+            WHEN volume > 1500 THEN 'HIGH'
+            WHEN volume > 500 THEN 'MEDIUM'
+            ELSE 'LOW'
+        END AS volume_classification,
+        CASE
+            WHEN volume_classification IN ('HIGH', 'MEDIUM') THEN 'ALERT'
+            ELSE 'OK'
+        END AS alert_status
+    FROM trades
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let parsed = parser.parse(sql);
+    assert!(
+        parsed.is_ok(),
+        "Query should parse successfully: {:?}",
+        parsed.err()
+    );
+
+    let query = parsed.unwrap();
+    let mut context = ProcessorContext::new("test_alias_reuse_with_in_operator");
+    let record = create_test_record(); // volume = 1000.0
+
+    let result = QueryProcessor::process_query(&query, &record, &mut context);
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
+
+    if let Ok(proc_result) = result {
+        if let Some(output) = proc_result.record {
+            // volume = 1000.0, which is > 500 but <= 1500, so 'MEDIUM'
+            assert_eq!(
+                output.fields.get("volume_classification"),
+                Some(&FieldValue::String("MEDIUM".to_string()))
+            );
+            // 'MEDIUM' IN ('HIGH', 'MEDIUM') = true, so 'ALERT'
+            assert_eq!(
+                output.fields.get("alert_status"),
+                Some(&FieldValue::String("ALERT".to_string()))
+            );
+        }
+    }
+}
+
+/// Test 10: Alias reuse with NOT IN operator
+#[test]
+fn test_alias_reuse_with_not_in_operator() {
+    let sql = r#"
+    SELECT
+        symbol,
+        CASE
+            WHEN volume > 1500 THEN 'HIGH'
+            WHEN volume > 500 THEN 'MEDIUM'
+            ELSE 'LOW'
+        END AS volume_classification,
+        CASE
+            WHEN volume_classification NOT IN ('HIGH') THEN 'NORMAL_PROCESSING'
+            ELSE 'THROTTLE'
+        END AS processing_mode
+    FROM trades
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let parsed = parser.parse(sql);
+    assert!(
+        parsed.is_ok(),
+        "Query should parse successfully: {:?}",
+        parsed.err()
+    );
+
+    let query = parsed.unwrap();
+    let mut context = ProcessorContext::new("test_alias_reuse_with_not_in_operator");
+    let record = create_test_record(); // volume = 1000.0
+
+    let result = QueryProcessor::process_query(&query, &record, &mut context);
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
+
+    if let Ok(proc_result) = result {
+        if let Some(output) = proc_result.record {
+            // volume = 1000.0 -> 'MEDIUM'
+            assert_eq!(
+                output.fields.get("volume_classification"),
+                Some(&FieldValue::String("MEDIUM".to_string()))
+            );
+            // 'MEDIUM' NOT IN ('HIGH') = true, so 'NORMAL_PROCESSING'
+            assert_eq!(
+                output.fields.get("processing_mode"),
+                Some(&FieldValue::String("NORMAL_PROCESSING".to_string()))
+            );
+        }
+    }
+}
+
+/// Test 11: Complex CASE chain with multiple alias references using IN
+/// This matches the trading signals pattern: spike_classification IN (...)
+#[test]
+fn test_complex_case_chain_with_in_operator() {
+    let sql = r#"
+    SELECT
+        symbol,
+        volume,
+        CASE
+            WHEN volume > 2000 THEN 'EXTREME_SPIKE'
+            WHEN volume > 1000 THEN 'HIGH_SPIKE'
+            WHEN volume > 500 THEN 'STATISTICAL_ANOMALY'
+            ELSE 'NORMAL'
+        END AS spike_classification,
+        CASE
+            WHEN volume > 3000 THEN 'TRIGGER_BREAKER'
+            WHEN spike_classification IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY') THEN 'PAUSE_FEED'
+            WHEN spike_classification = 'HIGH_SPIKE' THEN 'SLOW_MODE'
+            ELSE 'ALLOW'
+        END AS circuit_state
+    FROM trades
+    "#;
+
+    let parser = StreamingSqlParser::new();
+    let parsed = parser.parse(sql);
+    assert!(
+        parsed.is_ok(),
+        "Query should parse successfully: {:?}",
+        parsed.err()
+    );
+
+    let query = parsed.unwrap();
+    let mut context = ProcessorContext::new("test_complex_case_chain_with_in_operator");
+    let record = create_test_record(); // volume = 1000.0
+
+    let result = QueryProcessor::process_query(&query, &record, &mut context);
+    assert!(result.is_ok(), "Query should execute: {:?}", result.err());
+
+    if let Ok(proc_result) = result {
+        if let Some(output) = proc_result.record {
+            // volume = 1000.0, which is > 500 but <= 1000, so 'STATISTICAL_ANOMALY'
+            // Wait, 1000.0 is not > 1000, so it falls to the next check: > 500 -> true -> 'STATISTICAL_ANOMALY'
+            assert_eq!(
+                output.fields.get("spike_classification"),
+                Some(&FieldValue::String("STATISTICAL_ANOMALY".to_string()))
+            );
+            // 'STATISTICAL_ANOMALY' IN ('EXTREME_SPIKE', 'STATISTICAL_ANOMALY') = true
+            // So circuit_state = 'PAUSE_FEED'
+            assert_eq!(
+                output.fields.get("circuit_state"),
+                Some(&FieldValue::String("PAUSE_FEED".to_string()))
+            );
+        }
+    }
+}
+
+/// Test 12: Edge cases - NULL values and type handling
 #[test]
 fn test_edge_cases_null_and_types() {
     let sql = r#"

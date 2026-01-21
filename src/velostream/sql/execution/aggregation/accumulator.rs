@@ -9,17 +9,26 @@ use super::super::validation::{FieldValidator, ValidationContext};
 use crate::velostream::sql::ast::Expr;
 use crate::velostream::sql::error::SqlError;
 use crate::velostream::sql::execution::expression::{ExpressionEvaluator, is_aggregate_function};
+use std::collections::HashSet;
 
 /// Utilities for GroupAccumulator management
 pub struct AccumulatorManager;
 
 impl AccumulatorManager {
     /// Process a record into an accumulator based on aggregate expressions
+    ///
+    /// # Arguments
+    /// * `accumulator` - The group accumulator to update
+    /// * `record` - The input record to process
+    /// * `aggregate_expressions` - (field_name, expression) pairs for aggregates
+    /// * `select_aliases` - Set of SELECT alias names that should not be validated
+    ///   as input fields (they are computed from other expressions, not from input)
     #[doc(hidden)]
     pub fn process_record_into_accumulator(
         accumulator: &mut GroupAccumulator,
         record: &StreamRecord,
-        aggregate_expressions: &[(String, Expr)], // (field_name, expression) pairs
+        aggregate_expressions: &[(String, Expr)],
+        select_aliases: &HashSet<String>,
     ) -> Result<(), SqlError> {
         // Phase 2: Validate all aggregate fields exist in record before processing
         // Extract all fields referenced in the expressions
@@ -30,14 +39,24 @@ impl AccumulatorManager {
         }
 
         if !all_fields.is_empty() {
-            // Validate all referenced fields exist in the record
-            let field_refs: Vec<&str> = all_fields.iter().map(|s| s.as_str()).collect();
-            FieldValidator::validate_fields_exist(
-                record,
-                &field_refs,
-                ValidationContext::Aggregation,
-            )
-            .map_err(|e| e.to_sql_error())?;
+            // Filter out SELECT aliases - these are computed fields, not input fields
+            // For example, if SELECT has "CASE ... END AS spike_classification"
+            // and another expression references "spike_classification IN (...)",
+            // we should not validate spike_classification as an input field
+            let fields_to_validate: Vec<&str> = all_fields
+                .iter()
+                .filter(|f| !select_aliases.contains(*f))
+                .map(|s| s.as_str())
+                .collect();
+
+            if !fields_to_validate.is_empty() {
+                FieldValidator::validate_fields_exist(
+                    record,
+                    &fields_to_validate,
+                    ValidationContext::Aggregation,
+                )
+                .map_err(|e| e.to_sql_error())?;
+            }
         }
 
         // Always increment the count for this group
