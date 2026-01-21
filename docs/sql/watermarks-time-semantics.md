@@ -594,6 +594,34 @@ SELECT
 FROM trades;
 ```
 
+### Case-Insensitive System Columns
+
+System columns (`_EVENT_TIME`, `_TIMESTAMP`, `_OFFSET`, `_PARTITION`) are matched **case-insensitively**. All of the following are equivalent:
+
+```sql
+-- All of these reference the same system column
+SELECT _EVENT_TIME FROM trades;      -- Uppercase (canonical)
+SELECT _event_time FROM trades;      -- Lowercase
+SELECT _Event_Time FROM trades;      -- Mixed case
+
+-- Same applies in window definitions
+WINDOW SLIDING(_event_time, 5m, 1m)  -- Lowercase works
+WINDOW SLIDING(_EVENT_TIME, 5m, 1m)  -- Uppercase works
+
+-- And in ORDER BY clauses
+ORDER BY _event_time                  -- Lowercase works
+ORDER BY _EVENT_TIME                  -- Uppercase works
+```
+
+This case-insensitivity applies to:
+- SELECT expressions
+- WHERE clause predicates
+- ORDER BY clauses (including within ROWS WINDOW)
+- WINDOW time column specifications
+- AS alias assignments (for derived event time)
+
+**Note**: While system columns are case-insensitive, regular field names from your data are case-sensitive and must match exactly.
+
 ### Comparison with Flink/ksqlDB
 
 | Feature | Velostream | Flink SQL | ksqlDB |
