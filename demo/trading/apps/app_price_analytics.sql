@@ -57,6 +57,16 @@
 -- @name: price_movement_alerts
 -- @description: Detects price movements using LAG/LEAD/RANK window functions
 -- -----------------------------------------------------------------------------
+-- @metric: velo_price_movement_alerts_total
+-- @metric_type: counter
+-- @metric_help: "Total price movement alerts generated"
+-- @metric_labels: symbol
+--
+-- @metric: velo_price_change_pct
+-- @metric_type: gauge
+-- @metric_help: "Price change percentage"
+-- @metric_labels: symbol
+-- @metric_field: price_change_pct
 
 CREATE STREAM price_movement_alerts AS
 SELECT

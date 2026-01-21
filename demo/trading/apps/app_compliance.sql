@@ -61,6 +61,13 @@
 -- @name: compliant_market_data
 -- @description: Filters out trades involving restricted traders or blocked instruments
 -- -----------------------------------------------------------------------------
+-- @metric: velo_compliant_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total compliant records processed"
+--
+-- @metric: velo_compliant_market_data_blocked_total
+-- @metric_type: counter
+-- @metric_help: "Total blocked records (compliance failures)"
 
 CREATE STREAM compliant_market_data AS
 SELECT
@@ -106,6 +113,10 @@ WITH (
 -- @name: active_hours_market_data
 -- @description: Filters market data to only include actively trading instruments
 -- -----------------------------------------------------------------------------
+-- @metric: velo_active_hours_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records during active trading hours"
+-- @metric_labels: market_session
 
 CREATE STREAM active_hours_market_data AS
 SELECT

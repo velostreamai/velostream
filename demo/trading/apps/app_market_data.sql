@@ -104,6 +104,14 @@
 -- @name: market_data_ts
 -- @description: Ingests raw market data with event-time watermarks
 -- -----------------------------------------------------------------------------
+-- @metric: velo_market_data_ts_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by market_data_ts"
+--
+-- @metric: velo_market_data_current_price
+-- @metric_type: gauge
+-- @metric_help: "Current price value"
+-- @metric_field: price
 
 CREATE STREAM market_data_ts AS
 SELECT
@@ -144,6 +152,22 @@ WITH (
 -- @name: tick_buckets
 -- @description: Aggregates market data into 1-second OHLCV candles
 -- -----------------------------------------------------------------------------
+-- @metric: velo_tick_buckets_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by tick_buckets"
+-- @metric_labels: symbol
+--
+-- @metric: velo_tick_buckets_avg_price
+-- @metric_type: gauge
+-- @metric_help: "Average price in bucket"
+-- @metric_labels: symbol
+-- @metric_field: avg_price
+--
+-- @metric: velo_tick_buckets_trade_count
+-- @metric_type: gauge
+-- @metric_help: "Trade count in bucket"
+-- @metric_labels: symbol
+-- @metric_field: trade_count
 
 CREATE STREAM tick_buckets AS
 SELECT
@@ -177,6 +201,14 @@ WITH (
 -- @name: enriched_market_data
 -- @description: Enriches market data with instrument metadata via stream-table join
 -- -----------------------------------------------------------------------------
+-- @metric: velo_enriched_market_data_records_total
+-- @metric_type: counter
+-- @metric_help: "Total records processed by enriched_market_data"
+--
+-- @metric: velo_enriched_market_data_latency_seconds
+-- @metric_type: histogram
+-- @metric_help: "Enrichment latency in seconds"
+-- @metric_field: enrichment_latency_seconds
 
 CREATE STREAM enriched_market_data AS
 SELECT

@@ -62,6 +62,16 @@
 -- @name: volume_spike_analysis
 -- @description: Detects volume anomalies using statistical methods
 -- -----------------------------------------------------------------------------
+-- @metric: velo_volume_spike_analysis_total
+-- @metric_type: counter
+-- @metric_help: "Total volume spike analyses"
+-- @metric_labels: symbol, spike_classification
+--
+-- @metric: velo_avg_volume
+-- @metric_type: gauge
+-- @metric_help: "Average volume in window"
+-- @metric_labels: symbol
+-- @metric_field: avg_volume
 
 CREATE STREAM volume_spike_analysis AS
 SELECT

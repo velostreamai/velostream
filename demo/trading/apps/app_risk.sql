@@ -65,6 +65,16 @@
 -- @name: trading_positions_ts
 -- @description: Ingests raw position updates with event-time processing
 -- -----------------------------------------------------------------------------
+-- @metric: velo_trading_positions_total
+-- @metric_type: counter
+-- @metric_help: "Total position updates processed"
+-- @metric_labels: trader_id, symbol
+--
+-- @metric: velo_position_size
+-- @metric_type: gauge
+-- @metric_help: "Current position size"
+-- @metric_labels: trader_id, symbol
+-- @metric_field: position_size
 
 CREATE STREAM trading_positions_ts AS
 SELECT
