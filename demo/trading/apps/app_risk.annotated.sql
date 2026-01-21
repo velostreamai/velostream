@@ -123,7 +123,7 @@ SELECT
     position_size,
     current_pnl,
     timestamp,
-    timestamp as event_time
+    timestamp as _event_time
 FROM in_trading_positions_stream
 EMIT CHANGES
 WITH (
@@ -168,29 +168,29 @@ SELECT
     p.symbol PRIMARY KEY,
     p.position_size,
     p.current_pnl,
-    p.event_time AS position_time,
-    m.event_time AS market_time,
+    p._event_time AS position_time,
+    m._event_time AS market_time,
     m.price AS current_price,
 
     -- Rolling cumulative P&L
     SUM(p.current_pnl) OVER (
         ROWS WINDOW BUFFER 10000 ROWS
         PARTITION BY p.trader_id
-        ORDER BY p.event_time
+        ORDER BY p._event_time
     ) AS cumulative_pnl,
 
     -- Trade count
     COUNT(*) OVER (
         ROWS WINDOW BUFFER 10000 ROWS
         PARTITION BY p.trader_id
-        ORDER BY p.event_time
+        ORDER BY p._event_time
     ) AS trades_today,
 
     -- P&L volatility
     STDDEV(p.current_pnl) OVER (
         ROWS WINDOW BUFFER 100 ROWS
         PARTITION BY p.trader_id
-        ORDER BY p.event_time
+        ORDER BY p._event_time
     ) AS pnl_volatility,
 
     -- Position value
@@ -200,7 +200,7 @@ SELECT
     SUM(ABS(p.position_size * COALESCE(m.price, 0))) OVER (
         ROWS WINDOW BUFFER 10000 ROWS
         PARTITION BY p.trader_id
-        ORDER BY p.event_time
+        ORDER BY p._event_time
     ) AS total_exposure,
 
     -- Risk classification
@@ -209,25 +209,25 @@ SELECT
         WHEN SUM(p.current_pnl) OVER (
             ROWS WINDOW BUFFER 10000 ROWS
             PARTITION BY p.trader_id
-            ORDER BY p.event_time
+            ORDER BY p._event_time
         ) < -100000 THEN 'DAILY_LOSS_LIMIT_EXCEEDED'
         WHEN ABS(p.position_size * COALESCE(m.price, 0)) > 500000 THEN 'POSITION_WARNING'
         WHEN STDDEV(p.current_pnl) OVER (
             ROWS WINDOW BUFFER 100 ROWS
             PARTITION BY p.trader_id
-            ORDER BY p.event_time
+            ORDER BY p._event_time
         ) > 25000 THEN 'HIGH_RISK_PROFILE'
         ELSE 'WITHIN_LIMITS'
     END AS risk_classification,
 
-    EXTRACT(EPOCH FROM (m.event_time - p.event_time)) AS time_lag_seconds,
+    EXTRACT(EPOCH FROM (m._event_time - p._event_time)) AS time_lag_seconds,
     NOW() AS risk_check_time
 
 FROM trading_positions_ts p
 LEFT JOIN market_data_ts m
     ON p.symbol = m.symbol
-    AND m.event_time BETWEEN p.event_time - INTERVAL '30' SECOND
-                         AND p.event_time + INTERVAL '30' SECOND
+    AND m._event_time BETWEEN p._event_time - INTERVAL '30' SECOND
+                         AND p._event_time + INTERVAL '30' SECOND
 
 WHERE ABS(p.position_size * COALESCE(m.price, 0)) > 100000
    OR p.current_pnl < -10000
@@ -297,7 +297,7 @@ SELECT
     p.current_price,
     p.notional_exposure,
     p.position_type,
-    p.event_time,
+    p._event_time,
     p.timestamp,
 
     -- Hard limits validation (AND logic - all must pass)

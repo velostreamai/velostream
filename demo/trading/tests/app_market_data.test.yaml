@@ -37,6 +37,7 @@ queries:
             fields:
               - exchange
               - timestamp
+              - _event_time
               - price
               - volume
               - bid_price

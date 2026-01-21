@@ -148,20 +148,20 @@ SELECT
     symbol PRIMARY KEY,
     price,
     volume,
-    event_time,
+    _event_time,
 
     -- Previous and next prices
     LAG(price, 1) OVER (
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     ) as prev_price,
     LEAD(price, 1) OVER (
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     ) as next_price,
 
     -- Price change percentage
@@ -169,13 +169,13 @@ SELECT
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     )) /
      LAG(price, 1) OVER (
         ROWS WINDOW
             BUFFER 100 ROWS
             PARTITION BY symbol
-            ORDER BY event_time
+            ORDER BY _event_time
     ) * 100 as price_change_pct,
 
     -- Ranking functions
@@ -202,7 +202,7 @@ SELECT
     STDDEV(price) OVER (
         ROWS WINDOW BUFFER 10 ROWS
         PARTITION BY symbol
-        ORDER BY event_time
+        ORDER BY _event_time
     ) as price_volatility_10_periods,
 
     -- Movement severity classification
@@ -211,25 +211,25 @@ SELECT
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) /
                  LAG(price, 1) OVER (
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) * 100 > 5.0 THEN 'SIGNIFICANT'
         WHEN ABS((price - LAG(price, 1) OVER (
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) /
                  LAG(price, 1) OVER (
                     ROWS WINDOW
                         BUFFER 100 ROWS
                         PARTITION BY symbol
-                        ORDER BY event_time
+                        ORDER BY _event_time
                  )) * 100 > 2.0 THEN 'MODERATE'
         ELSE 'NORMAL'
     END as movement_severity,
@@ -352,7 +352,7 @@ SELECT
 
 FROM market_data_ts
 GROUP BY symbol
-  WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+  WINDOW TUMBLING(_event_time, INTERVAL '1' MINUTE)
   HAVING COUNT(*) > 0
   EMIT CHANGES
 WITH (

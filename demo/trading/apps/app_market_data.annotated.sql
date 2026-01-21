@@ -289,7 +289,7 @@ SELECT
     m.bid_price,
     m.ask_price,
     m.volume,
-    m.event_time,
+    m._event_time,
     m.timestamp,
 
     -- Enrichment from reference table
@@ -308,7 +308,7 @@ SELECT
     m.volume / r.lot_size as lot_count,
 
     NOW() as enrichment_time,
-    EXTRACT(EPOCH FROM (NOW() - m.event_time)) as enrichment_latency_seconds
+    EXTRACT(EPOCH FROM (NOW() - m._event_time)) as enrichment_latency_seconds
 
 FROM market_data_ts m
 LEFT JOIN instrument_reference r ON m.symbol = r.symbol

@@ -179,13 +179,13 @@ SELECT
     AVG(volume) OVER (
         ROWS WINDOW BUFFER 20 ROWS
         PARTITION BY symbol
-        ORDER BY event_time
+        ORDER BY _event_time
     ) AS rolling_avg_20,
 
     STDDEV_POP(volume) OVER (
         ROWS WINDOW BUFFER 20 ROWS
         PARTITION BY symbol
-        ORDER BY event_time
+        ORDER BY _event_time
     ) AS rolling_stddev_20,
 
     -- Volume percentile
@@ -219,7 +219,7 @@ SELECT
 
 FROM market_data_ts
 GROUP BY symbol
-WINDOW SLIDING(event_time, 5m, 1m)
+WINDOW SLIDING(_event_time, 5m, 1m)
 EMIT CHANGES
 WITH (
     -- Source configuration (external dependency)
@@ -288,10 +288,10 @@ SELECT
     SUM(quantity) AS total_volume,
     SUM(CASE WHEN side = 'BUY' THEN quantity ELSE 0 END) / SUM(quantity) AS buy_ratio,
     SUM(CASE WHEN side = 'SELL' THEN quantity ELSE 0 END) / SUM(quantity) AS sell_ratio,
-    TUMBLE_END(event_time, INTERVAL '1' MINUTE) AS analysis_time
+    TUMBLE_END(_event_time, INTERVAL '1' MINUTE) AS analysis_time
 FROM in_order_book_stream
 GROUP BY symbol
-WINDOW TUMBLING(event_time, INTERVAL '1' MINUTE)
+WINDOW TUMBLING(_event_time, INTERVAL '1' MINUTE)
 HAVING
     SUM(quantity) > 10000
     AND (
