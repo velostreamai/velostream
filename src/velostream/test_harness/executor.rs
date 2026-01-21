@@ -20,8 +20,10 @@ use super::spec::{
 };
 use super::stress::MemoryTracker;
 use crate::velostream::kafka::kafka_fast_producer::PolledProducer;
+use crate::velostream::observability::SharedObservabilityManager;
 use crate::velostream::server::config::StreamJobServerConfig;
 use crate::velostream::server::stream_job_server::{JobStatus, StreamJobServer};
+use crate::velostream::sql::execution::config::StreamingConfig;
 use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
 use rdkafka::producer::BaseRecord;
 use std::collections::{HashMap, HashSet};
@@ -154,9 +156,22 @@ impl QueryExecutor {
     /// * `base_dir` - Optional base directory for resolving relative config file paths in SQL
     ///   (e.g., `../../configs/common_kafka_source.yaml`). Pass the parent directory
     ///   of the SQL file being executed.
-    pub async fn with_server(
+    pub async fn with_server(self, base_dir: Option<impl AsRef<Path>>) -> TestHarnessResult<Self> {
+        self.with_server_and_observability(base_dir, false).await
+    }
+
+    /// Initialize StreamJobServer with observability for metric verification
+    ///
+    /// Same as `with_server` but enables Prometheus metrics collection so that
+    /// metric assertions can verify @metric annotations are working correctly.
+    ///
+    /// # Arguments
+    /// * `base_dir` - Optional base directory for resolving relative config file paths in SQL
+    /// * `enable_metrics` - If true, enables metrics collection for test verification
+    pub async fn with_server_and_observability(
         mut self,
         base_dir: Option<impl AsRef<Path>>,
+        enable_metrics: bool,
     ) -> TestHarnessResult<Self> {
         let bootstrap_servers =
             self.infra
@@ -192,7 +207,17 @@ impl QueryExecutor {
             config = config.with_base_dir(dir.as_ref());
         }
 
-        self.server = Some(StreamJobServer::with_config(config));
+        // Create server with or without observability
+        let server = if enable_metrics {
+            // Enable metrics collection for test harness verification
+            let streaming_config = StreamingConfig::default().with_prometheus_metrics();
+            log::info!("StreamJobServer initialized with metrics enabled for test verification");
+            StreamJobServer::with_config_and_observability(config, streaming_config).await
+        } else {
+            StreamJobServer::with_config(config)
+        };
+
+        self.server = Some(server);
         log::info!(
             "StreamJobServer initialized with bootstrap servers: {}",
             bootstrap_servers
@@ -237,6 +262,287 @@ impl QueryExecutor {
         } else {
             Vec::new()
         }
+    }
+
+    /// Get the shared observability manager for metric verification
+    ///
+    /// Returns the observability manager if the server was initialized with metrics enabled.
+    /// Use this to access the `MetricsProvider` for asserting on @metric annotations.
+    ///
+    /// # Example
+    /// ```ignore
+    /// if let Some(obs) = executor.observability() {
+    ///     let obs_read = obs.read().await;
+    ///     if let Some(metrics) = obs_read.metrics() {
+    ///         let count = metrics.get_counter_total("velo_records_total");
+    ///         assert!(count.unwrap_or(0) > 0);
+    ///     }
+    /// }
+    /// ```
+    pub fn observability(&self) -> Option<&SharedObservabilityManager> {
+        self.server.as_ref().and_then(|s| s.observability())
+    }
+
+    /// Check if a counter metric has been recorded
+    ///
+    /// Returns the total count for the given metric name across all labels.
+    /// Returns None if observability is not enabled or the metric is not found.
+    pub async fn get_metric_counter_total(&self, name: &str) -> Option<u64> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.get_counter_total(name);
+            }
+        }
+        None
+    }
+
+    /// Check if a gauge metric has any recorded value
+    ///
+    /// Returns the most recent gauge value for the given metric name.
+    /// Returns None if observability is not enabled or the metric is not found.
+    pub async fn get_metric_gauge_any(&self, name: &str) -> Option<f64> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.get_gauge_any(name);
+            }
+        }
+        None
+    }
+
+    /// Check if a metric is registered (exists)
+    ///
+    /// Returns the kind of metric (Counter, Gauge, Histogram) if found.
+    /// Returns None if observability is not enabled or the metric is not registered.
+    pub async fn is_metric_registered(
+        &self,
+        name: &str,
+    ) -> Option<crate::velostream::observability::metrics::MetricKind> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.is_metric_registered(name);
+            }
+        }
+        None
+    }
+
+    /// List all registered dynamic metrics
+    ///
+    /// Returns a list of (name, kind) tuples for all registered metrics.
+    /// Returns empty list if observability is not enabled.
+    pub async fn list_registered_metrics(
+        &self,
+    ) -> Vec<(
+        String,
+        crate::velostream::observability::metrics::MetricKind,
+    )> {
+        if let Some(obs_manager) = self.observability() {
+            let obs_read = obs_manager.read().await;
+            if let Some(metrics) = obs_read.metrics() {
+                return metrics.list_registered_metrics();
+            }
+        }
+        Vec::new()
+    }
+
+    /// Run metric assertions against the observability manager
+    ///
+    /// This method validates @metric annotations by checking actual metric values
+    /// against the assertion configuration. Must be called after jobs have processed
+    /// some records so metrics are populated.
+    ///
+    /// Returns a vector of assertion results (one per assertion).
+    pub async fn run_metric_assertions(
+        &self,
+        assertions: &[super::spec::AssertionConfig],
+    ) -> Vec<super::assertions::AssertionResult> {
+        use super::assertions::AssertionResult;
+        use super::spec::{AssertionConfig, MetricOperator};
+        use crate::velostream::observability::metrics::MetricKind;
+
+        let mut results = Vec::new();
+
+        for assertion in assertions {
+            let result = match assertion {
+                AssertionConfig::MetricCounter(config) => {
+                    let actual = self.get_metric_counter_total(&config.name).await;
+                    match actual {
+                        None => AssertionResult::fail(
+                            "metric_counter",
+                            &format!("Counter '{}' not found or not registered", config.name),
+                            "metric to be registered",
+                            "metric not found",
+                        ),
+                        Some(value) => {
+                            let expected_desc =
+                                match (&config.operator, config.value, &config.between) {
+                                    (MetricOperator::Equals, Some(v), _) => format!("== {}", v),
+                                    (MetricOperator::GreaterThan, Some(v), _) => format!("> {}", v),
+                                    (MetricOperator::GreaterThanOrEqual, Some(v), _) => {
+                                        format!(">= {}", v)
+                                    }
+                                    (MetricOperator::LessThan, Some(v), _) => format!("< {}", v),
+                                    (MetricOperator::LessThanOrEqual, Some(v), _) => {
+                                        format!("<= {}", v)
+                                    }
+                                    (MetricOperator::Between, _, Some((min, max))) => {
+                                        format!("between {} and {}", min, max)
+                                    }
+                                    _ => "valid value".to_string(),
+                                };
+
+                            let passed = match (&config.operator, config.value, &config.between) {
+                                (MetricOperator::Equals, Some(v), _) => value == v,
+                                (MetricOperator::GreaterThan, Some(v), _) => value > v,
+                                (MetricOperator::GreaterThanOrEqual, Some(v), _) => value >= v,
+                                (MetricOperator::LessThan, Some(v), _) => value < v,
+                                (MetricOperator::LessThanOrEqual, Some(v), _) => value <= v,
+                                (MetricOperator::Between, _, Some((min, max))) => {
+                                    value >= *min && value <= *max
+                                }
+                                _ => true, // No constraint specified
+                            };
+
+                            if passed {
+                                AssertionResult::pass(
+                                    "metric_counter",
+                                    &format!(
+                                        "Counter '{}' = {} (expected {})",
+                                        config.name, value, expected_desc
+                                    ),
+                                )
+                            } else {
+                                AssertionResult::fail(
+                                    "metric_counter",
+                                    &format!("Counter '{}' assertion failed", config.name),
+                                    &expected_desc,
+                                    &value.to_string(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AssertionConfig::MetricGauge(config) => {
+                    let actual = self.get_metric_gauge_any(&config.name).await;
+                    match actual {
+                        None => AssertionResult::fail(
+                            "metric_gauge",
+                            &format!("Gauge '{}' not found or not registered", config.name),
+                            "metric to be registered",
+                            "metric not found",
+                        ),
+                        Some(value) => {
+                            let tolerance = config.tolerance.unwrap_or(0.0001);
+                            let expected_desc =
+                                match (&config.operator, config.value, &config.between) {
+                                    (MetricOperator::Equals, Some(v), _) => {
+                                        format!("== {} (±{})", v, tolerance)
+                                    }
+                                    (MetricOperator::GreaterThan, Some(v), _) => format!("> {}", v),
+                                    (MetricOperator::GreaterThanOrEqual, Some(v), _) => {
+                                        format!(">= {}", v)
+                                    }
+                                    (MetricOperator::LessThan, Some(v), _) => format!("< {}", v),
+                                    (MetricOperator::LessThanOrEqual, Some(v), _) => {
+                                        format!("<= {}", v)
+                                    }
+                                    (MetricOperator::Between, _, Some((min, max))) => {
+                                        format!("between {} and {}", min, max)
+                                    }
+                                    _ => "valid value".to_string(),
+                                };
+
+                            let passed = match (&config.operator, config.value, &config.between) {
+                                (MetricOperator::Equals, Some(v), _) => {
+                                    (value - v).abs() < tolerance
+                                }
+                                (MetricOperator::GreaterThan, Some(v), _) => value > v,
+                                (MetricOperator::GreaterThanOrEqual, Some(v), _) => value >= v,
+                                (MetricOperator::LessThan, Some(v), _) => value < v,
+                                (MetricOperator::LessThanOrEqual, Some(v), _) => value <= v,
+                                (MetricOperator::Between, _, Some((min, max))) => {
+                                    value >= *min && value <= *max
+                                }
+                                _ => true, // No constraint specified
+                            };
+
+                            if passed {
+                                AssertionResult::pass(
+                                    "metric_gauge",
+                                    &format!(
+                                        "Gauge '{}' = {} (expected {})",
+                                        config.name, value, expected_desc
+                                    ),
+                                )
+                            } else {
+                                AssertionResult::fail(
+                                    "metric_gauge",
+                                    &format!("Gauge '{}' assertion failed", config.name),
+                                    &expected_desc,
+                                    &value.to_string(),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AssertionConfig::MetricExists(config) => {
+                    let actual = self.is_metric_registered(&config.name).await;
+                    match actual {
+                        None => AssertionResult::fail(
+                            "metric_exists",
+                            &format!("Metric '{}' not registered", config.name),
+                            "metric to be registered",
+                            "not found",
+                        ),
+                        Some(kind) => {
+                            // If metric_type is specified, also verify the type matches
+                            if let Some(ref expected_type) = config.metric_type {
+                                use super::spec::MetricTypeExpected;
+                                let type_matches = match (expected_type, &kind) {
+                                    (MetricTypeExpected::Counter, MetricKind::Counter) => true,
+                                    (MetricTypeExpected::Gauge, MetricKind::Gauge) => true,
+                                    (MetricTypeExpected::Histogram, MetricKind::Histogram) => true,
+                                    _ => false,
+                                };
+
+                                if type_matches {
+                                    AssertionResult::pass(
+                                        "metric_exists",
+                                        &format!(
+                                            "Metric '{}' exists with type {:?}",
+                                            config.name, kind
+                                        ),
+                                    )
+                                } else {
+                                    AssertionResult::fail(
+                                        "metric_exists",
+                                        &format!("Metric '{}' type mismatch", config.name),
+                                        &format!("{:?}", expected_type),
+                                        &format!("{:?}", kind),
+                                    )
+                                }
+                            } else {
+                                AssertionResult::pass(
+                                    "metric_exists",
+                                    &format!("Metric '{}' exists (type: {:?})", config.name, kind),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Non-metric assertions - skip
+                _ => continue,
+            };
+
+            results.push(result);
+        }
+
+        results
     }
 
     /// Stop the executor and cleanup infrastructure

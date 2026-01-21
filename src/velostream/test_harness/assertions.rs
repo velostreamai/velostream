@@ -392,6 +392,35 @@ impl AssertionRunner {
             AssertionConfig::Distribution(config) => self.assert_distribution(output, config),
             AssertionConfig::Percentile(config) => self.assert_percentile(output, config),
             AssertionConfig::EventOrdering(config) => self.assert_event_ordering(output, config),
+            // Metric assertions - these require executor access, not output records
+            // Use AssertionRunner::run_metric_assertion() instead
+            AssertionConfig::MetricCounter(config) => AssertionResult::fail(
+                "metric_counter",
+                &format!(
+                    "Metric assertion '{}' requires executor access. Use run_metric_assertions() instead.",
+                    config.name
+                ),
+                "executor with metrics enabled",
+                "standard assertion runner",
+            ),
+            AssertionConfig::MetricGauge(config) => AssertionResult::fail(
+                "metric_gauge",
+                &format!(
+                    "Metric assertion '{}' requires executor access. Use run_metric_assertions() instead.",
+                    config.name
+                ),
+                "executor with metrics enabled",
+                "standard assertion runner",
+            ),
+            AssertionConfig::MetricExists(config) => AssertionResult::fail(
+                "metric_exists",
+                &format!(
+                    "Metric assertion '{}' requires executor access. Use run_metric_assertions() instead.",
+                    config.name
+                ),
+                "executor with metrics enabled",
+                "standard assertion runner",
+            ),
         }
     }
 

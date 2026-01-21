@@ -1615,6 +1615,13 @@ impl StreamJobServer {
         })
     }
 
+    /// Get reference to the shared observability manager (for test harness metric verification)
+    ///
+    /// Returns the observability manager if metrics/tracing is enabled, None otherwise.
+    pub fn observability(&self) -> Option<&SharedObservabilityManager> {
+        self.observability.as_ref()
+    }
+
     /// Deploy multiple jobs from a SQL application
     pub async fn deploy_sql_application(
         &self,

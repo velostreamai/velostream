@@ -1235,6 +1235,183 @@ impl MetricsProvider {
             );
         }
     }
+
+    // =========================================================================
+    // Metric Query Methods (for Test Harness Verification)
+    // =========================================================================
+
+    /// Get the current value of a counter metric
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    /// * `label_values` - Label values in registration order (empty for total across all labels)
+    ///
+    /// # Returns
+    /// * `Some(u64)` - Current counter value
+    /// * `None` - Metric not found or label mismatch
+    pub fn get_counter_value(&self, name: &str, label_values: &[&str]) -> Option<u64> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+        let counter = metrics.counters.get(name)?;
+
+        if label_values.is_empty() {
+            // Sum across all label combinations
+            // Note: prometheus crate doesn't expose iteration over label combinations
+            // So we return the value with empty labels if no labels specified
+            let empty: &[&str] = &[];
+            Some(counter.with_label_values(empty).get())
+        } else {
+            Some(counter.with_label_values(label_values).get())
+        }
+    }
+
+    /// Get the current value of a gauge metric
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    /// * `label_values` - Label values in registration order
+    ///
+    /// # Returns
+    /// * `Some(f64)` - Current gauge value
+    /// * `None` - Metric not found or label mismatch
+    pub fn get_gauge_value(&self, name: &str, label_values: &[&str]) -> Option<f64> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+        let gauge = metrics.gauges.get(name)?;
+        Some(gauge.with_label_values(label_values).get())
+    }
+
+    /// Get histogram statistics
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    /// * `label_values` - Label values in registration order
+    ///
+    /// # Returns
+    /// * `Some((sample_count, sample_sum))` - Histogram statistics
+    /// * `None` - Metric not found or label mismatch
+    pub fn get_histogram_stats(&self, name: &str, label_values: &[&str]) -> Option<(u64, f64)> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+        let histogram = metrics.histograms.get(name)?;
+        let h = histogram.with_label_values(label_values);
+        Some((h.get_sample_count(), h.get_sample_sum()))
+    }
+
+    /// Check if a metric is registered
+    ///
+    /// # Arguments
+    /// * `name` - Metric name to check
+    ///
+    /// # Returns
+    /// * `Some(MetricKind)` - The type of metric if registered
+    /// * `None` - Metric not found
+    pub fn is_metric_registered(&self, name: &str) -> Option<MetricKind> {
+        let metrics = self.dynamic_metrics.lock().ok()?;
+
+        if metrics.counters.contains_key(name) {
+            Some(MetricKind::Counter)
+        } else if metrics.gauges.contains_key(name) {
+            Some(MetricKind::Gauge)
+        } else if metrics.histograms.contains_key(name) {
+            Some(MetricKind::Histogram)
+        } else {
+            None
+        }
+    }
+
+    /// List all registered dynamic metric names
+    ///
+    /// # Returns
+    /// * `Vec<(String, MetricKind)>` - List of (metric_name, metric_type) tuples
+    pub fn list_registered_metrics(&self) -> Vec<(String, MetricKind)> {
+        let metrics = match self.dynamic_metrics.lock() {
+            Ok(m) => m,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut result = Vec::new();
+
+        for name in metrics.counters.keys() {
+            result.push((name.clone(), MetricKind::Counter));
+        }
+        for name in metrics.gauges.keys() {
+            result.push((name.clone(), MetricKind::Gauge));
+        }
+        for name in metrics.histograms.keys() {
+            result.push((name.clone(), MetricKind::Histogram));
+        }
+
+        result
+    }
+
+    /// Get all counter values for a metric (across all label combinations)
+    ///
+    /// Note: Due to prometheus crate limitations, this collects from the registry text output.
+    /// For simple verification, use `get_counter_value` with specific labels.
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    ///
+    /// # Returns
+    /// * Total count across all label combinations (parsed from text output)
+    pub fn get_counter_total(&self, name: &str) -> Option<u64> {
+        // Get the metrics text and parse out the counter values
+        let text = self.get_metrics_text().ok()?;
+        let mut total = 0u64;
+
+        for line in text.lines() {
+            // Skip comments and empty lines
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+
+            // Match lines starting with the metric name
+            if line.starts_with(name) {
+                // Parse the value at the end of the line
+                if let Some(value_str) = line.split_whitespace().last() {
+                    if let Ok(value) = value_str.parse::<u64>() {
+                        total += value;
+                    }
+                }
+            }
+        }
+
+        if total > 0 { Some(total) } else { None }
+    }
+
+    /// Get all gauge values for a metric (returns the last/most recent value)
+    ///
+    /// # Arguments
+    /// * `name` - Metric name
+    ///
+    /// # Returns
+    /// * Most recent gauge value (parsed from text output)
+    pub fn get_gauge_any(&self, name: &str) -> Option<f64> {
+        let text = self.get_metrics_text().ok()?;
+        let mut last_value = None;
+
+        for line in text.lines() {
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+
+            if line.starts_with(name) {
+                if let Some(value_str) = line.split_whitespace().last() {
+                    if let Ok(value) = value_str.parse::<f64>() {
+                        last_value = Some(value);
+                    }
+                }
+            }
+        }
+
+        last_value
+    }
+}
+
+/// Kind of metric for verification
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetricKind {
+    Counter,
+    Gauge,
+    Histogram,
 }
 
 impl std::fmt::Debug for MetricsProvider {
