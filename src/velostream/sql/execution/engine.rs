@@ -1725,6 +1725,10 @@ impl StreamExecutionEngine {
     ) -> QueryExecution {
         let mut context = ProcessorContext::new(query_id);
 
+        // Pass engine's StreamingConfig to context
+        // CRITICAL: This enables allowed_lateness_ms for window strategies
+        context.streaming_config = Some(self.config.clone());
+
         // Apply any context customization (mainly for tests)
         if let Some(customizer) = &self.context_customizer {
             customizer(&mut context);

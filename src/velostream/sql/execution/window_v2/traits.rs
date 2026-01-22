@@ -4,8 +4,7 @@
 
 use super::types::SharedRecord;
 use crate::velostream::sql::SqlError;
-use crate::velostream::sql::execution::types::{FieldValue, StreamRecord};
-use std::collections::HashMap;
+use crate::velostream::sql::execution::types::FieldValue;
 
 /// Strategy trait for window boundary detection and buffer management.
 ///
@@ -31,6 +30,24 @@ pub trait WindowStrategy: Send + Sync {
 
     /// Get window statistics for monitoring.
     fn get_stats(&self) -> WindowStats;
+
+    /// Get records from all historical windows that have been updated by late arrivals.
+    ///
+    /// Used for partition-batched data handling where late-arriving records need to be
+    /// aggregated with their original windows (not the current window).
+    ///
+    /// Returns: Vec of (window_end_time, records) pairs for windows needing re-aggregation
+    fn get_historical_window_records(&self) -> Vec<(i64, Vec<SharedRecord>)> {
+        // Default: no historical windows
+        Vec::new()
+    }
+
+    /// Clear a specific historical window after re-aggregation.
+    ///
+    /// Called after late-firing results have been emitted for a historical window.
+    fn clear_historical_window(&mut self, _window_end: i64) {
+        // Default: no-op
+    }
 }
 
 /// Strategy trait for controlling when and how window results are emitted.

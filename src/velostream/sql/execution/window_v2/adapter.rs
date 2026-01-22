@@ -44,7 +44,6 @@ use crate::velostream::sql::execution::processors::ProcessorContext;
 use crate::velostream::sql::execution::types::system_columns;
 use crate::velostream::sql::execution::utils::FieldValueComparator;
 use crate::velostream::sql::execution::{FieldValue, StreamRecord};
-use log::warn;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::Vacant;
 
@@ -217,8 +216,16 @@ impl WindowAdapter {
         window_spec: &WindowSpec,
         query: &StreamingQuery,
     ) -> Result<(), SqlError> {
-        // Create window strategy based on spec
-        let strategy = Self::create_strategy(window_spec)?;
+        // Get allowed_lateness_ms from streaming config (if set)
+        let allowed_lateness_ms = context.get_streaming_config().allowed_lateness_ms;
+        log::debug!(
+            "initialize_v2_state: allowed_lateness_ms = {:?} for state_key: {}",
+            allowed_lateness_ms,
+            state_key
+        );
+
+        // Create window strategy based on spec (with allowed_lateness if configured)
+        let strategy = Self::create_strategy_with_lateness(window_spec, allowed_lateness_ms)?;
 
         // Create emission strategy based on query
         let emission_strategy = Self::create_emission_strategy(query)?;
@@ -400,15 +407,33 @@ impl WindowAdapter {
 
     /// Create a window strategy based on the window specification
     pub fn create_strategy(window_spec: &WindowSpec) -> Result<Box<dyn WindowStrategy>, SqlError> {
+        Self::create_strategy_with_lateness(window_spec, None)
+    }
+
+    /// Create a window strategy with optional allowed lateness configuration.
+    ///
+    /// # Arguments
+    /// * `window_spec` - The window specification (tumbling, sliding, session, rows)
+    /// * `allowed_lateness_ms` - Optional allowed lateness in milliseconds. If None, uses
+    ///   the strategy's default (typically 50% of window size for time-based windows).
+    ///   For partition-batched scenarios, set this to the total timestamp span of your data.
+    pub fn create_strategy_with_lateness(
+        window_spec: &WindowSpec,
+        allowed_lateness_ms: Option<i64>,
+    ) -> Result<Box<dyn WindowStrategy>, SqlError> {
         match window_spec {
             WindowSpec::Tumbling { size, time_column } => {
                 let window_size_ms = size.as_millis() as i64;
-                Ok(Box::new(TumblingWindowStrategy::new(
+                let mut strategy = TumblingWindowStrategy::new(
                     window_size_ms,
                     time_column
                         .clone()
                         .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
-                )))
+                );
+                if let Some(lateness) = allowed_lateness_ms {
+                    strategy.set_allowed_lateness_ms(lateness);
+                }
+                Ok(Box::new(strategy))
             }
             WindowSpec::Sliding {
                 size,
@@ -417,24 +442,32 @@ impl WindowAdapter {
             } => {
                 let window_size_ms = size.as_millis() as i64;
                 let advance_ms = advance.as_millis() as i64;
-                Ok(Box::new(SlidingWindowStrategy::new(
+                let mut strategy = SlidingWindowStrategy::new(
                     window_size_ms,
                     advance_ms,
                     time_column
                         .clone()
                         .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
-                )))
+                );
+                if let Some(lateness) = allowed_lateness_ms {
+                    strategy.set_allowed_lateness_ms(lateness);
+                }
+                Ok(Box::new(strategy))
             }
             WindowSpec::Session {
                 gap, time_column, ..
             } => {
                 let gap_ms = gap.as_millis() as i64;
-                Ok(Box::new(SessionWindowStrategy::new(
+                let mut strategy = SessionWindowStrategy::new(
                     gap_ms,
                     time_column
                         .clone()
                         .unwrap_or_else(|| system_columns::TIMESTAMP.to_string()),
-                )))
+                );
+                if let Some(lateness) = allowed_lateness_ms {
+                    strategy.set_allowed_lateness_ms(lateness);
+                }
+                Ok(Box::new(strategy))
             }
             WindowSpec::Rows {
                 buffer_size,
@@ -442,6 +475,7 @@ impl WindowAdapter {
                 ..
             } => {
                 let emit_per_record = matches!(emit_mode, RowsEmitMode::EveryRecord);
+                // ROWS windows don't have time-based lateness
                 Ok(Box::new(RowsWindowStrategy::new(
                     *buffer_size as usize,
                     emit_per_record,

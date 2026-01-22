@@ -41,6 +41,14 @@ pub struct StreamingConfig {
     /// Default: None (no limit)
     pub max_concurrent_operations: Option<usize>,
 
+    /// Allowed lateness for window processing in milliseconds.
+    /// This controls how long to keep window state for late-arriving records.
+    /// For partition-batched scenarios (like Kafka), records can arrive many windows
+    /// late due to different partitions being processed sequentially.
+    /// Default: None (uses window strategy defaults, typically 50% of window size)
+    /// Recommended for partition-batched: use the total timestamp span of your data
+    pub allowed_lateness_ms: Option<i64>,
+
     // === PHASE 2: ERROR & RESOURCE ENHANCEMENTS ===
     /// Enable circuit breaker protection for streaming operations
     /// Default: false (no circuit breaker protection)
@@ -108,6 +116,7 @@ impl Default for StreamingConfig {
             watermark_strategy: WatermarkStrategy::None,
             max_total_memory: None,
             max_concurrent_operations: None,
+            allowed_lateness_ms: None, // Uses window strategy defaults
             // Phase 2 defaults - all disabled for backward compatibility
             enable_circuit_breakers: false,
             enable_resource_monitoring: false,
@@ -176,6 +185,9 @@ impl StreamingConfig {
             deployment_node_id: None,
             deployment_node_name: None,
             deployment_region: None,
+            // Allowed lateness for partition-batched scenarios
+            // Enhanced mode uses 2 hours (7,200,000 ms) as default for production use
+            allowed_lateness_ms: Some(7_200_000),
         }
     }
 
@@ -215,6 +227,26 @@ impl StreamingConfig {
     pub fn with_watermark_strategy(mut self, strategy: WatermarkStrategy) -> Self {
         self.watermark_strategy = strategy;
         self.enable_watermarks = true; // Auto-enable watermarks when strategy is set
+        self
+    }
+
+    /// Configure allowed lateness for window processing.
+    ///
+    /// This controls how long to keep window state for late-arriving records.
+    /// For partition-batched scenarios (like Kafka), records can arrive many windows
+    /// late due to different partitions being processed sequentially.
+    ///
+    /// # Arguments
+    /// * `lateness_ms` - Allowed lateness in milliseconds
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// // For partition-batched data spanning 10 seconds, allow 15 seconds lateness
+    /// let config = StreamingConfig::new()
+    ///     .with_allowed_lateness_ms(15_000);
+    /// ```
+    pub fn with_allowed_lateness_ms(mut self, lateness_ms: i64) -> Self {
+        self.allowed_lateness_ms = Some(lateness_ms);
         self
     }
 
