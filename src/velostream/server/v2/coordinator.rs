@@ -75,6 +75,10 @@ pub struct PartitionedJobConfig {
     /// Optional table registry for SQL queries that reference tables
     /// Tables will be injected into each partition's execution context
     pub table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
+
+    /// Optional observability manager for metrics emission (@metric annotations)
+    /// When provided, enables SQL-annotated metrics (counter, gauge, histogram)
+    pub observability: Option<SharedObservabilityManager>,
 }
 
 impl Default for PartitionedJobConfig {
@@ -92,6 +96,7 @@ impl Default for PartitionedJobConfig {
             empty_batch_count: 100, // Allow 10 seconds of empty polls for Kafka consumer group rebalance
             wait_on_empty_batch_ms: 100,
             table_registry: None, // No tables by default
+            observability: None,  // No observability by default
         }
     }
 }
@@ -326,13 +331,20 @@ impl AdaptiveJobProcessor {
             Arc::new(AlwaysHashStrategy::new())
         };
 
+        // Use observability from config if provided
+        let observability_wrapper = if config.observability.is_some() {
+            ObservabilityWrapper::with_observability(config.observability.clone())
+        } else {
+            ObservabilityWrapper::new()
+        };
+
         Self {
             config,
             num_partitions,
             strategy,
             group_by_columns: Vec::new(),
             num_cpu_slots,
-            observability_wrapper: ObservabilityWrapper::new(),
+            observability_wrapper,
             profiling_helper: ProfilingHelper::new(),
             stop_flag: Arc::new(AtomicBool::new(false)),
         }
@@ -1343,6 +1355,7 @@ impl AdaptiveJobProcessor {
             let query = Arc::clone(&query);
             let writer_clone = writer.clone();
             let table_registry = self.config.table_registry.clone();
+            let observability_clone = self.config.observability.clone();
 
             // Spawn partition receiver task (Phase 6.8 - lock-free queue optimization)
             let task_handle = tokio::spawn(async move {
@@ -1391,7 +1404,7 @@ impl AdaptiveJobProcessor {
                     metrics,
                     writer_clone,
                     job_config,
-                    None, // No observability manager for partition receiver
+                    observability_clone, // Pass observability for @metric annotations
                 );
 
                 // Run synchronous batch processing loop

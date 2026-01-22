@@ -14,7 +14,8 @@ use crate::velostream::server::observability_config_extractor::ObservabilityConf
 use crate::velostream::server::processors::common::JobExecutionStats;
 use crate::velostream::server::processors::{
     FailureStrategy, JobProcessingConfig, JobProcessor, JobProcessorConfig, JobProcessorFactory,
-    SharedJobStats, SimpleJobProcessor, create_multi_sink_writers, create_multi_source_readers,
+    SharedJobStats, SimpleJobProcessor, TransactionalJobProcessor, create_multi_sink_writers,
+    create_multi_source_readers,
 };
 use crate::velostream::server::shutdown::{ShutdownConfig, ShutdownResult, ShutdownSignal};
 use crate::velostream::server::table_registry::{
@@ -1130,6 +1131,7 @@ impl StreamJobServer {
                                     &parsed_query,
                                     &job_name,
                                     tables_for_spawn.clone(),
+                                    observability_for_spawn.clone(),
                                 );
 
                                 // Execute the selected processor (unified API for all three)
@@ -2056,6 +2058,7 @@ impl StreamJobServer {
         parsed_query: &StreamingQuery,
         job_name: &str,
         table_registry: Option<HashMap<String, Arc<dyn UnifiedTable>>>,
+        observability: Option<SharedObservabilityManager>,
     ) -> Arc<dyn JobProcessor> {
         match processor_config {
             JobProcessorConfig::Simple => {
@@ -2063,24 +2066,35 @@ impl StreamJobServer {
                     "Job '{}' using Simple processor (single-threaded, best-effort delivery)",
                     job_name
                 );
-                // Pass table_registry to processor via factory for direct table injection
-                JobProcessorFactory::create_with_config_and_tables(
-                    JobProcessorConfig::Simple,
-                    None,
-                    table_registry,
-                )
+                // Create processor with observability for @metric annotation support
+                let config = JobProcessingConfig {
+                    use_transactions: false,
+                    failure_strategy: FailureStrategy::LogAndContinue,
+                    ..Default::default()
+                };
+                let mut processor = SimpleJobProcessor::with_observability(config, observability);
+                if let Some(tables) = table_registry {
+                    processor.set_table_registry(tables);
+                }
+                Arc::new(processor)
             }
             JobProcessorConfig::Transactional => {
                 info!(
                     "Job '{}' using Transactional processor (single-threaded, at-least-once delivery)",
                     job_name
                 );
-                // Pass table_registry to processor via factory for direct table injection
-                JobProcessorFactory::create_with_config_and_tables(
-                    JobProcessorConfig::Transactional,
-                    None,
-                    table_registry,
-                )
+                // Create processor with observability for @metric annotation support
+                let config = JobProcessingConfig {
+                    use_transactions: true,
+                    failure_strategy: FailureStrategy::FailBatch,
+                    ..Default::default()
+                };
+                let mut processor =
+                    TransactionalJobProcessor::with_observability(config, observability);
+                if let Some(tables) = table_registry {
+                    processor.set_table_registry(tables);
+                }
+                Arc::new(processor)
             }
             JobProcessorConfig::Adaptive {
                 num_partitions,
@@ -2104,8 +2118,8 @@ impl StreamJobServer {
                     None
                 };
 
-                // Use factory for consistent processor creation
-                JobProcessorFactory::create_adaptive_full(
+                // Use factory for consistent processor creation with observability for @metric annotations
+                JobProcessorFactory::create_adaptive_full_with_observability(
                     *num_partitions,
                     *enable_core_affinity,
                     partitioning_strategy,
@@ -2113,6 +2127,7 @@ impl StreamJobServer {
                     table_registry,
                     1000, // empty_batch_count - production default
                     1000, // wait_on_empty_batch_ms - production default
+                    observability,
                 )
             }
         }
