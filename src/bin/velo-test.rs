@@ -1359,11 +1359,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .with_overrides(overrides)
                     .with_schema_registry(schema_registry);
 
+                // Check if any queries have metric assertions - if so, enable metrics collection
+                let has_metric_assertions = test_spec
+                    .queries
+                    .iter()
+                    .any(|q| !q.metric_assertions.is_empty());
+
                 // Initialize StreamJobServer for actual SQL execution
                 // Pass SQL file's parent directory so the server can resolve relative config file paths
-                let mut executor = match executor.with_server(Some(sql_dir)).await {
+                // Enable metrics collection if any queries have metric_assertions
+                let mut executor = match executor
+                    .with_server_and_observability(Some(sql_dir), has_metric_assertions)
+                    .await
+                {
                     Ok(e) => {
-                        println!("   SQL execution: enabled (in-process StreamJobServer)");
+                        if has_metric_assertions {
+                            println!(
+                                "   SQL execution: enabled with metrics (in-process StreamJobServer)"
+                            );
+                        } else {
+                            println!("   SQL execution: enabled (in-process StreamJobServer)");
+                        }
                         e
                     }
                     Err(e) => {
@@ -1685,6 +1701,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 assertion_results.extend(results);
                             }
 
+                            // Add metric assertion results (if any)
+                            if !exec_result.metric_assertion_results.is_empty() {
+                                assertion_results
+                                    .extend(exec_result.metric_assertion_results.clone());
+                            }
+
                             // Report results - single pass through assertions
                             let total = assertion_results.len();
                             let failed_count =
@@ -1725,6 +1747,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 error: Some(e.to_string()),
                                 outputs: Vec::new(),
                                 execution_time_ms: 0,
+                                metric_assertion_results: Vec::new(),
                             };
                             report_gen.add_query_result(&error_result, &[]);
                         }

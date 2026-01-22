@@ -139,6 +139,7 @@ pub async fn run_tests(config: &RunConfig) -> TestHarnessResult<TestReport> {
                     error: Some(e.to_string()),
                     outputs: Vec::new(),
                     execution_time_ms: 0,
+                    metric_assertion_results: Vec::new(),
                 };
                 report_gen.add_query_result(&error_result, &[]);
             }
@@ -199,6 +200,7 @@ fn generate_minimal_spec(sql_file: &Path) -> TestHarnessResult<TestSpec> {
                 timeout_ms: None,
                 capture_format: Default::default(),
                 capture_schema: None,
+                metric_assertions: Vec::new(),
             })
         })
         .collect();

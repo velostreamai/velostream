@@ -310,6 +310,11 @@ pub struct QueryTest {
     /// Can be inline JSON or a path to schema file (relative to test spec)
     #[serde(default)]
     pub capture_schema: Option<String>,
+
+    /// Metric assertions to verify @metric annotations are working
+    /// These are run against the observability metrics collected during execution
+    #[serde(default)]
+    pub metric_assertions: Vec<AssertionConfig>,
 }
 
 /// Output configuration with per-sink assertions
@@ -1802,6 +1807,7 @@ mod tests {
             timeout_ms: None,
             capture_format: Default::default(),
             capture_schema: None,
+            metric_assertions: Vec::new(),
         }
     }
 
@@ -1830,6 +1836,7 @@ mod tests {
             timeout_ms: None,
             capture_format: Default::default(),
             capture_schema: None,
+            metric_assertions: Vec::new(),
         }
     }
 

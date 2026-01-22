@@ -127,6 +127,9 @@ pub struct ExecutionResult {
 
     /// Execution time in milliseconds
     pub execution_time_ms: u64,
+
+    /// Metric assertion results (if metric_assertions were specified in test spec)
+    pub metric_assertion_results: Vec<super::assertions::AssertionResult>,
 }
 
 impl QueryExecutor {
@@ -912,7 +915,19 @@ impl QueryExecutor {
             }
         }
 
-        // Step 4: Cleanup - stop the job
+        // Step 4: Run metric assertions (if specified) - before stopping job
+        let metric_assertion_results = if !query.metric_assertions.is_empty() {
+            log::info!(
+                "Running {} metric assertion(s) for query '{}'",
+                query.metric_assertions.len(),
+                query.name
+            );
+            self.run_metric_assertions(&query.metric_assertions).await
+        } else {
+            Vec::new()
+        };
+
+        // Step 5: Cleanup - stop the job
         if let Some(ref server) = self.server {
             if let Err(e) = server.stop_job(&query.name).await {
                 log::warn!("Failed to stop job '{}': {}", query.name, e);
@@ -932,6 +947,7 @@ impl QueryExecutor {
             error: None,
             outputs: captured_outputs,
             execution_time_ms,
+            metric_assertion_results,
         })
     }
 
@@ -2112,6 +2128,7 @@ mod tests {
             timeout_ms: None,
             capture_format: Default::default(),
             capture_schema: None,
+            metric_assertions: Vec::new(),
         }
     }
 
