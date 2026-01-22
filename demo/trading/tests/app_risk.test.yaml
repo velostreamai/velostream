@@ -39,3 +39,19 @@ queries:
 
           - type: no_nulls
             fields: [position_id, trader_id, symbol]
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_trading_positions_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_trading_positions_total
+        operator: greater_than
+        value: 0
+
+      - type: metric_exists
+        name: velo_position_size
+        expected_type: gauge

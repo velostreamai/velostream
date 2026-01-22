@@ -41,3 +41,19 @@ queries:
 
           - type: no_nulls
             fields: [symbol, price]
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_price_movement_alerts_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_price_movement_alerts_total
+        operator: greater_than
+        value: 0
+
+      - type: metric_exists
+        name: velo_price_change_pct
+        expected_type: gauge

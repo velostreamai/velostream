@@ -39,3 +39,15 @@ queries:
             field: compliance_status
             operator: equals
             value: "COMPLIANT"
+
+    # Metric assertions - verify @metric SQL annotations are emitted
+    # All processor types (Simple, Transactional, Adaptive) now support @metric emission
+    metric_assertions:
+      - type: metric_exists
+        name: velo_compliant_market_data_records_total
+        expected_type: counter
+
+      - type: metric_counter
+        name: velo_compliant_market_data_records_total
+        operator: greater_than
+        value: 0
