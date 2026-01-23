@@ -104,9 +104,10 @@ fields:
         max: 5000.00
 
   - name: event_time
-    type: timestamp
+    type: integer
     nullable: false
+    description: Event timestamp (epoch milliseconds)
     constraints:
-      timestamp_range:
+      timestamp_epoch_ms:
         start: "-24h"
         end: "now"

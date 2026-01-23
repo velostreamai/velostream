@@ -434,15 +434,13 @@ impl SchemaDataGenerator {
 
         for field in &schema.fields {
             if field.constraints.derived.is_none() {
-                // Check if this field has random_walk with group_by
-                if let Some(Distribution::RandomWalk { ref random_walk }) =
-                    field.constraints.distribution
+                // Check if this field has random_walk with group_by - defer until group_by field is generated
+                if let Some(Distribution::RandomWalk { random_walk }) =
+                    &field.constraints.distribution
+                    && random_walk.group_by.is_some()
                 {
-                    if random_walk.group_by.is_some() {
-                        // Defer this field until group_by field is generated
-                        random_walk_fields.push(field.clone());
-                        continue;
-                    }
+                    random_walk_fields.push(field.clone());
+                    continue;
                 }
                 let value = self.generate_field_value(field, &record)?;
                 record.insert(field.name.clone(), value);
@@ -643,10 +641,19 @@ impl SchemaDataGenerator {
     }
 
     /// Generate integer value
+    ///
+    /// Handles both regular integer ranges and timestamp_epoch_ms constraints.
+    /// When timestamp_epoch_ms is specified, generates epoch milliseconds as Integer,
+    /// which survives JSON serialization round-trips (unlike FieldValue::Timestamp).
     fn generate_integer_value(
         &mut self,
         constraints: &FieldConstraints,
     ) -> TestHarnessResult<FieldValue> {
+        // Check for timestamp_epoch_ms constraint first - this generates epoch millis as Integer
+        if let Some(ref range) = constraints.timestamp_epoch_ms {
+            return self.generate_epoch_millis_value(range);
+        }
+
         let value = if let Some(ref range) = constraints.range {
             self.generate_with_distribution(range.min, range.max, &constraints.distribution) as i64
         } else {
@@ -654,6 +661,82 @@ impl SchemaDataGenerator {
         };
 
         Ok(FieldValue::Integer(value))
+    }
+
+    /// Generate epoch milliseconds value as Integer
+    ///
+    /// This is the preferred format for event-time fields because:
+    /// - JSON serializes as number (not string), so round-trips correctly
+    /// - Matches Kafka message timestamp format
+    /// - Avoids timezone ambiguity (always UTC)
+    /// - Simple arithmetic: NOW() - event_time just works
+    fn generate_epoch_millis_value(
+        &mut self,
+        range: &super::schema::TimestampRange,
+    ) -> TestHarnessResult<FieldValue> {
+        // If time simulation is active, use it
+        if let Some(ref mut time_state) = self.time_state {
+            let timestamp = time_state.next_timestamp();
+            return Ok(FieldValue::Integer(timestamp.timestamp_millis()));
+        }
+
+        let timestamp = self.generate_random_timestamp_in_range(range);
+        Ok(FieldValue::Integer(timestamp.timestamp_millis()))
+    }
+
+    /// Generate a random timestamp within the given range
+    ///
+    /// Shared helper used by both `generate_timestamp_value` and `generate_epoch_millis_value`
+    /// to avoid code duplication.
+    fn generate_random_timestamp_in_range(
+        &mut self,
+        range: &super::schema::TimestampRange,
+    ) -> DateTime<Utc> {
+        let now = Utc::now();
+
+        let (start, end) = match range {
+            super::schema::TimestampRange::Relative { start, end } => {
+                let start_offset = parse_relative_time(start);
+                let end_offset = parse_relative_time(end);
+                (
+                    now + Duration::seconds(start_offset),
+                    now + Duration::seconds(end_offset),
+                )
+            }
+            super::schema::TimestampRange::Absolute { start, end } => {
+                let start_dt = DateTime::parse_from_rfc3339(start)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|e| {
+                        log::warn!(
+                            "Failed to parse absolute timestamp start '{}': {}. Using default (now - 1h)",
+                            start, e
+                        );
+                        now - Duration::hours(1)
+                    });
+                let end_dt = DateTime::parse_from_rfc3339(end)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|e| {
+                        log::warn!(
+                            "Failed to parse absolute timestamp end '{}': {}. Using default (now)",
+                            end,
+                            e
+                        );
+                        now
+                    });
+                (start_dt, end_dt)
+            }
+        };
+
+        let range_ms = (end - start).num_milliseconds();
+        if range_ms <= 0 {
+            log::warn!(
+                "Timestamp range is zero or negative (start >= end). Using start timestamp."
+            );
+            return start;
+        }
+
+        let offset_ms = self.rng.gen_range(0..range_ms);
+        start + Duration::milliseconds(offset_ms)
     }
 
     /// Generate float value
@@ -694,6 +777,9 @@ impl SchemaDataGenerator {
     /// If time simulation is active, uses the time simulation state for
     /// sequential/controlled timestamp generation. Otherwise falls back
     /// to random timestamps within the configured range.
+    ///
+    /// Note: For event-time fields that need to survive JSON serialization,
+    /// use `type: integer` with `timestamp_epoch_ms` constraint instead.
     fn generate_timestamp_value(
         &mut self,
         constraints: &FieldConstraints,
@@ -704,38 +790,16 @@ impl SchemaDataGenerator {
             return Ok(FieldValue::Timestamp(timestamp.naive_utc()));
         }
 
-        // Legacy behavior: random timestamp within range
-        let now = Utc::now();
-
-        let (start, end) = if let Some(ref range) = constraints.timestamp_range {
-            match range {
-                super::schema::TimestampRange::Relative { start, end } => {
-                    let start_offset = parse_relative_time(start);
-                    let end_offset = parse_relative_time(end);
-                    (
-                        now + Duration::seconds(start_offset),
-                        now + Duration::seconds(end_offset),
-                    )
-                }
-                super::schema::TimestampRange::Absolute { start, end } => {
-                    // Parse ISO 8601 timestamps
-                    let start_dt = DateTime::parse_from_rfc3339(start)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .unwrap_or(now - Duration::hours(1));
-                    let end_dt = DateTime::parse_from_rfc3339(end)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .unwrap_or(now);
-                    (start_dt, end_dt)
-                }
-            }
-        } else {
-            // Default: last hour
-            (now - Duration::hours(1), now)
+        // Use timestamp_range if provided, otherwise default range
+        let default_range = super::schema::TimestampRange::Relative {
+            start: "-1h".to_string(),
+            end: "now".to_string(),
         };
-
-        let range_ms = (end - start).num_milliseconds();
-        let offset_ms = self.rng.gen_range(0..range_ms.max(1));
-        let timestamp = start + Duration::milliseconds(offset_ms);
+        let range = constraints
+            .timestamp_range
+            .as_ref()
+            .unwrap_or(&default_range);
+        let timestamp = self.generate_random_timestamp_in_range(range);
 
         Ok(FieldValue::Timestamp(timestamp.naive_utc()))
     }
@@ -764,30 +828,30 @@ impl SchemaDataGenerator {
         let key = format!("{}.{}", reference.schema, reference.field);
 
         // Check if we have reference data loaded
-        if let Some(values) = self.reference_data.get(&key) {
-            if !values.is_empty() {
-                // Sample a random value from the reference data
-                let idx = self.rng.gen_range(0..values.len());
-                let sampled = values[idx].clone();
-                log::trace!(
-                    "Sampled reference value for {}.{} from {}: {:?}",
-                    field_name,
-                    key,
-                    values.len(),
-                    sampled
-                );
-                return Ok(sampled);
-            }
+        if let Some(values) = self.reference_data.get(&key).filter(|v| !v.is_empty()) {
+            // Sample a random value from the reference data
+            let idx = self.rng.gen_range(0..values.len());
+            let sampled = values[idx].clone();
+            log::trace!(
+                "Sampled reference value for {}.{} from {}: {:?}",
+                field_name,
+                key,
+                values.len(),
+                sampled
+            );
+            return Ok(sampled);
         }
 
         // Check reference cache (for records loaded via generate_for_reference)
         let cache_key = format!("{}.{}", reference.schema, reference.field);
-        if let Some(records) = self.reference_cache.get(&cache_key) {
-            if !records.is_empty() {
-                let idx = self.rng.gen_range(0..records.len());
-                if let Some(value) = records[idx].get(&reference.field) {
-                    return Ok(value.clone());
-                }
+        if let Some(records) = self
+            .reference_cache
+            .get(&cache_key)
+            .filter(|v| !v.is_empty())
+        {
+            let idx = self.rng.gen_range(0..records.len());
+            if let Some(value) = records[idx].get(&reference.field) {
+                return Ok(value.clone());
             }
         }
 
@@ -884,10 +948,10 @@ impl SchemaDataGenerator {
         if expression.starts_with("random(") && expression.ends_with(')') {
             let args = &expression[7..expression.len() - 1];
             let parts: Vec<&str> = args.split(',').map(|s| s.trim()).collect();
-            if parts.len() == 2 {
-                if let (Ok(min), Ok(max)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
-                    return Ok(Some(FieldValue::Float(self.rng.gen_range(min..=max))));
-                }
+            if parts.len() == 2
+                && let (Ok(min), Ok(max)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>())
+            {
+                return Ok(Some(FieldValue::Float(self.rng.gen_range(min..=max))));
             }
         }
 
@@ -1285,7 +1349,17 @@ fn field_to_string(value: &FieldValue) -> String {
 }
 
 /// Parse relative time string (e.g., "-1h", "now", "-30m")
+///
+/// Supported formats:
+/// - "now" - current time (0 offset)
+/// - "-1h", "1h" - hours
+/// - "-30m", "30m" - minutes
+/// - "-60s", "60s" - seconds
+/// - "-1d", "1d" - days
+///
+/// Returns seconds offset from now. Logs a warning if parsing fails.
 fn parse_relative_time(s: &str) -> i64 {
+    let original = s;
     let s = s.trim().to_lowercase();
 
     if s == "now" {
@@ -1296,15 +1370,73 @@ fn parse_relative_time(s: &str) -> i64 {
     let s = s.trim_start_matches('-');
 
     let (num, unit) = if s.ends_with('h') {
-        (s.trim_end_matches('h').parse::<i64>().unwrap_or(0), 3600)
+        let num_str = s.trim_end_matches('h');
+        match num_str.parse::<i64>() {
+            Ok(n) => (n, 3600),
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse relative time '{}': invalid number '{}': {}. Using 0.",
+                    original,
+                    num_str,
+                    e
+                );
+                (0, 3600)
+            }
+        }
     } else if s.ends_with('m') {
-        (s.trim_end_matches('m').parse::<i64>().unwrap_or(0), 60)
+        let num_str = s.trim_end_matches('m');
+        match num_str.parse::<i64>() {
+            Ok(n) => (n, 60),
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse relative time '{}': invalid number '{}': {}. Using 0.",
+                    original,
+                    num_str,
+                    e
+                );
+                (0, 60)
+            }
+        }
     } else if s.ends_with('s') {
-        (s.trim_end_matches('s').parse::<i64>().unwrap_or(0), 1)
+        let num_str = s.trim_end_matches('s');
+        match num_str.parse::<i64>() {
+            Ok(n) => (n, 1),
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse relative time '{}': invalid number '{}': {}. Using 0.",
+                    original,
+                    num_str,
+                    e
+                );
+                (0, 1)
+            }
+        }
     } else if s.ends_with('d') {
-        (s.trim_end_matches('d').parse::<i64>().unwrap_or(0), 86400)
+        let num_str = s.trim_end_matches('d');
+        match num_str.parse::<i64>() {
+            Ok(n) => (n, 86400),
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse relative time '{}': invalid number '{}': {}. Using 0.",
+                    original,
+                    num_str,
+                    e
+                );
+                (0, 86400)
+            }
+        }
     } else {
-        (s.parse::<i64>().unwrap_or(0), 1)
+        match s.parse::<i64>() {
+            Ok(n) => (n, 1),
+            Err(e) => {
+                log::warn!(
+                    "Failed to parse relative time '{}': unrecognized format: {}. Using 0.",
+                    original,
+                    e
+                );
+                (0, 1)
+            }
+        }
     };
 
     let seconds = num * unit;
